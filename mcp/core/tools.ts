@@ -129,13 +129,12 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, resolve closes a note, delete removes a board of this session's project, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
+  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, a note is a box with shape note wired dashed to the box it is about and removed once settled, delete removes a board of this session's project, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
     title: z.string().min(1).max(200).optional().describe('new: the board title'),
     ops: z.array(Op).min(1).optional().describe('put: the element ops to apply'),
-    note: z.string().min(1).max(200).optional().describe('resolve: the note element id'),
     box: z.string().min(1).max(40).optional().describe('doc: the id of the box whose document to read'),
     all: z.boolean().optional().describe('list: every board in every project, archived ones too, instead of this project\'s boards in use'),
     peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
@@ -155,7 +154,6 @@ const WHITEBOARD_TOOL: GroupedTool = {
     put: whiteboardRoute('put', ['board', 'ops'], { required: ['board', 'ops'], hints: DESTROYS, presenter: 'board-with-reading' }),
     connect: whiteboardRoute('connect', ['board'], { required: ['board'], hints: REWRITES, presenter: 'board-without-command-guide' }),
     disconnect: whiteboardRoute('disconnect', ['board'], { required: ['board'], hints: REWRITES }),
-    resolve: whiteboardRoute('resolve', ['board', 'note'], { required: ['board', 'note'], hints: REWRITES }),
     doc: whiteboardRoute('doc', ['board', 'box'], { required: ['board', 'box'], hints: READS, presenter: 'reply-text' }),
     delete: whiteboardRoute('delete', ['board'], { required: ['board'], hints: { ...DESTROYS, idempotent: true } }),
     attach: { verb: 'whiteboard', required: ['path'], accepts: ['path'], hints: { ...WRITES, idempotent: true }, toPayload: attachPayload },

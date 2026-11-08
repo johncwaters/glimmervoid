@@ -71,14 +71,11 @@ export const LaidOutWire = z.object({
   joinAt: LayoutPoint.nullable(),
 });
 
-export const LaidOutNote = z.object({ ...rectShape, kind: z.literal('note'), id: z.string(), lines: z.array(z.string()), byline: z.string(), isResolved: z.boolean() });
-
 export const LaidOutStroke = z.object({ ...rectShape, kind: z.literal('stroke'), id: z.string(), points: z.array(z.number()), strokeWidth: z.number(), tone: z.enum(STROKE_TONES) });
-export const LaidOutElement = z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote, LaidOutStroke]);
+export const LaidOutElement = z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutStroke]);
 
 export const PlacedBox = LaidOutBox.omit({ titleLines: true, bodyLines: true, wasLines: true });
-export const PlacedNote = LaidOutNote.omit({ lines: true });
-export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, PlacedNote, LaidOutStroke]);
+export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, LaidOutStroke]);
 
 const LegendSwatch = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('wire'), tone: Wire.shape.tone.unwrap(), isDashed: z.boolean(), isBack: z.boolean() }),
@@ -125,11 +122,9 @@ export type LaidOutDevice = z.infer<typeof LaidOutDevice>;
 export type LaidOutBox = z.infer<typeof LaidOutBox>;
 export type LaidOutFrame = z.infer<typeof LaidOutFrame>;
 export type LaidOutWire = z.infer<typeof LaidOutWire>;
-export type LaidOutNote = z.infer<typeof LaidOutNote>;
 export type LaidOutStroke = z.infer<typeof LaidOutStroke>;
 export type LaidOutElement = z.infer<typeof LaidOutElement>;
 export type PlacedBox = z.infer<typeof PlacedBox>;
-export type PlacedNote = z.infer<typeof PlacedNote>;
 export type PlacedElement = z.infer<typeof PlacedElement>;
 export type PlacedPaint = z.infer<typeof PlacedPaint>;
 export type RememberedRoute = z.infer<typeof RememberedRoute>;

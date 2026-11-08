@@ -273,16 +273,6 @@ export const Wire = z.object({
   back: z.boolean().default(false).describe('a return edge, drawn against the flow'),
 }).strict();
 
-export const Note = z.object({
-  kind: z.literal('note'),
-  id: ElementId,
-  on: ElementId.describe('the element id it is pinned to'),
-  text: z.string().min(1, { error: 'a note needs text' }).max(WHITEBOARD_LIMITS.noteText, { error: `a note is at most ${WHITEBOARD_LIMITS.noteText} characters` }),
-  ref: AnchorRef.nullable().default(null),
-  author: z.string().max(200).default(''),
-  resolvedBy: z.string().max(200).nullable().default(null),
-}).strict();
-
 export const STROKE_TONES = ['ink', ...STICKY_TONES] as const;
 
 export const Stroke = z.object({
@@ -296,8 +286,8 @@ export const Stroke = z.object({
   tone: z.enum(STROKE_TONES).default('ink'),
 }).strict().describe('freehand ink the operator drew; agents read and remove strokes but never draw or change them');
 
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Stroke], { error: 'an element kind is box, frame, wire, note or stroke' });
-export const ElementInput = z.discriminatedUnion('kind', [BoxInput, Frame, Wire, Note, Stroke], { error: 'an element kind is box, frame, wire, note or stroke' });
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Stroke], { error: 'an element kind is box, frame, wire or stroke' });
+export const ElementInput = z.discriminatedUnion('kind', [BoxInput, Frame, Wire, Stroke], { error: 'an element kind is box, frame, wire or stroke' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -331,9 +321,8 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: ElementInput }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
-  z.object({ op: z.literal('resolve'), id: ElementId.describe('a note id') }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
-], { error: 'an op is add, set, remove, resolve or board' });
+], { error: 'an op is add, set, remove or board' });
 
 export const BoardChange = z.object({
   version: z.number().int(),
@@ -392,7 +381,6 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     board: BoardRef,
     ops: z.array(Op).min(1, { error: 'put needs at least one op' }).max(WHITEBOARD_LIMITS.opsPerPut, { error: `one put carries at most ${WHITEBOARD_LIMITS.opsPerPut} ops` }),
   }).strict(),
-  z.object({ sub: z.literal('resolve'), board: BoardRef, note: ElementId }).strict(),
   z.object({ sub: z.literal('doc'), board: BoardRef, box: ElementId }).strict(),
   z.object({ sub: z.literal('delete'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('attach'), path: z.string().min(1, { error: 'attach needs the media path' }).max(4096) }).strict(),
@@ -401,7 +389,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
   }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, resolve, doc, delete, attach or show' });
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach or show' });
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
@@ -552,7 +540,6 @@ export function filledElement(element: SparseElement): Element {
       kind: 'wire', id: element.id, from: element.from, to: element.to, fromOutput: element.fromOutput ?? null, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
       label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null, back: element.back ?? false,
     };
-    case 'note': return { kind: 'note', id: element.id, on: element.on, text: element.text, ref: element.ref ?? null, author: element.author ?? '', resolvedBy: element.resolvedBy ?? null };
     case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };
   }
 }
@@ -578,7 +565,6 @@ export type DialValue = z.infer<typeof DialValue>;
 export type IconName = z.infer<typeof IconName>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
-export type Note = z.infer<typeof Note>;
 export type Stroke = z.infer<typeof Stroke>;
 export type ReadElement = z.infer<typeof ReadElement>;
 export type Step = z.infer<typeof Step>;

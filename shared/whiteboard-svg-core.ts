@@ -4,14 +4,13 @@ import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
 const TITLE_BASELINE = 26;
 const TITLE_LINE_HEIGHT = 20;
 const BODY_LINE_HEIGHT = 18;
-const NOTE_LINE_HEIGHT = 17;
 const MUTED_INDENT = 14;
 const STEP_LABEL_BASELINE = 22;
 const STEP_HEADER_HEIGHT = 18;
@@ -54,6 +53,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
 .wb-text .wb-box-outline { fill: transparent; stroke: transparent; }
+.wb-note .wb-box-outline { fill: #2a2213; stroke: #f5c26b; stroke-width: 1.2; }
 ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_TONE_HEX[tone]}; fill-opacity: 0.3; stroke: ${STICKY_TONE_HEX[tone]}; }`).join('\n')}
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
@@ -92,9 +92,6 @@ ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_
 .wb-tone-join .wb-wire-line { stroke: ${BRAND_ACCENT}; }
 .wb-wire-dot { fill: #a79fc4; }
 .wb-wire-label { fill: #e6e0f5; font-size: 12px; text-anchor: middle; paint-order: stroke; stroke: #0d0b16; stroke-width: 5; }
-.wb-note-card { fill: #2a2213; stroke: #f5c26b; stroke-width: 1.2; }
-.wb-note-text { fill: #f8e7c4; font-size: 12px; }
-.wb-note-byline { fill: #c9a868; font-size: 12px; }
 .wb-resolved { opacity: 0.5; }
 .wb-legend-text { fill: #a79fc4; font-size: 12px; }
 .wb-caption { fill: #a79fc4; font-size: 14px; }
@@ -331,15 +328,6 @@ function wireMarkup(wire: LaidOutWire): string {
   return elementGroup(wire, wire.isBack ? `wb-wire wb-back wb-tone-${wire.tone}` : `wb-wire wb-tone-${wire.tone}`, parts);
 }
 
-function noteMarkup(note: LaidOutNote): string {
-  const parts = [tag('rect', { x: note.x, y: note.y, width: note.width, height: note.height, rx: 4, class: 'wb-note-card' })];
-  note.lines.forEach((line, index) => {
-    parts.push(text(line, note.x + 10, note.y + 22 + index * NOTE_LINE_HEIGHT, 'wb-note-text'));
-  });
-  if (note.byline) parts.push(text(note.byline, note.x + 10, note.y + 22 + note.lines.length * NOTE_LINE_HEIGHT, 'wb-note-byline'));
-  return elementGroup(note, note.isResolved ? 'wb-note wb-resolved' : 'wb-note', parts);
-}
-
 function strokeMarkup(stroke: LaidOutStroke): string {
   const points: string[] = [];
   for (let index = 0; index + 1 < stroke.points.length; index += 2) points.push(`${stroke.points[index]},${stroke.points[index + 1]}`);
@@ -353,7 +341,6 @@ function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_
     case 'box': return boxMarkup(element, assetHref);
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
-    case 'note': return noteMarkup(element);
     case 'stroke': return strokeMarkup(element);
   }
 }
@@ -420,7 +407,7 @@ function iconNamesOf(layout: BoardLayout): IconName[] {
   return [...iconNames];
 }
 
-const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box', 'note'];
+const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box'];
 
 function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
   const { x, y, width, height } = layout.bounds;
@@ -438,7 +425,7 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 export type { AssetHref, PageOccluder };
 export {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
-  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
+  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
   ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,

@@ -187,10 +187,24 @@
     {
       "op": "add",
       "element": {
-        "kind": "note",
+        "kind": "box",
         "id": "drift",
-        "on": "total",
-        "text": "Support: some totals come out one cent high on .5 amounts"
+        "shape": "note",
+        "title": "Support: some totals come out one cent high on .5 amounts",
+        "at": {
+          "x": 40,
+          "y": 460
+        }
+      }
+    },
+    {
+      "op": "add",
+      "element": {
+        "kind": "wire",
+        "id": "drift-to-total",
+        "from": "drift",
+        "to": "total",
+        "dashed": true
       }
     },
     {

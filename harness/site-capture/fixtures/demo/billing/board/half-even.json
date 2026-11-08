@@ -37,10 +37,24 @@
   {
     "op": "add",
     "element": {
-      "kind": "note",
+      "kind": "box",
       "id": "rule",
-      "on": "round",
-      "text": "Chosen: half-even, no bias over many invoices"
+      "shape": "note",
+      "title": "Chosen: half-even, no bias over many invoices",
+      "at": {
+        "x": 400,
+        "y": 460
+      }
+    }
+  },
+  {
+    "op": "add",
+    "element": {
+      "kind": "wire",
+      "id": "rule-to-round",
+      "from": "rule",
+      "to": "round",
+      "dashed": true
     }
   }
 ]

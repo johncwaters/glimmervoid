@@ -280,7 +280,6 @@ function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutli
 function withTitlesOnly(element: LaidOutElement): LaidOutElement {
   switch (element.kind) {
     case 'box': return { ...element, bodyLines: [] };
-    case 'note': return { ...element, lines: element.lines.slice(0, 1) };
     default: return element;
   }
 }

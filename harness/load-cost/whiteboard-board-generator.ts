@@ -94,9 +94,11 @@ function elementOfKind(kind: (typeof GROUP_PATTERN)[number], context: ElementCon
     return { kind: 'wire', id, from, to, label: wireInGroup === 0 ? phraseOf(nextRandom, 1) : null };
   }
   if (kind === 'note') {
-    const on = boxIds[noteInGroup * 5];
-    if (!on) return null;
-    return { kind: 'note', id, on, text: phraseOf(nextRandom, 8) };
+    const emptyCellIndex = BOXES_PER_GROUP + noteInGroup;
+    return {
+      kind: 'box', id, shape: 'note', title: phraseOf(nextRandom, 8),
+      at: { x: origin.x + (emptyCellIndex % GROUP_COLUMNS) * CELL_WIDTH, y: origin.y + Math.floor(emptyCellIndex / GROUP_COLUMNS) * CELL_HEIGHT },
+    };
   }
   const contains = boxIds.slice(8, 12);
   if (contains.length === 0) return null;

@@ -1,5 +1,5 @@
 import { BOX_CHANGES, dialValuesOfBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Stroke, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Stroke, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
@@ -9,7 +9,7 @@ import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, wa
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
-import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlacedNote, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 
 const MARGIN = 40;
@@ -28,13 +28,7 @@ const BODY_CHARS_PER_LINE = 26;
 const FRAME_PADDING = 18;
 const FRAME_TITLE_HEIGHT = 26;
 const STACK_SPREAD = 6;
-const NOTE_WIDTH = 170;
-const NOTE_CHARS_PER_LINE = 21;
-const NOTE_LINE_HEIGHT = 17;
-const NOTE_GAP = 10;
 const LEGEND_ROW_HEIGHT = 22;
-const NOTE_OVERLAP = 24;
-const NOTE_RISE = 8;
 const PLAN_TITLE_BASELINE = 16;
 const PLAN_TITLE_HEIGHT = 30;
 const PLAN_BAND_GAP = 40;
@@ -49,10 +43,6 @@ interface Rect {
   x: number;
   y: number;
   width: number;
-  height: number;
-}
-
-interface NoteShape {
   height: number;
 }
 
@@ -201,7 +191,6 @@ function laidOutDevice(content: BoxContent, position: Point, artTop: number, art
 type BoxShape = ReturnType<typeof measuredBoxShape>;
 
 const boxShapeCache = new WeakMap<Box, BoxShape>();
-const noteShapeCache = new WeakMap<Note, NoteShape>();
 
 function boxShape(box: Box): BoxShape {
   const cached = boxShapeCache.get(box);
@@ -259,9 +248,6 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
     case 'wire':
       elementsByKind.wire.push(element);
       return;
-    case 'note':
-      elementsByKind.note.push(element);
-      return;
     case 'stroke':
       elementsByKind.stroke.push(element);
       return;
@@ -269,35 +255,13 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
 }
 
 function indexedBoardOf(board: Board): IndexedBoard {
-  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], stroke: [] };
+  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], stroke: [] };
   for (const element of board.elements.values()) addByKind(elementsByKind, element);
   return { ...board, elementsByKind, planStepById: new Map(planSteps(board).map((step) => [step.boxId, step])) };
 }
 
 function elementsOfKind<Kind extends Element['kind']>(board: IndexedBoard, kind: Kind): readonly Extract<Element, { kind: Kind }>[] {
   return board.elementsByKind[kind];
-}
-
-function noteLinesOf(note: Note): string[] {
-  return wrapText(note.text, NOTE_CHARS_PER_LINE);
-}
-
-function noteShape(note: Note): NoteShape {
-  const cached = noteShapeCache.get(note);
-  if (cached) return cached;
-  const shape = { height: BOX_PADDING * 2 + (noteLinesOf(note).length + 1) * NOTE_LINE_HEIGHT };
-  noteShapeCache.set(note, shape);
-  return shape;
-}
-
-function noteStackHeightByBoxId(board: IndexedBoard): Map<string, number> {
-  const stackHeightByBoxId = new Map<string, number>();
-  for (const note of elementsOfKind(board, 'note')) {
-    const stackedSoFar = stackHeightByBoxId.get(note.on);
-    const noteHeight = noteShape(note).height;
-    stackHeightByBoxId.set(note.on, stackedSoFar === undefined ? noteHeight : stackedSoFar + NOTE_GAP + noteHeight);
-  }
-  return stackHeightByBoxId;
 }
 
 function laidOutStep(planStepById: ReadonlyMap<string, PlanStep>, box: Box): LaidOutStep | null {
@@ -347,20 +311,20 @@ function isStackedPanel(box: Box): boolean {
   return box.shape === 'panel' && box.step === null && box.at === null;
 }
 
-function placeStackedPanels(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, PlacedBox>): void {
+function placeStackedPanels(board: IndexedBoard, boxesTop: number, boxesById: Map<string, PlacedBox>): void {
   const stackedPanels = elementsOfKind(board, 'box').filter(isStackedPanel).sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
   if (stackedPanels.length === 0) return;
-  const drawingRight = [...boxesById.values()].reduce((rightmost, box) => Math.max(rightmost, box.x + box.width + (stackHeightByBoxId.has(box.id) ? NOTE_WIDTH - NOTE_OVERLAP : 0)), -Infinity);
+  const drawingRight = [...boxesById.values()].reduce((rightmost, box) => Math.max(rightmost, box.x + box.width), -Infinity);
   const stackX = boxesById.size > 0 ? Math.round(drawingRight + FREE_GAP) : MARGIN;
   let nextY = boxesTop;
   for (const panel of stackedPanels) {
     const placed = laidOutBox(board.planStepById, panel, { x: stackX, y: nextY });
     boxesById.set(panel.id, placed);
-    nextY += Math.max(placed.height, (stackHeightByBoxId.get(panel.id) ?? 0) - NOTE_RISE) + BOX_GAP;
+    nextY += placed.height + BOX_GAP;
   }
 }
 
-function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, stepBandPositions: ReadonlyMap<string, Point>): Map<string, PlacedBox> {
+function layoutBoxes(board: IndexedBoard, boxesTop: number, stepBandPositions: ReadonlyMap<string, Point>): Map<string, PlacedBox> {
   const boxesById = new Map<string, PlacedBox>();
   for (const box of elementsOfKind(board, 'box')) {
     const bandPosition = stepBandPositions.get(box.id);
@@ -369,7 +333,7 @@ function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: 
   for (const box of elementsOfKind(board, 'box')) {
     if (box.at) boxesById.set(box.id, laidOutBox(board.planStepById, box, box.at));
   }
-  placeStackedPanels(board, boxesTop, stackHeightByBoxId, boxesById);
+  placeStackedPanels(board, boxesTop, boxesById);
   for (const box of elementsOfKind(board, 'box')) {
     if (!boxesById.has(box.id)) boxesById.set(box.id, laidOutBox(board.planStepById, box, freeOrigin(boxesById, boxesTop)));
   }
@@ -437,36 +401,6 @@ function frameTitleStripOf(frame: Rect): Rect {
   return { x: frame.x, y: frame.y, width: frame.width, height: FRAME_TITLE_HEIGHT };
 }
 
-function noteByline(note: Note): string {
-  if (note.resolvedBy) return `resolved by ${note.resolvedBy}`;
-  return note.author ? `from ${note.author}` : '';
-}
-
-function laidOutNoteAt(note: Note, target: PlacedBox, y: number): PlacedNote {
-  const { height } = noteShape(note);
-  return { kind: 'note', id: note.id, x: target.x + target.width - NOTE_OVERLAP, y, width: NOTE_WIDTH, height, byline: noteByline(note), isResolved: note.resolvedBy !== null };
-}
-
-function layoutNotes(board: IndexedBoard, boxesById: ReadonlyMap<string, PlacedBox>): PlacedNote[] {
-  const nextYByBoxId = new Map<string, number>();
-  return elementsOfKind(board, 'note').flatMap((note) => {
-    const target = boxesById.get(note.on);
-    if (!target) return [];
-    const laidOut = laidOutNoteAt(note, target, nextYByBoxId.get(note.on) ?? target.y - NOTE_RISE);
-    nextYByBoxId.set(note.on, laidOut.y + laidOut.height + NOTE_GAP);
-    return [laidOut];
-  });
-}
-
-function noteStackOn(notesInOrder: readonly Note[], target: PlacedBox): PlacedNote[] {
-  let nextY = target.y - NOTE_RISE;
-  return notesInOrder.map((note) => {
-    const laidOut = laidOutNoteAt(note, target, nextY);
-    nextY = laidOut.y + laidOut.height + NOTE_GAP;
-    return laidOut;
-  });
-}
-
 function headerRectOf(boxesTop: number): Rect {
   return { x: 0, y: 0, width: MARGIN, height: boxesTop };
 }
@@ -485,14 +419,12 @@ interface PlacedBoard {
   boxesById: Map<string, PlacedBox>;
   collectPlacementWarnings: () => string[];
   frames: LaidOutFrame[];
-  notes: PlacedNote[];
   routing: ReturnType<typeof routeWires>;
 }
 
 interface Placement {
   boxesTop: number;
   contentTop: number;
-  stackHeightByBoxId: ReadonlyMap<string, number>;
   stepBandPositions: ReadonlyMap<string, Point>;
 }
 
@@ -530,19 +462,18 @@ function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: read
 }
 
 function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
-  const placedBoxesById = layoutBoxes(board, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
+  const placedBoxesById = layoutBoxes(board, placement.boxesTop, placement.stepBandPositions);
   const { visibleBoxesById: boxesById, topCardIdByHiddenId } = stackedViewOf(board, placedBoxesById);
   const frames = layoutFrames(board, boxesById);
-  const notes = layoutNotes(board, boxesById);
   const routing = routeWires({
     wires: wiresEndingAtCards(elementsOfKind(board, 'wire'), topCardIdByHiddenId), boxesById,
-    softObstacles: [...notes, ...frames.map(frameTitleStripOf)],
+    softObstacles: frames.map(frameTitleStripOf),
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
     storedWireKeyOf: (wire) => board.elements.bodyOf(wire.id),
   }, previousRoute);
   return {
-    boxesById, frames, notes, routing,
+    boxesById, frames, routing,
     collectPlacementWarnings: () => overlapWarnings(boxesById, frames, board),
   };
 }
@@ -685,14 +616,9 @@ function dressedBox(placed: PlacedBox, record: Element | undefined): LaidOutBox 
   return { ...placed, ...boxTextOf(record, placed.width) };
 }
 
-function dressedNote(placed: PlacedNote, record: Element | undefined): LaidOutNote {
-  return { ...placed, lines: record?.kind === 'note' ? noteLinesOf(record) : [] };
-}
-
 function dressedElement(placed: PlacedElement, record: Element | undefined): LaidOutElement {
   switch (placed.kind) {
     case 'box': return dressedBox(placed, record);
-    case 'note': return dressedNote(placed, record);
     default: return placed;
   }
 }
@@ -709,7 +635,7 @@ function storedRectsOfBoxes(storedBoard: Board): Map<string, PlacedBox> {
   const { positionById: stepBandPositions, bottom: freeformTop } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
-  const boxesById = layoutBoxes(board, freeformTop, noteStackHeightByBoxId(board), stepBandPositions);
+  const boxesById = layoutBoxes(board, freeformTop, stepBandPositions);
   return new Map([...boxesById].map(([boxId, placed]) => [boxId, { ...placed, y: placed.y - pinnedOffsetY }]));
 }
 
@@ -717,15 +643,13 @@ function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null)
   const { positionById: stepBandPositions, bottom: freeformTop, columns: planColumns } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
-  const stackHeightByBoxId = noteStackHeightByBoxId(board);
   const boxesTop = freeformTop;
-  const placed = placeAndRoute(board, { boxesTop, contentTop: wireCeilingOf(freeformTop), stackHeightByBoxId, stepBandPositions }, previous?.route ?? null);
+  const placed = placeAndRoute(board, { boxesTop, contentTop: wireCeilingOf(freeformTop), stepBandPositions }, previous?.route ?? null);
   const memory: LayoutMemory = { route: placed.routing.memory };
   const elements: PlacedElement[] = [
     ...placed.frames,
     ...placed.routing.wires,
     ...placed.boxesById.values(),
-    ...placed.notes,
     ...elementsOfKind(board, 'stroke').map((stroke) => laidOutStrokeOf(stroke, pinnedOffsetY)),
   ];
   const chrome = chromeAround(board.caption, boundsOf(elements, placed.routing.extent, boxesTop), legendEntriesOf(board), stepBandPositions.size > 0 ? planColumns : [], pinnedOffsetY);
@@ -761,31 +685,13 @@ function movedBox<Moving extends PlacedBox>(box: Moving, offsetX: number, offset
 
 type DragPreview = (offsetX: number, offsetY: number) => LaidOutElement[];
 
-function movingIdsOf(storedBoard: Board, draggedBoxIds: ReadonlySet<string>): Set<string> {
-  const movingIds = new Set(draggedBoxIds);
-  let hasGrown = true;
-  while (hasGrown) {
-    hasGrown = false;
-    for (const element of storedBoard.elements.values()) {
-      const anchorId = element.kind === 'note' ? element.on : undefined;
-      if (movingIds.has(element.id) || !anchorId || !movingIds.has(anchorId)) continue;
-      movingIds.add(element.id);
-      hasGrown = true;
-    }
-  }
-  return movingIds;
-}
-
 function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>): DragPreview {
-  const movingIds = movingIdsOf(storedBoard, draggedBoxIds);
+  const movingIds = draggedBoxIds;
   const boxesById = new Map<string, LaidOutBox>();
   const stillSoftObstacles: Rect[] = [];
-  const movingNotes: LaidOutNote[] = [];
   const loopFrames: Rect[] = [];
   for (const element of layout.elements) {
     if (element.kind === 'box') boxesById.set(element.id, element);
-    if (element.kind === 'note' && movingIds.has(element.id)) movingNotes.push(element);
-    if (element.kind === 'note' && !movingIds.has(element.id)) stillSoftObstacles.push(element);
     if (element.kind === 'frame') stillSoftObstacles.push(frameTitleStripOf(element));
     if (element.kind === 'frame' && element.isLoop) loopFrames.push(element);
   }
@@ -795,14 +701,13 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
-    const notes = movingNotes.map((note) => ({ ...note, x: note.x + offsetX, y: note.y + offsetY }));
-    return [...moved, ...notes, ...previewWires({ wires, boxesById, softObstacles: [...stillSoftObstacles, ...notes], loopFrames, contentTop })];
+    return [...moved, ...previewWires({ wires, boxesById, softObstacles: stillSoftObstacles, loopFrames, contentTop })];
   };
 }
 
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
+  dressedElement, dressedLayout, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
 };
-export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };
+export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };

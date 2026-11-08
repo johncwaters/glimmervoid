@@ -1,4 +1,4 @@
-import type { Board, Box, BoxLine, Dial, DialValue, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, Dial, DialValue, Element as BoardElement, Frame, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
@@ -411,14 +411,6 @@ function legendEditor(legend: readonly LegendEntry[], latestLegend: LatestItems<
   return listSection('Legend', rows, addEntry);
 }
 
-function noteSections(note: Note, set: FieldCommit): HTMLElement[] {
-  return [
-    heading('Note'),
-    fieldRow('Ref', optionalRefField('ref', note.ref, (ref) => set({ ref }), 'Ref')),
-    el('p', 'wb-inspect-hint', 'Edit a note from its box.'),
-  ];
-}
-
 function stepSections(step: Step, linkedBoardChoices: readonly Choice[], set: FieldCommit): HTMLElement[] {
   const isLinkedBoardListed = step.linkedBoardId === null || linkedBoardChoices.some((choice) => choice.value === step.linkedBoardId);
   const unlistedLinkedBoard = step.linkedBoardId && !isLinkedBoardListed ? [{ value: step.linkedBoardId, text: step.linkedBoardId }] : [];
@@ -468,7 +460,6 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
     case 'box': return boxSections(element, latest, layout, linkedBoardChoices, set);
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
-    case 'note': return noteSections(element, set);
     case 'stroke': return [heading('Ink')];
   }
 }

@@ -1,4 +1,4 @@
-import { BOX_SHAPES, BoxInput, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
+import { BOX_SHAPES, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Box, BoxLine, Element, ElementInput, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
@@ -32,8 +32,8 @@ type Draft = {
   basePinPositions: PinPositions | null;
 };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, note: Note, stroke: Stroke });
-const NOTE_PREVIEW_CHARS = 80;
+const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, stroke: Stroke });
+const NOTE_TEXT_FIELDS = ['title', 'lines', 'shape'] as const;
 const BYLINE_PREFIX = 'from ';
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
@@ -42,11 +42,6 @@ const NO_PLAN_STEPS = new Map<string, never>();
 
 function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
-}
-
-function storedNote(note: Note, author: Author): Note {
-  if (!isOperatorAuthor(author)) return { ...note, author: author.name, resolvedBy: null };
-  return { ...note, author: note.author === '' ? author.name : note.author };
 }
 
 function isBylineLine(line: BoxLine | undefined): boolean {
@@ -128,10 +123,6 @@ function checkReferences(draft: Draft, element: Element, previous: Element | und
     if (!isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
     if (!isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
     return checkWireOutput(draft, element);
-  }
-  if (element.kind === 'note') {
-    if (!isBox(draft, element.on)) return refuse(`note ${element.id} is on ${element.on}, which is not a box`);
-    return OK;
   }
   if (element.kind !== 'frame') return OK;
   const strangerId = element.contains.find((id) => !isBox(draft, id));
@@ -227,7 +218,7 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const placed = placedAtNear(draft, element);
   if (!placed.ok) return placed;
-  const signed = placed.element.kind === 'note' ? { ok: true as const, element: storedNote(placed.element, author) } : signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author);
+  const signed = signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author);
   if (!signed.ok) return signed;
   const stored = signed.element;
   const references = checkReferences(draft, stored, undefined);
@@ -236,11 +227,6 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   draft.elementCount += 1;
   if (stored.kind === 'stroke') draft.strokeCount += 1;
   return OK;
-}
-
-function rewrittenNoteStamp(existing: Element, fields: Record<string, unknown>, author: Author): Record<string, unknown> {
-  if (existing.kind !== 'note' || !('text' in fields || 'on' in fields)) return {};
-  return { author: author.name, resolvedBy: null };
 }
 
 function withStepMerged(existing: Element, fields: Record<string, unknown>): Record<string, unknown> {
@@ -264,12 +250,13 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
-  if (!isOperatorAuthor(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
+  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const placed = placedAtNear(draft, 'near' in fields ? withoutAtUnlessGiven(parsed.data, 'at' in fields) : parsed.data);
   if (!placed.ok) return placed;
-  const stored = withoutEmptyOutputsOffDecision(placed.element);
+  const signed = NOTE_TEXT_FIELDS.some((field) => field in fields) ? signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author) : { ok: true as const, element: withoutEmptyOutputsOffDecision(placed.element) };
+  if (!signed.ok) return signed;
+  const stored = signed.element;
   const references = checkReferences(draft, stored, existing);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -296,10 +283,6 @@ function removeDependent(draft: Draft, element: Element, removedBoxId: string): 
     eraseElement(draft, element.id);
     return;
   }
-  if (element.kind === 'note' && element.on === removedBoxId) {
-    eraseElement(draft, element.id);
-    return;
-  }
   if (element.kind !== 'frame') return;
   const contains = element.contains.filter((id) => id !== removedBoxId);
   if (contains.length === 0) {
@@ -309,19 +292,11 @@ function removeDependent(draft: Draft, element: Element, removedBoxId: string): 
   writeElement(draft, { ...element, contains });
 }
 
-function resolveNote(draft: Draft, id: string, author: Author): OpOutcome {
-  const note = elementOf(draft, id);
-  if (note?.kind !== 'note') return refuse(`no note has id ${id}`);
-  writeElement(draft, { ...note, resolvedBy: author.name });
-  return OK;
-}
-
 function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
     case 'set': return setFields(draft, op.id, op.fields, author);
     case 'remove': return removeElement(draft, op.id);
-    case 'resolve': return resolveNote(draft, op.id, author);
     case 'board':
       if (op.title !== undefined) draft.head.title = op.title;
       if (op.caption !== undefined) draft.head.caption = op.caption;
@@ -474,7 +449,7 @@ function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedA
 
 function changedElementId(op: Op): string | null {
   if (op.op === 'add') return op.element.id;
-  if (op.op === 'set' || op.op === 'remove' || op.op === 'resolve') return op.id;
+  if (op.op === 'set' || op.op === 'remove') return op.id;
   return null;
 }
 
@@ -482,7 +457,7 @@ function nameOf(after: ElementLookup, id: string, element: Element | undefined =
   if (!element) return id;
   if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
   if (element.kind === 'wire') return `wire ${nameOf(after, element.from)} to ${nameOf(after, element.to)}`;
-  return `note ${id}`;
+  return `${element.kind} ${id}`;
 }
 
 function describeStepChange(name: string, before: Box['step'], after: Box['step']): string {
@@ -518,12 +493,11 @@ function describeOp(op: Op, previous: Element | undefined, after: ElementLookup)
   switch (op.op) {
     case 'add': {
       const element = op.element;
-      if (element.kind === 'note') return `note on ${nameOf(after, element.on)}${element.ref ? ` at ${element.ref}` : ''}: ${element.text.slice(0, NOTE_PREVIEW_CHARS)} (note ${element.id})`;
+      if (element.kind === 'box' && element.shape === 'note') return `added note ${nameOf(after, element.id)}`;
       return `added ${element.kind} ${nameOf(after, element.id)}`;
     }
     case 'set': return describeSet(op, previous, after);
     case 'remove': return `removed ${previous?.kind ?? 'element'} ${nameOf(after, op.id, previous)}`;
-    case 'resolve': return previous?.kind === 'note' ? `resolved note ${op.id} on ${nameOf(after, previous.on)}` : `resolved note ${op.id}`;
     case 'board': return describeBoardOp(op);
   }
 }

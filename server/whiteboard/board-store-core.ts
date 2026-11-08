@@ -13,7 +13,8 @@ type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds:
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 const ELEMENT_PAGE_SIZE = 5_000;
-const BOARD_ROWS_VERSION = 3;
+const BOARD_ROWS_VERSION = 4;
+const RETIRED_NOTE_KIND = 'note';
 
 const BOARD_STORE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -124,7 +125,6 @@ const ElementIdentity = z.object({ id: z.string() });
 function searchableTextOf(element: Element): string {
   if (element.kind === 'box') return [element.title, ...linesOfBox(element).map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
   if (element.kind === 'wire') return element.label ?? '';
-  if (element.kind === 'note') return element.text;
   if (element.kind === 'stroke') return '';
   return element.title;
 }
@@ -241,7 +241,7 @@ function recordOfRows(rows: StoredHeadRows, elements: ElementTable): BoardRecord
 }
 
 function storedElementOfRow(row: StoredRowColumns): unknown {
-  if (!isElementKind(row.kind)) return parsedJson(row.body);
+  if (!isElementKind(row.kind) && row.kind !== RETIRED_NOTE_KIND) return parsedJson(row.body);
   const element = parsedJson(jsonOfStored(row.body));
   return typeof element === 'object' && element !== null ? { ...element, id: row.elementId, kind: row.kind } : undefined;
 }

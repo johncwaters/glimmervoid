@@ -4,6 +4,7 @@ import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Near, Op 
 import { isStackedPanel, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
+import { noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
@@ -110,6 +111,7 @@ function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string
 }
 
 const PLACEHOLDER_PIN = Object.freeze({ x: 0, y: 0 });
+const ELEMENT_ID_MAX_LENGTH = 40;
 const UNANCHORED_PIN = Object.freeze({ x: UPGRADE_MARGIN, y: UPGRADE_MARGIN });
 
 function hasNearKey(element: unknown): element is Record<string, unknown> {
@@ -135,11 +137,15 @@ function elementsWithNearReplaced(elements: Record<string, unknown>, atOf: (boxI
   }));
 }
 
+function withoutStoredNotes(elements: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(elements).filter(([, element]) => !isRecord(element) || element.kind !== 'note'));
+}
+
 function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
   if (!Object.values(elements).some(hasNearKey)) return elements;
   const nearById = unpinnedNearById(elements);
   const placeholderElements = elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? PLACEHOLDER_PIN : null));
-  const placeholderBoard = BoardSchema.safeParse({ ...board, elements: placeholderElements });
+  const placeholderBoard = BoardSchema.safeParse({ ...board, elements: withoutStoredNotes(placeholderElements) });
   if (!placeholderBoard.success) return elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? UNANCHORED_PIN : null));
   const drawnRectById = storedRectsOfBoxes(placeholderBoard.data);
   const pinById = new Map<string, { x: number; y: number }>();
@@ -162,13 +168,94 @@ function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string
   return elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? pinById.get(boxId) ?? UNANCHORED_PIN : null));
 }
 
+const NOTE_GAP_BESIDE_BOX = 24;
+const NOTE_STACK_GAP = 10;
+const UNPINNED_NOTE_GROUP = '';
+
+type StoredNote = { id: string; on: string; text: string; ref: string | null; author: string; resolvedBy: string | null };
+
+function storedNoteOf(element: unknown): StoredNote | null {
+  if (!isRecord(element) || element.kind !== 'note' || typeof element.id !== 'string' || typeof element.on !== 'string' || typeof element.text !== 'string') return null;
+  return {
+    id: element.id,
+    on: element.on,
+    text: element.text,
+    ref: typeof element.ref === 'string' ? element.ref : null,
+    author: typeof element.author === 'string' ? element.author : '',
+    resolvedBy: typeof element.resolvedBy === 'string' ? element.resolvedBy : null,
+  };
+}
+
+function mutedLine(text: string): Record<string, unknown> {
+  return { text: text.slice(0, WHITEBOARD_LIMITS.line), muted: true };
+}
+
+const BLANK_NOTE_TITLE = 'Note';
+
+function noteBoxOf(note: StoredNote, at: { x: number; y: number }): Record<string, unknown> {
+  const { title, lines } = noteBoxTextOf(note.text);
+  const signatureLines = [
+    ...(note.resolvedBy ? [mutedLine(`resolved by ${note.resolvedBy}`)] : []),
+    ...(note.author ? [mutedLine(`from ${note.author}`)] : []),
+  ];
+  const textLines = lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - signatureLines.length).map((line) => ({ text: line }));
+  return { kind: 'box', id: note.id, shape: 'note', title: title || BLANK_NOTE_TITLE, lines: [...textLines, ...signatureLines], refs: note.ref ? [note.ref] : [], at };
+}
+
+function noteWireIdOf(note: StoredNote, takenIds: Set<string>): string {
+  const candidates = [`${note.id}-to-${note.on}`, `${note.id}-wire`];
+  const freeCandidate = candidates.find((candidate) => candidate.length <= ELEMENT_ID_MAX_LENGTH && !takenIds.has(candidate));
+  if (freeCandidate) return freeCandidate;
+  let suffix = 1;
+  while (takenIds.has(`note-wire-${suffix}`)) suffix += 1;
+  return `note-wire-${suffix}`;
+}
+
+function noteWireOf(wireId: string, note: StoredNote): Record<string, unknown> {
+  return { kind: 'wire', id: wireId, from: note.id, to: note.on, fromOutput: null, dashed: true, tone: 'plain', label: null, fromSide: null, toSide: null, back: false };
+}
+
+function drawnRectsOf(board: Record<string, unknown>, elements: Record<string, unknown>): Map<string, PlacedBox> {
+  const parsed = BoardSchema.safeParse({ ...board, elements });
+  return parsed.success ? storedRectsOfBoxes(parsed.data) : new Map();
+}
+
+function boxesForNotes(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
+  const notes = Object.values(elements).flatMap((element) => storedNoteOf(element) ?? []);
+  if (notes.length === 0) return elements;
+  const targetRectById = drawnRectsOf(board, withoutStoredNotes(elements));
+  const placeholderElements = Object.fromEntries(Object.entries(elements).map(([elementId, element]) => {
+    const note = storedNoteOf(element);
+    return [elementId, note ? noteBoxOf(note, PLACEHOLDER_PIN) : element];
+  }));
+  const noteBoxRectById = drawnRectsOf(board, placeholderElements);
+  const nextYByGroup = new Map<string, number>();
+  const takenIds = new Set(Object.keys(elements));
+  const upgraded = { ...placeholderElements };
+  for (const note of notes) {
+    const targetRect = targetRectById.get(note.on);
+    const group = targetRect ? note.on : UNPINNED_NOTE_GROUP;
+    const x = targetRect ? targetRect.x + targetRect.width + NOTE_GAP_BESIDE_BOX : UNANCHORED_PIN.x;
+    const y = nextYByGroup.get(group) ?? (targetRect ? targetRect.y : UNANCHORED_PIN.y);
+    const noteHeight = noteBoxRectById.get(note.id)?.height ?? 0;
+    nextYByGroup.set(group, y + noteHeight + NOTE_STACK_GAP);
+    upgraded[note.id] = noteBoxOf(note, { x: Math.round(x), y: Math.round(y) });
+    if (!targetRect) continue;
+    const wireId = noteWireIdOf(note, takenIds);
+    takenIds.add(wireId);
+    upgraded[wireId] = noteWireOf(wireId, note);
+  }
+  return upgraded;
+}
+
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
   const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxWithOutputsOnlyOnDecision(boxForPanel(elementWithMediaForImage(element)))]));
   const freeBoard = freeCanvasBoard(board, elements);
   if (!isRecord(freeBoard.elements)) return { ...raw, board: freeBoard };
-  return { ...raw, board: { ...freeBoard, elements: pinnedNearBoxes(freeBoard, freeBoard.elements) } };
+  const pinnedElements = pinnedNearBoxes(freeBoard, freeBoard.elements);
+  return { ...raw, board: { ...freeBoard, elements: boxesForNotes(freeBoard, pinnedElements) } };
 }
 
 function lowestCursor(record: BoardRecord): number {

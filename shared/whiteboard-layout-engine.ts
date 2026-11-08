@@ -1,10 +1,10 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, Element } from './contracts/whiteboard.ts';
-import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
-  placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
+  placeBoardWithMemory, legendEntriesFrom, stepBandOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
@@ -91,8 +91,6 @@ interface LayoutWorld {
   loopFrameIds: Set<string>;
   routeMemory: RouteMemory;
   changedRouteIds: Set<string>;
-  noteOrderById: Map<string, number>;
-  nextNoteOrder: number;
   routeWarnings: WarningBook;
   placementWarnings: WarningBook;
   wireStyleByKey: Map<string, WireStyleCount>;
@@ -283,7 +281,6 @@ function isOnEdge(rect: Rect, around: Rect): boolean {
 function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   world.laidOutById.set(element.id, element);
   if (element.kind === 'box') placeId(world.boxGrid, element.id, element);
-  if (element.kind === 'note') placeId(world.softGrid, element.id, element);
   if (element.kind === 'stroke') placeId(world.inkGrid, element.id, element);
   if (element.kind === 'frame') {
     placeId(world.softGrid, element.id, frameTitleStripOf(element));
@@ -328,21 +325,12 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
     lineage: lastLineage, version: board.version, board, minIncrementalElements, laidOutById: new Map(),
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE), inkGrid: createIdGrid(SOLID_CELL_SIZE),
     loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
-    noteOrderById: new Map(), nextNoteOrder: 0, routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
+    routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
     wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
   };
 }
 
-const ARRAY_INDEX_LIMIT = 2 ** 32 - 1;
-const ARRAY_INDEX_KEY = /^(0|[1-9][0-9]*)$/;
-
-function nextNoteOrderOf(world: LayoutWorld, id: string): number {
-  const arrayIndex = ARRAY_INDEX_KEY.test(id) ? Number(id) : ARRAY_INDEX_LIMIT;
-  if (arrayIndex < ARRAY_INDEX_LIMIT) return arrayIndex - ARRAY_INDEX_LIMIT;
-  world.nextNoteOrder += 1;
-  return world.nextNoteOrder;
-}
 
 interface WorldParts {
   laidOut: readonly PlacedElement[];
@@ -367,7 +355,6 @@ function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLis
   yield* inSlices(laidOut, elementsPerSlice, (element) => storeLaidOut(world, element));
   yield* inSlices(board.elements.values(), elementsPerSlice, (element) => {
     countElement(world, element, 1);
-    if (element.kind === 'note') world.noteOrderById.set(element.id, nextNoteOrderOf(world, element.id));
     if (element.kind === 'box' && isFloatingShaped(element)) world.floatingBoxCount += 1;
   });
   addWarningLists(world.routeWarnings, warningLists.slice(0, -1));
@@ -440,8 +427,7 @@ function touchesStack(board: Board, element: Element | null | undefined): boolea
   if (element.kind === 'frame') return element.collapsed;
   if (element.kind === 'box') return isInStack(board, element.id);
   if (element.kind === 'wire') return isInStack(board, element.from) || isInStack(board, element.to);
-  if (element.kind === 'stroke') return false;
-  return isInStack(board, element.on);
+  return false;
 }
 
 function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): boolean {
@@ -450,7 +436,7 @@ function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
   for (const change of changes.values()) {
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
     if (touchesStack(board, change.before) || touchesStack(board, change.after)) return true;
-    const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box' || change.before?.kind === 'note' || change.after?.kind === 'note';
+    const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box';
     if (isSolidChange && world.floatingBoxCount > 0) return true;
   }
   return false;
@@ -506,22 +492,10 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
     const known = world.laidOutById.get(id);
     return known?.kind === 'box' ? known : null;
   };
-  const stackBoxIds = new Set(dirtyBoxIds);
   const dirtyFrameIds = new Set<string>();
   for (const [id, change] of changes) {
-    if (change.before?.kind === 'note') stackBoxIds.add(change.before.on);
-    if (change.after?.kind === 'note') stackBoxIds.add(change.after.on);
-    if (change.before?.kind === 'note' || change.after?.kind === 'note') nextById.set(id, null);
     if (change.before?.kind === 'frame' || change.after?.kind === 'frame') dirtyFrameIds.add(id);
     if (change.before?.kind === 'stroke' || change.after?.kind === 'stroke') nextById.set(id, change.after?.kind === 'stroke' ? laidOutStrokeOf(change.after, world.pinnedOffsetY) : null);
-    if (change.after?.kind === 'note' && (change.isAppended || !world.noteOrderById.has(id))) world.noteOrderById.set(id, nextNoteOrderOf(world, id));
-    if (change.after?.kind !== 'note' && change.before?.kind === 'note') world.noteOrderById.delete(id);
-  }
-  for (const boxId of stackBoxIds) {
-    const notes = dependentsOfKind(board, boxId, 'note').filter((note) => note.on === boxId).sort((left, right) => (world.noteOrderById.get(left.id) ?? 0) - (world.noteOrderById.get(right.id) ?? 0));
-    const target = boxNow(boxId);
-    for (const note of notes) nextById.set(note.id, null);
-    if (target) for (const laidOut of noteStackOn(notes, target)) nextById.set(laidOut.id, laidOut);
   }
   for (const boxId of dirtyBoxIds) {
     for (const frame of dependentsOfKind(board, boxId, 'frame')) dirtyFrameIds.add(frame.id);
@@ -704,7 +678,7 @@ function rectKeyOf(rect: Rect): string {
 }
 
 function softRectsOf(elements: readonly PlacedElement[]): Rect[] {
-  return elements.flatMap((element) => (element.kind === 'note' || element.kind === 'frame' ? obstacleRectOf(element) ?? [] : []));
+  return elements.flatMap((element) => (element.kind === 'frame' ? obstacleRectOf(element) ?? [] : []));
 }
 
 function previousInputOf(input: RouteInput, commit: Commit): RouteInput {
@@ -889,7 +863,6 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
   const wires: LaidOutWire[] = [];
   const pinnedBoxes: PlacedBox[] = [];
   const nearBoxes: PlacedBox[] = [];
-  const notes: PlacedNote[] = [];
   const strokes: LaidOutStroke[] = [];
   for (const element of world.board.elements.values()) {
     const laidOut = world.laidOutById.get(element.id);
@@ -897,10 +870,9 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
     if (laidOut?.kind === 'wire') wires.push(laidOut);
     if (laidOut?.kind === 'box' && element.kind === 'box' && element.at) pinnedBoxes.push(laidOut);
     if (laidOut?.kind === 'box' && element.kind === 'box' && !element.at) nearBoxes.push(laidOut);
-    if (laidOut?.kind === 'note') notes.push(laidOut);
     if (laidOut?.kind === 'stroke') strokes.push(laidOut);
   }
-  const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...notes, ...strokes], ...world.chrome, warnings: warningsOf(world) };
+  const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...strokes], ...world.chrome, warnings: warningsOf(world) };
   world.layout = layout;
   return layout;
 }

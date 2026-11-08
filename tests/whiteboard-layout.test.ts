@@ -44,8 +44,6 @@ const crowdedBoard = boardWithNearPinned({
   id: 'crowded', title: 'crowded', version: 1, caption: null, createdAt: 0, updatedAt: 0,
   elements: {
     ...stacked([[box('a1'), box('a2')], [box('b1'), box('b2')], [box('c1'), box('c2'), box('c3')]], { stackGap: 200, boxGap: 160 }),
-    n1: { kind: 'note', id: 'n1', on: 'b1', text: 'Outside authors stop here now; the author check runs before any docs request is built for them' },
-    n2: { kind: 'note', id: 'n2', on: 'b1', text: 'A second note stacks under the first' },
     f1: { kind: 'frame', id: 'f1', title: 'intake', contains: ['c2', 'c3'] },
     f2: { kind: 'frame', id: 'f2', title: 'triggers', contains: ['a1'] },
   },
@@ -59,20 +57,13 @@ function contains(outer: Rect, inner: Rect): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
 }
 
-function isNoteOnItsOwnBox(note: LaidOutElement, other: LaidOutElement): boolean {
-  const stored = crowdedBoard.elements.get(note.id);
-  return stored?.kind === 'note' && stored.on === other.id;
-}
-
 function isAllowedToTouch(first: LaidOutElement, second: LaidOutElement): boolean {
-  if (first.kind === 'note' && isNoteOnItsOwnBox(first, second)) return true;
-  if (second.kind === 'note' && isNoteOnItsOwnBox(second, first)) return true;
   if (first.kind === 'frame' && second.kind !== 'wire') return contains(first, second);
   if (second.kind === 'frame' && first.kind !== 'wire') return contains(second, first);
   return false;
 }
 
-test('notes stack beside their box and frames wrap their boxes without drawing over boxes they do not belong to', () => {
+test('frames wrap their boxes without drawing over boxes they do not belong to', () => {
   const layout = layoutBoard(crowdedBoard);
   const placed = layout.elements.filter((element) => element.kind !== 'wire');
   for (const [index, first] of placed.entries()) {
@@ -367,7 +358,6 @@ test('a decision fanning out to a stack of boxes draws its wires without crossin
       w11: { kind: 'wire', id: 'w11', from: 'pick', to: 'reply', fromOutput: 'dismiss' },
       w12: { kind: 'wire', id: 'w12', from: 'pick', to: 'resolve', fromOutput: 'remote', dashed: true },
       w13: { kind: 'wire', id: 'w13', from: 'pick', to: 'waiting', fromOutput: 'escalate', tone: 'fail' },
-      open: { kind: 'note', id: 'open', on: 'pick', text: 'Open: does Resolve decline with a reason, or only fix? Decides if dismiss stays local-only.', author: 'PR bot triage' },
     },
   });
   const crossings = layoutBoard(fanBoard).warnings.filter((warning) => warning.includes('crosses wire'));
@@ -419,7 +409,6 @@ test('styled lines carry their markers, a panel with no place stacks clear right
         { text: '30s', style: 'kv', key: 'timeout' }, { text: 'npm test', style: 'code' }, { text: 'one point', style: 'item' },
       ] },
       second: { kind: 'box', id: 'second', title: 'Second', at: { x: 700, y: 200 } },
-      aside: { kind: 'note', id: 'aside', on: 'second', text: 'a note that reaches right past the box edge' },
       prior: { kind: 'box', id: 'prior', title: 'Prior art', shape: 'panel', lines: [{ text: 'the old router', style: 'item' }] },
       w1: { kind: 'wire', id: 'w1', from: 'first', to: 'second', tone: 'fail' },
       w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
@@ -432,7 +421,7 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.deepEqual(first.bodyLines.map((line) => line.marker), ['1.', '2.', null, '1.', 'timeout', null, null]);
   const panel = layout.elements.find((element) => element.id === 'prior');
   assert.ok(panel?.kind === 'box' && panel.shape === 'panel');
-  const besidePanel = layout.elements.filter((element) => (element.kind === 'box' || element.kind === 'note') && element.id !== 'prior');
+  const besidePanel = layout.elements.filter((element) => element.kind === 'box' && element.id !== 'prior');
   assert.ok(besidePanel.every((element) => element.kind !== 'wire' && panel.x > element.x + element.width), `panel at ${panel.x} overlaps a box or note`);
   assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
   assert.equal(layout.warnings.filter((warning) => warning.includes('prior')).length, 0, layout.warnings.join('\n'));
@@ -450,32 +439,25 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
   assert.ok(restacked.ok, restacked.ok ? '' : restacked.error);
   assert.deepEqual(restacked.board.elements.get('beside'), placedBeside);
-  assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire, note or stroke/);
+  assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or stroke/);
 });
 
-test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors and cascades included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
+test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, cascades included, a removed box leaving its note box in place, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
   const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
     { op: 'add', element: ElementInput.parse(decision) },
     { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
-    { op: 'set', id: 'n1', fields: { author: 'agent-c' } },
-    { op: 'set', id: 'n2', fields: { author: 'agent-c' } },
-    { op: 'resolve', id: 'n2' },
   ], author, 1);
   assert.ok(before.ok);
-  const agentNote = ElementInput.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
-  const noted = applyOps(before.board, [{ op: 'add', element: agentNote }], { id: 'session-uuid', name: 'agent-a' }, 1);
-  assert.ok(noted.ok);
-  const n3 = noted.board.elements.get('n3');
-  assert.equal(n3?.kind === 'note' && n3.author, 'agent-a');
-  const forged = applyOps(noted.board, [{ op: 'set', id: 'n3', fields: { author: 'operator', resolvedBy: 'operator' } }], { id: 'session-uuid', name: 'agent-a' }, 1);
-  assert.equal(forged.ok, false);
-  const resolved = applyOps(noted.board, [{ op: 'resolve', id: 'n3' }], { id: 'other-uuid', name: 'agent-b' }, 1);
-  assert.ok(resolved.ok);
-  const start = resolved.board;
+  const noted = applyOps(before.board, [
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'n3', shape: 'note', title: 'agent finding', at: { x: 1200, y: 300 } }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'n3-to-b1', from: 'n3', to: 'b1', dashed: true }) },
+  ], { id: 'session-uuid', name: 'agent-a' }, 1);
+  assert.ok(noted.ok, noted.ok ? '' : noted.error);
+  const start = noted.board;
   const edits: Op[] = [
-    { op: 'set', id: 'n3', fields: { text: 'rewritten by the operator' } },
+    { op: 'set', id: 'n3', fields: { title: 'rewritten by the operator' } },
     { op: 'remove', id: 'b1' },
     { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
     { op: 'set', id: 'c2', fields: { near: null, at: { x: 1500, y: 600 } } },
@@ -483,6 +465,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   ];
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
+  assert.deepEqual([edited.board.elements.get('n3')?.kind, edited.board.elements.has('n3-to-b1')], ['box', false]);
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
   const undone = applyOps(edited.board, undoOpsOf(edited.before, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
@@ -589,12 +572,12 @@ test('a layout world kept across puts places what a fresh layout places, and its
   const tileIndex = tileIndexOf(layoutOf(world), board.version, board);
   const pinnedBoxes = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
   const [moved, noted, framed, removed, wired] = pinnedBoxes;
-  const anyNote = [...board.elements.values()].find((element) => element.kind === 'note');
-  assert.ok(moved?.at && noted && framed && removed && wired && anyNote);
+  const anyNote = [...board.elements.values()].find((element) => element.kind === 'box' && element.shape === 'note');
+  assert.ok(moved?.at && noted?.at && framed && removed && wired && anyNote);
   const puts = [
     [{ op: 'set', id: moved.id, fields: { at: { x: moved.at.x + 180, y: moved.at.y + 60 } } }],
-    [{ op: 'add', element: { kind: 'note', id: 'kept-note', on: noted.id, text: 'a note added after the first layout' } }],
-    [{ op: 'add', element: { kind: 'note', id: '5', on: noted.id, text: 'a note whose id the board object lists first' } }],
+    [{ op: 'add', element: { kind: 'box', id: 'kept-note', shape: 'note', title: 'a note added after the first layout', at: { x: noted.at.x + 244, y: noted.at.y } } }, { op: 'add', element: { kind: 'wire', id: 'kept-note-wire', from: 'kept-note', to: noted.id, dashed: true } }],
+    [{ op: 'add', element: { kind: 'box', id: '5', shape: 'note', title: 'a note whose id the board object lists first', at: { x: noted.at.x + 244, y: noted.at.y + 120 } } }],
     [{ op: 'remove', id: anyNote.id }],
     [{ op: 'add', element: { kind: 'box', id: 'kept-near', title: 'beside', near: { of: noted.id, side: 'right' } } }],
     [{ op: 'add', element: { kind: 'frame', id: 'kept-frame', title: 'kept frame', contains: [framed.id, moved.id] } }],

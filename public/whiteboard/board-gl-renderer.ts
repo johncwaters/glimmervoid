@@ -499,8 +499,6 @@ function resolvePalette(host: HTMLElement): BoardPalette {
     cardBackground: reader.colorOf('var(--bg-card)'),
     noteStroke: reader.colorOf('var(--wb-note)'),
     noteCard: reader.colorOf('#2a2213'),
-    noteText: reader.colorOf('#f8e7c4'),
-    noteByline: reader.colorOf('#c9a868'),
     codeBand: reader.colorOf('color-mix(in oklab, var(--accent) 14%, var(--wb-board))'),
     panelFill: reader.colorOf('color-mix(in oklab, var(--wb-board) 80%, var(--bg))'),
     stickyFillByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${STICKY_TONE_HEX[tone]} 30%, var(--wb-board))`)),

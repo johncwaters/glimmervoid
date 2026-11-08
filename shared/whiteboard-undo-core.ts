@@ -10,7 +10,7 @@ type UndoHistory<Entry extends readonly unknown[] = Op[]> = Readonly<Record<Undo
 const UNDO_LIMIT = 100;
 const EMPTY_HISTORY: UndoHistory = Object.freeze({ undo: [], redo: [] });
 const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box']);
-const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'note', 'frame', 'box'];
+const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'frame', 'box'];
 const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
 
 function isSameValue(left: unknown, right: unknown): boolean {
@@ -19,9 +19,7 @@ function isSameValue(left: unknown, right: unknown): boolean {
 
 function changedFields(current: Element, target: Element): Record<string, unknown> {
   const currentFields: Record<string, unknown> = { ...current };
-  const changed = Object.fromEntries(Object.entries(target).filter(([field, value]) => !UNSETTABLE_FIELDS.has(field) && !isSameValue(currentFields[field], value)));
-  if (target.kind !== 'note' || Object.keys(changed).length === 0) return changed;
-  return { ...changed, author: target.author, resolvedBy: target.resolvedBy };
+  return Object.fromEntries(Object.entries(target).filter(([field, value]) => !UNSETTABLE_FIELDS.has(field) && !isSameValue(currentFields[field], value)));
 }
 
 function boardFieldOps(current: Board, target: Board): Op[] {

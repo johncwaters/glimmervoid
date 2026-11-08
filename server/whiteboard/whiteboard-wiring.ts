@@ -51,7 +51,7 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon|device|sticky|note|text, tone, width, height, device, fit, outputs, params, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop, collapsed), note (on, text, ref).',
+  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon|device|sticky|note|text, tone, width, height, device, fit, outputs, params, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop, collapsed).',
   'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
   `An icon draws before a box title or a line text in the text color, as in "icon":"database" on the box or on a line; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
   `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe.`,
@@ -61,7 +61,7 @@ const PUT_GUIDE = [
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
   'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; near only places the box once, so it is stored as the at it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from at positions, frames and text boxes.',
   'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
-  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
+  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
   'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
   'Wires route around every box on their own; set fromSide or toSide to pick where one attaches, back:true for a return edge that loops around the outside, and loop:true on a frame to mark what repeats.',
@@ -912,7 +912,6 @@ function createWhiteboardWiring({
       case 'get': return readBoard(found.boardId, caller.id, request);
       case 'query': return queryBoard(found.boardId, request);
       case 'put': return reviewedPut(found.boardId, request.ops, author);
-      case 'resolve': return putOps(found.boardId, [{ op: 'resolve', id: request.note }], author);
       case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteProjectBoard(found.boardId, caller.project);
     }

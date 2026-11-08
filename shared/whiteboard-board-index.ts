@@ -32,7 +32,6 @@ function countAsset(index: BoardIndex, assetId: string | null, step: number): vo
 
 function boxIdsDependedOnBy(element: Element): readonly string[] {
   if (element.kind === 'wire') return [element.from, element.to];
-  if (element.kind === 'note') return [element.on];
   if (element.kind === 'frame') return element.contains;
   return [];
 }
@@ -47,7 +46,6 @@ function trackStep(index: BoardIndex, element: Element, isPresent: boolean): voi
 }
 
 function hasAnchorRef(element: Element): boolean {
-  if (element.kind === 'note') return element.ref !== null;
   return element.kind === 'box' && (element.refs.length > 0 || linesOfBox(element).some((line) => line.ref !== null));
 }
 

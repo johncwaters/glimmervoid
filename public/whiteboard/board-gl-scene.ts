@@ -2,11 +2,11 @@ import type { IconName, StickyTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
-  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, NOTE_LINE_HEIGHT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
+  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, decisionOutlinePoints,
   ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
@@ -33,8 +33,6 @@ interface BoardPalette {
   cardBackground: Rgba;
   noteStroke: Rgba;
   noteCard: Rgba;
-  noteText: Rgba;
-  noteByline: Rgba;
   codeBand: Rgba;
   panelFill: Rgba;
   stickyFillByTone: Readonly<Record<StickyTone, Rgba>>;
@@ -104,7 +102,7 @@ const LAYER_COUNT = 6;
 const CHROME_LAYER = 0;
 const WIRE_LABEL_LAYER = 3;
 const BOX_LAYER = 4;
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, note: 5, stroke: 5 };
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, stroke: 5 };
 const MIN_TEXT_PX = 4;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
@@ -548,18 +546,6 @@ function strokeGeometry(stroke: LaidOutStroke, context: SceneContext): { part: P
   return { part, hitShape: { kind: 'path', points } };
 }
 
-function noteGeometry(note: LaidOutNote, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
-  const { palette, glyphs } = context;
-  const part = createPart();
-  const opacity = note.isResolved ? 0.5 : 1;
-  pushRect(part, note, 4, faded(palette.noteCard, opacity), faded(palette.noteStroke, opacity), 1.2, ALWAYS);
-  note.lines.forEach((line, index) => {
-    pushText(part, glyphs, line, note.x + 10, note.y + 22 + index * NOTE_LINE_HEIGHT, { size: palette.metaSize, color: faded(palette.noteText, opacity) });
-  });
-  if (note.byline) pushText(part, glyphs, note.byline, note.x + 10, note.y + 22 + note.lines.length * NOTE_LINE_HEIGHT, { size: palette.metaSize, color: faded(palette.noteByline, opacity) });
-  return { part, hitShape: { kind: 'rect', rect: note, linkRect: null, mediaRect: null, hasDrawnMedia: false } };
-}
-
 function singleLayer(element: Exclude<LaidOutElement, LaidOutWire>, drawn: { part: PartBuilder; hitShape: HitShape }): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
   return { parts: [{ layer: LAYER_BY_KIND[element.kind], part: sealPart(drawn.part) }], hitShape: drawn.hitShape, bounds: paintedBoundsOf(element, drawn.hitShape) };
 }
@@ -575,7 +561,6 @@ function geometryOf(element: LaidOutElement, context: SceneContext): { parts: La
     case 'box': return singleLayer(element, boxGeometry(element, context));
     case 'frame': return singleLayer(element, frameGeometry(element, context));
     case 'wire': return wireGeometry(element, context);
-    case 'note': return singleLayer(element, noteGeometry(element, context));
     case 'stroke': return singleLayer(element, strokeGeometry(element, context));
   }
 }
@@ -635,7 +620,7 @@ function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rg
     if (firstCorner) pushPolyline(part, [...polygon, firstCorner], width, color, SOLID, ALWAYS);
     return;
   }
-  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire' | 'stroke'>, number> = { box: 8, note: 4, frame: 12 };
+  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire' | 'stroke'>, number> = { box: 8, frame: 12 };
   pushRect(part, element, radiusByKind[element.kind], [0, 0, 0, 0], color, width, ALWAYS);
 }
 

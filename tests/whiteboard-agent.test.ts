@@ -111,7 +111,7 @@ test.after(async () => {
   if (fixture.prevEnv != null) process.env.GLIMMERVOID_CONFIG = fixture.prevEnv;
 });
 
-test('an agent builds a board of boxes, wires, frames, notes and boxes marked added, and removing a box takes its wires and notes', async () => {
+test('an agent builds a board of boxes, wires, frames, notes and boxes marked added, and removing a box takes its wires but leaves the note boxes about it', async () => {
   const boardId = await newBoard('knowledge writer');
   const built = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 234 }, lines: [{ text: 'reads the feed' }, { text: 'skips drafts', muted: true }] } },
@@ -119,7 +119,8 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
     { op: 'add', element: { kind: 'box', id: 'later', title: 'Later', near: { of: 'store', side: 'bottom', gap: 30 }, change: 'added' } },
     { op: 'add', element: { kind: 'wire', id: 'w1', from: 'parse', to: 'store', dashed: true, label: 'on retry' } },
     { op: 'add', element: { kind: 'frame', id: 'core', title: 'Core', contains: ['parse', 'store'] } },
-    { op: 'add', element: { kind: 'note', id: 'n1', on: 'store', text: 'what about retries?' } },
+    { op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'what about retries?', at: { x: 594, y: 110 } } },
+    { op: 'add', element: { kind: 'wire', id: 'n1-to-store', from: 'n1', to: 'store', dashed: true } },
     { op: 'add', element: { kind: 'box', id: 'aside', shape: 'note', title: 'retry budget?', at: { x: 700, y: 500 } } },
     { op: 'set', id: 'parse', fields: { at: { x: 40, y: 234 } } },
   ] });
@@ -133,7 +134,7 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
   const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'store' }] });
   assert.equal(removed.status, 200);
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(Object.keys(board.elements).sort(), ['aside', 'core', 'later', 'parse']);
+  assert.deepEqual(Object.keys(board.elements).sort(), ['aside', 'core', 'later', 'n1', 'parse']);
   assert.equal(board.elements.aside?.shape, 'note');
   const asideLines = z.array(BoxLine).parse(board.elements.aside?.lines);
   assert.deepEqual(asideLines.map((line) => [line.text.startsWith('from '), line.muted]), [[true, true]], 'a note box an agent adds is signed with a muted byline');
@@ -161,10 +162,10 @@ test('two writers keep both different fields, the later write of one field wins,
   ]);
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).changes, [], 'a get marks the summaries read');
 
-  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'keep prod' } }] });
-  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'n1', fields: { text: 'drop prod' } }] });
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'keep prod', at: { x: 400, y: 400 } } }] });
+  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'n1', fields: { title: 'drop prod' } }] });
   const rewritten = (await boardOf(PLANNER_ID, boardId)).board.elements.n1;
-  assert.deepEqual([rewritten?.text, rewritten?.author], ['drop prod', BUILDER_ID], 'a rewritten note carries its rewriter as author');
+  assert.deepEqual([rewritten?.title, z.array(BoxLine).parse(rewritten?.lines).map((line) => line.text)], ['drop prod', [`from ${BUILDER_ID}`]], 'a rewritten note is signed by its rewriter');
 });
 
 test('a malformed or over-limit put is refused whole with a reason and the board is unchanged', async () => {
@@ -186,13 +187,11 @@ test('a malformed or over-limit put is refused whole with a reason and the board
   assert.equal(overLimit.status, 400);
   assert.match(String(overLimit.body.error), new RegExp(`at most ${WHITEBOARD_LIMITS.opsPerPut} ops`));
 
-  const forgedNote = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
-    { op: 'add', element: { kind: 'box', id: 'target', title: 'Target', at: { x: 40, y: 40 } } },
-    { op: 'add', element: { kind: 'note', id: 'n1', on: 'target', text: 'mine' } },
-    { op: 'set', id: 'n1', fields: { author: 'operator' } },
+  const fullNote = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'mine', at: { x: 40, y: 40 }, lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => ({ text: 'pad' })) } },
   ] });
-  assert.equal(forgedNote.status, 400);
-  assert.match(String(forgedNote.body.error), /op 3: set cannot change who wrote or resolved a note/);
+  assert.equal(fullNote.status, 400);
+  assert.match(String(fullNote.body.error), /op 1: box n1: a note box holds at most 11 lines/);
 
   const unnamedRename = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'renamed', title: 'New name', at: { x: 40, y: 40 }, change: 'relabeled' } },
@@ -678,13 +677,13 @@ test('refs are checked in the code session worktree: a missing file, a line past
       kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/feed.ts#L2-L3', 'src/gone.ts', 'src/feed.ts#L9'],
       lines: [{ text: 'readFeed()', style: 'code', ref: '../outside.ts' }],
     } },
-    { op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'what about drafts?', ref: 'src/escape.ts' } },
+    { op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'what about drafts?', at: { x: 40, y: 300 }, refs: ['src/escape.ts'] } },
   ] });
   const expectedWarnings = [
     'ref src/gone.ts on box parse: no such file',
     'ref src/feed.ts#L9 on box parse: the file has 3 lines',
     'ref ../outside.ts on line 1 of box parse: a path with .. is never read; name the file relative to the code session worktree',
-    'ref src/escape.ts on note n1: the path leads outside the code session worktree, so it was not read',
+    'ref src/escape.ts on box n1: the path leads outside the code session worktree, so it was not read',
   ];
   assert.equal(put.status, 200);
   assert.deepEqual(put.body.warnings, expectedWarnings);
@@ -977,7 +976,7 @@ test('the next prompt tells a connected session once per new change to read the 
   assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 
   await wiring.handleAgent(agent, { sub: 'disconnect', board: boardId });
-  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'note', id: 'n1', on: 'parse', text: 'handle drafts' } }]));
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'handle drafts', at: { x: 300, y: 40 } } }]));
   assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 });
 

@@ -54,7 +54,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.ok(firstBoxId);
   const renamed = await first.handleOperator.put('legacy-board', z.array(Op).parse([
     { op: 'set', id: firstBoxId, fields: { title: 'Renamed in sqlite' } },
-    { op: 'add', element: { kind: 'note', id: 'fresh-note', on: firstBoxId, text: 'zebra crossing' } },
+    { op: 'add', element: { kind: 'box', id: 'fresh-note', shape: 'note', title: 'zebra crossing', at: { x: 9000, y: 40 } } },
   ]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
   const boardBeforeRestart = (await first.handleOperator.get('legacy-board')).board;
@@ -86,17 +86,34 @@ test('a JSON board moves into the board store once, keeps its edits across resta
     }
     writeJsonRow.run(JSON.stringify(storedBody), 'legacy-board', element.id);
   }
+  const writeOldNoteRow = storeWrittenBeforeCompactRows.prepare('INSERT INTO elements (board_id, element_id, revision, body, kind) VALUES (?, ?, ?, ?, ?)');
+  writeOldNoteRow.run('legacy-board', 'old-note', 1, JSON.stringify({ kind: 'note', id: 'old-note', on: firstBoxId, text: 'what about retries?', author: 'agent-a', resolvedBy: 'operator' }), null);
+  writeOldNoteRow.run('legacy-board', 'old-compact-note', 1, JSON.stringify({ on: firstBoxId, text: 'and drafts', author: 'agent-b' }), 'note');
+  writeOldNoteRow.run('legacy-board', 'old-blank-note', 1, JSON.stringify({ on: firstBoxId, text: '   ', author: 'agent-c' }), 'note');
   storeWrittenBeforeCompactRows.exec('PRAGMA user_version = 0');
   storeWrittenBeforeCompactRows.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
   const reloaded = await restarted.handleOperator.get('legacy-board');
-  assert.equal(reloaded.board?.elements.size, legacy.board.elements.size + 1);
+  const oldNoteIds = ['old-note', 'old-compact-note', 'old-blank-note'];
+  const oldNoteWireIds = oldNoteIds.map((noteId) => `${noteId}-to-${firstBoxId}`);
+  assert.equal(reloaded.board?.elements.size, legacy.board.elements.size + 1 + oldNoteIds.length + oldNoteWireIds.length);
+  const [upgradedNote, upgradedCompactNote, upgradedBlankNote] = oldNoteIds.map((noteId) => reloaded.board?.elements.get(noteId));
+  assert.ok(upgradedNote?.kind === 'box' && upgradedCompactNote?.kind === 'box');
+  assert.deepEqual([upgradedNote.shape, upgradedNote.title, (upgradedNote.lines ?? []).map((line) => [line.text, line.muted])], ['note', 'what about retries?', [['resolved by operator', true], ['from agent-a', true]]], 'an old resolved note upgrades to a note box keeping its text, resolver and author');
+  assert.equal(upgradedCompactNote.shape, 'note');
+  assert.equal(upgradedBlankNote?.kind === 'box' && upgradedBlankNote.title, 'Note', 'an old note of only spaces upgrades to a readable note box');
+  assert.equal(upgradedCompactNote.at?.x, upgradedNote.at?.x);
+  assert.ok((upgradedCompactNote.at?.y ?? 0) > (upgradedNote.at?.y ?? 0), 'old notes on one box stack down beside it');
+  assert.deepEqual(oldNoteWireIds.map((wireId) => {
+    const wire = reloaded.board?.elements.get(wireId);
+    return wire?.kind === 'wire' ? [wire.from, wire.to, wire.dashed] : null;
+  }), oldNoteIds.map((noteId) => [noteId, firstBoxId, true]), 'each old note is wired dashed to the box it was pinned to');
   const renamedBox = reloaded.board?.elements.get(firstBoxId);
   assert.equal(renamedBox?.kind === 'box' ? renamedBox.title : null, 'Renamed in sqlite');
   assert.equal(reloaded.board?.version, versionBeforeRestart);
-  assert.deepEqual([...reloaded.board?.elements.keys() ?? []], [...boardBeforeRestart?.elements.keys() ?? []], 'a store written before compact rows keeps its element order after the upgrade');
+  assert.deepEqual([...reloaded.board?.elements.keys() ?? []].filter((elementId) => !oldNoteIds.includes(elementId) && !oldNoteWireIds.includes(elementId)), [...boardBeforeRestart?.elements.keys() ?? []], 'a store written before compact rows keeps its element order after the upgrade');
   const drawnAfterRestart = new Map(layoutBoard(reloaded.board ?? legacy.board).elements.flatMap((drawn) => (drawn.kind === 'box' ? [[drawn.id, [drawn.x, drawn.y]] as const] : [])));
   const chainIds = [...nearOfByBoxId.keys()];
   assert.deepEqual(chainIds.map((boxId) => drawnAfterRestart.get(boxId)), chainIds.map((boxId) => [expectedRectById.get(boxId)?.x, expectedRectById.get(boxId)?.y]), 'a stored near chain is pinned where it was drawn, from a JSON row and from a compact row alike');

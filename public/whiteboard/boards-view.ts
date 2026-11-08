@@ -720,8 +720,7 @@ function openImageViewer(pressedImage: PressedImage): void {
   requestAnimationFrame(() => btnCancel.focus());
 }
 
-const NOTE_OVERLAP_ON_BOX = 24;
-const NOTE_RISE_ABOVE_BOX = 8;
+const NOTE_GAP_BESIDE_BOX = 24;
 
 function addNoteOn(boxId: string): void {
   openTextDialog({
@@ -734,8 +733,8 @@ function addNoteOn(boxId: string): void {
       const targetRect = renderer?.boundsOf(boxId);
       if (!targetRect) return Promise.resolve('That box is not on the board any more.');
       const pinnedOffsetY = renderer?.layout()?.pinnedOffsetY ?? 0;
-      const noteAt = { x: Math.round(targetRect.x + targetRect.width - NOTE_OVERLAP_ON_BOX), y: Math.round(targetRect.y - pinnedOffsetY - NOTE_RISE_ABOVE_BOX) };
-      const noteBoxId = newElementId('note');
+      const noteAt = { x: Math.round(targetRect.x + targetRect.width + NOTE_GAP_BESIDE_BOX), y: Math.round(targetRect.y - pinnedOffsetY) };
+      const noteBoxId = newElementId('box');
       const { title, lines } = noteBoxTextOf(text);
       return sendOpsFromDialog([
         { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), at: noteAt }) },
