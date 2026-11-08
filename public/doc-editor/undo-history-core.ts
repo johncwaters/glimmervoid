@@ -23,7 +23,7 @@ export interface DocHistory {
   openGroup: OpenGroup | null;
 }
 
-export interface DocEdit {
+interface DocEdit {
   kind: EditKind;
   before: string;
   after: string;
@@ -32,7 +32,7 @@ export interface DocEdit {
   atMs: number;
 }
 
-export const TYPING_GROUP_GAP_MS = 1000;
+const TYPING_GROUP_GAP_MS = 1000;
 export const EMPTY_DOC_HISTORY: DocHistory = Object.freeze({ stacks: Object.freeze({ undo: [], redo: [] }), openGroup: null });
 
 const GROUPED_EDIT_KINDS: ReadonlySet<EditKind> = new Set(['type', 'delete']);
