@@ -98,7 +98,7 @@ export const BoardChrome = z.object({
 export const TileKey = z.object({ chunkX: z.number().int(), chunkY: z.number().int(), lod: z.enum(TILE_LODS), level: z.number().int().min(0).max(30) });
 
 export const PaintedElement = z.object({ paintOrder: z.number().int().min(0), element: LaidOutElement, record: Element.optional() });
-export const PlacedPaint = z.object({ paintOrder: z.number().int().min(0), element: PlacedElement, record: Element.optional() });
+export const PlacedPaint = z.object({ paintOrder: z.number().int().min(0), element: PlacedElement });
 
 const RouteSide = z.enum(['left', 'right', 'top', 'bottom']);
 export const RememberedRoute = z.object({ wireKey: z.string(), exitSide: RouteSide, entrySide: RouteSide, start: LayoutPoint, end: LayoutPoint, points: z.array(LayoutPoint), isRouted: z.boolean() });

@@ -100,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A large whiteboard shows sooner after a server restart.** The saved layout now keeps each element in the same compact form the board itself holds, so reopening a board loads it straight back instead of encoding every element again: building the first tiles of a 100,000 element board from its saved layout takes about 0.05 s instead of 1.25 s, and reading the saved layout about 0.4 s instead of 0.6 s. The first open after this update lays the board out once to save it in the new form.
 - **Saving a whiteboard edit takes less time.** Turning an element into its compact stored form now looks up the element's shape from its kind instead of checking it against every shape in turn, so encoding all 100,000 elements of the bench board takes about 0.6 s instead of 1.0 s. Edits, board loads and agent reads produce exactly the same data as before.
 - **The reconnecting dot beside the logo stays red.** It no longer fades in and out while the dashboard reconnects (or amber while it connects), so it reads like every other status color.
 - **The Split label is easy to read while you drag a board over a session.** The row behind dims and Split shows as a bordered chip on top of it.

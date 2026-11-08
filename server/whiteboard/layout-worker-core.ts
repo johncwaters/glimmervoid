@@ -3,15 +3,16 @@ import { z } from 'zod';
 import { BoardHead, BoardOutline, Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
 import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf, withRecord } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
-import type { LayoutCache, LayoutStamp } from './layout-cache.ts';
+import type { LayoutCache, LayoutStamp, SavedPaint } from './layout-cache.ts';
 import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
 const RequestId = z.number().int();
@@ -86,6 +87,14 @@ interface LayoutHost {
   handle(request: LayoutRequestBody): AnswerFields;
 }
 
+function savedPaintOf(index: TileIndex, slot: number, painted: PlacedPaint | null | undefined): SavedPaint[] {
+  if (!painted) return [];
+  const { id } = painted.element;
+  const kind = index.records.kindOf(id);
+  const body = index.records.bodyOf(id);
+  return kind && body !== undefined ? [{ slot, painted, record: { id, kind, body } }] : [];
+}
+
 function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
@@ -106,7 +115,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
       return null;
     }
     markStep('saved layout read');
-    const fromCache = { index: tileIndexOfPainted(stamp.version, cached.chrome, cached.painted), lineage: CACHED_LINEAGE, updatedAt: stamp.updatedAt };
+    const fromCache = { index: tileIndexOfPainted(stamp.version, cached.chrome, cached.records, cached.painted), lineage: CACHED_LINEAGE, updatedAt: stamp.updatedAt };
     markStep('tiles built from saved layout');
     tilesByBoardId.set(boardId, fromCache);
     return fromCache;
@@ -120,7 +129,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
     markStep('tile index built');
     tilesByBoardId.set(board.id, fresh);
-    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.map((painted) => (painted ? withRecord(fresh.index, painted) : null)), savedWorldOfBoard(board));
+    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.flatMap((painted, slot) => savedPaintOf(fresh.index, slot, painted)), savedWorldOfBoard(board));
     markStep('saved layout written');
     return fresh;
   }
@@ -174,10 +183,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
     const fromStamp = { version: fromVersion, updatedAt: tiles.updatedAt };
     tiles.updatedAt = board.updatedAt;
     const tileChanges = patchTileIndex(tiles.index, board, { version: board.version, chrome: layoutAdvance.chrome, changed: layoutAdvance.delta.changed, removedIds: layoutAdvance.delta.removedIds, recordChangedIds: [...changes.keys()] });
-    const changedPaints = tileChanges.changedSlots.flatMap(({ slot }) => {
-      const painted = tiles.index.painted[slot];
-      return painted ? [{ slot, painted: withRecord(tiles.index, painted) }] : [];
-    });
+    const changedPaints = tileChanges.changedSlots.flatMap(({ slot }) => savedPaintOf(tiles.index, slot, tiles.index.painted[slot]));
     cache.save(board.id, fromStamp, board, tiles.index.chrome, changedPaints, tileChanges.removedIds, { routes: layoutAdvance.changedRoutes, warnings: layoutAdvance.warningChanges });
     const viewerMessages = viewers.map((viewer): ViewerMessage => (viewer.version === fromVersion
       ? { kind: 'diff', viewerId: viewer.viewerId, fromVersion, diff: tileDiffOf(tiles.index, tileChanges, viewer.heldKeys) }
