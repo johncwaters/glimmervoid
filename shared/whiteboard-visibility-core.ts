@@ -213,7 +213,25 @@ function blockersAcross(blockers: FlatRects, direction: number, rayAcrosses: Flo
   return crossing;
 }
 
+function firstBlockerHitsByScan(blockers: FlatRects, direction: number, rays: Rays): Float64Array {
+  const view = blockerViewOf(blockers, direction);
+  const isNegated = direction === LEFT || direction === UP;
+  const hits = new Float64Array(rays.alongs.length);
+  for (let ray = 0; ray < hits.length; ray += 1) {
+    const rayAlong = isNegated ? -(rays.alongs.values[ray] ?? 0) : rays.alongs.values[ray] ?? 0;
+    const rayAcross = rays.acrosses.values[ray] ?? 0;
+    let nearest = Infinity;
+    for (let blocker = 0; blocker < blockers.count; blocker += 1) {
+      const start = view.starts[blocker] ?? 0;
+      if (start >= rayAlong && start < nearest && (view.lows[blocker] ?? 0) < rayAcross && rayAcross < (view.highs[blocker] ?? 0)) nearest = start;
+    }
+    hits[ray] = isNegated ? -nearest : nearest;
+  }
+  return hits;
+}
+
 function firstBlockerHits(allBlockers: FlatRects, direction: number, rays: Rays): Float64Array {
+  if (rays.alongs.length * allBlockers.count <= MAX_RAY_BLOCKER_PAIRS_FOR_SCAN) return firstBlockerHitsByScan(allBlockers, direction, rays);
   const blockers = rays.alongs.length * FEW_RAYS_SHARE < allBlockers.count ? blockersAcross(allBlockers, direction, filled(rays.acrosses)) : allBlockers;
   const view = blockerViewOf(blockers, direction);
   const isNegated = direction === LEFT || direction === UP;
@@ -257,7 +275,20 @@ function firstBlockerHits(allBlockers: FlatRects, direction: number, rays: Rays)
   return hits;
 }
 
+function insideBlockerFlagsByScan(blockers: FlatRects, xs: Float64Array, ys: Float64Array): Uint8Array {
+  const isInside = new Uint8Array(xs.length);
+  for (let point = 0; point < xs.length; point += 1) {
+    const x = xs[point] ?? 0;
+    const y = ys[point] ?? 0;
+    for (let blocker = 0; blocker < blockers.count && isInside[point] === 0; blocker += 1) {
+      if ((blockers.lefts[blocker] ?? 0) < x && x < (blockers.rights[blocker] ?? 0) && (blockers.tops[blocker] ?? 0) < y && y < (blockers.bottoms[blocker] ?? 0)) isInside[point] = 1;
+    }
+  }
+  return isInside;
+}
+
 function insideBlockerFlags(blockers: FlatRects, xs: Float64Array, ys: Float64Array): Uint8Array {
+  if (xs.length * blockers.count <= MAX_RAY_BLOCKER_PAIRS_FOR_SCAN) return insideBlockerFlagsByScan(blockers, xs, ys);
   const isInside = new Uint8Array(xs.length);
   const points = emptyFlatRects(xs.length);
   for (let point = 0; point < xs.length; point += 1) setFlatRect(points, point, xs[point] ?? 0, ys[point] ?? 0, xs[point] ?? 0, ys[point] ?? 0);
@@ -355,8 +386,7 @@ function portPiecesOf(prepared: PreparedObstacles, ports: readonly GraphPort[]):
 
 const CORNER_ROW_SIZE = 12;
 const FEW_RAYS_SHARE = 4;
-const CHANGE_REACH = 1;
-const MAX_CHANGED_RECTS_FOR_UPDATE = 64;
+const MAX_RAY_BLOCKER_PAIRS_FOR_SCAN = 4096;
 
 interface CornerTable {
   count: number;
@@ -449,33 +479,6 @@ function piecesOfTable(table: CornerTable, frame: Frame, blockers: FlatRects): {
   addPiece(vertical, frame.left, frame.top, frame.bottom);
   addPiece(vertical, frame.right, frame.top, frame.bottom);
   return { horizontal, vertical };
-}
-
-function isRowTouching(table: CornerTable, corner: number, regions: FlatRects): boolean {
-  const x = table.xs[corner] ?? 0;
-  const y = table.ys[corner] ?? 0;
-  for (let region = 0; region < regions.count; region += 1) {
-    const left = regions.lefts[region] ?? 0;
-    const top = regions.tops[region] ?? 0;
-    const right = regions.rights[region] ?? 0;
-    const bottom = regions.bottoms[region] ?? 0;
-    if (left <= x && x <= right && top <= y && y <= bottom) return true;
-    for (let slot = 0; slot < 4; slot += 1) {
-      const offset = corner * CORNER_ROW_SIZE + slot * 3;
-      const line = table.rows[offset] ?? Number.NaN;
-      if (Number.isNaN(line)) continue;
-      const start = table.rows[offset + 1] ?? 0;
-      const end = table.rows[offset + 2] ?? 0;
-      const isAlongX = slot === 0 || slot === 3;
-      const isTouching = isAlongX ? top <= line && line <= bottom && left <= end && start <= right : left <= line && line <= right && top <= end && start <= bottom;
-      if (isTouching) return true;
-    }
-  }
-  return false;
-}
-
-function cornerKeyOf(table: CornerTable, corner: number): string {
-  return `${table.xs[corner]},${table.ys[corner]},${table.awayDirections[corner]}`;
 }
 
 function isPieceBefore(first: MergedPieces, firstIndex: number, second: MergedPieces, secondIndex: number): boolean {
@@ -829,29 +832,6 @@ function preparedOf(input: ObstacleInput, frame: Frame, blockers: FlatRects, cor
   return { input, frame, blockers, corners, horizontal: mergedPieces(pieces.horizontal), vertical: mergedPieces(pieces.vertical), softAlongX: softIndexOf(input.softRects, true), softAlongY: softIndexOf(input.softRects, false) };
 }
 
-function updatedObstacles(previous: PreparedObstacles, input: ObstacleInput, changedRects: readonly Rect[]): PreparedObstacles | null {
-  const frame = frameOf(input, []);
-  if (!frame || !isSameFrame(frame, previous.frame) || input.contentTop !== previous.input.contentTop || changedRects.length > MAX_CHANGED_RECTS_FOR_UPDATE) return prepareObstacles(input);
-  const regions = blockingRectsOf(changedRects.map((rect) => ({ x: rect.x - CHANGE_REACH, y: rect.y - CHANGE_REACH, width: rect.width + CHANGE_REACH * 2, height: rect.height + CHANGE_REACH * 2 })));
-  const reusableRowByKey = new Map<string, number>();
-  for (let corner = 0; corner < previous.corners.count; corner += 1) {
-    if (!isRowTouching(previous.corners, corner, regions)) reusableRowByKey.set(cornerKeyOf(previous.corners, corner), corner);
-  }
-  const corners = cornerTableOf(input, frame);
-  const stale: number[] = [];
-  for (let corner = 0; corner < corners.count; corner += 1) {
-    const reusable = reusableRowByKey.get(cornerKeyOf(corners, corner));
-    if (reusable === undefined) {
-      stale.push(corner);
-      continue;
-    }
-    corners.rows.set(previous.corners.rows.subarray(reusable * CORNER_ROW_SIZE, (reusable + 1) * CORNER_ROW_SIZE), corner * CORNER_ROW_SIZE);
-  }
-  const blockers = blockingRectsOf(input.hardRects);
-  fillCornerRows(corners, stale, blockers, frame);
-  return preparedOf(input, frame, blockers, corners);
-}
-
 function prepareObstacles(input: ObstacleInput): PreparedObstacles | null {
   return preparedFor(input, []);
 }
@@ -958,5 +938,5 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
   return graph;
 }
 
-export { buildGraphOn, CLEARANCE, prepareObstacles, updatedObstacles };
-export type { GraphPort, PreparedObstacles, VisibilityGraph };
+export { buildGraphOn, CLEARANCE, prepareObstacles };
+export type { GraphPort, VisibilityGraph };

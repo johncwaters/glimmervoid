@@ -317,14 +317,19 @@ test('a dense board routes every wire around the boxes instead of drawing dog-le
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
 });
 
-test('a wire past a box placed above the content top goes around that box, not through it', () => {
-  const placedBox = (id: string, x: number) => ({ kind: 'box', id, title: id, lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }], at: { x, y: 40 } });
-  const elements = { a: placedBox('a', 0), b: placedBox('b', 300), c: placedBox('c', 600), w: { kind: 'wire', id: 'w', from: 'a', to: 'c', fromSide: 'right', toSide: 'left' } };
+test('a wire past a box placed above the content top goes around that box, not through it, and reaches a box pinned higher still', () => {
+  const placedBox = (id: string, x: number, y = 40) => ({ kind: 'box', id, title: id, lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }], at: { x, y } });
+  const elements = {
+    a: placedBox('a', 0), b: placedBox('b', 300), c: placedBox('c', 600), high: placedBox('high', 200, -370),
+    w: { kind: 'wire', id: 'w', from: 'a', to: 'c', fromSide: 'right', toSide: 'left' },
+    up: { kind: 'wire', id: 'up', from: 'c', to: 'high', fromSide: 'top', toSide: 'right', label: 'compiles' },
+    down: { kind: 'wire', id: 'down', from: 'high', to: 'a', fromSide: 'left', toSide: 'top', label: 'pushes' },
+  };
   const layout = layoutBoard(Board.parse({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
-  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route')), [], layout.warnings.join('\n'));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route') || warning.includes('no clear spot')), [], layout.warnings.join('\n'));
 });
 
-test('a decision fanning out to a stack of boxes keeps only the crossing its output order forces', () => {
+test('a decision fanning out to a stack of boxes draws its wires without crossings', () => {
   const fanBoard = Board.parse({
     id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
@@ -345,7 +350,7 @@ test('a decision fanning out to a stack of boxes keeps only the crossing its out
     },
   });
   const crossings = layoutBoard(fanBoard).warnings.filter((warning) => warning.includes('crosses wire'));
-  assert.deepEqual(crossings, ['wire w12 crosses wire w13']);
+  assert.deepEqual(crossings, []);
 });
 
 test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
