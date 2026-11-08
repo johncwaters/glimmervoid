@@ -17,7 +17,7 @@ import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurs
 import { CHANNELS, THREE_G_PROFILE, UNSHAPED_PROFILE, median, medianRunIndex } from './shaping-core.ts';
 import { PONG, fillCompleteMarker } from './scrollback-agent.ts';
 import { createShapingProxy } from './shaping-proxy.ts';
-import { runWhiteboardBench } from './whiteboard-bench.ts';
+import { runWhiteboardBench, runWhiteboardLayout, runWhiteboardReopen, runWhiteboardRetained } from './whiteboard-bench.ts';
 import type { ChannelTallies, ShapingProxy } from './shaping-proxy.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -980,6 +980,9 @@ async function main(): Promise<number> {
     return 2;
   }
   const argv = process.argv.slice(2);
+  if (argv.includes('--whiteboard-reopen')) return runWhiteboardReopen();
+  if (argv.includes('--whiteboard-retained')) return runWhiteboardRetained(argv);
+  if (argv.includes('--whiteboard-layout')) return runWhiteboardLayout(argv);
   if (argv.includes('--whiteboard')) return runWhiteboardBench(argv, { repoRoot: REPO_ROOT, clientIndexPath: path.join(CLIENT_DIR, 'index.html'), findStaleBuildReason });
   const options = parseOptions(argv);
   if (!fs.existsSync(path.join(CLIENT_DIR, 'index.html'))) {
