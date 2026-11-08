@@ -99,6 +99,28 @@ test('round-trips header, data, hook, state, input, resize, footer in write orde
   }
 });
 
+test('a delivered value split across PTY data chunks is masked, and every other byte reaches the recording', async () => {
+  const baseDir = makeBaseDir();
+  try {
+    const deliveredValue = 'zq81-plain-canary-valuez';
+    const recorder = new SessionRecorder({ name: 'split-value-session', baseDir, recordData: true });
+    recorder.open();
+    recorder.maskDeliveredValues([deliveredValue]);
+    recorder.writeHeader({ cols: 80, rows: 24 });
+    recorder.writeData(`token ${deliveredValue.slice(0, 9)}`);
+    recorder.writeData(`${deliveredValue.slice(9)} done zq8`);
+    recorder.writeData(`again ${deliveredValue}`);
+    recorder.writeFooter('exit', 0);
+    await closeAndFlush(recorder);
+
+    const recordedData = readLines(findRecordingFile(baseDir, 'split-value-session')).filter((record) => record.type === 'data').map((record) => record.data).join('');
+    assert.equal(recordedData.includes(deliveredValue.slice(0, 9)), false);
+    assert.equal(recordedData, `token ${String.fromCharCode(0x2022).repeat(8)} done zq8again ${String.fromCharCode(0x2022).repeat(8)}`);
+  } finally {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  }
+});
+
 test('signals mode records hooks and state transitions but no PTY bytes, input or resizes', async () => {
   const baseDir = makeBaseDir();
   try {

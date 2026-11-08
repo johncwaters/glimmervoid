@@ -114,6 +114,17 @@ function deliveredValueRanges(text: string, deliveredValues: readonly string[]):
   return ranges;
 }
 
+export function deliveredValuePrefixLength(text: string, deliveredValues: readonly string[]): number {
+  const lastMaskedEnd = deliveredValueRanges(text, deliveredValues).reduce((latestEnd, range) => Math.max(latestEnd, range.end), 0);
+  let longestPrefixLength = 0;
+  for (const piece of deliveredValuePieces(deliveredValues)) {
+    for (let prefixLength = Math.min(piece.length - 1, text.length - lastMaskedEnd); prefixLength > longestPrefixLength; prefixLength--) {
+      if (text.endsWith(piece.slice(0, prefixLength))) longestPrefixLength = prefixLength;
+    }
+  }
+  return longestPrefixLength;
+}
+
 export function maskSecrets(text: string, deliveredValues: readonly string[] = []): string {
   const secretRanges = mergeOverlapping([...findSecretRanges(text), ...deliveredValueRanges(text, deliveredValues)]);
   if (secretRanges.length === 0) return text;

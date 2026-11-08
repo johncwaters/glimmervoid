@@ -8,7 +8,7 @@ import type { WriteStream } from "node:fs";
 
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { safePathSegment } from "../shared/paths.ts";
-import { maskSecretStrings } from "../shared/secret-patterns.ts";
+import { deliveredValuePrefixLength, maskSecretStrings } from "../shared/secret-patterns.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import type { SessionState } from "../shared/states.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -79,6 +79,7 @@ class SessionRecorder {
   _disabled: boolean;
   _isAwaitingRunHeader: boolean;
   _deliveredSecretValues: readonly string[] = [];
+  _heldBackData = "";
   retentionDone: Promise<void>;
 
   constructor({ name, baseDir, recordData = false, maxFileSize, retainDays, retainFiles, retainBytes }: SessionRecorderOptions) {
@@ -138,6 +139,20 @@ class SessionRecorder {
 
   writeData(data: string): void {
     if (!this._recordData) return;
+    const pendingData = this._heldBackData + data;
+    const heldBackLength = deliveredValuePrefixLength(pendingData, this._deliveredSecretValues);
+    this._heldBackData = pendingData.slice(pendingData.length - heldBackLength);
+    this._writeDataRecord(pendingData.slice(0, pendingData.length - heldBackLength));
+  }
+
+  _flushHeldBackData(): void {
+    const heldBackData = this._heldBackData;
+    this._heldBackData = "";
+    this._writeDataRecord(heldBackData);
+  }
+
+  _writeDataRecord(data: string): void {
+    if (!data) return;
     this._write({ type: "data", ts: Date.now(), len: data.length, data });
   }
 
@@ -165,6 +180,7 @@ class SessionRecorder {
   }
 
   writeFooter(reason: string, exitCode: number | null | undefined): void {
+    this._flushHeldBackData();
     const record = { type: "footer", ts: Date.now(), reason, exitCode: exitCode != null ? exitCode : null };
     this._write(record);
   }
@@ -184,6 +200,7 @@ class SessionRecorder {
 
   close(): void {
     if (this._closed) return;
+    this._flushHeldBackData();
     this._closed = true;
     this._releaseOpenPath();
     if (!this._stream) return;
