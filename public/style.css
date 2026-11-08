@@ -1593,6 +1593,9 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   height: 16px;
 }
 
+.add-session-word .agent-mark,
+.add-session-row .agent-mark { color: var(--agent-brand, var(--text-head)); }
+
 .add-session-word[aria-expanded="true"],
 .add-session-word:focus-visible {
   border-bottom-color: var(--accent);
