@@ -162,6 +162,7 @@ export const Frame = z.object({
   title: Title,
   contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }).describe('the box ids it encloses'),
   loop: z.boolean().default(false),
+  collapsed: z.boolean().default(false).describe('a stack: draws as one card showing its first box, hides the rest, and ends their wires at the card; a box sits in at most one collapsed frame'),
 }).strict();
 
 export const Wire = z.object({

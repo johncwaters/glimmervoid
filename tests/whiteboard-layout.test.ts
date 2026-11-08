@@ -586,3 +586,45 @@ test('removing a box on a small remembered board pins the boxes placed near it w
   assert.equal(follower.near, null);
   assert.deepEqual(follower.at, { x: drawnFollower.x, y: drawnFollower.y });
 });
+
+test('a collapsed frame draws as one stack card, hides the boxes under its first, ends their wires at the card, and refuses a box already in another stack', () => {
+  const author = { id: 'agent', name: 'agent' };
+  const stackBoard = Board.parse({
+    id: 'stacks', title: 'stacks', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      top: { kind: 'box', id: 'top', title: 'Top card', at: { x: 40, y: 40 } },
+      under: { kind: 'box', id: 'under', title: 'Under card', at: { x: 40, y: 400 } },
+      source: { kind: 'box', id: 'source', title: 'Source', at: { x: 600, y: 400 } },
+      w1: { kind: 'wire', id: 'w1', from: 'source', to: 'under' },
+      inside: { kind: 'wire', id: 'inside', from: 'top', to: 'under' },
+      refs: { kind: 'frame', id: 'refs', title: 'Refs', contains: ['top', 'under'] },
+    },
+  });
+  let world = createLayoutWorld(stackBoard, null, 0);
+  const staged = stageOps(stackBoard, [Op.parse({ op: 'set', id: 'refs', fields: { collapsed: true } })], author, 0, null);
+  assert.ok(staged.ok, staged.ok ? '' : staged.error);
+  const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: stackBoard.elements[id], after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  staged.commit();
+  world = applyLayoutDelta(world, staged.board, changes).world;
+  const kept = layoutOf(world);
+  const fresh = layoutBoard(staged.board);
+  assert.deepEqual(kept.elements.map((element) => element.id).sort(), fresh.elements.map((element) => element.id).sort(), 'a layout world kept across the collapse places what a fresh layout places');
+  const byId = new Map(fresh.elements.map((element) => [element.id, element]));
+  assert.equal(byId.has('under'), false, 'the box under the top card is hidden');
+  assert.equal(byId.has('inside'), false, 'a wire between two stacked boxes is hidden');
+  const card = byId.get('refs');
+  const topCard = byId.get('top');
+  const wire = byId.get('w1');
+  assert.ok(card?.kind === 'frame' && topCard?.kind === 'box' && wire?.kind === 'wire');
+  assert.equal(card.stackedBoxCount, 2);
+  assert.ok(contains(card, topCard), 'the card sits around the top box');
+  assert.ok(wire.end.x >= topCard.x - 1 && wire.end.x <= topCard.x + topCard.width + 1 && wire.end.y >= topCard.y - 1 && wire.end.y <= topCard.y + topCard.height + 1, 'a wire to a hidden box ends at the card');
+  const moved = stageOps(staged.board, [Op.parse({ op: 'set', id: 'source', fields: { at: { x: 700, y: 420 } } })], author, 0, null);
+  assert.ok(moved.ok, moved.ok ? '' : moved.error);
+  const moveChanges = new Map(Object.entries(moved.diff.elements).map(([id, change]) => [id, { before: staged.board.elements[id], after: moved.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  moved.commit();
+  const keptAfterMove = layoutOf(applyLayoutDelta(world, moved.board, moveChanges).world);
+  assert.deepEqual(keptAfterMove.elements.map((element) => element.id).sort(), layoutBoard(moved.board).elements.map((element) => element.id).sort(), 'moving a box wired into a stack keeps its wire to the card');
+  const second = applyOps(staged.board, [Op.parse({ op: 'add', element: { kind: 'frame', id: 'again', title: 'Again', contains: ['under'], collapsed: true } })], author, 0);
+  assert.equal(second.ok ? '' : second.error, 'op 1: frame again stacks under, which is already in stack refs');
+});
