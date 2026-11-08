@@ -81,6 +81,7 @@ const LOOP_DELAY_RESOLUTION_MS = 10;
 const NANOSECONDS_PER_MS = 1e6;
 const CHILD_RESULT_PREFIX = 'whiteboard-child-result ';
 const STEP_LINE_PREFIX = '[bench-step] ';
+const SERVER_OPEN_LINE_PREFIX = '[whiteboard] open ';
 const CHILD_TIMEOUT_MS = 1_200_000;
 const CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
 const SECTION_FLAGS: Record<string, BenchSection> = { '--server-only': 'server', '--browser': 'browser', '--mcp': 'mcp' };
@@ -506,9 +507,9 @@ function printChildResult(childResult: unknown): number {
   return 0;
 }
 
-function relayChildSteps(stderr: string): void {
-  for (const line of stderr.split('\n')) {
-    if (line.startsWith(STEP_LINE_PREFIX)) console.error(line);
+function relayChildSteps(output: string): void {
+  for (const line of output.split('\n')) {
+    if (line.startsWith(STEP_LINE_PREFIX) || line.startsWith(SERVER_OPEN_LINE_PREFIX)) console.error(line);
   }
 }
 
@@ -516,11 +517,17 @@ function stderrOf(error: unknown): string {
   return error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' ? error.stderr : '';
 }
 
+function stdoutOf(error: unknown): string {
+  return error instanceof Error && 'stdout' in error && typeof error.stdout === 'string' ? error.stdout : '';
+}
+
 async function childResultOf<Shape extends z.ZodType>(harnessPath: string, childArguments: string[], schema: Shape): Promise<z.infer<Shape>> {
   const { stdout, stderr } = await runCommand(process.execPath, [harnessPath, ...childArguments], { timeout: CHILD_TIMEOUT_MS, maxBuffer: CHILD_OUTPUT_BYTES }).catch((error: unknown) => {
+    relayChildSteps(stdoutOf(error));
     relayChildSteps(stderrOf(error));
     throw error;
   });
+  relayChildSteps(stdout);
   relayChildSteps(stderr);
   logStep(`${childArguments[0]} child process done`);
   const line = stdout.split('\n').find((text) => text.startsWith(CHILD_RESULT_PREFIX));

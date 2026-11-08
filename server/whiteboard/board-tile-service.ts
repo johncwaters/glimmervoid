@@ -8,7 +8,7 @@ import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
-import type { LayoutAnswer, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
+import type { LayoutAnswer, OpenStep, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 
 interface TileViewer {
   send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
@@ -59,9 +59,14 @@ interface BoardRegionRead {
   outline: BoardOutline | null;
 }
 
+interface OpenStepLog {
+  mark(step: string, fields?: Record<string, number>): void;
+  addWorkerSteps(steps: readonly OpenStep[]): void;
+}
+
 interface BoardTileService {
-  view(viewer: TileViewer, request: ViewRequest): Promise<void>;
-  viewCached(viewer: TileViewer, request: ViewRequest): Promise<boolean>;
+  view(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<void>;
+  viewCached(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<boolean>;
   advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null>;
   forget(viewer: TileViewer): void;
   forgetBoard(boardId: string): void;
@@ -127,7 +132,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     if (state) viewerById.delete(state.viewerId);
   }
 
-  async function sendView(viewer: TileViewer, request: ViewRequest, source: TileSource): Promise<boolean> {
+  async function sendView(viewer: TileViewer, request: ViewRequest, source: TileSource, openSteps: OpenStepLog | undefined): Promise<boolean> {
     const previous = stateByViewer.get(viewer);
     const isInSync = previous?.boardId === request.boardId && previous.version === source.version && request.knownVersion === source.version;
     const heldIds = new Set(isInSync ? previous.heldKeys.map(tileIdOf) : []);
@@ -139,12 +144,15 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     stateByViewer.set(viewer, { viewerId, boardId: request.boardId, version: source.version, heldKeys: wantedKeys });
     if (isInSync && missingKeys.length === 0) return true;
     const answer = await source.fetch(missingKeys, !isInSync);
+    if (answer.openSteps) openSteps?.addWorkerSteps(answer.openSteps);
     if (answer.isCacheMiss) {
       forgetViewer(viewer);
       return false;
     }
+    openSteps?.mark('tiles answered', { tiles: answer.tiles?.length ?? 0 });
     if (stateByViewer.get(viewer)?.boardId !== request.boardId) return true;
     viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: source.version, ...source.framing(answer), chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
+    openSteps?.mark('tiles sent');
     return true;
   }
 
@@ -207,19 +215,19 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
   }
 
   return {
-    view: async (viewer, request) => {
+    view: async (viewer, request, openSteps) => {
       lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
       const board = boardOf(request.boardId);
       if (!board) return;
-      await sendView(viewer, request, loadedSource(board)).catch((error: unknown) => {
+      await sendView(viewer, request, loadedSource(board), openSteps).catch((error: unknown) => {
         logger.warn(`[whiteboard] tiles of board ${request.boardId} could not be sent: ${errorMessage(error)}`);
       });
     },
-    viewCached: async (viewer, request) => {
+    viewCached: async (viewer, request, openSteps) => {
       const board = unloadedBoardOf(request.boardId);
       if (!board) return false;
       lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
-      return sendView(viewer, request, cachedSource(board)).catch(() => false);
+      return sendView(viewer, request, cachedSource(board), openSteps).catch(() => false);
     },
     advance,
     forget: forgetViewer,
@@ -234,4 +242,4 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
 }
 
 export { createBoardTileService };
-export type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage, TileViewer };
+export type { BoardPictureRead, BoardTileService, LayoutSummary, OpenStepLog, PictureImage, TileViewer };

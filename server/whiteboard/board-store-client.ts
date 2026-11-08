@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
@@ -17,7 +18,7 @@ interface PendingRequest {
 
 interface BoardStore {
   loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
-  loadElements(head: BoardRecord): Promise<BoardRecord | null>;
+  loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null>;
   assetIds(): Promise<Set<string>>;
   boardsLinkingTo(boardId: string): Promise<string[]>;
   boardIds(): Promise<Set<string>>;
@@ -108,9 +109,22 @@ function createBoardStore(boardsRoot: string): BoardStore {
     return upgradedRecordOfRows(headRowsOf(head), elementBodies);
   }
 
-  async function loadElements(head: BoardRecord): Promise<BoardRecord | null> {
+  async function loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
     const elements = elementTableOf();
-    const isCurrentShape = await forEachElementPage(head.board.id, (page) => addParsedElements(elements, page));
+    const startedAt = performance.now();
+    let pageCount = 0;
+    let parseMs = 0;
+    let longestPageParseMs = 0;
+    const isCurrentShape = await forEachElementPage(head.board.id, (page) => {
+      const parseStartedAt = performance.now();
+      const isParsed = addParsedElements(elements, page);
+      const pageParseMs = performance.now() - parseStartedAt;
+      pageCount += 1;
+      parseMs += pageParseMs;
+      longestPageParseMs = Math.max(longestPageParseMs, pageParseMs);
+      return isParsed;
+    });
+    markStep?.('store pages read and parsed', { pages: pageCount, readMs: Math.round(performance.now() - startedAt - parseMs), parseMs: Math.round(parseMs), longestPageParseMs: Math.round(longestPageParseMs) });
     if (!isCurrentShape) return upgradedRecordOf(head);
     return recordOfRows(headRowsOf(head), elements) ?? upgradedRecordOf(head);
   }
