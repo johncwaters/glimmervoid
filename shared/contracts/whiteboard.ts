@@ -61,6 +61,17 @@ export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
 export const BOARD_PAGE_THEME_MESSAGE = 'glimmervoid-theme';
+export const BOARD_PAGE_GESTURE_MESSAGE = 'glimmervoid-board-page-gesture';
+export const BOARD_PAGE_ZOOMED_MESSAGE = 'glimmervoid-board-page-zoomed';
+
+const PagePixels = z.number().finite();
+export const BoardPageGesture = z.discriminatedUnion('gesture', [
+  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('pinch'), centerX: PagePixels, centerY: PagePixels, scaleFactor: z.number().finite().positive() }).strict(),
+  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('pan'), deltaX: PagePixels, deltaY: PagePixels }).strict(),
+  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('wheel'), centerX: PagePixels, centerY: PagePixels, deltaX: PagePixels, deltaY: PagePixels, isZoom: z.boolean() }).strict(),
+  z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('doubleTap'), centerX: PagePixels, centerY: PagePixels }).strict(),
+]);
+export type BoardPageGesture = z.infer<typeof BoardPageGesture>;
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 

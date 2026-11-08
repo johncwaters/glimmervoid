@@ -1,6 +1,7 @@
 import { FIT_ZOOM, isZoomedIn, panBy, stagePointOf, toggleFitAbout, wheelZoomFactor, zoomAbout } from './media-zoom-core.ts';
 import type { MediaZoom, StagePoint } from './media-zoom-core.ts';
 import { WHEEL_ZOOM_STEP } from './board-edit.ts';
+import type { BoardPageGesture } from '#shared/contracts/whiteboard.ts';
 
 const PAN_SLOP_PX = 6;
 const DOUBLE_TAP_WINDOW_MS = 300;
@@ -12,12 +13,32 @@ type StageGesture =
   | { kind: 'panning'; pointerId: number; last: StagePoint }
   | { kind: 'pinching'; distance: number; midpoint: StagePoint };
 
-type MediaZoomControl = {
+export type MediaZoomControl = {
   zoomAt: (mediaPoint: StagePoint, factor: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   toggleFitAt: (mediaPoint: StagePoint) => void;
   isZoomed: () => boolean;
 };
+
+export function applyPageGesture(control: MediaZoomControl, gesture: BoardPageGesture): void {
+  switch (gesture.gesture) {
+    case 'pinch':
+      control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, gesture.scaleFactor);
+      return;
+    case 'pan':
+      control.panBy(gesture.deltaX, gesture.deltaY);
+      return;
+    case 'wheel':
+      if (gesture.isZoom) {
+        control.zoomAt({ x: gesture.centerX, y: gesture.centerY }, wheelZoomFactor(gesture.deltaY, WHEEL_ZOOM_STEP));
+        return;
+      }
+      control.panBy(-gesture.deltaX, -gesture.deltaY);
+      return;
+    case 'doubleTap':
+      control.toggleFitAt({ x: gesture.centerX, y: gesture.centerY });
+  }
+}
 
 export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomedChange: (isZoomed: boolean) => void): MediaZoomControl {
   let zoom: MediaZoom = FIT_ZOOM;

@@ -1,7 +1,7 @@
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -25,7 +25,8 @@ import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './board-media-layer.ts';
-import { attachMediaZoom } from './media-zoom.ts';
+import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
+import type { MediaZoomControl } from './media-zoom.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
@@ -607,12 +608,22 @@ function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HT
   return picture;
 }
 
-function closeOnEscapeInsidePage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void): void {
+function postZoomedState(pageFrame: HTMLIFrameElement, isZoomed: boolean): void {
+  pageFrame.contentWindow?.postMessage({ type: BOARD_PAGE_ZOOMED_MESSAGE, isZoomed }, '*');
+}
+
+function listenToViewerPage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void, zoomControl: MediaZoomControl): void {
   const listening = new AbortController();
   window.addEventListener('message', (event) => {
-    if (event.source !== pageFrame.contentWindow || event.data !== BOARD_PAGE_ESCAPE_MESSAGE) return;
-    close();
+    if (event.source !== pageFrame.contentWindow) return;
+    if (event.data === BOARD_PAGE_ESCAPE_MESSAGE) {
+      close();
+      return;
+    }
+    const gesture = BoardPageGesture.safeParse(event.data);
+    if (gesture.success) applyPageGesture(zoomControl, gesture.data);
   }, { signal: listening.signal });
+  pageFrame.addEventListener('load', () => postZoomedState(pageFrame, zoomControl.isZoomed()), { signal: listening.signal });
   const overlayWatcher = new MutationObserver(() => {
     if (overlay.isConnected) return;
     listening.abort();
@@ -699,8 +710,10 @@ function openImageViewer(pressedImage: PressedImage): void {
   const zoomStage = el('div', 'wb-image-viewer-stage');
   zoomStage.append(enlargedMedia);
   dialog.append(zoomStage);
-  attachMediaZoom(zoomStage, enlargedMedia, () => {});
-  if (enlargedMedia instanceof HTMLIFrameElement) closeOnEscapeInsidePage(enlargedMedia, overlay, close);
+  const zoomControl = attachMediaZoom(zoomStage, enlargedMedia, (isZoomed) => {
+    if (enlargedMedia instanceof HTMLIFrameElement) postZoomedState(enlargedMedia, isZoomed);
+  });
+  if (enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(enlargedMedia, overlay, close, zoomControl);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }

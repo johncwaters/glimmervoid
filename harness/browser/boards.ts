@@ -524,6 +524,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await viewerPage.waitFor();
   assert.equal(await viewerPage.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a click on a page box opens it full size in the same sandbox');
   assert.notEqual(await viewerPage.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'the full size page takes the pointer');
+  await verifyViewerPageZoom(page, viewerPage);
   await page.frameLocator('iframe.wb-image-viewer-page').getByLabel('probe field').click();
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached', timeout: 5000 }).catch(() => assert.fail('Esc closes the full size page while focus is inside the page'));
@@ -557,6 +558,70 @@ function viewerScaleOf(media: Locator): Promise<number> {
     const transform = getComputedStyle(node).transform;
     return transform === 'none' ? 1 : new DOMMatrixReadOnly(transform).a;
   });
+}
+
+async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<void> {
+  await page.waitForFunction(() => document.querySelector('iframe.wb-image-viewer-page')?.getAnimations({ subtree: true }).length === 0);
+  const frameBounds = await viewerPage.boundingBox();
+  assert.ok(frameBounds);
+  const center = { x: frameBounds.x + frameBounds.width / 2, y: frameBounds.y + frameBounds.height / 2 };
+  await page.mouse.move(center.x, center.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await untilScaleOf(viewerPage, 1.05, 8, 'a ctrl wheel inside a full size page zooms it');
+  assert.ok(Math.abs(await viewerScaleOf(viewerPage) - 1.1) < 0.001, 'a ctrl wheel inside a full size page zooms the page by the board wheel step');
+  const zoomedBounds = await settledBoundsOf(viewerPage);
+  await page.mouse.wheel(0, 20);
+  await page.waitForFunction((zoomedY) => (document.querySelector('iframe.wb-image-viewer-page')?.getBoundingClientRect().y ?? zoomedY) !== zoomedY, zoomedBounds?.y ?? 0);
+  assert.equal(Math.round((zoomedBounds?.y ?? 0) - ((await settledBoundsOf(viewerPage))?.y ?? 0)), 20, 'a plain wheel inside a zoomed page pans it');
+  const beforeDrag = await settledBoundsOf(viewerPage);
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x, center.y + 15, { steps: 5 });
+  await page.mouse.up();
+  assert.equal(Math.round(((await settledBoundsOf(viewerPage))?.y ?? 0) - (beforeDrag?.y ?? 0)), 15, 'a mouse drag inside a zoomed page pans it');
+  await viewerPage.evaluate((frame) => new Promise((resolve) => {
+    frame.addEventListener('load', resolve, { once: true });
+    frame.setAttribute('src', frame.getAttribute('src') ?? '');
+  }));
+  const beforeReloadWheel = await settledBoundsOf(viewerPage);
+  await page.mouse.wheel(0, 10);
+  await page.waitForFunction((reloadY) => document.querySelector('iframe.wb-image-viewer-page')?.getBoundingClientRect().y !== reloadY, beforeReloadWheel?.y ?? 0);
+  await page.mouse.dblclick(center.x, center.y);
+  await untilScaleOf(viewerPage, 1, 1, 'a double click or double tap inside a zoomed page returns it to fit');
+  await pinchOn(page, center, 60, 180);
+  await untilScaleOf(viewerPage, 2.01, 8, 'a two finger pinch inside a full size page zooms it');
+  await doubleTapOn(page, center);
+  await untilScaleOf(viewerPage, 1, 1, 'a double click or double tap inside a zoomed page returns it to fit');
+}
+
+async function untilScaleOf(media: Locator, leastScale: number, mostScale: number, message: string): Promise<void> {
+  const lastScale = await media.evaluate((element, [least, most]) => new Promise<number>((resolve) => {
+    const giveUpAt = performance.now() + 3000;
+    const check = () => {
+      const scale = new DOMMatrixReadOnly(getComputedStyle(element).transform).a;
+      if ((scale >= least && scale <= most) || performance.now() > giveUpAt) {
+        resolve(scale);
+        return;
+      }
+      requestAnimationFrame(check);
+    };
+    check();
+  }), [leastScale, mostScale]);
+  assert.ok(lastScale >= leastScale && lastScale <= mostScale, `${message} (scale ${lastScale})`);
+}
+
+async function doubleTapOn(page: Page, point: { x: number; y: number }): Promise<void> {
+  const touchSession = await page.context().newCDPSession(page);
+  try {
+    for (let tap = 0; tap < 2; tap += 1) {
+      await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...point, id: 1 }] });
+      await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    }
+  } finally {
+    await touchSession.detach();
+  }
 }
 
 async function pinchOn(page: Page, center: { x: number; y: number }, fromGap: number, toGap: number): Promise<void> {
@@ -593,9 +658,9 @@ async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator
   const afterPan = await settledBoundsOf(media);
   assert.ok(beforePan && afterPan && Math.abs(beforePan.y - afterPan.y - 20) < 1.5, 'a plain wheel pans zoomed media');
   await page.mouse.dblclick(center.x, center.y);
-  assert.equal(await viewerScaleOf(media), 1, 'a double click on zoomed media returns it to fit');
+  await untilScaleOf(media, 1, 1, 'a double click on zoomed media returns it to fit');
   await page.mouse.dblclick(center.x, center.y);
-  assert.equal(await viewerScaleOf(media), 2, 'a double click at fit zooms the media to 2x');
+  await untilScaleOf(media, 2, 2, 'a double click at fit zooms the media to 2x');
   const beforeDrag = await settledBoundsOf(media);
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
@@ -633,7 +698,7 @@ async function verifyViewerZoomEdges(page: Page, media: Locator, viewerClose: Lo
   });
   assert.ok(isHeaderZoomCancelled, 'a ctrl wheel over the viewer header never zooms the dashboard');
   await page.mouse.dblclick(center.x, center.y);
-  assert.equal(await viewerScaleOf(media), 1, 'a double click on pinched media returns it to fit');
+  await untilScaleOf(media, 1, 1, 'a double click on pinched media returns it to fit');
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
   await page.mouse.move(closeBounds.x - 40, closeBounds.y + closeBounds.height / 2, { steps: 4 });
