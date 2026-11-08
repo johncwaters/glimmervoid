@@ -561,7 +561,8 @@ function stepBandOf(board: Board): StepBand {
 }
 
 function wireCeilingOf(freeformTop: number): number {
-  return freeformTop - WIRE_HEADROOM;
+  const hasStepBand = freeformTop > MARGIN;
+  return hasStepBand ? freeformTop - WIRE_HEADROOM : Number.NEGATIVE_INFINITY;
 }
 
 function pinnedOffsetYOf(board: Board): number {

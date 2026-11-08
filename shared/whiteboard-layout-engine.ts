@@ -270,7 +270,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
   return {
     lineage: lastLineage, version: board.version, board, minIncrementalElements, laidOutById: new Map(),
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE),
-    loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null, wholeBoardObstacles: null },
+    loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null },
     noteOrderById: new Map(), nextNoteOrder: 0, routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
     wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
@@ -302,7 +302,6 @@ function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncremental
     for (const element of layout.elements) world.laidOutById.set(element.id, element);
     return world;
   }
-  world.routeMemory.wholeBoardObstacles = null;
   for (const element of layout.elements) storeLaidOut(world, element);
   for (const element of board.elements.values()) {
     countElement(world, element, 1);
@@ -665,8 +664,8 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
     const contextIds = new Set([...completeBoxIds].flatMap((boxId) => wireIdsOn(board, boxId)).filter((wireId) => !rerouteIds.has(wireId)));
     const input = routeInputOver(world, board, rerouteIds, contextIds);
     const memory: RouteMemory = previousRound
-      ? { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(input), routeById: new Map([...world.routeMemory.routeById, ...previousRound.routeById]), warningPairs: null, wholeBoardObstacles: null }
-      : { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(previousInputOf(input, commit)), routeById: world.routeMemory.routeById, warningPairs: null, wholeBoardObstacles: null };
+      ? { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(input), routeById: new Map([...world.routeMemory.routeById, ...previousRound.routeById]), warningPairs: null }
+      : { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(previousInputOf(input, commit)), routeById: world.routeMemory.routeById, warningPairs: null };
     const result = routeWires(input, memory);
     const reroutedBusKeys = new Set([...rerouteIds].flatMap((id) => result.portEndsById.get(id)?.busKey ?? []));
     const promotedIds = [...contextIds].filter((id) => {
@@ -695,7 +694,6 @@ function rememberObstacles(world: LayoutWorld, commit: Commit): void {
   });
   for (const key of obstacleRectsByKey(tinyInput(commit.oldObstacles)).keys()) world.routeMemory.rectByKey.delete(key);
   for (const [key, rect] of obstacleRectsByKey(tinyInput(commit.newObstacles))) world.routeMemory.rectByKey.set(key, rect);
-  world.routeMemory.wholeBoardObstacles = null;
   world.routeMemory.warningPairs = null;
 }
 
