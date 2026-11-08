@@ -245,18 +245,48 @@ function writeJsonAtomicSync(filePath: string, value: unknown, options?: SyncWri
   writeTextAtomicSync(filePath, JSON.stringify(value, null, 2), options);
 }
 
-async function writeTextAtomic(filePath: string, content: string, {
-  mode, encoding = 'utf8', mkdir = false, exclusive = false, enforceMode = false, fsPromises = fs.promises,
-}: AsyncWriteOptions = {}): Promise<void> {
+interface StagedTextWrite {
+  tmpPath: string;
+  commit: () => void;
+  discard: () => Promise<void>;
+}
+
+async function stageTextAtomic(filePath: string, content: string, {
+  mode, encoding = 'utf8', mkdir = false, exclusive = false, fsPromises = fs.promises, fsSync = fs,
+}: AsyncWriteOptions & { fsSync?: SyncFileSystem } = {}): Promise<StagedTextWrite> {
   if (mkdir) await mkdirOf(fsPromises)(path.dirname(filePath), { recursive: true });
   const tmpPath = tmpPathFor(filePath);
-  try {
-    await fsPromises.writeFile(tmpPath, content, writeOptions(mode, encoding, exclusive));
-    await renameWithRetry(fsPromises, tmpPath, filePath);
-  } catch (error) {
+  const discard = async () => {
     try {
       await fsPromises.rm(tmpPath, { force: true });
     } catch {}
+  };
+  try {
+    await fsPromises.writeFile(tmpPath, content, writeOptions(mode, encoding, exclusive));
+  } catch (error) {
+    await discard();
+    throw error;
+  }
+  const commit = () => {
+    try {
+      renameWithRetrySync(fsSync, tmpPath, filePath);
+    } catch (error) {
+      try {
+        fsSync.rmSync(tmpPath, { force: true });
+      } catch {}
+      throw error;
+    }
+  };
+  return { tmpPath, commit, discard };
+}
+
+async function writeTextAtomic(filePath: string, content: string, options: AsyncWriteOptions = {}): Promise<void> {
+  const { mode, enforceMode = false, fsPromises = fs.promises } = options;
+  const staged = await stageTextAtomic(filePath, content, options);
+  try {
+    await renameWithRetry(fsPromises, staged.tmpPath, filePath);
+  } catch (error) {
+    await staged.discard();
     throw error;
   }
   if (!enforceMode || mode == null || !fsPromises.chmod) return;
@@ -399,6 +429,7 @@ export {
   loadJsonStateFileSync,
   loadedJsonValue,
   sleepSync,
+  stageTextAtomic,
   writeJsonAtomic,
   writeJsonAtomicSync,
   writeTextAtomic,

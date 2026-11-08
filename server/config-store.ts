@@ -6,7 +6,7 @@ import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config
 import { isTelemetryForcedOff } from './core/telemetry-core.ts';
 import { RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX, pickSettingsBlock, settingsBlockSpecFor } from './core/settings-block-core.ts';
-import { writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
+import { stageTextAtomic, writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
 import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
@@ -82,7 +82,6 @@ function createConfigStore({
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
   let synchronousWriteRevision = 0;
-  let lastSynchronousContent: string | null = null;
   let pendingSaves: Promise<unknown> = Promise.resolve();
 
   let lastSaveFailureReason: string | null = null;
@@ -126,7 +125,6 @@ function createConfigStore({
       _lastAppliedContent = null;
 
       writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
-      lastSynchronousContent = nextContent;
       synchronousWriteRevision++;
     } catch (err) {
       return refuseSave(`[config] Failed to write config.json: ${errorLabel(err)}`);
@@ -136,16 +134,11 @@ function createConfigStore({
 
   function saveAsync(mutatorFn: (config: GlimmervoidConfig) => unknown): Promise<GlimmervoidConfig | null> {
     const scheduledSave = pendingSaves.then(async () => {
-      let concurrentContent: string | null = null;
       for (;;) {
         const revision = synchronousWriteRevision;
         try {
-          const diskContent = await fs.promises.readFile(configPath, 'utf8');
-          if (revision !== synchronousWriteRevision) {
-            concurrentContent = lastSynchronousContent;
-            continue;
-          }
-          const freshContent = concurrentContent ?? diskContent;
+          const freshContent = await fs.promises.readFile(configPath, 'utf8');
+          if (revision !== synchronousWriteRevision) continue;
           const freshConfig = withEnvSecrets(normalizeConfigFile(JSON.parse(freshContent)), envSecrets);
           const effectiveConfig = prepareSave(freshConfig, mutatorFn);
           if (!effectiveConfig) return null;
@@ -157,15 +150,12 @@ function createConfigStore({
               console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorLabel(error));
             }
           }
+          const staged = await stageTextAtomic(configPath, nextContent, { mode: CONFIG_FILE_MODE });
           if (revision !== synchronousWriteRevision) {
-            concurrentContent = lastSynchronousContent;
+            await staged.discard();
             continue;
           }
-          await writeTextAtomic(configPath, nextContent, { mode: CONFIG_FILE_MODE });
-          if (revision !== synchronousWriteRevision) {
-            concurrentContent = lastSynchronousContent;
-            continue;
-          }
+          staged.commit();
           _lastWrittenContent = nextContent;
           _lastAppliedContent = null;
           return withExperimentalFeaturesGated(effectiveConfig, isExperimentalBuild);
