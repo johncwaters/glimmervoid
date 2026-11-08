@@ -5,7 +5,7 @@ import { elementTableOf, isElementTable } from '../whiteboard-element-table.ts';
 import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960,
+  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, dialsPerPage: 16, dialChoices: 12,
 });
 
 
@@ -54,8 +54,10 @@ const Output = z.object({
 }).strict().meta({ id: 'Output' });
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
-export const BOARD_PAGE_VIEWER_PARAM = 'viewer';
 export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
+export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
+export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
+export const BOARD_PAGE_THEME_MESSAGE = 'glimmervoid-theme';
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
@@ -63,6 +65,26 @@ const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc'] as const;
 const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown'] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 export const BOARD_DOC_CAP_BYTES = 256 * 1024;
+
+const DialId = z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, { error: 'a dial id is 1 to 40 letters, digits, dashes or underscores' });
+const DialLabel = z.string().min(1, { error: 'a dial needs a label' }).max(WHITEBOARD_LIMITS.title, { error: `a dial label is at most ${WHITEBOARD_LIMITS.title} characters` });
+const DialColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: 'a color dial value is #rrggbb' });
+const DialChoice = z.string().min(1).max(WHITEBOARD_LIMITS.title);
+
+export const Dial = z.discriminatedUnion('kind', [
+  z.object({ id: DialId, label: DialLabel, kind: z.literal('range'), min: z.number(), max: z.number(), step: z.number().positive().default(1), default: z.number() }).strict()
+    .refine((dial) => dial.min < dial.max && dial.default >= dial.min && dial.default <= dial.max, { error: 'a range dial needs min below max and its default between them' }),
+  z.object({ id: DialId, label: DialLabel, kind: z.literal('toggle'), default: z.boolean().default(false) }).strict(),
+  z.object({ id: DialId, label: DialLabel, kind: z.literal('color'), default: DialColor }).strict(),
+  z.object({ id: DialId, label: DialLabel, kind: z.literal('choice'), options: z.array(DialChoice).min(1).max(WHITEBOARD_LIMITS.dialChoices, { error: `a choice dial has at most ${WHITEBOARD_LIMITS.dialChoices} options` }), default: DialChoice }).strict()
+    .refine((dial) => dial.options.includes(dial.default), { error: 'a choice dial default is one of its options' }),
+], { error: 'a dial kind is range, toggle, color or choice' }).meta({ id: 'Dial', description: 'a control a page declares in its application/glimmervoid-params script tag' });
+
+export const DialManifest = z.array(Dial).max(WHITEBOARD_LIMITS.dialsPerPage, { error: `a page declares at most ${WHITEBOARD_LIMITS.dialsPerPage} dials` })
+  .refine((dials) => new Set(dials.map((dial) => dial.id)).size === dials.length, { error: 'each dial id is used once' });
+
+export const DialValue = z.union([z.number(), z.boolean(), DialChoice]);
+const DialParams = z.record(DialId, DialValue).default({}).describe('dial values for a page box, by dial id; a value must suit the dial its page declares');
 
 export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
@@ -72,6 +94,7 @@ export const BoxMedia = z.object({
   height: z.number().int().min(1).max(BOARD_MEDIA_MAX_EDGE_PX).describe('the media height in pixels, as attach returned it'),
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
+  dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
 }).strict().meta({ id: 'BoxMedia' });
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
@@ -102,6 +125,7 @@ const boxBaseFields = {
 const boxContentFields = {
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
   media: BoxMedia.nullable().default(null).describe('media drawn under the lines, from whiteboard attach'),
+  params: DialParams,
 };
 
 const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 outputs' });
@@ -125,6 +149,7 @@ const deviceBoxFields = {
   device: DeviceName,
   fit: DeviceFit,
   media: BoxMedia.nullable().default(null).describe('media drawn on the device screen, from whiteboard attach'),
+  params: DialParams,
 };
 
 const FIELD_NAMES_BY_SHAPE = Object.freeze({
@@ -155,6 +180,36 @@ export function linesOfBox(box: Box): readonly BoxLine[] {
 
 export function mediaOfBox(box: Box): BoxMedia | null {
   return box.shape === 'icon' ? null : box.media;
+}
+
+function paramsOfBox(box: Box): Readonly<Record<string, DialValue>> {
+  return box.shape === 'icon' ? {} : box.params;
+}
+
+export function dialValuesOfBox(box: Box): Record<string, DialValue> {
+  const media = mediaOfBox(box);
+  if (media?.kind !== 'page') return {};
+  const params = paramsOfBox(box);
+  return Object.fromEntries(media.dials.map((dial) => [dial.id, params[dial.id] ?? dial.default]));
+}
+
+function isDialValueSuited(dial: Dial, value: DialValue): boolean {
+  switch (dial.kind) {
+    case 'range': return typeof value === 'number' && value >= dial.min && value <= dial.max;
+    case 'toggle': return typeof value === 'boolean';
+    case 'color': return typeof value === 'string' && DialColor.safeParse(value).success;
+    case 'choice': return typeof value === 'string' && dial.options.includes(value);
+  }
+}
+
+export function dialParamsProblemOf(box: Box): string | null {
+  const dialsById = new Map((mediaOfBox(box)?.dials ?? []).map((dial) => [dial.id, dial]));
+  for (const [dialId, value] of Object.entries(paramsOfBox(box))) {
+    const dial = dialsById.get(dialId);
+    if (!dial) return `box ${box.id} sets dial ${dialId}, which its page does not declare`;
+    if (!isDialValueSuited(dial, value)) return `box ${box.id} sets dial ${dialId} to ${JSON.stringify(value)}, which does not suit a ${dial.kind} dial`;
+  }
+  return null;
 }
 
 export const Frame = z.object({
@@ -398,7 +453,7 @@ function filledLine(line: z.input<typeof BoxLine>): BoxLine {
 
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
   if (!media) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false };
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [] };
 }
 
 function filledBoxBase(box: SparseBox) {
@@ -413,10 +468,10 @@ function filledBoxBase(box: SparseBox) {
 function filledBox(box: SparseBox): Box {
   switch (box.shape) {
     case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon' };
-    case 'device': return { ...filledBoxBase(box), shape: 'device', device: box.device, fit: box.fit ?? 'fill', media: filledMedia(box.media) };
-    case 'decision': return { ...filledBoxBase(box), shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
-    case 'panel': return { ...filledBoxBase(box), shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    default: return { ...filledBoxBase(box), shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', media: filledMedia(box.media) };
+    case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
+    case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
   }
 }
 
@@ -447,6 +502,8 @@ export function sparseBoardReply<Body extends object>(body: Body): Body | Record
 export type Box = z.infer<typeof Box>;
 export type BoxLine = z.infer<typeof BoxLine>;
 export type BoxMedia = z.infer<typeof BoxMedia>;
+export type Dial = z.infer<typeof Dial>;
+export type DialValue = z.infer<typeof DialValue>;
 export type IconName = z.infer<typeof IconName>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
