@@ -148,6 +148,7 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
