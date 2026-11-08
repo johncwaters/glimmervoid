@@ -16,8 +16,8 @@ const loginPageStylesheet = styleBlocks(readRepoFile('server/remote-auth.ts'));
 const tailwindStylesheet = readRepoFile('public/tailwind.css');
 const typographyBible = readRepoFile('brand-bible/typography.yaml');
 
-const TYPE_TOKEN_BY_ROLE = { label: 'meta', meta: 'meta', body: 'body', title: 'title', display: 'display' } as const;
-const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)']);
+const TYPE_TOKEN_BY_ROLE = { label: 'meta', meta: 'meta', body: 'body', title: 'title', display: 'display', 'doc-h1': 'doc-h1', 'doc-h2': 'doc-h2', 'doc-h3': 'doc-h3' } as const;
+const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)']);
 const LITERAL_SIZE_TOKENS = new Map([['12px', 'var(--type-meta)'], ['14px', 'var(--type-body)'], ['16px', 'var(--type-title)'], ['20px', 'var(--type-display)']]);
 const BIBLE_FONT_WEIGHTS = new Set(['400', '700']);
 const LABEL_TRACKING = '0.08em';
@@ -43,7 +43,7 @@ function fontShorthands(rule: StyleRule): string[] {
 }
 
 function declaredSizes(rule: StyleRule): string[] {
-  const shorthandSizes = fontShorthands(rule).flatMap((value) => value.match(/var\(--type-[a-z]+\)|\b\d+(?:\.\d+)?(?:px|r?em|%)/)?.slice(0, 1) ?? []);
+  const shorthandSizes = fontShorthands(rule).flatMap((value) => value.match(/var\(--type-[a-z0-9-]+\)|\b\d+(?:\.\d+)?(?:px|r?em|%)/)?.slice(0, 1) ?? []);
   return [...declaredValues(rule, /font-size:\s*([^;}]+)/g), ...shorthandSizes].filter((size) => size !== 'inherit');
 }
 
@@ -60,12 +60,12 @@ function rulesWithLiteralSizesAsTokens(stylesheet: string): StyleRule[] {
 }
 
 function typeTokenValues(): Map<string, string> {
-  return new Map([...dashboardStylesheet.matchAll(/--type-([a-z]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+  return new Map([...dashboardStylesheet.matchAll(/--type-([a-z0-9-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
 }
 
 function bibleRoleSizes(): Map<string, string> {
   const scaleBlock = typographyBible.match(/^scale:\n((?: {2}.*\n)+)/m)?.[1] ?? '';
-  return new Map([...scaleBlock.matchAll(/^ {2}([a-z]+):.*\bsizePx: (\d+)/gm)].map((match) => [match[1], `${match[2]}px`]));
+  return new Map([...scaleBlock.matchAll(/^ {2}([a-z0-9-]+):.*\bsizePx: (\d+)/gm)].map((match) => [match[1], `${match[2]}px`]));
 }
 
 test('every dashboard font size is a type token', () => {
