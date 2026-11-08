@@ -36,6 +36,8 @@ const ViewerMessage = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('tiles'), viewerId: z.number().int(), chrome: BoardChrome, tiles: z.array(Tile) }),
 ]);
 
+const OpenStep = z.strictObject({ step: z.string(), elapsedMs: z.number(), heapBytes: z.number() });
+
 const LayoutAnswer = z.strictObject({
   requestId: RequestId,
   ok: z.literal(true),
@@ -52,6 +54,7 @@ const LayoutAnswer = z.strictObject({
   elementIds: z.array(z.string()).optional(),
   outline: BoardOutline.optional(),
   pictureImages: z.array(z.strictObject({ media: LaidOutMedia, width: z.number(), height: z.number() })).optional(),
+  openSteps: z.array(OpenStep).optional(),
   picture: z.union([
     z.strictObject({ ok: z.literal(true), svgDocument: z.string(), svgDensity: z.number(), maxPixels: z.number() }),
     z.strictObject({ ok: z.literal(false), error: z.string() }),
@@ -62,6 +65,7 @@ const LayoutReply = z.union([LayoutAnswer, z.strictObject({ requestId: RequestId
 
 type LayoutRequest = z.infer<typeof LayoutRequest>;
 type LayoutAnswer = z.infer<typeof LayoutAnswer>;
+type OpenStep = z.infer<typeof OpenStep>;
 type ViewerMessage = z.infer<typeof ViewerMessage>;
 type ViewerTiles = z.infer<typeof ViewerTiles>;
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
@@ -80,7 +84,7 @@ interface LayoutHost {
   handle(request: LayoutRequestBody): AnswerFields;
 }
 
-function createLayoutHost(cache: LayoutCache): LayoutHost {
+function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
   const syncIdByBoardId = new Map<string, number>();
@@ -95,8 +99,13 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     const held = tilesByBoardId.get(boardId);
     if (held?.index.version === stamp.version && held.updatedAt === stamp.updatedAt) return held;
     const cached = cache.layoutOf(boardId, stamp);
-    if (!cached) return null;
+    if (!cached) {
+      markStep('saved layout missed');
+      return null;
+    }
+    markStep('saved layout read');
     const fromCache = { index: tileIndexOfPainted(stamp.version, cached.chrome, cached.painted), lineage: CACHED_LINEAGE, updatedAt: stamp.updatedAt };
+    markStep('tiles built from saved layout');
     tilesByBoardId.set(boardId, fromCache);
     return fromCache;
   }
@@ -105,9 +114,12 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
     const held = cachedTilesOf(board.id, board);
     if (held) return held;
     const { lineage, layout } = lineageLayoutOf(board);
+    markStep('layout world built');
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
+    markStep('tile index built');
     tilesByBoardId.set(board.id, fresh);
     cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.map((painted) => (painted ? withRecord(fresh.index, painted) : null)));
+    markStep('saved layout written');
     return fresh;
   }
 
@@ -237,4 +249,4 @@ function createLayoutHost(cache: LayoutCache): LayoutHost {
 }
 
 export { LayoutReply, LayoutRequest, createLayoutHost };
-export type { LayoutAnswer, LayoutRequestBody, ViewerMessage, ViewerTiles };
+export type { LayoutAnswer, LayoutRequestBody, OpenStep, ViewerMessage, ViewerTiles };
