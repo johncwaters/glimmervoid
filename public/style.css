@@ -334,7 +334,6 @@ body {
 
 .header-connection[data-state="disconnected"] .connection-dot {
   background: var(--state-failed);
-  animation: blink 1s ease-in-out 3;
 }
 
 .header-connection[data-state="disconnected"] {
@@ -343,7 +342,6 @@ body {
 
 .header-connection[data-state="connecting"] .connection-dot {
   background: var(--state-waiting);
-  animation: blink 1s ease-in-out infinite;
 }
 
 .header-connection[data-state="shutdown"] .connection-dot {
@@ -352,11 +350,6 @@ body {
 
 .header-connection[data-state="shutdown"] {
   color: var(--text-muted);
-}
-
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.3; }
 }
 
 .app-body {
@@ -2917,9 +2910,9 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
 .focus-board-archive-summary { padding: 6px 4px 6px 32px; cursor: pointer; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--text-dim); }
 .focus-board-archive-list { display: flex; flex-direction: column; }
 .session-row[data-board-id][draggable="true"] { cursor: grab; }
-.session-row-item[data-board-drop] { outline: 1px dashed var(--accent); outline-offset: -1px; }
 .session-row-item[data-board-drop] .session-row-elapsed { visibility: hidden; }
-.session-row-item[data-board-drop]::after { content: 'Split'; position: absolute; top: 50%; right: 32px; transform: translateY(-50%); font-family: var(--font-mono); font-size: var(--type-meta); color: var(--accent); pointer-events: none; }
+.session-row-item[data-board-drop]::before { content: ''; position: absolute; inset: 0; z-index: 1; border: 1px dashed var(--accent); background: color-mix(in oklab, var(--bg-card) 85%, transparent); pointer-events: none; }
+.session-row-item[data-board-drop]::after { content: 'Split'; position: absolute; top: 50%; right: 32px; transform: translateY(-50%); z-index: 2; padding: 2px 8px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg-card); font-family: var(--font-mono); font-size: var(--type-meta); line-height: 1.4; color: var(--accent); pointer-events: none; }
 .rail-unsplit-slot { padding: 10px; text-align: center; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--text-dim); border: 1px dashed var(--border-hover); }
 .rail-unsplit-slot[data-over] { color: var(--accent); border-color: var(--accent); }
 .rail-status-key { order: 2; }
