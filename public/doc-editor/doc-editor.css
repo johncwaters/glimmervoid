@@ -39,9 +39,9 @@
 .doc-markup-row { display: grid; grid-template-columns: minmax(0, 46rem) 32ch; justify-content: center; }
 .doc-markup-line { min-height: calc(var(--type-title) * 1.75); padding: 0 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); font-synthesis-style: auto; font-size: var(--type-title); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-markup-row-margin { position: relative; }
-.doc-markup-row > :is(.doc-markup-line, .doc-preview-block, .doc-preview-toggle) { grid-area: 1 / 1; }
-.doc-markup-row > .doc-markup-row-margin { grid-area: 1 / 2; }
-.doc-markup-row > .doc-preview-toggle { justify-self: end; align-self: start; margin: 6px 8px 0 0; }
+.doc-markup-row > :is(.doc-markup-line, .doc-preview-block) { grid-area: 1 / 1; }
+.doc-markup-row > :is(.doc-markup-row-margin, .doc-preview-toggle) { grid-area: 1 / 2; }
+.doc-markup-row > .doc-preview-toggle { justify-self: start; align-self: start; margin: 6px 0 0 12px; }
 .doc-preview-block { padding: 8px 32px 4px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); }
 .doc-preview-block .plan-document { max-width: none; }
 .doc-preview-image { display: block; max-width: 100%; height: auto; margin: 4px 0 12px; border-radius: var(--radius); }
