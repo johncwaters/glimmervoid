@@ -5,7 +5,7 @@ import { elementTableOf, isElementTable } from '../whiteboard-element-table.ts';
 import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, dialsPerPage: 16, dialChoices: 12,
+  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12,
 });
 
 
@@ -119,6 +119,10 @@ const boxBaseFields = {
     .min(WHITEBOARD_LIMITS.boxWidthMin, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .max(WHITEBOARD_LIMITS.boxWidthMax, { error: `a box width is ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}` })
     .nullable().default(null).describe(`the box width in board units, ${WHITEBOARD_LIMITS.boxWidthMin} to ${WHITEBOARD_LIMITS.boxWidthMax}; null is the 220 default`),
+  height: z.number().int()
+    .min(1, { error: `a box height is 1 to ${WHITEBOARD_LIMITS.boxHeightMax}` })
+    .max(WHITEBOARD_LIMITS.boxHeightMax, { error: `a box height is 1 to ${WHITEBOARD_LIMITS.boxHeightMax}` })
+    .nullable().default(null).describe('the least box height in board units; the box still grows to fit its content; null fits the content'),
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
 };
 
@@ -460,7 +464,7 @@ function filledBoxBase(box: SparseBox) {
   return {
     kind: 'box' as const, id: box.id, title: box.title, icon: box.icon ?? null, refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     near: box.near ? { of: box.near.of, side: box.near.side, gap: box.near.gap ?? 60 } : null,
-    order: box.order ?? 0, at: box.at ?? null, width: box.width ?? null,
+    order: box.order ?? 0, at: box.at ?? null, width: box.width ?? null, height: box.height ?? null,
     step: box.step ? { status: box.step.status ?? 'planned', linkedBoardId: box.step.linkedBoardId ?? null } : null,
   };
 }
