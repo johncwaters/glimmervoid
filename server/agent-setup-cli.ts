@@ -27,8 +27,8 @@ interface AgentSetupInspection {
 function setupInputs(env: NodeJS.ProcessEnv = process.env) {
   return {
     filePath: grok.hooksFilePath(env),
-    relayPath: grok.RELAY_PATH,
-    hookToolRelayPath: grok.HOOK_TOOL_RELAY_PATH,
+    relayLaunch: grok.RELAY_LAUNCH,
+    hookToolRelayLaunch: grok.HOOK_TOOL_RELAY_LAUNCH,
     events: grok.HOOK_EVENTS,
     managedEventSets: grok.MANAGED_HOOK_EVENT_SETS,
   };

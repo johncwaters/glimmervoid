@@ -25,7 +25,7 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { suggestRepoRoots } from '../../repo-root-suggestions.ts';
-import { resolvePackageBin } from '../../runtime-paths.ts';
+import { resolvePackageBin, scriptLaunch } from '../../runtime-paths.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from '../../settings-payload.ts';
 import { expandTilde } from '../../usage/core/usage-scan-core.ts';
@@ -306,7 +306,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   function builtinHookGroups(): AgentHookGroup[] {
     const hookTools: ResolvedHookTool[] = [];
     const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
-    if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath });
+    if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath, launch: scriptLaunch(saneYoloPath, 'cc-safety-net') });
     const flags: InstalledHookFlags = {
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
       observeToolCalls: false,

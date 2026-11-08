@@ -46,7 +46,7 @@ async function buildBinary() {
   fs.rmSync(path.dirname(binaryPath), { recursive: true, force: true });
   const { exec: packageExecutable } = await import('@yao-pkg/pkg');
   await packageExecutable([
-    path.join(distDir, 'bin', 'glimmervoid.mjs'),
+    path.join(distDir, 'bin', 'binary-main.mjs'),
     '--sea',
     '--config', path.join(repoRoot, 'package.json'),
     '--targets', `node${BINARY_NODE_MAJOR}-${pkgPlatform}-${process.arch}`,

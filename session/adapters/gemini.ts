@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { execFileSync } from "../../server/child-process-safe.ts";
-import { relayPath } from "../../server/runtime-paths.ts";
+import { hookLaunch } from "../../server/runtime-paths.ts";
 import { GEMINI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { GEMINI_HOME_PROFILE, doesProjectConfigTurnHooksOff } from "../core/agent-home-core.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
@@ -23,8 +23,8 @@ import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "gemini";
 const COMMAND_NAME = "gemini";
-const RELAY_PATH = relayPath("hook-relay");
-const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const SANE_YOLO_EVENT = "BeforeTool";
 const HOOK_EVENTS: readonly string[] = Object.freeze(["SessionStart", "SessionEnd", "BeforeAgent", "AfterAgent", "AfterTool", "Notification"]);
 const HOOKS_REFUSAL = "the hook relay path cannot be written into gemini hooks";
@@ -88,11 +88,11 @@ const titleProfile: AgentTitleProfile = {
 function expectedHooks(): string | null {
   const hooksByEvent: Record<string, unknown[]> = {};
   for (const event of HOOK_EVENTS) {
-    const command = buildHookCommand(RELAY_PATH, event);
+    const command = buildHookCommand(RELAY_LAUNCH, event);
     if (!command) return null;
     hooksByEvent[event] = [{ hooks: [{ type: "command", command }] }];
   }
-  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [GEMINI_SANE_YOLO_FLAVOR]);
+  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_LAUNCH, "saneYolo", [GEMINI_SANE_YOLO_FLAVOR]);
   if (!saneYoloCommand) return null;
   hooksByEvent[SANE_YOLO_EVENT] = [{ hooks: [{ type: "command", command: saneYoloCommand }] }];
   return JSON.stringify(hooksByEvent);

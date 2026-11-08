@@ -109,7 +109,8 @@
   },
   "pkg": {
     "scripts": [
-      "dist/**/*.mjs"
+      "dist/**/*.mjs",
+      "node_modules/cc-safety-net/dist/**/*.js"
     ],
     "assets": [
       "dist/client/**/*",
@@ -122,7 +123,9 @@
       "node_modules/ffmpeg-static/ffmpeg*",
       "node_modules/node-pty/build/Release/*.node",
       "node_modules/node-pty/prebuilds/**/*",
-      "node_modules/fs-native-extensions/prebuilds/**/*"
+      "node_modules/fs-native-extensions/prebuilds/**/*",
+      "node_modules/cc-safety-net/package.json",
+      "node_modules/cc-safety-net/dist/**/package.json"
     ]
   }
 }

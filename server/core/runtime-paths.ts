@@ -71,3 +71,4 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
 }
 
 export { computeRuntimePaths };
+export type { SelfEntry };

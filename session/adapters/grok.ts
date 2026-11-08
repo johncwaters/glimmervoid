@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { relayPath } from "../../server/runtime-paths.ts";
+import { hookLaunch } from "../../server/runtime-paths.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../core/grok-hooks-file-core.ts";
@@ -22,8 +22,8 @@ import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "grok";
 const COMMAND_NAME = "grok";
-const RELAY_PATH = relayPath("hook-relay");
-const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const HOOK_EVENTS = [
   "UserPromptSubmit",
   "Stop",
@@ -252,12 +252,12 @@ const hooks: AgentHookProfile = {
     kind: "home-hooks-file",
     setupCommand: "glimmervoid agent setup grok",
     filePath: hooksFilePath,
-    isSaneYoloReady: (contents: string) => contents === renderGrokHooksFile({ relayPath: RELAY_PATH, events: HOOK_EVENTS, hookToolRelayPath: HOOK_TOOL_RELAY_PATH }),
+    isSaneYoloReady: (contents: string) => contents === renderGrokHooksFile({ relayLaunch: RELAY_LAUNCH, events: HOOK_EVENTS, hookToolRelayLaunch: HOOK_TOOL_RELAY_LAUNCH }),
     classifyContents: (contents: string) => classifyGrokHooksFile(contents, {
-      relayPath: RELAY_PATH,
+      relayLaunch: RELAY_LAUNCH,
       events: HOOK_EVENTS,
       managedEventSets: MANAGED_HOOK_EVENT_SETS,
-      hookToolRelayPath: HOOK_TOOL_RELAY_PATH,
+      hookToolRelayLaunch: HOOK_TOOL_RELAY_LAUNCH,
     }),
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
     userConfigFolders,
@@ -289,10 +289,10 @@ const grok = {
   mayContributeHooks,
   PROJECT_CONFIG_CANDIDATES,
   CLAUDE_COMPAT_HOOKS_ENV,
-  HOOK_TOOL_RELAY_PATH,
+  HOOK_TOOL_RELAY_LAUNCH,
   HOOK_EVENTS,
   MANAGED_HOOK_EVENT_SETS,
-  RELAY_PATH,
+  RELAY_LAUNCH,
   ACTION_REQUIRED_MARKER,
   capabilities: {
     hooks: true,

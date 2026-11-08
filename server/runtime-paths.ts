@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { computeRuntimePaths } from './core/runtime-paths.ts';
-import type { RuntimePaths } from './core/runtime-paths.ts';
+import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 
 function hasPackageManifest(directory: string): boolean {
   try {
@@ -28,6 +28,18 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
 const { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, mode, packageRoot, relayPath } = runtimePaths;
 
 export { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath };
+
+const BINARY_RUN_SUBCOMMAND = '__run';
+const hookLauncherPath = mode === 'binary' ? process.execPath : 'node';
+
+function hookLaunch(entry: SelfEntry): string[] {
+  return runtimePaths.selfLaunch(entry, hookLauncherPath);
+}
+
+function scriptLaunch(scriptPath: string, runEntry: string, nodeLauncherPath = hookLauncherPath): string[] {
+  if (mode === 'binary') return [process.execPath, BINARY_RUN_SUBCOMMAND, runEntry];
+  return [nodeLauncherPath, scriptPath];
+}
 
 const packageBins = new Map<string, string | null>();
 
@@ -88,4 +100,4 @@ function extractExecutableFromBinary(snapshotPath: string): string {
   return extractedPath;
 }
 
-export { resolveFfmpegPath, resolvePackageBin };
+export { hookLaunch, scriptLaunch, resolveFfmpegPath, resolvePackageBin };

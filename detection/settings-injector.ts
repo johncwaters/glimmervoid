@@ -5,8 +5,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 import { hostScratchRoot } from '../server/host-scratch.ts';
-import { relayPath } from '../server/runtime-paths.ts';
-import { shellQuote } from '../session/core/hook-command-core.ts';
+import { hookLaunch } from '../server/runtime-paths.ts';
+import { shellLaunchText, shellQuote } from '../session/core/hook-command-core.ts';
 import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
@@ -69,9 +69,8 @@ interface BuildHookSettingsOptions {
   planReview?: boolean;
   userSettingsPath?: string | null;
   carryOperatorGuardrails?: boolean;
-  relayPath?: string;
-  commandHookRelayPath?: string;
-  hookToolRelayPath?: string;
+  relayLaunch?: readonly string[];
+  commandHookRelayLaunch?: readonly string[];
   userHooks?: UserHook[];
   remoteNodePath?: string | null;
 }
@@ -102,9 +101,8 @@ const PR_LINK_TOOL_MATCHER = 'Bash';
 const COMMAND_HINT_TOOL_MATCHER = 'Write|Edit|Agent|Task';
 const FAILED_SHELL_TOOL_MATCHER = 'Bash';
 
-const RELAY_PATH = relayPath('statusline-relay');
-const COMMAND_HOOK_RELAY_PATH = relayPath('command-hook-relay');
-const HOOK_TOOL_RELAY_PATH = relayPath('hook-tool-relay');
+const RELAY_LAUNCH = hookLaunch('statusline-relay');
+const COMMAND_HOOK_RELAY_LAUNCH = hookLaunch('command-hook-relay');
 const NO_CHAIN = '-';
 
 function generateToken(): string {
@@ -165,17 +163,17 @@ function readOperatorClaudeSettings(settingsPath: string): OperatorClaudeSetting
 }
 
 function buildStatuslineCommand(
-  { relayPath = RELAY_PATH, postUrl, userCommand = null }:
-    { relayPath?: string; postUrl: string; userCommand?: string | null },
+  { relayLaunch = RELAY_LAUNCH, postUrl, userCommand = null }:
+    { relayLaunch?: readonly string[]; postUrl: string; userCommand?: string | null },
 ): string {
   const encoded = userCommand ? Buffer.from(userCommand, 'utf8').toString('base64') : NO_CHAIN;
-  return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)} ${shellQuote(encoded)}`;
+  return `${shellLaunchText(relayLaunch)} ${shellQuote(postUrl)} ${shellQuote(encoded)}`;
 }
 
 function buildCommandHookCommand(
-  { relayPath = COMMAND_HOOK_RELAY_PATH, postUrl }: { relayPath?: string; postUrl: string },
+  { relayLaunch = COMMAND_HOOK_RELAY_LAUNCH, postUrl }: { relayLaunch?: readonly string[]; postUrl: string },
 ): string {
-  return `node ${shellQuote(toForwardSlashes(relayPath))} ${shellQuote(postUrl)}`;
+  return `${shellLaunchText(relayLaunch)} ${shellQuote(postUrl)}`;
 }
 
 function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string; postUrl: string }): string {
@@ -185,7 +183,7 @@ function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, carryOperatorGuardrails, relayPath = RELAY_PATH, commandHookRelayPath = COMMAND_HOOK_RELAY_PATH, hookToolRelayPath = HOOK_TOOL_RELAY_PATH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, carryOperatorGuardrails, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -195,7 +193,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     SessionStart: [{ hooks: [{
       type: 'command',
       command: remoteNodePath === null
-        ? buildCommandHookCommand({ relayPath: commandHookRelayPath, postUrl: hookUrl('SessionStart') })
+        ? buildCommandHookCommand({ relayLaunch: commandHookRelayLaunch, postUrl: hookUrl('SessionStart') })
         : buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl: hookUrl('SessionStart') }),
       timeout: timeoutSec,
     }] }],
@@ -241,7 +239,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   if (observeToolCalls) {
     preToolUse.push({ hooks: [{ type: 'http', url: hookUrl('PreToolUse'), timeout: timeoutSec }] });
   }
-  for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool, hookToolRelayPath));
+  for (const tool of hookTools) preToolUse.push(HOOK_TOOLS[tool.id].claudeEntry(tool));
   if (preToolUse.length > 0) {
     hooks.PreToolUse = preToolUse;
   }
@@ -271,7 +269,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     settings.statusLine = {
       type: 'command',
       command: buildStatuslineCommand({
-        relayPath,
+        relayLaunch,
         postUrl: `${base}/statusline?t=${encodeURIComponent(token)}`,
         userCommand: operatorSettings.statuslineCommand,
       }),
@@ -355,4 +353,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
   return removed;
 }
 
-export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, FILE_MODE, RELAY_PATH, COMMAND_HOOK_RELAY_PATH, NO_CHAIN };
+export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, FILE_MODE, RELAY_LAUNCH, COMMAND_HOOK_RELAY_LAUNCH, NO_CHAIN };

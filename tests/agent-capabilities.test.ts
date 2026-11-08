@@ -141,7 +141,7 @@ test('a non-default agent stamps its decision records, so a recording says which
 });
 
 test('Sane YOLO capability filters both the Claude hook and its environment', async () => {
-  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
+  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js', launch: ['node', '/g/guard.js'] }];
   await withHooks({ id: 'guard-on', name: 'guard-on', hookTools }, ({ session, settings, calls }) => {
     assert.equal(session.toSnapshot().saneYolo, true);
     assert.ok(settings.hooks.PreToolUse);
@@ -162,7 +162,7 @@ test('a gemini session reports Sane YOLO off when the repo settings turn hooks o
   const projectDir = path.join(scratchRoot, 'project');
   await fsp.mkdir(path.join(scratchRoot, 'gemini-home', '.gemini'), { recursive: true });
   await fsp.mkdir(path.join(projectDir, '.gemini'), { recursive: true });
-  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js' }];
+  const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js', launch: ['node', '/g/guard.js'] }];
   async function saneYoloShownFor(id: string): Promise<boolean> {
     const { session } = makeSession({
       id, name: id, path: projectDir, agent: 'gemini', hookTools,

@@ -67,7 +67,7 @@ test('a lane gets the operator PostHog server unchanged only when the gate self-
   assert.deepEqual(JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8')), { mcpServers: { posthog: operatorPosthogEntry } });
   assert.equal(fs.statSync(mcpConfigPath).mode & 0o777, 0o600);
   assert.deepEqual(prepared.posture.allowRules, ['mcp__posthog__exec']);
-  assert.deepEqual(prepared.posture.hookTool, { id: 'posthogReadGate', binPath: gatePath, serverName: 'posthog', interpreterPath: process.execPath });
+  assert.deepEqual(prepared.posture.hookTool, { id: 'posthogReadGate', binPath: gatePath, launch: [process.execPath, gatePath], serverName: 'posthog' });
   await prepared.cleanup();
   assert.equal(fs.existsSync(path.dirname(mcpConfigPath)), false);
 
@@ -86,8 +86,8 @@ test('a lane gets the operator PostHog server unchanged only when the gate self-
 });
 
 test('the installed gate hook blocks when its interpreter cannot run the gate', async () => {
-  const brokenInterpreterTool = { id: 'posthogReadGate' as const, binPath: gatePath, serverName: 'posthog', interpreterPath: '/nonexistent/node' };
-  const hookCommand = HOOK_TOOLS.posthogReadGate.claudeEntry(brokenInterpreterTool, '').hooks[0]?.command ?? '';
+  const brokenInterpreterTool = { id: 'posthogReadGate' as const, binPath: gatePath, launch: ['/nonexistent/node', gatePath], serverName: 'posthog' };
+  const hookCommand = HOOK_TOOLS.posthogReadGate.claudeEntry(brokenInterpreterTool).hooks[0]?.command ?? '';
   const outcome = await executeFile('/bin/sh', ['-c', hookCommand], { input: execCall('call execute-sql {}'), encoding: 'utf8' }).then(() => 0, (error: { code: number }) => error.code);
   assert.equal(outcome, 2);
 });

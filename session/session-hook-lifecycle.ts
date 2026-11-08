@@ -190,10 +190,10 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     }
   }
 
-  function argvCarriesSaneYoloHook(args: readonly string[], relayPath: string): boolean {
+  function argvCarriesSaneYoloHook(args: readonly string[]): boolean {
     const tool = saneYoloTool();
     if (!tool) return false;
-    const saneYoloGroup = HOOK_TOOLS.saneYolo.codexGroup(tool, relayPath);
+    const saneYoloGroup = HOOK_TOOLS.saneYolo.codexGroup(tool);
     if (!saneYoloGroup) return false;
     return args.some((arg) => arg.includes(saneYoloGroup));
   }
@@ -228,7 +228,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       return NO_HOOK_INJECTION;
     }
     const doesHomeRunHooks = hookedHome !== null && (hookedHome.isTrusted || isTrustBypassed);
-    const doesArgvRunSaneYolo = isTrustBypassed && argvCarriesSaneYoloHook(args, injection.relayPath);
+    const doesArgvRunSaneYolo = isTrustBypassed && argvCarriesSaneYoloHook(args);
     const relayHooks = registerRelayHooks(port, args, saneYoloTool() !== undefined && (doesHomeRunHooks || doesArgvRunSaneYolo));
     if (relayHooks === NO_HOOK_INJECTION) {
       releaseGeneratedHome();

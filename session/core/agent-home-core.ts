@@ -9,12 +9,12 @@ import { buildHookCommand } from "./hook-command-core.ts";
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
 
 interface KimiHooksBlockOptions {
-  relayPath: string;
+  relayLaunch: readonly string[];
   events: readonly string[];
   toolEvents: readonly string[];
   matchedToolNames: readonly string[];
   questionHold: { toolName: string; event: string; timeoutSeconds: number };
-  saneYolo: { relayPath: string; toolNames: readonly string[]; agentFlavor: string };
+  saneYolo: { relayLaunch: readonly string[]; toolNames: readonly string[]; agentFlavor: string };
 }
 
 type BlockSpliceResult = { contents: string; changed: boolean } | { refused: "foreign" | "conflicting" };
@@ -41,19 +41,19 @@ function hookTable(event: string, command: string, matcher: string | null = null
 function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
   const lines = [BLOCK_START];
   for (const event of options.events) {
-    const command = buildHookCommand(options.relayPath, event);
+    const command = buildHookCommand(options.relayLaunch, event);
     if (!command) return null;
     lines.push(...hookTable(event, command));
   }
   for (const event of options.toolEvents) {
-    const command = buildHookCommand(options.relayPath, event);
+    const command = buildHookCommand(options.relayLaunch, event);
     if (!command) return null;
     for (const toolName of options.matchedToolNames) lines.push(...hookTable(event, command, `^${toolName}$`));
   }
-  const questionHoldCommand = buildHookCommand(options.relayPath, options.questionHold.event);
+  const questionHoldCommand = buildHookCommand(options.relayLaunch, options.questionHold.event);
   if (!questionHoldCommand) return null;
   lines.push(...hookTable("PreToolUse", questionHoldCommand, `^${options.questionHold.toolName}$`, options.questionHold.timeoutSeconds));
-  const saneYoloCommand = buildHookCommand(options.saneYolo.relayPath, "saneYolo", [options.saneYolo.agentFlavor]);
+  const saneYoloCommand = buildHookCommand(options.saneYolo.relayLaunch, "saneYolo", [options.saneYolo.agentFlavor]);
   if (!saneYoloCommand) return null;
   for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));
   lines.push(BLOCK_END);

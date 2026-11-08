@@ -71,7 +71,7 @@ async function withProductionHookFixture(run: (fixture: ProductionHookFixture) =
 }
 
 function saneYoloCommandOf(settings: ReturnType<typeof buildHookSettings>): string | undefined {
-  return settings.hooks.PreToolUse?.find((entry) => entry.matcher === HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: '' }, '').matcher)?.hooks[0]?.command;
+  return settings.hooks.PreToolUse?.find((entry) => entry.matcher === HOOK_TOOLS.saneYolo.claudeEntry({ id: 'saneYolo', binPath: '', launch: [] }).matcher)?.hooks[0]?.command;
 }
 
 function permissionDecisionOf(stdout: string): string | undefined {
@@ -141,7 +141,7 @@ test('the generated Codex home trusts the session folder and its Sane YOLO hook 
 test('the hook tool relay forwards a Grok payload to the real Sane YOLO bin and returns its deny', async () => {
   await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
     assert.equal(env[SANE_YOLO_PATH_ENV], saneYoloTool.binPath);
-    const response = await executeFile(process.execPath, [grok.HOOK_TOOL_RELAY_PATH, 'saneYolo'], { cwd, env, input: hookPayload('--grok-build', 'git reset --hard', cwd) });
+    const response = await executeFile(process.execPath, [...grok.HOOK_TOOL_RELAY_LAUNCH.slice(1), 'saneYolo'], { cwd, env, input: hookPayload('--grok-build', 'git reset --hard', cwd) });
     const verdict = JSON.parse(response.stdout) as { decision?: string };
     assert.equal(verdict.decision, 'deny', response.stdout);
   });

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { execFileSync } from "../../server/child-process-safe.ts";
-import { relayPath } from "../../server/runtime-paths.ts";
+import { hookLaunch } from "../../server/runtime-paths.ts";
 import { COPILOT_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { COPILOT_HOME_PROFILE, doesProjectConfigTurnHooksOff } from "../core/agent-home-core.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
@@ -25,8 +25,8 @@ import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "copilot";
 const COMMAND_NAME = "copilot";
-const RELAY_PATH = relayPath("hook-relay");
-const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const SANE_YOLO_EVENT = "preToolUse";
 const HOOK_EVENTS: readonly string[] = Object.freeze(["sessionStart", "sessionEnd", "userPromptSubmitted", "agentStop", "errorOccurred", "permissionRequest", "postToolUse", "notification"]);
 const HOOKS_REFUSAL = "the hook relay path cannot be written into copilot hooks";
@@ -92,11 +92,11 @@ const titleProfile: AgentTitleProfile = {
 function expectedHooks(): string | null {
   const hooksByEvent: Record<string, unknown[]> = {};
   for (const event of HOOK_EVENTS) {
-    const command = buildHookCommand(RELAY_PATH, event);
+    const command = buildHookCommand(RELAY_LAUNCH, event);
     if (!command) return null;
     hooksByEvent[event] = [{ type: "command", command }];
   }
-  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [COPILOT_SANE_YOLO_FLAVOR]);
+  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_LAUNCH, "saneYolo", [COPILOT_SANE_YOLO_FLAVOR]);
   if (!saneYoloCommand) return null;
   hooksByEvent[SANE_YOLO_EVENT] = [{ type: "command", command: saneYoloCommand }];
   return JSON.stringify(hooksByEvent);

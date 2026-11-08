@@ -167,15 +167,15 @@ function codexMcpServers(mcpListOutput: unknown): Record<string, Record<string, 
   return Object.fromEntries(enabledServers.map((server) => [server.name, server.transport]));
 }
 
-function gatedPosthogTool({ server, gatePath, interpreterPath }: { server: LaneMcpServer; gatePath: string; interpreterPath: string }): ResolvedHookTool | null {
-  if (![gatePath, interpreterPath].every((commandPath) => HOOK_COMMAND_SAFE_PATH_RE.test(commandPath))) return null;
-  return { id: 'posthogReadGate', binPath: gatePath, serverName: server.name, interpreterPath };
+function gatedPosthogTool({ server, gatePath, gateLaunch }: { server: LaneMcpServer; gatePath: string; gateLaunch: readonly string[] }): ResolvedHookTool | null {
+  if (![gatePath, ...gateLaunch].every((commandPart) => HOOK_COMMAND_SAFE_PATH_RE.test(commandPart))) return null;
+  return { id: 'posthogReadGate', binPath: gatePath, launch: gateLaunch, serverName: server.name };
 }
 
-function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, laneArgs }: {
-  server: LaneMcpServer; mcpConfigPath: string; gatePath: string; interpreterPath: string; laneArgs: readonly string[];
+function laneMcpPosture({ server, mcpConfigPath, gatePath, gateLaunch, laneArgs }: {
+  server: LaneMcpServer; mcpConfigPath: string; gatePath: string; gateLaunch: readonly string[]; laneArgs: readonly string[];
 }): LaneMcpPosture | null {
-  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  const hookTool = gatedPosthogTool({ server, gatePath, gateLaunch });
   if (!hookTool) return null;
   const loadsOnlyListedServers = laneArgs.includes(STRICT_MCP_CONFIG_ARG);
   return {
@@ -187,10 +187,10 @@ function laneMcpPosture({ server, mcpConfigPath, gatePath, interpreterPath, lane
   };
 }
 
-function codexLaneMcpPosture({ server, otherServerNames, gatePath, interpreterPath }: {
-  server: LaneMcpServer; otherServerNames: readonly string[]; gatePath: string; interpreterPath: string;
+function codexLaneMcpPosture({ server, otherServerNames, gatePath, gateLaunch }: {
+  server: LaneMcpServer; otherServerNames: readonly string[]; gatePath: string; gateLaunch: readonly string[];
 }): LaneMcpPosture | null {
-  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  const hookTool = gatedPosthogTool({ server, gatePath, gateLaunch });
   if (!hookTool || !otherServerNames.every((name) => CODEX_MCP_SERVER_NAME_RE.test(name))) return null;
   const disabledServerArgs = otherServerNames.flatMap((name) => ['-c', `mcp_servers.${name}.enabled=false`]);
   return {
@@ -215,13 +215,13 @@ function keepsKimiToolName(serverName: string): boolean {
   return !serverName.includes('__') && `mcp__${serverName}__exec`.length <= KIMI_QUALIFIED_TOOL_NAME_MAX_LENGTH;
 }
 
-function kimiLaneMcpPosture({ server, gatePath, interpreterPath }: {
-  server: LaneMcpServer; gatePath: string; interpreterPath: string;
+function kimiLaneMcpPosture({ server, gatePath, gateLaunch }: {
+  server: LaneMcpServer; gatePath: string; gateLaunch: readonly string[];
 }): LaneMcpPosture | null {
   if (!keepsKimiToolName(server.name)) return null;
-  const hookTool = gatedPosthogTool({ server, gatePath, interpreterPath });
+  const hookTool = gatedPosthogTool({ server, gatePath, gateLaunch });
   if (!hookTool) return null;
-  const gateHook = HOOK_TOOLS.posthogReadGate.claudeEntry(hookTool, '');
+  const gateHook = HOOK_TOOLS.posthogReadGate.claudeEntry(hookTool);
   const gateHookTable = kimiGateHookTable({ matcher: gateHook.matcher, command: gateHook.hooks[0]?.command ?? '' });
   if (gateHookTable === null) return null;
   return {

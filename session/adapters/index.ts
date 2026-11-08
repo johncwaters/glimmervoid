@@ -52,14 +52,13 @@ interface HookedAgentHome {
 
 interface ArgvConfigInjection {
   kind: "argv-config";
-  relayPath: string;
+  relayLaunch: readonly string[];
   events: string[];
   buildHookArgs(options?: {
-    relayPath?: string;
+    relayLaunch?: readonly string[];
     events?: string[];
     bypassHookTrust?: boolean;
     hookTools?: ResolvedHookTool[];
-    hookToolRelayPath?: string;
     userHooks?: readonly UserHook[];
     observeToolCalls?: boolean;
     hasHomeHooks?: boolean;

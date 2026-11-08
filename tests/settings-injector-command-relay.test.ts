@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 
 import {
-  COMMAND_HOOK_RELAY_PATH,
+  COMMAND_HOOK_RELAY_LAUNCH,
   DEFAULT_TIMEOUT_SEC,
   HOOK_EVENTS,
   buildHookSettings,
@@ -32,7 +32,7 @@ test('SessionStart is command-only while every other built-in event stays http',
 });
 
 test('the command relay path resolves to a source asset', () => {
-  assert.ok(fs.existsSync(COMMAND_HOOK_RELAY_PATH), `${COMMAND_HOOK_RELAY_PATH} exists`);
+  assert.ok(fs.existsSync(COMMAND_HOOK_RELAY_LAUNCH[1]), `${COMMAND_HOOK_RELAY_LAUNCH[1]} exists`);
 });
 
 test('the command relay posts stdin unchanged with the settings bearer token', async () => {

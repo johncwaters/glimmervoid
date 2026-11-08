@@ -5,7 +5,7 @@ import type { InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import fs from "node:fs";
 import path from "node:path";
 import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
-import { relayPath } from "../../server/runtime-paths.ts";
+import { hookLaunch } from "../../server/runtime-paths.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
@@ -38,11 +38,11 @@ import type { HookPayload } from "../../shared/contracts/index.ts";
 const ID = "codex";
 const COMMAND_NAME = "codex";
 
-const RELAY_PATH = relayPath("hook-relay");
+const RELAY_LAUNCH = hookLaunch("hook-relay");
 const PLAN_PROPOSED_FIELD = "glimmervoid_plan_proposed";
 const ROLLOUT_CHUNK_BYTES = 1024 * 1024;
 const ROLLOUT_SCAN_LIMIT_BYTES = 64 * ROLLOUT_CHUNK_BYTES;
-const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 
 const HOOK_EVENTS = LEGACY_HOOK_EVENTS;
 
@@ -206,24 +206,22 @@ function userConfigFolders(env: Record<string, string | undefined>): string[] {
 const TOML_LITERAL_STRING_FORBIDDEN = /[\x00-\x08\x0a-\x1f\x27\x7f]/;
 
 function buildHookArgs({
-  relayPath = RELAY_PATH,
+  relayLaunch = RELAY_LAUNCH,
   events = HOOK_EVENTS,
   matchedRelayHooks = [],
   bypassHookTrust = false,
   gatesMcpToolCalls = false,
   hookTools = [],
-  hookToolRelayPath = HOOK_TOOL_RELAY_PATH,
   userHooks = [],
   observeToolCalls = false,
   hasHomeHooks = false,
 }: {
-  relayPath?: string;
+  relayLaunch?: readonly string[];
   events?: string[];
   matchedRelayHooks?: readonly MatchedRelayHook[];
   bypassHookTrust?: boolean;
   gatesMcpToolCalls?: boolean;
   hookTools?: ResolvedHookTool[];
-  hookToolRelayPath?: string;
   userHooks?: readonly UserHook[];
   observeToolCalls?: boolean;
   hasHomeHooks?: boolean;
@@ -237,7 +235,7 @@ function buildHookArgs({
   const relayedEvents = observeToolCalls && !argvEvents.includes("PreToolUse") ? [...argvEvents, "PreToolUse"] : argvEvents;
   const relayedMatchedHooks = observeToolCalls ? argvMatchedHooks.filter(({ event }) => event !== "PreToolUse") : argvMatchedHooks;
   for (const event of relayedEvents) {
-    const command = buildHookCommand(relayPath, event);
+    const command = buildHookCommand(relayLaunch, event);
     if (!command) return null;
     if (event === "PreToolUse") {
       preToolUseGroups.push(`{hooks=[{type='command',command='${command}'}]}`);
@@ -246,7 +244,7 @@ function buildHookArgs({
     groupsByEvent.set(event, [`{hooks=[{type='command',command='${command}'}]}`]);
   }
   for (const { event, matcher, isAsync } of relayedMatchedHooks) {
-    const command = buildHookCommand(relayPath, event);
+    const command = buildHookCommand(relayLaunch, event);
     if (!command) return null;
     const asyncField = isAsync ? ",async=true" : "";
     const group = `{matcher='${matcher}',hooks=[{type='command',command='${command}'${asyncField}}]}`;
@@ -257,12 +255,12 @@ function buildHookArgs({
     groupsByEvent.set(event, [...(groupsByEvent.get(event) ?? []), group]);
   }
   if (hasQuestionHook(argvMatchedHooks)) {
-    const questionHoldCommand = buildHookCommand(relayPath, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    const questionHoldCommand = buildHookCommand(relayLaunch, QUESTION_TOOL_HOLD_HOOK_EVENT);
     if (!questionHoldCommand) return null;
     preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}'}]}`);
   }
   const groups = argvHookTools.flatMap((tool) => {
-    const group = HOOK_TOOLS[tool.id].codexGroup(tool, hookToolRelayPath);
+    const group = HOOK_TOOLS[tool.id].codexGroup(tool);
     return group ? [group] : [];
   });
   preToolUseGroups.push(...groups);
@@ -333,17 +331,17 @@ function buildInstalledHookArgs(options: Parameters<typeof buildHookArgs>[0] = {
 function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): CodexHomeHook[] | null {
   const hooks: CodexHomeHook[] = [];
   for (const event of plan.events) {
-    const command = buildHookCommand(RELAY_PATH, event);
+    const command = buildHookCommand(RELAY_LAUNCH, event);
     if (!command) return null;
     hooks.push({ event, matcher: null, command });
   }
   for (const { event, matcher, isAsync } of plan.matchedRelayHooks) {
-    const command = buildHookCommand(RELAY_PATH, event);
+    const command = buildHookCommand(RELAY_LAUNCH, event);
     if (!command) return null;
     hooks.push({ event, matcher, command, isAsync });
   }
   if (hasQuestionHook(plan.matchedRelayHooks)) {
-    const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+    const questionHoldCommand = buildHookCommand(RELAY_LAUNCH, QUESTION_TOOL_HOLD_HOOK_EVENT);
     if (!questionHoldCommand) return null;
     hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand });
   }
@@ -354,7 +352,7 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
 }
 
 function saneYoloHookCommand(): string | null {
-  return buildHookCommand(HOOK_TOOL_RELAY_PATH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
+  return buildHookCommand(HOOK_TOOL_RELAY_LAUNCH, "saneYolo", [CODEX_SANE_YOLO_FLAVOR]);
 }
 
 function installedHookRoute(command: string, saneYoloCommand: string | null, questionHoldCommand: string | null): string | null {
@@ -369,7 +367,7 @@ function describeInstalledHooks(): InstalledHooks {
   const homeHooks = codexHomeHooks();
   if (!homeHooks) return { unavailableReason: HOOKS_BLOCK_REFUSAL, isBestEffort: false };
   const saneYoloCommand = saneYoloHookCommand();
-  const questionHoldCommand = buildHookCommand(RELAY_PATH, QUESTION_TOOL_HOLD_HOOK_EVENT);
+  const questionHoldCommand = buildHookCommand(RELAY_LAUNCH, QUESTION_TOOL_HOLD_HOOK_EVENT);
   const hooks = homeHooks.map((hook) => ({ event: hook.event, matcher: hook.matcher, route: installedHookRoute(hook.command, saneYoloCommand, questionHoldCommand) }));
   return { version, isBestEffort: false, hooks };
 }
@@ -456,7 +454,7 @@ const hooks: AgentHookProfile = {
   describeInstalledHooks,
   injection: {
     kind: "argv-config",
-    relayPath: RELAY_PATH,
+    relayLaunch: RELAY_LAUNCH,
     events: HOOK_EVENTS,
     buildHookArgs: buildInstalledHookArgs,
     projectConfigCandidates: PROJECT_CONFIG_CANDIDATES,
@@ -541,8 +539,8 @@ const codex = {
   mapHookPromptKind,
   sessionIdOf,
   HOOK_EVENTS,
-  RELAY_PATH,
-  HOOK_TOOL_RELAY_PATH,
+  RELAY_LAUNCH,
+  HOOK_TOOL_RELAY_LAUNCH,
   TRUST_BYPASS_FLAG,
   SKIP_PERMISSIONS_ARGS,
   UPDATE_CHECK_ARGS,

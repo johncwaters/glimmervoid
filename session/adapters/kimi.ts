@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { execFileSync } from "../../server/child-process-safe.ts";
-import { relayPath } from "../../server/runtime-paths.ts";
+import { hookLaunch } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
@@ -28,8 +28,8 @@ import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "..
 const ID = "kimi";
 const COMMAND_NAME = "kimi";
 const HOME_ENV_NAME = "KIMI_CODE_HOME";
-const RELAY_PATH = relayPath("hook-relay");
-const HOOK_TOOL_RELAY_PATH = relayPath("hook-tool-relay");
+const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const HOOK_EVENTS: readonly string[] = Object.freeze([
   "SessionStart",
   "SessionEnd",
@@ -142,12 +142,12 @@ function configFilePath(
 
 function expectedHooksBlock(): string | null {
   return renderKimiHooksBlock({
-    relayPath: RELAY_PATH,
+    relayLaunch: RELAY_LAUNCH,
     events: HOOK_EVENTS,
     toolEvents: TOOL_EVENTS,
     matchedToolNames: MATCHED_TOOL_NAMES,
     questionHold: { toolName: ASK_USER_QUESTION_TOOL_NAME, event: QUESTION_TOOL_HOLD_HOOK_EVENT, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS },
-    saneYolo: { relayPath: HOOK_TOOL_RELAY_PATH, toolNames: SANE_YOLO_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
+    saneYolo: { relayLaunch: HOOK_TOOL_RELAY_LAUNCH, toolNames: SANE_YOLO_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
   });
 }
 

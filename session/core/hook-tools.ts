@@ -14,16 +14,16 @@ type HookToolId = 'saneYolo' | 'posthogReadGate';
 interface ResolvedHookTool {
   id: HookToolId;
   binPath: string;
+  launch: readonly string[];
   serverName?: string;
-  interpreterPath?: string;
 }
 
 interface HookToolDescriptor {
   capability: 'saneYolo' | 'hooks';
   purpose: string;
   env(tool: ResolvedHookTool, homeDir: string): Record<string, string>;
-  claudeEntry(tool: ResolvedHookTool, relayPath: string): ClaudeHookEntry;
-  codexGroup(tool: ResolvedHookTool, relayPath: string): string | null;
+  claudeEntry(tool: ResolvedHookTool): ClaudeHookEntry;
+  codexGroup(tool: ResolvedHookTool): string | null;
   codexTrustedArgs(tool: ResolvedHookTool): string[];
 }
 
@@ -36,8 +36,18 @@ function posthogToolMatcher(tool: ResolvedHookTool): string {
   return `^mcp__${tool.serverName ?? ''}__`;
 }
 
+function doubleQuoted(commandPart: string): string {
+  return `"${toForwardSlashes(commandPart)}"`;
+}
+
 function posthogGateCommand(tool: ResolvedHookTool): string {
-  return `"${toForwardSlashes(tool.interpreterPath ?? 'node')}" "${toForwardSlashes(tool.binPath)}" ${tool.serverName ?? ''} || exit 2`;
+  return `${tool.launch.map(doubleQuoted).join(' ')} ${tool.serverName ?? ''} || exit 2`;
+}
+
+function saneYoloClaudeCommand(tool: ResolvedHookTool): string {
+  const [launcher = '', ...launchArguments] = tool.launch;
+  const launcherText = /^[A-Za-z0-9_.-]+$/.test(launcher) ? launcher : doubleQuoted(launcher);
+  return [launcherText, ...launchArguments.map(doubleQuoted), 'hook', '--coding-cli'].join(' ');
 }
 
 const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
@@ -47,9 +57,9 @@ const HOOK_TOOLS: Record<HookToolId, HookToolDescriptor> = {
     env: (tool, homeDir) => ({ [SANE_YOLO_PATH_ENV]: tool.binPath, ...saneYoloEnv(homeDir) }),
     claudeEntry: (tool) => ({
       matcher: 'Bash|PowerShell|Monitor|Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep',
-      hooks: [{ type: 'command', command: `node "${toForwardSlashes(tool.binPath)}" hook --coding-cli` }],
+      hooks: [{ type: 'command', command: saneYoloClaudeCommand(tool) }],
     }),
-    codexGroup: (tool) => codexGroup(buildHookCommand(tool.binPath, 'hook', ['--codex'])),
+    codexGroup: (tool) => codexGroup(buildHookCommand(tool.launch, 'hook', ['--codex'])),
     codexTrustedArgs: () => [],
   },
   posthogReadGate: {

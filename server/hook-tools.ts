@@ -5,7 +5,7 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { saneYoloFiles } from '../session/core/sane-yolo.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { SESSION_TEMP_FOLDER } from './session-temp/session-temp.ts';
-import { resolvePackageBin } from './runtime-paths.ts';
+import { resolvePackageBin, scriptLaunch } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 
@@ -60,7 +60,7 @@ function resolveHookTools(
   }
   try {
     writeSaneYoloPolicy(saneYoloHomeDir(), config.saneYoloUnreadablePaths ?? []);
-    hookTools.push({ id: 'saneYolo', binPath });
+    hookTools.push({ id: 'saneYolo', binPath, launch: scriptLaunch(binPath, 'cc-safety-net') });
   } catch (error) {
     warnOnce('saneYolo', `[sane-yolo] Policy could not be written: ${String(error)}. Sessions will spawn without Sane YOLO hooks.`, warn);
   }

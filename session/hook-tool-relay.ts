@@ -4,6 +4,7 @@ import { readStdin } from "./relay-stdin.ts";
 import type { StdinLike } from "./relay-stdin.ts";
 
 import { spawn } from "../server/child-process-safe.ts";
+import { scriptLaunch } from "../server/runtime-paths.ts";
 
 const HOOK_TOOL_TIMEOUT_MS = 3000;
 const MAX_HOOK_TOOL_STDOUT_BYTES = 65536;
@@ -24,7 +25,8 @@ function runHookTool(binPath: string, body: Buffer, agentFlavor = ""): Promise<s
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(process.execPath, [binPath, "hook", saneYoloHostFlag(agentFlavor)], { stdio: ["pipe", "pipe", "ignore"] });
+      const [launcher, ...launchArguments] = scriptLaunch(binPath, "cc-safety-net", process.execPath);
+      child = spawn(launcher, [...launchArguments, "hook", saneYoloHostFlag(agentFlavor)], { stdio: ["pipe", "pipe", "ignore"] });
     } catch {
       done("");
       return;
