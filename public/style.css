@@ -1648,6 +1648,10 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   min-width: 0;
 }
 
+.add-session-pick:not(:has(> .dialog-repo-roots:not([hidden]))) {
+  height: 352px;
+}
+
 .add-session-pick:not([data-slot="project"]) > :not(.add-session-list) {
   display: none;
 }
@@ -1655,7 +1659,8 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 .add-session-list {
   display: flex;
   flex-direction: column;
-  max-height: 300px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--border-dim);
   border-radius: var(--radius);

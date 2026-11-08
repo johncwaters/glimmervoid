@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The new session dialog asks what you are working on.** Its title now reads "What are we working on?", project rows no longer show an agent icon (the agent you pick shows in the sentence above), and the picker keeps one height as it moves from choosing an agent to choosing a project, so the find box appearing no longer shifts the dialog.
 - **Board controls fit on one row, and the details panel does the rest.** The board toolbars no longer break onto two rows in a narrow board pane. The More menu is gone: select a box and its details panel offers Add note, Frame and a Plan step checkbox with the step's linked board, select several to frame them, and every selection gets a Delete button. Toolbar and details panel labels now use sentence case like the rest of the dashboard.
 - **The Focus session header is tidier.** The agent icon no longer sits against the left edge of the terminal window's title bar, and the Changes button there is an icon only, like on the phone.
 - **The board menu reads like the session menu.** The menu in a board's header now uses sentence case like Session actions: Board actions, Rename board, New board, Board settings, Delete board and Archived boards.

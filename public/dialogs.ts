@@ -420,7 +420,6 @@ export function createAddSessionDialog() {
       setProjectTarget(row);
       advance();
     });
-    rowEl.prepend(buildAgentMark(row.agentId));
     const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
     if (meta) rowEl.append(meta);
     return rowEl;
