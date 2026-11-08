@@ -1,5 +1,5 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, BoxMedia, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
@@ -22,6 +22,20 @@ interface ViewPoint {
   y: number;
 }
 
+const stacksByTopBoxIdByBoard = new WeakMap<Board, Map<string, Frame>>();
+
+export function stacksByTopBoxIdOf(board: Board): Map<string, Frame> {
+  const cached = stacksByTopBoxIdByBoard.get(board);
+  if (cached) return cached;
+  const stacksByTopBoxId = new Map<string, Frame>();
+  for (const element of Object.values(board.elements)) {
+    const topBoxId = element.kind === 'frame' && element.collapsed ? element.contains[0] : undefined;
+    if (element.kind === 'frame' && topBoxId !== undefined) stacksByTopBoxId.set(topBoxId, element);
+  }
+  stacksByTopBoxIdByBoard.set(board, stacksByTopBoxId);
+  return stacksByTopBoxId;
+}
+
 interface BoardEditorOptions {
   viewport: HTMLElement;
   world: HTMLElement;
@@ -36,6 +50,8 @@ interface BoardEditorOptions {
   onOpenLinkedBoard: (boardId: string) => void;
   onOpenImage: (image: PressedImage) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
+  onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
+  onOpenStack: (frameId: string) => void;
   onToolChange: (tool: BoardTool) => void;
 }
 
@@ -356,6 +372,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = { kind: 'marquee', pointerId: event.pointerId, origin, latest: origin, hasMoved: false, isAdditive: event.shiftKey, baseSelection: event.shiftKey ? new Set(selectedIds) : new Set(), outline };
   }
 
+  function stackTopped(boxId: string): Frame | undefined {
+    const board = options.currentBoard();
+    return board ? stacksByTopBoxIdOf(board).get(boxId) : undefined;
+  }
+
   function movingBoxesFor(pressedBoxId: string, pressedRect: Rect, isAdditive: boolean): MovingBox[] {
     if (isAdditive || !selectedIds.has(pressedBoxId)) return [{ boxId: pressedBoxId, start: pressedRect }];
     const board = options.currentBoard();
@@ -485,7 +506,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (!drag.hasMoved && Math.hypot(point.x - drag.origin.x, point.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
     drag.hasMoved = true;
     drag.latest = point;
+    renderer.setWireTarget(stackTargetOf(drag));
     requestPreviewFrame();
+  }
+
+  function stackTargetOf(drag: Extract<Gesture, { kind: 'drag' }>): string | null {
+    if (drag.mode !== 'move' || drag.movingBoxes.length !== 1 || stackTopped(drag.boxId)) return null;
+    return renderer.boxIdsAt(drag.latest).find((boxId) => boxId !== drag.boxId) ?? null;
   }
 
   function movePan(pan: Extract<Gesture, { kind: 'pan' }>, event: PointerEvent): void {
@@ -562,17 +589,33 @@ export function createBoardEditor(options: BoardEditorOptions) {
   async function finishDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): Promise<void> {
     if (!drag.hasMoved && drag.mode === 'resize') return;
     if (!drag.hasMoved) {
-      toggleSelected(drag.boxId, drag.isAdditive);
-      if (drag.pressedImage && !drag.isAdditive) options.onOpenImage(drag.pressedImage);
+      finishClick(drag);
       return;
     }
     cancelPreviewFrame();
     drag.latest = toViewPoint(event.clientX, event.clientY);
+    renderer.setWireTarget(null);
+    const stackTargetId = stackTargetOf(drag);
+    if (stackTargetId) {
+      paintPreview();
+      options.onStackBoxes(stackTargetId, drag.boxId, stackTopped(stackTargetId) ?? null);
+      return;
+    }
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
     if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
     const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
     if (!isSent) paintPreview();
+  }
+
+  function finishClick(drag: Extract<Gesture, { kind: 'drag' }>): void {
+    toggleSelected(drag.boxId, drag.isAdditive);
+    const stack = drag.isAdditive ? undefined : stackTopped(drag.boxId);
+    if (stack) {
+      options.onOpenStack(stack.id);
+      return;
+    }
+    if (drag.pressedImage && !drag.isAdditive) options.onOpenImage(drag.pressedImage);
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -614,7 +657,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     gesture = null;
-    if (wasDragging) paintPreview();
+    if (!wasDragging) return;
+    renderer.setWireTarget(null);
+    paintPreview();
   }
 
   function onWheel(event: WheelEvent): void {
