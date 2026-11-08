@@ -6,7 +6,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { CoherenceAttachment } from './coherence-runtime.ts';
 import { appendJournalWindow, journalEntries, judgeTurnEnd, selectLatestShownEntry, startVerdictWatch, type CoherenceVerdictWatch } from './core/coherence-feed-core.ts';
 
-type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'raiseAttention'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
+type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'raiseAttention' | 'baseSha'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
   on(event: 'exit', listener: () => void): unknown;
 };
 
@@ -140,7 +140,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
         state.verdictWatch = startVerdictWatch(baseline);
       }
       const reading = await attachment.rerunTouchedVerdicts({
-        sinceHead: state.verdictWatch.head, sessionId: session.resumeSessionId, standingInvariantIds: state.verdictWatch.standingFailures, isSpecCheckStanding: state.verdictWatch.spec === 'standing',
+        sinceHead: state.verdictWatch.head, baseSha: session.baseSha, sessionId: session.resumeSessionId, standingInvariantIds: state.verdictWatch.standingFailures, isSpecCheckStanding: state.verdictWatch.spec === 'standing',
       });
       if (state.isClosed) return;
       const judged = judgeTurnEnd(state.verdictWatch, reading);

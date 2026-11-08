@@ -24,7 +24,7 @@ export interface CoherenceAttachment {
   refreshHooks(): Promise<CoherenceHooksState>;
   healHooks(): Promise<CoherenceHealOutcome>;
   readVerdictBaseline(): Promise<CoherenceVerdictBaseline | null>;
-  rerunTouchedVerdicts(turn: { sinceHead: string; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading>;
+  rerunTouchedVerdicts(turn: { sinceHead: string; baseSha: string | null; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading>;
   readJournal(sessionId: string): Promise<CoherenceJournalOutput>;
   idle(): Promise<void>;
 }
@@ -152,8 +152,16 @@ export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs 
     reading.then(forgetUnlessReady, () => forgetUnlessReady(null));
     return reading;
   }
-  async function readChangedPaths(sinceHead: string): Promise<string[]> {
+  async function readOwnTrackedPaths(sinceHead: string, baseSha: string | null): Promise<string[]> {
     const trackedPaths = nulSeparatedPaths(await runGit(['diff', '-z', '--name-only', sinceHead]));
+    if (baseSha === null || trackedPaths.length === 0) return trackedPaths;
+    const ownPathsNow = nulSeparatedPaths(await runGit(['diff', '-z', '--name-only', baseSha]));
+    const ownPathsAtLastTurn = nulSeparatedPaths(await runGit(['diff', '-z', '--name-only', `${baseSha}...${sinceHead}`]));
+    const ownPaths = new Set([...ownPathsNow, ...ownPathsAtLastTurn]);
+    return trackedPaths.filter((trackedPath) => ownPaths.has(trackedPath));
+  }
+  async function readChangedPaths(sinceHead: string, baseSha: string | null): Promise<string[]> {
+    const trackedPaths = await readOwnTrackedPaths(sinceHead, baseSha);
     const untrackedPaths = nulSeparatedPaths(await runGit(['ls-files', '-z', '--others', '--exclude-standard']));
     return [...new Set([...trackedPaths, ...untrackedPaths])];
   }
@@ -163,11 +171,11 @@ export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs 
     if (touchedTargets === 'all') return 'all';
     return [...new Set([...touchedTargets, ...standingInvariantIds])];
   }
-  async function rerunTouchedVerdicts({ sinceHead, sessionId, standingInvariantIds, isSpecCheckStanding }: { sinceHead: string; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading> {
+  async function rerunTouchedVerdicts({ sinceHead, baseSha, sessionId, standingInvariantIds, isSpecCheckStanding }: { sinceHead: string; baseSha: string | null; sessionId: string | null; standingInvariantIds: readonly string[]; isSpecCheckStanding: boolean }): Promise<CoherenceTurnReading> {
     if (installationProbe) await installationProbe;
     if (unavailable) throw new Error('Coherence is unavailable');
     const head = await readHead();
-    const queryPaths = invariantQueryPaths(await readChangedPaths(sinceHead));
+    const queryPaths = invariantQueryPaths(await readChangedPaths(sinceHead, baseSha));
     if (queryPaths === null && standingInvariantIds.length === 0 && !isSpecCheckStanding) return { head, observed: {}, hasSpecProblems: null };
     const targets = await readRunTargets(queryPaths, standingInvariantIds);
     const observed = targets !== 'all' && targets.length === 0 ? {} : await runTotalityOracles(targets, sessionId);

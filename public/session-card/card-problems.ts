@@ -46,7 +46,6 @@ export function setSessionAttentionNotes(sessionId: string, notes: readonly Atte
   }
   const line = existingLine ?? buildAttentionNoteLine(sessionId);
   line.dataset.newestAt = String(newestNote.at);
-  line.title = notes.map((note) => note.note).join('\n');
   const text = line.querySelector<HTMLElement>('.session-attention-note-text');
   if (text) text.textContent = newestNote.note;
   const others = line.querySelector<HTMLElement>('.session-attention-note-others');

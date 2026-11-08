@@ -20,7 +20,7 @@ test('journal --json feed publishes session entries, deduplicates by id and forg
   assert.ok(attachment);
   const session = Object.assign(new EventEmitter(), {
     id: 'card-1', resumeSessionId: 's-fixture', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
-    refreshCoherenceHooks: async () => {}, raiseAttention: () => ({ ok: true as const, pending: false }),
+    refreshCoherenceHooks: async () => {}, baseSha: null, raiseAttention: () => ({ ok: true as const, pending: false }),
   });
   const publications = new EventEmitter();
   const feed = createCoherenceSessionFeed({ broadcastControl: (message) => publications.emit('reading', message), debounceMs: 0 });
@@ -64,7 +64,7 @@ test('Coherence attaches only in a configured repository, and a turn end install
   const heals = new EventEmitter();
   const coherenceAttachment = { ...attachment, healHooks: () => attachment.healHooks().finally(() => heals.emit('done')) };
   const session = Object.assign(new EventEmitter(), {
-    id: 'card-heal', resumeSessionId: null, coherenceHooks: attachment.hooks, coherenceAttachment,
+    id: 'card-heal', resumeSessionId: null, baseSha: null, coherenceHooks: attachment.hooks, coherenceAttachment,
     refreshCoherenceHooks: async () => {},
     raiseAttention: (_origin: unknown, note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
   });
@@ -128,7 +128,7 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
     rerunTouchedVerdicts: (turn: Parameters<typeof attachment.rerunTouchedVerdicts>[0]) => attachment.rerunTouchedVerdicts(turn).finally(() => reruns.emit('done')),
   };
   const session = Object.assign(new EventEmitter(), {
-    id: 'card-verdicts', resumeSessionId: 's-verdicts', coherenceHooks: attachment.hooks, coherenceAttachment,
+    id: 'card-verdicts', resumeSessionId: 's-verdicts', baseSha: null, coherenceHooks: attachment.hooks, coherenceAttachment,
     refreshCoherenceHooks: async () => {},
     raiseAttention: (_origin: unknown, note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
   });
@@ -159,6 +159,66 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   session.emit('exit');
 });
 
+async function ownFootprintFixture(context: { after: (fn: () => Promise<void>) => void }) {
+  const worktree = await mkdtemp(path.join(os.tmpdir(), 'coherence-footprint-'));
+  context.after(() => rm(worktree, { recursive: true, force: true }));
+  const git = (...args: string[]) => execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: worktree });
+  const commitHead = async () => (await git('rev-parse', 'HEAD')).stdout.trim();
+  await git('init', '-q');
+  await writeFile(path.join(worktree, 'lane.ts'), 'export {};\n');
+  await writeFile(path.join(worktree, 'other.ts'), 'export {};\n');
+  await writeFile(path.join(worktree, '.gitignore'), 'node_modules\ncoherence-*\n');
+  await writeFile(path.join(worktree, 'coherence.config.json'), '{}');
+  await git('add', '.');
+  await git('commit', '-qm', 'base');
+  const baseSha = await commitHead();
+  await writeFile(path.join(worktree, 'other.ts'), 'export const fromSession = 1;\n');
+  await git('commit', '-qam', 'session change');
+  await installFakeCoherence(worktree);
+  await writeFile(path.join(worktree, 'node_modules', '@posthog', 'coherence', 'dist', 'cli.js'), VERDICT_CLI);
+  await writeFile(path.join(worktree, 'coherence-fixture.json'), JSON.stringify({ runVerdict: 'pass', specExitCode: 0 }));
+  const attachment = await resolveCoherence({ worktree, host: 'claude', isSettingOn: true });
+  assert.ok(attachment);
+  const reruns = new EventEmitter();
+  const coherenceAttachment = {
+    ...attachment,
+    rerunTouchedVerdicts: (turn: Parameters<typeof attachment.rerunTouchedVerdicts>[0]) => attachment.rerunTouchedVerdicts(turn).finally(() => reruns.emit('done')),
+  };
+  const session = Object.assign(new EventEmitter(), {
+    id: 'card-footprint', resumeSessionId: 's-footprint', baseSha: baseSha as string | null, coherenceHooks: attachment.hooks, coherenceAttachment,
+    refreshCoherenceHooks: async () => {},
+    raiseAttention: () => ({ ok: true as const, pending: false }),
+  });
+  const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
+  feed.attachSession(session);
+  context.after(async () => { session.emit('exit'); });
+  assert.ok(await attachment.readVerdictBaseline());
+  const oracleRunsAtTurnEnd = async () => {
+    const rerun = once(reruns, 'done');
+    const timeout = setTimeout(() => reruns.emit('error', new Error('turn end timed out')), 10_000);
+    feed.onTurnEnd(session);
+    await rerun.finally(() => clearTimeout(timeout));
+    const cliCalls = (await readFile(path.join(worktree, 'coherence-calls.jsonl'), 'utf8')).trim().split('\n')
+      .map((line) => (JSON.parse(line) as { args: string[] }).args.join(' '));
+    return cliCalls.filter((args) => args.startsWith('run --form')).length;
+  };
+  return { worktree, git, commitHead, session, oracleRunsAtTurnEnd };
+}
+
+test('a turn whose only change is an auto-rebase moving HEAD re-runs no totality oracle', async (context) => {
+  const { worktree, git, commitHead, session, oracleRunsAtTurnEnd } = await ownFootprintFixture(context);
+  await writeFile(path.join(worktree, 'lane.ts'), 'export const fromMainline = 1;\n');
+  await git('commit', '-qam', 'mainline change the rebase brings in');
+  session.baseSha = await commitHead();
+  assert.equal(await oracleRunsAtTurnEnd(), 0);
+});
+
+test('a turn that reverts the session\'s own earlier change back to the base still re-runs its oracles', async (context) => {
+  const { worktree, oracleRunsAtTurnEnd } = await ownFootprintFixture(context);
+  await writeFile(path.join(worktree, 'other.ts'), 'export {};\n');
+  assert.equal(await oracleRunsAtTurnEnd(), 1);
+});
+
 for (const ending of ['closed', 'exited cleanly'] as const) for (const reader of ['turn end', 'dashboard journal view'] as const) test(`a session ${ending} waits out its in-flight Coherence reading from the ${reader}, so nothing writes into its worktree after removal`, async (context) => {
   const worktree = await mkdtemp(path.join(os.tmpdir(), 'coherence-settle-'));
   context.after(() => rm(worktree, { recursive: true, force: true }));
@@ -168,7 +228,7 @@ for (const ending of ['closed', 'exited cleanly'] as const) for (const reader of
   const worktreeDiscardHolds: Array<() => Promise<() => void>> = [];
   const session = Object.assign(new EventEmitter(), {
     id: 'card-settle', resumeSessionId: 's-settle', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
-    refreshCoherenceHooks: async () => {}, raiseAttention: () => ({ ok: true as const, pending: false }),
+    refreshCoherenceHooks: async () => {}, baseSha: null, raiseAttention: () => ({ ok: true as const, pending: false }),
     onBeforeWorktreeDiscard: (hold: () => Promise<() => void>) => { worktreeDiscardHolds.push(hold); },
   });
   const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
