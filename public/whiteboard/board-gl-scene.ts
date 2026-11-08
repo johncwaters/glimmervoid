@@ -2,7 +2,7 @@ import type { IconName, StickyTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
@@ -104,7 +104,7 @@ const LAYER_COUNT = 6;
 const CHROME_LAYER = 0;
 const WIRE_LABEL_LAYER = 3;
 const BOX_LAYER = 4;
-const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, note: 5 };
+const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, note: 5, stroke: 5 };
 const MIN_TEXT_PX = 4;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
@@ -529,6 +529,23 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
   return { parts: [{ layer: LAYER_BY_KIND.wire, part: sealPart(part) }, { layer: WIRE_LABEL_LAYER, part: sealPart(labelPart) }], hitShape: { kind: 'path', points }, bounds };
 }
 
+function pointsOfStroke(stroke: LaidOutStroke): Point[] {
+  const points: Point[] = [];
+  for (let index = 0; index + 1 < stroke.points.length; index += 2) points.push({ x: stroke.points[index] ?? 0, y: stroke.points[index + 1] ?? 0 });
+  return points;
+}
+
+function strokeColorOf(stroke: LaidOutStroke, palette: BoardPalette): Rgba {
+  return stroke.tone === 'ink' ? palette.ink : palette.stickyEdgeByTone[stroke.tone];
+}
+
+function strokeGeometry(stroke: LaidOutStroke, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
+  const part = createPart();
+  const points = pointsOfStroke(stroke);
+  pushPolyline(part, points, stroke.strokeWidth, strokeColorOf(stroke, context.palette), SOLID, ALWAYS);
+  return { part, hitShape: { kind: 'path', points } };
+}
+
 function noteGeometry(note: LaidOutNote, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
   const { palette, glyphs } = context;
   const part = createPart();
@@ -557,6 +574,7 @@ function geometryOf(element: LaidOutElement, context: SceneContext): { parts: La
     case 'frame': return singleLayer(element, frameGeometry(element, context));
     case 'wire': return wireGeometry(element, context);
     case 'note': return singleLayer(element, noteGeometry(element, context));
+    case 'stroke': return singleLayer(element, strokeGeometry(element, context));
   }
 }
 
@@ -605,13 +623,17 @@ function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rg
     pushPolyline(part, pointsOfPath(element.path), 2.6, color, SOLID, ALWAYS);
     return;
   }
+  if (element.kind === 'stroke') {
+    pushPolyline(part, pointsOfStroke(element), element.strokeWidth + 4, color, SOLID, ALWAYS);
+    return;
+  }
   if (element.kind === 'box' && element.shape === 'decision') {
     const polygon = decisionOutlinePoints(element);
     const [firstCorner] = polygon;
     if (firstCorner) pushPolyline(part, [...polygon, firstCorner], width, color, SOLID, ALWAYS);
     return;
   }
-  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire'>, number> = { box: 8, note: 4, frame: 12 };
+  const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire' | 'stroke'>, number> = { box: 8, note: 4, frame: 12 };
   pushRect(part, element, radiusByKind[element.kind], [0, 0, 0, 0], color, width, ALWAYS);
 }
 

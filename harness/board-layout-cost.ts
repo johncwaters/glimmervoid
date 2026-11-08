@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
-import { Element } from '../shared/contracts/whiteboard.ts';
+import { Element, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
@@ -27,6 +27,8 @@ const AT_GRID_TOP = 300;
 const BOX_INSET = 2;
 const EDITED_BOX_COUNT = 8;
 const EDIT_OFFSET = { x: 40, y: 30 };
+const STROKE_STEP = 3;
+const STROKE_ROW_HEIGHT = 120;
 
 type LayoutBoard = (board: Board) => PlacedLayout;
 
@@ -65,6 +67,21 @@ export function benchmarkBoard(elementCount: number): Board {
   }
   const board = createBoard({ id: '00000000-0000-4000-8000-000000000000', title: 'layout cost', nowMs: 0 });
   return { ...board, elements };
+}
+
+function inkedBoard(board: Board, strokeCount: number): Board {
+  const elements = board.elements.copy();
+  const pointCount = WHITEBOARD_LIMITS.strokePoints;
+  for (let strokeIndex = 0; strokeIndex < strokeCount; strokeIndex += 1) {
+    const points: number[] = [];
+    for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) points.push(40 + pointIndex * STROKE_STEP, -strokeIndex * STROKE_ROW_HEIGHT + Math.round(Math.sin(pointIndex / 8) * 40));
+    elements.put(Element.parse({ kind: 'stroke', id: `ink${strokeIndex}`, points }));
+  }
+  return { ...board, elements };
+}
+
+function storedBytesOf(board: Board): number {
+  return Buffer.byteLength(JSON.stringify(board.elements));
 }
 
 function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; boardLayout: PlacedLayout } {
@@ -147,17 +164,19 @@ async function main(): Promise<number> {
       'budget-ms': { type: 'string' },
       'expect-routed': { type: 'boolean', default: false },
       edit: { type: 'boolean', default: false },
+      strokes: { type: 'string', default: '0' },
     },
   });
   const sizes = values.sizes.split(',').map(Number);
   const budgetMs = values['budget-ms'] === undefined ? null : Number(values['budget-ms']);
   const compareRef = values['compare-ref'] ?? null;
+  const strokeCount = Number(values.strokes);
   const scratchDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'board-layout-cost-'));
   let failureCount = 0;
   try {
     const referenceLayout = compareRef ? await layoutAtRef(compareRef, scratchDirectory) : null;
     for (const size of sizes) {
-      const coldBoard = benchmarkBoard(size);
+      const coldBoard = inkedBoard(benchmarkBoard(size), strokeCount);
       const board = values.edit ? movedBoxesBoard(coldBoard) : coldBoard;
       const current = values.edit ? bestEditMs(coldBoard) : bestLayoutMs(layoutBoard, board);
       const reference = referenceLayout ? bestLayoutMs(referenceLayout, board) : null;
@@ -169,7 +188,7 @@ async function main(): Promise<number> {
       const unroutedWarnings = current.boardLayout.warnings.filter((warning) => warning.includes('found no clear route')).length;
       const failsRouting = wiresThroughBoxes !== null && (wiresThroughBoxes > 0 || unroutedWarnings > 0);
       if (isOverBudget || failsWarnings || failsRouting) failureCount += 1;
-      console.log(JSON.stringify({ size, layoutMs: current.layoutMs, referenceLayoutMs: reference?.layoutMs ?? null, budgetMs, isOverBudget, hasSameWarnings, hasSameLayout, wiresThroughBoxes, warnings: current.boardLayout.warnings.length }));
+      console.log(JSON.stringify({ size, strokeCount, storedBytes: storedBytesOf(board), layoutMs: current.layoutMs, referenceLayoutMs: reference?.layoutMs ?? null, budgetMs, isOverBudget, hasSameWarnings, hasSameLayout, wiresThroughBoxes, warnings: current.boardLayout.warnings.length }));
     }
   } finally {
     fs.rmSync(scratchDirectory, { recursive: true, force: true });

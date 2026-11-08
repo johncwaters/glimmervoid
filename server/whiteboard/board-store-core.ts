@@ -113,6 +113,7 @@ function searchableTextOf(element: Element): string {
   if (element.kind === 'box') return [element.title, ...linesOfBox(element).map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
   if (element.kind === 'wire') return element.label ?? '';
   if (element.kind === 'note') return element.text;
+  if (element.kind === 'stroke') return '';
   return element.title;
 }
 

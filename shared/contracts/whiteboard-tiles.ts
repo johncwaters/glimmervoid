@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEVICE_FITS } from '../whiteboard-devices.ts';
-import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, DialValue, Element, IconName, STEP_STATUSES, STICKY_TONES, Wire } from './whiteboard.ts';
+import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, DialValue, Element, IconName, STEP_STATUSES, STICKY_TONES, STROKE_TONES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
 export const BLOCK_RASTER_PX = 64;
@@ -73,11 +73,12 @@ export const LaidOutWire = z.object({
 
 export const LaidOutNote = z.object({ ...rectShape, kind: z.literal('note'), id: z.string(), lines: z.array(z.string()), byline: z.string(), isResolved: z.boolean() });
 
-export const LaidOutElement = z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote]);
+export const LaidOutStroke = z.object({ ...rectShape, kind: z.literal('stroke'), id: z.string(), points: z.array(z.number()), strokeWidth: z.number(), tone: z.enum(STROKE_TONES) });
+export const LaidOutElement = z.discriminatedUnion('kind', [LaidOutBox, LaidOutFrame, LaidOutWire, LaidOutNote, LaidOutStroke]);
 
 export const PlacedBox = LaidOutBox.omit({ titleLines: true, bodyLines: true, wasLines: true });
 export const PlacedNote = LaidOutNote.omit({ lines: true });
-export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, PlacedNote]);
+export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, PlacedNote, LaidOutStroke]);
 
 const LegendSwatch = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('wire'), tone: Wire.shape.tone.unwrap(), isDashed: z.boolean(), isBack: z.boolean() }),
@@ -125,6 +126,7 @@ export type LaidOutBox = z.infer<typeof LaidOutBox>;
 export type LaidOutFrame = z.infer<typeof LaidOutFrame>;
 export type LaidOutWire = z.infer<typeof LaidOutWire>;
 export type LaidOutNote = z.infer<typeof LaidOutNote>;
+export type LaidOutStroke = z.infer<typeof LaidOutStroke>;
 export type LaidOutElement = z.infer<typeof LaidOutElement>;
 export type PlacedBox = z.infer<typeof PlacedBox>;
 export type PlacedNote = z.infer<typeof PlacedNote>;

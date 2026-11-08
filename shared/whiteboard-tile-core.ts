@@ -1,9 +1,9 @@
 import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
 import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
+import type { Board, BoardOutline, Element, ReadElement } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
-import { dressedElement } from './whiteboard-layout-core.ts';
-import { elementsOfKind } from './whiteboard-board-index.ts';
+import { dressedElement, laidOutStrokeOf } from './whiteboard-layout-core.ts';
+import { boardIndexOf, elementsOfKind } from './whiteboard-board-index.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
@@ -228,23 +228,30 @@ function defaultFocusOf(index: TileIndex): Rect {
   return { x: bounds.x, y: bounds.y, width: DEFAULT_FOCUS_WIDTH, height: DEFAULT_FOCUS_HEIGHT };
 }
 
-function elementPageOf(board: Board, elementIds: readonly string[], offset: number): { elements: Element[]; nextOffset: number | null } {
-  const elements: Element[] = [];
+function readElementOf(element: Element): ReadElement {
+  if (element.kind !== 'stroke') return element;
+  const { x, y, width, height } = laidOutStrokeOf(element, 0);
+  return { kind: 'stroke', id: element.id, bounds: { x, y, width, height }, pointCount: element.points.length / 2, width: element.width, tone: element.tone };
+}
+
+function elementPageOf(board: Board, elementIds: readonly string[], offset: number): { elements: ReadElement[]; nextOffset: number | null } {
+  const elements: ReadElement[] = [];
   let pageChars = 0;
   let nextIndex = offset;
   for (; nextIndex < elementIds.length && elements.length < WHITEBOARD_LIMITS.readPage; nextIndex += 1) {
     const element = board.elements.get(elementIds[nextIndex] ?? '');
     if (!element) continue;
-    const elementChars = JSON.stringify(sparseElement(element)).length;
+    const readElement = readElementOf(element);
+    const elementChars = JSON.stringify(element.kind === 'stroke' ? readElement : sparseElement(element)).length;
     if (elements.length > 0 && pageChars + elementChars > WHITEBOARD_LIMITS.readPageChars) break;
-    elements.push(element);
+    elements.push(readElement);
     pageChars += elementChars;
   }
   return { elements, nextOffset: nextIndex < elementIds.length ? nextIndex : null };
 }
 
 function fitsOnePage(board: Board): boolean {
-  if (board.elements.size > WHITEBOARD_LIMITS.readPage) return false;
+  if (board.elements.size > WHITEBOARD_LIMITS.readPage || boardIndexOf(board.elements).strokeCount > 0) return false;
   let pageChars = 0;
   for (const id of board.elements.keys()) pageChars += board.elements.sparseLengthOf(id);
   return pageChars <= WHITEBOARD_LIMITS.readPageChars;

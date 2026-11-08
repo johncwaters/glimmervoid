@@ -173,8 +173,17 @@
 .wb-viewport[data-tool='panel'],
 .wb-viewport[data-tool='sticky'],
 .wb-viewport[data-tool='text'],
-.wb-viewport[data-tool='wire'] {
+.wb-viewport[data-tool='wire'],
+.wb-viewport[data-tool='pen'] {
   cursor: crosshair;
+}
+
+.wb-ink-draft {
+  fill: none;
+  stroke: var(--wb-ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .wb-board-title {

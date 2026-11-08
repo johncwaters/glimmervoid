@@ -1,4 +1,4 @@
-import { BOX_SHAPES, Box, Frame, Note, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
+import { BOX_SHAPES, Box, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
@@ -28,21 +28,22 @@ type Draft = {
   erasedIds: Set<string>;
   overlayDependentIdsByBoxId: Map<string, Set<string>>;
   elementCount: number;
+  strokeCount: number;
   basePinPositions: PinPositions | null;
 };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note });
+const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, stroke: Stroke });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
 
-function canKeepNoteStamps(author: Author): boolean {
+function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
 }
 
 function storedNote(note: Note, author: Author): Note {
-  if (!canKeepNoteStamps(author)) return { ...note, author: author.name, resolvedBy: null };
+  if (!isOperatorAuthor(author)) return { ...note, author: author.name, resolvedBy: null };
   return { ...note, author: note.author === '' ? author.name : note.author };
 }
 
@@ -66,6 +67,7 @@ function writeElement(draft: Draft, element: Element): void {
 }
 
 function eraseElement(draft: Draft, id: string): void {
+  if (elementOf(draft, id)?.kind === 'stroke') draft.strokeCount -= 1;
   draft.afterById.set(id, null);
   draft.erasedIds.add(id);
   draft.elementCount -= 1;
@@ -182,11 +184,14 @@ function withoutEmptyOutputsOffDecision(element: Element): Element {
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
   if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
+  if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
+  if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const stored: Element = element.kind === 'note' ? storedNote(element, author) : withoutEmptyOutputsOffDecision(element);
   const references = checkReferences(draft, stored, undefined);
   if (!references.ok) return references;
   writeElement(draft, stored);
   draft.elementCount += 1;
+  if (stored.kind === 'stroke') draft.strokeCount += 1;
   return OK;
 }
 
@@ -215,7 +220,8 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (!existing) return refuse(`no element has id ${id}`);
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
-  if (!canKeepNoteStamps(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
+  if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
+  if (!isOperatorAuthor(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const stored = withoutEmptyOutputsOffDecision(parsed.data);
@@ -306,7 +312,7 @@ function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
 function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: number, basePinPositions: PinPositions | null): StagedOps {
   const draft: Draft = {
     base: board, head: { ...board }, afterById: new Map(), erasedIds: new Set(), overlayDependentIdsByBoxId: new Map(),
-    elementCount: boardIndexOf(board.elements).elementCount, basePinPositions,
+    elementCount: boardIndexOf(board.elements).elementCount, strokeCount: boardIndexOf(board.elements).strokeCount, basePinPositions,
   };
   const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;

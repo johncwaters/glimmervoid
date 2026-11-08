@@ -36,7 +36,7 @@ const ARRAY_INDEX_KEY = /^(?:0|[1-9]\d{0,9})$/;
 const MAX_ARRAY_INDEX = 4294967294;
 const MIN_HOLES_BEFORE_COMPACTING = 1024;
 const builtTables = new WeakSet<object>();
-const KIND_NAMES = ['box', 'frame', 'wire', 'note'] as const satisfies readonly ElementKind[];
+const KIND_NAMES = ['box', 'frame', 'wire', 'note', 'stroke'] as const satisfies readonly ElementKind[];
 const KIND_CODE_BY_NAME = new Map<ElementKind, number>(KIND_NAMES.map((kind, code) => [kind, code]));
 const EMPTY_BODY = '{}';
 const SHORTENED_KEYS = [

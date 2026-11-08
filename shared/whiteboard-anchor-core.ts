@@ -75,6 +75,7 @@ function sitesOfElement(element: Element): AnchorSite[] {
     case 'note': return element.ref ? [{ elementId: element.id, ref: element.ref, where: elementName }] : [];
     case 'frame':
     case 'wire':
+    case 'stroke':
       return [];
   }
 }

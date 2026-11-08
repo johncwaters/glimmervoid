@@ -469,6 +469,7 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
     case 'note': return noteSections(element, set);
+    case 'stroke': return [heading('Ink')];
   }
 }
 
