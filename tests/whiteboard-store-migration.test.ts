@@ -7,6 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
 import { Op } from '../shared/contracts/whiteboard.ts';
+import type { Board } from '../shared/contracts/whiteboard.ts';
+import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
@@ -61,9 +63,15 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   const storeWrittenBeforeCompactRows = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
   storeWrittenBeforeCompactRows.prepare(`UPDATE boards SET head = json_set(head, '$.columns', json('[]'), '$.lanes', json('[]')) WHERE id = ?`).run('legacy-board');
   const writeJsonRow = storeWrittenBeforeCompactRows.prepare('UPDATE elements SET body = ?, kind = NULL, asset_id = NULL, linked_board_id = NULL WHERE board_id = ? AND element_id = ?');
+  const nearBoxIds = [...legacy.board.elements.values()].flatMap((element) => (element.kind === 'box' && element.near ? [element.id] : []));
+  assert.ok(nearBoxIds.length > 0);
+  const drawnAtById = (board: Board | undefined) => new Map(board ? layoutBoard(board).elements.flatMap((drawn) => (drawn.kind === 'box' ? [[drawn.id, [drawn.x, drawn.y]] as const] : [])) : []);
+  const drawnBeforeRestart = drawnAtById(boardBeforeRestart);
   for (const element of boardBeforeRestart?.elements.values() ?? []) {
     const bodyBeforeFreeCanvas = element.id === firstBoxId ? { ...element, lane: null, column: null } : element;
-    writeJsonRow.run(JSON.stringify(bodyBeforeFreeCanvas), 'legacy-board', element.id);
+    const legacyElement = legacy.board.elements.get(element.id);
+    const storedBody = legacyElement?.kind === 'box' && legacyElement.near ? { ...bodyBeforeFreeCanvas, at: null, near: legacyElement.near } : bodyBeforeFreeCanvas;
+    writeJsonRow.run(JSON.stringify(storedBody), 'legacy-board', element.id);
   }
   storeWrittenBeforeCompactRows.exec('PRAGMA user_version = 0');
   storeWrittenBeforeCompactRows.close();
@@ -76,6 +84,9 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.equal(renamedBox?.kind === 'box' ? renamedBox.title : null, 'Renamed in sqlite');
   assert.equal(reloaded.board?.version, versionBeforeRestart);
   assert.deepEqual([...reloaded.board?.elements.keys() ?? []], [...boardBeforeRestart?.elements.keys() ?? []], 'a store written before compact rows keeps its element order after the upgrade');
+  assert.ok([...reloaded.board?.elements.values() ?? []].every((element) => element.kind !== 'box' || element.near === null), 'a stored near chain is pinned to fixed places');
+  const drawnAfterRestart = drawnAtById(reloaded.board);
+  assert.deepEqual(nearBoxIds.map((boxId) => drawnAfterRestart.get(boxId)), nearBoxIds.map((boxId) => drawnBeforeRestart.get(boxId)), 'a pinned box stays where it was drawn');
 
   const smallBoardId = (await restarted.handleOperator.create('Order')).summary?.id ?? '';
   const boxAt = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: id, at: { x: 0, y: 0 } } });

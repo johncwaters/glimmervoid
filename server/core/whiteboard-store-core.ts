@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { Box, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { Board as BoardSchema, Box, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
+import { storedPlacesOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
@@ -108,11 +109,25 @@ function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string
   return { ...freeBoard, ...('legend' in board ? { legend: legendWithoutLaneTone(board.legend) } : {}), elements: freeElements };
 }
 
+function isNearBox(element: unknown): element is Record<string, unknown> {
+  return isRecord(element) && element.kind === 'box' && isRecord(element.near);
+}
+
+function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.values(elements).some(isNearBox)) return elements;
+  const parsedBoard = BoardSchema.safeParse({ ...board, elements });
+  if (!parsedBoard.success) return elements;
+  const storedPlaceById = storedPlacesOfBoxes(parsedBoard.data);
+  return Object.fromEntries(Object.entries(elements).map(([elementId, element]) => [elementId, isNearBox(element) ? { ...element, near: null, at: storedPlaceById.get(elementId) } : element]));
+}
+
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
   const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxWithOutputsOnlyOnDecision(boxForPanel(elementWithMediaForImage(element)))]));
-  return { ...raw, board: freeCanvasBoard(board, elements) };
+  const freeBoard = freeCanvasBoard(board, elements);
+  if (!isRecord(freeBoard.elements)) return { ...raw, board: freeBoard };
+  return { ...raw, board: { ...freeBoard, elements: pinnedNearBoxes(freeBoard, freeBoard.elements) } };
 }
 
 function lowestCursor(record: BoardRecord): number {

@@ -13,7 +13,7 @@ type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds:
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 const ELEMENT_PAGE_SIZE = 5_000;
-const COMPACT_ROWS_VERSION = 2;
+const BOARD_ROWS_VERSION = 3;
 
 const BOARD_STORE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -256,5 +256,5 @@ function ftsQueryOf(query: string): string {
 }
 
 export type { StagedElements };
-export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, COMPACT_ROWS_VERSION, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, boardDeltaOf, compactDeltaOf, elementPageOfRows, ftsQueryOf, headRowsOf, recordOfRows };
+export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, BOARD_ROWS_VERSION, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, boardDeltaOf, compactDeltaOf, elementPageOfRows, ftsQueryOf, headRowsOf, recordOfRows };
 export type { BoardDelta, ElementPage, Rect, StoreRequestBody, StoredHeadRows, StoredRowColumns };

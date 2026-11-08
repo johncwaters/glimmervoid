@@ -727,6 +727,14 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   return dressedLayout(placeBoardWithMemory(storedBoard, null).layout, storedBoard);
 }
 
+function storedPlacesOfBoxes(storedBoard: Board): Map<string, Point> {
+  const { positionById: stepBandPositions, bottom: freeformTop } = stepBandOf(storedBoard);
+  const pinnedOffsetY = freeformTop - MARGIN;
+  const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
+  const { boxesById } = layoutBoxes(board, freeformTop, noteStackHeightByBoxId(board), stepBandPositions);
+  return new Map([...boxesById].map(([boxId, placed]) => [boxId, { x: placed.x, y: placed.y - pinnedOffsetY }]));
+}
+
 function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: PlacedLayout; memory: LayoutMemory; warningLists: WarningList[] } {
   const { positionById: stepBandPositions, bottom: freeformTop, columns: planColumns } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
@@ -817,6 +825,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
+  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedPlacesOfBoxes, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };

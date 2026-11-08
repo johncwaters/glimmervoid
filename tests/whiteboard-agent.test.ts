@@ -1184,7 +1184,7 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   };
   assert.deepEqual(['queue', 'read', 'write', 'pinned'].map(placeOf), [
     { at: { x: 40, y: 40 }, near: null },
-    { at: null, near: { of: 'queue', side: 'bottom', gap: 30 } },
+    { at: { x: -50, y: 114 }, near: null },
     { at: { x: 530, y: 40 }, near: null },
     { at: { x: 900, y: 500 }, near: null },
   ]);

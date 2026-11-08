@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { parentPort, workerData } from 'node:worker_threads';
 
-import { BOARD_STORE_SCHEMA, COMPACT_ROWS_VERSION, StoreRequest, compactDeltaOf, elementPageOfRows, ftsQueryOf } from './board-store-core.ts';
+import { BOARD_STORE_SCHEMA, BOARD_ROWS_VERSION, StoreRequest, compactDeltaOf, elementPageOfRows, ftsQueryOf } from './board-store-core.ts';
 import type { BoardDelta, ElementPage, Rect, StoreRequestBody, StoredHeadRows, StoredRowColumns } from './board-store-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { inTransaction, isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
@@ -159,7 +159,7 @@ function openStore(databasePath: string) {
     return { ...elementPageOfRows(rows.map(storedRowColumnsOf)), ...(lastRow ? { lastSlot: slotNumberOf(lastRow) } : {}) };
   }
 
-  function migrateBoardToCompactRows(headRows: StoredHeadRows): void {
+  function migrateBoardRowsOf(headRows: StoredHeadRows): void {
     const delta = compactDeltaOf(headRows, statements.allElementRows.all(headRows.boardId).map(storedRowColumnsOf));
     if (!delta) {
       statements.fillJsonRowColumns.run(headRows.boardId);
@@ -170,7 +170,7 @@ function openStore(databasePath: string) {
 
   function isBoardUpgraded(headRows: StoredHeadRows): boolean {
     try {
-      inTransaction(database, () => migrateBoardToCompactRows(headRows));
+      inTransaction(database, () => migrateBoardRowsOf(headRows));
       return true;
     } catch (error) {
       if (!isUnreadableDatabase(error)) throw error;
@@ -178,15 +178,15 @@ function openStore(databasePath: string) {
     }
   }
 
-  function migrateToCompactRows(): void {
+  function migrateBoardRows(): void {
     const unreadableBoardCount = loadHeads().filter((headRows) => !isBoardUpgraded(headRows)).length;
     if (unreadableBoardCount > 0) return;
-    database.exec(`PRAGMA user_version = ${COMPACT_ROWS_VERSION}`);
+    database.exec(`PRAGMA user_version = ${BOARD_ROWS_VERSION}`);
   }
 
-  if (storedVersionOf(database) < COMPACT_ROWS_VERSION) {
+  if (storedVersionOf(database) < BOARD_ROWS_VERSION) {
     try {
-      migrateToCompactRows();
+      migrateBoardRows();
     } catch (error) {
       database.close();
       throw error;
