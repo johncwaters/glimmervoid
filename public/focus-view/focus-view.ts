@@ -493,7 +493,8 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const groups = groupsOf(order);
   const boardSummaries = boardSummariesOf();
   if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
-  const boardsOfProject = boardsByProject(boardSummaries, currentLiveSplits());
+  const groupKeyBySessionId = new Map(groups.groups.filter((group) => group.hostId === null).flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
+  const boardsOfProject = boardsByProject(boardSummaries, currentLiveSplits(), groupKeyBySessionId);
   const railGroups = withBoardProjects(groups, boardsOfProject.keys());
   const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
   const placedBoardIds = new Set<string>();

@@ -491,6 +491,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   sessionRegistry.initialize();
   void whiteboards.forgetClosedSessions((sessionId) => getSessionAny(sessionId) === null);
+  void whiteboards.fileUnfiledBoards();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
   void deleteRetiredGuardrailsFolders(glimmervoidHomeDir());

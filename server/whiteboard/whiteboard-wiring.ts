@@ -142,6 +142,7 @@ interface WhiteboardPort {
   };
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
+  fileUnfiledBoards(): Promise<void>;
   takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
@@ -750,13 +751,18 @@ function createWhiteboardWiring({
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
   };
 
-  async function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
+  async function changeHead(boardId: string, nextOf: (current: BoardRecord) => BoardRecord): Promise<void> {
     await writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return;
-      const next = closedSessionIds.reduce(disconnectSession, current);
+      const next = nextOf(current);
+      if (next === current) return;
       if (await saveRecordInSlot(current, next, null)) broadcastSummariesIfChanged(current, next);
     });
+  }
+
+  function closeConnections(boardId: string, closedSessionIds: readonly string[]): Promise<void> {
+    return changeHead(boardId, (current) => closedSessionIds.reduce(disconnectSession, current));
   }
 
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
@@ -766,6 +772,17 @@ function createWhiteboardWiring({
     await Promise.all(closedConnectionsPerBoard
       .filter(({ closedSessionIds }) => closedSessionIds.length > 0)
       .map(({ boardId, closedSessionIds }) => closeConnections(boardId, closedSessionIds)));
+  }
+
+  function knownProjectOf(record: BoardRecord): string | null {
+    const sessionIds = [record.createdBy, record.board.codeSessionId, ...Object.keys(record.cursorBySessionId)].filter((sessionId) => sessionId !== null);
+    return sessionIds.map(projectOf).find((project) => project !== null) ?? null;
+  }
+
+  async function fileUnfiledBoards(): Promise<void> {
+    await loaded;
+    const unfiledBoardIds = [...recordsByBoardId.values()].filter((record) => record.board.project === null).map((record) => record.board.id);
+    await Promise.all(unfiledBoardIds.map((boardId) => changeHead(boardId, (current) => filedUnder(current, knownProjectOf(current)))));
   }
 
   function forgetSession(sessionId: string): Promise<void> {
@@ -924,7 +941,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, fileUnfiledBoards, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

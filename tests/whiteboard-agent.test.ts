@@ -794,6 +794,20 @@ test('a board an agent creates carries its project, and an unfiled board is file
   };
   assert.equal(await projectOfBoard(firstProject), firstProject);
   assert.equal(await projectOfBoard(path.join(boardsRoot, 'second')), firstProject);
+
+  const restartRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'unfiled-restart-'));
+  const beforeFiling = createWhiteboardWiring({ boardsRoot: restartRoot });
+  const knownSessionBoardId = ((await beforeFiling.handleOperator.create('made before filing')) as { summary: { id: string } }).summary.id;
+  const goneSessionBoardId = ((await beforeFiling.handleOperator.create('session gone')) as { summary: { id: string } }).summary.id;
+  await beforeFiling.handleOperator.connect(knownSessionBoardId, 'restored-session');
+  await beforeFiling.handleOperator.connect(goneSessionBoardId, 'gone-session');
+  assert.equal((await beforeFiling.handleOperator.get(knownSessionBoardId)).board?.project, null);
+  const restoredProject = path.join(restartRoot, 'restored');
+  const afterRestart = createWhiteboardWiring({ boardsRoot: restartRoot, projectOf: (sessionId) => (sessionId === 'restored-session' ? restoredProject : null) });
+  await afterRestart.fileUnfiledBoards();
+  const projectAfterAnotherRestart = async (boardId: string) => (await createWhiteboardWiring({ boardsRoot: restartRoot }).handleOperator.get(boardId)).board?.project;
+  assert.equal(await projectAfterAnotherRestart(knownSessionBoardId), restoredProject);
+  assert.equal(await projectAfterAnotherRestart(goneSessionBoardId), null);
 });
 
 test('an agent lists its own project boards in use, all lists every board, a title resolves only in its project, and a board idle 30 days unconnected is archived until a connect or an edit', async () => {

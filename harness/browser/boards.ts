@@ -838,8 +838,8 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await page.locator('.pane-group[data-pane="board"] > .pane-header').dragTo(sessionRow);
   await waitForSplitBoardTitle(page, sessionId, null);
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
-  const sessionName = await page.locator(`.session-card[data-id="${sessionId}"]`).first().getAttribute('data-session');
-  assert.equal(await laterRow.locator('.session-row-task').textContent(), sessionName, 'the board dropped back names the session it stays connected to');
+  await laterRow.waitFor({ state: 'detached' });
+  assert.equal(await sessionRow.locator(`.session-board-chip[aria-label="Open board ${laterTitle}"]`).count(), 1, 'the board dropped back shows once, as a link under the session it stays connected to, with no board row of its own');
   await page.keyboard.press('Alt+KeyB');
   await pollFor('Alt B opens a connected board beside the session', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });

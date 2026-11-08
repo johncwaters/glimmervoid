@@ -183,12 +183,13 @@ function projectKeyOf(board: Pick<RailBoard, 'project'>): string {
   return board.project ?? NO_PATH_KEY;
 }
 
-export function boardsByProject<Board extends RailBoard>(boards: readonly Board[], splits: SplitBoardBySession): Map<string, ProjectBoards<Board>> {
+export function boardsByProject<Board extends RailBoard>(boards: readonly Board[], splits: SplitBoardBySession, groupKeyBySessionId: ReadonlyMap<string, string>): Map<string, ProjectBoards<Board>> {
   const splitBoardIds = new Set(Object.values(splits));
   const byProject = new Map<string, ProjectBoards<Board>>();
   for (const board of [...boards].sort(byTitle)) {
     if (splitBoardIds.has(board.id)) continue;
     const key = projectKeyOf(board);
+    if (board.connectedSessionIds.some((sessionId) => groupKeyBySessionId.get(sessionId) === key)) continue;
     const projectBoards = byProject.get(key) ?? { active: [], archived: [] };
     (board.isArchived ? projectBoards.archived : projectBoards.active).push(board);
     byProject.set(key, projectBoards);
