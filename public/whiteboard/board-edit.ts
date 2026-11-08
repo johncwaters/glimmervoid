@@ -737,6 +737,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     placeMediaBox,
     openPendingTitleEdit,
     focusCanvas: () => viewport.focus(),
+    removeSelected,
   };
 }
 

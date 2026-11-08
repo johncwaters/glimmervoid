@@ -24,6 +24,16 @@ interface BoardInspectorOptions {
   sendOps: (ops: Op[]) => Promise<boolean>;
   codeSessionChoices: () => readonly Choice[];
   openRef: (ref: string) => void;
+  linkedBoardChoices: () => readonly Choice[];
+  addNoteOn: (boxId: string) => void;
+  frameSelectedBoxes: () => void;
+  removeSelected: () => void;
+}
+
+interface SelectionActions {
+  addNoteOn: (boxId: string) => void;
+  frameSelectedBoxes: () => void;
+  removeSelected: () => void;
 }
 
 const MAX_OUTPUTS = 8;
@@ -45,7 +55,8 @@ const DEVICE_CHOICES = choicesOf(DEVICE_NAMES);
 const FIT_CHOICES = choicesOf(DEVICE_FITS);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
-const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
+const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'Auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
+const PLANNED_STEP: Step = { status: 'planned', linkedBoardId: null };
 const DEFAULT_OUTPUTS: DecisionBox['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
 
 function choicesOf(values: readonly string[]): Choice[] {
@@ -105,7 +116,7 @@ function checkboxField(field: string, label: string, checked: boolean, commit: (
 }
 
 function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
-  const inspectButton = button({ variant: 'quiet', size: 'small', label, action: label.replaceAll(' ', '-'), onClick });
+  const inspectButton = button({ variant: 'quiet', size: 'small', label, action: label.toLowerCase().replaceAll(' ', '-'), onClick });
   inspectButton.dataset.field = field;
   if (accessibleName) inspectButton.setAttribute('aria-label', accessibleName);
   return inspectButton;
@@ -163,11 +174,11 @@ function refsEditor(owner: string, refs: readonly string[], latestRefs: LatestIt
         const nextRef = validRefOf(text);
         if (nextRef) editing.edit(index, () => nextRef);
       }, `Ref ${index + 1}`),
-      actionButton(`ref-${index}-remove`, 'remove', () => editing.remove(index), `Remove ref ${ref}`),
+      actionButton(`ref-${index}-remove`, 'Remove', () => editing.remove(index), `Remove ref ${ref}`),
     );
     return row;
   });
-  const addRef = actionButton('ref-add', 'add ref', () => editing.append(() => NEW_REF), `Add a ref to ${owner}`);
+  const addRef = actionButton('ref-add', 'Add ref', () => editing.append(() => NEW_REF), `Add a ref to ${owner}`);
   addRef.disabled = refs.length >= MAX_REFS;
   return listSection('Refs', rows, addRef);
 }
@@ -195,11 +206,11 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
       iconPicker({ field: `line-${index}-icon`, icon: line.icon, isRequired: false, accessibleName: `Line ${lineNumber} icon`, commit: (icon) => editing.edit(index, (latestLine) => ({ ...latestLine, icon })) }),
       textField(`line-${index}-text`, line.text, WHITEBOARD_LIMITS.line, (text) => editing.edit(index, (latestLine) => ({ ...latestLine, text })), `Line ${lineNumber} text`),
       optionalRefField(`line-${index}-ref`, line.ref, (ref) => editing.edit(index, (latestLine) => ({ ...latestLine, ref })), `Line ${lineNumber} ref`),
-      actionButton(`line-${index}-remove`, 'remove', () => editing.remove(index), `Remove line ${lineNumber}`),
+      actionButton(`line-${index}-remove`, 'Remove', () => editing.remove(index), `Remove line ${lineNumber}`),
     );
     return row;
   });
-  const addLine = actionButton('line-add', 'add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null, icon: null })), `Add a line to ${owner}`);
+  const addLine = actionButton('line-add', 'Add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null, icon: null })), `Add a line to ${owner}`);
   addLine.disabled = lines.length >= WHITEBOARD_LIMITS.linesPerBox;
   return listSection('Lines', rows, addLine);
 }
@@ -219,16 +230,16 @@ function outputsEditor(box: DecisionBox, latestOutputs: LatestItems<DecisionOutp
       textField(`output-${output.id}-label`, output.label, MAX_OUTPUT_LABEL, (label) => {
         if (label.trim()) editing.edit(index, (latestOutput) => ({ ...latestOutput, label: label.trim() }));
       }, `Output ${output.id} label`),
-      actionButton(`output-${output.id}-remove`, 'remove', () => editing.remove(index), `Remove output ${output.label}`),
+      actionButton(`output-${output.id}-remove`, 'Remove', () => editing.remove(index), `Remove output ${output.label}`),
     );
     return row;
   });
-  const addOutput = actionButton('output-add', 'add output', () => editing.append((outputs) => ({ id: nextOutputId(outputs), label: 'exit' })));
+  const addOutput = actionButton('output-add', 'Add output', () => editing.append((outputs) => ({ id: nextOutputId(outputs), label: 'exit' })));
   addOutput.disabled = box.outputs.length >= MAX_OUTPUTS;
   return listSection('Outputs', rows, addOutput);
 }
 
-function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, set: FieldCommit): HTMLElement[] {
+function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], set: FieldCommit): HTMLElement[] {
   const latestBox = () => {
     const element = latest();
     return element?.kind === 'box' ? element : null;
@@ -258,6 +269,16 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
     if (shape === 'device') set({ shape, device: PLACED_DEVICE, ...placeLeavingStack() });
   };
+  const commitIsStep = (isStep: boolean) => {
+    if (isStep) {
+      set({ step: PLANNED_STEP });
+      return;
+    }
+    const stepBox = latestBox();
+    const isInBuildOrderBand = stepBox !== null && stepBox.near === null && stepBox.at === null;
+    const at = isInBuildOrderBand ? laidOutPlace() : null;
+    set({ step: null, ...(at ? { at } : {}) });
+  };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
       set({ change, was: latestBox()?.was ?? box.title });
@@ -280,7 +301,8 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
-    ...(box.step ? stepSections(box.step, set) : []),
+    checkboxField('is-step', 'Plan step', box.step !== null, commitIsStep),
+    ...(box.step ? stepSections(box.step, linkedBoardChoices, set) : []),
   ];
 }
 
@@ -296,13 +318,13 @@ function wireSections(board: Board, wire: Wire, set: FieldCommit): HTMLElement[]
   const heldOutputs = from?.kind === 'box' && from.shape === 'decision' ? from.outputs : null;
   const unloadedOutputs = !from && wire.fromOutput ? [{ id: wire.fromOutput, label: wire.fromOutput }] : [];
   const outputs = heldOutputs ?? unloadedOutputs;
-  const outputChoices = outputs.length > 0 ? [{ value: '', text: 'none' }, ...outputs.map((output) => ({ value: output.id, text: output.label }))] : [];
+  const outputChoices = outputs.length > 0 ? [{ value: '', text: 'None' }, ...outputs.map((output) => ({ value: output.id, text: output.label }))] : [];
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', MAX_WIRE_LABEL, (label) => set({ label: label.trim() || null }))),
     fieldRow('Tone', selectField('tone', TONE_CHOICES, wire.tone, (tone) => set({ tone }))),
-    checkboxField('dashed', 'dashed', wire.dashed, (dashed) => set({ dashed })),
-    checkboxField('back', 'returns to an earlier step', wire.back, (back) => set({ back })),
+    checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
+    checkboxField('back', 'Returns to an earlier step', wire.back, (back) => set({ back })),
     fieldRow('Leaves from', selectField('fromSide', SIDE_CHOICES, wire.fromSide ?? '', (side) => set({ fromSide: side || null }))),
     fieldRow('Arrives at', selectField('toSide', SIDE_CHOICES, wire.toSide ?? '', (side) => set({ toSide: side || null }))),
     ...(outputChoices.length > 0 ? [fieldRow('From output', selectField('fromOutput', outputChoices, wire.fromOutput ?? '', (output) => set({ fromOutput: output || null })))] : []),
@@ -313,7 +335,7 @@ function frameSections(frame: Frame, set: FieldCommit): HTMLElement[] {
   return [
     heading('Frame'),
     fieldRow('Title', textField('title', frame.title, WHITEBOARD_LIMITS.title, (title) => set({ title: title.trim() }))),
-    checkboxField('loop', 'repeats as a loop', frame.loop, (loop) => set({ loop })),
+    checkboxField('loop', 'Repeats as a loop', frame.loop, (loop) => set({ loop })),
   ];
 }
 
@@ -330,13 +352,13 @@ function legendEditor(legend: readonly LegendEntry[], latestLegend: LatestItems<
       textField(`legend-${index}-label`, entry.label, MAX_WIRE_LABEL, (label) => {
         if (label.trim()) editing.edit(index, (latestEntry) => ({ ...latestEntry, label: label.trim() }));
       }, `Legend entry ${entryNumber} label`),
-      checkboxField(`legend-${index}-dashed`, 'dashed', entry.dashed, (dashed) => editing.edit(index, (latestEntry) => ({ ...latestEntry, dashed }))),
-      checkboxField(`legend-${index}-back`, 'returns', entry.back, (back) => editing.edit(index, (latestEntry) => ({ ...latestEntry, back }))),
-      actionButton(`legend-${index}-remove`, 'remove', () => editing.remove(index), `Remove legend entry ${entry.label}`),
+      checkboxField(`legend-${index}-dashed`, 'Dashed', entry.dashed, (dashed) => editing.edit(index, (latestEntry) => ({ ...latestEntry, dashed }))),
+      checkboxField(`legend-${index}-back`, 'Returns', entry.back, (back) => editing.edit(index, (latestEntry) => ({ ...latestEntry, back }))),
+      actionButton(`legend-${index}-remove`, 'Remove', () => editing.remove(index), `Remove legend entry ${entry.label}`),
     );
     return row;
   });
-  const addEntry = actionButton('legend-add', 'add entry', () => editing.append(() => ({ tone: 'plain', dashed: false, back: false, label: 'meaning' })));
+  const addEntry = actionButton('legend-add', 'Add entry', () => editing.append(() => ({ tone: 'plain', dashed: false, back: false, label: 'meaning' })));
   addEntry.disabled = legend.length >= MAX_LEGEND_ENTRIES;
   return listSection('Legend', rows, addEntry);
 }
@@ -349,22 +371,26 @@ function noteSections(note: Note, set: FieldCommit): HTMLElement[] {
   ];
 }
 
-function stepSections(step: Step, set: FieldCommit): HTMLElement[] {
+function stepSections(step: Step, linkedBoardChoices: readonly Choice[], set: FieldCommit): HTMLElement[] {
+  const isLinkedBoardListed = step.linkedBoardId === null || linkedBoardChoices.some((choice) => choice.value === step.linkedBoardId);
+  const unlistedLinkedBoard = step.linkedBoardId && !isLinkedBoardListed ? [{ value: step.linkedBoardId, text: step.linkedBoardId }] : [];
+  const linkedBoardOptions = [{ value: '', text: 'None' }, ...linkedBoardChoices, ...unlistedLinkedBoard];
   return [
     heading('Step'),
     fieldRow('Status', selectField('step-status', STEP_STATUS_CHOICES, step.status, (status) => {
       const chosen = STEP_STATUSES.find((candidate) => candidate === status);
       if (chosen) set({ step: { status: chosen } });
     })),
+    fieldRow('Linked board', selectField('step-linked-board', linkedBoardOptions, step.linkedBoardId ?? '', (linkedBoardId) => set({ step: { linkedBoardId: linkedBoardId || null } }))),
     el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.'),
   ];
 }
 
 function boardSections(board: Board, latestBoard: () => Board | null, send: (ops: Op[]) => void, codeSessionChoices: readonly Choice[], close: () => void): HTMLElement[] {
-  const codeSessionOptions = [{ value: '', text: 'none' }, ...codeSessionChoices];
+  const codeSessionOptions = [{ value: '', text: 'None' }, ...codeSessionChoices];
   return [
     heading('Board'),
-    actionButton('board-settings-close', 'close', close, 'Close board settings'),
+    actionButton('board-settings-close', 'Close', close, 'Close board settings'),
     fieldRow('Title', textField('board-title', board.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) send([{ op: 'board', title: title.trim() }]);
     })),
@@ -374,11 +400,23 @@ function boardSections(board: Board, latestBoard: () => Board | null, send: (ops
   ];
 }
 
-function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, send: (ops: Op[]) => void): HTMLElement[] {
+function selectionActionsRow(selected: readonly BoardElement[], actions: SelectionActions): HTMLElement {
+  const boxes = selected.filter((element) => element.kind === 'box');
+  const [soleBox] = boxes;
+  const row = el('div', 'wb-inspect-actions');
+  if (soleBox && selected.length === 1) row.append(actionButton('add-note', 'Add note', () => actions.addNoteOn(soleBox.id)));
+  if (boxes.length > 0) row.append(actionButton('add-frame', 'Frame', actions.frameSelectedBoxes, boxes.length === 1 ? 'Frame this box' : 'Frame selected boxes'));
+  const deleteButton = button({ variant: 'danger', size: 'small', label: 'Delete', action: 'delete-selection', onClick: actions.removeSelected });
+  deleteButton.classList.add('wb-inspect-delete');
+  row.append(deleteButton);
+  return row;
+}
+
+function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], send: (ops: Op[]) => void): HTMLElement[] {
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
   const latest = () => latestBoard()?.elements[element.id];
   switch (element.kind) {
-    case 'box': return boxSections(element, latest, layout, set);
+    case 'box': return boxSections(element, latest, layout, linkedBoardChoices, set);
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
     case 'note': return noteSections(element, set);
@@ -391,7 +429,7 @@ function openInReviewRows(board: Board, element: BoardElement, openRef: (ref: st
   const hasCodeSession = board.codeSessionId !== null;
   const rows = refs.map((ref, index) => {
     const row = el('div', 'wb-inspect-row wb-inspect-review-row');
-    const openButton = actionButton(`review-${index}`, 'open in review', () => openRef(ref), `Open ${ref} in review`);
+    const openButton = actionButton(`review-${index}`, 'Open in review', () => openRef(ref), `Open ${ref} in review`);
     openButton.disabled = !hasCodeSession;
     row.append(el('code', 'wb-inspect-ref', ref), openButton);
     return row;
@@ -435,10 +473,11 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   }
 
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
-    if (selectedIds.size > 1) return [heading(`${selectedIds.size} selected`)];
+    const selected = [...selectedIds].flatMap((selectedId) => board.elements[selectedId] ?? []);
+    if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    return [...elementSections(board, element, options.currentBoard, options.layout(), send), openInReviewSection(board, element, options.openRef)];
+    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), send), openInReviewSection(board, element, options.openRef), selectionActionsRow(selected, options)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {

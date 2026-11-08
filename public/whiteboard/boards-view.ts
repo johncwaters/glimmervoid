@@ -33,8 +33,6 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
 const PICK_TEXT = 'Pick a board above.';
 const TITLE_RENAME_CLASS = 'wb-board-title-rename';
-const MORE_ICON_PATH = 'M4.5 6.5L8 10l3.5-3.5';
-const MENU_GAP_PX = 4;
 const STACKED_MEDIA_OFFSET_PX = 32;
 const BOARD_DOC_CONFLICT_TEXT = 'This document changed on the board since you opened it. Reload to see that version.';
 const BOARD_DOC_GONE_TEXT = 'This document is no longer on the board, so it cannot be saved.';
@@ -47,13 +45,13 @@ const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
 const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
 const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string; hint: string | null }[] = [
-  { tool: 'select', label: 'select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
-  { tool: 'box', label: 'box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
-  { tool: 'decision', label: 'decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
-  { tool: 'panel', label: 'panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11', hint: 'Click the board to place a panel. Esc to cancel.' },
-  { tool: 'icon', label: 'icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
-  { tool: 'device', label: 'device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
-  { tool: 'wire', label: 'wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
+  { tool: 'select', label: 'Select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
+  { tool: 'box', label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
+  { tool: 'decision', label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
+  { tool: 'panel', label: 'Panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11', hint: 'Click the board to place a panel. Esc to cancel.' },
+  { tool: 'icon', label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
+  { tool: 'device', label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
+  { tool: 'wire', label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
 ];
 
 interface TextDialogOptions {
@@ -63,8 +61,7 @@ interface TextDialogOptions {
   maxLength: number;
   confirmLabel: string;
   initialValue?: string;
-  choices?: { label: string; options: { value: string; text: string }[] };
-  onSubmit: (value: string, choice: string | null) => Promise<string | null>;
+  onSubmit: (value: string) => Promise<string | null>;
 }
 
 interface BoardsViewParts {
@@ -80,7 +77,7 @@ interface BoardsViewParts {
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
   queuedForSession: HTMLElement;
-  buttons: Record<'note' | 'frame' | 'step' | 'fit' | 'undo' | 'redo', HTMLButtonElement>;
+  buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
@@ -113,18 +110,9 @@ function openTextDialog(options: TextDialogOptions): void {
   input.setAttribute('aria-label', options.label);
   const errorEl = el('div', 'dialog-error');
   errorEl.setAttribute('role', 'alert');
-  const select = options.choices ? el('select', 'dialog-input wb-dialog-select') : null;
-  if (select && options.choices) {
-    select.setAttribute('aria-label', options.choices.label);
-    for (const choice of options.choices.options) {
-      const option = el('option', null, choice.text);
-      option.value = choice.value;
-      select.append(option);
-    }
-  }
   const btnConfirm = button({ variant: 'primary', label: options.confirmLabel, action: 'confirm-board-dialog' });
   actions.append(btnConfirm);
-  dialog.append(el('label', 'dialog-label', options.label), input, ...(select ? [select] : []), errorEl, actions);
+  dialog.append(el('label', 'dialog-label', options.label), input, errorEl, actions);
 
   async function submit(): Promise<void> {
     const value = input.value.trim();
@@ -133,7 +121,7 @@ function openTextDialog(options: TextDialogOptions): void {
       return;
     }
     btnConfirm.disabled = true;
-    const error = await options.onSubmit(value, select?.value ?? null);
+    const error = await options.onSubmit(value);
     btnConfirm.disabled = false;
     if (error) {
       errorEl.textContent = error;
@@ -254,6 +242,10 @@ function codeSessionChoices(): { value: string; text: string }[] {
   return sessionIds.map((sessionId) => ({ value: sessionId, text: sessionLabel(sessionId) }));
 }
 
+function linkedBoardChoices(): { value: string; text: string }[] {
+  return boardSummariesOf().filter((summary) => summary.id !== selectedBoardId).map((summary) => ({ value: summary.id, text: summary.title }));
+}
+
 function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extract<Element, { kind: Kind }>[] {
   const board = selectedBoard();
   const selectedIds = editor?.selectedIds() ?? new Set<string>();
@@ -265,11 +257,8 @@ function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extra
 function paintToolbar(): void {
   if (!parts) return;
   const board = selectedBoard();
-  const selectedBoxCount = selectedElementsOfKind('box').length;
   for (const button of parts.toolButtons.values()) button.disabled = !board;
-  parts.buttons.note.disabled = selectedBoxCount !== 1;
-  parts.buttons.frame.disabled = selectedBoxCount === 0;
-  for (const button of [parts.buttons.step, parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
+  for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
 
@@ -425,56 +414,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
   return { menuRoot, trigger, paintBoards };
 }
 
-function buildMoreMenu(menuItems: readonly HTMLButtonElement[]): HTMLElement {
-  const menuRoot = el('div', 'session-overflow wb-more-menu');
-  const menu = el('div', 'popup-menu session-overflow-menu wb-more-menu-popup');
-  menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'More tools');
-  const isOpen = () => menu.classList.contains('open');
-  const setOpen = (shouldOpen: boolean) => {
-    menu.classList.toggle('open', shouldOpen);
-    trigger.setAttribute('aria-expanded', String(shouldOpen));
-    if (shouldOpen) placeMenuAtTrigger(menu, trigger);
-  };
-  const trigger = button({ variant: 'quiet', label: 'more', icon: createLineIcon(MORE_ICON_PATH, '1.5'), action: 'open-more-tools', onClick: () => setOpen(!isOpen()) });
-  trigger.classList.add('wb-more-trigger');
-  trigger.setAttribute('aria-haspopup', 'menu');
-  trigger.setAttribute('aria-expanded', 'false');
-  menu.append(...menuItems);
-  menu.addEventListener('click', (event) => {
-    if (event.target instanceof HTMLElement && event.target.closest('[role="menuitem"]')) setOpen(false);
-  });
-  menuRoot.append(trigger);
-  document.body.append(menu);
-  wirePopupMenuKeys({
-    trigger,
-    menu,
-    menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')],
-    isOpen,
-    open: () => setOpen(true),
-    close: () => setOpen(false),
-  });
-  document.addEventListener('click', (event) => {
-    if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target) && !menu.contains(event.target)) setOpen(false);
-  });
-  window.addEventListener('resize', () => setOpen(false));
-  return menuRoot;
-}
 
-function placeMenuAtTrigger(menu: HTMLElement, trigger: HTMLElement): void {
-  const triggerRect = trigger.getBoundingClientRect();
-  const isRoomBelow = triggerRect.bottom + MENU_GAP_PX + menu.offsetHeight <= window.innerHeight;
-  menu.style.right = `${Math.max(0, window.innerWidth - triggerRect.right)}px`;
-  menu.style.top = isRoomBelow ? `${triggerRect.bottom + MENU_GAP_PX}px` : 'auto';
-  menu.style.bottom = isRoomBelow ? 'auto' : `${window.innerHeight - triggerRect.top + MENU_GAP_PX}px`;
-}
 
-function moreMenuItem(label: string, action: string, onChoose: () => void): HTMLButtonElement {
-  const item = buildMenuItem(label, 'visible');
-  item.dataset.action = action;
-  item.addEventListener('click', onChoose);
-  return item;
-}
 
 function paintHead(): void {
   if (!parts) return;
@@ -608,27 +549,6 @@ function selectBoard(boardId: string): void {
   paintBoard();
 }
 
-function addStepFromDialog(): void {
-  const board = selectedBoard();
-  if (!board) return;
-  const otherBoards = boardSummariesOf().filter((summary) => summary.id !== board.id);
-  const linkOptions = [{ value: '', text: 'No linked board' }, ...otherBoards.map((summary) => ({ value: summary.id, text: summary.title }))];
-  openTextDialog({
-    title: 'Add a plan step',
-    label: 'Step title',
-    placeholder: 'index the diffs',
-    maxLength: WHITEBOARD_LIMITS.title,
-    confirmLabel: 'Add step',
-    choices: otherBoards.length > 0 ? { label: 'Linked board', options: linkOptions } : undefined,
-    onSubmit: (title, linkedBoardId) => sendOpsFromDialog([{
-      op: 'add',
-      element: {
-        kind: 'box', id: newElementId('box'), title, icon: null, lines: [], refs: [], change: 'none', was: null, near: null, order: 0, at: null,
-        shape: 'box', outputs: [], media: null, width: null, step: { status: 'planned', linkedBoardId: linkedBoardId || null },
-      },
-    }]),
-  });
-}
 
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
@@ -948,20 +868,12 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   toolGroup.append(...toolButtons.values());
   const buttons = {
-    note: moreMenuItem('note on box', 'add-note', () => {
-      const [box] = selectedElementsOfKind('box');
-      if (box) addNoteOn(box.id);
-    }),
-    frame: moreMenuItem('frame selected boxes', 'add-frame', addFrame),
-    step: moreMenuItem('plan step', 'add-step', addStepFromDialog),
-    fit: iconButton('fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
-    undo: iconButton('undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
-    redo: iconButton('redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
+    fit: iconButton('Fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
+    undo: iconButton('Undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
+    redo: iconButton('Redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };
   buttons.fit.dataset.phoneVisible = '';
-  const toolDivider = el('span', 'wb-divider');
-  toolDivider.setAttribute('aria-hidden', 'true');
-  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup, toolDivider, buildMoreMenu([buttons.note, buttons.frame, buttons.step]));
+  const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup);
   const toolHint = el('p', 'wb-tool-hint');
   toolHint.setAttribute('aria-live', 'polite');
   toolHint.hidden = true;
@@ -1019,7 +931,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,

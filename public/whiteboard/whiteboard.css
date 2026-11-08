@@ -71,7 +71,7 @@
   position: absolute;
   top: 10px;
   left: 10px;
-  right: calc(min(360px, 100% - 20px) + 18px);
+  right: 10px;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
@@ -114,7 +114,8 @@
   color: var(--text-dim);
 }
 
-.wb-island-tools { flex-wrap: nowrap; }
+.wb-island-tools,
+.wb-island-view { flex-wrap: nowrap; }
 
 .wb-tool {
   position: relative;
@@ -142,26 +143,6 @@
   color: var(--accent);
 }
 
-.wb-divider {
-  flex: none;
-  width: 1px;
-  height: 20px;
-  margin: 0 2px;
-  background: var(--border);
-}
-
-.wb-more-menu-popup {
-  position: fixed;
-  left: auto;
-  min-width: 180px;
-  margin-top: 0;
-}
-
-.wb-more-menu-popup .popup-menu-item:disabled {
-  background: none;
-  color: var(--text-muted);
-  cursor: default;
-}
 
 .wb-tool-hint {
   flex-basis: 100%;
@@ -458,7 +439,6 @@
   font: 700 var(--type-body) var(--wb-font);
 }
 
-.wb-dialog-select { margin-top: 8px; }
 
 .wb-wire-line {
   fill: none;
@@ -536,6 +516,16 @@
   flex-direction: column;
   gap: 8px;
 }
+
+.wb-inspect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.wb-inspect-actions > .wb-inspect-delete { margin-left: auto; }
 
 .wb-inspect-review:empty {
   display: none;
@@ -648,7 +638,7 @@
 
 .wb-top-right {
   position: absolute;
-  top: 10px;
+  top: 52px;
   right: 10px;
   bottom: 10px;
   z-index: 2;
