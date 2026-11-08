@@ -3,8 +3,12 @@ import http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { CREDENTIALS_PATH, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { Telemetry } from '../../server/telemetry.ts';
+import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
+import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
 import { createWatcherSupervisor } from './watcher-supervisor.ts';
+import type { WatcherChildEnding } from './watcher-supervisor.ts';
 
 interface ProbeSource {
   laneId: string;
@@ -74,7 +78,7 @@ function jsonOrNull(text: string): unknown {
   }
 }
 
-function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher = createWatcherSupervisor, log = console }: {
+function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher = createWatcherSupervisor, log = console, telemetry = null }: {
   watcherHome: string;
   credentials: () => WatcherCredentials;
   linkSecret: Buffer;
@@ -82,6 +86,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   now?: () => number;
   startWatcher?: typeof createWatcherSupervisor;
   log?: Pick<Console, 'log' | 'warn'>;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
 }) {
   const nudgeKey = directionKey(linkSecret, 'watcher-to-server');
   const commandKey = directionKey(linkSecret, 'server-to-watcher');
@@ -91,6 +96,10 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   const coverageByLaneId = new Map<string, string>();
   const problemByLaneId = new Map<string, string | null>();
   const loggedMissingCredentials = new Set<Probe['credential']>();
+  const failingSinceMsByProbeId = new Map<string, number>();
+  const coveredProbeCountByLaneId = new Map<string, number>();
+  let nudgeCountSinceRollup = 0;
+  let childRestartCountSinceRollup = 0;
   let watcherUrl: string | null = null;
   let deliveredProbeSet: ProbeSet | null = null;
   let deliveredCredentialsDigest: string | null = null;
@@ -113,6 +122,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       const coverageDigest = JSON.stringify(coveredProbes.map((probe) => [probe.id, requestOf(probe)]));
       if (coverageByLaneId.get(source.laneId) === coverageDigest) continue;
       coverageByLaneId.set(source.laneId, coverageDigest);
+      coveredProbeCountByLaneId.set(source.laneId, coveredProbes.length);
       log.log(`[watcher] ${source.laneId}: the watcher covers ${coveredProbes.length} of its probes`);
       source.onCoverageChange(coveredProbes);
     }
@@ -141,6 +151,9 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     const liveProbeIds = new Set(nextProbeSet.probes.map((probe) => probe.id));
     for (const probeId of failureByProbeId.keys()) {
       if (!liveProbeIds.has(probeId)) failureByProbeId.delete(probeId);
+    }
+    for (const probeId of failingSinceMsByProbeId.keys()) {
+      if (!failureByProbeId.has(probeId)) failingSinceMsByProbeId.delete(probeId);
     }
   }
 
@@ -208,7 +221,10 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     if (status === null) return false;
     if (deliveredProbeSet === null || status.probeSetRevision !== deliveredProbeSet.revision) return true;
     for (const probeStatus of status.probes) {
-      if (probeStatus.status === 'failing' && probeStatus.failure !== null) failureByProbeId.set(probeStatus.probeId, probeStatus.failure);
+      if (probeStatus.status !== 'failing' || probeStatus.failure === null) continue;
+      const failingProbe = deliveredProbeSet.probes.find((probe) => probe.id === probeStatus.probeId);
+      if (failingProbe === undefined || failureByProbeId.has(failingProbe.id)) continue;
+      noteProbeFailing(failingProbe, probeStatus.failure);
     }
     updateCoverage();
     return true;
@@ -261,6 +277,39 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     recompileTimer.unref();
   }
 
+  function noteProbeFailing(probe: Probe, failure: ProbeFailure): void {
+    failureByProbeId.set(probe.id, failure);
+    log.warn(`[watcher] probe ${probe.id} is failing: ${failure.reason}`);
+    if (!failingSinceMsByProbeId.has(probe.id)) failingSinceMsByProbeId.set(probe.id, now());
+    telemetry?.capture('watcher_probe_failing', { lane: telemetryLaneOf(probe.laneId), credential: probe.credential, failure_kind: failureKindOf(failure) });
+  }
+
+  function noteProbeRecovered(probe: Probe): void {
+    failureByProbeId.delete(probe.id);
+    const failingSinceMs = failingSinceMsByProbeId.get(probe.id);
+    failingSinceMsByProbeId.delete(probe.id);
+    if (failingSinceMs === undefined) return;
+    telemetry?.capture('watcher_probe_recovered', { lane: telemetryLaneOf(probe.laneId), credential: probe.credential, failing_seconds: Math.max(0, Math.round((now() - failingSinceMs) / 1000)) });
+  }
+
+  function noteLaneNudged(probe: Probe, kind: 'changed' | 'recovered'): void {
+    nudgeCountSinceRollup += 1;
+    log.log(`[watcher] ${probe.laneId}: ${probe.id} ${kind}`);
+    telemetry?.capture('watcher_nudge_received', { lane: telemetryLaneOf(probe.laneId), kind });
+  }
+
+  function takeRollup(): WatcherRollup {
+    const rollup = {
+      probeCount: deliveredProbeSet?.probes.length ?? 0,
+      coveredProbeCount: [...coveredProbeCountByLaneId.values()].reduce((total, count) => total + count, 0),
+      nudgeCount: nudgeCountSinceRollup,
+      childRestartCount: childRestartCountSinceRollup,
+    };
+    nudgeCountSinceRollup = 0;
+    childRestartCountSinceRollup = 0;
+    return rollup;
+  }
+
   function handleNudge(nudge: Nudge): void {
     if (nudge.kind === 'check-in' || nudge.probeId === null) {
       log.log(`[watcher] check-in at ${nudge.at}`);
@@ -268,12 +317,9 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     }
     const probe = deliveredProbeSet?.probes.find((candidate) => candidate.id === nudge.probeId);
     if (probe === undefined) return;
-    if (nudge.kind === 'failing') {
-      failureByProbeId.set(probe.id, nudge.failure ?? { status: null, reason: 'unknown reason' });
-      log.warn(`[watcher] probe ${probe.id} is failing: ${nudge.failure?.reason ?? 'unknown reason'}`);
-    }
-    if (nudge.kind === 'recovered') failureByProbeId.delete(probe.id);
-    if (nudge.kind !== 'failing') log.log(`[watcher] ${probe.laneId}: ${probe.id} ${nudge.kind}`);
+    if (nudge.kind === 'failing') noteProbeFailing(probe, nudge.failure ?? { status: null, reason: 'unknown reason' });
+    if (nudge.kind === 'recovered') noteProbeRecovered(probe);
+    if (nudge.kind !== 'failing') noteLaneNudged(probe, nudge.kind);
     updateCoverage();
     if (nudge.kind !== 'failing') sourcesByLaneId.get(probe.laneId)?.onNudge(nudge);
   }
@@ -315,7 +361,11 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     });
   }
 
-  function watcherEnded(): void {
+  function watcherEnded(ending: WatcherChildEnding): void {
+    if (ending.willRestart) {
+      childRestartCountSinceRollup += 1;
+      telemetry?.capture('watcher_child_ended', { end_kind: ending.endKind, run_seconds: Math.max(0, Math.round(ending.runMs / 1000)) });
+    }
     watcherUrl = null;
     deliveredProbeSet = null;
     deliveredCredentialsDigest = null;
@@ -355,7 +405,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

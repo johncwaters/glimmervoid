@@ -12,7 +12,9 @@ export const HEALTH_PATH = '/healthz';
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
-const ProbeCredential = z.enum(['github', 'posthog']);
+export const WATCHER_LANE_IDS = Object.freeze(['github-store', 'issues', 'radar', 'community'] as const);
+export const PROBE_CREDENTIALS = Object.freeze(['github', 'posthog'] as const);
+const ProbeCredential = z.enum(PROBE_CREDENTIALS);
 
 export const Probe = z.strictObject({
   id: z.string().regex(/^[a-z0-9:._-]{1,120}$/),

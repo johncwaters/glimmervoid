@@ -40,6 +40,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
     return new Response(github.body, { status: github.status, headers: { 'content-type': 'application/json' } });
   };
   const nudges: Nudge[] = [];
+  const capturedEvents: { event: string; properties: unknown }[] = [];
   const coveredProbeCounts: number[] = [];
   const watcherProblems: (string | null)[] = [];
   const linkCredentials: { github: string | null } = { github: githubToken };
@@ -49,6 +50,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
     linkSecret,
     now,
     log,
+    telemetry: { capture: (event, properties) => capturedEvents.push({ event, properties }) },
     credentials: () => ({ github: linkCredentials.github, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
     startWatcher: ({ serverUrl, onListening }) => {
       const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
@@ -79,7 +81,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
     await fsp.rm(watcherHome, { recursive: true, force: true });
   });
   await link.start();
-  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher };
+  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher, capturedEvents };
 }
 
 test('a probe whose GitHub answer changes nudges its lane, and the lane hears the watcher covers that probe', async (t) => {
@@ -98,7 +100,7 @@ test('a probe whose GitHub answer changes nudges its lane, and the lane hears th
 });
 
 test('a probe GitHub refuses by status or by a GraphQL error shows on its lane as a watcher problem, leaves watcher coverage until it recovers, and runs again at once on a new token', async (t) => {
-  const { clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher } = await startLinkedWatcher(t);
+  const { clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher, capturedEvents } = await startLinkedWatcher(t);
   const runProbeAgain = async () => {
     const requestCount = github.requests.length;
     clock.nowMs += 61_000;
@@ -120,6 +122,11 @@ test('a probe GitHub refuses by status or by a GraphQL error shows on its lane a
   await eventually(() => watcherProblems.at(-1) === null && watcherProblems.length > 1 ? true : undefined);
   assert.equal(coveredProbeCounts.at(-1), 1);
   assert.equal((await eventually(() => nudges[0])).kind, 'recovered');
+  assert.deepEqual(capturedEvents.map(({ event, properties }) => [event, properties]), [
+    ['watcher_probe_failing', { lane: 'other', credential: 'github', failure_kind: 'unauthorized' }],
+    ['watcher_probe_recovered', { lane: 'other', credential: 'github', failing_seconds: 61 }],
+    ['watcher_nudge_received', { lane: 'other', kind: 'recovered' }],
+  ]);
 
   github.body = '{"data":null,"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository"}]}';
   await runProbeAgain();

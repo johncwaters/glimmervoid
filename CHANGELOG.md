@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Watcher health in anonymous telemetry.** With telemetry on, Glimmervoid now reports when the watcher process ends unexpectedly, when a watcher probe starts failing or recovers, and when the watcher nudges a lane, each with only a lane name, a credential kind and a fixed failure kind or count; the daily `app_active` event also counts the watcher's probes, covered probes, nudges and restarts. Never a URL, repository, token or error text. The full list is in the configuration docs under telemetry.
 - **Draw on whiteboards with a pen.** The toolbar gains Pen (B): drag on the board to draw freehand ink, select a stroke and press Delete to erase it. Agents see each stroke as its bounds and may remove one, but only you draw.
 - **Sticky notes and plain text on whiteboards.** The toolbar gains Sticky note (S) and Text (T). A sticky note comes in yellow, pink, green, blue or violet, picked under Tone in the details panel; text draws with no border. Agents use `shape: sticky` with `tone`, or `shape: text`.
 - **Whiteboard boxes resize taller, not only wider.** Drag a box's bottom right corner down as well as across and the box keeps that height; content that needs more room still grows the box past it. Agents set it with `height` on a box.

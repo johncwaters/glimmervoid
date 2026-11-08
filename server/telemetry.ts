@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { ClientErrorReport } from '../shared/contracts/control-messages.ts';
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
-import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
+import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties, WatcherRollup } from '../shared/contracts/telemetry.ts';
 import {
   TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
   buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
@@ -41,6 +41,16 @@ interface CrashEventSource {
   off(event: typeof CRASH_MONITOR_EVENT, listener: (error: unknown) => void): unknown;
 }
 
+function watcherRollupProperties(watcherRollup: WatcherRollup | undefined): Partial<TelemetryEventProperties<'app_active'>> {
+  if (watcherRollup === undefined) return {};
+  return {
+    watcher_probe_count: watcherRollup.probeCount,
+    watcher_covered_probe_count: watcherRollup.coveredProbeCount,
+    watcher_nudge_count: watcherRollup.nudgeCount,
+    watcher_child_restart_count: watcherRollup.childRestartCount,
+  };
+}
+
 interface TelemetryOptions {
   config: TelemetryConfig;
   env: TelemetryEnvironment;
@@ -56,6 +66,7 @@ interface TelemetryOptions {
   platform?: string;
   nodeVersion?: string;
   getActiveSessionCount?: () => number;
+  takeWatcherRollup?: () => WatcherRollup;
   readAccountIds?: () => Promise<AccountIds>;
   onInstallIdChange?: () => void;
   logger?: LaneLogger | null;
@@ -125,7 +136,8 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   const heartbeatTimer = setInterval(() => {
     const activeSessionCount = options.getActiveSessionCount?.() ?? 0;
-    capture('app_active', { active_session_count: activeSessionCount });
+    const watcherRollup = options.takeWatcherRollup?.();
+    capture('app_active', { active_session_count: activeSessionCount, ...watcherRollupProperties(watcherRollup) });
   }, ACTIVE_HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref();
 

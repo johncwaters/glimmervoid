@@ -148,6 +148,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     releaseId: parsePosthogReleaseId(packageJson.glimmervoid?.posthogReleaseId),
     getActiveSessionCount: () => sessions.size + agentSessions.size,
+    takeWatcherRollup: () => watcherLink.takeRollup(),
     readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
     onInstallIdChange: () => broadcastSettings?.(),
   });
@@ -612,6 +613,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
+    telemetry,
   });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({

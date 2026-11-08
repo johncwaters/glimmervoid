@@ -319,7 +319,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | Event | Properties | When |
 |-------|------------|------|
 | `app_started` | `is_first_start`, `$set`, `$set_once` | The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen. |
-| `app_active` | `active_session_count`, `$set`, `$set_once` | Once a day while the server runs, with how many sessions are live, and the same person properties as app_started. |
+| `app_active` | `active_session_count`, `watcher_probe_count`, `watcher_covered_probe_count`, `watcher_nudge_count`, `watcher_child_restart_count`, `$set`, `$set_once` | Once a day while the server runs, with how many sessions are live, how many probes the watcher was handed and how many of them it covers, and how many watcher nudges and watcher restarts happened since the last one, and the same person properties as app_started. |
 | `session_started` | `adapter` | A session spawned, with which kind of agent (any custom agent counts as `custom`). |
 | `session_ended` | `adapter`, `exit_kind`, `duration_seconds` | A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds. |
 | `$exception` | `$exception_list`, `$exception_level` | An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start. |
@@ -336,6 +336,10 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `radar_investigation_finished` | `verdict`, `mode`, `error_reason` | A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text. |
 | `radar_fix_handoff_failed` | `step` | Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text. |
 | `data_deletion_requested` | none | Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt. |
+| `watcher_child_ended` | `end_kind`, `run_seconds` | The watcher process ended while Glimmervoid still wanted it running: whether it exited cleanly, crashed or failed to start, and how long it ran, in whole seconds. |
+| `watcher_probe_failing` | `lane`, `credential`, `failure_kind` | A watcher probe started failing: which lane and which kind of read credential it uses, and a failure kind from a fixed list. Never the URL, repository, token or error text. |
+| `watcher_probe_recovered` | `lane`, `credential`, `failing_seconds` | A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds. |
+| `watcher_nudge_received` | `lane`, `kind` | The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository. |
 
 ## Browser preferences
 

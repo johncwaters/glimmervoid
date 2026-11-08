@@ -4,6 +4,7 @@ import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACT
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 import { HintFeature } from './feature-hints.ts';
 import { SESSION_COMMANDS } from './session.ts';
+import { PROBE_CREDENTIALS, WATCHER_LANE_IDS } from './watcher-link.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
@@ -17,6 +18,18 @@ const RADAR_VERDICTS = Object.freeze(['ROOT_CAUSE', 'FIXED', 'NEEDS_HUMAN', 'TRA
 const RADAR_JOB_MODES = Object.freeze(['investigate', 'fix'] as const);
 const RADAR_ERROR_REASONS = Object.freeze(['agent-reported', 'no-result', 'invalid-result', 'timed-out', 'no-verdict', 'crashed', 'aborted', 'empty-fix', 'handoff-failed'] as const);
 const RADAR_HANDOFF_STEPS = Object.freeze(['commit-fix', 'read-diff', 'count-commits'] as const);
+const WATCHER_TELEMETRY_LANES = Object.freeze([...WATCHER_LANE_IDS, 'other'] as const);
+const WATCHER_CHILD_END_KINDS = Object.freeze(['exited', 'crashed', 'failed_to_start'] as const);
+const WATCHER_FAILURE_KINDS = Object.freeze(['no_credential', 'unauthorized', 'forbidden', 'not_found', 'rate_limited', 'server_error', 'graphql_error', 'unreachable', 'other'] as const);
+export type WatcherTelemetryLane = (typeof WATCHER_TELEMETRY_LANES)[number];
+export type WatcherChildEndKind = (typeof WATCHER_CHILD_END_KINDS)[number];
+export type WatcherFailureKind = (typeof WATCHER_FAILURE_KINDS)[number];
+export interface WatcherRollup {
+  probeCount: number;
+  coveredProbeCount: number;
+  nudgeCount: number;
+  childRestartCount: number;
+}
 const OPERATOR_ACTIONS = Object.freeze([...new Set(Object.values(OPERATOR_ACTIONS_BY_SURFACE).flat())] as [OperatorAction, ...OperatorAction[]]);
 
 export const MAX_EXCEPTION_FRAMES = 64;
@@ -40,10 +53,39 @@ const AppStartedProperties = z.object({
 
 const AppActiveProperties = z.object({
   active_session_count: nonNegativeInteger,
+  watcher_probe_count: nonNegativeInteger.optional(),
+  watcher_covered_probe_count: nonNegativeInteger.optional(),
+  watcher_nudge_count: nonNegativeInteger.optional(),
+  watcher_child_restart_count: nonNegativeInteger.optional(),
   ...PersonProperties.partial().shape,
 }).strict();
 
 const DataDeletionRequestedProperties = z.object({}).strict();
+
+const watcherLane = z.enum(WATCHER_TELEMETRY_LANES);
+const probeCredential = z.enum(PROBE_CREDENTIALS);
+
+const WatcherChildEndedProperties = z.object({
+  end_kind: z.enum(WATCHER_CHILD_END_KINDS),
+  run_seconds: nonNegativeInteger,
+}).strict();
+
+const WatcherProbeFailingProperties = z.object({
+  lane: watcherLane,
+  credential: probeCredential,
+  failure_kind: z.enum(WATCHER_FAILURE_KINDS),
+}).strict();
+
+const WatcherProbeRecoveredProperties = z.object({
+  lane: watcherLane,
+  credential: probeCredential,
+  failing_seconds: nonNegativeInteger,
+}).strict();
+
+const WatcherNudgeReceivedProperties = z.object({
+  lane: watcherLane,
+  kind: z.enum(['changed', 'recovered']),
+}).strict();
 
 const SessionStartedProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
@@ -182,6 +224,10 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   radar_investigation_finished: RadarInvestigationFinishedProperties,
   radar_fix_handoff_failed: RadarFixHandoffFailedProperties,
   data_deletion_requested: DataDeletionRequestedProperties,
+  watcher_child_ended: WatcherChildEndedProperties,
+  watcher_probe_failing: WatcherProbeFailingProperties,
+  watcher_probe_recovered: WatcherProbeRecoveredProperties,
+  watcher_nudge_received: WatcherNudgeReceivedProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -189,7 +235,7 @@ export type TelemetryEventProperties<EventName extends TelemetryEventName> = z.i
 
 export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description: string }[] = Object.freeze([
   { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen.' },
-  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, and the same person properties as app_started.' },
+  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, how many probes the watcher was handed and how many of them it covers, and how many watcher nudges and watcher restarts happened since the last one, and the same person properties as app_started.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },
@@ -206,6 +252,10 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
   { name: 'radar_fix_handoff_failed', description: 'Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text.' },
   { name: 'data_deletion_requested', description: 'Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt.' },
+  { name: 'watcher_child_ended', description: 'The watcher process ended while Glimmervoid still wanted it running: whether it exited cleanly, crashed or failed to start, and how long it ran, in whole seconds.' },
+  { name: 'watcher_probe_failing', description: 'A watcher probe started failing: which lane and which kind of read credential it uses, and a failure kind from a fixed list. Never the URL, repository, token or error text.' },
+  { name: 'watcher_probe_recovered', description: 'A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds.' },
+  { name: 'watcher_nudge_received', description: 'The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
