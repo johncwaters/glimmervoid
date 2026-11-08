@@ -3327,7 +3327,7 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
   border-bottom: 1px solid var(--border-dim);
 }
 .session-row, .session-row-item { --row-line: calc(var(--type-meta) * 1.5); }
-.session-row-item:has(> .session-row[data-prompt="plan"], > .session-row > .session-row-main > :is(.session-row-task, .session-row-ownership, .session-row-links):not([hidden]), > .session-row > .session-row-main > .session-row-meta > .session-row-signals:not([hidden])) {
+.session-row-item:has(> .session-row[data-prompt="plan"], > .session-row > .session-row-main > :is(.session-row-task, .session-row-links):not([hidden]), > .session-row > .session-row-main > .session-row-meta > .session-row-signals:not([hidden])) {
   --row-anchor-align: flex-start;
   --second-line-top: calc(var(--row-line) + 3px);
   --row-control-top: calc(6px + var(--row-line) * 1.5 + 3px);
@@ -3462,8 +3462,6 @@ html[data-layout="phone"] .plan-editor { font-size: var(--type-title); }
 .session-row-split-board-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-row.focused[data-active-pane="terminal"] > .session-row-main > .session-row-title,
 .session-row.focused[data-active-pane="board"] > .session-row-main > .session-row-split-board { background: color-mix(in oklch, var(--accent) 16%, transparent); border-left-color: var(--accent); }
-.session-row-ownership { font-size: var(--type-meta); color: var(--text-muted); white-space: nowrap; }
-.session-row-ownership[hidden] { display: none; }
 .session-row-item[data-owned] { padding-left: 20px; }
 .session-card-header .session-ownership { flex: none; padding: 0 6px; font-size: var(--type-meta); color: var(--text-muted); white-space: nowrap; }
 .session-card-header .session-ownership[hidden] { display: none; }

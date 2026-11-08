@@ -89,7 +89,6 @@ export function buildSessionRow(extraClassName = '') {
     + '<span class="session-row-main">'
     + '<span class="session-row-title"><span class="agent-mark session-row-agent" aria-hidden="true" hidden></span><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
     + '<span class="session-row-task" hidden></span>'
-    + '<span class="session-row-ownership" hidden></span>'
     + '<span class="session-row-meta">'
     + '<span class="session-row-label"></span>'
     + '<span class="session-row-signals" hidden></span>'
@@ -101,7 +100,6 @@ export function buildSessionRow(extraClassName = '') {
   const refs = {
     glyph: query(row, '.session-row-glyph'),
     label: query(row, '.session-row-label'),
-    ownership: query(row, '.session-row-ownership'),
     name: query(row, '.session-row-name'),
     agent: query(row, '.session-row-agent'),
     cloud: query(row, '.session-row-cloud'),
@@ -238,10 +236,8 @@ function describeSessionOwnership(ui: SessionUi): string | null {
   return describeOwnership({ ownerName, ownedCount });
 }
 
-function paintSessionRowOwnership(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi) {
+function paintSessionRowOwnership(row: HTMLElement, ui: SessionUi) {
   const ownershipText = describeSessionOwnership(ui);
-  writeTextIfChanged(refs.ownership, ownershipText ?? '');
-  writeHiddenIfChanged(refs.ownership, ownershipText === null);
   row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-owned', ui.ownerId !== null && sessionUIs.has(ui.ownerId));
   paintCardOwnership(ui.card, ownershipText);
   return ownershipText;
@@ -274,7 +270,7 @@ export function paintSessionRow(
   paintSessionRowSignals(row);
   writeDataIfChanged(row, 'activity', ui._activity || '');
   writeTextIfChanged(refs.elapsed, sessionElapsedText(ui));
-  const ownershipText = paintSessionRowOwnership(row, refs, ui);
+  const ownershipText = paintSessionRowOwnership(row, ui);
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
   const hasUnseenAnswer = row.dataset.id !== undefined && unseenManagerAnswersFor(row.dataset.id).length > 0;
   row.toggleAttribute('data-manager-answered', hasUnseenAnswer);
