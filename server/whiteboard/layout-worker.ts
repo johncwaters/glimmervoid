@@ -25,6 +25,16 @@ function serve(): void {
     port.postMessage({ savedLayoutWritten: { boardId, elapsedMs, heapBytes: v8.getHeapStatistics().used_heap_size } });
   });
   const host = createLayoutHost(cache, markStep, yieldToEventLoop);
+  let isSliceScheduled = false;
+  function runQueuedSlices(): void {
+    isSliceScheduled = cache.runQueuedSlice();
+    if (isSliceScheduled) setImmediate(runQueuedSlices);
+  }
+  function scheduleQueuedSlices(): void {
+    if (isSliceScheduled) return;
+    isSliceScheduled = true;
+    setImmediate(runQueuedSlices);
+  }
   port.on('message', (message: unknown) => {
     const parsed = LayoutRequest.safeParse(message);
     if (!parsed.success) {
@@ -33,7 +43,6 @@ function serve(): void {
       return;
     }
     const { requestId, ...request } = parsed.data;
-    cache.runQueuedWrites();
     openSteps = [];
     previousStepAt = performance.now();
     try {
@@ -42,7 +51,7 @@ function serve(): void {
     } catch (error) {
       port.postMessage({ requestId, ok: false, error: errorMessage(error) });
     }
-    setImmediate(cache.runQueuedWrites);
+    scheduleQueuedSlices();
   });
 }
 

@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
+import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as sleep } from 'node:timers/promises';
 import v8 from 'node:v8';
 import vm from 'node:vm';
@@ -17,6 +18,7 @@ import { toolResultFromReply } from '../../mcp/core/tool-result.ts';
 import { createBackend } from '../../server/backend/backend.ts';
 import { createBoardStore } from '../../server/whiteboard/board-store-client.ts';
 import { BOARD_STORE_FILENAME } from '../../server/whiteboard/board-store-core.ts';
+import { LAYOUT_CACHE_FILENAME } from '../../server/whiteboard/layout-cache.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
@@ -83,6 +85,8 @@ const LOOP_DELAY_RESOLUTION_MS = 10;
 const NANOSECONDS_PER_MS = 1e6;
 const CHILD_RESULT_PREFIX = 'whiteboard-child-result ';
 const STEP_LINE_PREFIX = '[bench-step] ';
+const SAVED_LAYOUT_WAIT_CAP_MS = 300_000;
+const SAVED_LAYOUT_POLL_MS = 100;
 const SERVER_OPEN_LINE_PREFIX = '[whiteboard] open ';
 const CHILD_TIMEOUT_MS = 1_200_000;
 const CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -464,6 +468,27 @@ async function stopBackend(backend: ReturnType<typeof createBackend>, httpServer
   await new Promise<void>((resolve) => { httpServer.close(() => resolve()); });
 }
 
+function hasSavedLayoutHead(layoutCachePath: string): boolean {
+  if (!fs.existsSync(layoutCachePath)) return false;
+  const cache = new DatabaseSync(layoutCachePath, { readOnly: true });
+  try {
+    return cache.prepare('SELECT count(*) AS heads FROM layout_head').get()?.heads !== 0;
+  } catch {
+    return false;
+  } finally {
+    cache.close();
+  }
+}
+
+async function savedLayoutWrittenUnder(configPath: string): Promise<void> {
+  const layoutCachePath = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME, LAYOUT_CACHE_FILENAME);
+  const giveUpAt = performance.now() + SAVED_LAYOUT_WAIT_CAP_MS;
+  while (!hasSavedLayoutHead(layoutCachePath)) {
+    if (performance.now() > giveUpAt) throw new Error(`the saved layout was not written within ${SAVED_LAYOUT_WAIT_CAP_MS} ms`);
+    await sleep(SAVED_LAYOUT_POLL_MS);
+  }
+}
+
 async function seedAndMeasureStore(configPath: string, elementCount: number, options: WhiteboardBenchOptions): Promise<SeededBoard> {
   const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
   const { record, mediaCount } = await benchBoardRecordOf(elementCount, boardsRoot, options.hasMedia);
@@ -687,6 +712,8 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
       ...await measurePuts(controlSocket, seeded),
     );
     if (browser && options.sections.includes('browser')) metrics.push(...await measureBrowser(browser, port));
+    await savedLayoutWrittenUnder(configPath);
+    logStep('first open: saved layout written');
     controlSocket.terminate();
     await stopBackend(running.backend, running.httpServer);
     running = null;

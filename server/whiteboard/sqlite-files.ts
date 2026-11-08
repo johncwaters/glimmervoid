@@ -62,4 +62,4 @@ function setAside(databasePath: string): void {
   }
 }
 
-export { inTransaction, isUnreadableDatabase, openDatabase, setAside };
+export { committed, inTransaction, isUnreadableDatabase, openDatabase, setAside, truncateWriteAheadLogLikeAutocheckpoint };

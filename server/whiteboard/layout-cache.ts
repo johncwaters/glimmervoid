@@ -9,10 +9,11 @@ import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
 import { elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
-import { inTransaction, isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
+import { committed, inTransaction, isUnreadableDatabase, openDatabase, setAside, truncateWriteAheadLogLikeAutocheckpoint } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';
 const CACHE_FOLDER_MODE = 0o700;
+const WRITE_ROWS_PER_SLICE = 2000;
 
 const LAYOUT_CACHE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -65,6 +66,20 @@ interface SavedPaint {
   record: StoredElementRow;
 }
 
+interface SavedRows {
+  count: number;
+  at(slot: number): SavedPaint | null;
+}
+
+interface WholeSave {
+  stamp: LayoutStamp;
+  chrome: BoardChrome;
+  rows: SavedRows;
+  savedWorld(): SavedWorldParts;
+}
+
+type WholeSaveSource = () => WholeSave | null;
+
 interface LayoutStamp {
   version: number;
   updatedAt: number;
@@ -79,16 +94,18 @@ interface LayoutCache {
   layoutOf(boardId: string, stamp: LayoutStamp): CachedLayout | null;
   worldOf(boardId: string, stamp: LayoutStamp): SavedWorldParts | null;
   save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly SavedPaint[], removedIds: readonly string[], world: WorldSave): void;
-  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly SavedPaint[], world: SavedWorldParts): void;
+  saveWhole(boardId: string, latest: WholeSaveSource): void;
   forget(boardId: string): void;
 }
 
-interface OpenCache extends LayoutCache {
+interface OpenCache extends Omit<LayoutCache, 'saveWhole'> {
+  savingWhole(boardId: string, latest: WholeSaveSource): Generator<void, boolean>;
+  saveBesideWhole(boardId: string, changed: readonly SavedPaint[], removedIds: readonly string[], routes: WorldSave['routes']): void;
   close(): void;
 }
 
 interface QueuedLayoutCache extends LayoutCache {
-  runQueuedWrites(): void;
+  runQueuedSlice(): boolean;
 }
 
 interface QueuedWriteTiming {
@@ -96,7 +113,12 @@ interface QueuedWriteTiming {
   elapsedMs: number;
 }
 
-const NO_CACHE: OpenCache = { layoutOf: () => null, worldOf: () => null, save: () => {}, saveWhole: () => {}, forget: () => {}, close: () => {} };
+function* nothingToSave(): Generator<void, boolean> {
+  yield* [];
+  return false;
+}
+
+const NO_CACHE: OpenCache = { layoutOf: () => null, worldOf: () => null, save: () => {}, savingWhole: nothingToSave, saveBesideWhole: () => {}, forget: () => {}, close: () => {} };
 
 function parsedJson(text: string): unknown {
   try {
@@ -130,6 +152,7 @@ function statementsOf(database: DatabaseSync) {
     upsertRow: database.prepare('INSERT INTO placed (board_id, element_id, slot, body, record_kind, record_body) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET slot = excluded.slot, body = excluded.body, record_kind = excluded.record_kind, record_body = excluded.record_body'),
     removeRow: database.prepare('DELETE FROM placed WHERE board_id = ? AND element_id = ?'),
     removeRows: database.prepare('DELETE FROM placed WHERE board_id = ?'),
+    removeSomeRows: database.prepare('DELETE FROM placed WHERE rowid IN (SELECT rowid FROM placed WHERE board_id = ? LIMIT ?)'),
     routes: database.prepare('SELECT wire_id, body FROM saved_route WHERE board_id = ?'),
     upsertRoute: database.prepare('INSERT INTO saved_route (board_id, wire_id, body) VALUES (?, ?, ?) ON CONFLICT(board_id, wire_id) DO UPDATE SET body = excluded.body'),
     removeRoute: database.prepare('DELETE FROM saved_route WHERE board_id = ? AND wire_id = ?'),
@@ -206,32 +229,90 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
         statements.removeHead.run(boardId);
         return;
       }
-      for (const id of removedIds) statements.removeRow.run(boardId, id);
-      for (const saved of changed) upsertPlaced(boardId, saved);
-      for (const [wireId, route] of world.routes) {
-        if (route) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
-        if (!route) statements.removeRoute.run(boardId, wireId);
-      }
+      writeChanges(boardId, changed, removedIds, world.routes);
       writeWarningChanges(boardId, world.warnings);
       writeHead(boardId, to, chrome);
     });
+  }
+
+  function writeChanges(boardId: string, changed: readonly SavedPaint[], removedIds: readonly string[], routes: WorldSave['routes']): void {
+    for (const id of removedIds) statements.removeRow.run(boardId, id);
+    for (const saved of changed) upsertPlaced(boardId, saved);
+    for (const [wireId, route] of routes) {
+      if (route) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
+      if (!route) statements.removeRoute.run(boardId, wireId);
+    }
+  }
+
+  function saveBesideWhole(boardId: string, changed: readonly SavedPaint[], removedIds: readonly string[], routes: WorldSave['routes']): void {
+    inTransaction(database, () => writeChanges(boardId, changed, removedIds, routes));
   }
 
   function upsertPlaced(boardId: string, { slot, painted, record }: SavedPaint): void {
     statements.upsertRow.run(boardId, painted.element.id, slot, JSON.stringify(painted), record.kind, record.body);
   }
 
-  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly SavedPaint[], world: SavedWorldParts): void {
+  function* removingRows(boardId: string): Generator<void, void> {
+    for (;;) {
+      const { changes } = committed(database, () => statements.removeSomeRows.run(boardId, WRITE_ROWS_PER_SLICE));
+      if (Number(changes) < WRITE_ROWS_PER_SLICE) return;
+      yield;
+    }
+  }
+
+  function* writingRows(boardId: string, latest: WholeSaveSource): Generator<void, boolean> {
+    for (let start = 0; ; start += WRITE_ROWS_PER_SLICE) {
+      const rows = latest()?.rows;
+      if (!rows) return false;
+      if (start >= rows.count) return true;
+      committed(database, () => {
+        for (let slot = start; slot < Math.min(start + WRITE_ROWS_PER_SLICE, rows.count); slot += 1) {
+          const saved = rows.at(slot);
+          if (saved) upsertPlaced(boardId, saved);
+        }
+      });
+      yield;
+    }
+  }
+
+  function* writingRoutes(boardId: string, latest: WholeSaveSource): Generator<void, boolean> {
+    const routes = latest()?.savedWorld().routeById.entries();
+    if (!routes) return false;
+    for (;;) {
+      const isDone = committed(database, () => {
+        for (let written = 0; written < WRITE_ROWS_PER_SLICE; written += 1) {
+          const next = routes.next();
+          if (next.done) return true;
+          statements.upsertRoute.run(boardId, next.value[0], JSON.stringify(next.value[1]));
+        }
+        return false;
+      });
+      if (isDone) return true;
+      yield;
+      if (!latest()) return false;
+    }
+  }
+
+  function* savingWhole(boardId: string, latest: WholeSaveSource): Generator<void, boolean> {
     inTransaction(database, () => {
-      statements.removeRows.run(boardId);
+      statements.removeHead.run(boardId);
       statements.removeRoutes.run(boardId);
       statements.removeWarnings.run(boardId);
-      for (const saved of painted) upsertPlaced(boardId, saved);
-      for (const [wireId, route] of world.routeById) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
-      for (const text of world.routeWarnings) statements.insertWarning.run(boardId, 'route', text);
-      for (const text of world.placementWarnings) statements.insertWarning.run(boardId, 'placement', text);
-      writeHead(boardId, stamp, chrome);
     });
+    yield;
+    yield* removingRows(boardId);
+    if (!(yield* writingRows(boardId, latest))) return false;
+    if (!(yield* writingRoutes(boardId, latest))) return false;
+    const whole = latest();
+    if (!whole) return false;
+    const { routeWarnings, placementWarnings } = whole.savedWorld();
+    inTransaction(database, () => {
+      for (const text of routeWarnings) statements.insertWarning.run(boardId, 'route', text);
+      for (const text of placementWarnings) statements.insertWarning.run(boardId, 'placement', text);
+      writeHead(boardId, whole.stamp, whole.chrome);
+    });
+    truncateWriteAheadLogLikeAutocheckpoint(database);
+    return true;
   }
 
   function forget(boardId: string): void {
@@ -243,7 +324,7 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     });
   }
 
-  return { layoutOf, worldOf, save, saveWhole, forget, close: () => database.close() };
+  return { layoutOf, worldOf, save, savingWhole, saveBesideWhole, forget, close: () => database.close() };
 }
 
 function openOrSetAside(filePath: string, codeStamp: string): OpenCache {
@@ -277,7 +358,7 @@ function reopenedAfter(filePath: string, codeStamp: string, failed: OpenCache, e
 }
 
 function openLayoutCache(filePath: string | null, codeStamp: string | null, onQueuedWrite: (timing: QueuedWriteTiming) => void = () => {}): QueuedLayoutCache {
-  if (!filePath || !codeStamp) return { ...NO_CACHE, runQueuedWrites: () => {} };
+  if (!filePath || !codeStamp) return { ...NO_CACHE, saveWhole: () => {}, runQueuedSlice: () => false };
   const cacheFilePath = filePath;
   const layoutCodeStamp = codeStamp;
   let cache = openCacheFile(cacheFilePath, layoutCodeStamp);
@@ -291,34 +372,78 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null, onQu
     }
   }
 
-  const queuedWrites: (() => void)[] = [];
-
-  function runQueuedWrites(): void {
-    for (let write = queuedWrites.shift(); write; write = queuedWrites.shift()) write();
+  interface QueuedWrite {
+    boardId: string;
+    steps: Generator<void, boolean>;
+    openedOn: OpenCache;
+    elapsedMs: number;
   }
 
-  function afterQueuedWrites<Value>(work: () => Value): Value {
-    runQueuedWrites();
+  const queuedWrites: QueuedWrite[] = [];
+
+  function isWriteDone(write: QueuedWrite): boolean {
+    if (write.openedOn !== cache) return true;
+    const startedAt = performance.now();
+    const step = recovered(null, () => write.steps.next());
+    write.elapsedMs += performance.now() - startedAt;
+    if (step?.done && step.value) onQueuedWrite({ boardId: write.boardId, elapsedMs: write.elapsedMs });
+    return step?.done !== false;
+  }
+
+  function runQueuedSlice(): boolean {
+    const oldest = queuedWrites[0];
+    if (oldest && isWriteDone(oldest)) queuedWrites.shift();
+    return queuedWrites.length > 0;
+  }
+
+  function isWriteQueuedFor(boardId: string): boolean {
+    return queuedWrites.some((write) => write.boardId === boardId);
+  }
+
+  function finishQueuedWritesOf(boardId: string): void {
+    for (const write of queuedWrites.filter((queued) => queued.boardId === boardId)) {
+      while (!isWriteDone(write));
+      queuedWrites.splice(queuedWrites.indexOf(write), 1);
+    }
+  }
+
+  function dropQueuedWritesOf(boardId: string): void {
+    const kept = queuedWrites.filter((write) => write.boardId !== boardId);
+    queuedWrites.splice(0, queuedWrites.length, ...kept);
+  }
+
+  function afterQueuedWritesOf<Value>(boardId: string, work: () => Value): Value {
+    finishQueuedWritesOf(boardId);
     return work();
   }
 
-  function queueWholeSave(boardId: string, write: () => void): void {
-    queuedWrites.push(() => {
-      const startedAt = performance.now();
-      write();
-      onQueuedWrite({ boardId, elapsedMs: performance.now() - startedAt });
-    });
+  function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly SavedPaint[], removedIds: readonly string[], world: WorldSave): void {
+    if (isWriteQueuedFor(boardId)) {
+      recovered(undefined, (open) => open.saveBesideWhole(boardId, changed, removedIds, world.routes));
+      return;
+    }
+    recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds, world));
+  }
+
+  function saveWhole(boardId: string, latest: WholeSaveSource): void {
+    dropQueuedWritesOf(boardId);
+    queuedWrites.push({ boardId, steps: cache.savingWhole(boardId, latest), openedOn: cache, elapsedMs: 0 });
+  }
+
+  function forget(boardId: string): void {
+    dropQueuedWritesOf(boardId);
+    recovered(undefined, (open) => open.forget(boardId));
   }
 
   return {
-    layoutOf: (boardId, stamp) => afterQueuedWrites(() => recovered(null, (open) => open.layoutOf(boardId, stamp))),
-    worldOf: (boardId, stamp) => afterQueuedWrites(() => recovered(null, (open) => open.worldOf(boardId, stamp))),
-    save: (boardId, from, to, chrome, changed, removedIds, world) => afterQueuedWrites(() => recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds, world))),
-    saveWhole: (boardId, stamp, chrome, painted, world) => queueWholeSave(boardId, () => recovered(undefined, (open) => open.saveWhole(boardId, stamp, chrome, painted, world))),
-    forget: (boardId) => afterQueuedWrites(() => recovered(undefined, (open) => open.forget(boardId))),
-    runQueuedWrites,
+    layoutOf: (boardId, stamp) => afterQueuedWritesOf(boardId, () => recovered(null, (open) => open.layoutOf(boardId, stamp))),
+    worldOf: (boardId, stamp) => afterQueuedWritesOf(boardId, () => recovered(null, (open) => open.worldOf(boardId, stamp))),
+    save,
+    saveWhole,
+    forget,
+    runQueuedSlice,
   };
 }
 
 export { LAYOUT_CACHE_FILENAME, openLayoutCache };
-export type { LayoutCache, LayoutStamp, SavedPaint };
+export type { LayoutCache, LayoutStamp, SavedPaint, WholeSave };

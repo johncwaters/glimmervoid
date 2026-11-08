@@ -154,9 +154,11 @@ function warningsOfBoard(board: Board): string[] {
   return warningsOfWorld(worldFor(board));
 }
 
-function savedWorldOfBoard(board: Board): SavedWorldParts {
-  return savedWorldOf(worldFor(board));
+function rememberedWorldSaverOf(board: Board): (() => SavedWorldParts) | null {
+  const remembered = worldByBoardId.get(board.id);
+  if (!remembered || remembered.version !== board.version || remembered.board.elements !== board.elements) return null;
+  return () => savedWorldOf(remembered);
 }
 
-export { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warmBoardLayout, warningsOfBoard };
+export { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumeBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard };
 export type { SavedWorldOffer };

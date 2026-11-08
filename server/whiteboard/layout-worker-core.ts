@@ -6,13 +6,13 @@ import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileK
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
-import { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warmBoardLayout, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumeBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
-import type { LayoutCache, LayoutStamp, SavedPaint } from './layout-cache.ts';
+import type { LayoutCache, LayoutStamp, SavedPaint, WholeSave } from './layout-cache.ts';
 import { elementTableOf, isElementTable } from '../../shared/whiteboard-element-table.ts';
 
 const WARM_ELEMENTS_PER_SLICE = 5000;
@@ -124,6 +124,15 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     return fromCache;
   }
 
+  function wholeSaveOf(boardId: string, held: HeldTiles): WholeSave | null {
+    const board = boardById.get(boardId);
+    if (!board || tilesByBoardId.get(boardId) !== held || held.index.version !== board.version) return null;
+    const savedWorld = rememberedWorldSaverOf(board);
+    if (!savedWorld) return null;
+    const { index } = held;
+    return { stamp: { version: index.version, updatedAt: held.updatedAt }, chrome: index.chrome, rows: { count: index.painted.length, at: (slot) => savedPaintOf(index, slot, index.painted[slot])[0] ?? null }, savedWorld };
+  }
+
   function heldTilesOf(board: Board): HeldTiles {
     const held = cachedTilesOf(board.id, board);
     if (held) return held;
@@ -132,7 +141,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
     markStep('tile index built');
     tilesByBoardId.set(board.id, fresh);
-    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.flatMap((painted, slot) => savedPaintOf(fresh.index, slot, painted)), savedWorldOfBoard(board));
+    cache.saveWhole(board.id, () => wholeSaveOf(board.id, fresh));
     markStep('saved layout queued');
     return fresh;
   }
