@@ -1,5 +1,5 @@
 import { BOX_SHAPES, BoxInput, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
-import type { Board, BoardChange, Box, Element, ElementInput, Op } from './contracts/whiteboard.ts';
+import type { Board, BoardChange, Box, BoxLine, Element, ElementInput, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
@@ -34,6 +34,7 @@ type Draft = {
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, note: Note, stroke: Stroke });
 const NOTE_PREVIEW_CHARS = 80;
+const BYLINE_PREFIX = 'from ';
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
@@ -46,6 +47,41 @@ function isOperatorAuthor(author: Author): boolean {
 function storedNote(note: Note, author: Author): Note {
   if (!isOperatorAuthor(author)) return { ...note, author: author.name, resolvedBy: null };
   return { ...note, author: note.author === '' ? author.name : note.author };
+}
+
+function isBylineLine(line: BoxLine | undefined): boolean {
+  return Boolean(line?.muted && line.text.startsWith(BYLINE_PREFIX));
+}
+
+function signedNoteBox(element: Element, author: Author): { ok: true; element: Element } | { ok: false; error: string } {
+  if (element.kind !== 'box' || element.shape !== 'note') return { ok: true, element };
+  const lastLine = element.lines.at(-1);
+  if (isOperatorAuthor(author) && isBylineLine(lastLine)) return { ok: true, element };
+  const unsignedLines = isBylineLine(lastLine) ? element.lines.slice(0, -1) : element.lines;
+  if (unsignedLines.length >= WHITEBOARD_LIMITS.linesPerBox) return { ok: false, error: `box ${element.id}: a note box holds at most ${WHITEBOARD_LIMITS.linesPerBox - 1} lines, since its last line names who wrote it` };
+  const byline: BoxLine = { text: `${BYLINE_PREFIX}${author.name}`.slice(0, WHITEBOARD_LIMITS.line), muted: true, style: 'text', key: null, ref: null, icon: null };
+  return { ok: true, element: { ...element, lines: [...unsignedLines, byline] } };
+}
+
+function noteBoxTextOf(text: string): { title: string; lines: string[] } {
+  const words = text.trim().split(/\s+/);
+  const wrapped: string[] = [];
+  for (const word of words) {
+    const lineLimit = wrapped.length <= 1 ? WHITEBOARD_LIMITS.title : WHITEBOARD_LIMITS.line;
+    const current = wrapped.at(-1);
+    if (current !== undefined && current.length + 1 + word.length <= lineLimit) {
+      wrapped[wrapped.length - 1] = `${current} ${word}`;
+      continue;
+    }
+    let restOfWord = word;
+    while (restOfWord.length > 0) {
+      const pieceLimit = wrapped.length === 0 ? WHITEBOARD_LIMITS.title : WHITEBOARD_LIMITS.line;
+      wrapped.push(restOfWord.slice(0, pieceLimit));
+      restOfWord = restOfWord.slice(pieceLimit);
+    }
+  }
+  const [title = '', ...lines] = wrapped;
+  return { title, lines: lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - 1) };
 }
 
 function refuse(error: string): OpOutcome {
@@ -191,7 +227,9 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const placed = placedAtNear(draft, element);
   if (!placed.ok) return placed;
-  const stored: Element = placed.element.kind === 'note' ? storedNote(placed.element, author) : withoutEmptyOutputsOffDecision(placed.element);
+  const signed = placed.element.kind === 'note' ? { ok: true as const, element: storedNote(placed.element, author) } : signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author);
+  if (!signed.ok) return signed;
+  const stored = signed.element;
   const references = checkReferences(draft, stored, undefined);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -502,5 +540,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null, project = null }:
   };
 }
 
-export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps, unplacedNearTargetIdsOf };
+export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, noteBoxTextOf, stageOps, unplacedNearTargetIdsOf };
 export type { ApplyResult, Author, PinPositions, StagedOps };

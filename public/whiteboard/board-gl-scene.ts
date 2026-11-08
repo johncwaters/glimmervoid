@@ -330,12 +330,14 @@ function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba
 
 function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
   if (box.tone) return palette.stickyFillByTone[box.tone];
+  if (box.shape === 'note') return palette.noteCard;
   if (box.shape === 'text') return TRANSPARENT;
   return box.shape === 'panel' ? palette.panelFill : palette.board;
 }
 
 function restingStrokeOf(box: OutlinedBox, palette: BoardPalette): Rgba {
   if (box.tone) return palette.stickyEdgeByTone[box.tone];
+  if (box.shape === 'note') return palette.noteStroke;
   if (box.shape === 'text') return TRANSPARENT;
   return box.shape === 'panel' ? palette.line : palette.inkDim;
 }

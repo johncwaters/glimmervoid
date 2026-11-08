@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, Element, mediaOfBox, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxLine, Element, mediaOfBox, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -120,6 +120,7 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
     { op: 'add', element: { kind: 'wire', id: 'w1', from: 'parse', to: 'store', dashed: true, label: 'on retry' } },
     { op: 'add', element: { kind: 'frame', id: 'core', title: 'Core', contains: ['parse', 'store'] } },
     { op: 'add', element: { kind: 'note', id: 'n1', on: 'store', text: 'what about retries?' } },
+    { op: 'add', element: { kind: 'box', id: 'aside', shape: 'note', title: 'retry budget?', at: { x: 700, y: 500 } } },
     { op: 'set', id: 'parse', fields: { at: { x: 40, y: 234 } } },
   ] });
   assert.equal(built.status, 200);
@@ -132,7 +133,10 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
   const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'store' }] });
   assert.equal(removed.status, 200);
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(Object.keys(board.elements).sort(), ['core', 'later', 'parse']);
+  assert.deepEqual(Object.keys(board.elements).sort(), ['aside', 'core', 'later', 'parse']);
+  assert.equal(board.elements.aside?.shape, 'note');
+  const asideLines = z.array(BoxLine).parse(board.elements.aside?.lines);
+  assert.deepEqual(asideLines.map((line) => [line.text.startsWith('from '), line.muted]), [[true, true]], 'a note box an agent adds is signed with a muted byline');
   assert.deepEqual(board.elements.core?.contains, ['parse']);
   assert.deepEqual(board.elements.parse?.at, { x: 40, y: 234 });
   assert.equal(board.elements.later?.change, 'added');

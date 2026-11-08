@@ -1,6 +1,8 @@
 import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
+import { ElementInput } from '#shared/contracts/whiteboard.ts';
+import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
@@ -718,6 +720,9 @@ function openImageViewer(pressedImage: PressedImage): void {
   requestAnimationFrame(() => btnCancel.focus());
 }
 
+const NOTE_OVERLAP_ON_BOX = 24;
+const NOTE_RISE_ABOVE_BOX = 8;
+
 function addNoteOn(boxId: string): void {
   openTextDialog({
     title: 'Pin a note',
@@ -725,7 +730,18 @@ function addNoteOn(boxId: string): void {
     placeholder: 'what about retries?',
     maxLength: WHITEBOARD_LIMITS.noteText,
     confirmLabel: 'Pin note',
-    onSubmit: (text) => sendOpsFromDialog([{ op: 'add', element: { kind: 'note', id: newElementId('note'), on: boxId, text, ref: null, author: '', resolvedBy: null } }]),
+    onSubmit: (text) => {
+      const targetRect = renderer?.boundsOf(boxId);
+      if (!targetRect) return Promise.resolve('That box is not on the board any more.');
+      const pinnedOffsetY = renderer?.layout()?.pinnedOffsetY ?? 0;
+      const noteAt = { x: Math.round(targetRect.x + targetRect.width - NOTE_OVERLAP_ON_BOX), y: Math.round(targetRect.y - pinnedOffsetY - NOTE_RISE_ABOVE_BOX) };
+      const noteBoxId = newElementId('note');
+      const { title, lines } = noteBoxTextOf(text);
+      return sendOpsFromDialog([
+        { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), at: noteAt }) },
+        { op: 'add', element: ElementInput.parse({ kind: 'wire', id: newElementId('wire'), from: noteBoxId, to: boxId, dashed: true }) },
+      ]);
+    },
   });
 }
 

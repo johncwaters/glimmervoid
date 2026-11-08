@@ -160,6 +160,7 @@ const stickyBoxFields = {
   ...boxBaseFields, shape: z.literal('sticky').describe('draws a sticky note in its tone'), ...boxContentFields,
   tone: z.enum(STICKY_TONES).default('yellow').describe('the sticky note color'),
 };
+const noteBoxFields = { ...boxBaseFields, shape: z.literal('note').describe('draws a pinned note card; wire it dashed to the box it is about, and remove it to resolve'), ...boxContentFields };
 const NoTextBoxContent = z.never({ error: 'a text box holds only a title and lines, so set shape to box first' }).optional()
   .describe('refused: a text box holds only a title and lines');
 const textBoxFields = { ...boxBaseFields, shape: z.literal('text').describe('draws its title and lines as plain text with no border'), lines: boxContentFields.lines };
@@ -183,10 +184,11 @@ const FIELD_NAMES_BY_SHAPE = Object.freeze({
   icon: new Set(Object.keys(iconBoxFields)),
   device: new Set(Object.keys(deviceBoxFields)),
   sticky: new Set(Object.keys(stickyBoxFields)),
+  note: new Set(Object.keys(noteBoxFields)),
   text: new Set(Object.keys(textBoxFields)),
 });
 
-export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device', 'sticky', 'text'] as const;
+export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device', 'sticky', 'note', 'text'] as const;
 
 const nearInputField = { near: Near.nullable().default(null).describe('place: beside another box, once; the box is stored at the point it lands on') };
 
@@ -198,6 +200,7 @@ function boxShapesWith<ExtraFields extends z.ZodRawShape>(extraFields: ExtraFiel
     z.object({ ...iconBoxFields, ...extraFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
     z.object({ ...deviceBoxFields, ...extraFields, lines: NoDeviceBoxLines }).strict(),
     z.object({ ...stickyBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...noteBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
     z.object({ ...textBoxFields, ...extraFields, outputs: OnlyDecisionOutputs, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
   ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe(placeDescription);
 }
@@ -535,6 +538,7 @@ function filledBox(box: SparseBox): Box {
     case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
     case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'text': return { ...filledBoxBase(box), shape: 'text', lines: (box.lines ?? []).map(filledLine), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    case 'note': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'note', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
   }
