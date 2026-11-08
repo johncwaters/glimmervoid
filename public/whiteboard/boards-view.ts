@@ -692,7 +692,7 @@ function addFrame(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add frame',
     onSubmit: async (title) => {
-      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, loop: false } }]);
+      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, loop: false, collapsed: false } }]);
       if (!error) editor?.clearSelection();
       return error;
     },
