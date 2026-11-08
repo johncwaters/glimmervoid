@@ -1,5 +1,5 @@
-import { boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
-import type { BoxMedia } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import type { BoxMedia, DialValue } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
 import type { PageOccluder } from '#shared/whiteboard-svg-core.ts';
@@ -12,12 +12,15 @@ const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800 } as const;
 const DOC_CARD_TEXT_MAX_CHARS = 16 * 1024;
 const DOC_UNREAD_TEXT = 'This document could not be read.';
 const OCCLUDER_REACH = 8;
+const PAGE_THEME_VARIABLE_BY_COLOR = { background: '--bg-card', text: '--text', accent: '--accent', line: '--border' } as const;
 
 type PageMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND };
 
 interface PlacedPage {
   identity: string;
   node: HTMLElement;
+  frame: HTMLIFrameElement | null;
+  postedDialValues: string;
 }
 
 function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
@@ -90,19 +93,61 @@ function docCardOf(media: PageMedia): HTMLElement {
   return card;
 }
 
-function pageFrameOf(media: PageMedia): HTMLElement {
-  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
+function themeColorsOf(styleSource: Element): Record<string, string> {
+  const style = getComputedStyle(styleSource);
+  return Object.fromEntries(Object.entries(PAGE_THEME_VARIABLE_BY_COLOR).flatMap(([color, variable]) => {
+    const value = style.getPropertyValue(variable).trim();
+    return value ? [[color, value]] : [];
+  }));
+}
+
+function postTheme(frame: HTMLIFrameElement, styleSource: Element): void {
+  frame.contentWindow?.postMessage({ type: BOARD_PAGE_THEME_MESSAGE, colors: themeColorsOf(styleSource) }, '*');
+}
+
+export function tunePageOnLoad(frame: HTMLIFrameElement, styleSource: Element, dialValues: () => Readonly<Record<string, DialValue>>): void {
+  frame.addEventListener('load', () => {
+    postTheme(frame, styleSource);
+    postDialValues(frame, dialValues());
+  });
+  const themeWatcher = new MutationObserver(() => {
+    if (!frame.isConnected) {
+      themeWatcher.disconnect();
+      return;
+    }
+    postTheme(frame, styleSource);
+  });
+  themeWatcher.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+}
+
+function postDialValues(frame: HTMLIFrameElement, dialValues: Readonly<Record<string, DialValue>>): void {
+  frame.contentWindow?.postMessage({ type: BOARD_PAGE_PARAMS_MESSAGE, values: dialValues }, '*');
+}
+
+function pageFrameOf(media: PageMedia): HTMLIFrameElement {
+  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
   frame.tabIndex = -1;
   return frame;
 }
 
-function placedNodeOf(boxId: string, media: PageMedia): HTMLElement {
+function placedPageOf(boxId: string, media: PageMedia, identity: string, latestDialValues: () => Readonly<Record<string, DialValue>>): PlacedPage {
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
-  node.append(media.kind === 'doc' ? docCardOf(media) : pageFrameOf(media));
   placeNode(node, media);
-  return node;
+  if (media.kind === 'doc') {
+    node.append(docCardOf(media));
+    return { identity, node, frame: null, postedDialValues: '{}' };
+  }
+  const frame = pageFrameOf(media);
+  node.append(frame);
+  const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues) };
+  tunePageOnLoad(frame, node, () => {
+    const dialValues = latestDialValues();
+    placed.postedDialValues = JSON.stringify(dialValues);
+    return dialValues;
+  });
+  return placed;
 }
 
 interface ShownPage {
@@ -112,11 +157,53 @@ interface ShownPage {
   maskImage: string | null;
 }
 
-export function createBoardMediaLayer() {
+interface BoardMediaLayerOptions {
+  onEscapeFromPage: () => void;
+}
+
+export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
   const layer = el('div', 'wb-media-layer');
   const placedByBoxId = new Map<string, PlacedPage>();
   let shownPages: ShownPage[] = [];
   let liveArea: Rect | null = null;
+  let interactiveBoxId: string | null = null;
+  let escapeListening: AbortController | null = null;
+
+  function latestDialValuesOf(boxId: string): Readonly<Record<string, DialValue>> {
+    return shownPages.find((page) => page.boxId === boxId)?.media.dialValues ?? {};
+  }
+
+  function markInteractive(boxId: string, placed: PlacedPage): void {
+    const isInteractive = boxId === interactiveBoxId && placed.frame !== null;
+    placed.node.classList.toggle('is-interactive', isInteractive);
+    if (placed.frame) placed.frame.tabIndex = isInteractive ? 0 : -1;
+  }
+
+  function postChangedDialValues(page: ShownPage, placed: PlacedPage): void {
+    const dialValuesText = JSON.stringify(page.media.dialValues);
+    if (!placed.frame || placed.postedDialValues === dialValuesText) return;
+    placed.postedDialValues = dialValuesText;
+    postDialValues(placed.frame, page.media.dialValues);
+  }
+
+  function listenForEscape(): void {
+    escapeListening?.abort();
+    escapeListening = null;
+    if (interactiveBoxId === null) return;
+    escapeListening = new AbortController();
+    window.addEventListener('message', (event) => {
+      const interactiveFrame = interactiveBoxId === null ? null : placedByBoxId.get(interactiveBoxId)?.frame;
+      if (!interactiveFrame || event.source !== interactiveFrame.contentWindow || event.data !== BOARD_PAGE_ESCAPE_MESSAGE) return;
+      options.onEscapeFromPage();
+    }, { signal: escapeListening.signal });
+  }
+
+  function setInteractiveBox(boxId: string | null): void {
+    if (boxId === interactiveBoxId) return;
+    interactiveBoxId = boxId;
+    for (const [placedBoxId, placed] of placedByBoxId) markInteractive(placedBoxId, placed);
+    listenForEscape();
+  }
 
   function isLive(page: ShownPage): boolean {
     return liveArea !== null && overlaps(liveArea, page.media);
@@ -131,13 +218,15 @@ export function createBoardMediaLayer() {
       if (placed?.identity === page.identity) {
         placeNode(placed.node, page.media);
         applyMask(placed.node, page.maskImage);
+        postChangedDialValues(page, placed);
         continue;
       }
-      const node = placedNodeOf(page.boxId, page.media);
-      applyMask(node, page.maskImage);
-      if (placed) placed.node.replaceWith(node);
-      if (!placed) layer.append(node);
-      placedByBoxId.set(page.boxId, { identity: page.identity, node });
+      const replacement = placedPageOf(page.boxId, page.media, page.identity, () => latestDialValuesOf(page.boxId));
+      applyMask(replacement.node, page.maskImage);
+      markInteractive(page.boxId, replacement);
+      if (placed) placed.node.replaceWith(replacement.node);
+      if (!placed) layer.append(replacement.node);
+      placedByBoxId.set(page.boxId, replacement);
     }
     for (const [boxId, placed] of placedByBoxId) {
       if (liveBoxIds.has(boxId)) continue;
@@ -165,9 +254,10 @@ export function createBoardMediaLayer() {
     for (const placed of placedByBoxId.values()) placed.node.remove();
     placedByBoxId.clear();
     shownPages = [];
+    setInteractiveBox(null);
   }
 
-  return { element: layer, sync, showArea, clear };
+  return { element: layer, sync, showArea, clear, setInteractiveBox };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

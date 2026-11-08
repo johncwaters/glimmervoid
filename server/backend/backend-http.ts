@@ -41,7 +41,7 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
@@ -228,7 +228,9 @@ const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-moda
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
 const DASHBOARD_FRAME_POLICY = "frame-src 'self' blob: data:";
 const BOARD_PAGE_ESCAPE_REPORTER = Buffer.from(`<script>(function(later,dashboard){addEventListener("keydown",function(event){if(event.key==="Escape")later(function(){if(!event.defaultPrevented)dashboard.postMessage(${JSON.stringify(BOARD_PAGE_ESCAPE_MESSAGE)},"*")})},true)})(setTimeout,parent)</script>`);
-async function escapeReporterOffsetOf(pagePath: string): Promise<number> {
+const BOARD_PAGE_BASE_STYLE = Buffer.from('<style>:where(html){color-scheme:light dark;background:var(--glimmervoid-background,#15131b);color:var(--glimmervoid-text,#e8e5ef);font:16px/1.5 system-ui,sans-serif}:where(body){margin:0;padding:24px}:where(a){color:var(--glimmervoid-accent,#a78bfa)}:where(h1,h2,h3,h4){line-height:1.2;margin:0 0 .5em}:where(button,input,select,textarea){font:inherit;color:inherit}:where(button){background:var(--glimmervoid-accent,#a78bfa);color:var(--glimmervoid-background,#15131b);border:0;border-radius:6px;padding:6px 14px;cursor:pointer}:where(input,select,textarea){background:transparent;border:1px solid var(--glimmervoid-line,#3b3549);border-radius:6px;padding:4px 8px}:where(hr){border:0;border-top:1px solid var(--glimmervoid-line,#3b3549)}:where(code,pre){font-family:ui-monospace,monospace}</style>');
+const BOARD_PAGE_PARAMS_BRIDGE = Buffer.from(`<script>(function(root,dashboard){addEventListener("message",function(event){var data=event.data;if(event.source!==dashboard||!data)return;if(data.type===${JSON.stringify(BOARD_PAGE_THEME_MESSAGE)}){for(var name in data.colors)root.style.setProperty("--glimmervoid-"+name,data.colors[name]);return}if(data.type===${JSON.stringify(BOARD_PAGE_PARAMS_MESSAGE)}){window.glimmervoidParams=data.values;dispatchEvent(new CustomEvent("glimmervoid:params",{detail:data.values}))}})})(document.documentElement,parent)</script>`);
+async function pagePreludeOffsetOf(pagePath: string): Promise<number> {
   const page = await fsp.open(pagePath, 'r');
   try {
     return await offsetAfterPagePrelude(async (position, byteCount) => {
@@ -242,7 +244,7 @@ async function escapeReporterOffsetOf(pagePath: string): Promise<number> {
 }
 
 function sendBoardAssetBytes(req: Request, res: Response, servable: { path: string; contentType: string }, sizeBytes: number): void {
-  res.setHeader('Content-Security-Policy', servable.contentType.startsWith('text/html') ? BOARD_PAGE_SANDBOX_POLICY : BOARD_MEDIA_SANDBOX_POLICY);
+  res.setHeader('Content-Security-Policy', BOARD_MEDIA_SANDBOX_POLICY);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
   res.setHeader('Accept-Ranges', 'bytes');
@@ -264,32 +266,35 @@ function sendBoardAssetBytes(req: Request, res: Response, servable: { path: stri
   pipeline(fs.createReadStream(servable.path), res, () => {});
 }
 
-function sendBoardPageForViewer(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, reporterOffset: number): void {
+const BOARD_PAGE_INJECTIONS = [BOARD_PAGE_BASE_STYLE, BOARD_PAGE_PARAMS_BRIDGE, BOARD_PAGE_ESCAPE_REPORTER];
+const BOARD_PAGE_INJECTED_BYTES = BOARD_PAGE_INJECTIONS.reduce((total, injection) => total + injection.byteLength, 0);
+
+function sendBoardPage(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, preludeOffset: number): void {
   res.setHeader('Content-Security-Policy', BOARD_PAGE_SANDBOX_POLICY);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', servable.contentType);
-  res.setHeader('Content-Length', String(sizeBytes + BOARD_PAGE_ESCAPE_REPORTER.byteLength));
-  pipeline(async function* pageWithEscapeReporterAfterPrelude() {
-    if (reporterOffset > 0) yield* fs.createReadStream(servable.path, { end: reporterOffset - 1 });
-    yield BOARD_PAGE_ESCAPE_REPORTER;
-    yield* fs.createReadStream(servable.path, { start: reporterOffset });
+  res.setHeader('Content-Length', String(sizeBytes + BOARD_PAGE_INJECTED_BYTES));
+  pipeline(async function* pageWithInjectionsAfterPrelude() {
+    if (preludeOffset > 0) yield* fs.createReadStream(servable.path, { end: preludeOffset - 1 });
+    yield* BOARD_PAGE_INJECTIONS;
+    yield* fs.createReadStream(servable.path, { start: preludeOffset });
   }, res, () => {});
 }
 
-function isPageAskedForViewer(req: Request, servable: { contentType: string }): boolean {
-  return servable.contentType.startsWith('text/html') && req.query[BOARD_PAGE_VIEWER_PARAM] === '1';
+function isPage(servable: { contentType: string }): boolean {
+  return servable.contentType.startsWith('text/html');
 }
 
 function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
   const answerMissing = () => {
     if (!res.headersSent) res.status(404).end();
   };
-  if (!isPageAskedForViewer(req, servable)) {
+  if (!isPage(servable)) {
     fsp.stat(servable.path).then((stats) => sendBoardAssetBytes(req, res, servable, stats.size), answerMissing);
     return;
   }
-  Promise.all([fsp.stat(servable.path), escapeReporterOffsetOf(servable.path)]).then(([stats, reporterOffset]) => sendBoardPageForViewer(res, servable, stats.size, reporterOffset), answerMissing);
+  Promise.all([fsp.stat(servable.path), pagePreludeOffsetOf(servable.path)]).then(([stats, preludeOffset]) => sendBoardPage(res, servable, stats.size, preludeOffset), answerMissing);
 }
 
 async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['adoptIncoming']> {

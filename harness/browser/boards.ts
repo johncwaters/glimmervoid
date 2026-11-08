@@ -392,6 +392,47 @@ async function verifyBoxAbovePageCoversIt(open: OpenBoard, pageMedia: Locator): 
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.wb-media[data-media-kind="page"]') ?? document.body).maskImage === 'none');
 }
 
+const DIALS_PAGE_HTML = `<!doctype html><script type="application/glimmervoid-params">[{"id":"speed","label":"Speed","kind":"range","min":0,"max":10,"default":4},{"id":"loud","label":"Loud","kind":"toggle"}]</script><input aria-label="dials field"><script>
+addEventListener('glimmervoid:params', (event) => parent.postMessage({ boardPageParams: event.detail }, '*'));
+</script>`;
+
+async function verifyPageDials(open: OpenBoard): Promise<void> {
+  const { page, panel } = open;
+  await page.evaluate(() => {
+    window.addEventListener('message', (event) => {
+      const dialValues: unknown = event.data?.boardPageParams;
+      if (dialValues && typeof dialValues === 'object') document.documentElement.dataset.boardPageParams = JSON.stringify(dialValues);
+    });
+  });
+  const postedDialValues = (expected: string) => page.waitForFunction((expectedText) => document.documentElement.dataset.boardPageParams === expectedText, expected, { timeout: BOARD_TIMEOUT_MS });
+  await dropFileOnCanvas(panel, { name: 'dials.html', type: 'text/html', base64: Buffer.from(DIALS_PAGE_HTML).toString('base64') }, { x: 200, y: 300 });
+  const isDialsPage = (element: BoardElement) => element.kind === 'box' && element.media?.kind === 'page' && element.media.alt === 'dials.html';
+  const dialsBox = await elementWhere(open, 'the dropped page with dials', isDialsPage);
+  assert.ok(dialsBox.kind === 'box' && dialsBox.shape !== 'icon' && dialsBox.media?.dials.length === 2, 'attach reads the dials the page declares');
+  await postedDialValues(JSON.stringify({ speed: 4, loud: false }));
+  const dialsMedia = panel.locator(`.wb-media[data-box-id="${dialsBox.id}"]`);
+  assert.equal(await dialsMedia.locator('iframe').evaluate((frame) => getComputedStyle(frame).pointerEvents), 'auto', 'the selected page takes the pointer in place');
+  const speedDial = panel.locator('[data-field="dial-speed"]');
+  await speedDial.evaluate((slider) => {
+    if (!(slider instanceof HTMLInputElement)) return;
+    slider.value = '7';
+    slider.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.params.speed === 7);
+  await postedDialValues(JSON.stringify({ speed: 7, loud: false }));
+  await page.frameLocator(`.wb-media[data-box-id="${dialsBox.id}"] iframe`).getByLabel('dials field').focus();
+  await page.keyboard.press('Escape');
+  await page.waitForFunction((boxId) => !document.querySelector(`.wb-media[data-box-id="${boxId}"]`)?.classList.contains('is-interactive'), dialsBox.id, { timeout: BOARD_TIMEOUT_MS });
+  assert.equal(await dialsMedia.locator('iframe').evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'Esc inside the page hands the pointer back to the board');
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: dialsBox.id }] });
+  await boardWithout(open, 'the dials page is removed', isDialsPage);
+}
+
+async function deselectAll({ page, panel }: OpenBoard): Promise<void> {
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
 async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   const { page, panel } = open;
   await page.evaluate(() => {
@@ -430,6 +471,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   const pageFrame = pageMedia.locator('iframe.wb-media-page');
   assert.equal(await pageFrame.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a page box renders in a sandbox without same-origin');
   await page.waitForFunction(() => Boolean(document.documentElement.dataset.boardPageProbe));
+  await deselectAll(open);
   assert.deepEqual(JSON.parse(await page.evaluate(() => document.documentElement.dataset.boardPageProbe ?? '{}')), { dom: 'blocked', storage: 'blocked', cookie: 'blocked' }, 'a page box cannot read the dashboard DOM, storage or cookies');
   assert.equal(await pageFrame.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'an idle page ignores the pointer');
   const idlePageBounds = await pageMedia.boundingBox();
@@ -449,6 +491,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await pageFrame.evaluate((frame) => {
     frame.dataset.loadedOnce = '';
   });
+  await deselectAll(open);
   const pageBounds = await pageMedia.boundingBox();
   assert.ok(pageBounds);
   await page.mouse.move(pageBounds.x + pageBounds.width / 3, pageBounds.y + pageBounds.height / 3);
@@ -611,6 +654,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyStacking(open, parseFeed.id);
+    await verifyPageDials(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
     if (desktopBoard) await verifyBoardDoc(open);

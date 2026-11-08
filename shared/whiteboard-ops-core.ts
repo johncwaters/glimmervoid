@@ -1,4 +1,4 @@
-import { BOX_SHAPES, Box, Frame, Note, Wire, WHITEBOARD_LIMITS, fieldNamesOfShape } from './contracts/whiteboard.ts';
+import { BOX_SHAPES, Box, Frame, Note, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
@@ -143,6 +143,8 @@ function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefine
   const outputs = checkBoxOutputs(draft, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
+  const dialProblem = dialParamsProblemOf(box);
+  if (dialProblem) return refuse(dialProblem);
   if (box.step === null && box.shape !== 'panel' && box.near === null && box.at === null) {
     return refuse(`box ${box.id} needs a place: near another box or at a point`);
   }

@@ -1,7 +1,7 @@
 import './whiteboard.css';
-import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, boardMediaOriginalFilename, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -22,7 +22,7 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
-import { createBoardMediaLayer, fetchBoardDocText } from './board-media-layer.ts';
+import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './board-media-layer.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
@@ -550,6 +550,19 @@ function selectBoard(boardId: string): void {
 }
 
 
+function livePageBoxIdOf(selectedIds: ReadonlySet<string>): string | null {
+  if (selectedIds.size !== 1) return null;
+  const [selectedId] = selectedIds;
+  const selected = selectedId === undefined ? undefined : selectedBoard()?.elements[selectedId];
+  if (selected?.kind !== 'box' || mediaOfBox(selected)?.kind !== 'page') return null;
+  return selected.id;
+}
+
+function pressedDialValuesOf({ boxId }: PressedImage): Record<string, DialValue> {
+  const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
+  return pressedBox?.kind === 'box' ? dialValuesOfBox(pressedBox) : {};
+}
+
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements[boxId] : undefined;
   return pressedBox?.kind === 'box' ? mediaOfBox(pressedBox) : null;
@@ -557,7 +570,11 @@ function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
   const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
-  if (media?.kind === 'page') return createSandboxedFrame({ source: { kind: 'url', url: `${originalHref}?${BOARD_PAGE_VIEWER_PARAM}=1` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+  if (media?.kind === 'page') {
+    const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${originalHref}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+    tunePageOnLoad(pageFrame, document.body, () => pressedDialValuesOf(pressedImage));
+    return pageFrame;
+  }
   if (media?.kind === 'video') {
     const video = el('video', 'wb-image-viewer-video');
     video.src = originalHref;
@@ -926,7 +943,10 @@ export function mountBoardHost(): HTMLElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('class', 'wb-svg');
   svg.setAttribute('aria-hidden', 'true');
-  const mediaLayer = createBoardMediaLayer();
+  const mediaLayer = createBoardMediaLayer({ onEscapeFromPage: () => {
+    editor?.clearSelection();
+    editor?.focusCanvas();
+  } });
   world.append(svg, mediaLayer.element);
   const glCanvas = el('canvas', 'wb-gl');
   glCanvas.setAttribute('aria-hidden', 'true');
@@ -980,7 +1000,10 @@ export function mountBoardHost(): HTMLElement {
     currentBoard: selectedBoard,
     repaint: paintBoard,
     sendOps,
-    onSelectionChange: paintToolbar,
+    onSelectionChange: (selectedIds) => {
+      paintToolbar();
+      mediaLayer.setInteractiveBox(livePageBoxIdOf(selectedIds));
+    },
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
     onOpenImage: openImageViewer,

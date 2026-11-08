@@ -9,7 +9,8 @@ import { decideShownKind, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts'
 import { resolveFfmpegPath } from '../runtime-paths.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_MAX_EDGE_PX } from '../../shared/contracts/whiteboard.ts';
-import type { BoxMedia } from '../../shared/contracts/whiteboard.ts';
+import type { BoxMedia, Dial } from '../../shared/contracts/whiteboard.ts';
+import { DIAL_MANIFEST_SCAN_BYTES, dialManifestOf } from '../core/dial-manifest-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 const ASSETS_FOLDER_NAME = 'assets';
@@ -57,6 +58,7 @@ const MEDIA_FORMAT_BY_EXTENSION: Record<string, MediaFormat> = {
 interface StoredAsset {
   extension: string;
   hasPreview: boolean;
+  dials: Dial[];
   media: BoxMedia | null;
 }
 
@@ -272,6 +274,29 @@ function sizeMedia(sourcePath: string, previewPath: string, format: MediaFormat,
   return sizeImage(sourcePath, previewPath, format, name);
 }
 
+async function pageOpeningOf(pagePath: string): Promise<string | null> {
+  const page = await fsp.open(pagePath, 'r').catch(() => null);
+  if (!page) return null;
+  const opening = Buffer.alloc(DIAL_MANIFEST_SCAN_BYTES);
+  const read = await page.read(opening, 0, DIAL_MANIFEST_SCAN_BYTES, 0).catch(() => null);
+  await page.close().catch(() => {});
+  return read ? opening.subarray(0, read.bytesRead).toString('utf8') : null;
+}
+
+async function storedDialsOf(pagePath: string): Promise<Dial[]> {
+  const pageHtml = await pageOpeningOf(pagePath);
+  const manifest = pageHtml === null ? null : dialManifestOf(pageHtml);
+  return manifest?.ok ? manifest.dials : [];
+}
+
+async function dialsOf(pagePath: string, format: MediaFormat, name: string): Promise<Dial[] | Refusal> {
+  if (format.kind !== 'page') return [];
+  const pageHtml = await pageOpeningOf(pagePath);
+  if (pageHtml === null) return interruptedReadRefusal(name);
+  const manifest = dialManifestOf(pageHtml);
+  return manifest.ok ? manifest.dials : refusal(422, `${name} declares dials a board cannot take: ${manifest.error}`);
+}
+
 function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.now }: { boardsRoot: string; logger?: Pick<Console, 'warn'>; now?: () => number }): WhiteboardAssetStore {
   const assetsRoot = path.join(boardsRoot, ASSETS_FOLDER_NAME);
   const storedByAssetId = new Map<string, StoredAsset>();
@@ -281,7 +306,10 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
     const previewAssetIds = new Set(filenames.flatMap((filename) => PREVIEW_FILENAME_RE.exec(filename)?.[1] ?? []));
     for (const filename of filenames) {
       const match = ORIGINAL_FILENAME_RE.exec(filename);
-      if (match?.[1] && match[2] && !storedByAssetId.has(match[1])) storedByAssetId.set(match[1], { extension: match[2], hasPreview: previewAssetIds.has(match[1]), media: null });
+      if (!match?.[1] || !match[2] || storedByAssetId.has(match[1])) continue;
+      const isPage = MEDIA_FORMAT_BY_EXTENSION[match[2]]?.kind === 'page';
+      const dials = isPage ? await storedDialsOf(path.join(assetsRoot, filename)) : [];
+      if (!storedByAssetId.has(match[1])) storedByAssetId.set(match[1], { extension: match[2], hasPreview: previewAssetIds.has(match[1]), dials, media: null });
     }
     const abandonedIncomingNames = filenames.filter((filename) => filename.startsWith(INCOMING_PREFIX));
     await Promise.all(abandonedIncomingNames.map((filename) => fsp.rm(path.join(assetsRoot, filename), { force: true }).catch(() => {})));
@@ -310,11 +338,13 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
       const isOriginalStored = Boolean(stored) && isOnDisk;
       const sized = isOriginalStored ? await sizeStoredMedia(incomingPath, previewPath, format, stored?.hasPreview ?? false, name) : await sizeMedia(incomingPath, draftPreviewPath, format, name);
       if (isRefusal(sized)) return sized;
+      const dials = await dialsOf(incomingPath, format, name);
+      if (isRefusal(dials)) return dials;
       if (sized.hasPreview && !isOriginalStored) await fsp.rename(draftPreviewPath, previewPath);
       const { hasPreview } = sized;
       await fsp.rename(incomingPath, finalPath);
-      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview };
-      storedByAssetId.set(assetId, { extension, hasPreview, media });
+      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials };
+      storedByAssetId.set(assetId, { extension, hasPreview, dials, media });
       hold(assetId, ATTACH_HOLD_MS);
       return { ok: true, media };
     } finally {
@@ -414,9 +444,9 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
     const stored = storedByAssetId.get(media.asset);
     const format = stored ? MEDIA_FORMAT_BY_EXTENSION[stored.extension] : undefined;
     if (!stored || !format) return `media ${media.asset}, which no whiteboard attach stored`;
-    const storedFields = { kind: format.kind, mime: format.mime, hasPreview: stored.hasPreview };
-    const isMatching = media.kind === storedFields.kind && media.mime === storedFields.mime && media.hasPreview === storedFields.hasPreview;
-    return isMatching ? null : `media ${media.asset} as ${JSON.stringify({ kind: media.kind, mime: media.mime, hasPreview: media.hasPreview })}, but attach stored it as ${JSON.stringify(storedFields)}`;
+    const storedFields = { kind: format.kind, mime: format.mime, hasPreview: stored.hasPreview, dials: stored.dials };
+    const isMatching = media.kind === storedFields.kind && media.mime === storedFields.mime && media.hasPreview === storedFields.hasPreview && JSON.stringify(media.dials) === JSON.stringify(stored.dials);
+    return isMatching ? null : `media ${media.asset} as ${JSON.stringify({ kind: media.kind, mime: media.mime, hasPreview: media.hasPreview, dials: media.dials })}, but attach stored it as ${JSON.stringify(storedFields)}`;
   }
 
   function pictureSourceOf(media: Pick<BoxMedia, 'kind' | 'asset'>): string | null {
