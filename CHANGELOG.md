@@ -110,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The watcher no longer runs probes it has no credential for, and the log says what it is doing.** With no GitHub read token (or no PostHog read connection) set, the watcher skips those probes instead of failing each one, and the server log says once which lanes poll on their own timers until one is set in Settings. The log also names each probe set and credentials delivery to the watcher (which credentials are present, never their values) and each changed or recovered nudge by lane and probe.
 - **No more MaxListenersExceededWarning at startup.** Every part of the server that greets a new dashboard connection now registers with one connection listener instead of adding its own, so the warning about 11 connection listeners is gone.
 - **Stopping Glimmervoid no longer restarts the watcher.** A shutdown now stops the watcher link with the other lanes, so the watcher child is not respawned while the server is going down.
 - **Wire routing on a large whiteboard makes less garbage.** The route search writes its queue entries straight into its typed arrays and keeps its visited list between searches, cutting about 15% of what a 300,000 element layout allocates and about 10% of its time, with the same drawing.

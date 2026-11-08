@@ -29,7 +29,7 @@ async function eventually<Value>(read: () => Value | undefined, timeoutMs = 10_0
   throw new Error('condition never held');
 }
 
-async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROBE) {
+async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROBE, { githubToken = 'read-token' as string | null, log = QUIET_LOG }: { githubToken?: string | null; log?: Pick<Console, 'log' | 'warn'> } = {}) {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-watcher-link-'));
   const linkSecret = crypto.randomBytes(32);
   const clock = { nowMs: Date.now() };
@@ -42,13 +42,13 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
   const nudges: Nudge[] = [];
   const coveredProbeCounts: number[] = [];
   const watcherProblems: (string | null)[] = [];
-  const linkCredentials: { github: string | null } = { github: 'read-token' };
+  const linkCredentials: { github: string | null } = { github: githubToken };
   const watcher: { runner: ReturnType<typeof createProbeRunner> | null; url: string | null; nudgeUrl: string | null } = { runner: null, url: null, nudgeUrl: null };
   const link = createWatcherLink({
     watcherHome,
     linkSecret,
     now,
-    log: QUIET_LOG,
+    log,
     credentials: () => ({ github: linkCredentials.github, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
     startWatcher: ({ serverUrl, onListening }) => {
       const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
@@ -140,6 +140,24 @@ test('a probe GitHub refuses by status or by a GraphQL error shows on its lane a
   linkCredentials.github = null;
   link.credentialsMayHaveChanged();
   await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
+});
+
+test('with no GitHub read token the watcher runs no GitHub probe, the log says once why, and a token set later starts it', async (t) => {
+  const logLines: string[] = [];
+  const log = { log: (line: string) => logLines.push(line), warn: (line: string) => logLines.push(line) };
+  const { github, linkCredentials, link, watcher, coveredProbeCounts } = await startLinkedWatcher(t, LIGHT_PROBE, { githubToken: null, log });
+  await eventually(() => watcher.url ?? undefined);
+  link.probesMayHaveChanged();
+  await eventually(() => logLines.some((line) => line.includes('delivered probe set')) ? true : undefined);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.deepEqual(github.requests, []);
+  assert.deepEqual(logLines.filter((line) => line.includes('no GitHub read token')), ['[watcher] no GitHub read token: test-lane polls on its own timer until one is set in Settings']);
+
+  linkCredentials.github = 'read-token';
+  link.credentialsMayHaveChanged();
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+  await eventually(() => github.requests.length >= 1 ? true : undefined);
+  assert.deepEqual(github.requests, ['Bearer read-token']);
 });
 
 test('a GraphQL rate limit answered with 200 waits for its reset even when the same token is delivered again', async (t) => {

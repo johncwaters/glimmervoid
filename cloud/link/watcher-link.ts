@@ -17,6 +17,17 @@ interface ProbeSource {
 
 type FetchFn = typeof fetch;
 
+const MISSING_CREDENTIAL_NAMES = { github: 'GitHub read token', posthog: 'PostHog read connection' } as const;
+
+function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
+  return heldCredentials[credential] !== null;
+}
+
+function laneTimerSentence(laneIds: readonly string[]): string {
+  if (laneIds.length === 1) return `${laneIds[0]} polls on its own timer`;
+  return `${laneIds.join(', ')} poll on their own timers`;
+}
+
 const LOOPBACK_HOST = '127.0.0.1';
 const RECOMPILE_DEBOUNCE_MS = 2_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
@@ -79,6 +90,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   const failureByProbeId = new Map<string, ProbeFailure>();
   const coverageByLaneId = new Map<string, string>();
   const problemByLaneId = new Map<string, string | null>();
+  const loggedMissingCredentials = new Set<Probe['credential']>();
   let watcherUrl: string | null = null;
   let deliveredProbeSet: ProbeSet | null = null;
   let deliveredCredentialsDigest: string | null = null;
@@ -95,7 +107,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     const isLinked = watcherUrl !== null && deliveredProbeSet !== null && deliveredCredentialsDigest !== null;
     const currentCredentials = credentials();
     for (const source of sourcesByLaneId.values()) {
-      const hasCredential = source.credential === 'github' ? currentCredentials.github !== null : currentCredentials.posthog !== null;
+      const hasCredential = hasCredentialFor(source.credential, currentCredentials);
       const deliveredProbes = isLinked && hasCredential ? deliveredProbeSet?.probes.filter((probe) => probe.laneId === source.laneId) ?? [] : [];
       const coveredProbes = deliveredProbes.filter((probe) => !failureByProbeId.has(probe.id));
       const coverageDigest = JSON.stringify(coveredProbes.map((probe) => [probe.id, requestOf(probe)]));
@@ -111,7 +123,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     const isLinked = watcherUrl !== null && deliveredProbeSet !== null && deliveredCredentialsDigest !== null;
     const currentCredentials = credentials();
     for (const source of sourcesByLaneId.values()) {
-      const hasCredential = source.credential === 'github' ? currentCredentials.github !== null : currentCredentials.posthog !== null;
+      const hasCredential = hasCredentialFor(source.credential, currentCredentials);
       const failingProbe = !isLinked || !hasCredential ? undefined : deliveredProbeSet?.probes.find((probe) => probe.laneId === source.laneId && failureByProbeId.has(probe.id));
       const failure = failingProbe === undefined ? undefined : failureByProbeId.get(failingProbe.id);
       const problem = failingProbe === undefined || failure === undefined ? null : watcherProblemOf(failingProbe, failure);
@@ -132,8 +144,22 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     }
   }
 
-  function compileProbeSet(): ProbeSet {
-    const probes = [...sourcesByLaneId.values()].flatMap((source) => source.probes());
+  function logMissingCredentialsOnce(heldCredentials: WatcherCredentials): void {
+    for (const credential of ['github', 'posthog'] as const) {
+      if (hasCredentialFor(credential, heldCredentials)) {
+        loggedMissingCredentials.delete(credential);
+        continue;
+      }
+      const waitingLaneIds = [...sourcesByLaneId.values()].filter((source) => source.credential === credential).map((source) => source.laneId);
+      if (waitingLaneIds.length === 0 || loggedMissingCredentials.has(credential)) continue;
+      loggedMissingCredentials.add(credential);
+      log.log(`[watcher] no ${MISSING_CREDENTIAL_NAMES[credential]}: ${laneTimerSentence(waitingLaneIds)} until one is set in Settings`);
+    }
+  }
+
+  function compileProbeSet(heldCredentials: WatcherCredentials): ProbeSet {
+    logMissingCredentialsOnce(heldCredentials);
+    const probes = [...sourcesByLaneId.values()].filter((source) => hasCredentialFor(source.credential, heldCredentials)).flatMap((source) => source.probes());
     return { revision: revisionOf(probes), probes };
   }
 
@@ -205,10 +231,12 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       if (credentialsDigest !== deliveredCredentialsDigest) {
         if (!await postToWatcher(CREDENTIALS_PATH, currentCredentials)) return scheduleDeliveryRetry();
         deliveredCredentialsDigest = credentialsDigest;
+        log.log(`[watcher] delivered credentials: github ${currentCredentials.github === null ? 'no' : 'yes'}, posthog ${currentCredentials.posthog === null ? 'no' : 'yes'}`);
       }
-      const probeSet = compileProbeSet();
+      const probeSet = compileProbeSet(currentCredentials);
       if (probeSet.revision !== deliveredProbeSet?.revision) {
         if (!await postToWatcher(PROBE_SET_PATH, probeSet)) return scheduleDeliveryRetry();
+        log.log(`[watcher] delivered probe set ${probeSet.revision.slice(0, 8)} with ${probeSet.probes.length} probes`);
         forgetFailuresOfChangedRequests(deliveredProbeSet, probeSet);
         deliveredProbeSet = probeSet;
       }
@@ -245,6 +273,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
       log.warn(`[watcher] probe ${probe.id} is failing: ${nudge.failure?.reason ?? 'unknown reason'}`);
     }
     if (nudge.kind === 'recovered') failureByProbeId.delete(probe.id);
+    if (nudge.kind !== 'failing') log.log(`[watcher] ${probe.laneId}: ${probe.id} ${nudge.kind}`);
     updateCoverage();
     if (nudge.kind !== 'failing') sourcesByLaneId.get(probe.laneId)?.onNudge(nudge);
   }
