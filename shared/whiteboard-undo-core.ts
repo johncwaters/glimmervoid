@@ -1,3 +1,4 @@
+import { elementInputOf } from './contracts/whiteboard.ts';
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
 import type { BoardDiff, DiffBefore } from './contracts/control/whiteboard-messages.ts';
 import { applyBoardDiff } from './whiteboard-ops-core.ts';
@@ -14,23 +15,6 @@ const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
 
 function isSameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function dependencyIdsOf(element: Element): readonly string[] {
-  if (element.kind === 'box') return element.near ? [element.near.of] : [];
-  return [];
-}
-
-function inDependencyOrder(elements: readonly Element[]): Element[] {
-  const pendingIds = new Set(elements.map((element) => element.id));
-  const ordered: Element[] = [];
-  while (pendingIds.size > 0) {
-    const ready = elements.filter((element) => pendingIds.has(element.id) && dependencyIdsOf(element).every((id) => !pendingIds.has(id)));
-    const batch = ready.length > 0 ? ready : elements.filter((element) => pendingIds.has(element.id));
-    for (const element of batch) pendingIds.delete(element.id);
-    ordered.push(...batch);
-  }
-  return ordered;
 }
 
 function changedFields(current: Element, target: Element): Record<string, unknown> {
@@ -54,7 +38,7 @@ function restoringOps(current: Board, target: Board): Op[] {
   const currentElements = [...current.elements.values()];
   const targetElements = [...target.elements.values()];
   const removed = REMOVAL_ORDER.flatMap((kind) => currentElements.filter((element) => element.kind === kind && !target.elements.get(element.id)));
-  const added = inDependencyOrder(targetElements.filter((element) => !current.elements.get(element.id)));
+  const added = targetElements.filter((element) => !current.elements.get(element.id));
   const setOps: Op[] = targetElements.flatMap((element) => {
     const existing = current.elements.get(element.id);
     if (!existing || existing === element) return [];
@@ -63,9 +47,9 @@ function restoringOps(current: Board, target: Board): Op[] {
   });
   return [
     ...removed.map((element): Op => ({ op: 'remove', id: element.id })),
-    ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
+    ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element: elementInputOf(element) })),
     ...setOps,
-    ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
+    ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element: elementInputOf(element) })),
     ...boardFieldOps(current, target),
   ];
 }

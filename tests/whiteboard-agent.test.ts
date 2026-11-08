@@ -710,7 +710,7 @@ test('a board with no code session takes the first session of its project that c
   assert.deepEqual(builderRead.changes.map((change) => change.summary), [`Glimmervoid set the code session to ${PLANNER_ID}`]);
 });
 
-test('removing a box pins the boxes near it, and a box with no place is refused', async () => {
+test('a box placed near another keeps its place when that box is removed, and a box with no place is refused', async () => {
   const boardId = await newBoard('regroup');
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 } } },
@@ -723,8 +723,7 @@ test('removing a box pins the boxes near it, and a box with no place is refused'
     { op: 'set', id: 'aside', fields: { title: 'Aside, kept' } },
   ] })).status, 200);
   const afterRemove = (await boardOf(PLANNER_ID, boardId)).board.elements.aside;
-  assert.equal(afterRemove?.near, null);
-  assert.ok(afterRemove?.at, 'a box near a removed box is pinned where it stood');
+  assert.ok(afterRemove && !('near' in afterRemove) && afterRemove.at, 'a box near a removed box keeps where it stood');
 
   const placeless = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'lost', title: 'Lost' } }] });
   assert.equal(placeless.status, 400);
@@ -739,7 +738,7 @@ test('a box placed near another stays where it was drawn when that box moves, an
     { op: 'add', element: { kind: 'box', id: 'third', title: 'Third', near: { of: 'second', side: 'right' } } },
   ] })).status, 200);
   const placed = (await boardOf(PLANNER_ID, boardId)).board.elements;
-  assert.deepEqual([placed.second?.near, placed.third?.near], [null, null]);
+  assert.ok(placed.second && placed.third && !('near' in placed.second) && !('near' in placed.third));
 
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'second', fields: { at: { x: 600, y: 400 } } }] })).status, 200);
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements.third?.at, placed.third?.at);
@@ -1180,13 +1179,13 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   assert.deepEqual(planSteps(upgraded).map((step) => [step.boxId, step.label, step.status, step.afterLabels]), [['schema', '1a', 'landed', []], ['u1', '1b', 'planned', []], ['route', '2', 'building', ['1a']]]);
   const placeOf = (boxId: string) => {
     const element = upgraded.elements.get(boxId);
-    return element?.kind === 'box' ? { at: element.at, near: element.near } : null;
+    return element?.kind === 'box' ? element.at : null;
   };
   assert.deepEqual(['queue', 'read', 'write', 'pinned'].map(placeOf), [
-    { at: { x: 40, y: 40 }, near: null },
-    { at: { x: -50, y: 114 }, near: null },
-    { at: { x: 530, y: 40 }, near: null },
-    { at: { x: 900, y: 500 }, near: null },
+    { x: 40, y: 40 },
+    { x: -50, y: 114 },
+    { x: 530, y: 40 },
+    { x: 900, y: 500 },
   ]);
   const handoff = upgraded.elements.get('handoff');
   assert.deepEqual([handoff?.kind === 'wire' && handoff.tone, upgraded.legend.map((entry) => entry.tone)], ['plain', ['plain']]);
@@ -1229,7 +1228,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const secondCard = elements.get('shown-2');
   assert.ok(firstCard?.kind === 'box' && firstCard.shape === 'box' && secondCard?.kind === 'box' && secondCard.shape === 'box');
   assert.deepEqual([firstCard.title, firstCard.lines.map((line) => line.text), firstCard.media?.kind, firstCard.media?.alt], ['login.png', ['login after fix'], 'image', 'login after fix']);
-  assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', null]);
+  assert.deepEqual([secondCard.title, secondCard.media?.kind], ['Weekly report', 'page']);
   const drawnCards = layoutBoard(shownBoard).elements.filter((element) => element.kind === 'box');
   const drawnFirst = drawnCards.find((element) => element.id === 'shown-1');
   const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');

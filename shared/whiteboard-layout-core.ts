@@ -1,5 +1,5 @@
 import { BOX_CHANGES, dialValuesOfBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Stroke, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Stroke, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
@@ -300,11 +300,6 @@ function noteStackHeightByBoxId(board: IndexedBoard): Map<string, number> {
   return stackHeightByBoxId;
 }
 
-interface PlacedBoxes {
-  boxesById: Map<string, PlacedBox>;
-  warnings: string[];
-}
-
 function laidOutStep(planStepById: ReadonlyMap<string, PlanStep>, box: Box): LaidOutStep | null {
   if (!box.step) return null;
   return { label: planStepById.get(box.id)?.label ?? '', status: box.step.status, linkedBoardId: box.step.linkedBoardId };
@@ -325,7 +320,9 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, posit
   };
 }
 
-function nearPosition(target: PlacedBox, near: NonNullable<Box['near']>, size: { width: number; height: number }): Point {
+type Near = NonNullable<BoxInput['near']>;
+
+function nearPosition(target: PlacedBox, near: Near, size: { width: number; height: number }): Point {
   const centeredY = target.y + target.height / 2 - size.height / 2;
   const centeredX = target.x + target.width / 2 - size.width / 2;
   switch (near.side) {
@@ -336,7 +333,7 @@ function nearPosition(target: PlacedBox, near: NonNullable<Box['near']>, size: {
   }
 }
 
-function laidOutNearBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, near: NonNullable<Box['near']>, target: PlacedBox): PlacedBox {
+function laidOutNearBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, near: Near, target: PlacedBox): PlacedBox {
   const position = nearPosition(target, near, { width: boxWidthOf(box), height: boxShape(box).height });
   return laidOutBox(planStepById, box, { x: Math.round(position.x), y: Math.round(position.y) });
 }
@@ -346,25 +343,8 @@ function freeOrigin(boxesById: ReadonlyMap<string, PlacedBox>, boxesTop: number)
   return { x: boxesById.size > 0 ? rightmostEdge + FREE_GAP : MARGIN, y: boxesTop };
 }
 
-function placeNearBoxes(board: IndexedBoard, boxesTop: number, boxesById: Map<string, PlacedBox>, warnings: string[]): void {
-  const nearBoxes = elementsOfKind(board, 'box').filter((box) => box.at === null && box.near !== null);
-  const pendingIds = new Set(nearBoxes.map((box) => box.id));
-  const place = (box: Box, chainIds: ReadonlySet<string>): PlacedBox | undefined => {
-    const settled = boxesById.get(box.id);
-    if (settled || !box.near) return settled;
-    const target = board.elements.get(box.near.of);
-    const canFollow = target?.kind === 'box' && !chainIds.has(target.id) && (boxesById.has(target.id) || pendingIds.has(target.id));
-    const targetBox = canFollow ? place(target, new Set([...chainIds, box.id])) : undefined;
-    if (!targetBox) warnings.push(`box ${box.id} sits near ${box.near.of}, which is not placed on the board`);
-    const placed = targetBox ? laidOutNearBox(board.planStepById, box, box.near, targetBox) : laidOutBox(board.planStepById, box, freeOrigin(boxesById, boxesTop));
-    boxesById.set(box.id, placed);
-    return placed;
-  };
-  for (const box of nearBoxes) place(box, new Set());
-}
-
 function isStackedPanel(box: Box): boolean {
-  return box.shape === 'panel' && box.step === null && box.near === null && box.at === null;
+  return box.shape === 'panel' && box.step === null && box.at === null;
 }
 
 function placeStackedPanels(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, boxesById: Map<string, PlacedBox>): void {
@@ -380,9 +360,8 @@ function placeStackedPanels(board: IndexedBoard, boxesTop: number, stackHeightBy
   }
 }
 
-function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, stepBandPositions: ReadonlyMap<string, Point>): PlacedBoxes {
+function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: ReadonlyMap<string, number>, stepBandPositions: ReadonlyMap<string, Point>): Map<string, PlacedBox> {
   const boxesById = new Map<string, PlacedBox>();
-  const warnings: string[] = [];
   for (const box of elementsOfKind(board, 'box')) {
     const bandPosition = stepBandPositions.get(box.id);
     if (bandPosition) boxesById.set(box.id, laidOutBox(board.planStepById, box, bandPosition));
@@ -390,12 +369,11 @@ function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: 
   for (const box of elementsOfKind(board, 'box')) {
     if (box.at) boxesById.set(box.id, laidOutBox(board.planStepById, box, box.at));
   }
-  placeNearBoxes(board, boxesTop, boxesById, warnings);
   placeStackedPanels(board, boxesTop, stackHeightByBoxId, boxesById);
   for (const box of elementsOfKind(board, 'box')) {
     if (!boxesById.has(box.id)) boxesById.set(box.id, laidOutBox(board.planStepById, box, freeOrigin(boxesById, boxesTop)));
   }
-  return { boxesById, warnings };
+  return boxesById;
 }
 
 function laidOutFrameOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame | null {
@@ -552,7 +530,7 @@ function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: read
 }
 
 function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
-  const { boxesById: placedBoxesById, warnings: nearWarnings } = layoutBoxes(board, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
+  const placedBoxesById = layoutBoxes(board, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
   const { visibleBoxesById: boxesById, topCardIdByHiddenId } = stackedViewOf(board, placedBoxesById);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
@@ -565,12 +543,12 @@ function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute:
   }, previousRoute);
   return {
     boxesById, frames, notes, routing,
-    collectPlacementWarnings: () => [...nearWarnings, ...overlapWarnings(boxesById, frames, board)],
+    collectPlacementWarnings: () => overlapWarnings(boxesById, frames, board),
   };
 }
 
 function isInStepBand(box: Box): boolean {
-  return box.step !== null && box.near === null && box.at === null;
+  return box.step !== null && box.at === null;
 }
 
 interface StepBand {
@@ -727,12 +705,12 @@ function layoutBoard(storedBoard: Board): BoardLayout {
   return dressedLayout(placeBoardWithMemory(storedBoard, null).layout, storedBoard);
 }
 
-function storedPlacesOfBoxes(storedBoard: Board): Map<string, Point> {
+function storedRectsOfBoxes(storedBoard: Board): Map<string, PlacedBox> {
   const { positionById: stepBandPositions, bottom: freeformTop } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
-  const { boxesById } = layoutBoxes(board, freeformTop, noteStackHeightByBoxId(board), stepBandPositions);
-  return new Map([...boxesById].map(([boxId, placed]) => [boxId, { x: placed.x, y: placed.y - pinnedOffsetY }]));
+  const boxesById = layoutBoxes(board, freeformTop, noteStackHeightByBoxId(board), stepBandPositions);
+  return new Map([...boxesById].map(([boxId, placed]) => [boxId, { ...placed, y: placed.y - pinnedOffsetY }]));
 }
 
 function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: PlacedLayout; memory: LayoutMemory; warningLists: WarningList[] } {
@@ -789,7 +767,7 @@ function movingIdsOf(storedBoard: Board, draggedBoxIds: ReadonlySet<string>): Se
   while (hasGrown) {
     hasGrown = false;
     for (const element of storedBoard.elements.values()) {
-      const anchorId = element.kind === 'box' ? element.near?.of : element.kind === 'note' ? element.on : undefined;
+      const anchorId = element.kind === 'note' ? element.on : undefined;
       if (movingIds.has(element.id) || !anchorId || !movingIds.has(anchorId)) continue;
       movingIds.add(element.id);
       hasGrown = true;
@@ -825,6 +803,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedPlacesOfBoxes, wireCeilingOf,
+  dressedElement, dressedLayout, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };

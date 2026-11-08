@@ -1,5 +1,5 @@
 import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, BoxMedia, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
@@ -100,7 +100,7 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
 
 const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', sticky: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
 
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): BoardElement {
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): ElementInput {
   const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
   switch (shape) {
     case 'icon': return { ...placed, shape, icon: PLACED_ICON };
@@ -322,7 +322,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const box = board.elements.get(boxId);
       const laidOut = laidOutById.get(boxId);
       if (box?.kind !== 'box' || !laidOut) continue;
-      resizedElements.put({ ...box, ...fields, near: null, step: null, at: { x: laidOut.x, y: laidOut.y } });
+      resizedElements.put({ ...box, ...fields, step: null, at: { x: laidOut.x, y: laidOut.y } });
     }
     const resizedById = new Map<string, LaidOutElement>();
     for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {

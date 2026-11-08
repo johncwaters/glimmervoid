@@ -4,7 +4,7 @@ import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutStroke,
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
-  laidOutNearBox, placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
+  placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
@@ -263,12 +263,7 @@ function countElement(world: LayoutWorld, element: Element | null | undefined, s
 }
 
 function isFloatingShaped(box: Box): boolean {
-  return box.at === null && box.near === null && !isInStepBand(box);
-}
-
-function isFloating(box: Box, board: Board): boolean {
-  if (box.at !== null || isInStepBand(box)) return false;
-  return box.near === null || board.elements.get(box.near.of)?.kind !== 'box';
+  return box.at === null && !isInStepBand(box);
 }
 
 function obstacleRectOf(element: PlacedElement): Rect | null {
@@ -373,7 +368,7 @@ function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLis
   yield* inSlices(board.elements.values(), elementsPerSlice, (element) => {
     countElement(world, element, 1);
     if (element.kind === 'note') world.noteOrderById.set(element.id, nextNoteOrderOf(world, element.id));
-    if (element.kind === 'box' && isFloating(element, board)) world.floatingBoxCount += 1;
+    if (element.kind === 'box' && isFloatingShaped(element)) world.floatingBoxCount += 1;
   });
   addWarningLists(world.routeWarnings, warningLists.slice(0, -1));
   addWarningLists(world.placementWarnings, warningLists.slice(-1));
@@ -461,54 +456,20 @@ function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
   return false;
 }
 
-function dirtyBoxIdsOf(board: Board, changes: ReadonlyMap<string, ElementChange>): Set<string> {
-  const index = boardIndexOf(board.elements);
-  const dirtyIds = new Set<string>();
-  for (const [id, change] of changes) {
-    if (change.before?.kind === 'box' || change.after?.kind === 'box') dirtyIds.add(id);
-  }
-  const pending = [...dirtyIds];
-  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
-    for (const dependentId of index.dependentIdsByBoxId.get(id) ?? []) {
-      const dependent = board.elements.get(dependentId);
-      if (dependent?.kind !== 'box' || dependent.near?.of !== id || dirtyIds.has(dependentId)) continue;
-      dirtyIds.add(dependentId);
-      pending.push(dependentId);
-    }
-  }
-  return dirtyIds;
+function dirtyBoxIdsOf(changes: ReadonlyMap<string, ElementChange>): Set<string> {
+  return new Set([...changes].flatMap(([id, change]) => (change.before?.kind === 'box' || change.after?.kind === 'box' ? [id] : [])));
 }
 
 function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySet<string>): Map<string, PlacedBox | null> | null {
   const placedById = new Map<string, PlacedBox | null>();
-  const visitingIds = new Set<string>();
-  const boxNow = (id: string): PlacedBox | null | undefined => {
-    const placed = placedById.get(id);
-    if (placed !== undefined || placedById.has(id)) return placed;
-    if (!dirtyIds.has(id)) {
-      const known = world.laidOutById.get(id);
-      return known?.kind === 'box' ? known : null;
-    }
-    if (visitingIds.has(id)) return undefined;
+  for (const id of dirtyIds) {
     const box = board.elements.get(id);
     if (box?.kind !== 'box') {
       placedById.set(id, null);
-      return null;
+      continue;
     }
-    visitingIds.add(id);
-    const laidOut = placedBoxOf(box);
-    visitingIds.delete(id);
-    if (laidOut) placedById.set(id, laidOut);
-    return laidOut;
-  };
-  const placedBoxOf = (box: Box): PlacedBox | undefined => {
-    if (box.at) return laidOutBox(NO_PLAN_STEPS, box, { x: box.at.x, y: box.at.y + world.pinnedOffsetY });
-    if (!box.near) return undefined;
-    const target = boxNow(box.near.of);
-    return target ? laidOutNearBox(NO_PLAN_STEPS, box, box.near, target) : undefined;
-  };
-  for (const id of dirtyIds) {
-    if (boxNow(id) === undefined) return null;
+    if (!box.at) return null;
+    placedById.set(id, laidOutBox(NO_PLAN_STEPS, box, { x: box.at.x, y: box.at.y + world.pinnedOffsetY }));
   }
   return placedById;
 }
@@ -533,7 +494,7 @@ interface SolidOutcome {
 }
 
 function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): SolidOutcome | null {
-  const dirtyBoxIds = dirtyBoxIdsOf(board, changes);
+  const dirtyBoxIds = dirtyBoxIdsOf(changes);
   for (const boxId of dirtyBoxIds) {
     if (isInStack(board, boxId)) return null;
   }

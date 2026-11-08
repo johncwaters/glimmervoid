@@ -263,5 +263,5 @@ function isElementTable(value: unknown): value is ElementTable {
   return typeof value === 'object' && value !== null && builtTables.has(value);
 }
 
-export { KIND_NAMES as ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementKind, isElementTable };
+export { KIND_NAMES as ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementKind, isElementTable, jsonOfStored };
 export type { ElementKind, ElementTable, StoredElementRow };

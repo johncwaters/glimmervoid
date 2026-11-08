@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind } from '../../shared/whiteboard-element-table.ts';
+import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind, jsonOfStored } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
@@ -221,7 +221,7 @@ function elementPageOfRows(rows: readonly StoredRowColumns[]): ElementPage {
 }
 
 function compactDeltaOf(rows: StoredHeadRows, storedElements: readonly StoredRowColumns[]): BoardDelta | null {
-  const record = upgradedRecordOfRows(rows, storedElements.map((row) => row.body));
+  const record = upgradedRecordOfRows(rows, storedElements);
   if (!record) return null;
   const delta = boardDeltaOf(null, record);
   return { ...delta, appendedLog: [], removedElementIds: storedElements.map((row) => row.elementId).filter((elementId) => !record.board.elements.has(elementId)) };
@@ -240,10 +240,16 @@ function recordOfRows(rows: StoredHeadRows, elements: ElementTable): BoardRecord
   return record ? { ...record, board: { ...record.board, elements } } : null;
 }
 
-function upgradedRecordOfRows(rows: StoredHeadRows, elementBodies: readonly string[]): BoardRecord | null {
+function storedElementOfRow(row: StoredRowColumns): unknown {
+  if (!isElementKind(row.kind)) return parsedJson(row.body);
+  const element = parsedJson(jsonOfStored(row.body));
+  return typeof element === 'object' && element !== null ? { ...element, id: row.elementId, kind: row.kind } : undefined;
+}
+
+function upgradedRecordOfRows(rows: StoredHeadRows, elementRows: readonly StoredRowColumns[]): BoardRecord | null {
   const storedElements: Record<string, unknown> = {};
-  for (const body of elementBodies) {
-    const element = parsedJson(body);
+  for (const row of elementRows) {
+    const element = storedElementOfRow(row);
     const identity = ElementIdentity.safeParse(element);
     if (!identity.success) return null;
     storedElements[identity.data.id] = element;

@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { Board, Element, Op, dialValuesOfBox } from '../shared/contracts/whiteboard.ts';
+import { Board, Element, ElementInput, Op, dialValuesOfBox } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
+import { isRecord } from '../shared/coerce.ts';
+import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
 import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
-import { layoutBoardRemembered, pinPositionsOfBoard } from '../shared/whiteboard-layout-cache.ts';
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
@@ -17,6 +18,11 @@ import type { LaidOutElement, PlacedElement, Rect } from '../shared/whiteboard-l
 
 function box(id: string) {
   return { kind: 'box', id, title: `step ${id} with a longer title`, lines: [{ text: 'a body line long enough to wrap twice over' }] };
+}
+
+function boardWithNearPinned(storedBoard: Record<string, unknown>): Board {
+  const upgraded = upgradedBoardRecord({ board: storedBoard });
+  return Board.parse(isRecord(upgraded) ? upgraded.board : upgraded);
 }
 
 type UnplacedBox = { id: string; width?: number } & Record<string, unknown>;
@@ -34,7 +40,7 @@ function stacked(stacks: UnplacedBox[][], spacing: { stackGap: number; boxGap: n
   return elements;
 }
 
-const crowdedBoard = Board.parse({
+const crowdedBoard = boardWithNearPinned({
   id: 'crowded', title: 'crowded', version: 1, caption: null, createdAt: 0, updatedAt: 0,
   elements: {
     ...stacked([[box('a1'), box('a2')], [box('b1'), box('b2')], [box('c1'), box('c2'), box('c3')]], { stackGap: 200, boxGap: 160 }),
@@ -81,7 +87,7 @@ function wire(id: string, from: string, to: string, extra: Record<string, unknow
   return { kind: 'wire', id, from, to, ...extra };
 }
 
-const wiredBoard = Board.parse({
+const wiredBoard = boardWithNearPinned({
   ...crowdedBoard,
   elements: {
     ...crowdedBoard.elements.toJSON(),
@@ -135,7 +141,7 @@ function dependency(fromId: string, toId: string) {
 }
 
 test('unplaced step boxes draw as a plan band above the free drawing, one level per column, and a dragged step leaves the band where it was dropped', () => {
-  const plannedBoard = Board.parse({
+  const plannedBoard = boardWithNearPinned({
     ...wiredBoard,
     elements: {
       ...wiredBoard.elements.toJSON(),
@@ -166,18 +172,18 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   assert.equal(layoutBoard(wiredBoard).plan, null);
 
   const droppedAt = { x: 900, y: 700 };
-  const draggedBoard = Board.parse({ ...plannedBoard, elements: { ...plannedBoard.elements.toJSON(), searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
+  const draggedBoard = boardWithNearPinned({ ...plannedBoard, elements: { ...plannedBoard.elements.toJSON(), searchbox: { ...stepBox('searchbox', 'Search box'), at: droppedAt } } });
   const dragged = layoutBoard(draggedBoard).elements.find((element) => element.id === 'searchbox');
   assert.deepEqual(dragged?.kind === 'box' ? { x: dragged.x, y: dragged.y, label: dragged.step?.label } : null, { x: droppedAt.x, y: droppedAt.y + pinnedOffsetYOf(draggedBoard), label: '3' });
   for (const leaving of [[searchbox], [endpoint], [endpoint, backfill], [diff, endpoint, backfill, searchbox]]) {
     const leavingIds = new Set(leaving.map((laidOut) => laidOut.id));
-    const leftBoard = Board.parse({ ...plannedBoard, elements: Object.fromEntries([...plannedBoard.elements.entries()].map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
+    const leftBoard = boardWithNearPinned({ ...plannedBoard, elements: Object.fromEntries([...plannedBoard.elements.entries()].map(([id, element]) => [id, leavingIds.has(id) && element.kind === 'box' ? { ...element, at: droppedAt } : element])) });
     assert.equal(pinnedOffsetYAfterLeaving(layout.plan, leaving), pinnedOffsetYOf(leftBoard), `the band left by ${[...leavingIds].join(', ')} matches a whole-board layout`);
   }
 });
 
 test('a step status that disagrees with the code session changes warns, changed files no ref covers come back as uncovered, and an unread code session says it was not checked', () => {
-  const reviewedBoard = Board.parse({
+  const reviewedBoard = boardWithNearPinned({
     id: 'reviewed', title: 'reviewed', version: 1, caption: null, createdAt: 0, updatedAt: 0, codeSessionId: 'builder',
     elements: {
       early: { kind: 'box', id: 'early', title: 'Started too soon', step: { status: 'planned' }, refs: ['src/parse.ts#L4'] },
@@ -220,8 +226,8 @@ test('a step status that disagrees with the code session changes warns, changed 
   assert.ok(uncoveredPaths.every((uncoveredPath) => uncoveredPath.startsWith('src/stray-')), uncoveredPaths.join(', '));
 });
 
-test('a near box sits beside its target and a near box whose target is missing warns by name', () => {
-  const nearBoard = Board.parse({
+test('a stored near box is pinned beside its target and one whose target is missing is pinned at the board margin', () => {
+  const nearBoard = boardWithNearPinned({
     id: 'near', title: 'near', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([[box('plain'), box('parse')], [box('apply'), box('stop')]]),
@@ -240,7 +246,8 @@ test('a near box sits beside its target and a near box whose target is missing w
   assert.equal(parse.y, plain.y + plain.height + 30);
   assert.equal(aside.x, stop.x + stop.width + 60);
   assert.equal(aside.y + aside.height / 2, stop.y + stop.height / 2);
-  assert.ok(layout.warnings.includes('box stray sits near gone, which is not placed on the board'));
+  const stray = nearBoard.elements.get('stray');
+  assert.deepEqual(stray?.kind === 'box' ? stray.at : null, { x: 40, y: 40 });
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 
   const removed = applyOps(nearBoard, [{ op: 'remove', id: 'stop' }], { id: 'operator', name: 'operator' }, 0);
@@ -249,20 +256,20 @@ test('a near box sits beside its target and a near box whose target is missing w
   assert.deepEqual(afterRemove.elements.filter((element) => element.id === 'stop' || element.id === 'w1'), [], 'a layout after a put that removed a box with near boxes no longer draws the removed box or its wires');
 
   const addedThenRemoved = applyOps(nearBoard, [
-    { op: 'add', element: Element.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
-    { op: 'add', element: Element.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'temp', title: 'Temp', at: { x: 600, y: 300 } }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'kid', title: 'Kid', near: { of: 'temp', side: 'right' } }) },
     { op: 'remove', id: 'temp' },
   ], { id: 'operator', name: 'operator' }, 0);
   assert.ok(addedThenRemoved.ok);
   const kid = addedThenRemoved.board.elements.get('kid');
-  assert.ok(kid?.kind === 'box' && kid.near === null && kid.at !== null, 'a box placed near a box the same put adds and removes keeps a place on the board');
+  assert.ok(kid?.kind === 'box' && kid.at !== null, 'a box placed near a box the same put adds and removes keeps a place on the board');
 
-  const farFlung = Board.parse({ ...nearBoard, elements: { ...nearBoard.elements.toJSON(), far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
+  const farFlung = boardWithNearPinned({ ...nearBoard, elements: { ...nearBoard.elements.toJSON(), far: { kind: 'box', id: 'far', title: 'Far', at: { x: 1e9, y: 1e9 } }, w2: wire('w2', 'plain', 'far') } });
   assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });
 
 test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {
-  const loopBoard = Board.parse({
+  const loopBoard = boardWithNearPinned({
     id: 'loop', title: 'loop', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([[box('read')], [box('check')], [box('write')]]),
@@ -315,7 +322,7 @@ test('a dense board routes every wire around the boxes instead of drawing dog-le
   for (let index = 0; index < 170; index += 1) stacks[index % 12]?.push({ kind: 'box', id: `b${index}`, title: `box ${index}`, lines: [] });
   const elements = stacked(stacks, { stackGap: 160, boxGap: 30 });
   for (let index = 0; index < 600; index += 1) elements[`w${index}`] = { kind: 'wire', id: `w${index}`, from: `b${(index * 7) % 170}`, to: `b${(index * 13 + 5) % 170}` };
-  const layout = layoutBoard(Board.parse({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
+  const layout = layoutBoard(boardWithNearPinned({ id: 'dense', title: 'dense', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('found no clear route') || warning.includes('runs through')), [], layout.warnings.join('\n'));
   assert.equal(layout.elements.filter((element) => element.kind === 'wire').length, 600);
 });
@@ -328,7 +335,7 @@ test('a wire past a box placed above the content top goes around that box, not t
     up: { kind: 'wire', id: 'up', from: 'c', to: 'high', fromSide: 'top', toSide: 'right', label: 'compiles' },
     down: { kind: 'wire', id: 'down', from: 'high', to: 'a', fromSide: 'left', toSide: 'top', label: 'pushes' },
   };
-  const layout = layoutBoard(Board.parse({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
+  const layout = layoutBoard(boardWithNearPinned({ id: 'top', title: 'top', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route') || warning.includes('no clear spot')), [], layout.warnings.join('\n'));
 });
 
@@ -339,12 +346,12 @@ test('two wires whose end ports line up across a corridor are drawn apart rather
     down: { kind: 'wire', id: 'down', from: 'a', to: 'd' },
     up: { kind: 'wire', id: 'up', from: 'b', to: 'c' },
   };
-  const layout = layoutBoard(Board.parse({ id: 'corridor', title: 'corridor', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
+  const layout = layoutBoard(boardWithNearPinned({ id: 'corridor', title: 'corridor', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('overlaps wire')), []);
 });
 
 test('a decision fanning out to a stack of boxes draws its wires without crossings', () => {
-  const fanBoard = Board.parse({
+  const fanBoard = boardWithNearPinned({
     id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([
@@ -368,7 +375,7 @@ test('a decision fanning out to a stack of boxes draws its wires without crossin
 });
 
 test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
-  const decisionBoard = Board.parse({
+  const decisionBoard = boardWithNearPinned({
     id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([
@@ -394,7 +401,7 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
   assert.deepEqual(wireStart('w1'), cleanOutput.port);
   assert.equal(layout.warnings.filter((warning) => warning.includes('runs through')).length, 0, layout.warnings.join('\n'));
   const author = { id: 'agent', name: 'agent' };
-  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: Element.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
+  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
   assert.equal(missingOutput.ok ? '' : missingOutput.error, 'op 1: wire w3 starts at output maybe, which decision classify does not have');
   const droppedOutput = applyOps(decisionBoard, [{ op: 'set', id: 'classify', fields: { outputs: [{ id: 'failed', label: 'failed' }] } }], author, 0);
   assert.equal(droppedOutput.ok ? '' : droppedOutput.error, 'op 1: wire w1 still starts at output clean of classify, so change or remove that wire first');
@@ -403,7 +410,7 @@ test('a decision draws its outputs as rows in order and each output wire leaves 
 });
 
 test('styled lines carry their markers, a panel with no place stacks clear right of every box until it is given one, and the legend names the wire styles in use with custom labels winning', () => {
-  const styledBoard = Board.parse({
+  const styledBoard = boardWithNearPinned({
     id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     legend: [{ tone: 'fail', label: 'gives up' }, { tone: 'plain', back: true, label: 'retry' }, { tone: 'join', label: 'merges back' }],
     elements: {
@@ -418,7 +425,7 @@ test('styled lines carry their markers, a panel with no place stacks clear right
       w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
     },
   });
-  assert.throws(() => Board.parse({ ...styledBoard, elements: { ...styledBoard.elements.toJSON(), first: { ...styledBoard.elements.get('first'), lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
+  assert.throws(() => boardWithNearPinned({ ...styledBoard, elements: { ...styledBoard.elements.toJSON(), first: { ...styledBoard.elements.get('first'), lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
   const layout = layoutBoard(styledBoard);
   const first = layout.elements.find((element) => element.id === 'first');
   assert.ok(first?.kind === 'box');
@@ -430,14 +437,14 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.deepEqual(layout.legend.map((row) => row.label), ['gives up', 'retry', 'merges back']);
   assert.equal(layout.warnings.filter((warning) => warning.includes('prior')).length, 0, layout.warnings.join('\n'));
   const author = { id: 'agent', name: 'agent' };
-  const nearStacked = applyOps(styledBoard, [{ op: 'add', element: Element.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  const nearStacked = applyOps(styledBoard, [{ op: 'add', element: ElementInput.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.equal(nearStacked.ok ? '' : nearStacked.error, 'op 1: box beside sits near prior, a panel with no place yet, so give that panel a near or at first');
   const dragged = applyOps(styledBoard, [{ op: 'set', id: 'prior', fields: { at: { x: 40, y: 900 } } }], author, 0);
   assert.ok(dragged.ok, dragged.ok ? '' : dragged.error);
   const droppedPanel = layoutBoard(dragged.board).elements.find((element) => element.id === 'prior');
   assert.ok(droppedPanel?.kind === 'box');
   assert.deepEqual([droppedPanel.x, droppedPanel.y], [40, 900]);
-  const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Element.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
+  const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: ElementInput.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
   const placedBeside = withBoxNearPanel.board.elements.get('beside');
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
@@ -450,14 +457,14 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   const author = { id: 'operator', name: 'operator' };
   const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
   const before = applyOps(crowdedBoard, [
-    { op: 'add', element: Element.parse(decision) },
-    { op: 'add', element: Element.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
+    { op: 'add', element: ElementInput.parse(decision) },
+    { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
     { op: 'set', id: 'n1', fields: { author: 'agent-c' } },
     { op: 'set', id: 'n2', fields: { author: 'agent-c' } },
     { op: 'resolve', id: 'n2' },
   ], author, 1);
   assert.ok(before.ok);
-  const agentNote = Element.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
+  const agentNote = ElementInput.parse({ kind: 'note', id: 'n3', on: 'gate', text: 'agent finding', author: 'forged' });
   const noted = applyOps(before.board, [{ op: 'add', element: agentNote }], { id: 'session-uuid', name: 'agent-a' }, 1);
   assert.ok(noted.ok);
   const n3 = noted.board.elements.get('n3');
@@ -494,13 +501,13 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
 
 test('a dashboard keeps the server element order when an edit removes and re-adds ids', () => {
   const placedBox = (id: string) => ({ ...box(id), at: { x: 40, y: 40 } });
-  const orderedBoard = (ids: string[]) => Board.parse({
+  const orderedBoard = (ids: string[]) => boardWithNearPinned({
     id: 'reorder', title: 'reorder', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: Object.fromEntries(ids.map((id) => [id, placedBox(id)])),
   });
   const readdingEdits: [string[], Op[]][] = [
-    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: Element.parse(placedBox('a')) }, { op: 'add', element: Element.parse(placedBox('c')) }]],
-    [['a', 'b'], [{ op: 'add', element: Element.parse(placedBox('n')) }, { op: 'remove', id: 'b' }, { op: 'add', element: Element.parse(placedBox('b')) }]],
+    [['a', 'b', 'c'], [{ op: 'remove', id: 'a' }, { op: 'remove', id: 'c' }, { op: 'add', element: ElementInput.parse(placedBox('a')) }, { op: 'add', element: ElementInput.parse(placedBox('c')) }]],
+    [['a', 'b'], [{ op: 'add', element: ElementInput.parse(placedBox('n')) }, { op: 'remove', id: 'b' }, { op: 'add', element: ElementInput.parse(placedBox('b')) }]],
   ];
   for (const [ids, edits] of readdingEdits) {
     const start = orderedBoard(ids);
@@ -511,7 +518,7 @@ test('a dashboard keeps the server element order when an edit removes and re-add
 });
 
 test('a board with plan steps keys their statuses in the legend, and a board without them keeps the legend free of statuses', () => {
-  const planBoard = Board.parse({
+  const planBoard = boardWithNearPinned({
     id: 'plan', title: 'plan', version: 1, caption: null, createdAt: 0, updatedAt: 0, legend: [],
     elements: { step: { kind: 'box', id: 'step', title: 'Index the diffs', step: { status: 'building' } } },
   });
@@ -520,13 +527,13 @@ test('a board with plan steps keys their statuses in the legend, and a board wit
   const svg = boardSvgDocument(layout);
   for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`class="wb-legend-swatch wb-step-swatch wb-step-${status}"`));
   for (const status of ['planned', 'building', 'landed']) assert.match(svg, new RegExp(`\\.wb-step-${status} \\{ fill: #`), `the export colors the ${status} swatch`);
-  const plainBoard = Board.parse({ ...planBoard, elements: { only: { kind: 'box', id: 'only', title: 'Only' } } });
+  const plainBoard = boardWithNearPinned({ ...planBoard, elements: { only: { kind: 'box', id: 'only', title: 'Only' } } });
   assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });
 
 test('a box width rewraps its text and grows its picture, a box height is a minimum the content can exceed, while an unsized box keeps the default and an out of range size is refused', () => {
   const picture = { kind: 'image' as const, asset: 'a'.repeat(64), mime: 'image/webp', width: 800, height: 400 };
-  const sizedBoard = Board.parse({
+  const sizedBoard = boardWithNearPinned({
     id: 'sized', title: 'sized', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       wide: { ...box('wide'), at: { x: 40, y: 40 }, width: 440, media: picture },
@@ -648,27 +655,9 @@ test('a layout world kept across puts places what a fresh layout places, and its
   assert.deepEqual(tileIndex.chrome, freshIndex.chrome);
 });
 
-test('removing a box on a small remembered board pins the boxes placed near it where they were drawn', () => {
-  const board = Board.parse({
-    id: 'small-pin', title: 'small pin', version: 1, caption: null, createdAt: 0, updatedAt: 0,
-    elements: {
-      anchor: { kind: 'box', id: 'anchor', title: 'Anchor', at: { x: 40, y: 40 } },
-      follower: { kind: 'box', id: 'follower', title: 'Follower', near: { of: 'anchor', side: 'right' } },
-    },
-  });
-  const drawnFollower = layoutBoardRemembered(board).elements.find((element) => element.id === 'follower');
-  assert.ok(drawnFollower?.kind === 'box');
-  const staged = stageOps(board, [Op.parse({ op: 'remove', id: 'anchor' })], { id: 'operator', name: 'operator' }, 0, pinPositionsOfBoard(board));
-  assert.ok(staged.ok);
-  const follower = staged.afterById.get('follower');
-  assert.ok(follower?.kind === 'box');
-  assert.equal(follower.near, null);
-  assert.deepEqual(follower.at, { x: drawnFollower.x, y: drawnFollower.y });
-});
-
 test('a collapsed frame draws as one stack card, hides the boxes under its first, ends their wires at the card, and refuses a box already in another stack', () => {
   const author = { id: 'agent', name: 'agent' };
-  const stackBoard = Board.parse({
+  const stackBoard = boardWithNearPinned({
     id: 'stacks', title: 'stacks', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       top: { kind: 'box', id: 'top', title: 'Top card', at: { x: 40, y: 40 } },
@@ -713,10 +702,10 @@ test('a board keeps a box height, dial values, page dials and a collapsed frame 
   const dialedPage = { kind: 'page' as const, asset: 'b'.repeat(64), mime: 'text/html' as const, width: 800, height: 600, dials: [{ id: 'hue', kind: 'range' as const, label: 'Hue', min: 0, max: 360, default: 120 }, { id: 'dark', kind: 'toggle' as const, label: 'Dark' }, { id: 'toString', kind: 'toggle' as const, label: 'Named like an object method' }] };
   const rawElements = [
     { kind: 'box', id: 'page', title: 'Page', at: { x: 40, y: 40 }, height: 500, media: dialedPage, params: { hue: 200, dark: true } },
-    { kind: 'box', id: 'card', title: 'Card', near: { of: 'page', side: 'right' } },
+    { kind: 'box', id: 'card', title: 'Card', at: { x: 900, y: 40 } },
     { kind: 'frame', id: 'pile', title: 'Pile', contains: ['page', 'card'], collapsed: true },
   ];
-  const board = Board.parse({ id: 'kept', title: 'kept', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: Object.fromEntries(rawElements.map((element) => [element.id, element])) });
+  const board = boardWithNearPinned({ id: 'kept', title: 'kept', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: Object.fromEntries(rawElements.map((element) => [element.id, element])) });
   for (const rawElement of rawElements) assert.deepEqual(board.elements.get(rawElement.id), Element.parse(rawElement), `${rawElement.id} reads back whole`);
   const page = board.elements.get('page');
   assert.ok(page?.kind === 'box');
@@ -724,7 +713,7 @@ test('a board keeps a box height, dial values, page dials and a collapsed frame 
 });
 
 test('a sticky note draws in its tone and a text box draws borderless and refuses media', () => {
-  const noteBoard = Board.parse({
+  const noteBoard = boardWithNearPinned({
     id: 'notes', title: 'notes', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       pink: { kind: 'box', id: 'pink', title: 'Pink note', shape: 'sticky', tone: 'pink', at: { x: 40, y: 40 } },
@@ -743,7 +732,7 @@ test('a sticky note draws in its tone and a text box draws borderless and refuse
 
 test('a layout world kept across an edit bounds the board around far ink as a fresh layout does', () => {
   const author = { id: 'operator', name: 'operator' };
-  const inkBoard = Board.parse({
+  const inkBoard = boardWithNearPinned({
     id: 'ink', title: 'ink', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       a: { kind: 'box', id: 'a', title: 'A', at: { x: 40, y: 40 } },

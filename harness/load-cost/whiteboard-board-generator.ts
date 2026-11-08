@@ -2,7 +2,7 @@ import { Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
-const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'near-box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
+const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
 const BOXES_PER_GROUP = GROUP_PATTERN.filter((kind) => kind === 'box').length;
 const GROUP_COLUMNS = 4;
 const CELL_WIDTH = 320;
@@ -86,11 +86,6 @@ function elementOfKind(kind: (typeof GROUP_PATTERN)[number], context: ElementCon
       lines: [{ text: phraseOf(nextRandom, 4) }, { text: phraseOf(nextRandom, 3), style: 'item' }],
       at: { x: origin.x + cellX * CELL_WIDTH, y: origin.y + cellY * CELL_HEIGHT },
     };
-  }
-  if (kind === 'near-box') {
-    const of = boxIds.at(-1);
-    if (!of) return null;
-    return { kind: 'box', id, title: `near ${phraseOf(nextRandom, 2)}`, near: { of, side: 'bottom' } };
   }
   if (kind === 'wire') {
     const from = boxIds[wireInGroup];

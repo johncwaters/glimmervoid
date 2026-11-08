@@ -1,5 +1,5 @@
-import { BOX_SHAPES, Box, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
-import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
+import { BOX_SHAPES, BoxInput, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
+import type { Board, BoardChange, Box, Element, ElementInput, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
@@ -32,7 +32,7 @@ type Draft = {
   basePinPositions: PinPositions | null;
 };
 
-const ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, note: Note, stroke: Stroke });
+const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, note: Note, stroke: Stroke });
 const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
@@ -138,42 +138,16 @@ function checkBoxOutputs(draft: Draft, box: Box, previous: Element | undefined):
   return OK;
 }
 
-function boxSittingNear(draft: Draft, boxId: string): Box | null {
-  const sitting = currentDependentsOf(draft, boxId).find((element) => element.kind === 'box' && element.near?.of === boxId);
-  return sitting?.kind === 'box' ? sitting : null;
-}
-
 function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
   const outputs = checkBoxOutputs(draft, box, previous);
   if (!outputs.ok) return outputs;
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   const dialProblem = dialParamsProblemOf(box);
   if (dialProblem) return refuse(dialProblem);
-  if (box.step === null && box.shape !== 'panel' && box.near === null && box.at === null) {
+  if (box.step === null && box.shape !== 'panel' && box.at === null) {
     return refuse(`box ${box.id} needs a place: near another box or at a point`);
   }
-  const isJoiningPanelStack = isStackedPanel(box) && previous?.kind === 'box' && !isStackedPanel(previous);
-  const sittingNear = isJoiningPanelStack ? boxSittingNear(draft, box.id) : null;
-  if (sittingNear) return refuse(`box ${sittingNear.id} sits near ${box.id}, so ${box.id} cannot go back to the panel stack with no place: keep a near or at on it, or move box ${sittingNear.id} first`);
-  if (box.near === null) return OK;
-  if (box.near.of === box.id) return refuse(`box ${box.id} cannot sit near itself`);
-  const nearTarget = elementOf(draft, box.near.of);
-  if (nearTarget?.kind !== 'box') return refuse(`box ${box.id} sits near ${box.near.of}, which is not a box`);
-  if (isStackedPanel(nearTarget)) return refuse(`box ${box.id} sits near ${box.near.of}, a panel with no place yet, so give that panel a near or at first`);
-  if (nearChainReaches(draft, box.near.of, box.id)) return refuse(`box ${box.id} sits near ${box.near.of}, which already sits near ${box.id}, so they would place each other`);
   return OK;
-}
-
-function nearChainReaches(draft: Draft, startId: string, soughtId: string): boolean {
-  const visitedIds = new Set<string>();
-  let currentId: string | undefined = startId;
-  while (currentId !== undefined && !visitedIds.has(currentId)) {
-    if (currentId === soughtId) return true;
-    visitedIds.add(currentId);
-    const current: Element | undefined = elementOf(draft, currentId);
-    currentId = current?.kind === 'box' ? current.near?.of : undefined;
-  }
-  return false;
 }
 
 function withoutEmptyOutputsOffDecision(element: Element): Element {
@@ -191,25 +165,26 @@ function drawnRectOf(draft: Draft, targetId: string): PlacedBox | null {
   return { ...laidOut, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
 }
 
-function placedAtNear(draft: Draft, element: Element): { ok: true; element: Element } | { ok: false; error: string } {
-  if (element.kind !== 'box' || element.near === null) return { ok: true, element };
-  if (element.at !== null) return { ok: true, element: { ...element, near: null } };
-  if (element.near.of === element.id) return { ok: false, error: `box ${element.id} cannot sit near itself` };
-  const target = elementOf(draft, element.near.of);
-  if (target?.kind !== 'box') return { ok: false, error: `box ${element.id} sits near ${element.near.of}, which is not a box` };
-  if (isStackedPanel(target)) return { ok: false, error: `box ${element.id} sits near ${element.near.of}, a panel with no place yet, so give that panel a near or at first` };
-  const targetRect = drawnRectOf(draft, element.near.of);
-  if (!targetRect) return { ok: false, error: `box ${element.id} sits near ${element.near.of}, which has no drawn place yet, so give ${element.near.of} an at first` };
-  const placed = laidOutNearBox(NO_PLAN_STEPS, element, element.near, targetRect);
-  return { ok: true, element: { ...element, near: null, at: { x: placed.x, y: placed.y } } };
+function placedAtNear(draft: Draft, element: ElementInput): { ok: true; element: Element } | { ok: false; error: string } {
+  if (element.kind !== 'box') return { ok: true, element };
+  const { near, ...box } = element;
+  if (near === null || box.at !== null) return { ok: true, element: box };
+  if (near.of === box.id) return { ok: false, error: `box ${box.id} cannot sit near itself` };
+  const target = elementOf(draft, near.of);
+  if (target?.kind !== 'box') return { ok: false, error: `box ${box.id} sits near ${near.of}, which is not a box` };
+  if (isStackedPanel(target)) return { ok: false, error: `box ${box.id} sits near ${near.of}, a panel with no place yet, so give that panel a near or at first` };
+  const targetRect = drawnRectOf(draft, near.of);
+  if (!targetRect) return { ok: false, error: `box ${box.id} sits near ${near.of}, which has no drawn place yet, so give ${near.of} an at first` };
+  const placed = laidOutNearBox(NO_PLAN_STEPS, box, near, targetRect);
+  return { ok: true, element: { ...box, at: { x: placed.x, y: placed.y } } };
 }
 
-function withoutAtUnlessGiven(element: Element, isAtGiven: boolean): Element {
+function withoutAtUnlessGiven(element: ElementInput, isAtGiven: boolean): ElementInput {
   if (element.kind !== 'box' || isAtGiven) return element;
   return { ...element, at: null };
 }
 
-function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
+function addElement(draft: Draft, element: ElementInput, author: Author): OpOutcome {
   if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
@@ -254,7 +229,7 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (!isOperatorAuthor(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const placed = 'near' in fields ? placedAtNear(draft, withoutAtUnlessGiven(parsed.data, 'at' in fields)) : { ok: true as const, element: parsed.data };
+  const placed = placedAtNear(draft, 'near' in fields ? withoutAtUnlessGiven(parsed.data, 'at' in fields) : parsed.data);
   if (!placed.ok) return placed;
   const stored = withoutEmptyOutputsOffDecision(placed.element);
   const references = checkReferences(draft, stored, existing);
@@ -266,7 +241,6 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
 function removeElement(draft: Draft, id: string): OpOutcome {
   const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
-  if (existing.kind === 'box') pinBoxesNear(draft, id);
   eraseElement(draft, id);
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
@@ -277,28 +251,6 @@ function pinPositionsOf(board: Board): PinPositions {
   const layout = layoutBoard(board);
   const laidOutBoxById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
   return { laidOutBoxOf: (id) => laidOutBoxById.get(id), pinnedOffsetY: layout.pinnedOffsetY };
-}
-
-const ORIGIN = Object.freeze({ x: 0, y: 0 });
-
-function drawnPlaceOf(draft: Draft, boxId: string, visitedIds: Set<string>): { x: number; y: number } {
-  const laidOut = draft.basePinPositions?.laidOutBoxOf(boxId);
-  if (laidOut) return { x: laidOut.x, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
-  const box = elementOf(draft, boxId) ?? draft.base.elements.get(boxId);
-  if (box?.kind !== 'box') return ORIGIN;
-  if (box.at) return box.at;
-  if (!box.near || visitedIds.has(box.near.of)) return ORIGIN;
-  visitedIds.add(boxId);
-  return drawnPlaceOf(draft, box.near.of, visitedIds);
-}
-
-function pinBoxesNear(draft: Draft, removedBoxId: string): void {
-  const nearBoxes = currentDependentsOf(draft, removedBoxId).flatMap((element) => (element.kind === 'box' ? [element] : []));
-  for (const box of nearBoxes) {
-    const laidOut = draft.basePinPositions?.laidOutBoxOf(box.id);
-    const at = laidOut ? drawnPlaceOf(draft, box.id, new Set()) : drawnPlaceOf(draft, removedBoxId, new Set([box.id]));
-    writeElement(draft, { ...box, near: null, at });
-  }
 }
 
 function removeDependent(draft: Draft, element: Element, removedBoxId: string): void {
@@ -391,7 +343,7 @@ function unplacedNearTargetIdsOf(board: Board, ops: readonly Op[]): string[] {
 }
 
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const isPinNeeded = ops.some((op) => op.op === 'remove') || unplacedNearTargetIdsOf(board, ops).length > 0;
+  const isPinNeeded = unplacedNearTargetIdsOf(board, ops).length > 0;
   const basePinPositions = isPinNeeded ? pinPositionsOf(board) : null;
   const staged = stageOps({ ...board, elements: copyOfElements(board.elements) }, ops, author, nowMs, basePinPositions);
   if (!staged.ok) return staged;

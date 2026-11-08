@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, elementInputOf, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
@@ -1262,7 +1262,7 @@ function scaleBoardPuts(): Op[][] {
   const puts: Op[][] = [[]];
   let putBytes = 0;
   for (const element of board.elements.values()) {
-    const op: Op = { op: 'add', element };
+    const op: Op = { op: 'add', element: elementInputOf(element) };
     const opBytes = JSON.stringify(op).length + 1;
     const current = puts[puts.length - 1] ?? [];
     const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || putBytes + opBytes > WHITEBOARD_LIMITS.putBytes * SCALE_PUT_BYTES_SHARE;

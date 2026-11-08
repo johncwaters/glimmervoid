@@ -45,7 +45,7 @@ export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 
 const Side = z.enum(['left', 'right', 'top', 'bottom']).meta({ id: 'Side' });
 
-const Near = z.object({
+export const Near = z.object({
   of: ElementId,
   side: Side,
   gap: z.number().int().min(0).default(60),
@@ -126,7 +126,6 @@ const boxBaseFields = {
   refs: AnchorRefs,
   change: z.enum(BOX_CHANGES).default('none').describe('marks the box in a diff'),
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
-  near: Near.nullable().default(null).describe('place: beside another box'),
   order: z.number().int().default(0).describe('position in the panel stack, lowest first'),
   at: Point.nullable().default(null).describe('place: a point on the board'),
   width: z.number().int()
@@ -189,15 +188,22 @@ const FIELD_NAMES_BY_SHAPE = Object.freeze({
 
 export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device', 'sticky', 'text'] as const;
 
-export const Box = z.discriminatedUnion('shape', [
-  z.object({ ...plainBoxFields, outputs: OnlyDecisionOutputs }).strict(),
-  z.object(decisionBoxFields).strict(),
-  z.object({ ...panelBoxFields, outputs: OnlyDecisionOutputs }).strict(),
-  z.object({ ...iconBoxFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
-  z.object({ ...deviceBoxFields, lines: NoDeviceBoxLines }).strict(),
-  z.object({ ...stickyBoxFields, outputs: OnlyDecisionOutputs }).strict(),
-  z.object({ ...textBoxFields, outputs: OnlyDecisionOutputs, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
-], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
+const nearInputField = { near: Near.nullable().default(null).describe('place: beside another box, once; the box is stored at the point it lands on') };
+
+function boxShapesWith<ExtraFields extends z.ZodRawShape>(extraFields: ExtraFields, placeDescription: string) {
+  return z.discriminatedUnion('shape', [
+    z.object({ ...plainBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...decisionBoxFields, ...extraFields }).strict(),
+    z.object({ ...panelBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...iconBoxFields, ...extraFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
+    z.object({ ...deviceBoxFields, ...extraFields, lines: NoDeviceBoxLines }).strict(),
+    z.object({ ...stickyBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...textBoxFields, ...extraFields, outputs: OnlyDecisionOutputs, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
+  ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe(placeDescription);
+}
+
+export const Box = boxShapesWith({}, 'a box sits at a point; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
+export const BoxInput = boxShapesWith(nearInputField, 'a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
   return FIELD_NAMES_BY_SHAPE[shape];
@@ -288,6 +294,7 @@ export const Stroke = z.object({
 }).strict().describe('freehand ink the operator drew; agents read and remove strokes but never draw or change them');
 
 export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Stroke], { error: 'an element kind is box, frame, wire, note or stroke' });
+export const ElementInput = z.discriminatedUnion('kind', [BoxInput, Frame, Wire, Note, Stroke], { error: 'an element kind is box, frame, wire, note or stroke' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -318,7 +325,7 @@ export const Board = z.object({
 export const BoardHead = Board.omit({ elements: true });
 
 export const Op = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('add'), element: Element }).strict(),
+  z.object({ op: z.literal('add'), element: ElementInput }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
   z.object({ op: z.literal('resolve'), id: ElementId.describe('a note id') }).strict(),
@@ -493,6 +500,10 @@ export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' |
   return media.kind === 'image' ? boardMediaOriginalFilename(media) : null;
 }
 
+export function elementInputOf(element: Element): ElementInput {
+  return element.kind === 'box' ? { ...element, near: null } : element;
+}
+
 export function sparseElement(element: Element): unknown {
   return withoutDefaults(Element, element);
 }
@@ -512,7 +523,6 @@ function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMed
 function filledBoxBase(box: SparseBox) {
   return {
     kind: 'box' as const, id: box.id, title: box.title, icon: box.icon ?? null, refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
-    near: box.near ? { of: box.near.of, side: box.near.side, gap: box.near.gap ?? 60 } : null,
     order: box.order ?? 0, at: box.at ?? null, width: box.width ?? null, height: box.height ?? null,
     step: box.step ? { status: box.step.status ?? 'planned', linkedBoardId: box.step.linkedBoardId ?? null } : null,
   };
@@ -556,6 +566,7 @@ export function sparseBoardReply<Body extends object>(body: Body): Body | Record
 }
 
 export type Box = z.infer<typeof Box>;
+export type Near = z.infer<typeof Near>;
 export type BoxLine = z.infer<typeof BoxLine>;
 export type BoxMedia = z.infer<typeof BoxMedia>;
 export type Dial = z.infer<typeof Dial>;
@@ -568,6 +579,8 @@ export type Stroke = z.infer<typeof Stroke>;
 export type ReadElement = z.infer<typeof ReadElement>;
 export type Step = z.infer<typeof Step>;
 export type Element = z.infer<typeof Element>;
+export type ElementInput = z.infer<typeof ElementInput>;
+export type BoxInput = z.infer<typeof BoxInput>;
 export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
 export type BoardChange = z.infer<typeof BoardChange>;

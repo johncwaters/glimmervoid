@@ -279,7 +279,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
       return;
     }
     const stepBox = latestBox();
-    const isInBuildOrderBand = stepBox !== null && stepBox.near === null && stepBox.at === null;
+    const isInBuildOrderBand = stepBox !== null && stepBox.at === null;
     const at = isInBuildOrderBand ? laidOutPlace() : null;
     set({ step: null, ...(at ? { at } : {}) });
   };

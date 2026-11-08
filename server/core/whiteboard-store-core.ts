@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { Board as BoardSchema, Box, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
-import { storedPlacesOfBoxes } from '../../shared/whiteboard-layout-core.ts';
-import type { Rect as BoardBounds } from '../../shared/whiteboard-layout-core.ts';
+import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Near, Op } from '../../shared/contracts/whiteboard.ts';
+import { isStackedPanel, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
+import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -109,16 +109,57 @@ function freeCanvasBoard(board: Record<string, unknown>, elements: Record<string
   return { ...freeBoard, ...('legend' in board ? { legend: legendWithoutLaneTone(board.legend) } : {}), elements: freeElements };
 }
 
-function isNearBox(element: unknown): element is Record<string, unknown> {
-  return isRecord(element) && element.kind === 'box' && isRecord(element.near);
+const PLACEHOLDER_PIN = Object.freeze({ x: 0, y: 0 });
+const UNANCHORED_PIN = Object.freeze({ x: UPGRADE_MARGIN, y: UPGRADE_MARGIN });
+
+function hasNearKey(element: unknown): element is Record<string, unknown> {
+  return isRecord(element) && element.kind === 'box' && 'near' in element;
+}
+
+function unpinnedNearById(elements: Record<string, unknown>): Map<string, Near> {
+  const nearById = new Map<string, Near>();
+  for (const [elementId, element] of Object.entries(elements)) {
+    if (!hasNearKey(element) || (element.at ?? null) !== null) continue;
+    const near = NearSchema.safeParse(element.near);
+    if (near.success) nearById.set(elementId, near.data);
+  }
+  return nearById;
+}
+
+function elementsWithNearReplaced(elements: Record<string, unknown>, atOf: (boxId: string) => { x: number; y: number } | null): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(elements).map(([elementId, element]) => {
+    if (!hasNearKey(element)) return [elementId, element];
+    const { near, ...boxWithoutNear } = element;
+    const at = atOf(elementId);
+    return [elementId, at ? { ...boxWithoutNear, at } : boxWithoutNear];
+  }));
 }
 
 function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string, unknown>): Record<string, unknown> {
-  if (!Object.values(elements).some(isNearBox)) return elements;
-  const parsedBoard = BoardSchema.safeParse({ ...board, elements });
-  if (!parsedBoard.success) return elements;
-  const storedPlaceById = storedPlacesOfBoxes(parsedBoard.data);
-  return Object.fromEntries(Object.entries(elements).map(([elementId, element]) => [elementId, isNearBox(element) ? { ...element, near: null, at: storedPlaceById.get(elementId) } : element]));
+  if (!Object.values(elements).some(hasNearKey)) return elements;
+  const nearById = unpinnedNearById(elements);
+  const placeholderElements = elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? PLACEHOLDER_PIN : null));
+  const placeholderBoard = BoardSchema.safeParse({ ...board, elements: placeholderElements });
+  if (!placeholderBoard.success) return elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? UNANCHORED_PIN : null));
+  const drawnRectById = storedRectsOfBoxes(placeholderBoard.data);
+  const pinById = new Map<string, { x: number; y: number }>();
+  const rectOf = (boxId: string, visitingIds: Set<string>): PlacedBox | null => {
+    const drawnRect = drawnRectById.get(boxId);
+    const near = nearById.get(boxId);
+    if (!drawnRect || !near) return drawnRect ?? null;
+    const settledPin = pinById.get(boxId);
+    if (settledPin) return { ...drawnRect, ...settledPin };
+    if (visitingIds.has(boxId)) return null;
+    visitingIds.add(boxId);
+    const target = placeholderBoard.data.elements.get(near.of);
+    const targetRect = target?.kind === 'box' && !isStackedPanel(target) ? rectOf(near.of, visitingIds) : null;
+    const position = targetRect ? nearPosition(targetRect, near, drawnRect) : UNANCHORED_PIN;
+    const pin = { x: Math.round(position.x), y: Math.round(position.y) };
+    pinById.set(boxId, pin);
+    return { ...drawnRect, ...pin };
+  };
+  for (const boxId of nearById.keys()) rectOf(boxId, new Set());
+  return elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? pinById.get(boxId) ?? UNANCHORED_PIN : null));
 }
 
 function upgradedBoardRecord(raw: unknown): unknown {
@@ -303,7 +344,7 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
   const placement = lastShownNumber > 0
     ? { near: { of: `shown-${lastShownNumber}`, side: 'right' as const, gap: SHOWN_BOX_GAP } }
     : { at: isEmptyBoard ? EMPTY_BOARD_ORIGIN : belowContent };
-  const box = Box.safeParse({
+  const box = BoxInput.safeParse({
     kind: 'box',
     id: boxId,
     title: card.title.slice(0, WHITEBOARD_LIMITS.title),

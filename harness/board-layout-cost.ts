@@ -40,18 +40,20 @@ function seededRandom(seed: number): () => number {
   };
 }
 
+const STACKED_BOX_PITCH = 110;
+
 export function benchmarkBoard(elementCount: number): Board {
   const nextRandom = seededRandom(7);
   const boxCount = Math.round(elementCount * BOX_SHARE);
   const boxesPerRow = Math.ceil(Math.sqrt(boxCount));
   const atGridLeft = AT_GRID_LEFT + elementCount * AT_GRID_LEFT_PER_ELEMENT;
   const elements = elementTableOf();
-  const lastStackedIdByName = new Map<string, string>();
+  const stackedCountByName = new Map<string, number>();
   const stackedPlaceOf = (boxIndex: number) => {
     const stackName = boxIndex % (STACKED_BOX_EVERY * 2) === 0 ? 'one' : 'two';
-    const boxAboveId = lastStackedIdByName.get(stackName);
-    lastStackedIdByName.set(stackName, `b${boxIndex}`);
-    return boxAboveId ? { near: { of: boxAboveId, side: 'bottom', gap: 30 } } : { at: { x: STACK_LEFT_BY_NAME[stackName] ?? 40, y: 40 } };
+    const boxesAbove = stackedCountByName.get(stackName) ?? 0;
+    stackedCountByName.set(stackName, boxesAbove + 1);
+    return { at: { x: STACK_LEFT_BY_NAME[stackName] ?? 40, y: 40 + boxesAbove * STACKED_BOX_PITCH } };
   };
   for (let boxIndex = 0; boxIndex < boxCount; boxIndex += 1) {
     const isStacked = boxIndex % STACKED_BOX_EVERY === 0;

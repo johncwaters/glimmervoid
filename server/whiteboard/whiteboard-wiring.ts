@@ -492,27 +492,14 @@ function createWhiteboardWiring({
     }
   }
 
-  function hasNearBox(board: Board, boxId: string): boolean {
-    const dependentIds = boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? [];
-    for (const dependentId of dependentIds) {
-      const dependent = board.elements.get(dependentId);
-      if (dependent?.kind === 'box' && dependent.near?.of === boxId) return true;
-    }
-    return false;
-  }
-
   async function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<{ ok: true; pins: PinPositions | null } | { ok: false; error: string }> {
-    const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements.get(op.id)?.kind === 'box' ? [op.id] : []));
     const nearTargetIds = unplacedNearTargetIdsOf(board, ops);
-    const isRemovalPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || (removedBoxIds.length > 0 && ops.some((op) => op.op === 'add' || op.op === 'set'));
-    if (!isRemovalPinNeeded && nearTargetIds.length === 0) return { ok: true, pins: null };
-    const ids = [...nearTargetIds, ...(isRemovalPinNeeded ? ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : [])) : [])];
+    if (nearTargetIds.length === 0) return { ok: true, pins: null };
     try {
-      return { ok: true, pins: await tiles.pinPositionsOf(board, ids) };
+      return { ok: true, pins: await tiles.pinPositionsOf(board, nearTargetIds) };
     } catch (error: unknown) {
-      logger.warn(`[whiteboard] board ${board.id} could not be laid out to pin boxes, so they keep their drawn anchors: ${errorMessage(error)}`);
-      if (nearTargetIds.length > 0) return { ok: false, error: `the whiteboard layout could not place boxes near ${nearTargetIds.join(', ')} right now, so send the put again` };
-      return { ok: true, pins: null };
+      logger.warn(`[whiteboard] board ${board.id} could not be laid out to place boxes near ${nearTargetIds.join(', ')}: ${errorMessage(error)}`);
+      return { ok: false, error: `the whiteboard layout could not place boxes near ${nearTargetIds.join(', ')} right now, so send the put again` };
     }
   }
 

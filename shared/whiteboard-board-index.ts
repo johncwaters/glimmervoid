@@ -31,7 +31,6 @@ function countAsset(index: BoardIndex, assetId: string | null, step: number): vo
 }
 
 function boxIdsDependedOnBy(element: Element): readonly string[] {
-  if (element.kind === 'box') return element.near ? [element.near.of] : [];
   if (element.kind === 'wire') return [element.from, element.to];
   if (element.kind === 'note') return [element.on];
   if (element.kind === 'frame') return element.contains;
