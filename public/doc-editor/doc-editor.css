@@ -39,6 +39,11 @@
 .doc-markup-row { display: grid; grid-template-columns: minmax(0, 46rem) 22ch; justify-content: center; }
 .doc-markup-line { min-height: calc(var(--type-title) * 1.75); padding: 0 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); font-synthesis-style: auto; font-size: var(--type-title); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-markup-row-margin { position: relative; }
+.doc-markup-row > :is(.doc-markup-line, .doc-preview-block, .doc-preview-toggle) { grid-area: 1 / 1; }
+.doc-markup-row > .doc-markup-row-margin { grid-area: 1 / 2; }
+.doc-markup-row > .doc-preview-toggle { justify-self: end; align-self: start; margin: 6px 8px 0 0; }
+.doc-preview-block { padding: 8px 32px 4px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); }
+.doc-preview-block .plan-document { max-width: none; }
 .doc-markup-line[data-block="h1"] { padding-block-start: 0.5em; font-size: var(--type-doc-h1); font-weight: 700; line-height: 1.25; }
 .doc-markup-line[data-block="h2"] { padding-block-start: 0.5em; font-size: var(--type-doc-h2); font-weight: 700; line-height: 1.3; }
 .doc-markup-line[data-block="h3"] { padding-block-start: 0.4em; font-size: var(--type-doc-h3); font-weight: 700; line-height: 1.35; }

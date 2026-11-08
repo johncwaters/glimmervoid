@@ -1,9 +1,11 @@
 import { el } from '../dom-helpers.ts';
+import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
+import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
-import { isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
-import { blockStylesOf, inlineRunsOf } from './markdown-style-core.ts';
-import type { BlockStyle, InlineStyle } from './markdown-style-core.ts';
+import { acceptEveryMark, isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
+import { blockStylesOf, inlineRunsOf, previewBlocksOf } from './markdown-style-core.ts';
+import type { BlockStyle, InlineStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
 import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 
 export interface MarkupHost {
@@ -28,6 +30,9 @@ interface MarkupPane {
   btnAccept: HTMLButtonElement;
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
+  btnPreviewAll: HTMLButtonElement;
+  previewBlocks: PreviewBlock[];
+  previewedBlockKeys: Set<string>;
   noteComposer: HTMLElement;
   noteInput: HTMLInputElement;
   hint: HTMLElement;
@@ -62,6 +67,7 @@ const BACKWARD_DELETES = new Set(['deleteContentBackward', 'deleteByCut']);
 const TYPED_INPUTS = new Set(['insertText', 'insertReplacementText', 'insertFromPaste', 'insertFromYank']);
 const PARAGRAPH_INPUTS = new Set(['insertParagraph', 'insertLineBreak']);
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const PREVIEW_BLOCK_NAMES: Record<PreviewBlockKind, string> = { table: 'table', fence: 'code block' };
 
 function svgElement(tag: string, attributes: Record<string, string>) {
   const element = document.createElementNS(SVG_NAMESPACE, tag);
@@ -95,6 +101,8 @@ export function buildMarkupPane(): MarkupPane {
   const markCard = el('div', 'doc-markup-float doc-markup-card');
   markCard.append(markCardText, markCardActions);
   const btnAddNote = button({ variant: 'secondary', size: 'small', label: 'Add note', action: 'add-note' });
+  const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
+  btnPreviewAll.setAttribute('aria-pressed', 'false');
   btnAddNote.classList.add('doc-markup-float');
   const noteInput = el('input', 'plan-control doc-markup-input');
   noteInput.type = 'text';
@@ -114,7 +122,7 @@ export function buildMarkupPane(): MarkupPane {
   for (const float of [markCard, btnAddNote, noteComposer]) float.hidden = true;
   root.append(buildInkFilter(), paper, endNotes, markCard, btnAddNote, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(),
     selection: null, noteSelection: null, compositionSelection: null, run: null, tip: '',
@@ -230,6 +238,69 @@ function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStar
   });
 }
 
+function buildPreviewToggle(block: PreviewBlock, isPreviewed: boolean) {
+  const toggle = button({ variant: 'secondary', size: 'small', label: 'Preview', action: 'preview-block' });
+  toggle.classList.add('doc-preview-toggle');
+  toggle.contentEditable = 'false';
+  toggle.dataset.previewKey = block.key;
+  toggle.setAttribute('aria-pressed', String(isPreviewed));
+  toggle.setAttribute('aria-label', `Preview ${PREVIEW_BLOCK_NAMES[block.kind]}`);
+  return toggle;
+}
+
+function buildPreviewRow(block: PreviewBlock, source: string) {
+  const rendered = el('div', 'doc-preview-block');
+  rendered.contentEditable = 'false';
+  rendered.append(renderPlanBlocks(parsePlanMarkdown(acceptEveryMark(source.slice(block.start, block.end)))));
+  const margin = el('div', 'doc-markup-row-margin');
+  margin.setAttribute('aria-hidden', 'true');
+  margin.contentEditable = 'false';
+  const row = el('div', 'doc-markup-row');
+  row.append(rendered, margin, buildPreviewToggle(block, true));
+  return row;
+}
+
+function isBlockCrossedByMark(block: PreviewBlock, mark: MarkSegment) {
+  const crossesBlockStart = mark.start < block.start && mark.end >= block.start;
+  const crossesBlockEnd = mark.start <= block.end && mark.end > block.end;
+  return crossesBlockStart || crossesBlockEnd;
+}
+
+function blocksClearOfMarks(blocks: PreviewBlock[], marks: readonly MarkSegment[]) {
+  let firstReachingMarkIndex = 0;
+  return blocks.filter((block) => {
+    while ((marks[firstReachingMarkIndex]?.end ?? Infinity) < block.start) firstReachingMarkIndex += 1;
+    for (let markIndex = firstReachingMarkIndex; markIndex < marks.length; markIndex += 1) {
+      const mark = marks[markIndex];
+      if (!mark || mark.start > block.end) return true;
+      if (isBlockCrossedByMark(block, mark)) return false;
+    }
+    return true;
+  });
+}
+
+function previewedRows(pane: MarkupPane, source: string, rows: PaperRow[]) {
+  const shownRows: Array<{ row: HTMLElement; paperRow: PaperRow | null }> = [];
+  let blockIndex = 0;
+  for (const paperRow of rows) {
+    const lineStart = Number(paperRow.line.dataset.start);
+    while ((pane.previewBlocks[blockIndex]?.end ?? Infinity) < lineStart) blockIndex += 1;
+    const block = pane.previewBlocks[blockIndex];
+    const isInBlock = block !== undefined && block.start <= lineStart;
+    if (!isInBlock) {
+      shownRows.push({ row: paperRow.row, paperRow });
+      continue;
+    }
+    const isBlockStart = block.start === lineStart;
+    const isPreviewed = pane.previewedBlockKeys.has(block.key);
+    if (isBlockStart && isPreviewed) shownRows.push({ row: buildPreviewRow(block, source), paperRow: null });
+    if (isPreviewed) continue;
+    if (isBlockStart) paperRow.row.append(buildPreviewToggle(block, false));
+    shownRows.push({ row: paperRow.row, paperRow });
+  }
+  return shownRows;
+}
+
 const ROWS_PER_CHUNK = 40;
 
 function chunkRows(rowElements: HTMLElement[]) {
@@ -294,9 +365,11 @@ function paintPaper(editor: MarkupHost) {
     currentRow.margin.append(marginNote);
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
-  pane.paper.replaceChildren(...chunkRows(rows.map(({ row }) => row)));
-  for (const markupRow of rows) {
-    if (markupRow.notesWithAnchors.length === 0) continue;
+  pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
+  const shownRows = previewedRows(pane, source, rows);
+  pane.paper.replaceChildren(...chunkRows(shownRows.map(({ row }) => row)));
+  for (const { paperRow: markupRow } of shownRows) {
+    if (!markupRow || markupRow.notesWithAnchors.length === 0) continue;
     pane.rowsByElement.set(markupRow.row, markupRow);
     rowObserver.observe(markupRow.row);
   }
@@ -377,9 +450,39 @@ function paintFloats(editor: MarkupHost) {
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
 }
 
+function isEveryBlockPreviewed(pane: MarkupPane) {
+  return pane.previewBlocks.length > 0 && pane.previewBlocks.every((block) => pane.previewedBlockKeys.has(block.key));
+}
+
+export function forgetBlockPreviews(editor: MarkupHost) {
+  editor.markup.previewedBlockKeys.clear();
+}
+
+function repaintPreviews(editor: MarkupHost) {
+  paintPaper(editor);
+  paintMarkupTools(editor);
+}
+
+function toggleBlockPreview(editor: MarkupHost, previewKey: string) {
+  const keys = editor.markup.previewedBlockKeys;
+  if (!keys.delete(previewKey)) keys.add(previewKey);
+  repaintPreviews(editor);
+  editor.markup.paper.querySelector<HTMLElement>(`.doc-preview-toggle[data-preview-key="${CSS.escape(previewKey)}"]`)?.focus({ preventScroll: true });
+}
+
+function toggleEveryBlockPreview(editor: MarkupHost) {
+  const pane = editor.markup;
+  const shouldShowSource = isEveryBlockPreviewed(pane);
+  pane.previewedBlockKeys.clear();
+  if (!shouldShowSource) for (const block of pane.previewBlocks) pane.previewedBlockKeys.add(block.key);
+  repaintPreviews(editor);
+}
+
 export function paintMarkupTools(editor: MarkupHost) {
   const pane = editor.markup;
   const isLocked = isMarkupLocked(editor);
+  pane.btnPreviewAll.hidden = pane.previewBlocks.length === 0;
+  pane.btnPreviewAll.setAttribute('aria-pressed', String(isEveryBlockPreviewed(pane)));
   pane.paper.contentEditable = canSuggest(editor) ? 'true' : 'false';
   pane.btnAccept.disabled = isLocked;
   pane.btnReject.disabled = isLocked;
@@ -625,6 +728,14 @@ export function wireMarkupPane(editor: MarkupHost) {
       pane.btnAccept.focus();
     });
   }
+  pane.paper.addEventListener('mousedown', (event) => {
+    if (event.target instanceof Element && event.target.closest('.doc-preview-toggle')) event.preventDefault();
+  });
+  pane.paper.addEventListener('click', (event) => {
+    const toggle = event.target instanceof Element ? event.target.closest<HTMLElement>('.doc-preview-toggle') : null;
+    if (toggle?.dataset.previewKey) toggleBlockPreview(editor, toggle.dataset.previewKey);
+  });
+  pane.btnPreviewAll.addEventListener('click', () => toggleEveryBlockPreview(editor));
   pane.paper.addEventListener('beforeinput', (event) => onBeforeInput(editor, event));
   pane.paper.addEventListener('compositionstart', () => {
     const selection = readPaperSelection(pane, currentRange());
