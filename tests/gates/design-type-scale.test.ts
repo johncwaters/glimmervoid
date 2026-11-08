@@ -16,8 +16,8 @@ const loginPageStylesheet = styleBlocks(readRepoFile('server/remote-auth.ts'));
 const tailwindStylesheet = readRepoFile('public/tailwind.css');
 const typographyBible = readRepoFile('brand-bible/typography.yaml');
 
-const TYPE_TOKEN_BY_ROLE = { label: 'meta', meta: 'meta', body: 'body', title: 'title', display: 'display', 'doc-h1': 'doc-h1', 'doc-h2': 'doc-h2', 'doc-h3': 'doc-h3' } as const;
-const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)']);
+const TYPE_TOKEN_BY_ROLE = { meta: 'meta', body: 'body', title: 'title', display: 'display', 'doc-h1': 'doc-h1', 'doc-h2': 'doc-h2', 'doc-h3': 'doc-h3', 'doc-body': 'doc-body' } as const;
+const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)', 'var(--type-doc-body)']);
 const LITERAL_SIZE_TOKENS = new Map([['12px', 'var(--type-meta)'], ['14px', 'var(--type-body)'], ['16px', 'var(--type-title)'], ['20px', 'var(--type-display)']]);
 const BIBLE_FONT_WEIGHTS = new Set(['400', '700']);
 const LABEL_TRACKING = '0.08em';
