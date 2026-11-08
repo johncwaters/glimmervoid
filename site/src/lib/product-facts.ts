@@ -62,4 +62,4 @@ export const MINIMUM_NODE_VERSION = minimumNodeVersionOf(rootPackage.engines.nod
 
 export const CODING_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.id !== 'shell');
 
-export const PRODUCT_SUMMARY = 'Open-source agentic development environment (ADE) for terminal coding agents. Run them in parallel worktrees, see which one needs you, steer from your phone.';
+export const PRODUCT_SUMMARY = 'Open-source agentic development environment (ADE) for terminal coding agents. Your agent shows its prototypes, architecture and plans on a whiteboard beside its terminal, each session runs in its own worktree, and you see which one needs you.';

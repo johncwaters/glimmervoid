@@ -17,6 +17,7 @@ const FEATURES = [
   { area: 'streamer', name: 'Streamer mode', line: 'Hides secrets on stream', visual: 'masked' },
   { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session' },
   { area: 'resume', name: 'Auto-resume', line: 'Survives restarts mid-turn' },
+  { area: 'worktrees', name: 'Worktrees', line: 'One worktree each. One-click merge.' },
   { area: 'coder', name: 'Coder workspaces', line: 'Run agents in Coder', isExperimental: true },
 ];
 ---
@@ -73,7 +74,7 @@ const FEATURES = [
       "usage usage trace plan"
       "issues spawn spawn radar"
       "streamer streamer upload radar"
-      "resume chat coder coder";
+      "resume worktrees coder coder";
   }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: 15px; }
@@ -129,7 +130,7 @@ const FEATURES = [
         "issues radar"
         "streamer streamer"
         "upload resume"
-        "chat coder";
+        "worktrees coder";
     }
     .tile { padding: 12px 14px; border-radius: 12px; }
     .tile:not(.is-feature) .feature-line { display: none; }

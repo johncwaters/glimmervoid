@@ -11,6 +11,10 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     answer: 'A workspace built around autonomous AI coding agents rather than a code editor. You run several agent tasks in parallel, each in its own git worktree, then review their diffs and merge their pull requests. Glimmervoid is an open-source ADE for terminal coding agents: a local orchestrator that runs each agent in a real terminal and shows you which one needs you.',
   },
   {
+    question: 'What does an agent put on a board?',
+    answer: 'Whatever it would otherwise describe in text. Each session gets a whiteboard beside its terminal, where the agent puts working UI prototypes framed on a phone or laptop with dials you can turn, architecture diagrams, plans laid out as steps, screenshots, clips and docs. You answer by dragging a box, drawing with the pen, leaving a sticky note or red-penning a doc, and the agent sees your change on its next prompt.',
+  },
+  {
     question: 'Which coding agents does Glimmervoid run?',
     answer: `${CODING_AGENT_LABELS} are built in. Any other agent CLI that runs in a terminal can be declared in the config.`,
   },

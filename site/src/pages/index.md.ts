@@ -24,6 +24,7 @@ export const GET: APIRoute = ({ site }) => {
     ].join('\n'),
     '## Features',
     [
+      '- Boards: every session gets a whiteboard beside its terminal. The agent puts what it would otherwise describe there: UI prototypes framed on a device with dials you turn, architecture diagrams, plans as steps marked planned, building or landed, screenshots, clips and docs. You drag, draw with the pen, leave sticky notes or red-pen a doc, and the agent sees each change on its next prompt.',
       '- Status: read from each agent\'s own lifecycle hooks, with the terminal title as a fallback, never from reading the screen. Every session that needs you gets a numbered place in line in the attention banner; tap the banner, or press Cmd+J on macOS and Alt+J elsewhere, to open the next one\'s terminal.',
       '- Reviews, Team: your teammates\' pull requests get a review drafted by an agent, and nothing posts to GitHub until you keep the comments you agree with and click Approve or Comment. Re-reviews after new commits raise only high findings. Opt-in.',
       '- Reviews, Mine: every pull request you opened shows its merge readiness (checks, review, threads, conflicts, base). Per pull request you can turn on Merge when ready, which merges it once everything is green, and Keep mergeable, which has an agent repair conflicts and failing checks.',
