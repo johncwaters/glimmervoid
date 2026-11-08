@@ -4,6 +4,7 @@ import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
 import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
+import type { PortSlack } from './whiteboard-nudge-core.ts';
 import { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { buildGraphOn, CLEARANCE, prepareObstacles } from './whiteboard-visibility-core.ts';
@@ -27,7 +28,6 @@ const ROUTED_LINE_CELL_SIZE = 512;
 const SOFT_COST_PER_UNIT = 3;
 const BACK_INTERIOR_COST = 400;
 const MAX_BENDS = 6;
-const MAX_WIRES_FOR_PORT_SEARCH = 12;
 const OFF_FACING_SIDE_COST = 1;
 const SIDE_CHOICE_BEND_COST = 1e6;
 const INITIAL_STATE_CAPACITY = 4096;
@@ -40,7 +40,6 @@ const AREA_CELL_SIZE = 512;
 const MAX_RECTS_FOR_DIRECT_SCAN = 64;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
-const BOX_CROSSING_COST = 100;
 const LABEL_CHAR_WIDTH = 6.6;
 const LABEL_GAP = 5;
 const LABEL_ASCENT = 10;
@@ -973,12 +972,24 @@ function routedWireOf(plan: WirePlan, input: RouteInput, reuse: RouteReuse, buff
   return routed;
 }
 
+function portSlackOf(box: PlacedBox, side: Side, port: Point, isFixedPort: boolean): PortSlack {
+  const along = isSideways(side) ? port.y : port.x;
+  if (isFixedPort) return { low: along, high: along };
+  const sideLow = (isSideways(side) ? box.y : box.x) + PORT_INSET;
+  const sideHigh = (isSideways(side) ? box.y + box.height : box.x + box.width) - PORT_INSET;
+  return { low: Math.max(sideLow, along - PORT_SPACING / 2), high: Math.min(sideHigh, along + PORT_SPACING / 2) };
+}
+
 function routeAll(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse): DrawnWire[] {
   const buffers = createSearchBuffers();
   const routedLines = createRoutedLines();
   const routed = plans.map((plan) => routedWireOf(plan, input, reuse, buffers, routedLines));
   if (reuse.isPreview) return routed;
-  const nudgedPoints = nudgeSharedLines(routed.map((wire) => ({ points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey })), solidsOf(input));
+  const nudgeWires = routed.map((wire) => ({
+    points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey,
+    startSlack: portSlackOf(wire.plan.from, wire.plan.exitSide, wire.plan.start, wire.plan.outputPort !== null), endSlack: portSlackOf(wire.plan.to, wire.plan.entrySide, wire.plan.end, false),
+  }));
+  const nudgedPoints = nudgeSharedLines(nudgeWires, (area) => input.obstaclesIn?.(area).hardRects ?? []);
   return routed.map((wire, index) => {
     const points = withoutBends(nudgedPoints[index] ?? wire.points);
     return { ...wire, points, segments: segmentsOf(points) };
@@ -1276,11 +1287,6 @@ function crossingWarningsOf(drawn: readonly DrawnWire[], input: RouteInput, chan
   ];
 }
 
-function totalCrossingCostOf(drawn: readonly DrawnWire[], input: RouteInput): number {
-  const pieces = wirePiecesOf(drawn);
-  return runsThroughPairsOf(drawn, pieces, solidsOf(input), null).firsts.length * BOX_CROSSING_COST + wirePairsOf(drawn, pieces, null).firsts.length;
-}
-
 function routeQualityWarnings(drawn: readonly DrawnWire[]): string[] {
   return drawn.flatMap((wire) => {
     if (!wire.states) return [`wire ${wire.plan.wire.id} found no clear route, so it is drawn as a straight dog-leg`];
@@ -1301,36 +1307,10 @@ function joinPointOf(wire: DrawnWire, leader: DrawnWire | undefined): Point | nu
   return joined;
 }
 
-function swapNeighbors(order: string[], index: number): void {
-  const left = order[index];
-  const right = order[index + 1];
-  if (left === undefined || right === undefined) return;
-  order[index] = right;
-  order[index + 1] = left;
-}
-
 function routeWithPortOrder(planned: PlannedWires, input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, reuse: RouteReuse): DrawnWire[] {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts([...planned.plans, ...planned.contextPlans], groupOrderBySide);
   return routeAll(planned.plans, input, reuse);
-}
-
-function routeWithFewestCrossings(planned: PlannedWires, input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, string[]>, reuse: RouteReuse): DrawnWire[] {
-  const firstRouted = routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
-  if (planned.plans.length > MAX_WIRES_FOR_PORT_SEARCH) return firstRouted;
-  let bestCrossingCost = totalCrossingCostOf(firstRouted, input);
-  for (const groupOrder of groupOrderBySide.values()) {
-    for (let index = 0; bestCrossingCost > 0 && index + 1 < groupOrder.length; index += 1) {
-      swapNeighbors(groupOrder, index);
-      const trialCrossingCost = totalCrossingCostOf(routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse), input);
-      if (trialCrossingCost < bestCrossingCost) {
-        bestCrossingCost = trialCrossingCost;
-        continue;
-      }
-      swapNeighbors(groupOrder, index);
-    }
-  }
-  return routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
 }
 
 function obstacleRectsByKey(input: RouteInput): Map<string, Rect> {
@@ -1416,7 +1396,7 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
     const { plan, points } = wire;
     const leader = plan.busKey ? leaderByBusKey.get(plan.busKey) : undefined;
     return {
-      kind: 'wire', id: plan.wire.id, path: pathOf(points), start: plan.start, end: plan.end,
+      kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
       isDashed: plan.wire.dashed || plan.wire.back, isBack: plan.wire.back, tone: plan.wire.tone,
       hasArrowhead: leader === undefined || leader === wire, joinAt: joinPointOf(wire, leader),
@@ -1442,7 +1422,7 @@ function routeWires(unindexedInput: RouteInput, previous: RouteMemory | null): R
   const completeBoxIds = input.contextWires ? new Set(planned.plans.flatMap((plan) => [plan.from.id, plan.to.id])) : null;
   const requestsBySide = portRequestsBySide([...planned.plans, ...planned.contextPlans], completeBoxIds);
   const groupOrderBySide = defaultPortOrders(requestsBySide);
-  const drawn = routeWithFewestCrossings(planned, input, requestsBySide, groupOrderBySide, reuse);
+  const drawn = routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
   const labelWarnings: string[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
   const wires = laidOutWiresOf(drawn, labelById);
