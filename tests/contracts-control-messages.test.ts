@@ -124,6 +124,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-docs-changed', id: 'session-1', docs: [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] },
   { type: 'session-docs-snapshot', sessions: { 'session-1': [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] } },
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
+  { type: 'session-doc-asset-response', requestId: 'session-doc-asset-read-1', id: 'session-1', path: '/repo/drafts/post.md', src: 'img/chart.png', ok: true, mime: 'image/png', base64: 'iVBORw0K' },
   { type: 'session-doc-save-result', requestId: 'session-doc-save-1', id: 'session-1', path: '/repo/drafts/post.md', ok: false, conflict: true, error: 'the file changed on disk since it was opened, so reload it before saving' },
   {
     type: 'session-coherence', id: 'session-1', updatedAt: NOW,
