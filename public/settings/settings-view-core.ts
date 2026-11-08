@@ -39,7 +39,20 @@ const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHo
 const SEGMENTED_CHOICE_LIMIT = 3;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
-const LANES_HEADING = 'Lanes';
+const SETTINGS_NAVIGATION_HEADINGS = ['This browser', 'Sessions', 'Machine', 'Lanes'] as const;
+type SettingsNavigationHeading = typeof SETTINGS_NAVIGATION_HEADINGS[number];
+const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHeading> = new Map([
+  ['machine-sessions', 'Sessions'],
+  ['machine-safety', 'Sessions'],
+  ['machine-secrets', 'Sessions'],
+  ['machine-packs', 'Sessions'],
+  ['browser-about', 'Machine'],
+]);
+const NAVIGATION_HEADING_BY_LEVEL: Readonly<Record<SettingsSection['level'], SettingsNavigationHeading>> = {
+  browser: 'This browser',
+  machine: 'Machine',
+  lanes: 'Lanes',
+};
 
 const EFFECT_LABELS: Readonly<Record<SettingsEffect, string>> = Object.freeze({
   now: 'Applies now',
@@ -154,7 +167,7 @@ export function settingsSearchBreadcrumb(sections: readonly SettingsSection[], s
   if (!group) return settingsGroupOf(setting.group ?? '')?.title ?? 'config.json';
   const parent = sections.find((entry) => entry.id === group.parent);
   if (parent) return `${parent.title} / ${group.title}`;
-  return group.level === 'lanes' ? `${LANES_HEADING} / ${group.title}` : group.title;
+  return group.level === 'lanes' ? `${NAVIGATION_HEADING_BY_LEVEL.lanes} / ${group.title}` : group.title;
 }
 
 export function childSectionsOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection[] {
@@ -172,10 +185,9 @@ export function topLevelSectionsOf(sections: readonly SettingsSection[]): Settin
   return sections.filter((section) => !section.parent);
 }
 
-export function settingsNavigationGroupsOf(sections: readonly SettingsSection[]): { heading: string | null; sections: SettingsSection[] }[] {
-  const laneSections = sections.filter((section) => section.level === 'lanes');
-  const otherSections = sections.filter((section) => section.level !== 'lanes');
-  const groups = [{ heading: null, sections: otherSections }, { heading: LANES_HEADING, sections: laneSections }];
+export function settingsNavigationGroupsOf(sections: readonly SettingsSection[]): { heading: string; sections: SettingsSection[] }[] {
+  const headingOf = (section: SettingsSection) => NAVIGATION_HEADING_BY_SECTION_ID.get(section.id) ?? NAVIGATION_HEADING_BY_LEVEL[section.level];
+  const groups = SETTINGS_NAVIGATION_HEADINGS.map((heading) => ({ heading, sections: sections.filter((section) => headingOf(section) === heading) }));
   return groups.filter((group) => group.sections.length > 0);
 }
 
