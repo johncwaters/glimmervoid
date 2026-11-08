@@ -7,6 +7,7 @@ const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const FONTS_DIRECTORY = path.join(REPO_ROOT, 'public', 'fonts');
 const LICENCE_BY_FONT_PREFIX = [
   { prefix: 'commit-mono-', file: 'CommitMono-OFL.txt', marks: [/Copyright \(c\) 2023 Eigil Nikolajsen/, /SIL OPEN FONT LICENSE Version 1\.1/] },
+  { prefix: 'ibm-plex-sans-', file: 'IBMPlexSans-OFL.txt', marks: [/Copyright .* 2017 IBM Corp\./, /SIL OPEN FONT LICENSE Version 1\.1/] },
   { prefix: 'comic-mono-', file: 'ComicMono-LICENSE.txt', marks: [/Copyright \(c\) 2018 Shannon Miwa/, /MIT License/] },
 ] as const;
 const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8');
@@ -24,7 +25,7 @@ test('every bundled font ships with its own licence', () => {
 
 test('every font-face source in the dashboard stylesheet points at a bundled file', () => {
   const sources = [...dashboardStylesheet.matchAll(/url\('\.\/fonts\/([^']+)'\)/g)].map((match) => match[1]);
-  assert.equal(sources.length, 6);
+  assert.equal(sources.length, 8);
   const missingSources = sources.filter((source) => !fs.existsSync(path.join(FONTS_DIRECTORY, source)));
   assert.deepEqual(missingSources, []);
 });
