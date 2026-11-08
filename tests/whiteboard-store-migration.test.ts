@@ -56,11 +56,17 @@ test('a JSON board moves into the board store once, keeps its edits across resta
     { op: 'add', element: { kind: 'note', id: 'fresh-note', on: firstBoxId, text: 'zebra crossing' } },
   ]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
-  const versionBeforeRestart = (await first.handleOperator.get('legacy-board')).board?.version;
-  const storeWrittenBeforeFreeCanvas = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
-  storeWrittenBeforeFreeCanvas.prepare(`UPDATE boards SET head = json_set(head, '$.columns', json('[]'), '$.lanes', json('[]')) WHERE id = ?`).run('legacy-board');
-  storeWrittenBeforeFreeCanvas.prepare(`UPDATE elements SET body = json_set(body, '$.lane', NULL, '$.column', NULL) WHERE board_id = ? AND element_id = ?`).run('legacy-board', firstBoxId);
-  storeWrittenBeforeFreeCanvas.close();
+  const boardBeforeRestart = (await first.handleOperator.get('legacy-board')).board;
+  const versionBeforeRestart = boardBeforeRestart?.version;
+  const storeWrittenBeforeCompactRows = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
+  storeWrittenBeforeCompactRows.prepare(`UPDATE boards SET head = json_set(head, '$.columns', json('[]'), '$.lanes', json('[]')) WHERE id = ?`).run('legacy-board');
+  const writeJsonRow = storeWrittenBeforeCompactRows.prepare('UPDATE elements SET body = ?, kind = NULL, asset_id = NULL, linked_board_id = NULL WHERE board_id = ? AND element_id = ?');
+  for (const element of boardBeforeRestart?.elements.values() ?? []) {
+    const bodyBeforeFreeCanvas = element.id === firstBoxId ? { ...element, lane: null, column: null } : element;
+    writeJsonRow.run(JSON.stringify(bodyBeforeFreeCanvas), 'legacy-board', element.id);
+  }
+  storeWrittenBeforeCompactRows.exec('PRAGMA user_version = 0');
+  storeWrittenBeforeCompactRows.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await restarted.loaded;
@@ -69,6 +75,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   const renamedBox = reloaded.board?.elements.get(firstBoxId);
   assert.equal(renamedBox?.kind === 'box' ? renamedBox.title : null, 'Renamed in sqlite');
   assert.equal(reloaded.board?.version, versionBeforeRestart);
+  assert.deepEqual([...reloaded.board?.elements.keys() ?? []], [...boardBeforeRestart?.elements.keys() ?? []], 'a store written before compact rows keeps its element order after the upgrade');
 
   const smallBoardId = (await restarted.handleOperator.create('Order')).summary?.id ?? '';
   const boxAt = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: id, at: { x: 0, y: 0 } } });
@@ -152,6 +159,42 @@ test('a restart lists stored boards without reading their elements, answers a vi
   assert.match(damagedRead.error ?? '', /cannot be read/);
   assert.equal((await restarted.handleOperator.put(damagedId, boxOf('c'))).ok, false);
   assert.deepEqual([...(await restarted.handleOperator.get(healthyId)).board?.elements.keys() ?? []], ['b']);
+});
+
+test('an upgrade that cannot read a board keeps that board listed with its pictures, and a damaged elements page refuses only the boards it holds', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-upgrade-damage-'));
+  const pictureAssetId = 'a'.repeat(64);
+  const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await first.loaded;
+  fs.mkdirSync(path.join(boardsRoot, 'assets'), { recursive: true });
+  fs.writeFileSync(path.join(boardsRoot, 'assets', `${pictureAssetId}.png`), 'png');
+  const picturesId = (await first.handleOperator.create('Pictures')).summary?.id ?? '';
+  const healthyId = (await first.handleOperator.create('Healthy')).summary?.id ?? '';
+  const damagedPageId = (await first.handleOperator.create('Damaged page')).summary?.id ?? '';
+  assert.equal((await first.handleOperator.put(healthyId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'h', title: 'h', at: { x: 0, y: 0 } } }]))).ok, true);
+  const databasePath = path.join(boardsRoot, 'boards.sqlite');
+  const storeWrittenBeforeCompactRows = new DatabaseSync(databasePath);
+  const insertJsonRow = storeWrittenBeforeCompactRows.prepare('INSERT INTO elements (board_id, element_id, revision, body) VALUES (?, ?, 1, ?)');
+  insertJsonRow.run(picturesId, 'pictured', JSON.stringify({ kind: 'box', id: 'pictured', title: 'p', at: { x: 0, y: 0 }, media: { kind: 'image', asset: pictureAssetId, mime: 'image/png', width: 10, height: 10, alt: '', hasPreview: false } }));
+  insertJsonRow.run(picturesId, 'unreadable', '{ not json');
+  storeWrittenBeforeCompactRows.exec('BEGIN');
+  for (let rowIndex = 0; rowIndex < 3000; rowIndex += 1) insertJsonRow.run(damagedPageId, `e${rowIndex}`, JSON.stringify({ kind: 'box', id: `e${rowIndex}`, title: 'x'.repeat(40), at: { x: rowIndex, y: 0 } }));
+  storeWrittenBeforeCompactRows.exec('COMMIT');
+  storeWrittenBeforeCompactRows.exec('PRAGMA user_version = 0');
+  storeWrittenBeforeCompactRows.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  const lastElementsPage = storeWrittenBeforeCompactRows.prepare("SELECT pageno FROM dbstat WHERE name = 'elements' AND pagetype = 'leaf' ORDER BY pageno DESC LIMIT 1").get();
+  const pageSize = Number(storeWrittenBeforeCompactRows.prepare('PRAGMA page_size').get()?.['page_size']);
+  storeWrittenBeforeCompactRows.close();
+  const databaseHandle = fs.openSync(databasePath, 'r+');
+  fs.writeSync(databaseHandle, Buffer.alloc(pageSize, 0xab), 0, pageSize, (Number(lastElementsPage?.['pageno']) - 1) * pageSize);
+  fs.closeSync(databaseHandle);
+
+  const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
+  await restarted.loaded;
+  assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title).sort(), ['Damaged page', 'Healthy', 'Pictures']);
+  assert.equal(fs.existsSync(path.join(boardsRoot, 'assets', `${pictureAssetId}.png`)), true);
+  assert.equal((await restarted.handleOperator.get(picturesId)).ok, false);
+  assert.deepEqual([...(await restarted.handleOperator.get(healthyId)).board?.elements.keys() ?? []], ['h']);
 });
 
 test('a session closing while its board loads after a restart keeps the loaded elements', async () => {

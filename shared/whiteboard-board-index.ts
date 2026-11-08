@@ -115,13 +115,31 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   index.anchoredIds.delete(element.id);
 }
 
+function emptyIndex(): BoardIndex {
+  return { elementCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
+}
+
 function boardIndexOf(elements: Board['elements']): BoardIndex {
   const known = indexByElements.get(elements);
   if (known) return known;
-  const index: BoardIndex = { elementCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
+  const index = emptyIndex();
   for (const element of elements.values()) addToIndex(index, element, elements);
   indexByElements.set(elements, index);
   return index;
+}
+
+async function indexBoardInSlices(elements: Board['elements'], elementsPerSlice: number, yieldBetweenSlices: () => Promise<unknown>): Promise<void> {
+  if (indexByElements.has(elements)) return;
+  const index = emptyIndex();
+  let indexedSinceYield = 0;
+  for (const element of elements.values()) {
+    addToIndex(index, element, elements);
+    indexedSinceYield += 1;
+    if (indexedSinceYield < elementsPerSlice) continue;
+    indexedSinceYield = 0;
+    await yieldBetweenSlices();
+  }
+  indexByElements.set(elements, index);
 }
 
 function copyOfIndex(index: BoardIndex): BoardIndex {
@@ -181,4 +199,4 @@ function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, storeElement };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement };

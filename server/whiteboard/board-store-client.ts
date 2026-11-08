@@ -1,13 +1,17 @@
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
-import { BOARD_STORE_FILENAME, ELEMENT_PAGE_SIZE, StoreReply, addParsedElements, boardDeltaOf, headRowsOf, recordOfRows, upgradedRecordOfRows } from './board-store-core.ts';
+import { BOARD_STORE_FILENAME, ELEMENT_PAGE_SIZE, StoreReply, boardDeltaOf, headRowsOf, recordOfRows } from './board-store-core.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
+import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
-import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import type { StoredElementRow } from '../../shared/whiteboard-element-table.ts';
+import { indexBoardInSlices } from '../../shared/whiteboard-board-index.ts';
 
 type StoreAnswer = Extract<StoreReply, { ok: true }>;
 
@@ -87,46 +91,33 @@ function createBoardStore(boardsRoot: string): BoardStore {
     return { records, unreadableBoardIds };
   }
 
-  async function forEachElementPage(boardId: string, takePage: (elementBodies: readonly string[]) => boolean): Promise<boolean> {
+  async function loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
+    const storedRows: StoredElementRow[] = [];
+    const startedAt = performance.now();
+    let pageCount = 0;
     let afterSlot = 0;
     let isLastPage = false;
     while (!isLastPage) {
-      const page = await request({ kind: 'load-board', boardId, afterSlot, limit: ELEMENT_PAGE_SIZE });
+      const page = await request({ kind: 'load-board', boardId: head.board.id, afterSlot, limit: ELEMENT_PAGE_SIZE });
+      if (page.isDamaged) return null;
+      const elementIds = page.elementIds ?? [];
+      const elementKinds = page.elementKinds ?? [];
       const elementBodies = page.elementBodies ?? [];
-      if (!takePage(elementBodies)) return false;
-      isLastPage = elementBodies.length < ELEMENT_PAGE_SIZE || page.lastSlot === undefined;
+      for (const [index, id] of elementIds.entries()) {
+        const kind = elementKinds[index];
+        const body = elementBodies[index];
+        if (kind === undefined || body === undefined) return null;
+        storedRows.push({ id, kind, body });
+      }
+      pageCount += 1;
+      isLastPage = elementIds.length < ELEMENT_PAGE_SIZE || page.lastSlot === undefined;
       afterSlot = page.lastSlot ?? afterSlot;
     }
-    return true;
-  }
-
-  async function upgradedRecordOf(head: BoardRecord): Promise<BoardRecord | null> {
-    const elementBodies: string[] = [];
-    await forEachElementPage(head.board.id, (page) => {
-      elementBodies.push(...page);
-      return true;
-    });
-    return upgradedRecordOfRows(headRowsOf(head), elementBodies);
-  }
-
-  async function loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
-    const elements = elementTableOf();
-    const startedAt = performance.now();
-    let pageCount = 0;
-    let parseMs = 0;
-    let longestPageParseMs = 0;
-    const isCurrentShape = await forEachElementPage(head.board.id, (page) => {
-      const parseStartedAt = performance.now();
-      const isParsed = addParsedElements(elements, page);
-      const pageParseMs = performance.now() - parseStartedAt;
-      pageCount += 1;
-      parseMs += pageParseMs;
-      longestPageParseMs = Math.max(longestPageParseMs, pageParseMs);
-      return isParsed;
-    });
-    markStep?.('store pages read and parsed', { pages: pageCount, readMs: Math.round(performance.now() - startedAt - parseMs), parseMs: Math.round(parseMs), longestPageParseMs: Math.round(longestPageParseMs) });
-    if (!isCurrentShape) return upgradedRecordOf(head);
-    return recordOfRows(headRowsOf(head), elements) ?? upgradedRecordOf(head);
+    const elements = elementTableOfStoredRows(storedRows);
+    markStep?.('store pages read', { pages: pageCount, readMs: Math.round(performance.now() - startedAt) });
+    if (elements.size > WHITEBOARD_LIMITS.elements) return null;
+    await indexBoardInSlices(elements, ELEMENT_PAGE_SIZE, yieldToEventLoop);
+    return recordOfRows(headRowsOf(head), elements);
   }
 
   return {

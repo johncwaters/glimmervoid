@@ -1,18 +1,19 @@
 import { z } from 'zod';
 
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
-import { BoardRecord, Element as ElementSchema, WHITEBOARD_LIMITS, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
-import type { ElementTable } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
-import { boardIndexOf, storeElement } from '../../shared/whiteboard-board-index.ts';
+import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
 
 type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'>;
 type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds: string[]; reslottedElementIds: string[] };
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 const ELEMENT_PAGE_SIZE = 5_000;
+const COMPACT_ROWS_VERSION = 2;
 
 const BOARD_STORE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -32,6 +33,9 @@ CREATE TABLE IF NOT EXISTS elements (
   element_id TEXT NOT NULL,
   revision INTEGER NOT NULL,
   body TEXT NOT NULL,
+  kind TEXT,
+  asset_id TEXT,
+  linked_board_id TEXT,
   UNIQUE (board_id, element_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS elements_by_revision ON elements (board_id, revision);
@@ -48,7 +52,9 @@ CREATE INDEX IF NOT EXISTS board_log_by_version ON board_log (board_id, version)
 
 const Rect = z.strictObject({ minX: z.number(), maxX: z.number(), minY: z.number(), maxY: z.number() });
 
-const ElementWrite = z.strictObject({ elementId: z.string(), body: z.string(), text: z.string() });
+const ElementKind = z.enum(['box', 'frame', 'wire', 'note']);
+
+const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), linkedBoardId: z.string().nullable(), text: z.string() });
 
 const BoardDelta = z.strictObject({
   boardId: z.string(),
@@ -89,7 +95,9 @@ const StoreReply = z.discriminatedUnion('ok', [
     requestId: z.number().int(),
     ok: z.literal(true),
     heads: z.array(StoredHeadRows).optional(),
+    elementKinds: z.array(ElementKind).optional(),
     elementBodies: z.array(z.string()).optional(),
+    isDamaged: z.literal(true).optional(),
     lastSlot: z.number().int().optional(),
     elementIds: z.array(z.string()).optional(),
     boardIds: z.array(z.string()).optional(),
@@ -103,9 +111,14 @@ type BoardDelta = z.infer<typeof BoardDelta>;
 type StoreRequest = z.infer<typeof StoreRequest>;
 type StoreReply = z.infer<typeof StoreReply>;
 type StoredHeadRows = z.infer<typeof StoredHeadRows>;
+type ElementKindName = z.infer<typeof ElementKind>;
+type StoredRowColumns = { elementId: string; kind: unknown; body: string };
+type ElementPage = { isDamaged: true } | { elementIds: string[]; elementKinds: ElementKindName[]; elementBodies: string[] };
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
 type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
 
+const EMPTY_BODY = '{}';
+const ELEMENT_KIND_NAMES = new Set<string>(ElementKind.options);
 const BoardHeadFields = z.record(z.string(), z.unknown());
 const ElementIdentity = z.object({ id: z.string() });
 
@@ -121,8 +134,14 @@ function headOf(board: Board): string {
   return JSON.stringify(head);
 }
 
-function elementWriteOf(element: Element): z.infer<typeof ElementWrite> {
-  return { elementId: element.id, body: JSON.stringify(element), text: searchableTextOf(element) };
+function elementWriteOf(element: Element, body: string): z.infer<typeof ElementWrite> {
+  const linkedBoardId = element.kind === 'box' ? element.step?.linkedBoardId ?? null : null;
+  return { elementId: element.id, kind: element.kind, body, assetId: assetIdOf(element), linkedBoardId, text: searchableTextOf(element) };
+}
+
+function elementWritesOf(elements: readonly Element[]): z.infer<typeof ElementWrite>[] {
+  const encoded = elementTableOf(elements);
+  return elements.map((element) => elementWriteOf(element, encoded.bodyOf(element.id) ?? EMPTY_BODY));
 }
 
 function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): Set<string> {
@@ -142,6 +161,7 @@ function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter:
 
 function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
   const delta: ElementDelta = { writes: [], removedElementIds: [], reslottedElementIds: [] };
+  const writtenElements: Element[] = [];
   for (const [elementId, change] of Object.entries(staged.diff.elements)) {
     const element = staged.afterById.get(elementId);
     if (change[0] === 'remove' || !element) {
@@ -149,15 +169,16 @@ function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
       continue;
     }
     if (change[0] === 'put') delta.reslottedElementIds.push(elementId);
-    delta.writes.push(elementWriteOf(element));
+    writtenElements.push(element);
   }
+  delta.writes = elementWritesOf(writtenElements);
   return delta;
 }
 
 function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): ElementDelta {
   if (elementsBefore === elementsAfter) return { writes: [], removedElementIds: [], reslottedElementIds: [] };
   const reorderedElementIds = reorderedElementIdsOf(elementsBefore, elementsAfter);
-  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || elementsBefore.kindOf(element.id) !== element.kind || reorderedElementIds.has(element.id)).map(elementWriteOf);
+  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || elementsBefore.kindOf(element.id) !== element.kind || reorderedElementIds.has(element.id)).map((element) => elementWriteOf(element, elementsAfter.bodyOf(element.id) ?? EMPTY_BODY));
   const removedElementIds = [...elementsBefore.keys()].filter((elementId) => !elementsAfter.has(elementId));
   return { writes, removedElementIds, reslottedElementIds: [...reorderedElementIds] };
 }
@@ -190,13 +211,33 @@ function headRowsOf(record: BoardRecord): StoredHeadRows {
   return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
 }
 
-function addParsedElements(elements: ElementTable, elementBodies: readonly string[]): boolean {
-  for (const body of elementBodies) {
-    const element = ElementSchema.safeParse(parsedJson(body));
-    if (!element.success) return false;
-    storeElement(elements, element.data);
+function isElementKind(value: unknown): value is ElementKindName {
+  return typeof value === 'string' && ELEMENT_KIND_NAMES.has(value);
+}
+
+function isEveryRowDecodable(storedRows: readonly StoredElementRow[]): boolean {
+  try {
+    return [...elementTableOfStoredRows(storedRows).values()].length === storedRows.length;
+  } catch {
+    return false;
   }
-  return boardIndexOf(elements).elementCount <= WHITEBOARD_LIMITS.elements;
+}
+
+function elementPageOfRows(rows: readonly StoredRowColumns[]): ElementPage {
+  const storedRows: StoredElementRow[] = [];
+  for (const row of rows) {
+    if (!isElementKind(row.kind)) return { isDamaged: true };
+    storedRows.push({ id: row.elementId, kind: row.kind, body: row.body });
+  }
+  if (!isEveryRowDecodable(storedRows)) return { isDamaged: true };
+  return { elementIds: storedRows.map((row) => row.id), elementKinds: storedRows.map((row) => row.kind), elementBodies: storedRows.map((row) => row.body) };
+}
+
+function compactDeltaOf(rows: StoredHeadRows, storedElements: readonly StoredRowColumns[]): BoardDelta | null {
+  const record = upgradedRecordOfRows(rows, storedElements.map((row) => row.body));
+  if (!record) return null;
+  const delta = boardDeltaOf(null, record);
+  return { ...delta, appendedLog: [], removedElementIds: storedElements.map((row) => row.elementId).filter((elementId) => !record.board.elements.has(elementId)) };
 }
 
 function upgradedRecordWith(rows: StoredHeadRows, storedElements: Record<string, unknown>): BoardRecord | null {
@@ -228,5 +269,5 @@ function ftsQueryOf(query: string): string {
 }
 
 export type { StagedElements };
-export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, addParsedElements, boardDeltaOf, ftsQueryOf, headRowsOf, recordOfRows, upgradedRecordOfRows };
-export type { BoardDelta, Rect, StoreRequestBody, StoredHeadRows };
+export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, COMPACT_ROWS_VERSION, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, boardDeltaOf, compactDeltaOf, elementPageOfRows, ftsQueryOf, headRowsOf, recordOfRows };
+export type { BoardDelta, ElementPage, Rect, StoreRequestBody, StoredHeadRows, StoredRowColumns };
