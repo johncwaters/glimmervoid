@@ -737,6 +737,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
   assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a board arriving for the centered session opens the stored split');
+  assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the rail shows the session and its board as one split item');
   const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
   await boardChip.waitFor();
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
@@ -784,66 +785,94 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator(`.review-reader .review-reader-file[data-path="${UNCOVERED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await page.keyboard.press('Escape');
   await page.locator('.review-reader').waitFor({ state: 'detached' });
-  await verifyBoardPaneFallsBackToSessionBoard(page, panel, sessionId, boardTitle);
-  await verifySessionlessBoardRows(page, panel, sessionId, projectDirectory);
+  await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
+  await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
 }
 
-async function verifySessionlessBoardRows(page: Page, panel: Locator, sessionId: string, projectDirectory: string): Promise<void> {
+async function splitBoardTitleOf(page: Page, sessionId: string): Promise<string | null> {
+  const splitTitle = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split] .session-row-split-board-title`);
+  if (await splitTitle.count() === 0) return null;
+  return splitTitle.textContent();
+}
+
+async function waitForSplitBoardTitle(page: Page, sessionId: string, boardTitle: string | null): Promise<void> {
+  await pollFor(`the rail split shows ${boardTitle ?? 'no board'}`, BOARD_TIMEOUT_MS, async () => (await splitBoardTitleOf(page, sessionId) === boardTitle ? true : null));
+}
+
+async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: string, projectDirectory: string): Promise<void> {
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
-  const boardsSection = page.locator('.rail-boards-details');
-  assert.equal(await boardsSection.getAttribute('open'), null, 'the rail Boards section starts closed');
-  await boardsSection.locator('summary').click();
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}').railBoardsOpen === true);
-  const laterRow = page.locator('.focus-board-list .session-row', { hasText: laterTitle });
+  const secondTitle = `Second plan ${sessionId.slice(0, 8)}`;
+  assert.equal(await page.locator('.rail-boards-details').count(), 0, 'the rail has no separate Boards section');
+  const laterRow = page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle });
   await laterRow.waitFor();
-  assert.equal(await laterRow.locator('.session-row-label').textContent(), 'BOARD', 'a board with no session shows a BOARD row');
-  assert.equal(await page.locator('.focus-board-list .session-row', { hasText: `Second plan ${sessionId.slice(0, 8)}` }).count(), 0, 'a board connected to a session has no BOARD row');
+  assert.equal(await laterRow.locator('.session-row-label').textContent(), 'BOARD', 'a board outside a split shows a BOARD row');
+  assert.equal(await laterRow.locator('.session-row-task').textContent(), 'nobody connected', 'a board row names its connected session, or nobody');
+  assert.equal(await page.locator('.focus-rail .session-row[data-board-id]', { hasText: secondTitle }).count(), 0, 'a board in a split has no row of its own');
   await laterRow.click();
   await openBoardTitle(panel, laterTitle).waitFor();
   await page.locator('#focus-pane-terminal').waitFor({ state: 'hidden' });
   await verifyMergeShortcutIgnoredWhileBoardCentered(page, projectDirectory);
-  await verifyRailArrowsReachBoardRows(page);
-  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: `Second plan ${sessionId.slice(0, 8)}` }).click();
-  await openBoardTitle(panel, `Second plan ${sessionId.slice(0, 8)}`).waitFor();
-  await laterRow.click();
-  await openBoardTitle(panel, laterTitle).waitFor();
+  await verifyRailArrowsReachBoardRows(page, laterTitle);
   const railTitle = `Rail plan ${sessionId.slice(0, 8)}`;
   await page.getByRole('button', { name: 'New board', exact: true }).click();
   await submitTextDialog(page, 'Board title', railTitle, 'Create board');
-  assert.notEqual(await boardsSection.getAttribute('open'), null, 'New board leaves the rail Boards section open');
   await openBoardTitle(panel, railTitle).waitFor();
-  await page.locator('.focus-board-list .session-row.focused', { hasText: railTitle }).waitFor();
-  await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
+  await page.locator('.focus-rail .session-row[data-board-id].focused', { hasText: railTitle }).waitFor();
+  const sessionRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first();
+  await sessionRow.locator('.session-row-glyph').click();
   await page.locator('#focus-pane-terminal').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.focus-board-list .session-row.focused').count(), 0, 'picking a session leaves the board row');
+  assert.equal(await page.locator('.focus-rail .session-row[data-board-id].focused').count(), 0, 'picking a session leaves the board row');
+  await laterRow.dragTo(sessionRow);
+  await waitForSplitBoardTitle(page, sessionId, laterTitle);
+  await openBoardTitle(panel, laterTitle).waitFor();
+  assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'dropping a board row on a session splits it');
+  await page.locator('.pane-group[data-pane="board"] > .pane-header').dragTo(sessionRow);
+  await waitForSplitBoardTitle(page, sessionId, null);
+  await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
+  const sessionName = await page.locator(`.session-card[data-id="${sessionId}"]`).first().getAttribute('data-session');
+  assert.equal(await laterRow.locator('.session-row-task').textContent(), sessionName, 'the board dropped back names the session it stays connected to');
+  await page.keyboard.press('Alt+KeyB');
+  await pollFor('Alt B opens a connected board beside the session', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
+  await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
+  await sessionRow.locator('.session-row-split-board').click();
+  await page.waitForFunction((id) => document.querySelector(`.focus-rail .session-row[data-id="${id}"]`)?.getAttribute('data-active-pane') === 'board', sessionId);
+  await page.keyboard.press('Alt+KeyB');
+  await page.waitForFunction(() => document.activeElement?.closest('#focus-pane-terminal') != null);
+  await waitForSplitBoardTitle(page, sessionId, null);
+  await page.keyboard.press('Alt+KeyB');
+  await pollFor('Alt B from the terminal reopens the board', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
 }
 
-async function verifyBoardPaneFallsBackToSessionBoard(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {
+async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {
   const secondTitle = `Second plan ${sessionId.slice(0, 8)}`;
   const secondBoardId = await createBoardOverControl(page, secondTitle);
   await controlReplyOf(page, 'whiteboard-connect', { boardId: secondBoardId, sessionId });
   const unrelatedTitle = `Unrelated plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, unrelatedTitle);
-  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: shownBoardTitle }).click();
-  await openBoardTitle(panel, shownBoardTitle).waitFor();
+  assert.equal(await splitBoardTitleOf(page, sessionId), shownBoardTitle, 'a second board connecting leaves the open split alone');
   await openBoardMenuItem(page, panel, 'delete board');
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
+  await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
+  await waitForSplitBoardTitle(page, sessionId, null);
+  await page.keyboard.press('Alt+KeyB');
   await openBoardTitle(panel, secondTitle).waitFor();
-  assert.equal(await page.locator('#focus-pane-board').isVisible(), true, 'the session keeps its board pane while it has a board');
+  await waitForSplitBoardTitle(page, sessionId, secondTitle);
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
   await page.getByRole('menuitemradio', { name: unrelatedTitle }).click();
   await openBoardTitle(panel, unrelatedTitle).waitFor();
+  await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, laterTitle);
   await panel.getByRole('button', { name: 'board menu', exact: true }).click();
   await page.getByRole('menuitemradio', { name: laterTitle }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
-  await openBoardMenuItem(page, panel, 'delete board');
-  await page.getByRole('button', { name: 'Delete board', exact: true }).click();
+  await page.keyboard.press('Alt+KeyB');
+  await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
+  await waitForSplitBoardTitle(page, sessionId, null);
+  await page.keyboard.press('Alt+KeyB');
   await openBoardTitle(panel, secondTitle).waitFor();
+  await waitForSplitBoardTitle(page, sessionId, secondTitle);
 }
 
 async function verifyMergeShortcutIgnoredWhileBoardCentered(page: Page, projectDirectory: string): Promise<void> {
@@ -854,19 +883,18 @@ async function verifyMergeShortcutIgnoredWhileBoardCentered(page: Page, projectD
   assert.equal(await readOriginFile(originPath, UNCOVERED_FILE_NAME), null, 'the merge shortcut merges nothing while a board is centered');
 }
 
-async function verifyRailArrowsReachBoardRows(page: Page): Promise<void> {
-  const firstBoardRow = page.locator('.focus-board-list button.session-row[data-board-id]').first();
-  const firstBoardId = await firstBoardRow.getAttribute('data-board-id');
-  await firstBoardRow.focus();
-  await page.keyboard.press('ArrowUp');
-  assert.ok(await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.dataset.id !== undefined), 'ArrowUp from the first BOARD row reaches a session row');
-  await page.keyboard.press('ArrowDown');
-  assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), firstBoardId, 'ArrowDown from the last session row reaches the first BOARD row');
-  await page.keyboard.press('ArrowUp');
-  await page.locator('.rail-boards-details').evaluate((details) => { if (details instanceof HTMLDetailsElement) details.open = false; });
-  await page.keyboard.press('ArrowDown');
-  assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null), null, 'ArrowDown skips BOARD rows while the rail Boards section is closed');
-  await page.locator('.rail-boards-details').evaluate((details) => { if (details instanceof HTMLDetailsElement) details.open = true; });
+async function verifyRailArrowsReachBoardRows(page: Page, boardTitle: string): Promise<void> {
+  const boardRow = page.locator('.focus-rail button.session-row[data-board-id]', { hasText: boardTitle });
+  const boardId = await boardRow.getAttribute('data-board-id');
+  await page.locator('.focus-rail button.session-row[data-id]').first().focus();
+  const railRowCount = await page.locator('.focus-rail button.session-row').count();
+  const reachedBoardIds: string[] = [];
+  for (let press = 0; press < railRowCount; press += 1) {
+    await page.keyboard.press('ArrowDown');
+    const focusedBoardId = await page.evaluate(() => document.activeElement instanceof HTMLElement ? document.activeElement.dataset.boardId ?? null : null);
+    if (focusedBoardId) reachedBoardIds.push(focusedBoardId);
+  }
+  assert.ok(boardId && reachedBoardIds.includes(boardId), 'rail arrows reach board rows under their project');
 }
 
 async function verifyPlanFaceMinimizesToTerminal(page: Page, card: Locator): Promise<void> {

@@ -16,6 +16,7 @@ type DashboardShortcutAction =
   | 'quick-session'
   | 'merge'
   | 'close-session'
+  | 'board-split'
   | 'streamer-mode';
 
 interface ShortcutKeyEvent {
@@ -79,6 +80,7 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'quick-session', keyCaptions: ['0'], label: 'Add a session like the one you are in', stepByCode: new Map([['Digit0', 0]]), needsMacOption: true, needsShiftOffMac: true },
   { action: 'merge', keyCaptions: ['I'], label: 'Merge the selected session', stepByCode: new Map([['KeyI', 0]]) },
   { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
+  { action: 'board-split', keyCaptions: ['B'], label: 'Open or close the board beside the selected session', stepByCode: new Map([['KeyB', 0]]) },
   { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), isShellChord: true },
 ];
 

@@ -183,14 +183,38 @@ function paintShellRowMark(row: HTMLElement, refs: Pick<SessionRowRefs, 'glyph' 
 
 const BOARD_LABEL = 'BOARD';
 
-export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: string) {
+export function paintSessionRowSplit(row: HTMLElement, splitBoardTitle: string | null, activePane: 'terminal' | 'board' | null) {
+  row.toggleAttribute('data-split', splitBoardTitle !== null);
+  writeDataIfChanged(row, 'activePane', activePane ?? '');
+  const existingMember = row.querySelector<HTMLElement>(':scope > .session-row-main > .session-row-split-board');
+  if (splitBoardTitle === null) {
+    existingMember?.remove();
+    return;
+  }
+  const member = existingMember ?? buildSplitBoardMember(row);
+  writeTextIfChanged(query(member, '.session-row-split-board-title'), splitBoardTitle);
+}
+
+function buildSplitBoardMember(row: HTMLElement) {
+  const titleLine = query(row, '.session-row-title');
+  titleLine.dataset.member = 'terminal';
+  const member = el('span', 'session-row-split-board');
+  member.dataset.member = 'board';
+  member.append(createPrStatusIcon('board'), el('span', 'session-row-split-board-title'));
+  titleLine.after(member);
+  return member;
+}
+
+export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: string, connectedSessionName: string | null) {
   writeDataIfChanged(row, 'state', '');
   writeDataIfChanged(row, 'prompt', '');
   row.toggleAttribute('data-board', true);
   if (!refs.glyph.firstChild) refs.glyph.append(createPrStatusIcon('board'));
   writeTextIfChanged(refs.name, title);
   writeTextIfChanged(refs.label, BOARD_LABEL);
-  const accessibleLabel = `${title}, ${BOARD_LABEL}`;
+  writeTextIfChanged(refs.task, connectedSessionName ?? 'nobody connected');
+  writeHiddenIfChanged(refs.task, false);
+  const accessibleLabel = `${title}, ${BOARD_LABEL}, ${connectedSessionName ?? 'nobody connected'}`;
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
 }
 

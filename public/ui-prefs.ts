@@ -7,6 +7,8 @@ import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
 import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
 import { getJSON, setJSON } from './local-store.ts';
 import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
+import type { SplitBoardBySession } from './focus-view/roster-groups-core.ts';
+import { parseSplitBoardBySession } from './focus-view/roster-groups-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
@@ -24,9 +26,9 @@ interface UiPrefs extends FlyingAnimalsOptions {
   activeView: string;
   lastFocusedSessionId: string | null;
   railWidth: number | null;
-  railBoardsOpen: boolean;
   railStatusKeyOpen: boolean;
   focusLayout: FocusLayout;
+  splitBoardBySession: SplitBoardBySession;
   prsQueueWidth: number | null;
   reviewsLayout: ReviewsLayout;
   reviewsBoardDetailWidth: number | null;
@@ -75,9 +77,9 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   activeView: (value: unknown): string => (typeof value === 'string' && value !== 'boards' ? value : 'focus'),
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
-  railBoardsOpen: asBoolean(false),
   railStatusKeyOpen: asBoolean(false),
   focusLayout: parseFocusLayout,
+  splitBoardBySession: parseSplitBoardBySession,
   prsQueueWidth: asNullableNumber,
   reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
   reviewsBoardDetailWidth: asNullableNumber,
@@ -151,14 +153,14 @@ export const setActiveView = (view: string) => write('activeView', view);
 export const getRailWidth = () => read('railWidth');
 export const setRailWidth = (px: number | null) => write('railWidth', px);
 
-export const isRailBoardsOpen = () => read('railBoardsOpen');
-export const setRailBoardsOpen = (isOpen: boolean) => write('railBoardsOpen', isOpen);
 
 export const isRailStatusKeyOpen = () => read('railStatusKeyOpen');
 export const setRailStatusKeyOpen = (isOpen: boolean) => write('railStatusKeyOpen', isOpen);
 
 export const getFocusLayout = () => read('focusLayout');
 export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layout);
+export const getSplitBoardBySession = () => read('splitBoardBySession');
+export const setSplitBoardBySession = (splits: SplitBoardBySession) => write('splitBoardBySession', splits);
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);

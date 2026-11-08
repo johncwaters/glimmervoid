@@ -318,9 +318,7 @@ async function sampleFrames(page: Page, prefix: string, label: string, drive: ()
 async function openBoardInFocus(page: Page, port: number): Promise<number> {
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.locator('#loading-screen').waitFor({ state: 'hidden', timeout: OPEN_TIMEOUT_MS });
-  const boardsSection = page.locator('.rail-boards-details');
-  if (await boardsSection.getAttribute('open') === null) await boardsSection.locator('summary').click();
-  const boardRow = page.locator('.focus-board-list .session-row', { hasText: BOARD_TITLE });
+  const boardRow = page.locator('.focus-rail .session-row[data-board-id]', { hasText: BOARD_TITLE });
   await boardRow.waitFor({ timeout: OPEN_TIMEOUT_MS });
   const startedAt = performance.now();
   await boardRow.click();

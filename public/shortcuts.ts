@@ -2,6 +2,16 @@ import { el } from './dom-helpers.ts';
 import { shortcutChord, shortcutPlatformFor } from './shortcuts-core.ts';
 import { getNextAttentionKeyCode } from './ui-prefs.ts';
 
+let boardSplitKeyClaimTest: () => boolean = () => false;
+
+export function setBoardSplitKeyClaimTest(claimTest: () => boolean) {
+  boardSplitKeyClaimTest = claimTest;
+}
+
+export function canClaimBoardSplitKey() {
+  return boardSplitKeyClaimTest();
+}
+
 export const SHORTCUT_PLATFORM = shortcutPlatformFor(navigator.userAgent);
 
 const NEXT_ATTENTION_KEYS_CLASS = 'next-attention-keys';

@@ -325,7 +325,7 @@ function boardMenuItem(summary: BoardSummary): HTMLButtonElement {
   item.setAttribute('aria-checked', String(summary.id === selectedBoardId));
   const sessionCount = summary.connectedSessionIds.length;
   if (sessionCount > 0) item.append(el('span', 'wb-board-menu-count', String(sessionCount)));
-  item.addEventListener('click', () => selectBoard(summary.id));
+  item.addEventListener('click', () => pickBoard(summary.id));
   return item;
 }
 
@@ -584,6 +584,17 @@ function paintBoard(): void {
   paintToolbar();
 }
 
+const boardPickListeners: ((boardId: string) => void)[] = [];
+
+export function onBoardPicked(listener: (boardId: string) => void): void {
+  boardPickListeners.push(listener);
+}
+
+function pickBoard(boardId: string): void {
+  selectBoard(boardId);
+  for (const listener of boardPickListeners) listener(boardId);
+}
+
 function selectBoard(boardId: string): void {
   if (selectedBoardId === boardId) return;
   selectedBoardId = boardId;
@@ -787,7 +798,7 @@ function confirmDeleteBoard(): void {
 }
 
 function newBoardFromDialog(): void {
-  createBoardFromDialog(selectBoard);
+  createBoardFromDialog(pickBoard);
 }
 
 export function createBoardFromDialog(onCreated: (boardId: string) => void): void {

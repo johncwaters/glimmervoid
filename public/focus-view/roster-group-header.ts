@@ -30,5 +30,6 @@ export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterG
   writeDataIfChanged(header, 'label', group.label);
   writeTextIfChanged(label, isHostShown && group.hostName ? `${group.hostName} / ${group.label}` : group.label);
   writeTextIfChanged(count, String(group.rows.length));
+  writeHiddenIfChanged(count, group.rows.length === 0);
   writeHiddenIfChanged(addButton, group.projectPath === null);
 }

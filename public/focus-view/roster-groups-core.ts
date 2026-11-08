@@ -58,12 +58,33 @@ export function groupRoster<Row extends { id: string }>(
   }
   const groups = [...byKey.values()];
 
+  return sortedRoster(groups, hostRankByKey);
+}
+
+function sortedRoster<Row>(groups: RosterGroup<Row>[], hostRankByKey: ReadonlyMap<string, number>): GroupedRoster<Row> {
   groups.sort((a, b) =>
     (hostRankByKey.get(a.key) ?? -1) - (hostRankByKey.get(b.key) ?? -1)
     || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
     || a.key.localeCompare(b.key));
   const isAllLocal = groups.every((group) => group.hostId === null);
-  return { flat: byKey.size <= 1 && isAllLocal, order: groups.map((g) => g.key), groups };
+  return { flat: groups.length <= 1 && isAllLocal, order: groups.map((g) => g.key), groups };
+}
+
+export function withBoardProjects<Row>(roster: GroupedRoster<Row>, boardProjectKeys: Iterable<string>): GroupedRoster<Row> {
+  const presentKeys = new Set(roster.order);
+  const missingKeys = [...new Set(boardProjectKeys)].filter((key) => !presentKeys.has(key));
+  if (missingKeys.length === 0) return roster;
+  const hostRankByKey = new Map(roster.groups.map((group) => [group.key, group.hostId === null ? -1 : roster.order.indexOf(group.key)]));
+  const boardOnlyGroups = missingKeys.map((key): RosterGroup<Row> => ({
+    key,
+    label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key),
+    title: key,
+    projectPath: key === NO_PATH_KEY ? null : key,
+    hostId: null,
+    hostName: null,
+    rows: [],
+  }));
+  return sortedRoster([...roster.groups, ...boardOnlyGroups], hostRankByKey);
 }
 
 export function visibleOrder<Row extends { id: string }>(
@@ -90,11 +111,87 @@ export function visibleOrder<Row extends { id: string }>(
 interface RailBoard {
   id: string;
   title: string;
+  project: string | null;
+  isArchived: boolean;
   connectedSessionIds: readonly string[];
 }
 
-export function sessionlessBoards<Board extends RailBoard>(boards: readonly Board[], isLiveSession: (sessionId: string) => boolean): Board[] {
-  return boards
-    .filter((board) => !board.connectedSessionIds.some(isLiveSession))
-    .sort((left, right) => left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' }) || left.id.localeCompare(right.id));
+export type SplitBoardBySession = Readonly<Record<string, string>>;
+
+const byTitle = (left: RailBoard, right: RailBoard) => left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' }) || left.id.localeCompare(right.id);
+
+export function parseSplitBoardBySession(stored: unknown): SplitBoardBySession {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+  const sessionIdByBoardId = new Map<string, string>();
+  for (const [sessionId, boardId] of Object.entries(stored)) {
+    if (typeof boardId === 'string' && boardId) sessionIdByBoardId.set(boardId, sessionId);
+  }
+  return Object.fromEntries([...sessionIdByBoardId].map(([boardId, sessionId]) => [sessionId, boardId]));
+}
+
+export function splitsOfBoards(splits: SplitBoardBySession, boards: readonly RailBoard[]): SplitBoardBySession {
+  const boardIds = new Set(boards.map((board) => board.id));
+  const entries = Object.entries(splits);
+  const keptEntries = entries.filter(([, boardId]) => boardIds.has(boardId));
+  return keptEntries.length === entries.length ? splits : Object.fromEntries(keptEntries);
+}
+
+export function openSplit(splits: SplitBoardBySession, sessionId: string, boardId: string): SplitBoardBySession {
+  const otherSplits = Object.entries(splits).filter(([splitSessionId, splitBoardId]) => splitSessionId !== sessionId && splitBoardId !== boardId);
+  return Object.fromEntries([...otherSplits, [sessionId, boardId]]);
+}
+
+export function closeSplit(splits: SplitBoardBySession, sessionId: string): SplitBoardBySession {
+  if (!Object.hasOwn(splits, sessionId)) return splits;
+  return Object.fromEntries(Object.entries(splits).filter(([splitSessionId]) => splitSessionId !== sessionId));
+}
+
+export function liveSplits(splits: SplitBoardBySession, boards: readonly RailBoard[], isLiveSession: (sessionId: string) => boolean): SplitBoardBySession {
+  const splitsOfExistingBoards = splitsOfBoards(splits, boards);
+  const entries = Object.entries(splitsOfExistingBoards);
+  const liveEntries = entries.filter(([sessionId]) => isLiveSession(sessionId));
+  return liveEntries.length === entries.length ? splitsOfExistingBoards : Object.fromEntries(liveEntries);
+}
+
+const connectionKeyOf = (boardId: string, sessionId: string) => `${boardId}\n${sessionId}`;
+
+export function connectionKeysOf(boards: readonly RailBoard[]): Set<string> {
+  return new Set(boards.flatMap((board) => board.connectedSessionIds.map((sessionId) => connectionKeyOf(board.id, sessionId))));
+}
+
+export function splitNewConnections(splits: SplitBoardBySession, boardsNewestFirst: readonly RailBoard[], previousConnectionKeys: ReadonlySet<string>, isLiveSession: (sessionId: string) => boolean): SplitBoardBySession {
+  return boardsNewestFirst.reduce((nextSplits, board) => board.connectedSessionIds.reduce((splitsSoFar, sessionId) => {
+    if (previousConnectionKeys.has(connectionKeyOf(board.id, sessionId))) return splitsSoFar;
+    const shownSplits = liveSplits(splitsSoFar, boardsNewestFirst, isLiveSession);
+    const isSessionFree = !Object.hasOwn(shownSplits, sessionId);
+    const isBoardFree = !Object.values(shownSplits).includes(board.id);
+    return isSessionFree && isBoardFree ? openSplit(splitsSoFar, sessionId, board.id) : splitsSoFar;
+  }, nextSplits), splits);
+}
+
+export function newestFreeBoardOf(splits: SplitBoardBySession, connectedBoardsNewestFirst: readonly RailBoard[]): RailBoard | null {
+  const splitBoardIds = new Set(Object.values(splits));
+  return connectedBoardsNewestFirst.find((board) => !splitBoardIds.has(board.id)) ?? null;
+}
+
+export interface ProjectBoards<Board> {
+  active: Board[];
+  archived: Board[];
+}
+
+function projectKeyOf(board: Pick<RailBoard, 'project'>): string {
+  return board.project ?? NO_PATH_KEY;
+}
+
+export function boardsByProject<Board extends RailBoard>(boards: readonly Board[], splits: SplitBoardBySession): Map<string, ProjectBoards<Board>> {
+  const splitBoardIds = new Set(Object.values(splits));
+  const byProject = new Map<string, ProjectBoards<Board>>();
+  for (const board of [...boards].sort(byTitle)) {
+    if (splitBoardIds.has(board.id)) continue;
+    const key = projectKeyOf(board);
+    const projectBoards = byProject.get(key) ?? { active: [], archived: [] };
+    (board.isArchived ? projectBoards.archived : projectBoards.active).push(board);
+    byProject.set(key, projectBoards);
+  }
+  return byProject;
 }

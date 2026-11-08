@@ -153,7 +153,7 @@
     },
     {
       "name": "boards",
-      "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions and the operator draw together, opened in a Board pane beside a session's terminal in Focus and listed in the Boards section",
+      "definition": "A shared whiteboard of boxes, wires, frames, notes and plan units that sessions and the operator draw together, opened in a Board pane beside a session's terminal in Focus and listed as rows under its project in the Focus rail (also: board)",
       "aliases": [
         "board"
       ]
@@ -635,6 +635,14 @@
     {
       "name": "pane",
       "definition": "One window in the Focus center, the terminal or the board, each with its own title bar; with a board open beside a session the two panes sit side by side or stacked"
+    },
+    {
+      "name": "drop",
+      "definition": "Letting go of a dragged row or title bar over a target in the dashboard, such as a board row on a session row to open a split"
+    },
+    {
+      "name": "split",
+      "definition": "A session and one board open side by side in Focus, shown as one item in the rail; each session has at most one and each board is in at most one"
     }
   ]
 }

@@ -1,7 +1,6 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { el } from '../dom-helpers.ts';
-import { createLineIcon, PLUS_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
@@ -10,27 +9,28 @@ import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { showSessionPlanFace } from '../session-card/card-faces.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
-import { buildNextAttentionKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { buildNextAttentionKeys, setBoardSplitKeyClaimTest, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { railAriaKeyShortcuts } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
 import { placeRowsInOrder, writeAttributeIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { getRailWidth, isRailBoardsOpen, isRailStatusKeyOpen, setRailBoardsOpen, setRailStatusKeyOpen, setRailWidth } from '../ui-prefs.ts';
+import { getRailWidth, getSplitBoardBySession, isRailStatusKeyOpen, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
-import type { RosterGroup } from './roster-groups-core.ts';
-import { groupRoster, sessionlessBoards, visibleOrder } from './roster-groups-core.ts';
+import type { ProjectBoards, RosterGroup, SplitBoardBySession } from './roster-groups-core.ts';
+import { boardsByProject, closeSplit, connectionKeysOf, groupRoster, liveSplits, newestFreeBoardOf, openSplit, splitNewConnections, splitsOfBoards, visibleOrder, withBoardProjects } from './roster-groups-core.ts';
 import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
-import { buildSessionRow, paintBoardRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
+import { buildSessionRow, paintBoardRow, paintSessionRow, paintSessionRowSplit, wrapSessionRow } from '../session-row.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
-import { boardSummariesOf, boardsConnectedTo, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
+import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
+import { boardSummariesOf, boardsConnectedTo, connectSessionToBoard, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -55,6 +55,10 @@ type FocusPill = ReturnType<typeof buildPill>;
 
 type BoardRow = ReturnType<typeof buildBoardRow>;
 
+type ArchivedFold = ReturnType<typeof buildArchivedFold>;
+
+const BOARD_ROW_MIME = 'application/x-glimmervoid-board-row';
+
 type GroupList = HTMLDivElement & { _lastOrderKey?: string };
 
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -68,12 +72,15 @@ let paneLayout: PaneLayout | null = null;
 let pageButtons: ReturnType<typeof createSessionPageButtons> | null = null;
 let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
-let boardPairedSessionId: string | null = null;
-let pairedBoardId: string | null = null;
+let shownBoardKey: string | null = null;
 let shownPanes: ReadonlySet<Pane> | null = null;
 let centeredBoardId: string | null = null;
-let boardsGroup: ReturnType<typeof buildBoardsGroup> | null = null;
+let splitBoardBySession: SplitBoardBySession = getSplitBoardBySession();
+let knownConnectionKeys: ReadonlySet<string> | null = null;
+let activePane: Pane = 'terminal';
+let unsplitSlotEl: HTMLElement | null = null;
 const boardRowById = new Map<string, BoardRow>();
+const archivedFoldByProject = new Map<string, ArchivedFold>();
 let emptyEl: HTMLElement | null = null;
 let emptyTitleEl: HTMLElement | null = null;
 let emptyDescEl: HTMLElement | null = null;
@@ -172,11 +179,17 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   paneLayout = createPaneLayout();
   cardSlotEl = paneLayout.bodyOf('terminal');
-  boardsGroup = buildBoardsGroup();
+  paneLayout.bodyOf('board').tabIndex = -1;
+  paneLayout.onBoardDrag(paintUnsplitSlot);
+  const newBoardButton = button({ variant: 'secondary', size: 'small', label: 'New board', action: 'new-board', onClick: createBoardFromRail });
+  newBoardButton.classList.add('rail-new-board');
+  mountedRail.append(newBoardButton);
+  unsplitSlotEl = el('div', 'rail-unsplit-slot', 'Drop here to unsplit');
   registerSessionPages();
   pageButtons = createSessionPageButtons({ style: 'header' });
   paneLayout.trailSlot.append(pageButtons.element);
   mountedCenter.append(emptyEl, paneLayout.element);
+  mountedCenter.addEventListener('focusin', onCenterFocusIn);
   subscribeRaces(() => {
     if (active) refreshFocusRoster();
   });
@@ -188,6 +201,121 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   });
 
   mountedRail.addEventListener('keydown', onRailKeydown);
+  mountedRail.addEventListener('dragover', onRailDragOver);
+  mountedRail.addEventListener('drop', onRailDrop);
+}
+
+function noteBoardConnections() {
+  const summaries = boardSummariesOf();
+  const splitsOfExistingBoards = splitsOfBoards(splitBoardBySession, summaries);
+  saveSplits(knownConnectionKeys ? splitNewConnections(splitsOfExistingBoards, summaries, knownConnectionKeys, isLiveSession) : splitsOfExistingBoards);
+  knownConnectionKeys = connectionKeysOf(summaries);
+}
+onBoardListChanged(noteBoardConnections);
+
+function isLiveSession(sessionId: string) {
+  return sessionUIs.has(sessionId);
+}
+
+function saveSplits(nextSplits: SplitBoardBySession) {
+  if (nextSplits === splitBoardBySession) return;
+  splitBoardBySession = nextSplits;
+  setSplitBoardBySession(nextSplits);
+}
+
+function currentLiveSplits() {
+  return liveSplits(splitBoardBySession, boardSummariesOf(), isLiveSession);
+}
+
+function splitBoardIdOf(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  return currentLiveSplits()[sessionId] ?? null;
+}
+
+function onCenterFocusIn(event: FocusEvent) {
+  const pane = event.target instanceof Element ? event.target.closest<HTMLElement>('.pane-group')?.dataset.pane : undefined;
+  if ((pane !== 'terminal' && pane !== 'board') || pane === activePane) return;
+  activePane = pane;
+  const focusedId = getFocusedSessionId();
+  const focusedPill = focusedId ? pillById.get(focusedId) : undefined;
+  if (focusedId && focusedPill) paintPillSplit(focusedPill, focusedId, boardTitlesById());
+}
+
+function isBoardHeaderDragging() {
+  return paneLayout?.element.hasAttribute('data-dragging') === true;
+}
+
+function paintUnsplitSlot() {
+  if (!unsplitSlotEl) return;
+  const focusedId = getFocusedSessionId();
+  const focusedRow = focusedId && splitBoardIdOf(focusedId) ? pillById.get(focusedId)?._row : undefined;
+  if (!isBoardHeaderDragging() || !focusedRow) {
+    unsplitSlotEl.removeAttribute('data-over');
+    unsplitSlotEl.remove();
+    return;
+  }
+  if (focusedRow.nextElementSibling !== unsplitSlotEl) focusedRow.after(unsplitSlotEl);
+}
+
+function isUnsplitDrag() {
+  return isBoardHeaderDragging() && unsplitSlotEl?.isConnected === true;
+}
+
+function onRailDragOver(event: DragEvent) {
+  if (!isUnsplitDrag()) return;
+  event.preventDefault();
+  unsplitSlotEl?.toggleAttribute('data-over', true);
+}
+
+function onRailDrop(event: DragEvent) {
+  const focusedId = getFocusedSessionId();
+  if (!isUnsplitDrag() || !focusedId) return;
+  event.preventDefault();
+  activePane = 'terminal';
+  saveSplits(closeSplit(splitBoardBySession, focusedId));
+  refreshFocusRoster();
+  focusTerminalAfterSettle(sessionUIs.get(focusedId), focusedId);
+}
+
+function boardSplitToggleOf(sessionId: string | null) {
+  if (!active || !sessionId || centeredBoardId) return null;
+  const splits = currentLiveSplits();
+  if (Object.hasOwn(splits, sessionId)) return { sessionId, boardIdToOpen: null };
+  const board = newestFreeBoardOf(splits, boardsConnectedTo(sessionId));
+  return board ? { sessionId, boardIdToOpen: board.id } : null;
+}
+
+setBoardSplitKeyClaimTest(() => boardSplitToggleOf(getFocusedSessionId()) !== null);
+
+export function toggleFocusedBoardSplit(): boolean {
+  const toggle = boardSplitToggleOf(getFocusedSessionId());
+  if (!toggle) return false;
+  if (toggle.boardIdToOpen) {
+    saveSplits(openSplit(splitBoardBySession, toggle.sessionId, toggle.boardIdToOpen));
+    refreshFocusRoster();
+    return true;
+  }
+  activePane = 'terminal';
+  saveSplits(closeSplit(splitBoardBySession, toggle.sessionId));
+  refreshFocusRoster();
+  focusTerminalAfterSettle(sessionUIs.get(toggle.sessionId), toggle.sessionId);
+  return true;
+}
+
+function splitSessionWithBoard(sessionId: string, boardId: string) {
+  const board = boardSummariesOf().find((summary) => summary.id === boardId);
+  if (!board || !sessionUIs.has(sessionId)) return;
+  if (!board.connectedSessionIds.includes(sessionId)) connectSessionToBoard(boardId, sessionId).then(reportBoardConnectRefusal);
+  saveSplits(openSplit(splitBoardBySession, sessionId, boardId));
+  if (getFocusedSessionId() === sessionId) {
+    refreshFocusRoster();
+    return;
+  }
+  focusSession(sessionId);
+}
+
+function reportBoardConnectRefusal(outcome: Awaited<ReturnType<typeof connectSessionToBoard>>) {
+  if (!outcome.ok) reportToServerLog('focus', `connecting a dropped board failed: ${outcome.error}`);
 }
 
 const RAIL_BOUNDS = { minPx: 280, maxPx: 480 };
@@ -247,20 +375,63 @@ function buildPill(id: string) {
   const { row: pill, refs } = buildSessionRow();
   pill.dataset.id = id;
   pill.setAttribute('role', 'option');
-  pill.addEventListener('click', () => onPillPick(id));
+  pill.addEventListener('click', (event) => onPillPick(id, memberPaneOf(event.target)));
   pill.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
   pill.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
   const { item, removeButton } = wrapSessionRow(pill, () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
+  wireBoardRowDropTarget(item, id);
   return Object.assign(pill, { _refs: refs, _row: item });
 }
 
-function onPillPick(id: string) {
+function memberPaneOf(target: EventTarget | null): Pane {
+  const member = target instanceof Element ? target.closest<HTMLElement>('[data-member]')?.dataset.member : undefined;
+  return member === 'board' ? 'board' : 'terminal';
+}
+
+function isBoardRowDrag(event: DragEvent) {
+  return event.dataTransfer?.types.includes(BOARD_ROW_MIME) === true;
+}
+
+function wireBoardRowDropTarget(item: HTMLElement, sessionId: string) {
+  item.addEventListener('dragover', (event) => {
+    if (!isBoardRowDrag(event)) return;
+    event.preventDefault();
+    item.toggleAttribute('data-board-drop', true);
+  });
+  item.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget instanceof Node && item.contains(event.relatedTarget)) return;
+    item.removeAttribute('data-board-drop');
+  });
+  item.addEventListener('drop', (event) => {
+    item.removeAttribute('data-board-drop');
+    const boardId = event.dataTransfer?.getData(BOARD_ROW_MIME);
+    if (!boardId) return;
+    event.preventDefault();
+    splitSessionWithBoard(sessionId, boardId);
+  });
+}
+
+function onPillPick(id: string, pane: Pane = 'terminal') {
   const ui = requestSessionOpen(id);
   if (!ui) return;
-  centerOpenedSession(ui, id);
+  activePane = pane === 'board' && splitBoardIdOf(id) ? 'board' : 'terminal';
+  focusSession(id);
+  const pill = pillById.get(id);
+  if (pill) paintPillSplit(pill, id, boardTitlesById());
+  if (activePane === 'board') {
+    focusBoardPaneAfterSettle(id);
+    return;
+  }
+  focusTerminalAfterSettle(ui, id);
+}
+
+function focusBoardPaneAfterSettle(id: string) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (active && getFocusedSessionId() === id) paneLayout?.bodyOf('board').focus({ preventScroll: true });
+  }));
 }
 
 function onPillCycle(id: string) {
@@ -271,6 +442,16 @@ function onPillCycle(id: string) {
 function centerOpenedSession(ui: SessionUi, id: string) {
   focusSession(id);
   focusTerminalAfterSettle(ui, id);
+}
+
+function boardTitlesById() {
+  return new Map(boardSummariesOf().map((board) => [board.id, board.title]));
+}
+
+function paintPillSplit(pill: FocusPill, id: string, boardTitleById: ReadonlyMap<string, string>) {
+  const boardId = splitBoardIdOf(id);
+  const boardTitle = boardId ? boardTitleById.get(boardId) ?? null : null;
+  paintSessionRowSplit(pill, boardTitle, id === getFocusedSessionId() && boardTitle !== null ? activePane : null);
 }
 
 function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
@@ -309,13 +490,19 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   if (!mountedRail) return;
   const order = orderedSessions();
   const groups = groupsOf(order);
+  const boardSummaries = boardSummariesOf();
+  if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
+  const boardsOfProject = boardsByProject(boardSummaries, currentLiveSplits());
+  const railGroups = withBoardProjects(groups, boardsOfProject.keys());
+  const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
+  const placedBoardIds = new Set<string>();
   const seen = new Set<string>();
   const attentionTiles = orderAttentionLine(order, getFocusedSessionId());
   const attentionPositionById = new Map(attentionTiles.map(({ id }, index) => [id, index + 1]));
 
-  const placeList = (rows: RosterRow[], listEl: GroupList) => {
-    const newKey = rows.map((r) => r.id).join(',');
-    const orderUnchanged = listEl._lastOrderKey === newKey && listEl.childElementCount === rows.length;
+  const placeList = (rows: RosterRow[], listEl: GroupList, boardNodes: HTMLElement[]) => {
+    const newKey = `${rows.map((r) => r.id).join(',')}|${boardNodes.map((node) => node.dataset.boardNode).join(',')}`;
+    const orderUnchanged = listEl._lastOrderKey === newKey && listEl.childElementCount === rows.length + boardNodes.length;
     for (const row of rows) {
       const { id } = row;
       seen.add(id);
@@ -325,25 +512,27 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
       const attentionPosition = attentionPositionById.get(id) ?? null;
       const isPaintNeeded = !dirtySessionIds || isNewPill || dirtySessionIds.has(id) || paintedAttentionPositionById.get(id) !== attentionPosition;
       if (isPaintNeeded) paintPill(pill, row, attentionPosition);
+      paintPillSplit(pill, id, boardTitleById);
       paintedAttentionPositionById.set(id, attentionPosition);
     }
-    if (!orderUnchanged) placeRowsInOrder(listEl, rows.flatMap(({ id }) => pillById.get(id)?._row ?? []));
+    if (!orderUnchanged) placeRowsInOrder(listEl, [...rows.flatMap(({ id }) => pillById.get(id)?._row ?? []), ...boardNodes]);
     listEl._lastOrderKey = newKey;
   };
 
-  const presentKeys = new Set(groups.order);
-  const groupOrderKey = groups.groups.map((group) => group.key).join('\n');
+  const presentKeys = new Set(railGroups.order);
+  const groupOrderKey = railGroups.groups.map((group) => group.key).join('\n');
   const groupsAlreadyInPlace = groupOrderKey === lastGroupOrderKey;
   lastGroupOrderKey = groupOrderKey;
-  for (const group of groups.groups) {
+  const newBoardButton = mountedRail.querySelector(':scope > .rail-new-board');
+  for (const group of railGroups.groups) {
     const { header, list } = ensureGroup(group);
-    if (!groupsAlreadyInPlace) mountedRail.append(header, list);
-    placeList(group.rows, list);
+    if (!groupsAlreadyInPlace) mountedRail.insertBefore(header, newBoardButton);
+    if (!groupsAlreadyInPlace) mountedRail.insertBefore(list, newBoardButton);
+    const projectBoards = group.hostId === null ? boardsOfProject.get(group.key) : undefined;
+    placeList(group.rows, list, projectBoards ? boardNodesOf(group.key, projectBoards, placedBoardIds) : []);
   }
-
-  if (boardsGroup && (!groupsAlreadyInPlace || boardsGroup.section.parentElement !== mountedRail)) mountedRail.append(boardsGroup.section);
-  if (boardsGroup) paintBoardRows(boardsGroup);
-  placeHostHeaders(mountedRail, { firstGroupHeaderOf: (hostId) => firstGroupHeaderOf(groups.groups, hostId), trailingNode: boardsGroup?.section ?? null });
+  removeUnplacedBoardRows(placedBoardIds, presentKeys);
+  placeHostHeaders(mountedRail, { firstGroupHeaderOf: (hostId) => firstGroupHeaderOf(railGroups.groups, hostId), trailingNode: newBoardButton });
 
   for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {
@@ -392,6 +581,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   }
   pageButtons?.showSession(centeredBoardId ? null : centeredId);
   paintBoardPane();
+  paintUnsplitSlot();
   updateRailHead(order, attentionTiles);
 }
 
@@ -400,58 +590,69 @@ function rememberOpenState(details: HTMLDetailsElement, isOpen: boolean, saveOpe
   details.addEventListener('toggle', () => saveOpen(details.open));
 }
 
-function buildBoardsGroup() {
-  const section = el('div', 'rail-section rail-boards');
-  const details = el('details', 'rail-boards-details');
-  const count = el('span', 'session-group-count');
-  const summary = el('summary', 'rail-section-summary');
-  summary.append('Boards ', count);
-  const list = el('div', 'focus-rail-list focus-board-list');
-  list.setAttribute('role', 'group');
-  list.setAttribute('aria-label', 'Boards with no session');
-  details.append(summary, list);
-  rememberOpenState(details, isRailBoardsOpen(), setRailBoardsOpen);
-  const addButton = button({ variant: 'icon', size: 'small', label: 'New board', icon: createLineIcon(PLUS_ICON_PATH), action: 'new-board', onClick: createBoardFromRail });
-  addButton.classList.add('rail-section-action');
-  section.append(details, addButton);
-  return { section, count, list };
-}
-
 function buildBoardRow(boardId: string) {
   const { row: boardRow, refs } = buildSessionRow();
   boardRow.dataset.boardId = boardId;
+  boardRow.draggable = true;
   boardRow.addEventListener('click', () => centerBoard(boardId));
+  boardRow.addEventListener('dragstart', (event) => {
+    event.dataTransfer?.setData(BOARD_ROW_MIME, boardId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'link';
+  });
   const item = el('div', 'session-row-item');
+  item.dataset.boardNode = boardId;
   item.append(boardRow);
   return Object.assign(boardRow, { _refs: refs, _row: item });
 }
 
-function paintBoardRows(group: ReturnType<typeof buildBoardsGroup>) {
-  const summaries = boardSummariesOf();
-  if (centeredBoardId && !summaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
-  const boards = sessionlessBoards(summaries, (sessionId) => sessionUIs.has(sessionId));
-  const shownIds = new Set(boards.map((board) => board.id));
+function buildArchivedFold(projectKey: string) {
+  const details = el('details', 'focus-board-archive');
+  details.dataset.boardNode = `archive:${projectKey}`;
+  const list = el('div', 'focus-board-archive-list');
+  details.append(el('summary', 'focus-board-archive-summary', 'Archived'), list);
+  return { details, list };
+}
+
+function connectedSessionNameOf(board: BoardSummary) {
+  const connectedUi = board.connectedSessionIds.map((sessionId) => sessionUIs.get(sessionId)).find((ui) => ui !== undefined);
+  return connectedUi ? sessionName(connectedUi) : null;
+}
+
+function paintedBoardRowOf(board: BoardSummary, placedBoardIds: Set<string>) {
+  let row = boardRowById.get(board.id);
+  if (!row) { row = buildBoardRow(board.id); boardRowById.set(board.id, row); }
+  paintBoardRow(row, row._refs, board.title, connectedSessionNameOf(board));
+  row.classList.toggle('focused', board.id === centeredBoardId);
+  placedBoardIds.add(board.id);
+  return row._row;
+}
+
+function boardNodesOf(projectKey: string, projectBoards: ProjectBoards<BoardSummary>, placedBoardIds: Set<string>): HTMLElement[] {
+  const activeRows = projectBoards.active.map((board) => paintedBoardRowOf(board, placedBoardIds));
+  if (projectBoards.archived.length === 0) return activeRows;
+  const fold = archivedFoldByProject.get(projectKey) ?? buildArchivedFold(projectKey);
+  archivedFoldByProject.set(projectKey, fold);
+  placeRowsInOrder(fold.list, projectBoards.archived.map((board) => paintedBoardRowOf(board, placedBoardIds)));
+  return [...activeRows, fold.details];
+}
+
+function removeUnplacedBoardRows(placedBoardIds: ReadonlySet<string>, presentGroupKeys: ReadonlySet<string>) {
   for (const [boardId, row] of boardRowById) {
-    if (shownIds.has(boardId)) continue;
+    if (placedBoardIds.has(boardId)) continue;
     row._row.remove();
     boardRowById.delete(boardId);
   }
-  for (const board of boards) {
-    let row = boardRowById.get(board.id);
-    if (!row) { row = buildBoardRow(board.id); boardRowById.set(board.id, row); }
-    paintBoardRow(row, row._refs, board.title);
-    row.classList.toggle('focused', board.id === centeredBoardId);
+  for (const [projectKey, fold] of archivedFoldByProject) {
+    if (presentGroupKeys.has(projectKey) && fold.list.childElementCount > 0) continue;
+    fold.details.remove();
+    archivedFoldByProject.delete(projectKey);
   }
-  placeRowsInOrder(group.list, boards.flatMap((board) => boardRowById.get(board.id)?._row ?? []));
-  writeTextIfChanged(group.count, String(boards.length));
-  writeAttributeIfChanged(group.count, 'aria-label', `${boards.length} ${boards.length === 1 ? 'board' : 'boards'} with no session`);
 }
 
 function centerBoard(boardId: string) {
   if (!active) return;
   releaseCenter();
   centeredBoardId = boardId;
-  pairedBoardId = null;
   setRailTabStop(null);
   refreshFocusRoster();
 }
@@ -547,6 +748,7 @@ function moveStripToHeaderStart(header: HTMLElement) {
 function loadBoardsView() {
   boardsViewLoad ??= import('../whiteboard/boards-view.ts').then((boardsView) => {
     loadedBoardsView = boardsView;
+    boardsView.onBoardPicked(onPaneBoardPicked);
     return boardsView;
   });
   return boardsViewLoad;
@@ -563,34 +765,43 @@ function showPanes(panes: ReadonlySet<Pane>) {
   paneLayout.showPanes(panes);
 }
 
-function paintBoardOnlyPane(boardId: string) {
-  showPanes(BOARD_ONLY);
-  const isNewSubject = boardPairedSessionId !== null || pairedBoardId !== boardId;
-  boardPairedSessionId = null;
-  pairedBoardId = boardId;
-  loadBoardsView().then((boardsView) => placeBoardPane(boardsView, null, isNewSubject ? boardId : null), reportBoardsViewLoadFailure);
-}
-
-function paintBoardPane(requestedBoardId: string | null = null) {
+function paintBoardPane() {
   if (centeredBoardId) {
-    paintBoardOnlyPane(centeredBoardId);
+    showPanes(BOARD_ONLY);
+    showBoard(null, centeredBoardId);
     return;
   }
   const centeredId = getFocusedSessionId();
-  const connectedBoards = centeredId ? boardsConnectedTo(centeredId) : [];
-  const [newestBoard] = connectedBoards;
-  showPanes(newestBoard ? TERMINAL_AND_BOARD : TERMINAL_ONLY);
-  if (!centeredId || !newestBoard) {
-    boardPairedSessionId = null;
-    pairedBoardId = null;
+  const boardId = splitBoardIdOf(centeredId);
+  if (!centeredId || !boardId) {
+    showPanes(TERMINAL_ONLY);
+    shownBoardKey = null;
     return;
   }
-  const isPairedBoardConnected = connectedBoards.some((board) => board.id === pairedBoardId);
-  const isNewPairing = boardPairedSessionId !== centeredId || requestedBoardId !== null || !isPairedBoardConnected;
-  boardPairedSessionId = centeredId;
-  const boardId = isNewPairing ? requestedBoardId ?? newestBoard.id : null;
-  if (boardId) pairedBoardId = boardId;
-  loadBoardsView().then((boardsView) => placeBoardPane(boardsView, centeredId, boardId), reportBoardsViewLoadFailure);
+  showPanes(TERMINAL_AND_BOARD);
+  showBoard(centeredId, boardId);
+}
+
+function showBoard(sessionId: string | null, boardId: string) {
+  const boardKey = `${sessionId ?? ''}\n${boardId}`;
+  const isNewSubject = shownBoardKey !== boardKey;
+  shownBoardKey = boardKey;
+  loadBoardsView().then((boardsView) => placeBoardPane(boardsView, sessionId, isNewSubject ? boardId : null), reportBoardsViewLoadFailure);
+}
+
+function onPaneBoardPicked(boardId: string) {
+  if (!active) return;
+  if (centeredBoardId) {
+    centeredBoardId = boardId;
+    shownBoardKey = `\n${boardId}`;
+    refreshFocusRoster();
+    return;
+  }
+  const sessionId = getFocusedSessionId();
+  if (!sessionId) return;
+  saveSplits(openSplit(splitBoardBySession, sessionId, boardId));
+  shownBoardKey = `${sessionId}\n${boardId}`;
+  refreshFocusRoster();
 }
 
 function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, boardId: string | null) {
@@ -603,15 +814,14 @@ function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, 
 }
 
 export function reopenFocusBoard() {
-  if (!active || (!boardPairedSessionId && !centeredBoardId)) return;
+  if (!active || shownBoardKey === null) return;
   loadedBoardsView?.reopenSelectedBoard();
 }
 
 export function openRequestedBoardInFocus() {
   const request = takeOpenBoardRequest();
   if (!active || !request?.sessionId || !sessionUIs.has(request.sessionId)) return;
-  focusSession(request.sessionId);
-  paintBoardPane(request.boardId);
+  splitSessionWithBoard(request.sessionId, request.boardId);
 }
 
 function releaseCenter() {
