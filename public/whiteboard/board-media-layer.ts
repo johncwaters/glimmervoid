@@ -148,13 +148,14 @@ function placedPageOf(boxId: string, media: PageMedia, identity: string, latestD
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
-  placeNode(node, media);
   if (media.kind === 'doc') {
     node.append(docCardOf(media));
+    placeNode(node, media);
     return { identity, node, frame: null, postedDialValues: '{}' };
   }
   const frame = pageFrameOf(media);
   node.append(frame);
+  placeNode(node, media);
   const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues) };
   tunePageOnLoad(frame, node, () => {
     const dialValues = latestDialValues();
