@@ -1,6 +1,4 @@
 import { STATES } from "../../shared/states.ts";
-import type { SessionState } from "../../shared/states.ts";
-import { TRANSITIONS } from "./state-machine.ts";
 
 type LifecycleEvent = "new_output" | "user_input" | "task_complete" | "prompt_detected";
 
@@ -41,20 +39,4 @@ function mapSignalToEvent(
   }
 }
 
-const STARTUP_STATES: readonly SessionState[] = Object.freeze([
-  STATES.DORMANT,
-  STATES.INITIALIZING,
-  STATES.STARTING,
-]);
-
-function acceptsAttentionSignal(state: SessionState): boolean {
-  if (mapSignalToEvent("awaiting-input", state, "high", 0) !== "prompt_detected") return false;
-  return "prompt_detected" in TRANSITIONS[state];
-}
-
-function shouldDeferAttention(state: SessionState): boolean {
-  if (acceptsAttentionSignal(state)) return false;
-  return STARTUP_STATES.includes(state);
-}
-
-export { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention };
+export { mapSignalToEvent };

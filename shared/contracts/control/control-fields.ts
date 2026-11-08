@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { PLAN_BODY_CAP_BYTES, PLAN_COMMENTS_MAX, PLAN_COMMENT_MAX_CHARS, PLAN_FEEDBACK_MAX_CHARS } from '../plan-review.ts';
-import { SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
+import { AttentionNote, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 
@@ -131,6 +131,7 @@ export const SessionStatusFields = z.object({
   managerSeenSeq: z.number().int().nonnegative().optional(),
   isQuestionManagerOn: z.boolean().optional(),
   pendingPromptKind: nullableString.optional(),
+  attentionNotes: z.array(AttentionNote).optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
 

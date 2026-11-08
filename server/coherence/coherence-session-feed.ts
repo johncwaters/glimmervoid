@@ -6,7 +6,7 @@ import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts
 import type { CoherenceAttachment } from './coherence-runtime.ts';
 import { appendJournalWindow, journalEntries, judgeTurnEnd, selectLatestShownEntry, startVerdictWatch, type CoherenceVerdictWatch } from './core/coherence-feed-core.ts';
 
-type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'noteAttention'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
+type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'raiseAttention'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
   on(event: 'exit', listener: () => void): unknown;
 };
 
@@ -120,7 +120,7 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
     const outcome = await session.coherenceAttachment.healHooks();
     if (state.isClosed || outcome.status === 'not-needed') return;
     if (outcome.status === 'failed') {
-      session.noteAttention(`Coherence hooks could not be installed: ${outcome.reason}`);
+      session.raiseAttention('coherence-hooks', `Coherence hooks could not be installed: ${outcome.reason}`);
       return;
     }
     await session.refreshCoherenceHooks();
@@ -145,10 +145,10 @@ function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now =
       if (state.isClosed) return;
       const judged = judgeTurnEnd(state.verdictWatch, reading);
       state.verdictWatch = judged.watch;
-      for (const note of judged.notes) session.noteAttention(note);
+      for (const { origin, note } of judged.notes) session.raiseAttention(origin, note);
     } catch (error) {
       if (state.isClosed) return;
-      session.noteAttention(`Coherence could not re-run invariants after the turn: ${firstLine(errorMessage(error))}`);
+      session.raiseAttention('coherence-error', `Coherence could not re-run invariants after the turn: ${firstLine(errorMessage(error))}`);
     }
   }
 

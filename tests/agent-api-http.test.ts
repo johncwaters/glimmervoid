@@ -711,7 +711,7 @@ test('closing a clean child discards its worktree and deletes its guardrails tem
   let worktree: StubbedWorktree | null = null;
   const fixture = wiringFixture({ settleSessionCoherence: async () => { worktree?.log.push('coherence-settled'); } });
   const attentionNotes: string[] = [];
-  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
     const childId = String(spawned.body.sessionId);
@@ -764,7 +764,7 @@ test('closing a child holding unpushed work is refused until --discard, which di
 test('a parent that ends discards its clean children and keeps a dirty one, flagging the operator with its branch and path', async () => {
   const fixture = wiringFixture();
   const attentionNotes: string[] = [];
-  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
     await fixture.spawn(fixture.parent, { prompt: 'clean slice' });
     await fixture.spawn(fixture.parent, { prompt: 'dirty slice' });
@@ -789,7 +789,7 @@ test('a parent that ends discards its clean children and keeps a dirty one, flag
 test('a child that exits by itself holding unpushed work keeps its worktree, tells the parent and flags the operator', async () => {
   const fixture = wiringFixture();
   const attentionNotes: string[] = [];
-  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
     const childId = String(spawned.body.sessionId);
@@ -811,9 +811,9 @@ test('a child that exits by itself holding unpushed work keeps its worktree, tel
 test('a parent the operator removes takes a dirty child worktree with it, discarding it unconditionally', async () => {
   const fixture = wiringFixture();
   const attentionResults: unknown[] = [];
-  const realNoteAttention = fixture.parent.noteAttention.bind(fixture.parent);
-  fixture.parent.noteAttention = (note) => {
-    const result = realNoteAttention(note);
+  const realRaiseAttention = fixture.parent.raiseAttention.bind(fixture.parent);
+  fixture.parent.raiseAttention = (_origin, note) => {
+    const result = realRaiseAttention(_origin, note);
     attentionResults.push(result);
     return result;
   };
@@ -836,9 +836,9 @@ test('a parent rebuilt under the same id keeps a dirty child worktree and flags 
   const fixture = wiringFixture();
   const originalNotes: string[] = [];
   const successorNotes: string[] = [];
-  fixture.parent.noteAttention = (note) => { originalNotes.push(note); return { ok: true, pending: false }; };
+  fixture.parent.raiseAttention = (_origin, note) => { originalNotes.push(note); return { ok: true, pending: false }; };
   const successor = new Session({ id: fixture.parent.id, name: 'parent', path: process.cwd(), ptySpawn: () => fakePty() });
-  successor.noteAttention = (note) => { successorNotes.push(note); return { ok: true, pending: false }; };
+  successor.raiseAttention = (_origin, note) => { successorNotes.push(note); return { ok: true, pending: false }; };
   try {
     await fixture.spawn(fixture.parent, { prompt: 'dirty slice' });
     const dirty = stubChildWorktree(fixture.created[0], { dirty: true });
@@ -977,7 +977,7 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
   const attentionNotes: string[] = [];
   fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
   fixture.parent.write = (text) => { written.push(text); };
-  fixture.parent.noteAttention = (note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build U2' });
     const childId = String(spawned.body.sessionId);
@@ -1229,8 +1229,8 @@ test('two notes held during startup reach the operator in one notification, in o
     wireSessionEvents(session);
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
-    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: true });
-    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: true });
+    assert.deepEqual(session.raiseAttention('agent', 'pick a base branch'), { ok: true, pending: true });
+    assert.deepEqual(session.raiseAttention('agent', 'then confirm the force push'), { ok: true, pending: true });
     assert.deepEqual(triggered, [], 'nothing is notified while the notes are held');
     session.transition('first_output');
     assert.deepEqual(triggered, [{
@@ -1251,17 +1251,40 @@ test('a note raised while the session already waits folds into the next notifica
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
     session.transition('first_output');
-    assert.deepEqual(session.noteAttention('pick a base branch'), { ok: true, pending: false });
+    assert.deepEqual(session.raiseAttention('agent', 'pick a base branch'), { ok: true, pending: false });
     assert.equal(session.state, STATES.WAITING);
-    assert.deepEqual(session.noteAttention('then confirm the force push'), { ok: true, pending: false });
+    assert.deepEqual(session.raiseAttention('agent', 'then confirm the force push'), { ok: true, pending: false });
     session.transition('user_dismiss');
     await setTimeoutPromise(600);
-    assert.deepEqual(session.noteAttention('and pick a reviewer'), { ok: true, pending: false });
+    assert.deepEqual(session.raiseAttention('agent', 'and pick a reviewer'), { ok: true, pending: false });
     assert.equal(session.state, STATES.WAITING);
     assert.deepEqual(triggered.map((entry) => entry.message), [
       'folding lane: pick a base branch',
       'folding lane: then confirm the force push | and pick a reviewer',
     ], 'the undelivered note is folded in and the delivered one is not repeated');
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a Coherence note raised after the turn ends leaves the finished session complete and records its origin', () => {
+  const session = plainSession('attention-note-session', 'finished lane');
+  const triggered: { category: string; message: string }[] = [];
+  const wireSessionEvents = notificationWiring(triggered);
+  try {
+    wireSessionEvents(session);
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('task_complete');
+    assert.deepEqual(session.raiseAttention('coherence-verdict', 'invariant still fails after the turn'), { ok: true, pending: false });
+    assert.equal(session.state, STATES.COMPLETE);
+    assert.deepEqual(triggered.filter((entry) => entry.category !== 'complete'), [{ category: 'note', message: 'finished lane: invariant still fails after the turn' }]);
+    assert.deepEqual(session.attentionNotes.map(({ origin, note }) => ({ origin, note })), [{ origin: 'coherence-verdict', note: 'invariant still fails after the turn' }]);
+    const attentionRecords = session._observability.decisionTail(15).filter((entry) => entry.kind === 'attention');
+    assert.deepEqual(attentionRecords.map(({ origin, disposition, note }) => ({ origin, disposition, note })), [{ origin: 'coherence-verdict', disposition: 'flagged', note: 'invariant still fails after the turn' }]);
+    session.dismiss();
+    assert.deepEqual(session.attentionNotes, [], 'dismissing the card clears its notes');
   } finally {
     session.destroy();
   }
@@ -1276,7 +1299,7 @@ test('a sixth held note is refused rather than silently dropping an earlier one'
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
     for (let index = 0; index < 5; index += 1) {
-      assert.deepEqual(session.noteAttention(`note ${index}`), { ok: true, pending: true });
+      assert.deepEqual(session.raiseAttention('agent', `note ${index}`), { ok: true, pending: true });
     }
     const refused = await fixture.wiring.handle(session, 'attention', { note: 'note 5' });
     assert.equal(refused.status, 429);
@@ -1298,7 +1321,7 @@ test('a held attention note is dropped when the session exits before it can fire
     wireSessionEvents(session);
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
-    assert.deepEqual(session.noteAttention('pick a base branch before I rebase'), { ok: true, pending: true });
+    assert.deepEqual(session.raiseAttention('agent', 'pick a base branch before I rebase'), { ok: true, pending: true });
     await session._handlePtyExit(1, null);
     session.transition('user_restart');
     session.transition('spawn_success', { spawnCwdExists: true });

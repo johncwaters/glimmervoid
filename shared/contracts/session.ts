@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { STATES } from '../states.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
+import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply } from './secrets.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
@@ -57,6 +58,18 @@ export const CoherenceHooksState = z.discriminatedUnion('active', [
   z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS), version: z.string().optional() }).strict(),
 ]);
 
+export const ATTENTION_NOTE_MAX_CHARS = 500;
+const ATTENTION_QUESTION_ORIGINS = ['agent', 'secret'] as const;
+const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'child-kept'] as const;
+export const AttentionOrigin = z.enum([...ATTENTION_QUESTION_ORIGINS, ...ATTENTION_NOTE_ORIGINS]);
+export const AttentionNoteOrigin = z.enum(ATTENTION_NOTE_ORIGINS);
+export const AttentionNote = z.object({ origin: AttentionNoteOrigin, note: z.string().max(ATTENTION_NOTE_MAX_CHARS), at: z.number() }).strict();
+export const ATTENTION_NOTE_NOTIFY_CATEGORY = 'note';
+export const QUIET_NOTIFY_CATEGORIES: ReadonlySet<string> = new Set([QUESTION_ANSWERED_NOTIFY_CATEGORY, ATTENTION_NOTE_NOTIFY_CATEGORY]);
+export type AttentionOrigin = z.infer<typeof AttentionOrigin>;
+export type AttentionNoteOrigin = z.infer<typeof AttentionNoteOrigin>;
+export type AttentionNote = z.infer<typeof AttentionNote>;
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -88,6 +101,7 @@ export const SessionSnapshot = z.object({
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   coherenceHooks: CoherenceHooksState.nullable().default(null),
+  attentionNotes: z.array(AttentionNote).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
@@ -173,7 +187,7 @@ export const AgentReadReply = z.object({
 export const AGENT_ATTENTION_NOTE_SEPARATOR = ' | ';
 
 export const AgentAttentionRequest = z.object({
-  note: z.string({ error: 'note must be a string' }).min(1, { error: 'note must not be empty' }).max(500, { error: 'note must be at most 500 characters' }),
+  note: z.string({ error: 'note must be a string' }).min(1, { error: 'note must not be empty' }).max(ATTENTION_NOTE_MAX_CHARS, { error: `note must be at most ${ATTENTION_NOTE_MAX_CHARS} characters` }),
 }).strict();
 
 export const AgentAttentionReply = z.union([

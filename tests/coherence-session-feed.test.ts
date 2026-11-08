@@ -20,7 +20,7 @@ test('journal --json feed publishes session entries, deduplicates by id and forg
   assert.ok(attachment);
   const session = Object.assign(new EventEmitter(), {
     id: 'card-1', resumeSessionId: 's-fixture', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
-    refreshCoherenceHooks: async () => {}, noteAttention: () => ({ ok: true as const, pending: false }),
+    refreshCoherenceHooks: async () => {}, raiseAttention: () => ({ ok: true as const, pending: false }),
   });
   const publications = new EventEmitter();
   const feed = createCoherenceSessionFeed({ broadcastControl: (message) => publications.emit('reading', message), debounceMs: 0 });
@@ -66,7 +66,7 @@ test('Coherence attaches only in a configured repository, and a turn end install
   const session = Object.assign(new EventEmitter(), {
     id: 'card-heal', resumeSessionId: null, coherenceHooks: attachment.hooks, coherenceAttachment,
     refreshCoherenceHooks: async () => {},
-    noteAttention: (note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
+    raiseAttention: (_origin: unknown, note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
   });
   const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
   feed.attachSession(session);
@@ -130,7 +130,7 @@ test('a turn that breaks a covered invariant or the spec check reaches the opera
   const session = Object.assign(new EventEmitter(), {
     id: 'card-verdicts', resumeSessionId: 's-verdicts', coherenceHooks: attachment.hooks, coherenceAttachment,
     refreshCoherenceHooks: async () => {},
-    noteAttention: (note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
+    raiseAttention: (_origin: unknown, note: string) => { notes.push(note); return { ok: true as const, pending: false }; },
   });
   const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });
   feed.attachSession(session);
@@ -168,7 +168,7 @@ for (const ending of ['closed', 'exited cleanly'] as const) for (const reader of
   const worktreeDiscardHolds: Array<() => Promise<() => void>> = [];
   const session = Object.assign(new EventEmitter(), {
     id: 'card-settle', resumeSessionId: 's-settle', coherenceHooks: attachment.hooks, coherenceAttachment: attachment,
-    refreshCoherenceHooks: async () => {}, noteAttention: () => ({ ok: true as const, pending: false }),
+    refreshCoherenceHooks: async () => {}, raiseAttention: () => ({ ok: true as const, pending: false }),
     onBeforeWorktreeDiscard: (hold: () => Promise<() => void>) => { worktreeDiscardHolds.push(hold); },
   });
   const feed = createCoherenceSessionFeed({ broadcastControl: () => {}, debounceMs: 0 });

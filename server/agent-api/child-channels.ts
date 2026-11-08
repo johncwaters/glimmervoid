@@ -92,7 +92,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
         return;
       case 'flag-operator':
         link.isOperatorFlagged = true;
-        recipient.noteAttention(describeWakeCapNote(channel));
+        recipient.raiseAttention('child-wake-cap', describeWakeCapNote(channel));
         return;
       case 'wake':
         typeWakeLine(link, channel, side, recipient);
@@ -202,7 +202,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
       endCauseByChildId.delete(child.id);
       if (registeredParent && worktree && isKept) {
         logger.warn(`[${AGENT_LANE_TAG} ${childName}] kept a worktree with unpushed work: ${worktree.worktreeDir}`);
-        registeredParent.noteAttention(describeKeptChildAttention(childName, worktree));
+        registeredParent.raiseAttention('child-kept', describeKeptChildAttention(childName, worktree));
         post(child.id, 'toParent', { author: 'glimmervoid', text: describeChildEndNote(childName, cause, { kind: 'kept', worktree }), at: now(), wakes: true });
         return;
       }

@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { CoherenceHooksState, UnseenOutcome } from "../../shared/contracts/session.ts";
+import type { AttentionNote, CoherenceHooksState, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 
 interface SessionCardSource {
@@ -73,6 +73,7 @@ interface SnapshotSource {
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
   pendingPromptKind: string | null;
+  attentionNotes: AttentionNote[];
   hasPlan: boolean;
   mergeStatus: string;
   mergeReason: string | null;
@@ -110,6 +111,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     pendingPromptKind: source.pendingPromptKind,
+    attentionNotes: source.attentionNotes,
     hasPlan: source.hasPlan,
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,

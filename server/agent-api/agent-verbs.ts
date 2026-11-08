@@ -25,7 +25,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function attention(session: Session, request: AgentAttentionRequest): AgentReplyOf<'attention'> {
-    const reply: AgentAttentionReply = session.noteAttention(request.note);
+    const reply: AgentAttentionReply = session.raiseAttention('agent', request.note);
     return { status: reply.ok ? 200 : 429, body: reply };
   }
 

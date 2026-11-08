@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, COHERENCE_JOURNAL_TEXT_MAX_CHARS } from '../../../shared/contracts/coherence.ts';
 import type { CoherenceJournalEntry, CoherenceJournalOutput, CoherenceJournalRecord } from '../../../shared/contracts/coherence.ts';
+import type { AttentionNoteOrigin } from '../../../shared/contracts/session.ts';
 import { sanitizeOneLine } from '../../core/text-core.ts';
 
 const SHOWN_KINDS: ReadonlySet<string> = new Set(['decision', 'defect', 'unable', 'escalation', 'conjecture']);
@@ -126,16 +127,18 @@ function nextSpecWatch(spec: SpecWatch, hasSpecProblems: boolean | null): { spec
   return { spec, isNoteDue: false };
 }
 
-export function judgeTurnEnd(watch: CoherenceVerdictWatch, reading: CoherenceTurnReading): { watch: CoherenceVerdictWatch; notes: string[] } {
+interface CoherenceTurnNote { origin: AttentionNoteOrigin; note: string }
+
+export function judgeTurnEnd(watch: CoherenceVerdictWatch, reading: CoherenceTurnReading): { watch: CoherenceVerdictWatch; notes: CoherenceTurnNote[] } {
   const verdicts = { ...watch.verdicts, ...reading.observed };
   const isFailing = (invariantId: string) => verdicts[invariantId]?.verdict === 'fail';
   const standingFailures = watch.standingFailures.filter(isFailing);
   const notedFailures = watch.notedFailures.filter(isFailing);
-  const notes: string[] = [];
+  const notes: CoherenceTurnNote[] = [];
   for (const invariantId of standingFailures) {
     if (notedFailures.includes(invariantId)) continue;
     const note = `Coherence invariant ${sanitizeOneLine(invariantId, COHERENCE_JOURNAL_TEXT_MAX_CHARS)} still fails after the agent's turn; its test: ${verdicts[invariantId].test}`;
-    notes.push(sanitizeOneLine(note, OPERATOR_NOTE_MAX_CHARS));
+    notes.push({ origin: 'coherence-verdict', note: sanitizeOneLine(note, OPERATOR_NOTE_MAX_CHARS) });
     notedFailures.push(invariantId);
   }
   for (const [invariantId, observed] of Object.entries(reading.observed)) {
@@ -143,6 +146,6 @@ export function judgeTurnEnd(watch: CoherenceVerdictWatch, reading: CoherenceTur
     standingFailures.push(invariantId);
   }
   const spec = nextSpecWatch(watch.spec, reading.hasSpecProblems);
-  if (spec.isNoteDue) notes.push('Coherence spec check still reports problems after the agent\'s turn; run: spec --check');
+  if (spec.isNoteDue) notes.push({ origin: 'coherence-spec', note: 'Coherence spec check still reports problems after the agent\'s turn; run: spec --check' });
   return { watch: { head: reading.head, verdicts, standingFailures, notedFailures, spec: spec.spec }, notes };
 }

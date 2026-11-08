@@ -30,7 +30,7 @@ function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWir
     const session = findSession(sessionId);
     if (!session) return;
     forgetOnTeardown(session);
-    session.noteAttention(`asks for ${newNames.join(', ')}: allow or deny on this session's card`);
+    session.raiseAttention('secret', `asks for ${newNames.join(', ')}: allow or deny on this session's card`);
   });
   broker.events.on('delivered', (sessionId: string) => {
     const session = findSession(sessionId);

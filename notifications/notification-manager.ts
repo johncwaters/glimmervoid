@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 
 import { NOTIFICATION_STATES as NS, NOTIFICATION_TRANSITIONS } from '../shared/notification-states.ts';
 import { decidePhoneEscalation } from './core/phone-escalation-core.ts';
-import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../shared/contracts/question-manager.ts';
+import { ATTENTION_NOTE_NOTIFY_CATEGORY, QUIET_NOTIFY_CATEGORIES } from '../shared/contracts/session.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 import type { NotifyAlertGroup } from '../shared/contracts/control-messages.ts';
@@ -65,6 +65,15 @@ interface NotificationManagerDependencies extends NotificationManagerOptions {
   now?: () => number;
 }
 
+function isQuietCategory(category: string | null): boolean {
+  return category !== null && QUIET_NOTIFY_CATEGORIES.has(category);
+}
+
+function wouldNoteHideLiveAlert(entry: NotificationEntry, category: string): boolean {
+  if (category !== ATTENTION_NOTE_NOTIFY_CATEGORY) return false;
+  return entry.state !== NS.IDLE && !isQuietCategory(entry.category);
+}
+
 class NotificationManager extends EventEmitter {
   _entries: Map<string, NotificationEntry>;
   _channels: RegisteredChannel[];
@@ -115,6 +124,7 @@ class NotificationManager extends EventEmitter {
     if (!entry) return false;
     const stateTransitions = NOTIFICATION_TRANSITIONS[entry.state];
     if (!stateTransitions || !('trigger' in stateTransitions)) return false;
+    if (wouldNoteHideLiveAlert(entry, category)) return false;
     entry.category = category;
     entry.message = message;
     entry.kind = kind;
@@ -141,7 +151,7 @@ class NotificationManager extends EventEmitter {
   armPendingPhoneEscalations(): void {
     for (const [sessionName, entry] of this._entries) {
       if (entry.state !== NS.DELIVERED && entry.state !== NS.ESCALATED) continue;
-      if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) continue;
+      if (isQuietCategory(entry.category)) continue;
       const remainingMs = Math.max(0, entry.pendingSinceMs + this._phoneEscalationMs - this._now());
       this._armPhoneEscalation(sessionName, entry, remainingMs);
     }
@@ -225,7 +235,7 @@ class NotificationManager extends EventEmitter {
         if (entry.category === 'waiting') {
           this._armEscalation(sessionName, entry);
         }
-        if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) break;
+        if (isQuietCategory(entry.category)) break;
         this._armPhoneEscalation(sessionName, entry);
         break;
 
@@ -306,7 +316,7 @@ class NotificationManager extends EventEmitter {
 
 
   _deliverToDashboard(sessionName: string, entry: NotificationEntry): void {
-    if (entry.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) {
+    if (isQuietCategory(entry.category)) {
       this._deliverViaChannels(sessionName, entry, null, (channel) => !channel.offDashboard);
       return;
     }

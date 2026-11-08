@@ -655,6 +655,10 @@
     {
       "name": "answer field",
       "definition": "The one top-level JSON field of a probe's answer, such as results, that the watcher hashes alone, so per-run fields beside it never nudge"
+    },
+    {
+      "name": "attention note",
+      "definition": "A report Glimmervoid itself raises on a session (Coherence hooks, verdict, spec or error, a kept child worktree, the child wake limit), one slot per origin, shown as a card chip and a quiet notification that never moves the session to waiting; cleared by the operator's next prompt or a dismiss"
     }
   ],
   "retired": [

@@ -4,7 +4,8 @@ import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/
 import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
-import { AGENT_ATTENTION_NOTE_SEPARATOR } from '../../shared/contracts/session.ts';
+import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
+import type { AttentionNote } from '../../shared/contracts/session.ts';
 import { decideExitClose } from '../../session/core/exit-close.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -323,6 +324,12 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('agent-attention', ({ note }: { note: string }) => {
       pendingAgentNote = pendingAgentNote === null ? note : `${pendingAgentNote}${AGENT_ATTENTION_NOTE_SEPARATOR}${note}`;
+    });
+    session.on('attention-notes', ({ notes }: { notes: AttentionNote[] }) => {
+      noteStatus({ attentionNotes: notes });
+      const newestNote = notes[0];
+      if (!newestNote) return;
+      dependencies.notificationManager.trigger(session.id, ATTENTION_NOTE_NOTIFY_CATEGORY, `${session.name}: ${newestNote.note}`);
     });
     session.on('user-prompt', ({ isSelfWake }: { isSelfWake: boolean }) => {
       markTurnWorking();

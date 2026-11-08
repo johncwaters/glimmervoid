@@ -1,5 +1,5 @@
 import type { NotifyAlertGroup, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from '#shared/contracts/question-manager.ts';
+import { QUIET_NOTIFY_CATEGORIES } from '#shared/contracts/session.ts';
 import { clearHeaderError, reportHeaderError } from './action-status.ts';
 import { describeFailure } from './client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from './control-ws.ts';
@@ -196,7 +196,7 @@ function showQuietNotice(msg: ServerMessageOf<'notify'>) {
 }
 
 export function alertFromNotify(msg: ServerMessageOf<'notify'>) {
-  if (msg.category === QUESTION_ANSWERED_NOTIFY_CATEGORY) {
+  if (QUIET_NOTIFY_CATEGORIES.has(msg.category ?? '')) {
     showQuietNotice(msg);
     return;
   }

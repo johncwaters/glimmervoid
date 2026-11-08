@@ -30,10 +30,11 @@ import type { GraphicalSessionState } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
-import { AGENT_ATTENTION_NOTE_SEPARATOR } from "../shared/contracts/session.ts";
 import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
-import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply } from "../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
+import { attentionNotesOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
+import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
@@ -56,7 +57,7 @@ import {
   EXIT_HOOKS,
   UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
-import { acceptsAttentionSignal, mapSignalToEvent, shouldDeferAttention } from "./core/status-mapper.ts";
+import { mapSignalToEvent } from "./core/status-mapper.ts";
 import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
@@ -89,7 +90,6 @@ import type { HookPayload } from "../shared/contracts/index.ts";
 import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 
-const MAX_PENDING_ATTENTION_NOTES = 5;
 const PTY_PROMPT_SETTLE_MS = 1500;
 const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
 const PASTE_BREAKING_CONTROL_BYTES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
@@ -288,7 +288,7 @@ class Session extends EventEmitter {
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
   _pendingPromptToolName: string | null;
-  _pendingAttentionNotes: string[];
+  _attention: AttentionLanes;
   _titleQuiet: boolean;
   _hooksReportPrompts: boolean;
   _spawnCommand: ResolvedCommand | null;
@@ -515,7 +515,7 @@ class Session extends EventEmitter {
     this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
     this._pendingPromptToolName = null;
-    this._pendingAttentionNotes = [];
+    this._attention = createAttentionLanes();
 
     this._titleQuiet = false;
     this._hooksReportPrompts = false;
@@ -945,7 +945,9 @@ class Session extends EventEmitter {
       this.backgroundTracking.resetTurnEvidence();
       this.backgroundTracking.clearBgDeclared();
 
-      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: Date.now(), isSelfWake: isSelfWakePrompt(raw.payload?.prompt) });
+      const isSelfWake = isSelfWakePrompt(raw.payload?.prompt);
+      if (!isSelfWake) this._dispatchAttention({ type: "operator_prompt" });
+      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: Date.now(), isSelfWake });
     }
 
     if (raw && raw.signal === "ready" && raw.source === "hook") {
@@ -1236,21 +1238,30 @@ class Session extends EventEmitter {
     this._agentLiveChildren = Math.max(0, this._agentLiveChildren - 1);
   }
 
-  noteAttention(note: string): AgentAttentionReply {
+  raiseAttention(origin: AttentionOrigin, note: string): AgentAttentionReply {
     if (this._destroyed) return { ok: true, pending: false };
-    if (shouldDeferAttention(this.state)) {
-      if (this._pendingAttentionNotes.length >= MAX_PENDING_ATTENTION_NOTES) {
-        return { ok: false, error: `the session is already holding ${MAX_PENDING_ATTENTION_NOTES} attention notes; wait until it can accept input` };
-      }
-      this._pendingAttentionNotes.push(note);
-      return { ok: true, pending: true };
-    }
-    this._raiseAttention(note);
-    return { ok: true, pending: false };
+    const effect = this._dispatchAttention({ type: "raise", origin, note, at: Date.now(), state: this.state });
+    if (effect.refusal !== null) return { ok: false, error: effect.refusal };
+    return { ok: true, pending: effect.isHeld };
   }
 
-  _raiseAttention(note: string): void {
+  get attentionNotes(): AttentionNote[] {
+    return attentionNotesOf(this._attention);
+  }
+
+  _dispatchAttention(event: AttentionEvent): ReturnType<typeof reduceAttention>["effect"] {
+    const { lanes, effect } = reduceAttention(this._attention, event);
+    this._attention = lanes;
     const ts = Date.now();
+    for (const record of effect.records) {
+      this._recordDecision({ ts, kind: "attention", origin: record.origin, disposition: record.disposition, state: this.state, note: record.note });
+    }
+    if (effect.hasNotesChanged) this.emit("attention-notes", { notes: this.attentionNotes });
+    if (effect.askingNote !== null) this._askOperator(effect.askingNote, ts);
+    return effect;
+  }
+
+  _askOperator(note: string, ts: number): void {
     this._setPendingPromptKind("agent");
     this.emit("agent-attention", { note, ts });
     this._statusSource.ingest({
@@ -1259,14 +1270,6 @@ class Session extends EventEmitter {
       confidence: "high",
       ts,
     });
-  }
-
-  _releasePendingAttention(): void {
-    if (this._pendingAttentionNotes.length === 0) return;
-    if (!acceptsAttentionSignal(this.state)) return;
-    const releasing = this._pendingAttentionNotes;
-    this._pendingAttentionNotes = [];
-    this._raiseAttention(releasing.join(AGENT_ATTENTION_NOTE_SEPARATOR));
   }
 
   get hasLivePty(): boolean {
@@ -1457,6 +1460,7 @@ class Session extends EventEmitter {
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingPromptKind: this._pendingPromptKind,
+      attentionNotes: this.attentionNotes,
       hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
@@ -1551,7 +1555,7 @@ class Session extends EventEmitter {
 
     this.emit("state-change", { from, to, event, detail: detail || null });
 
-    this._releasePendingAttention();
+    this._dispatchAttention({ type: "state", state: to, leftWaiting: from === STATES.WAITING });
 
     return true;
   }
@@ -1932,7 +1936,7 @@ class Session extends EventEmitter {
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     const pid = this.ptyProcess ? this.ptyProcess.pid : null;
     this._resetDetectionSources({ quiet: false, clearTracking: true });
-    this._pendingAttentionNotes = [];
+    this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
     this._ptyAlive = false;
@@ -2058,8 +2062,10 @@ class Session extends EventEmitter {
 
   dismiss(): boolean {
     const hadUnseenOutcome = this.unseenOutcome !== null;
+    const hadAttentionNotes = this.attentionNotes.length > 0;
     this._setUnseenOutcome(null);
-    if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome;
+    this._dispatchAttention({ type: "dismiss" });
+    if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome || hadAttentionNotes;
     return this.transition("user_dismiss");
   }
 
@@ -2173,7 +2179,7 @@ class Session extends EventEmitter {
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
     this._agentToken = null;
     this._commitSigningToken = null;
-    this._pendingAttentionNotes = [];
+    this._dispatchAttention({ type: "teardown" });
 
     this._clearPendingPaste();
 

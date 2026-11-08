@@ -66,3 +66,14 @@ test('a seen reply before the escalation delay keeps the alert off the phone cha
   assert.equal(phoneCalls.length, 0);
   notificationManager.destroy();
 });
+
+test('an attention note does not replace a pending needs input alert on the same session', () => {
+  const { notificationManager, dashboardCalls } = createManagerWithChannels({ nowMs: () => 1_000, phoneEscalationMs: 0 });
+
+  notificationManager.trigger('api', 'waiting', 'api needs input');
+  assert.equal(notificationManager.trigger('api', 'note', 'api: child kept its worktree'), false);
+  notificationManager.trigger('web', 'note', 'web: invariant still fails');
+
+  assert.deepEqual(dashboardCalls.map(({ sessionId, category }) => [sessionId, category]), [['api', 'waiting'], ['web', 'note']]);
+  notificationManager.destroy();
+});
