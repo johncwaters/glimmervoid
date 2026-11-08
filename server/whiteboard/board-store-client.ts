@@ -10,7 +10,7 @@ import type { Rect, StoreRequestBody } from './board-store-core.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import { elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
-import type { StoredElementRow } from '../../shared/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import { indexBoardInSlices } from '../../shared/whiteboard-board-index.ts';
 
 type StoreAnswer = Extract<StoreReply, { ok: true }>;
@@ -91,6 +91,15 @@ function createBoardStore(boardsRoot: string): BoardStore {
     return { records, unreadableBoardIds };
   }
 
+  async function isEveryElementIndexed(elements: ElementTable): Promise<boolean> {
+    try {
+      await indexBoardInSlices(elements, ELEMENT_PAGE_SIZE, yieldToEventLoop);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
     const storedRows: StoredElementRow[] = [];
     const startedAt = performance.now();
@@ -116,7 +125,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
     const elements = elementTableOfStoredRows(storedRows);
     markStep?.('store pages read', { pages: pageCount, readMs: Math.round(performance.now() - startedAt) });
     if (elements.size > WHITEBOARD_LIMITS.elements) return null;
-    await indexBoardInSlices(elements, ELEMENT_PAGE_SIZE, yieldToEventLoop);
+    if (!(await isEveryElementIndexed(elements))) return null;
     return recordOfRows(headRowsOf(head), elements);
   }
 

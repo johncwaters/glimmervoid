@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
+import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
@@ -211,21 +211,12 @@ function headRowsOf(record: BoardRecord): StoredHeadRows {
   return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
 }
 
-function isEveryRowDecodable(storedRows: readonly StoredElementRow[]): boolean {
-  try {
-    return [...elementTableOfStoredRows(storedRows).values()].length === storedRows.length;
-  } catch {
-    return false;
-  }
-}
-
 function elementPageOfRows(rows: readonly StoredRowColumns[]): ElementPage {
   const storedRows: StoredElementRow[] = [];
   for (const row of rows) {
     if (!isElementKind(row.kind)) return { isDamaged: true };
     storedRows.push({ id: row.elementId, kind: row.kind, body: row.body });
   }
-  if (!isEveryRowDecodable(storedRows)) return { isDamaged: true };
   return { elementIds: storedRows.map((row) => row.id), elementKinds: storedRows.map((row) => row.kind), elementBodies: storedRows.map((row) => row.body) };
 }
 
