@@ -1,7 +1,7 @@
 import { BOX_SHAPES, Box, Frame, Note, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Element, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
-import { isStackedPanel, layoutBoard } from './whiteboard-layout-core.ts';
+import { isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
@@ -37,6 +37,7 @@ const NOTE_PREVIEW_CHARS = 80;
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
+const NO_PLAN_STEPS = new Map<string, never>();
 
 function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
@@ -181,12 +182,41 @@ function withoutEmptyOutputsOffDecision(element: Element): Element {
   return elementWithoutOutputs;
 }
 
+function drawnRectOf(draft: Draft, targetId: string): PlacedBox | null {
+  const target = elementOf(draft, targetId);
+  if (target?.kind !== 'box') return null;
+  if (target.at) return laidOutBox(NO_PLAN_STEPS, target, target.at);
+  const laidOut = draft.basePinPositions?.laidOutBoxOf(targetId);
+  if (!laidOut) return null;
+  return { ...laidOut, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
+}
+
+function placedAtNear(draft: Draft, element: Element): { ok: true; element: Element } | { ok: false; error: string } {
+  if (element.kind !== 'box' || element.near === null) return { ok: true, element };
+  if (element.at !== null) return { ok: true, element: { ...element, near: null } };
+  if (element.near.of === element.id) return { ok: false, error: `box ${element.id} cannot sit near itself` };
+  const target = elementOf(draft, element.near.of);
+  if (target?.kind !== 'box') return { ok: false, error: `box ${element.id} sits near ${element.near.of}, which is not a box` };
+  if (isStackedPanel(target)) return { ok: false, error: `box ${element.id} sits near ${element.near.of}, a panel with no place yet, so give that panel a near or at first` };
+  const targetRect = drawnRectOf(draft, element.near.of);
+  if (!targetRect) return { ok: false, error: `box ${element.id} sits near ${element.near.of}, which has no drawn place yet, so give ${element.near.of} an at first` };
+  const placed = laidOutNearBox(NO_PLAN_STEPS, element, element.near, targetRect);
+  return { ok: true, element: { ...element, near: null, at: { x: placed.x, y: placed.y } } };
+}
+
+function withoutAtUnlessGiven(element: Element, isAtGiven: boolean): Element {
+  if (element.kind !== 'box' || isAtGiven) return element;
+  return { ...element, at: null };
+}
+
 function addElement(draft: Draft, element: Element, author: Author): OpOutcome {
   if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
-  const stored: Element = element.kind === 'note' ? storedNote(element, author) : withoutEmptyOutputsOffDecision(element);
+  const placed = placedAtNear(draft, element);
+  if (!placed.ok) return placed;
+  const stored: Element = placed.element.kind === 'note' ? storedNote(placed.element, author) : withoutEmptyOutputsOffDecision(placed.element);
   const references = checkReferences(draft, stored, undefined);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -224,7 +254,9 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (!isOperatorAuthor(author) && ('author' in fields || 'resolvedBy' in fields)) return refuse('set cannot change who wrote or resolved a note; resolve it with a resolve op');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...rewrittenNoteStamp(existing, fields, author), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const stored = withoutEmptyOutputsOffDecision(parsed.data);
+  const placed = 'near' in fields ? placedAtNear(draft, withoutAtUnlessGiven(parsed.data, 'at' in fields)) : { ok: true as const, element: parsed.data };
+  if (!placed.ok) return placed;
+  const stored = withoutEmptyOutputsOffDecision(placed.element);
   const references = checkReferences(draft, stored, existing);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -344,8 +376,23 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, before, afterById: draft.afterById, commit };
 }
 
+function nearTargetIdOf(op: Op): string | null {
+  if (op.op === 'add') return op.element.kind === 'box' && op.element.at === null ? op.element.near?.of ?? null : null;
+  if (op.op !== 'set' || 'at' in op.fields || !isRecord(op.fields.near)) return null;
+  return typeof op.fields.near.of === 'string' ? op.fields.near.of : null;
+}
+
+function unplacedNearTargetIdsOf(board: Board, ops: readonly Op[]): string[] {
+  return ops.flatMap((op) => {
+    const targetId = nearTargetIdOf(op);
+    const target = targetId === null ? undefined : board.elements.get(targetId);
+    return targetId !== null && target?.kind === 'box' && target.at === null && !isStackedPanel(target) ? [targetId] : [];
+  });
+}
+
 function applyOps(board: Board, ops: readonly Op[], author: Author, nowMs: number): ApplyResult {
-  const basePinPositions = ops.some((op) => op.op === 'remove') ? pinPositionsOf(board) : null;
+  const isPinNeeded = ops.some((op) => op.op === 'remove') || unplacedNearTargetIdsOf(board, ops).length > 0;
+  const basePinPositions = isPinNeeded ? pinPositionsOf(board) : null;
   const staged = stageOps({ ...board, elements: copyOfElements(board.elements) }, ops, author, nowMs, basePinPositions);
   if (!staged.ok) return staged;
   staged.commit();
@@ -503,5 +550,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null, project = null }:
   };
 }
 
-export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps };
+export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, stageOps, unplacedNearTargetIdsOf };
 export type { ApplyResult, Author, PinPositions, StagedOps };

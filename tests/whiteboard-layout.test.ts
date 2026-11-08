@@ -439,8 +439,10 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.deepEqual([droppedPanel.x, droppedPanel.y], [40, 900]);
   const withBoxNearPanel = applyOps(dragged.board, [{ op: 'add', element: Element.parse({ kind: 'box', id: 'beside', title: 'Beside', near: { of: 'prior', side: 'bottom' } }) }], author, 0);
   assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
+  const placedBeside = withBoxNearPanel.board.elements.get('beside');
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
-  assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a near or at on it, or move box beside first');
+  assert.ok(restacked.ok, restacked.ok ? '' : restacked.error);
+  assert.deepEqual(restacked.board.elements.get('beside'), placedBeside);
   assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire, note or stroke/);
 });
 
@@ -477,7 +479,11 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   assert.equal(JSON.stringify(applyBoardDiff(start, edited.diff, edited.board.version, edited.board.updatedAt)), JSON.stringify(edited.board));
   const undone = applyOps(edited.board, undoOpsOf(edited.before, edited.diff), author, 3);
   assert.ok(undone.ok, undone.ok ? '' : undone.error);
-  const comparable = (board: Board) => ({ title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements: board.elements.toJSON() });
+  const comparable = (board: Board) => {
+    const drawnAtById = new Map(layoutBoard(board).elements.flatMap((drawn) => (drawn.kind === 'box' ? [[drawn.id, { x: drawn.x, y: drawn.y }] as const] : [])));
+    const elements = Object.fromEntries(Object.entries(board.elements.toJSON()).map(([id, element]) => [id, element.kind === 'box' ? { ...element, near: null, at: drawnAtById.get(id) } : element]));
+    return { title: board.title, legend: board.legend, codeSessionId: board.codeSessionId, elements };
+  };
   assert.deepEqual(comparable(undone.board), comparable(start));
 
   let history = EMPTY_HISTORY;

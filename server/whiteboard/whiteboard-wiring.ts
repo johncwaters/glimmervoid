@@ -8,7 +8,7 @@ import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { OPERATOR_AUTHOR, createBoard, stageOps } from '../../shared/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
@@ -59,7 +59,7 @@ const PUT_GUIDE = [
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
   `A box with shape sticky is a sticky note in its tone ${STICKY_TONES.join('|')}, yellow by default; a box with shape text draws its title and lines with no border and holds no media. A box height is a least height the content can still exceed. A frame with collapsed true draws as one stack card of its first box. A stroke is ink the operator drew: a read gives its bounds, and you may remove one but never add or set one.`,
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
-  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; build columns, rows or lanes yourself from at positions, frames and text boxes.',
+  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; near only places the box once, so it is stored as the at it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from at positions, frames and text boxes.',
   'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
   'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line or note takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
@@ -501,19 +501,25 @@ function createWhiteboardWiring({
     return false;
   }
 
-  function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<PinPositions | null> {
+  async function basePinPositionsFor(board: Board, ops: readonly Op[]): Promise<{ ok: true; pins: PinPositions | null } | { ok: false; error: string }> {
     const removedBoxIds = ops.flatMap((op) => (op.op === 'remove' && board.elements.get(op.id)?.kind === 'box' ? [op.id] : []));
-    const isPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || ops.some((op) => op.op === 'add' || op.op === 'set');
-    if (removedBoxIds.length === 0 || !isPinNeeded) return Promise.resolve(null);
-    const ids = ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : []));
-    return tiles.pinPositionsOf(board, ids).catch((error: unknown) => {
+    const nearTargetIds = unplacedNearTargetIdsOf(board, ops);
+    const isRemovalPinNeeded = removedBoxIds.some((boxId) => hasNearBox(board, boxId)) || (removedBoxIds.length > 0 && ops.some((op) => op.op === 'add' || op.op === 'set'));
+    if (!isRemovalPinNeeded && nearTargetIds.length === 0) return { ok: true, pins: null };
+    const ids = [...nearTargetIds, ...(isRemovalPinNeeded ? ops.flatMap((op) => (op.op === 'remove' || op.op === 'set' ? [op.id] : [])) : [])];
+    try {
+      return { ok: true, pins: await tiles.pinPositionsOf(board, ids) };
+    } catch (error: unknown) {
       logger.warn(`[whiteboard] board ${board.id} could not be laid out to pin boxes, so they keep their drawn anchors: ${errorMessage(error)}`);
-      return null;
-    });
+      if (nearTargetIds.length > 0) return { ok: false, error: `the whiteboard layout could not place boxes near ${nearTargetIds.join(', ')} right now, so send the put again` };
+      return { ok: true, pins: null };
+    }
   }
 
   async function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): Promise<AppliedOps> {
-    const basePinPositions = await basePinPositionsFor(record.board, ops);
+    const pinned = await basePinPositionsFor(record.board, ops);
+    if (!pinned.ok) return pinned;
+    const basePinPositions = pinned.pins;
     const result = stageOps(record.board, ops, author, now(), basePinPositions);
     if (!result.ok) return result;
     const refusalText = stagedRefusalOf(record.board, result.afterById);

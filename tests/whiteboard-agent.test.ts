@@ -21,6 +21,7 @@ import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.t
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
@@ -730,6 +731,27 @@ test('removing a box pins the boxes near it, and a box with no place is refused'
   assert.match(String(placeless.body.error), /needs a place/);
 });
 
+test('a box placed near another stays where it was drawn when that box moves, and near a box with no drawn place is refused', async () => {
+  const boardId = await newBoard('near chain');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'first', title: 'First', at: { x: 40, y: 40 } } },
+    { op: 'add', element: { kind: 'box', id: 'second', title: 'Second', near: { of: 'first', side: 'right' } } },
+    { op: 'add', element: { kind: 'box', id: 'third', title: 'Third', near: { of: 'second', side: 'right' } } },
+  ] })).status, 200);
+  const placed = (await boardOf(PLANNER_ID, boardId)).board.elements;
+  assert.deepEqual([placed.second?.near, placed.third?.near], [null, null]);
+
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'second', fields: { at: { x: 600, y: 400 } } }] })).status, 200);
+  assert.deepEqual((await boardOf(PLANNER_ID, boardId)).board.elements.third?.at, placed.third?.at);
+
+  const unplaced = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'step', title: 'Step', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'beside', title: 'Beside', near: { of: 'step', side: 'right' } } },
+  ] });
+  assert.equal(unplaced.status, 400);
+  assert.match(String(unplaced.body.error), /has no drawn place yet/);
+});
+
 test('the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and keeps the boards only it was on', async () => {
   const boardId = await newBoard('operator links');
   const leaverOnlyBoardId = await newBoard('leaver only');
@@ -1201,12 +1223,17 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.equal((second.body as { board: { id: string } }).board.id, boardId);
 
   const read = await wiring.handleAgent(shower, { sub: 'get', board: boardId });
-  const { elements } = Board.parse((read.body as { board: unknown }).board);
+  const shownBoard = Board.parse((read.body as { board: unknown }).board);
+  const { elements } = shownBoard;
   const firstCard = elements.get('shown-1');
   const secondCard = elements.get('shown-2');
   assert.ok(firstCard?.kind === 'box' && firstCard.shape === 'box' && secondCard?.kind === 'box' && secondCard.shape === 'box');
   assert.deepEqual([firstCard.title, firstCard.lines.map((line) => line.text), firstCard.media?.kind, firstCard.media?.alt], ['login.png', ['login after fix'], 'image', 'login after fix']);
-  assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', { of: 'shown-1', side: 'right', gap: 60 }]);
+  assert.deepEqual([secondCard.title, secondCard.media?.kind, secondCard.near], ['Weekly report', 'page', null]);
+  const drawnCards = layoutBoard(shownBoard).elements.filter((element) => element.kind === 'box');
+  const drawnFirst = drawnCards.find((element) => element.id === 'shown-1');
+  const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');
+  assert.equal(drawnSecond?.x, (drawnFirst?.x ?? 0) + (drawnFirst?.width ?? 0) + 60);
 
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'shown-1000000000000000000000', title: 'Odd id', at: { x: 0, y: 0 } } }]));
   const pastOddId = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png' });
