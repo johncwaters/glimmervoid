@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import { BoardChrome, PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
+import { BoardChrome, PlacedPaint, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
 import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';
@@ -28,10 +29,24 @@ CREATE TABLE IF NOT EXISTS laid_out (
   PRIMARY KEY (board_id, element_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS laid_out_by_slot ON laid_out (board_id, slot);
+CREATE TABLE IF NOT EXISTS saved_route (
+  board_id TEXT NOT NULL,
+  wire_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  PRIMARY KEY (board_id, wire_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS saved_warning (
+  board_id TEXT NOT NULL,
+  book TEXT NOT NULL,
+  text TEXT NOT NULL,
+  PRIMARY KEY (board_id, book, text)
+) STRICT;
 `;
 
 const HeadRow = z.object({ version: z.number().int(), updated_at: z.number().int(), code_stamp: z.string(), chrome: z.string() });
 const LaidOutRow = z.object({ slot: z.number().int().nonnegative(), body: z.string() });
+const RouteRow = z.object({ wire_id: z.string(), body: z.string() });
+const WarningRow = z.object({ book: z.enum(['route', 'placement']), text: z.string() });
 
 interface CachedLayout {
   chrome: BoardChrome;
@@ -48,10 +63,16 @@ interface ChangedPaint {
   painted: PlacedPaint;
 }
 
+interface WorldSave {
+  routes: readonly (readonly [string, RememberedRoute | null])[];
+  warnings: readonly WarningChange[];
+}
+
 interface LayoutCache {
   layoutOf(boardId: string, stamp: LayoutStamp): CachedLayout | null;
-  save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[]): void;
-  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[]): void;
+  worldOf(boardId: string, stamp: LayoutStamp): SavedWorldParts | null;
+  save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[], world: WorldSave): void;
+  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[], world: SavedWorldParts): void;
   forget(boardId: string): void;
 }
 
@@ -59,7 +80,7 @@ interface OpenCache extends LayoutCache {
   close(): void;
 }
 
-const NO_CACHE: OpenCache = { layoutOf: () => null, save: () => {}, saveWhole: () => {}, forget: () => {}, close: () => {} };
+const NO_CACHE: OpenCache = { layoutOf: () => null, worldOf: () => null, save: () => {}, saveWhole: () => {}, forget: () => {}, close: () => {} };
 
 function parsedJson(text: string): unknown {
   try {
@@ -78,6 +99,14 @@ function statementsOf(database: DatabaseSync) {
     upsertRow: database.prepare('INSERT INTO laid_out (board_id, element_id, slot, body) VALUES (?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET slot = excluded.slot, body = excluded.body'),
     removeRow: database.prepare('DELETE FROM laid_out WHERE board_id = ? AND element_id = ?'),
     removeRows: database.prepare('DELETE FROM laid_out WHERE board_id = ?'),
+    routes: database.prepare('SELECT wire_id, body FROM saved_route WHERE board_id = ?'),
+    upsertRoute: database.prepare('INSERT INTO saved_route (board_id, wire_id, body) VALUES (?, ?, ?) ON CONFLICT(board_id, wire_id) DO UPDATE SET body = excluded.body'),
+    removeRoute: database.prepare('DELETE FROM saved_route WHERE board_id = ? AND wire_id = ?'),
+    removeRoutes: database.prepare('DELETE FROM saved_route WHERE board_id = ?'),
+    warnings: database.prepare('SELECT book, text FROM saved_warning WHERE board_id = ? ORDER BY rowid'),
+    insertWarning: database.prepare('INSERT INTO saved_warning (board_id, book, text) VALUES (?, ?, ?)'),
+    removeWarning: database.prepare('DELETE FROM saved_warning WHERE board_id = ? AND book = ? AND text = ?'),
+    removeWarnings: database.prepare('DELETE FROM saved_warning WHERE board_id = ?'),
   };
 }
 
@@ -123,7 +152,32 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     return { chrome: chrome.data, painted };
   }
 
-  function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[]): void {
+  function worldOf(boardId: string, stamp: LayoutStamp): SavedWorldParts | null {
+    if (!currentHeadOf(boardId, stamp)) return null;
+    const routeById = new Map<string, RememberedRoute>();
+    for (const row of statements.routes.iterate(boardId)) {
+      const routeRow = RouteRow.safeParse(row);
+      const route = routeRow.success ? RememberedRoute.safeParse(parsedJson(routeRow.data.body)) : null;
+      if (!routeRow.success || !route?.success) return null;
+      routeById.set(routeRow.data.wire_id, route.data);
+    }
+    const textsByBook = { route: [] as string[], placement: [] as string[] };
+    for (const row of statements.warnings.iterate(boardId)) {
+      const warning = WarningRow.safeParse(row);
+      if (!warning.success) return null;
+      textsByBook[warning.data.book].push(warning.data.text);
+    }
+    return { routeById, routeWarnings: textsByBook.route, placementWarnings: textsByBook.placement };
+  }
+
+  function writeWarningChanges(boardId: string, warnings: readonly WarningChange[]): void {
+    for (const { book, text, isPresent } of warnings) {
+      statements.removeWarning.run(boardId, book, text);
+      if (isPresent) statements.insertWarning.run(boardId, book, text);
+    }
+  }
+
+  function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[], world: WorldSave): void {
     inTransaction(() => {
       if (!currentHeadOf(boardId, from)) {
         statements.removeHead.run(boardId);
@@ -131,16 +185,26 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
       }
       for (const id of removedIds) statements.removeRow.run(boardId, id);
       for (const { slot, painted } of changed) statements.upsertRow.run(boardId, painted.element.id, slot, JSON.stringify(painted));
+      for (const [wireId, route] of world.routes) {
+        if (route) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
+        if (!route) statements.removeRoute.run(boardId, wireId);
+      }
+      writeWarningChanges(boardId, world.warnings);
       writeHead(boardId, to, chrome);
     });
   }
 
-  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[]): void {
+  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[], world: SavedWorldParts): void {
     inTransaction(() => {
       statements.removeRows.run(boardId);
+      statements.removeRoutes.run(boardId);
+      statements.removeWarnings.run(boardId);
       for (const [slot, entry] of painted.entries()) {
         if (entry) statements.upsertRow.run(boardId, entry.element.id, slot, JSON.stringify(entry));
       }
+      for (const [wireId, route] of world.routeById) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
+      for (const text of world.routeWarnings) statements.insertWarning.run(boardId, 'route', text);
+      for (const text of world.placementWarnings) statements.insertWarning.run(boardId, 'placement', text);
       writeHead(boardId, stamp, chrome);
     });
   }
@@ -149,10 +213,12 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     inTransaction(() => {
       statements.removeHead.run(boardId);
       statements.removeRows.run(boardId);
+      statements.removeRoutes.run(boardId);
+      statements.removeWarnings.run(boardId);
     });
   }
 
-  return { layoutOf, save, saveWhole, forget, close: () => database.close() };
+  return { layoutOf, worldOf, save, saveWhole, forget, close: () => database.close() };
 }
 
 function openOrSetAside(filePath: string, codeStamp: string): OpenCache {
@@ -202,8 +268,9 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null): Lay
 
   return {
     layoutOf: (boardId, stamp) => recovered(null, (open) => open.layoutOf(boardId, stamp)),
-    save: (boardId, from, to, chrome, changed, removedIds) => recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds)),
-    saveWhole: (boardId, stamp, chrome, painted) => recovered(undefined, (open) => open.saveWhole(boardId, stamp, chrome, painted)),
+    worldOf: (boardId, stamp) => recovered(null, (open) => open.worldOf(boardId, stamp)),
+    save: (boardId, from, to, chrome, changed, removedIds, world) => recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds, world)),
+    saveWhole: (boardId, stamp, chrome, painted, world) => recovered(undefined, (open) => open.saveWhole(boardId, stamp, chrome, painted, world)),
     forget: (boardId) => recovered(undefined, (open) => open.forget(boardId)),
   };
 }

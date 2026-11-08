@@ -5,7 +5,9 @@ import type { Board } from '../../shared/contracts/whiteboard.ts';
 import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
-import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
+import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf, withRecord } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
@@ -118,10 +120,22 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
     markStep('tile index built');
     tilesByBoardId.set(board.id, fresh);
-    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.map((painted) => (painted ? withRecord(fresh.index, painted) : null)));
+    cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.map((painted) => (painted ? withRecord(fresh.index, painted) : null)), savedWorldOfBoard(board));
     markStep('saved layout written');
     return fresh;
   }
+
+  function savedWorldOfferFor(board: Board): SavedWorldOffer | null {
+    if (boardIndexOf(board.elements).elementCount < INCREMENTAL_MIN_ELEMENTS) return null;
+    const tiles = cachedTilesOf(board.id, board);
+    const savedParts = tiles ? cache.worldOf(board.id, board) : null;
+    if (!tiles || !savedParts) return null;
+    markStep('saved routes and warnings read');
+    const laidOut = tiles.index.painted.flatMap((painted) => painted?.element ?? []);
+    return { saved: { laidOut, chrome: tiles.index.chrome, ...savedParts }, adopt: (lineage) => { tiles.lineage = lineage; } };
+  }
+
+  setSavedWorldSource(savedWorldOfferFor);
 
   function countOf(index: TileIndex): number {
     return index.slotById.size;
@@ -141,6 +155,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
   function advance(head: z.infer<typeof BoardHead>, changed: readonly z.infer<typeof ChangedElement>[], viewers: readonly ViewerTiles[]): AnswerFields {
     const held = boardNamed(head.id);
     if (held.version !== head.version - 1) throw new Error(`the layout worker holds board ${head.id} at version ${held.version}, not ${head.version - 1}`);
+    resumeBoardLayout(held);
     const changes = new Map<string, ElementChange>();
     for (const { id, after, isAppended } of changed) {
       changes.set(id, { before: held.elements.get(id), after, isAppended });
@@ -163,7 +178,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
       const painted = tiles.index.painted[slot];
       return painted ? [{ slot, painted: withRecord(tiles.index, painted) }] : [];
     });
-    cache.save(board.id, fromStamp, board, tiles.index.chrome, changedPaints, tileChanges.removedIds);
+    cache.save(board.id, fromStamp, board, tiles.index.chrome, changedPaints, tileChanges.removedIds, { routes: layoutAdvance.changedRoutes, warnings: layoutAdvance.warningChanges });
     const viewerMessages = viewers.map((viewer): ViewerMessage => (viewer.version === fromVersion
       ? { kind: 'diff', viewerId: viewer.viewerId, fromVersion, diff: tileDiffOf(tiles.index, tileChanges, viewer.heldKeys) }
       : wholeTilesOf(viewer, tiles.index)));

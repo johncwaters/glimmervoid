@@ -67,6 +67,7 @@ interface OpenStepLog {
 interface BoardTileService {
   view(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<void>;
   viewCached(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<boolean>;
+  hold(board: Board): void;
   advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null>;
   forget(viewer: TileViewer): void;
   forgetBoard(boardId: string): void;
@@ -229,6 +230,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
       lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
       return sendView(viewer, request, cachedSource(board), openSteps).catch(() => false);
     },
+    hold: (board) => layouts.hold(board),
     advance,
     forget: forgetViewer,
     forgetBoard,

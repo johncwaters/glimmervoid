@@ -174,7 +174,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
   assert.equal((await restarted.handleOperator.get(boardId)).board?.elements.size, 2000);
 });
 
-test('a restart draws a viewed board from its saved layout, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
+test('a restart draws a viewed board from its saved layout and edits it without laying it out again, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-'));
   const cachePath = path.join(boardsRoot, 'layout-cache.sqlite');
   const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, knownVersion: null };
@@ -231,4 +231,12 @@ test('a restart draws a viewed board from its saved layout, and a layout saved b
   const drawnFromFullLayout = await tilesSeenBy(restartIn(boardsRoot), boardId);
   assert.deepEqual(drawnFromCache, drawnFromFullLayout);
   assert.match(JSON.stringify(drawnFromCache), /renamed after restart/);
+
+  editCache(`UPDATE laid_out SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-3'`);
+  const resuming = restartIn(boardsRoot);
+  await resuming.loaded;
+  assert.equal((await resuming.handleOperator.put(boardId, retitle('box-7', 'put after restart'))).ok, true);
+  const drawnAfterResumedPut = JSON.stringify(await tilesSeenBy(resuming, boardId));
+  assert.match(drawnAfterResumedPut, /put after restart/);
+  assert.match(drawnAfterResumedPut, /"x":1800/);
 });

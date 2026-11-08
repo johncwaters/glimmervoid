@@ -31,6 +31,7 @@ interface BoardSync {
 }
 
 interface LayoutClient {
+  hold(board: Board): void;
   advance(board: Board, changes: readonly ChangedElement[], viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   ask(board: Board, body: LayoutRequestBody): Promise<LayoutAnswer>;
@@ -127,6 +128,10 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     return post(body);
   }
 
+  function hold(board: Board): void {
+    syncFor(board);
+  }
+
   function refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer> {
     return ask(board, { kind: 'refresh', boardId: board.id, viewers: [...viewers] });
   }
@@ -156,7 +161,7 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     return post({ kind: 'cached-tiles', boardId, version: stamp.version, updatedAt: stamp.updatedAt, keys: [...keys], withChrome });
   }
 
-  return { advance, refresh, ask, cachedTiles, forget };
+  return { hold, advance, refresh, ask, cachedTiles, forget };
 }
 
 export { createLayoutClient };

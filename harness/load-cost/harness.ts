@@ -980,7 +980,7 @@ async function main(): Promise<number> {
     return 2;
   }
   const argv = process.argv.slice(2);
-  if (argv.includes('--whiteboard-reopen')) return runWhiteboardReopen();
+  if (argv.includes('--whiteboard-reopen')) return runWhiteboardReopen(argv);
   if (argv.includes('--whiteboard-retained')) return runWhiteboardRetained(argv);
   if (argv.includes('--whiteboard-layout')) return runWhiteboardLayout(argv);
   if (argv.includes('--whiteboard')) return runWhiteboardBench(argv, { repoRoot: REPO_ROOT, clientIndexPath: path.join(CLIENT_DIR, 'index.html'), findStaleBuildReason });

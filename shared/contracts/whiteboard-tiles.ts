@@ -100,6 +100,9 @@ export const TileKey = z.object({ chunkX: z.number().int(), chunkY: z.number().i
 export const PaintedElement = z.object({ paintOrder: z.number().int().min(0), element: LaidOutElement, record: Element.optional() });
 export const PlacedPaint = z.object({ paintOrder: z.number().int().min(0), element: PlacedElement, record: Element.optional() });
 
+const RouteSide = z.enum(['left', 'right', 'top', 'bottom']);
+export const RememberedRoute = z.object({ wireKey: z.string(), exitSide: RouteSide, entrySide: RouteSide, start: LayoutPoint, end: LayoutPoint, points: z.array(LayoutPoint), isRouted: z.boolean() });
+
 export const Tile = z.object({
   key: TileKey,
   elements: z.array(PaintedElement),
@@ -125,6 +128,7 @@ export type PlacedBox = z.infer<typeof PlacedBox>;
 export type PlacedNote = z.infer<typeof PlacedNote>;
 export type PlacedElement = z.infer<typeof PlacedElement>;
 export type PlacedPaint = z.infer<typeof PlacedPaint>;
+export type RememberedRoute = z.infer<typeof RememberedRoute>;
 export type LegendRow = z.infer<typeof LegendRow>;
 export type PlanBand = z.infer<typeof PlanBand>;
 export type PlanColumn = z.infer<typeof PlanColumn>;

@@ -1,5 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire } from './contracts/whiteboard.ts';
+import type { RememberedRoute } from './contracts/whiteboard-tiles.ts';
 import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
@@ -76,16 +77,6 @@ interface PortEnds {
   start: Point;
   end: Point;
   busKey: string | null;
-}
-
-interface RememberedRoute {
-  wireKey: string;
-  exitSide: Side;
-  entrySide: Side;
-  start: Point;
-  end: Point;
-  points: Point[];
-  isRouted: boolean;
 }
 
 interface IndexPairs {
@@ -1545,4 +1536,4 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
 }
 
 export { cappedWarningLists, cappedWarnings, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf };
-export type { AreaObstacles, Point, RouteInput, RouteMemory, WarningList };
+export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList };

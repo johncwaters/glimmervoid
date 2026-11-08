@@ -636,22 +636,27 @@ async function openWatchingTheLoop(port: number, boot: (port: number) => Promise
   return { running, socket, opened: { view, longestStallMs: Math.max(0, loopDelay.max / NANOSECONDS_PER_MS - LOOP_DELAY_RESOLUTION_MS) } };
 }
 
-const ReopenLineSchema = z.object({ elapsedMs: z.number(), longestStallMs: z.number() });
+const ReopenLineSchema = z.object({ elapsedMs: z.number(), longestStallMs: z.number(), firstPutMs: z.number() });
 
-async function runWhiteboardReopen(): Promise<number> {
+async function runWhiteboardReopen(argv: string[]): Promise<number> {
   const port = Number(process.env.GLIMMERVOID_PORT);
+  const retitledBoxId = argv[argv.indexOf('--whiteboard-reopen') + 1] ?? '';
   const { running, socket, opened } = await openWatchingTheLoop(port, bootBackend, 'reopen');
+  const { reply, elapsedMs: firstPutMs } = await controlRequest(socket, 'whiteboard-op', { boardId: BOARD_ID, ops: retitleOps([retitledBoxId], 1, 0, () => 0) });
+  if (!reply.ok) throw new Error(`the first put after a restart was refused: ${reply.error ?? 'no reason'}`);
+  logStep('reopen: first put answered');
   socket.terminate();
   await stopBackend(running.backend, running.httpServer);
   logStep('reopen: server stopped');
-  return printChildResult({ elapsedMs: opened.view.elapsedMs, longestStallMs: opened.longestStallMs });
+  return printChildResult({ elapsedMs: opened.view.elapsedMs, longestStallMs: opened.longestStallMs, firstPutMs });
 }
 
-async function measureReopen(harnessPath: string): Promise<WhiteboardMetric[]> {
-  const reopened = await childResultOf(harnessPath, ['--whiteboard-reopen'], ReopenLineSchema);
+async function measureReopen(harnessPath: string, retitledBoxId: string): Promise<WhiteboardMetric[]> {
+  const reopened = await childResultOf(harnessPath, ['--whiteboard-reopen', retitledBoxId], ReopenLineSchema);
   return [
     metricOf('view-reopen', 'First open view after a server restart in a fresh process, saved layout included', 'ms', reopened.elapsedMs),
     metricOf('stall-reopen', 'Longest event loop stall while the restarted server opens the board', 'ms', reopened.longestStallMs),
+    metricOf('put-reopen', 'First put of 1 op after a server restart, board load and layout resume included', 'ms', reopened.firstPutMs),
   ];
 }
 
@@ -686,7 +691,7 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
     await stopBackend(running.backend, running.httpServer);
     running = null;
     logStep('first open: server stopped');
-    metrics.push(...await measureReopen(harnessPath));
+    metrics.push(...await measureReopen(harnessPath, seeded.boxIds[0] ?? ''));
   } finally {
     controlSocket?.terminate();
     if (running) await stopBackend(running.backend, running.httpServer);

@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import { Board, Element, Op } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
-import { applyLayoutDelta, createLayoutWorld, layoutOf } from '../shared/whiteboard-layout-engine.ts';
+import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
+import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
+import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
 import { layoutBoardRemembered, pinPositionsOfBoard } from '../shared/whiteboard-layout-cache.ts';
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
@@ -543,6 +546,17 @@ test('a box width rewraps its text and grows its picture, while an unsized box k
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
 });
 
+function savedThroughJson(world: LayoutWorld) {
+  const saved = JSON.parse(JSON.stringify({ laidOut: layoutOf(world).elements, chrome: world.chrome, ...savedWorldOf(world), routeById: [...world.routeMemory.routeById] }));
+  return {
+    laidOut: z.array(PlacedElementShape).parse(saved.laidOut),
+    chrome: saved.chrome,
+    routeById: new Map(z.array(z.tuple([z.string(), RememberedRoute])).parse(saved.routeById)),
+    routeWarnings: z.array(z.string()).parse(saved.routeWarnings),
+    placementWarnings: z.array(z.string()).parse(saved.placementWarnings),
+  };
+}
+
 test('a layout world kept across puts places what a fresh layout places, and its patched tile index paints what a fresh index paints', () => {
   let { board } = generateBoardRecord({ elementCount: 400, seed: 7, boardId: 'kept', title: 'kept', createdAt: 0 });
   const author = { id: 'operator', name: 'operator' };
@@ -563,7 +577,15 @@ test('a layout world kept across puts places what a fresh layout places, and its
     [{ op: 'set', id: noted.id, fields: { title: 'a much longer title that wraps over several lines of the box' } }],
     [{ op: 'remove', id: removed.id }],
   ];
-  for (const ops of puts) {
+  const resumeAfterPut = 4;
+  let resumed: LayoutWorld | null = null;
+  let savedMirror: { routeById: Map<string, unknown>; routeWarnings: string[]; placementWarnings: string[] } | null = null;
+  for (const [putIndex, ops] of puts.entries()) {
+    if (putIndex === resumeAfterPut) {
+      const saved = savedThroughJson(world);
+      resumed = resumeLayoutWorld(board, saved, 0);
+      savedMirror = { routeById: new Map(saved.routeById), routeWarnings: [...saved.routeWarnings], placementWarnings: [...saved.placementWarnings] };
+    }
     const staged = stageOps(board, ops.map((op) => Op.parse(op)), author, 0, null);
     assert.ok(staged.ok, staged.ok ? '' : staged.error);
     const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
@@ -573,7 +595,29 @@ test('a layout world kept across puts places what a fresh layout places, and its
     assert.equal(applied.delta.isRebuilt, false);
     world = applied.world;
     patchTileIndex(tileIndex, board, { version: board.version, chrome: world.chrome, changed: applied.delta.changed, removedIds: applied.delta.removedIds, recordChangedIds: [...changes.keys()] });
+    if (resumed && savedMirror) {
+      const resumedApplied = applyLayoutDelta(resumed, board, changes);
+      assert.equal(resumedApplied.delta.isRebuilt, false);
+      resumed = resumedApplied.world;
+      for (const id of applied.delta.worldChanges.routeIds) {
+        const route = world.routeMemory.routeById.get(id);
+        if (route) savedMirror.routeById.set(id, route);
+        if (!route) savedMirror.routeById.delete(id);
+      }
+      for (const { book, text, isPresent } of applied.delta.worldChanges.warnings) {
+        const texts = book === 'route' ? savedMirror.routeWarnings : savedMirror.placementWarnings;
+        const kept = texts.filter((known) => known !== text);
+        if (isPresent) kept.push(text);
+        texts.splice(0, texts.length, ...kept);
+      }
+    }
   }
+  assert.ok(resumed && savedMirror);
+  assert.deepEqual(layoutOf(resumed).elements, layoutOf(world).elements);
+  assert.deepEqual(warningsOfWorld(resumed), warningsOfWorld(world));
+  assert.deepEqual(resumed.chrome, world.chrome);
+  const savedAtEnd = savedWorldOf(world);
+  assert.deepEqual(savedMirror, { routeById: new Map(savedAtEnd.routeById), routeWarnings: savedAtEnd.routeWarnings, placementWarnings: savedAtEnd.placementWarnings });
   const kept = layoutOf(world);
   const fresh = placeBoardWithMemory(board, null).layout;
   const solidsOf = (elements: readonly PlacedElement[]) => elements.filter((element) => element.kind !== 'wire').map((element) => JSON.stringify(element)).sort();
