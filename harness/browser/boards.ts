@@ -189,6 +189,46 @@ async function verifyBoxStaysWhereDropped(open: OpenBoard, boxId: string, boxNam
   assert.ok(Math.abs(restingRect.x - startRect.x - 120) < 2 && Math.abs(restingRect.y - startRect.y - 220) < 2, `${boxName} stays where it was dropped, landed ${restingRect.x - startRect.x}, ${restingRect.y - startRect.y} from where it sat`);
 }
 
+async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, boardId } = open;
+  const anchor = (await boardOf(open)).elements[anchorBoxId];
+  assert.ok(anchor?.kind === 'box' && anchor.at, 'the anchor box has a place');
+  const origin = anchor.at;
+  const fromId = 'stack-from';
+  const cardId = 'stack-card';
+  const droppedId = 'stack-dropped';
+  const wireId = 'stack-wire';
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: fromId, title: 'Stack source', at: { x: origin.x, y: origin.y + 100 } } },
+    { op: 'add', element: { kind: 'box', id: cardId, title: 'Stack card', at: { x: origin.x, y: origin.y + 200 } } },
+    { op: 'add', element: { kind: 'box', id: droppedId, title: 'Stack dropped', at: { x: origin.x + 240, y: origin.y + 200 } } },
+    { op: 'add', element: { kind: 'wire', id: wireId, from: fromId, to: droppedId } },
+  ] });
+  await laidOutOf(open, droppedId);
+  const dropped = centerOf(await screenRectOf(open, droppedId));
+  const card = centerOf(await screenRectOf(open, cardId));
+  await page.mouse.move(dropped.x, dropped.y);
+  await page.mouse.down();
+  await page.mouse.move(card.x, card.y, { steps: 8 });
+  await page.mouse.up();
+  const isStackOfBoth = (element: BoardElement) => element.kind === 'frame' && element.collapsed && element.contains[0] === cardId && element.contains[1] === droppedId;
+  const stack = await elementWhere(open, 'dropping a box on another box stacks them', isStackOfBoth);
+  const stackLayout = layoutBoard(await boardOf(open));
+  assert.equal(stackLayout.elements.some((element) => element.id === droppedId), false, 'the dropped box hides under the stack card');
+  const laidOutWire = stackLayout.elements.find((element) => element.id === wireId);
+  const laidOutCard = stackLayout.elements.find((element) => element.id === cardId);
+  assert.ok(laidOutWire?.kind === 'wire' && laidOutCard && laidOutCard.kind !== 'wire', 'the wire and the stack card stay laid out');
+  const isEndOnCard = Math.abs(laidOutWire.end.x - (laidOutCard.x + laidOutCard.width / 2)) <= laidOutCard.width / 2 + 2 && Math.abs(laidOutWire.end.y - (laidOutCard.y + laidOutCard.height / 2)) <= laidOutCard.height / 2 + 2;
+  assert.ok(isEndOnCard, 'a wire to the hidden box ends at the stack card');
+  const cardCenter = centerOf(await screenRectOf(open, cardId));
+  await page.mouse.click(cardCenter.x, cardCenter.y);
+  await elementWhere(open, 'clicking the stack card fans it out', (element) => element.id === stack.id && element.kind === 'frame' && !element.collapsed);
+  await laidOutOf(open, droppedId);
+  await page.keyboard.press('Escape');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [stack.id, wireId, fromId, cardId, droppedId].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the stack check cleans up', (element) => element.id === cardId);
+}
+
 async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
@@ -570,6 +610,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
     await verifyResizedBoxes(open, [parseFeed.id]);
+    await verifyStacking(open, parseFeed.id);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
     if (desktopBoard) await verifyBoardDoc(open);

@@ -1,5 +1,5 @@
 import './whiteboard.css';
-import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_VIEWER_PARAM, boardMediaOriginalFilename, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { createActionStatus } from '../action-status.ts';
@@ -12,7 +12,7 @@ import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { createBoardEditor, newElementId } from './board-edit.ts';
+import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
 import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
@@ -682,6 +682,45 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
 }
 
+function stackTitleOf(board: Board, boxIds: readonly string[]): string {
+  const titles = boxIds.flatMap((boxId) => {
+    const box = board.elements[boxId];
+    return box?.kind === 'box' ? [box.title] : [];
+  });
+  return titles.join(', ').slice(0, WHITEBOARD_LIMITS.title);
+}
+
+function addStack(board: Board, contains: string[]): Promise<boolean> {
+  return sendOps([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title: stackTitleOf(board, contains), contains, loop: false, collapsed: true } }]);
+}
+
+function stackBoxes(targetBoxId: string, droppedBoxId: string, targetStack: Frame | null): void {
+  const board = selectedBoard();
+  if (!board) return;
+  if (targetStack) {
+    void sendOps([{ op: 'set', id: targetStack.id, fields: { contains: [...targetStack.contains, droppedBoxId] } }]);
+    return;
+  }
+  void addStack(board, [targetBoxId, droppedBoxId]);
+}
+
+function stackSelectedBoxes(): void {
+  const board = selectedBoard();
+  const selectedBoxIds = selectedElementsOfKind('box').map((box) => box.id);
+  if (!board || selectedBoxIds.length < 2) return;
+  const stacksByTopBoxId = stacksByTopBoxIdOf(board);
+  const selectedStack = selectedBoxIds.flatMap((boxId) => stacksByTopBoxId.get(boxId) ?? [])[0];
+  const joinedBoxIds = selectedBoxIds.filter((boxId) => !selectedStack?.contains.includes(boxId));
+  const sent = selectedStack ? sendOps([{ op: 'set', id: selectedStack.id, fields: { contains: [...selectedStack.contains, ...joinedBoxIds] } }]) : addStack(board, selectedBoxIds);
+  void sent.then((isSent) => {
+    if (isSent) editor?.clearSelection();
+  });
+}
+
+function openStack(frameId: string): void {
+  void sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }]);
+}
+
 function addFrame(): void {
   const contains = selectedElementsOfKind('box').map((box) => box.id);
   if (contains.length === 0) return;
@@ -931,7 +970,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,
@@ -946,6 +985,8 @@ export function mountBoardHost(): HTMLElement {
     onOpenLinkedBoard: selectBoard,
     onOpenImage: openImageViewer,
     onConnectBoxes: connectBoxes,
+    onStackBoxes: stackBoxes,
+    onOpenStack: openStack,
     onToolChange: paintActiveTool,
   });
 
