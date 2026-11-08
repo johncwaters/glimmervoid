@@ -1,5 +1,6 @@
 import { STATES } from '#shared/states.ts';
 import { ManagerDecision } from '#shared/contracts/question-manager.ts';
+import type { AttentionNote } from '#shared/contracts/session.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
@@ -29,6 +30,48 @@ export function setSessionFailureReason(sessionId: unknown, failureReason: strin
   reasonLine.setAttribute('role', 'status');
   reasonLine.textContent = failureReason;
   if (!existingLine) ui.termWrap.before(reasonLine);
+}
+
+const attentionNotesDismissedThroughBySessionId = new Map<string, number>();
+
+export function setSessionAttentionNotes(sessionId: string, notes: readonly AttentionNote[]) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  const existingLine = ui.card.querySelector<HTMLElement>(':scope > .session-attention-note');
+  const newestNote = notes[0];
+  const dismissedThrough = attentionNotesDismissedThroughBySessionId.get(sessionId) ?? 0;
+  if (!newestNote || newestNote.at <= dismissedThrough) {
+    existingLine?.remove();
+    return;
+  }
+  const line = existingLine ?? buildAttentionNoteLine(sessionId);
+  line.dataset.newestAt = String(newestNote.at);
+  line.title = notes.map((note) => note.note).join('\n');
+  const text = line.querySelector<HTMLElement>('.session-attention-note-text');
+  if (text) text.textContent = newestNote.note;
+  const others = line.querySelector<HTMLElement>('.session-attention-note-others');
+  if (others) others.textContent = notes.length > 1 ? `${notes.length - 1} more` : '';
+  if (!existingLine) ui.termWrap.before(line);
+}
+
+export function forgetAttentionNotes(sessionId: string) {
+  attentionNotesDismissedThroughBySessionId.delete(sessionId);
+}
+
+function buildAttentionNoteLine(sessionId: string): HTMLElement {
+  const line = el('div', 'session-attention-note');
+  line.setAttribute('role', 'status');
+  const dismissButton = button({
+    variant: 'quiet',
+    size: 'small',
+    label: 'Dismiss',
+    onClick: () => {
+      attentionNotesDismissedThroughBySessionId.set(sessionId, Number(line.dataset.newestAt ?? 0));
+      line.remove();
+    },
+  });
+  line.append(el('p', 'session-attention-note-text'), el('span', 'session-attention-note-others'), dismissButton);
+  return line;
 }
 
 const MANAGER_DECISIONS_KEPT = 200;

@@ -491,6 +491,25 @@ body {
 .attention-ledger-item:hover,
 .attention-ledger-item:focus-visible { color: var(--text-head); text-decoration: underline; }
 
+.session-attention-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 12px;
+  font-size: var(--type-meta);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+.session-attention-note-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.session-attention-note-others { color: var(--text-muted); }
+
 .session-manager-line {
   display: flex;
   flex-wrap: wrap;

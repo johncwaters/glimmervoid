@@ -15,7 +15,7 @@ import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
-import { forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionFailureReason } from '../session-card/card-problems.ts';
+import { forgetAttentionNotes, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
@@ -62,6 +62,7 @@ function forgetSession(sessionId: string) {
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
   forgetManagerDecisions(sessionId);
+  forgetAttentionNotes(sessionId);
   forgetSessionHost(sessionId);
 }
 
@@ -94,6 +95,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
     setSessionFailureReason(s.id, s.failureReason);
+    setSessionAttentionNotes(s.id, s.attentionNotes);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent);
@@ -149,6 +151,7 @@ function rebuildSessionCard(sessionId: string, sessionName: string, state: strin
   removeSessionCard(sessionId);
   forgetReview(sessionId);
   forgetManagerDecisions(sessionId);
+  forgetAttentionNotes(sessionId);
   setSessionLinkedPrs(sessionId, linkedPrs);
   createSessionCard(sessionId, sessionName, state, buildSessionCardOptions(cardFields));
   if (wasSelected) setSelectedId(sessionId);
@@ -217,6 +220,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
+  if (msg.attentionNotes !== undefined) setSessionAttentionNotes(msg.id, msg.attentionNotes);
   if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
