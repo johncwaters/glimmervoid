@@ -981,10 +981,14 @@ export function mountBoardHost(): HTMLElement {
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
   svg.setAttribute('class', 'wb-svg');
   svg.setAttribute('aria-hidden', 'true');
-  const mediaLayer = createBoardMediaLayer({ onEscapeFromPage: () => {
-    editor?.clearSelection();
-    editor?.focusCanvas();
-  } });
+  const mediaLayer = createBoardMediaLayer({
+    onEscapeFromPage: () => {
+      editor?.clearSelection();
+      editor?.focusCanvas();
+    },
+    onZoomFromPage: (clientX, clientY, viewWidthFactor) => editor?.zoomAroundClientPoint(clientX, clientY, viewWidthFactor),
+    onPanFromPage: (deltaX, deltaY) => editor?.panByPixels(deltaX, deltaY),
+  });
   world.append(svg, mediaLayer.element);
   const glCanvas = el('canvas', 'wb-gl');
   glCanvas.setAttribute('aria-hidden', 'true');

@@ -855,6 +855,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     openPendingTitleEdit,
     focusCanvas: () => viewport.focus(),
     removeSelected,
+    zoomAroundClientPoint: (clientX: number, clientY: number, viewWidthFactor: number) => zoomAround(toViewPoint(clientX, clientY), viewWidthFactor),
+    panByPixels,
   };
 }
 

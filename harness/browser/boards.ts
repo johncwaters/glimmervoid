@@ -461,12 +461,27 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
   });
   await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.shape !== 'text' && element.params.speed === 7);
   await postedDialValues(JSON.stringify({ speed: 7, loud: false }));
+  await verifyCtrlWheelOverInteractivePageZoomsBoard(open, dialsMedia);
   await page.frameLocator(`.wb-media[data-box-id="${dialsBox.id}"] iframe`).getByLabel('dials field').focus();
   await page.keyboard.press('Escape');
   await page.waitForFunction((boxId) => !document.querySelector(`.wb-media[data-box-id="${boxId}"]`)?.classList.contains('is-interactive'), dialsBox.id, { timeout: BOARD_TIMEOUT_MS });
   assert.equal(await dialsMedia.locator('iframe').evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'Esc inside the page hands the pointer back to the board');
   await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: dialsBox.id }] });
   await boardWithout(open, 'the dials page is removed', isDialsPage);
+}
+
+async function verifyCtrlWheelOverInteractivePageZoomsBoard({ page, panel }: OpenBoard, pageMedia: Locator): Promise<void> {
+  const worldScale = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).a);
+  const scaleBefore = await worldScale();
+  const pageBody = page.frameLocator(`.wb-media[data-box-id="${await pageMedia.getAttribute('data-box-id')}"] iframe`).locator('body');
+  const ctrlWheel = (deltaY: number) => pageBody.dispatchEvent('wheel', { ctrlKey: true, deltaY, clientX: 20, clientY: 20, bubbles: true, cancelable: true });
+  await ctrlWheel(-100);
+  await page.waitForFunction((before) => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-world') ?? document.body).transform).a > before, scaleBefore, { timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('a ctrl wheel inside an interactive page zooms the board in'));
+  await ctrlWheel(100);
+  await pageBody.evaluate(() => parent.postMessage({ type: 'glimmervoid-board-page-gesture', gesture: 'pan', deltaX: 1e308, deltaY: 0 }, '*'));
+  await page.waitForTimeout(100);
+  assert.ok(Number.isFinite(await panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e)), 'a page cannot pan the board camera to infinity');
+  await page.waitForFunction((before) => Math.abs(new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-world') ?? document.body).transform).a - before) < 0.001, scaleBefore, { timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('a ctrl wheel back inside the page zooms the board out to where it was'));
 }
 
 async function deselectAll({ page, panel }: OpenBoard): Promise<void> {

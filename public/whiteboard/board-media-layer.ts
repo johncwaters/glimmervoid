@@ -1,9 +1,10 @@
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue } from '#shared/contracts/whiteboard.ts';
 import type { BoardLayout, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
 import type { PageOccluder } from '#shared/whiteboard-svg-core.ts';
 import { el } from '../dom-helpers.ts';
+import { WHEEL_ZOOM_STEP } from './board-edit.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -174,6 +175,12 @@ interface ShownPage {
 
 interface BoardMediaLayerOptions {
   onEscapeFromPage: () => void;
+  onZoomFromPage: (clientX: number, clientY: number, viewWidthFactor: number) => void;
+  onPanFromPage: (deltaX: number, deltaY: number) => void;
+}
+
+function clampToSpan(delta: number, span: number): number {
+  return Math.min(span, Math.max(-span, delta));
 }
 
 export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
@@ -182,7 +189,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
   let shownPages: ShownPage[] = [];
   let liveArea: Rect | null = null;
   let interactiveBoxId: string | null = null;
-  let escapeListening: AbortController | null = null;
+  let pageListening: AbortController | null = null;
 
   function latestDialValuesOf(boxId: string): Readonly<Record<string, DialValue>> {
     return shownPages.find((page) => page.boxId === boxId)?.media.dialValues ?? {};
@@ -201,23 +208,49 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     postDialValues(placed.frame, page.media.dialValues);
   }
 
-  function listenForEscape(): void {
-    escapeListening?.abort();
-    escapeListening = null;
+  function listenToInteractivePage(): void {
+    pageListening?.abort();
+    pageListening = null;
     if (interactiveBoxId === null) return;
-    escapeListening = new AbortController();
+    pageListening = new AbortController();
     window.addEventListener('message', (event) => {
       const interactiveFrame = interactiveBoxId === null ? null : placedByBoxId.get(interactiveBoxId)?.frame;
-      if (!interactiveFrame || event.source !== interactiveFrame.contentWindow || event.data !== BOARD_PAGE_ESCAPE_MESSAGE) return;
-      options.onEscapeFromPage();
-    }, { signal: escapeListening.signal });
+      if (!interactiveFrame || event.source !== interactiveFrame.contentWindow) return;
+      if (event.data === BOARD_PAGE_ESCAPE_MESSAGE) {
+        options.onEscapeFromPage();
+        return;
+      }
+      const gesture = BoardPageGesture.safeParse(event.data);
+      if (gesture.success) applyPageGestureToBoard(interactiveFrame, gesture.data);
+    }, { signal: pageListening.signal });
+  }
+
+  function applyPageGestureToBoard(frame: HTMLIFrameElement, gesture: BoardPageGesture): void {
+    const frameRect = frame.getBoundingClientRect();
+    const frameScale = frame.offsetWidth > 0 ? frameRect.width / frame.offsetWidth : 1;
+    const clientXOf = (pageX: number) => frameRect.left + pageX * frameScale;
+    const clientYOf = (pageY: number) => frameRect.top + pageY * frameScale;
+    switch (gesture.gesture) {
+      case 'pinch':
+        options.onZoomFromPage(clientXOf(gesture.centerX), clientYOf(gesture.centerY), 1 / gesture.scaleFactor);
+        return;
+      case 'pan':
+        options.onPanFromPage(clampToSpan(gesture.deltaX, frameRect.width), clampToSpan(gesture.deltaY, frameRect.height));
+        return;
+      case 'wheel':
+        if (!gesture.isZoom) return;
+        options.onZoomFromPage(clientXOf(gesture.centerX), clientYOf(gesture.centerY), gesture.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP);
+        return;
+      case 'doubleTap':
+        return;
+    }
   }
 
   function setInteractiveBox(boxId: string | null): void {
     if (boxId === interactiveBoxId) return;
     interactiveBoxId = boxId;
     for (const [placedBoxId, placed] of placedByBoxId) markInteractive(placedBoxId, placed);
-    listenForEscape();
+    listenToInteractivePage();
   }
 
   function isLive(page: ShownPage): boolean {
