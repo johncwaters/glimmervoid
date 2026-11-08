@@ -5,12 +5,25 @@ import { MERGEABLE_LIVE_STATES, RESTARTABLE_STATES, STATES } from '../../shared/
 import type { SessionState } from '../../shared/states.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 
-export const Redaction = z.strictObject({
+const LiteralRedaction = z.strictObject({
   from: z.string().min(1),
   to: z.string(),
 }).refine(({ from, to }) => to.trim().length <= from.length, {
   message: 'redaction replacement after trimming must fit the original length',
 });
+
+const PatternRedaction = z.strictObject({
+  pattern: z.string().min(1).refine((source) => {
+    try {
+      return !new RegExp(source, 'u').test('');
+    } catch {
+      return false;
+    }
+  }, { message: 'redaction pattern must be a valid regular expression that never matches empty text' }),
+  to: z.string(),
+});
+
+export const Redaction = z.union([LiteralRedaction, PatternRedaction]);
 
 const sessionName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$/);
 const projectSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
@@ -163,12 +176,20 @@ export function compressTimeline<RecordWithTimestamp extends { ts?: number }>(
   });
 }
 
+function redactionMatcher(redaction: Redaction): RegExp {
+  if ('pattern' in redaction) return new RegExp(redaction.pattern, 'gu');
+  return new RegExp(redaction.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gu');
+}
+
+function padToLength(replacement: string, length: number): string {
+  return replacement.trim().slice(0, length).padEnd(length, ' ');
+}
+
 export function redactSameLength(text: string, redactions: readonly Redaction[]): string {
   let redactedText = text;
   for (const replacement of redactions) {
-    const { from, to } = Redaction.parse(replacement);
-    const paddedReplacement = to.trim().slice(0, from.length).padEnd(from.length, ' ');
-    redactedText = redactedText.split(from).join(paddedReplacement);
+    const redaction = Redaction.parse(replacement);
+    redactedText = redactedText.replace(redactionMatcher(redaction), (matchedText) => padToLength(redaction.to, matchedText.length));
   }
   return redactedText;
 }
@@ -252,7 +273,7 @@ function redactValue(value: unknown, redactions: readonly Redaction[]): unknown 
 }
 
 function assertNoSurvivingRedaction(text: string, redactions: readonly Redaction[], location: string): void {
-  const leakedRedaction = redactions.find(({ from }) => text.includes(from));
+  const leakedRedaction = redactions.find((redaction) => redactionMatcher(redaction).test(text));
   if (leakedRedaction) throw new Error(`redaction target survives in ${location}; refusing to capture`);
 }
 

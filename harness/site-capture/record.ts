@@ -51,6 +51,7 @@ const agentHomeDirectoryName = 'agent-home';
 const claudeCredentialsFileName = '.credentials.json';
 const claudeGlobalConfigFileName = '.claude.json';
 const maxEnterAnswersPerSession = 3;
+const terminalSizeSettleMs = 1000;
 const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
 const glimmervoidCallLogPath = path.join(import.meta.dirname, 'glimmervoid-call-log.ts');
 const demoSettingsRelativePath = path.join('.claude', 'settings.local.json');
@@ -297,13 +298,25 @@ async function waitForSpawnedChildren(context: RecordContext, sessionIdsBefore: 
   return childIds;
 }
 
+async function readSettledGridSize(page: Page, sessionId: string): Promise<{ cols: number; rows: number } | null> {
+  const firstGrid = await readSessionGrid(page, sessionId);
+  await sleep(terminalSizeSettleMs, undefined, { signal: cancellation.signal });
+  const secondGrid = await readSessionGrid(page, sessionId);
+  if (!firstGrid || !secondGrid || firstGrid.cols !== secondGrid.cols || firstGrid.rows !== secondGrid.rows) return null;
+  return { cols: secondGrid.cols, rows: secondGrid.rows };
+}
+
 async function selectSessionAtTerminalSize(page: Page, sessionId: string, expectedSize: { cols: number; rows: number } | null): Promise<{ cols: number; rows: number }> {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     await selectSession(page, sessionId);
+    if (!expectedSize) {
+      const settledSize = await readSettledGridSize(page, sessionId);
+      if (settledSize) return settledSize;
+      continue;
+    }
     const grid = await readSessionGrid(page, sessionId);
-    if (grid && !expectedSize) return { cols: grid.cols, rows: grid.rows };
-    if (grid && grid.cols === expectedSize?.cols && grid.rows === expectedSize.rows) return expectedSize;
+    if (grid && grid.cols === expectedSize.cols && grid.rows === expectedSize.rows) return expectedSize;
     await sleep(500, undefined, { signal: cancellation.signal });
   }
   throw new Error(`terminal ${sessionId} never reached ${expectedSize?.cols}x${expectedSize?.rows}`);
@@ -399,6 +412,7 @@ async function main(): Promise<void> {
     const demoSettings = {
       skipDangerousModePermissionPrompt: true,
       spinnerTipsEnabled: false,
+      disableAutoMode: 'disable',
       permissions: { deny: demoDeniedPermissions },
       hooks: { PostToolUse: [{ matcher: 'mcp__glimmervoid__.*', hooks: [{ type: 'command', command: mcpCallLogCommand }] }] },
     };
@@ -413,6 +427,10 @@ async function main(): Promise<void> {
       '#!/bin/sh',
       `HOME=${quoteShell(path.join(tempDirectory, agentHomeDirectoryName))}`,
       'export HOME',
+      'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
+      'CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1',
+      'CLAUDE_CODE_HIDE_CWD=1',
+      'export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL CLAUDE_CODE_HIDE_CWD',
       'permission_mode_arguments="--permission-mode default"',
       'for argument in "$@"; do [ "$argument" = "--dangerously-skip-permissions" ] && permission_mode_arguments=""; done',
       `mkdir -p .claude && cp -f ${quoteShell(demoSettingsPath)} ${quoteShell(demoSettingsRelativePath)} || exit 1`,

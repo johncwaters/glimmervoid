@@ -44,7 +44,7 @@
       "project": "api",
       "dangerouslySkipPermissions": true,
       "maxMinutes": 4,
-      "task": "Start the load soak with the Bash tool using run_in_background: node scripts/soak.js (it runs about 90 seconds). Say in one line that it is running and end your turn right away without waiting or checking on it. When it finishes, report its last line."
+      "task": "Start the load soak with the Bash tool using run_in_background: node scripts/soak.js > soak.log 2>&1 (it runs about 90 seconds). Say in one line that it is running and end your turn right away without waiting or checking on it. When it finishes, report the last line of soak.log."
     },
     {
       "name": "audit-images",
