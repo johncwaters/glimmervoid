@@ -9,7 +9,7 @@ import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
 import { elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
-import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
+import { inTransaction, isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';
 const CACHE_FOLDER_MODE = 0o700;
@@ -144,17 +144,6 @@ function statementsOf(database: DatabaseSync) {
 function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
   const statements = statementsOf(database);
 
-  function inTransaction(work: () => void): void {
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      work();
-      database.exec('COMMIT');
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
   function currentHeadOf(boardId: string, stamp: LayoutStamp): z.infer<typeof HeadRow> | null {
     const head = HeadRow.safeParse(statements.head.get(boardId));
     if (!head.success) return null;
@@ -212,7 +201,7 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
   }
 
   function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly SavedPaint[], removedIds: readonly string[], world: WorldSave): void {
-    inTransaction(() => {
+    inTransaction(database, () => {
       if (!currentHeadOf(boardId, from)) {
         statements.removeHead.run(boardId);
         return;
@@ -233,7 +222,7 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
   }
 
   function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly SavedPaint[], world: SavedWorldParts): void {
-    inTransaction(() => {
+    inTransaction(database, () => {
       statements.removeRows.run(boardId);
       statements.removeRoutes.run(boardId);
       statements.removeWarnings.run(boardId);
@@ -246,7 +235,7 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
   }
 
   function forget(boardId: string): void {
-    inTransaction(() => {
+    inTransaction(database, () => {
       statements.removeHead.run(boardId);
       statements.removeRows.run(boardId);
       statements.removeRoutes.run(boardId);

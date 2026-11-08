@@ -231,7 +231,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const boxesFrom = (first: number, count: number) => z.array(Op).parse(Array.from({ length: count }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${first + index}`, title: `box ${first + index}`, at: { x: (first + index) * 260, y: 0 } } })));
   const retitle = (id: string, title: string) => z.array(Op).parse([{ op: 'set', id, fields: { title } }]);
   const editCache = (sql: string) => {
-    const cache = new DatabaseSync(cachePath);
+    const cache = new DatabaseSync(cachePath, { timeout: 5000 });
     cache.exec(sql);
     cache.close();
   };
@@ -261,6 +261,9 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   assert.equal((await first.handleOperator.put(boardId, boxesFrom(0, 2000))).ok, true);
   const drawnBeforeRestart = await tilesSeenBy(first, boardId);
   await savedLayoutWritten();
+  const writeAheadLogBytes = (filename: string): number => (fs.existsSync(path.join(boardsRoot, `${filename}-wal`)) ? fs.statSync(path.join(boardsRoot, `${filename}-wal`)).size : 0);
+  for (let attempt = 0; attempt < 400 && writeAheadLogBytes('boards.sqlite') + writeAheadLogBytes('layout-cache.sqlite') > 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual([writeAheadLogBytes('boards.sqlite'), writeAheadLogBytes('layout-cache.sqlite')], [0, 0], 'a bulk save leaves no write-ahead log for the next start to copy again');
 
   const restarted = restartIn(boardsRoot);
   assert.deepEqual(await tilesSeenBy(restarted, boardId), drawnBeforeRestart);

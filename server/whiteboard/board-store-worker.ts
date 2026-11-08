@@ -6,7 +6,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { BOARD_STORE_SCHEMA, COMPACT_ROWS_VERSION, StoreRequest, compactDeltaOf, elementPageOfRows, ftsQueryOf } from './board-store-core.ts';
 import type { BoardDelta, ElementPage, Rect, StoreRequestBody, StoredHeadRows, StoredRowColumns } from './board-store-core.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
+import { inTransaction, isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 type ReplyFields = Partial<Extract<ElementPage, { isDamaged: true }>> & Partial<Extract<ElementPage, { elementIds: string[] }>> & { heads?: StoredHeadRows[]; lastSlot?: number; boardIds?: string[]; assetIds?: string[] };
 
@@ -90,18 +90,6 @@ function openStore(databasePath: string) {
   const database = openCompactRowsDatabase(databasePath);
   const statements = preparedStatementsOrClose(database);
 
-  function inTransaction<Value>(work: () => Value): Value {
-    database.exec('BEGIN IMMEDIATE');
-    try {
-      const value = work();
-      database.exec('COMMIT');
-      return value;
-    } catch (error) {
-      database.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
   function slotNumberOf(row: unknown): number {
     if (typeof row !== 'object' || row === null || !('slot' in row) || typeof row.slot !== 'number') throw new Error('the element slot is missing');
     return row.slot;
@@ -182,7 +170,7 @@ function openStore(databasePath: string) {
 
   function isBoardUpgraded(headRows: StoredHeadRows): boolean {
     try {
-      inTransaction(() => migrateBoardToCompactRows(headRows));
+      inTransaction(database, () => migrateBoardToCompactRows(headRows));
       return true;
     } catch (error) {
       if (!isUnreadableDatabase(error)) throw error;
@@ -212,15 +200,15 @@ function openStore(databasePath: string) {
     if (request.kind === 'boards-linking-to') return { boardIds: statements.boardsLinkingTo.all(request.boardId).map((row) => textColumn(row, 'board_id')) };
     if (request.kind === 'board-ids') return { boardIds: statements.boardIds.all().map((row) => textColumn(row, 'id')) };
     if (request.kind === 'write') {
-      inTransaction(() => { for (const delta of request.deltas) applyDelta(delta); });
+      inTransaction(database, () => { for (const delta of request.deltas) applyDelta(delta); });
       return {};
     }
     if (request.kind === 'delete') {
-      inTransaction(() => deleteBoard(request.boardId));
+      inTransaction(database, () => deleteBoard(request.boardId));
       return {};
     }
     if (request.kind === 'set-rects') {
-      inTransaction(() => setRects(request.boardId, request.rectsByElementId));
+      inTransaction(database, () => setRects(request.boardId, request.rectsByElementId));
       return {};
     }
     if (request.kind === 'query-region') {
