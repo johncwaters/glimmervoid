@@ -12,14 +12,14 @@ import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf, withRecord } from '../../shared/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
 import type { LayoutCache, LayoutStamp } from './layout-cache.ts';
-import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf, isElementTable } from '../../shared/whiteboard-element-table.ts';
 
 const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
 const ChangedElement = z.strictObject({ id: z.string(), after: Element.nullable(), isAppended: z.boolean() });
 
 const LayoutRequest = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('sync-start'), requestId: RequestId, syncId: z.number().int(), head: BoardHead }),
+  z.strictObject({ kind: z.literal('sync-start'), requestId: RequestId, syncId: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative() }),
   z.strictObject({ kind: z.literal('sync-elements'), requestId: RequestId, syncId: z.number().int(), boardId: z.string(), elements: z.array(Element) }),
   z.strictObject({ kind: z.literal('advance'), requestId: RequestId, head: BoardHead, changes: z.array(ChangedElement), viewers: z.array(ViewerTiles) }),
   z.strictObject({ kind: z.literal('refresh'), requestId: RequestId, boardId: z.string(), viewers: z.array(ViewerTiles) }),
@@ -209,10 +209,15 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
   function handle(request: LayoutRequestBody): AnswerFields {
     switch (request.kind) {
       case 'sync-start': {
-        if (tilesByBoardId.get(request.head.id)?.index.version !== request.head.version) tilesByBoardId.delete(request.head.id);
         syncIdByBoardId.set(request.head.id, request.syncId);
+        const records = cachedTilesOf(request.head.id, request.head)?.index.records;
+        if (isElementTable(records) && records.size === request.elementCount) {
+          boardById.set(request.head.id, { ...request.head, elements: records });
+          return {};
+        }
+        tilesByBoardId.delete(request.head.id);
         boardById.set(request.head.id, { ...request.head, elements: elementTableOf() });
-        return {};
+        return { isCacheMiss: true };
       }
       case 'sync-elements': {
         if (syncIdByBoardId.get(request.boardId) !== request.syncId) throw new Error(`the layout worker is not syncing board ${request.boardId} under sync ${request.syncId}`);

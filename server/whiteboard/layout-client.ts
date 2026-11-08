@@ -27,11 +27,12 @@ interface PendingRequest {
 interface BoardSync {
   syncId: number;
   version: number;
+  held: Promise<void>;
   posted: Promise<void>;
 }
 
 interface LayoutClient {
-  hold(board: Board): void;
+  hold(board: Board): Promise<void>;
   advance(board: Board, changes: readonly ChangedElement[], viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   ask(board: Board, body: LayoutRequestBody): Promise<LayoutAnswer>;
@@ -97,12 +98,24 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     return syncByBoardId.get(boardId)?.syncId === sync.syncId;
   }
 
-  async function postBoard(board: Board, elements: readonly Element[], after: Promise<void>, sync: BoardSync): Promise<void> {
+  async function elementsTheWorkerLacks(board: Board, after: Promise<void>, sync: BoardSync): Promise<readonly Element[]> {
     await after;
-    if (!isCurrentSync(board.id, sync)) return;
+    if (!isCurrentSync(board.id, sync)) return [];
     const { elements: _elements, ...head } = board;
+    const started = post({ kind: 'sync-start', syncId: sync.syncId, head, elementCount: board.elements.size });
+    forgetSyncOnFailure(board.id, sync, started);
+    const answer = await started.catch(() => null);
+    if (!answer?.isCacheMiss || !isCurrentSync(board.id, sync)) return [];
+    return [...board.elements.values()];
+  }
+
+  function postBoard(board: Board, after: Promise<void>, sync: BoardSync): Pick<BoardSync, 'held' | 'posted'> {
+    const started = elementsTheWorkerLacks(board, after, sync);
+    return { held: started.then(() => undefined), posted: started.then((elements) => postPages(board, elements, sync)) };
+  }
+
+  async function postPages(board: Board, elements: readonly Element[], sync: BoardSync): Promise<void> {
     const { syncId } = sync;
-    forgetSyncOnFailure(board.id, sync, post({ kind: 'sync-start', syncId, head }));
     const syncWorker = worker;
     for (let start = 0; start < elements.length; start += ELEMENT_PAGE_SIZE) {
       await yieldToEventLoop();
@@ -114,10 +127,12 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
   function syncFor(board: Board): BoardSync {
     const held = syncByBoardId.get(board.id);
     if (held?.version === board.version) return held;
-    const sync: BoardSync = { syncId: nextSyncId, version: board.version, posted: Promise.resolve() };
+    const sync: BoardSync = { syncId: nextSyncId, version: board.version, held: Promise.resolve(), posted: Promise.resolve() };
     nextSyncId += 1;
     syncByBoardId.set(board.id, sync);
-    sync.posted = postBoard(board, [...board.elements.values()], held?.posted ?? Promise.resolve(), sync);
+    const postedBoard = postBoard(board, held?.posted ?? Promise.resolve(), sync);
+    sync.held = postedBoard.held;
+    sync.posted = postedBoard.posted;
     return sync;
   }
 
@@ -128,8 +143,8 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     return post(body);
   }
 
-  function hold(board: Board): void {
-    syncFor(board);
+  function hold(board: Board): Promise<void> {
+    return syncFor(board).held;
   }
 
   function refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer> {
@@ -140,7 +155,7 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     const held = syncByBoardId.get(board.id);
     if (held?.version !== board.version - 1) return refresh(board, viewers);
     const { elements: _elements, ...head } = board;
-    const sync: BoardSync = { syncId: held.syncId, version: board.version, posted: held.posted };
+    const sync: BoardSync = { syncId: held.syncId, version: board.version, held: held.held, posted: held.posted };
     syncByBoardId.set(board.id, sync);
     const answer = held.posted.then(() => {
       if (!isCurrentSync(board.id, sync)) throw new Error(`the whiteboard layout lost board ${board.id} while this put waited`);

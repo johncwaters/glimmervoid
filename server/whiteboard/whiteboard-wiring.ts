@@ -394,7 +394,7 @@ function createWhiteboardWiring({
       const loading = await loadedRecordOf(boardId);
       if (!loading.ok) return loading.reply;
       const current = loading.record;
-      tiles.hold(current.board);
+      await tiles.hold(current.board);
       const outcome = await change(current);
       if (!outcome.ok) return outcome.reply;
       if (outcome.record === current) return outcome.reply;
