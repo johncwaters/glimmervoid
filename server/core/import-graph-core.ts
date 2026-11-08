@@ -209,6 +209,21 @@ function collectTransitiveDependents(graph: ImportGraph, changedPath: string, ma
   return visitedPaths;
 }
 
+export function originByDependentPath(dependentsByPath: ReadonlyMap<string, ReadonlySet<string>>, startPaths: Iterable<string>): Map<string, string> {
+  const originByPath = new Map([...startPaths].map((startPath): [string, string] => [startPath, startPath]));
+  const queuedPaths = [...originByPath.keys()];
+  for (let index = 0; index < queuedPaths.length; index++) {
+    const queuedPath = queuedPaths[index];
+    const origin = originByPath.get(queuedPath) ?? queuedPath;
+    for (const dependentPath of dependentsByPath.get(queuedPath) ?? []) {
+      if (originByPath.has(dependentPath)) continue;
+      originByPath.set(dependentPath, origin);
+      queuedPaths.push(dependentPath);
+    }
+  }
+  return originByPath;
+}
+
 function compareRepoPaths(leftPath: string, rightPath: string): number {
   if (leftPath < rightPath) return -1;
   if (leftPath > rightPath) return 1;

@@ -21,6 +21,7 @@ jobs:
       # its own name instead of surfacing as a mystery in the packaging job below.
       - run: npm run build
       - run: npm test
+      - run: npm run test:e2e -- --all
       # npm ci blocks node-pty's install scripts (npm 11.17+ default), so only this leg tests the documented global install where they run and the native module compiles.
       - name: packaged global install
         shell: bash

@@ -9,7 +9,7 @@ import { startRecordingFake } from './support/recording-fake.ts';
 import type { RecordedRequest } from './support/recording-fake.ts';
 import { assertCleanLog, startServer } from './support/server-process.ts';
 
-const SCENARIO_SEEDS = ['server/secrets/vault-socket.ts', 'server/secrets/secrets-broker.ts', 'server/telemetry.ts'];
+const SCENARIO_SEEDS = ['server/secrets/vault-socket.ts', 'server/secrets/secrets-broker.ts', 'server/telemetry.ts', 'server/agent-api-cli.ts', 'bin/glimmervoid.ts'];
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const SECRET_NAME = 'E2E_VAULT_SECRET';

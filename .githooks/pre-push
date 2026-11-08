@@ -9,12 +9,30 @@ deleted_ref_sha=0000000000000000000000000000000000000000
 head_sha=$(git rev-parse HEAD)
 checked_shas=""
 
+diff_base_of() {
+  if [ "$1" != "$deleted_ref_sha" ] && git cat-file -e "$1^{commit}" 2>/dev/null; then
+    echo "$1"
+    return
+  fi
+  echo origin/main
+}
+
+run_selected_scenarios() {
+  if ! grep -q -- "--since" scripts/e2e.ts 2>/dev/null; then
+    echo "pre-push: this commit predates scenario selection, so no end-to-end scenario runs" >&2
+    return 0
+  fi
+  node scripts/e2e.ts --since "$1"
+}
+
 check_in_temp_worktree() {
   pushed_sha=$1
+  diff_base=$2
   check_dir=$(mktemp -d)
   git worktree add --quiet --detach "$check_dir" "$pushed_sha" || return 1
   ln -s "$repo_root/node_modules" "$check_dir/node_modules"
-  (cd "$check_dir" && npm run --silent check:fast)
+  [ -d "$repo_root/dist" ] && ln -s "$repo_root/dist" "$check_dir/dist"
+  (cd "$check_dir" && npm run --silent check:fast && run_selected_scenarios "$diff_base")
   check_status=$?
   git worktree remove --force "$check_dir"
   return $check_status
@@ -24,11 +42,13 @@ while read -r local_ref pushed_sha remote_ref remote_sha; do
   [ "$pushed_sha" = "$deleted_ref_sha" ] && continue
   case " $checked_shas " in *" $pushed_sha "*) continue ;; esac
   checked_shas="$checked_shas $pushed_sha"
+  diff_base=$(diff_base_of "$remote_sha")
   if [ "$pushed_sha" = "$head_sha" ] && [ -z "$(git status --porcelain)" ]; then
     npm run --silent check:fast || exit 1
+    run_selected_scenarios "$diff_base" || exit 1
     continue
   fi
   echo "pre-push: checking $pushed_sha in a temporary worktree" >&2
-  check_in_temp_worktree "$pushed_sha" || exit 1
+  check_in_temp_worktree "$pushed_sha" "$diff_base" || exit 1
 done
 exit 0
