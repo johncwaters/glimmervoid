@@ -518,14 +518,16 @@ test('a board with plan steps keys their statuses in the legend, and a board wit
   assert.deepEqual(layoutBoard(plainBoard).legend, []);
 });
 
-test('a box width rewraps its text and grows its picture, while an unsized box keeps the default and an out of range width is refused', () => {
+test('a box width rewraps its text and grows its picture, a box height is a minimum the content can exceed, while an unsized box keeps the default and an out of range size is refused', () => {
   const picture = { kind: 'image' as const, asset: 'a'.repeat(64), mime: 'image/webp', width: 800, height: 400 };
   const sizedBoard = Board.parse({
     id: 'sized', title: 'sized', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       wide: { ...box('wide'), at: { x: 40, y: 40 }, width: 440, media: picture },
       narrow: { ...box('narrow'), near: { of: 'wide', side: 'bottom', gap: 30 } },
-      next: { ...box('next'), near: { of: 'wide', side: 'right', gap: 90 } },
+      next: { ...box('next'), near: { of: 'wide', side: 'right', gap: 90 }, height: 300 },
+      tall: { kind: 'box', id: 'tall', title: 'Pick', shape: 'decision', at: { x: 1300, y: 40 }, height: 400, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] },
+      squat: { ...box('squat'), near: { of: 'next', side: 'bottom', gap: 30 }, width: 160, height: 1, media: picture },
       free: { kind: 'box', id: 'free', title: 'Free', at: { x: 900, y: 400 }, width: 160, media: picture },
     },
   });
@@ -534,7 +536,15 @@ test('a box width rewraps its text and grows its picture, while an unsized box k
   const narrow = boxById.get('narrow');
   const next = boxById.get('next');
   const free = boxById.get('free');
-  assert.ok(wide && narrow && next && free);
+  const squat = boxById.get('squat');
+  assert.ok(wide && narrow && next && free && squat);
+  assert.equal(next.height, 300, 'a box height taller than its content sets the box height');
+  assert.equal(squat.y, next.y + 300 + 30, 'a box below the tall one clears its set height');
+  assert.ok(squat.height > 68, 'content taller than a box height still fits');
+  const tall = boxById.get('tall');
+  assert.ok(tall);
+  const rowHeight = (tall.height - tall.headerHeight) / 2;
+  assert.deepEqual(tall.outputs.map((output) => output.port.y), [tall.y + tall.headerHeight + rowHeight / 2, tall.y + tall.headerHeight + rowHeight * 1.5], 'a taller decision spreads its output rows over the extra height, matching the row dividers');
   assert.equal(narrow.width, 220, 'a box with no width keeps the default');
   assert.equal(wide.width, 440);
   assert.equal(wide.titleLines.length, 1, 'a wider box wraps its title to its width');
@@ -544,6 +554,8 @@ test('a box width rewraps its text and grows its picture, while an unsized box k
   assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
   const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
+  const tooTall = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { height: 5000 } }], { id: 'agent', name: 'agent' }, 0);
+  assert.equal(tooTall.ok ? '' : tooTall.error, 'op 1: narrow: a box height is 1 to 2400');
 });
 
 function savedThroughJson(world: LayoutWorld) {
@@ -688,4 +700,15 @@ test('a collapsed frame draws as one stack card, hides the boxes under its first
   assert.deepEqual(keptAfterMove.elements.map((element) => element.id).sort(), layoutBoard(moved.board).elements.map((element) => element.id).sort(), 'moving a box wired into a stack keeps its wire to the card');
   const second = applyOps(staged.board, [Op.parse({ op: 'add', element: { kind: 'frame', id: 'again', title: 'Again', contains: ['under'], collapsed: true } })], author, 0);
   assert.equal(second.ok ? '' : second.error, 'op 1: frame again stacks under, which is already in stack refs');
+});
+
+test('a board keeps a box height, dial values, page dials and a collapsed frame through its stored element table', () => {
+  const dialedPage = { kind: 'page' as const, asset: 'b'.repeat(64), mime: 'text/html' as const, width: 800, height: 600, dials: [{ id: 'hue', kind: 'range' as const, label: 'Hue', min: 0, max: 360, default: 120 }, { id: 'dark', kind: 'toggle' as const, label: 'Dark' }] };
+  const rawElements = [
+    { kind: 'box', id: 'page', title: 'Page', at: { x: 40, y: 40 }, height: 500, media: dialedPage, params: { hue: 200, dark: true } },
+    { kind: 'box', id: 'card', title: 'Card', near: { of: 'page', side: 'right' } },
+    { kind: 'frame', id: 'pile', title: 'Pile', contains: ['page', 'card'], collapsed: true },
+  ];
+  const board = Board.parse({ id: 'kept', title: 'kept', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: Object.fromEntries(rawElements.map((element) => [element.id, element])) });
+  for (const rawElement of rawElements) assert.deepEqual(board.elements.get(rawElement.id), Element.parse(rawElement), `${rawElement.id} reads back whole`);
 });

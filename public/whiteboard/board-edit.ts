@@ -100,7 +100,7 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
 const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device' };
 
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): BoardElement {
-  const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, step: null };
+  const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
   switch (shape) {
     case 'icon': return { ...placed, shape, icon: PLACED_ICON };
     case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', media, params: {} };
@@ -115,7 +115,8 @@ function pressedImageOf(hit: BoardHit | null): PressedImage | null {
   return { boxId: hit.id, href: hit.media.href, alt: hit.media.alt };
 }
 
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'ew-resize', link: 'pointer', media: 'zoom-in' };
+const VERTICAL_RESIZE_THRESHOLD = 4;
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'nwse-resize', link: 'pointer', media: 'zoom-in' };
 
 function hoverCursorOf(hit: BoardHit | null): string {
   if (!hit) return '';
@@ -264,8 +265,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, width));
   }
 
+  function isResizedVertically(drag: Extract<Gesture, { kind: 'drag' }>): boolean {
+    return Math.abs(drag.latest.y - drag.origin.y) >= VERTICAL_RESIZE_THRESHOLD;
+  }
+
+  function draggedHeight(drag: Extract<Gesture, { kind: 'drag' }>, start: Rect): number {
+    const height = Math.round(start.height + drag.latest.y - drag.origin.y);
+    return Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.max(1, height));
+  }
+
   function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
-    if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start) } }));
+    if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start), ...(isResizedVertically(drag) ? { height: draggedHeight(drag, movingBox.start) } : {}) } }));
     const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
     const board = options.currentBoard();
     const leavingBand = drag.movingBoxes.filter((movingBox) => {

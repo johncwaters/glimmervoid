@@ -151,18 +151,24 @@ async function verifyResizedBoxes(open: OpenBoard, boxIds: readonly [string, ...
     return laidOut.kind === 'wire' ? 0 : laidOut.width;
   }));
   const widthsBefore = await widthsOf();
+  const heightOfFirst = async () => {
+    const laidOut = await laidOutOf(open, boxIds[0]);
+    return laidOut.kind === 'wire' ? 0 : laidOut.height;
+  };
+  const heightBefore = await heightOfFirst();
   const rect = await screenRectOf(open, boxIds[0]);
   await open.page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
   const handle = { x: rect.x + rect.width - 4, y: rect.y + rect.height - 4 };
-  assert.equal(await cursorAt(open, handle), 'ew-resize', 'the bottom right corner of a hovered box is its resize handle');
+  assert.equal(await cursorAt(open, handle), 'nwse-resize', 'the bottom right corner of a hovered box is its resize handle');
   await open.page.mouse.down();
-  await open.page.mouse.move(handle.x + 120, handle.y, { steps: 6 });
+  await open.page.mouse.move(handle.x + 120, handle.y + 80, { steps: 6 });
   await open.page.mouse.up();
   const widenings = await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => {
     const widthsAfter = await widthsOf();
     return widthsAfter.every((width, index) => width > (widthsBefore[index] ?? width)) ? widthsAfter.map((width, index) => width - (widthsBefore[index] ?? width)) : null;
   });
   assert.ok(widenings.every((widening) => widening === widenings[0]), `every selected box widens by the same amount, got ${widenings.join(', ')}`);
+  assert.ok(await heightOfFirst() > heightBefore, 'dragging the corner handle down makes the box taller');
   await open.panel.getByRole('button', { name: 'Undo', exact: true }).click();
   await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
 }
