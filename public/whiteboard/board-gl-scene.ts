@@ -1,6 +1,7 @@
 import type { IconName } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
+import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
@@ -444,7 +445,23 @@ function arcPoints(center: Point, radius: number, startAngle: number, sweep: num
   });
 }
 
+function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
+  const { palette, glyphs } = context;
+  const part = createPart();
+  const card = { x: frame.x, y: frame.y + FRAME_TITLE_HEIGHT, width: frame.width - STACK_SPREAD * 2, height: frame.height - FRAME_TITLE_HEIGHT - STACK_SPREAD * 2 };
+  for (const depth of [2, 1]) {
+    const ghostCard = { ...card, x: card.x + STACK_SPREAD * depth, y: card.y + STACK_SPREAD * depth };
+    pushOutlinedRect(part, ghostCard, 8, palette.cardBackground, palette.line, 1.2, SOLID, ALWAYS);
+  }
+  const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };
+  const titleText = `${frame.title} (${stackedBoxCount})`;
+  pushText(part, glyphs, titleText, frame.x + 4, frame.y + 18, titleStyle);
+  const titleRect = { x: frame.x, y: frame.y, width: 8 + textWidth(titleText, titleStyle), height: FRAME_TITLE_HEIGHT };
+  return { part, hitShape: { kind: 'outline', rect: frame, titleRect } };
+}
+
 function frameGeometry(frame: LaidOutFrame, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
+  if (frame.stackedBoxCount !== null) return stackGeometry(frame, frame.stackedBoxCount, context);
   const { palette, glyphs } = context;
   const part = createPart();
   const stroke = frame.isLoop ? palette.accent : palette.line;

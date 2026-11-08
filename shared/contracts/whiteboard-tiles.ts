@@ -52,7 +52,7 @@ export const LaidOutBox = z.object({
   step: z.object({ label: z.string(), status: z.enum(STEP_STATUSES), linkedBoardId: z.string().nullable() }).nullable(),
 });
 
-export const LaidOutFrame = z.object({ ...rectShape, kind: z.literal('frame'), id: z.string(), title: z.string(), isLoop: z.boolean() });
+export const LaidOutFrame = z.object({ ...rectShape, kind: z.literal('frame'), id: z.string(), title: z.string(), isLoop: z.boolean(), stackedBoxCount: z.number().int().nullable().default(null) });
 
 export const LaidOutWire = z.object({
   kind: z.literal('wire'),
