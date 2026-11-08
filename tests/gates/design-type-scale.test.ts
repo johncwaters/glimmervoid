@@ -15,6 +15,7 @@ const shellInlineStylesheet = withoutComments(styleBlocks(dashboardMarkup));
 const loginPageStylesheet = styleBlocks(readRepoFile('server/remote-auth.ts'));
 const tailwindStylesheet = readRepoFile('public/tailwind.css');
 const typographyBible = readRepoFile('brand-bible/typography.yaml');
+const designDoc = readRepoFile('DESIGN.md');
 
 const TYPE_TOKEN_BY_ROLE = { meta: 'meta', body: 'body', title: 'title', display: 'display', 'doc-h1': 'doc-h1', 'doc-h2': 'doc-h2', 'doc-h3': 'doc-h3', 'doc-body': 'doc-body' } as const;
 const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)', 'var(--type-doc-body)']);
@@ -78,6 +79,9 @@ test('the type tokens carry the brand bible typography sizes, role for role', ()
   const bibleSizes = Object.fromEntries(bibleRoleSizes());
   const tokenSizes = Object.fromEntries(Object.entries(TYPE_TOKEN_BY_ROLE).map(([role, token]) => [role, tokenValues.get(token) ?? '']));
   assert.deepEqual(bibleSizes, tokenSizes);
+  const tokensNamedInDesignDoc = new Set([...designDoc.matchAll(/--type-([a-z0-9-]+)/g)].map((match) => match[1]));
+  const rolesMissingFromDesignDoc = Object.keys(bibleSizes).filter((role) => !tokensNamedInDesignDoc.has(role));
+  assert.deepEqual(rolesMissingFromDesignDoc, []);
 });
 
 test('the dashboard shell and the login page set sizes only on the type scale', () => {
