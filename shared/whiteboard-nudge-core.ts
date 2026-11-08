@@ -1,20 +1,28 @@
 import type { Rect } from './whiteboard-layout-core.ts';
-import { distinctSorted, emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from './whiteboard-sweep-core.ts';
+import { distinctSorted } from './whiteboard-sweep-core.ts';
 
 const TRACK_SPACING = 10;
 const BOX_MARGIN = 4;
 const CHANNEL_REACH = 14;
 const MIN_TRACK_SPACING = 2;
+const MAX_GAP_REACH = 160;
 
 interface NudgePoint {
   x: number;
   y: number;
 }
 
+interface PortSlack {
+  low: number;
+  high: number;
+}
+
 interface NudgeWire {
   points: readonly NudgePoint[];
   exitKey: string;
   busKey: string | null;
+  startSlack: PortSlack;
+  endSlack: PortSlack;
 }
 
 interface LineSegment {
@@ -44,6 +52,7 @@ interface SharedLine {
 interface Channel {
   low: number;
   high: number;
+  isBetweenObstacles: boolean;
 }
 
 function lineOf(point: NudgePoint, isHorizontal: boolean): number {
@@ -206,29 +215,33 @@ function pinnedOffsetOf(bundles: readonly Bundle[]): number | null | undefined {
   return pinnedOffset ?? null;
 }
 
-function channelsOf(sharedLines: readonly SharedLine[], offsetCounts: readonly number[], hardRects: readonly Rect[], isHorizontal: boolean): Channel[] {
-  const reachOf = (index: number) => (offsetCounts[index] ?? 1) * TRACK_SPACING + BOX_MARGIN + CHANNEL_REACH;
-  const channels = sharedLines.map((sharedLine, index) => ({ low: sharedLine.line - reachOf(index), high: sharedLine.line + reachOf(index) }));
-  const bands = emptyFlatRects(sharedLines.length);
-  sharedLines.forEach((sharedLine, index) => {
-    const reach = reachOf(index);
-    if (isHorizontal) setFlatRect(bands, index, sharedLine.low, sharedLine.line - reach, sharedLine.high, sharedLine.line + reach);
-    if (!isHorizontal) setFlatRect(bands, index, sharedLine.line - reach, sharedLine.low, sharedLine.line + reach, sharedLine.high);
-  });
-  const solids = flatRectsOf(hardRects);
-  forEachTouchingPairAcross(bands, solids, (band, solid) => {
-    const sharedLine = sharedLines[band];
-    const channel = channels[band];
-    if (!sharedLine || !channel) return;
-    const alongLow = (isHorizontal ? solids.lefts[solid] : solids.tops[solid]) ?? 0;
-    const alongHigh = (isHorizontal ? solids.rights[solid] : solids.bottoms[solid]) ?? 0;
-    if (alongLow >= sharedLine.high || alongHigh <= sharedLine.low) return;
-    const acrossLow = (isHorizontal ? solids.tops[solid] : solids.lefts[solid]) ?? 0;
-    const acrossHigh = (isHorizontal ? solids.bottoms[solid] : solids.rights[solid]) ?? 0;
-    if (acrossHigh <= sharedLine.line) channel.low = Math.max(channel.low, acrossHigh + BOX_MARGIN);
-    if (acrossLow >= sharedLine.line) channel.high = Math.min(channel.high, acrossLow - BOX_MARGIN);
-  });
-  return channels;
+function channelOf(sharedLine: SharedLine, offsetCount: number, hardRectsIn: (area: Rect) => readonly Rect[], isHorizontal: boolean): Channel {
+  const reach = offsetCount * TRACK_SPACING + BOX_MARGIN + CHANNEL_REACH;
+  const area = isHorizontal
+    ? { x: sharedLine.low, y: sharedLine.line - MAX_GAP_REACH, width: sharedLine.high - sharedLine.low, height: MAX_GAP_REACH * 2 }
+    : { x: sharedLine.line - MAX_GAP_REACH, y: sharedLine.low, width: MAX_GAP_REACH * 2, height: sharedLine.high - sharedLine.low };
+  let gapLow = sharedLine.line - MAX_GAP_REACH;
+  let gapHigh = sharedLine.line + MAX_GAP_REACH;
+  let isLowBounded = false;
+  let isHighBounded = false;
+  for (const rect of hardRectsIn(area)) {
+    const alongLow = isHorizontal ? rect.x : rect.y;
+    const alongHigh = alongLow + (isHorizontal ? rect.width : rect.height);
+    if (alongLow >= sharedLine.high || alongHigh <= sharedLine.low) continue;
+    const acrossLow = isHorizontal ? rect.y : rect.x;
+    const acrossHigh = acrossLow + (isHorizontal ? rect.height : rect.width);
+    if (acrossHigh <= sharedLine.line && acrossHigh + BOX_MARGIN > gapLow) {
+      gapLow = acrossHigh + BOX_MARGIN;
+      isLowBounded = true;
+    }
+    if (acrossLow >= sharedLine.line && acrossLow - BOX_MARGIN < gapHigh) {
+      gapHigh = acrossLow - BOX_MARGIN;
+      isHighBounded = true;
+    }
+  }
+  const isBetweenObstacles = isLowBounded && isHighBounded;
+  if (isBetweenObstacles) return { low: gapLow, high: gapHigh, isBetweenObstacles };
+  return { low: Math.max(gapLow, sharedLine.line - reach), high: Math.min(gapHigh, sharedLine.line + reach), isBetweenObstacles };
 }
 
 function firstTrackAndSpacing(line: number, offsetCount: number, pinnedOffset: number | null, channel: Channel): { firstTrack: number; spacing: number } | null {
@@ -241,7 +254,8 @@ function firstTrackAndSpacing(line: number, offsetCount: number, pinnedOffset: n
   const spacing = Math.min(TRACK_SPACING, (channel.high - channel.low) / (offsetCount - 1));
   if (spacing < MIN_TRACK_SPACING) return null;
   const span = (offsetCount - 1) * spacing;
-  return { firstTrack: Math.max(channel.low, Math.min(line - span / 2, channel.high - span)), spacing };
+  const centre = channel.isBetweenObstacles ? (channel.low + channel.high) / 2 : line;
+  return { firstTrack: Math.max(channel.low, Math.min(centre - span / 2, channel.high - span)), spacing };
 }
 
 function moveBundle(bundle: Bundle, position: number, points: NudgePoint[][], isHorizontal: boolean): void {
@@ -254,7 +268,19 @@ function moveBundle(bundle: Bundle, position: number, points: NudgePoint[][], is
   }
 }
 
-function nudgeAxis(wires: readonly NudgeWire[], points: NudgePoint[][], hardRects: readonly Rect[], isHorizontal: boolean): void {
+function isWithinPortSlack(bundle: Bundle, track: number, wires: readonly NudgeWire[], points: readonly NudgePoint[][]): boolean {
+  return bundle.members.every((member) => {
+    const wire = wires[member.wire];
+    if (!wire || !member.isFixed) return true;
+    const isStart = member.index === 0;
+    const isEnd = member.index + 2 === (points[member.wire]?.length ?? 0);
+    const isInStart = !isStart || (track >= wire.startSlack.low && track <= wire.startSlack.high);
+    const isInEnd = !isEnd || (track >= wire.endSlack.low && track <= wire.endSlack.high);
+    return isInStart && isInEnd;
+  });
+}
+
+function nudgeAxis(wires: readonly NudgeWire[], points: NudgePoint[][], hardRectsIn: (area: Rect) => readonly Rect[], isHorizontal: boolean): void {
   const sharedLines = sharedLinesOf(lineSegmentsOf(points, isHorizontal), wires);
   const offsetCounts = sharedLines.map((sharedLine) => {
     sharedLine.bundles.sort((first, second) => {
@@ -264,23 +290,25 @@ function nudgeAxis(wires: readonly NudgeWire[], points: NudgePoint[][], hardRect
     });
     return assignOffsets(sharedLine.bundles);
   });
-  const channels = channelsOf(sharedLines, offsetCounts, hardRects, isHorizontal);
   sharedLines.forEach((sharedLine, lineIndex) => {
-    const channel = channels[lineIndex];
     const offsetCount = offsetCounts[lineIndex] ?? 1;
+    if (offsetCount < 2) return;
     const pinnedOffset = pinnedOffsetOf(sharedLine.bundles);
-    if (!channel || offsetCount < 2 || pinnedOffset === undefined) return;
-    const tracks = firstTrackAndSpacing(sharedLine.line, offsetCount, pinnedOffset, channel);
+    const channel = channelOf(sharedLine, offsetCount, hardRectsIn, isHorizontal);
+    const tracks = firstTrackAndSpacing(sharedLine.line, offsetCount, pinnedOffset ?? null, channel);
     if (!tracks) return;
-    for (const bundle of sharedLine.bundles) moveBundle(bundle, Math.round(tracks.firstTrack + bundle.offset * tracks.spacing), points, isHorizontal);
+    const trackOf = (bundle: Bundle) => Math.round(tracks.firstTrack + bundle.offset * tracks.spacing);
+    if (pinnedOffset === undefined && !sharedLine.bundles.every((bundle) => isWithinPortSlack(bundle, trackOf(bundle), wires, points))) return;
+    for (const bundle of sharedLine.bundles) moveBundle(bundle, trackOf(bundle), points, isHorizontal);
   });
 }
 
-function nudgeSharedLines(wires: readonly NudgeWire[], hardRects: readonly Rect[]): NudgePoint[][] {
+function nudgeSharedLines(wires: readonly NudgeWire[], hardRectsIn: (area: Rect) => readonly Rect[]): NudgePoint[][] {
   const points = wires.map((wire) => wire.points.map((point) => ({ x: point.x, y: point.y })));
-  nudgeAxis(wires, points, hardRects, true);
-  nudgeAxis(wires, points, hardRects, false);
+  nudgeAxis(wires, points, hardRectsIn, true);
+  nudgeAxis(wires, points, hardRectsIn, false);
   return points;
 }
 
 export { nudgeSharedLines };
+export type { PortSlack };

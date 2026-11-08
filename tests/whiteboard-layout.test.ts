@@ -329,6 +329,17 @@ test('a wire past a box placed above the content top goes around that box, not t
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through') || warning.includes('found no clear route') || warning.includes('no clear spot')), [], layout.warnings.join('\n'));
 });
 
+test('two wires whose end ports line up across a corridor are drawn apart rather than over each other', () => {
+  const placedBox = (id: string, x: number, y: number) => ({ kind: 'box', id, title: id, at: { x, y } });
+  const elements = {
+    a: placedBox('a', 0, 0), b: placedBox('b', 0, 300), top: placedBox('top', 300, 0), bottom: placedBox('bottom', 300, 300), c: placedBox('c', 600, 0), d: placedBox('d', 600, 300),
+    down: { kind: 'wire', id: 'down', from: 'a', to: 'd' },
+    up: { kind: 'wire', id: 'up', from: 'b', to: 'c' },
+  };
+  const layout = layoutBoard(Board.parse({ id: 'corridor', title: 'corridor', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements }));
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('overlaps wire')), []);
+});
+
 test('a decision fanning out to a stack of boxes draws its wires without crossings', () => {
   const fanBoard = Board.parse({
     id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
