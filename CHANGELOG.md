@@ -110,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **No more MaxListenersExceededWarning at startup.** Every part of the server that greets a new dashboard connection now registers with one connection listener instead of adding its own, so the warning about 11 connection listeners is gone.
 - **Stopping Glimmervoid no longer restarts the watcher.** A shutdown now stops the watcher link with the other lanes, so the watcher child is not respawned while the server is going down.
 - **Wire routing on a large whiteboard makes less garbage.** The route search writes its queue entries straight into its typed arrays and keeps its visited list between searches, cutting about 15% of what a 300,000 element layout allocates and about 10% of its time, with the same drawing.
 - **Settings group headings stand out from the sections under them.** This browser, Sessions, Machine and Lanes in the settings sidebar are now bold and bright with a hairline running to the edge, so a heading no longer reads like one more section.

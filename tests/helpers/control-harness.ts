@@ -65,7 +65,7 @@ function controlDeps(config: GlimmervoidConfig, overrides: Partial<ControlHandle
 
 function createControlServer(deps: ControlHandlerDeps): WebSocketServer {
   const controlWss = new WebSocketServer({ noServer: true });
-  registerControlHandlers(controlWss, deps);
+  registerControlHandlers((handleConnection) => controlWss.on('connection', handleConnection), deps);
   return controlWss;
 }
 

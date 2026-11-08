@@ -1,6 +1,6 @@
 import type fs from 'node:fs';
 import type { z } from 'zod';
-import type { WebSocket, WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import { ClientMessage, configIssueMessage, type ClientMessageOf, type ServerMessageOf } from '../shared/contracts/index.ts';
 import type { IssuesStatus } from '../shared/contracts/issues.ts';
 import type { PacksStatus } from '../shared/contracts/control/pack-messages.ts';
@@ -17,7 +17,7 @@ import type { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeReques
 import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
 import type { TerminalColors } from '../session/core/terminal-color-query.ts';
-import type { ControlSocket } from './backend/backend-websockets.ts';
+import type { ControlConnectionHandler, ControlSocket } from './backend/backend-websockets.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
@@ -187,7 +187,7 @@ function parseSinceParam(url: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandlerDeps) {
+function registerControlHandlers(onControlConnection: (handleConnection: ControlConnectionHandler) => void, deps: ControlHandlerDeps) {
   const { serverBuild = () => null, controlReplayLog = null, hostLinks = null } = deps;
   const context = createControlContext(deps);
   const session = createSessionHandlers(context, deps);
@@ -228,7 +228,7 @@ function registerControlHandlers(controlWss: WebSocketServer, deps: ControlHandl
     return undefined;
   }
 
-  controlWss.on('connection', (socket: WebSocket, req) => {
+  onControlConnection((socket: WebSocket, req) => {
     const ws = socket as ControlSocket;
     ws.send(JSON.stringify(buildSnapshot()));
 

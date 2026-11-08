@@ -2,9 +2,9 @@ import type { GithubLaneStore } from '../github/github-store-wiring.ts';
 import type { IssuesStatus } from '../../shared/contracts/issues.ts';
 import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
-import type { WebSocket, WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
@@ -65,7 +65,7 @@ interface UsageControl {
 }
 
 interface BackendControlDependencies {
-  controlWss: WebSocketServer;
+  onControlConnection: (handleConnection: ControlConnectionHandler) => void;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
   markChildWorktreeDiscard: (childId: string) => void;
@@ -120,7 +120,7 @@ interface BackendControlDependencies {
 
 function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void } {
   const {
-    controlWss,
+    onControlConnection,
     sessions,
     config,
     configStore,
@@ -137,7 +137,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     logger,
   } = dependencies;
 
-  const controlHandlers = registerControlHandlers(controlWss, {
+  const controlHandlers = registerControlHandlers(onControlConnection, {
     sessions,
     agentSessions: dependencies.agentSessions,
     markChildWorktreeDiscard: dependencies.markChildWorktreeDiscard,
@@ -212,7 +212,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     laneName: string,
     readLane: () => SnapshotLane | null,
   ): void => {
-    controlWss.on('connection', (socket: WebSocket) => {
+    onControlConnection((socket: WebSocket) => {
       if (socket.readyState !== 1) return;
       const lane = readLane();
       if (!lane) return;

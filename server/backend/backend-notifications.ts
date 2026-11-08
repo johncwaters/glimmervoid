@@ -6,7 +6,7 @@ import { createTelegramCompletionDefer } from '../../notifications/telegram-comp
 import { createTelegramDigest } from '../../notifications/telegram-digest.ts';
 import { createTelegramOutbox } from '../../notifications/telegram-outbox.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
@@ -32,6 +32,9 @@ interface NotificationConfig {
 
 interface NotificationWsServer {
   clients: ReadonlySet<WebSocket>;
+}
+
+interface DataWsServer extends NotificationWsServer {
   on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
 }
 
@@ -40,11 +43,12 @@ interface BackendNotificationDependencies {
   configStore: { configPath: string };
   sessions: Map<string, Session>;
   controlWss: NotificationWsServer;
+  onControlConnection: (handleConnection: ControlConnectionHandler) => void;
   viewerControlClientCount: () => number;
   hubControlClientCount: () => number;
   isHubControlSocket: (socket: WebSocket) => boolean;
   sendToHubControlSockets: (frame: HubPhoneAlertFrame) => number;
-  dataWss: NotificationWsServer;
+  dataWss: DataWsServer;
   broadcastControl: ControlBroadcast;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
@@ -52,7 +56,7 @@ interface BackendNotificationDependencies {
 
 function createBackendNotifications(dependencies: BackendNotificationDependencies) {
   const {
-    config, configStore, sessions, controlWss, viewerControlClientCount, hubControlClientCount, isHubControlSocket, sendToHubControlSockets,
+    config, configStore, sessions, controlWss, onControlConnection, viewerControlClientCount, hubControlClientCount, isHubControlSocket, sendToHubControlSockets,
     dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
   const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
@@ -138,21 +142,17 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   });
   void telegramOutbox.replay();
 
-  controlWss.on('connection', (socket) => {
+  const heartbeat = createHeartbeat({ servers: [controlWss, dataWss] });
+  onControlConnection((socket) => {
+    socket.on('error', (error) => {
+      logger.warn(`[control-ws] Error: ${error.message}`);
+    });
+    heartbeat.track(socket);
     if (!isHubControlSocket(socket)) return;
     for (const frame of unsentHubAlertBySessionId.values()) socket.send(JSON.stringify(frame));
     unsentHubAlertBySessionId.clear();
     notificationManager.armPendingPhoneEscalations();
   });
-
-  controlWss.on('connection', (socket) => {
-    socket.on('error', (error) => {
-      logger.warn(`[control-ws] Error: ${error.message}`);
-    });
-  });
-
-  const heartbeat = createHeartbeat({ servers: [controlWss, dataWss] });
-  controlWss.on('connection', (socket) => heartbeat.track(socket));
   dataWss.on('connection', (socket) => heartbeat.track(socket));
   heartbeat.start();
   const reviewSessions = new Map<string, Session>();

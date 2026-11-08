@@ -31,6 +31,8 @@ interface HookRouteContext {
 }
 
 const booted: { context: HookRouteContext | null } = { context: null };
+const bootWarnings: Error[] = [];
+const collectBootWarning = (warning: Error) => bootWarnings.push(warning);
 
 function ctx(): HookRouteContext {
   if (!booted.context) throw new Error('the backend was never booted');
@@ -52,7 +54,10 @@ test.before(async () => {
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
   const server = http.createServer();
+  process.on('warning', collectBootWarning);
   const backend = createBackend(server, { staticDir: null });
+  await new Promise((resolve) => setImmediate(resolve));
+  process.off('warning', collectBootWarning);
 
   server.on('request', backend.app);
   await listenOnLoopback(server);
@@ -425,6 +430,10 @@ test('a Claude conversation gets the Glimmervoid start line with its first promp
   assert.equal((await postHook('UserPromptSubmit', { prompt: 'second' })).hookSpecificOutput, undefined);
 });
 
+
+test('a backend boot adds no listener past the control socket server limit', () => {
+  assert.deepEqual(bootWarnings.filter((warning) => warning.name === 'MaxListenersExceededWarning').map((warning) => warning.message), []);
+});
 
 test('a backend shutdown stops the watcher link, so its supervisor cannot respawn the watcher mid-shutdown', async () => {
   const settled = ctx().backend.shutdown();

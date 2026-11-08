@@ -5,7 +5,7 @@ import { sessionLinkedToPr } from '../github/core/team-review-core.ts';
 import type { WebSocket } from 'ws';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { ControlBroadcast } from './backend-websockets.ts';
+import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
@@ -97,9 +97,7 @@ interface BackendLaneDependencies {
   getHookPort: () => number | null;
   dashboardPort: number;
   broadcastControl: ControlBroadcast;
-  controlWss: {
-    on(event: 'connection', listener: (socket: WebSocket) => void): unknown;
-  };
+  onControlConnection: (handleConnection: ControlConnectionHandler) => void;
   viewerControlClientCount: () => number;
   isViewerConnected: () => boolean;
   isHubControlSocket: (socket: WebSocket) => boolean;
@@ -125,7 +123,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     getHookPort,
     dashboardPort,
     broadcastControl,
-    controlWss,
+    onControlConnection,
     viewerControlClientCount,
     isViewerConnected,
     isHubControlSocket,
@@ -460,7 +458,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
   });
-  controlWss.on('connection', (socket) => {
+  onControlConnection((socket) => {
     if (isHubControlSocket(socket)) return;
     void usage.start();
   });

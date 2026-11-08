@@ -243,6 +243,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   const {
     controlWss,
+    onControlConnection,
     dataWss,
     controlReplayLog,
     sessionDataClients,
@@ -298,6 +299,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     sessions,
     controlWss,
+    onControlConnection,
     viewerControlClientCount,
     hubControlClientCount,
     isHubControlSocket,
@@ -336,7 +338,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getHookPort,
     dashboardPort: port,
     broadcastControl,
-    controlWss,
+    onControlConnection,
     viewerControlClientCount,
     isViewerConnected,
     isHubControlSocket,
@@ -683,7 +685,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
 
   ({ removeExitedSession } = createBackendControl({
-    controlWss,
+    onControlConnection,
     sessions,
     agentSessions,
     markChildWorktreeDiscard: (childId) => agentApi?.markChildWorktreeDiscard(childId),

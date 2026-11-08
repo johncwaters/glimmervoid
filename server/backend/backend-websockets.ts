@@ -50,8 +50,11 @@ interface BackendWebSocketDependencies {
   relayToHost?: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 }
 
+type ControlConnectionHandler = (socket: WebSocket, request: IncomingMessage) => void;
+
 interface BackendWebSockets {
   controlWss: WebSocketServer;
+  onControlConnection(handleConnection: ControlConnectionHandler): void;
   dataWss: WebSocketServer;
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
@@ -109,9 +112,12 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES, perMessageDeflate: true });
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: true });
   const hubControlSockets = new Set<WebSocket>();
-  controlWss.on('connection', (socket) => {
+  const controlConnectionHandlers: ControlConnectionHandler[] = [(socket) => {
     recordOutcome('controlWsOpened');
     socket.on('close', () => recordOutcome('controlWsClosed'));
+  }];
+  controlWss.on('connection', (socket, request) => {
+    for (const handleConnection of controlConnectionHandlers) handleConnection(socket, request);
   });
   const controlReplayLog = createReplayLog();
   const sessionDataClients = new Map<string, Map<WebSocket, ViewerSizeRecord | null>>();
@@ -403,6 +409,9 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 
   return {
     controlWss,
+    onControlConnection: (handleConnection) => {
+      controlConnectionHandlers.push(handleConnection);
+    },
     dataWss,
     controlReplayLog,
     sessionDataClients,
@@ -419,4 +428,4 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 }
 
 export { createBackendWebSockets };
-export type { ControlBroadcast, ControlSocket };
+export type { ControlBroadcast, ControlConnectionHandler, ControlSocket };
