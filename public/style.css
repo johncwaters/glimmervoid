@@ -3249,8 +3249,10 @@ html[data-layout="phone"] .plan-face [hidden],
   .plan-face :is(.plan-tab, .plan-mode, .plan-heading-link, .plan-revision-option):not(:disabled):hover { color: var(--text-head); border-color: var(--border-hover); }
 }
 .plan-face :is(.plan-tab, .plan-mode, .plan-heading-link, .plan-revision-option):disabled { cursor: not-allowed; opacity: 0.4; }
-.plan-document,
-.plan-diff { max-width: 76ch; margin-inline: auto; min-width: 0; }
+@layer components {
+  .plan-document,
+  .plan-diff { max-width: 76ch; margin-inline: auto; min-width: 0; }
+}
 .plan-section + .plan-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-dim); }
 .plan-section-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; margin-bottom: 10px; }
 .plan-section-head .plan-heading { flex: 1 1 auto; min-width: 0; margin: 0; }

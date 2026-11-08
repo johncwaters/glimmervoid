@@ -27,7 +27,7 @@
 .doc-markup-input { width: 100%; text-transform: none; letter-spacing: 0; }
 .doc-markup-paper:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border-hover); }
 .doc-markup-paper[contenteditable="true"] { caret-color: var(--pen-ink); }
-.doc-markup-float { position: absolute; right: 0; z-index: 3; }
+.doc-markup-float { position: absolute; left: max(0px, calc((100% - 60rem) / 2 + 32px)); z-index: 3; }
 .doc-markup-card, .doc-markup-composer { box-sizing: border-box; width: 32ch; }
 .doc-markup-float[hidden] { display: none; }
 .doc-markup-composer { padding: 8px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); }
@@ -36,13 +36,13 @@
 .doc-markup-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .doc-markup-paper { padding-block: 24px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); box-shadow: inset 0 0 0 1px var(--border); }
 .doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto calc(var(--type-doc-body) * 1.75 * 40); }
-.doc-markup-row { display: grid; grid-template-columns: minmax(0, 46rem) 32ch; justify-content: center; }
-.doc-markup-line { min-height: calc(var(--type-doc-body) * 1.75); padding: 0 32px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); font-synthesis-style: auto; font-size: var(--type-doc-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-markup-row { display: grid; grid-template-columns: minmax(0, 60rem); justify-content: center; }
+.doc-markup-line { min-height: calc(var(--type-doc-body) * 1.75); padding: 0 32px; font-family: var(--font-doc); font-synthesis-style: auto; font-size: var(--type-doc-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-markup-row-margin { position: relative; }
-.doc-markup-row > :is(.doc-markup-line, .doc-preview-block) { grid-area: 1 / 1; }
-.doc-markup-row > :is(.doc-markup-row-margin, .doc-preview-toggle) { grid-area: 1 / 2; }
-.doc-markup-row > .doc-preview-toggle { justify-self: start; align-self: start; margin: 6px 0 0 12px; }
-.doc-preview-block { padding: 8px 32px 4px; border-right: 2px solid color-mix(in srgb, var(--pen-ink) 35%, transparent); font-family: var(--font-doc); }
+.doc-markup-row > .doc-preview-toggle { grid-area: 1 / 1; justify-self: start; margin: 8px 0 4px 32px; }
+.doc-markup-row > :is(.doc-markup-line, .doc-preview-block) { grid-area: 2 / 1; }
+.doc-markup-row > .doc-markup-row-margin { grid-area: 3 / 1; }
+.doc-preview-block { padding: 8px 32px 4px; font-family: var(--font-doc); }
 .doc-preview-block .plan-document { max-width: none; }
 .doc-preview-image { display: block; max-width: 100%; height: auto; margin: 4px 0 12px; border-radius: var(--radius); }
 .doc-preview-image-missing { margin: 0 0 8px; color: var(--text-dim); font-style: italic; }
@@ -64,7 +64,7 @@
 .doc-markup-caret rt { font-size: var(--type-meta); font-weight: 400; filter: url(#doc-markup-ink); }
 .doc-markup-underline { text-decoration: underline wavy 1.5px var(--pen-ink); text-underline-offset: 4px; }
 .doc-markup-pin { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; }
-.doc-markup-note { position: absolute; left: 12px; right: 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-size: var(--type-meta); line-height: 1.35; filter: url(#doc-markup-ink); transform: rotate(-1.5deg); }
+.doc-markup-note { position: absolute; left: 32px; right: 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-size: var(--type-meta); line-height: 1.35; filter: url(#doc-markup-ink); transform: rotate(-1.5deg); }
 .doc-markup-note.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
 .doc-markup-code { font-weight: 700; padding: 0 6px; border: 1.5px solid currentColor; border-radius: 50% / 60%; }
 .doc-markup-note[data-code="must"] .doc-markup-code { text-transform: uppercase; letter-spacing: 0.08em; }
@@ -73,12 +73,9 @@
 .doc-markup-end-note { padding: 12px 16px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); }
 .doc-markup-end-note .doc-markup-code { border: 0; padding: 0; }
 .doc-markup-end-note p { margin: 6px 0 0; white-space: pre-wrap; }
-html[data-layout="phone"] .doc-markup-row { grid-template-columns: minmax(0, 1fr); }
-html[data-layout="phone"] .doc-markup-row > :is(.doc-markup-row-margin, .doc-preview-toggle) { grid-area: 2 / 1; }
-html[data-layout="phone"] .doc-markup-row > .doc-preview-toggle { margin: 4px 0 8px 16px; }
-html[data-layout="phone"] .doc-markup-note { left: 16px; right: 12px; }
-html[data-layout="phone"] :is(.doc-markup-card, .doc-markup-composer) { left: 0; width: auto; }
-html[data-layout="phone"] :is(.doc-markup-line, .doc-preview-block) { border-right: 0; }
+html[data-layout="phone"] .doc-markup-row > .doc-preview-toggle { margin-left: 16px; }
+html[data-layout="phone"] .doc-markup-note { left: 16px; }
+html[data-layout="phone"] :is(.doc-markup-card, .doc-markup-composer) { left: 0; right: 0; width: auto; }
 html[data-layout="phone"] .doc-markup-line { padding-inline: 16px 12px; }
 html[data-layout="phone"] .doc-markup-line:not([data-block="h1"], [data-block="h2"], [data-block="h3"]) { min-height: calc(var(--type-doc-body) * 1.5); line-height: 1.5; }
 html[data-layout="phone"] .doc-editor-header { padding-top: max(6px, env(safe-area-inset-top)); }

@@ -451,15 +451,13 @@ export function renderMarkup(editor: MarkupHost) {
 function placeRowNotes(rows: MarkupRow[]) {
   const measuredRows = rows.map((row) => {
     const marginTop = row.margin.getBoundingClientRect().top;
-    const previewToggle = row.margin.parentElement?.querySelector<HTMLElement>(':scope > .doc-preview-toggle');
     return {
       row,
-      firstFreeTop: previewToggle ? previewToggle.getBoundingClientRect().bottom - marginTop + 6 : 0,
       measuredNotes: row.notesWithAnchors.map(({ note, anchor }) => ({ note, anchorTop: anchor.getBoundingClientRect().top - marginTop, height: note.offsetHeight })),
     };
   });
-  for (const { row, firstFreeTop, measuredNotes } of measuredRows) {
-    let nextFreeTop = firstFreeTop;
+  for (const { row, measuredNotes } of measuredRows) {
+    let nextFreeTop = 0;
     for (const { note, anchorTop, height } of measuredNotes) {
       const top = Math.max(anchorTop, nextFreeTop);
       note.style.top = `${top}px`;
@@ -491,7 +489,7 @@ function canSuggest(editor: MarkupHost) {
 function placeFloat(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
   float.hidden = anchorRect === null;
   if (!anchorRect) return;
-  float.style.top = `${anchorRect.top - pane.root.getBoundingClientRect().top}px`;
+  float.style.top = `${anchorRect.bottom - pane.root.getBoundingClientRect().top + 4}px`;
 }
 
 function selectionRect() {
