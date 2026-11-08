@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 
 import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRevoke, CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
+import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
 import type { CreateMiss } from './vault-socket.ts';
 import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
@@ -36,6 +37,7 @@ interface SecretsBrokerOptions {
   newItemsVault?: () => string | null;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
   now?: () => number;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
 }
 
 const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
@@ -56,7 +58,7 @@ const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze
 });
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), now = Date.now }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, PendingCard>();
@@ -164,7 +166,19 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
       if (deliveredStatus === undefined) return { name, status, note: NOTE_BY_STATUS[status] };
       return { name, status: deliveredStatus, note: delivery?.noteByName[name] ?? NOTE_BY_STATUS[deliveredStatus] };
     });
+    reportAnswer(results.map((result) => result.status));
     return { ok: true, results, envFile: delivery?.envFile ?? null };
+  }
+
+  function reportAnswer(statuses: readonly NeedStatus[]): void {
+    const countOf = (status: NeedStatus) => statuses.filter((answeredStatus) => answeredStatus === status).length;
+    telemetry?.capture('vault_secret_answered', {
+      delivered_count: countOf('delivered'),
+      pending_count: countOf('pending'),
+      denied_count: countOf('denied'),
+      companion_offline_count: countOf('companion-offline'),
+      failed_count: countOf('failed'),
+    });
   }
 
   function emitCard(sessionId: string, newNames: readonly string[]): void {

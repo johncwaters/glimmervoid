@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import { isAuthorizedCompanion, localCompanionSocketUrl } from '../core/vault-listener-core.ts';
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionMessage, VaultJob } from '../../shared/contracts/secrets.ts';
+import type { Telemetry } from '../telemetry.ts';
 import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 
 const JOB_TIMEOUT_MS = 120_000;
@@ -37,11 +38,12 @@ function parsedMessageOrNull(rawMessage: unknown): VaultCompanionMessage | null 
   }
 }
 
-function createVaultSocket({ envToken, companionFile, onCompanionChanged = () => {}, log = console }: {
+function createVaultSocket({ envToken, companionFile, onCompanionChanged = () => {}, log = console, telemetry = null }: {
   envToken: string | null;
   companionFile: string;
   onCompanionChanged?: () => void;
   log?: Pick<Console, 'log' | 'warn'>;
+  telemetry?: Pick<Telemetry, 'capture'> | null;
 }) {
   const isPerBootToken = envToken === null || envToken === '';
   const token = isPerBootToken ? crypto.randomBytes(32).toString('hex') : envToken;
@@ -51,6 +53,7 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
   let companionNewItemsVault: string | null = null;
   const greetedSockets = new WeakSet<WebSocket>();
   let heartbeat: NodeJS.Timeout | null = null;
+  const reportedRefusalKinds = new Set<'wrong_path' | 'unauthorized'>();
 
   function settleJobsOf(socket: WebSocket | null): void {
     for (const [jobId, pending] of pendingJobs) {
@@ -89,8 +92,10 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
       const message = parsedMessageOrNull(rawMessage);
       if (message !== null) handleMessage(socket, message);
     });
+    const connectedAtMs = Date.now();
     socket.on('close', () => {
       settleJobsOf(socket);
+      telemetry?.capture('vault_companion_connection', { state: 'disconnected', connected_seconds: Math.max(0, Math.round((Date.now() - connectedAtMs) / 1000)) });
       if (companion !== socket) return;
       companion = null;
       companionNewItemsVault = null;
@@ -109,17 +114,27 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
       socket.ping();
     }, HEARTBEAT_INTERVAL_MS);
     heartbeat.unref();
+    reportedRefusalKinds.clear();
     log.log('[vault] companion connected');
+    telemetry?.capture('vault_companion_connection', { state: 'connected' });
+  }
+
+  function refuseCompanion(socket: Duplex, statusLine: string, reason: string, refusalKind: 'wrong_path' | 'unauthorized'): void {
+    refuseUpgrade(socket, statusLine);
+    if (reportedRefusalKinds.has(refusalKind)) return;
+    reportedRefusalKinds.add(refusalKind);
+    log.warn(`[vault] refused a companion connection: ${reason}`);
+    telemetry?.capture('vault_companion_connection', { state: 'refused', refusal_kind: refusalKind });
   }
 
   function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
     const pathname = new URL(request.url ?? '/', 'http://vault').pathname;
     if (pathname !== VAULT_SOCKET_PATH) {
-      refuseUpgrade(socket, '404 Not Found');
+      refuseCompanion(socket, '404 Not Found', 'wrong path', 'wrong_path');
       return;
     }
     if (!isAuthorizedCompanion(request.headers.authorization, token)) {
-      refuseUpgrade(socket, '401 Unauthorized');
+      refuseCompanion(socket, '401 Unauthorized', 'wrong token', 'unauthorized');
       return;
     }
     server.handleUpgrade(request, socket, head, adopt);

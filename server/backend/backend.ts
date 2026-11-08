@@ -376,6 +376,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     envToken: vaultEnvToken,
     companionFile: path.join(glimmervoidHomeDir(), 'vault-companion.json'),
     onCompanionChanged: () => secretsBroker.refreshCards(),
+    telemetry,
   });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
@@ -384,6 +385,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     createInVault: vaultSocket.create,
     newItemsVault: vaultSocket.newItemsVault,
     writeEnvFile,
+    telemetry,
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {
         const nextSecrets = mutate(savedConfig.secrets);

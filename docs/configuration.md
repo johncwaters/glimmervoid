@@ -340,6 +340,8 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `watcher_probe_failing` | `lane`, `credential`, `failure_kind` | A watcher probe started failing: which lane and which kind of read credential it uses, and a failure kind from a fixed list. Never the URL, repository, token or error text. |
 | `watcher_probe_recovered` | `lane`, `credential`, `failing_seconds` | A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds. |
 | `watcher_nudge_received` | `lane`, `kind` | The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository. |
+| `vault_companion_connection` | `state`, `refusal_kind`, `connected_seconds` | A vault companion connected, disconnected (with how long it stayed, in whole seconds) or was refused (because it asked for the wrong path or brought the wrong token; once per reason until a companion connects). Never the token, address or account. |
+| `vault_secret_answered` | `delivered_count`, `pending_count`, `denied_count`, `companion_offline_count`, `failed_count` | An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, companion offline or failed. Never the names, values or project. |
 
 ## Browser preferences
 

@@ -62,6 +62,20 @@ const AppActiveProperties = z.object({
 
 const DataDeletionRequestedProperties = z.object({}).strict();
 
+const VaultCompanionConnectionProperties = z.object({
+  state: z.enum(['connected', 'disconnected', 'refused']),
+  refusal_kind: z.enum(['wrong_path', 'unauthorized']).optional(),
+  connected_seconds: nonNegativeInteger.optional(),
+}).strict();
+
+const VaultSecretAnsweredProperties = z.object({
+  delivered_count: nonNegativeInteger,
+  pending_count: nonNegativeInteger,
+  denied_count: nonNegativeInteger,
+  companion_offline_count: nonNegativeInteger,
+  failed_count: nonNegativeInteger,
+}).strict();
+
 const watcherLane = z.enum(WATCHER_TELEMETRY_LANES);
 const probeCredential = z.enum(PROBE_CREDENTIALS);
 
@@ -228,6 +242,8 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   watcher_probe_failing: WatcherProbeFailingProperties,
   watcher_probe_recovered: WatcherProbeRecoveredProperties,
   watcher_nudge_received: WatcherNudgeReceivedProperties,
+  vault_companion_connection: VaultCompanionConnectionProperties,
+  vault_secret_answered: VaultSecretAnsweredProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -256,6 +272,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'watcher_probe_failing', description: 'A watcher probe started failing: which lane and which kind of read credential it uses, and a failure kind from a fixed list. Never the URL, repository, token or error text.' },
   { name: 'watcher_probe_recovered', description: 'A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds.' },
   { name: 'watcher_nudge_received', description: 'The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository.' },
+  { name: 'vault_companion_connection', description: 'A vault companion connected, disconnected (with how long it stayed, in whole seconds) or was refused (because it asked for the wrong path or brought the wrong token; once per reason until a companion connects). Never the token, address or account.' },
+  { name: 'vault_secret_answered', description: 'An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, companion offline or failed. Never the names, values or project.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
