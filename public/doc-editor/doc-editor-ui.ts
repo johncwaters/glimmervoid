@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -148,6 +148,7 @@ function sessionDocSource(sessionId: string): DocSource {
 
 async function loadDoc(editor: OpenEditor, docPath: string) {
   cancelAutosave(editor);
+  if (editor.docPath !== docPath) forgetBlockPreviews(editor);
   editor.docPath = docPath;
   editor.isBusy = true;
   editor.baseHash = null;
@@ -220,7 +221,7 @@ export function openDocEditorOn(source: DocSource) {
   const btnClose = button({ variant: 'icon', size: 'small', label: 'Close', icon: createLineIcon(CLOSE_ICON_PATH), action: 'close-doc-editor' });
   const markup = buildMarkupPane();
   const statusLine = el('div', 'doc-editor-status');
-  statusLine.append(markup.hint, status, btnReload);
+  statusLine.append(markup.hint, status, markup.btnPreviewAll, btnReload);
   const header = el('div', 'doc-editor-header');
   header.append(title, select, statusLine, btnClose);
   const textarea = el('textarea');

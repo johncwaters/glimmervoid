@@ -145,6 +145,10 @@ export function resolveMark(source: string, mark: MarkSegment, decision: MarkDec
   return source.slice(0, mark.start) + resolvedTextOf(mark, decision) + source.slice(mark.end);
 }
 
+export function acceptEveryMark(source: string): string {
+  return parseCriticMarkup(source).map((segment) => segment.kind === 'text' ? segment.text : resolvedTextOf(segment, 'accept')).join('');
+}
+
 function holdsMarkupDelimiter(text: string): boolean {
   return MARKUP_DELIMITERS.some((delimiter) => text.includes(delimiter));
 }

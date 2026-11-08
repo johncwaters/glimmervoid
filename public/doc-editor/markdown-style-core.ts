@@ -2,6 +2,14 @@ import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 
 export type BlockStyle = 'h1' | 'h2' | 'h3' | 'quote' | 'list' | 'fence' | 'table' | 'plain';
 export type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code';
+export type PreviewBlockKind = 'table' | 'fence';
+
+export interface PreviewBlock {
+  kind: PreviewBlockKind;
+  key: string;
+  start: number;
+  end: number;
+}
 
 interface InlineRun {
   start: number;
@@ -14,6 +22,7 @@ const HEADING_MARKER = /^ {0,3}#{1,6}[ \t]+/;
 const QUOTE_MARKER = /^ {0,3}(?:>[ \t]?)+/;
 const LIST_MARKER = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/;
 const TABLE_ROW = /^[ \t]*\|/;
+const TABLE_DIVIDER_ROW = /^[ \t]*\|?(?:[ \t]*:?-{3,}:?[ \t]*\|)*[ \t]*:?-{3,}:?[ \t]*\|?[ \t]*$/;
 const INLINE_SPAN = /(`+)(?!`)(.+?)(?<!`)\1(?!`)|(\*\*|__)(?=\S)(.+?)(?<=\S)\3|(?<![\w*])([*_])(?=[^\s*_])(.+?)(?<=[^\s*_])\5(?![\w*])/g;
 const HEADING_STYLES: readonly BlockStyle[] = ['plain', 'h1', 'h2', 'h3', 'h3', 'h3', 'h3'];
 const BLOCK_MARKERS: Partial<Record<BlockStyle, RegExp>> = { h1: HEADING_MARKER, h2: HEADING_MARKER, h3: HEADING_MARKER, quote: QUOTE_MARKER, list: LIST_MARKER };
@@ -67,4 +76,37 @@ export function inlineRunsOf(text: string, block: BlockStyle, startsLine: boolea
     if (emphasisMarker) runs.push(...wrappedRuns(start, end, emphasisMarker.length, 'emphasis'));
   }
   return runs;
+}
+
+function isPreviewBlockKind(block: BlockStyle | undefined): block is PreviewBlockKind {
+  return block === 'table' || block === 'fence';
+}
+
+export function previewBlocksOf(source: string): PreviewBlock[] {
+  const lines = source.split('\n');
+  const blockStyles = blockStylesOf(source);
+  const lineStarts: number[] = [];
+  let nextLineStart = 0;
+  for (const line of lines) {
+    lineStarts.push(nextLineStart);
+    nextLineStart += line.length + 1;
+  }
+  const blocks: PreviewBlock[] = [];
+  const countByKind: Record<PreviewBlockKind, number> = { table: 0, fence: 0 };
+  let lineIndex = 0;
+  while (lineIndex < lines.length) {
+    const kind = blockStyles[lineIndex];
+    const firstLineIndex = lineIndex;
+    lineIndex += 1;
+    if (!isPreviewBlockKind(kind)) continue;
+    while (blockStyles[lineIndex] === kind) lineIndex += 1;
+    const lastLineIndex = lineIndex - 1;
+    const isTableWithoutDivider = kind === 'table' && !TABLE_DIVIDER_ROW.test(lines[firstLineIndex + 1] ?? '');
+    if (isTableWithoutDivider || lastLineIndex === firstLineIndex) continue;
+    const start = lineStarts[firstLineIndex] ?? 0;
+    const end = (lineStarts[lastLineIndex] ?? 0) + (lines[lastLineIndex]?.length ?? 0);
+    blocks.push({ kind, key: `${kind}-${countByKind[kind]}`, start, end });
+    countByKind[kind] += 1;
+  }
+  return blocks;
 }
