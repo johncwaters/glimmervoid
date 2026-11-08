@@ -73,6 +73,16 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
       }
     },
+    'session-doc-asset-read': async (message: ClientMessageOf<'session-doc-asset-read'>, ws: ControlSocket) => {
+      const reply = { type: 'session-doc-asset-response', requestId: message.requestId ?? null, id: message.id, path: message.path, src: message.src };
+      const session = findSession(message);
+      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      try {
+        ws.send(JSON.stringify({ ...reply, ...await sessionDocs.readImage(session, message.path, message.src) }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
+      }
+    },
     'session-coherence-journal': async (message: ClientMessageOf<'session-coherence-journal'>, ws: ControlSocket) => {
       const reply = { type: 'session-coherence-journal-response', requestId: message.requestId ?? null, id: message.id };
       const session = findSession(message);
@@ -107,6 +117,7 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   const invalidReplies = {
     'session-doc-read': (msg, requestId, message) => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
+    'session-doc-asset-read': (msg, requestId, message) => ({ type: 'session-doc-asset-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', src: typeof msg?.src === 'string' ? msg.src : '', ok: false, error: message }),
     'session-doc-save': (msg, requestId, message) => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-coherence-journal': (msg, requestId, message) => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
     'session-setup': (msg, requestId, message) => ({ type: 'session-setup-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),

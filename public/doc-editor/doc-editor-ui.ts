@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, paintMarkupTools, renderMarkup, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetPreviewImages, paintMarkupTools, retryMissingImages, renderMarkup, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -20,6 +20,7 @@ export interface DocSource {
   unsaveableText: string;
   read: (docPath: string) => Promise<DocReadOutcome>;
   save: (docPath: string, text: string, baseHash: string) => Promise<DocSaveOutcome>;
+  readImage?: (docPath: string, imageSource: string) => Promise<Blob | null>;
 }
 
 interface OpenEditor extends MarkupHost {
@@ -112,7 +113,7 @@ async function whenChangesAreSaved(editor: OpenEditor, title: string, proceed: (
 
 type DocRequestOutcome = { reply: Awaited<ReturnType<typeof sendControlRequest>> | null; failureText: string | null };
 
-async function requestDoc(type: 'session-doc-read' | 'session-doc-save', payload: Record<string, unknown>): Promise<DocRequestOutcome> {
+async function requestDoc(type: 'session-doc-read' | 'session-doc-save' | 'session-doc-asset-read', payload: Record<string, unknown>): Promise<DocRequestOutcome> {
   try {
     return { reply: await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }), failureText: null };
   } catch (reason) {
@@ -134,6 +135,28 @@ async function saveSessionDoc(sessionId: string, docPath: string, text: string, 
   return { ok: true, hash: response.hash };
 }
 
+function blobOfBase64(base64: string, mime: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
+}
+
+let imageReadsInFlight: Promise<unknown> = Promise.resolve();
+
+function readSessionDocImage(sessionId: string, docPath: string, imageSource: string): Promise<Blob | null> {
+  const imageRead = imageReadsInFlight.then(() => requestSessionDocImage(sessionId, docPath, imageSource));
+  imageReadsInFlight = imageRead.catch(() => null);
+  return imageRead;
+}
+
+async function requestSessionDocImage(sessionId: string, docPath: string, imageSource: string): Promise<Blob | null> {
+  const { reply } = await requestDoc('session-doc-asset-read', { id: sessionId, path: docPath, src: imageSource });
+  const response = reply?.type === 'session-doc-asset-response' ? reply : null;
+  if (!response?.ok || response.base64 === undefined || response.mime === undefined) return null;
+  return blobOfBase64(response.base64, response.mime);
+}
+
 function sessionDocSource(sessionId: string): DocSource {
   return {
     key: sessionId,
@@ -143,12 +166,14 @@ function sessionDocSource(sessionId: string): DocSource {
     unsaveableText: 'This doc is no longer surfaced, so it cannot be saved.',
     read: (docPath) => readSessionDoc(sessionId, docPath),
     save: (docPath, text, baseHash) => saveSessionDoc(sessionId, docPath, text, baseHash),
+    readImage: (docPath, imageSource) => readSessionDocImage(sessionId, docPath, imageSource),
   };
 }
 
 async function loadDoc(editor: OpenEditor, docPath: string) {
   cancelAutosave(editor);
   if (editor.docPath !== docPath) forgetBlockPreviews(editor);
+  forgetPreviewImages(editor);
   editor.docPath = docPath;
   editor.isBusy = true;
   editor.baseHash = null;
@@ -194,6 +219,7 @@ async function writeDoc(editor: OpenEditor): Promise<boolean> {
   }
   editor.baseHash = saved.hash;
   editor.hasUnsavedChanges = editor.textarea.value !== savedText;
+  retryMissingImages(editor);
   setStatus(editor, 'Saved');
   if (editor.hasUnsavedChanges) showUnsavedChanges(editor);
   paintControls(editor);
@@ -233,6 +259,7 @@ export function openDocEditorOn(source: DocSource) {
   const currentEditor: OpenEditor = {
     source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
     title, select, textarea, markup, status, btnReload, autosaveTimer: null, pendingSave: null,
+    readImage: (imageSource) => source.readImage?.(currentEditor.docPath, imageSource) ?? Promise.resolve(null),
     close: () => {
       cancelAutosave(currentEditor);
       openEditor = null;

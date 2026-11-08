@@ -4,7 +4,7 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
 import { acceptEveryMark, isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
-import { blockStylesOf, inlineRunsOf, previewBlocksOf } from './markdown-style-core.ts';
+import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
 import type { BlockStyle, InlineStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
 import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 
@@ -13,6 +13,7 @@ export interface MarkupHost {
   isBusy: boolean;
   textarea: HTMLTextAreaElement;
   markup: MarkupPane;
+  readImage?: (imageSource: string) => Promise<Blob | null>;
 }
 
 interface MarkupRow {
@@ -33,6 +34,8 @@ interface MarkupPane {
   btnPreviewAll: HTMLButtonElement;
   previewBlocks: PreviewBlock[];
   previewedBlockKeys: Set<string>;
+  imageUrlsBySource: Map<string, Promise<string | null>>;
+  missingImageSources: Set<string>;
   noteComposer: HTMLElement;
   noteInput: HTMLInputElement;
   hint: HTMLElement;
@@ -67,7 +70,8 @@ const BACKWARD_DELETES = new Set(['deleteContentBackward', 'deleteByCut']);
 const TYPED_INPUTS = new Set(['insertText', 'insertReplacementText', 'insertFromPaste', 'insertFromYank']);
 const PARAGRAPH_INPUTS = new Set(['insertParagraph', 'insertLineBreak']);
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
-const PREVIEW_BLOCK_NAMES: Record<PreviewBlockKind, string> = { table: 'table', fence: 'code block' };
+const PREVIEW_BLOCK_NAMES: Record<PreviewBlockKind, string> = { table: 'table', fence: 'code block', image: 'image' };
+const WEB_IMAGE_SOURCE = /^https?:\/\//i;
 
 function svgElement(tag: string, attributes: Record<string, string>) {
   const element = document.createElementNS(SVG_NAMESPACE, tag);
@@ -122,7 +126,7 @@ export function buildMarkupPane(): MarkupPane {
   for (const float of [markCard, btnAddNote, noteComposer]) float.hidden = true;
   root.append(buildInkFilter(), paper, endNotes, markCard, btnAddNote, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(),
     selection: null, noteSelection: null, compositionSelection: null, run: null, tip: '',
@@ -132,7 +136,14 @@ export function buildMarkupPane(): MarkupPane {
   return pane;
 }
 
+function forgetImageUrls(pane: MarkupPane) {
+  for (const pendingUrl of pane.imageUrlsBySource.values()) void pendingUrl.then((objectUrl) => { if (objectUrl) URL.revokeObjectURL(objectUrl); });
+  pane.imageUrlsBySource.clear();
+  pane.missingImageSources.clear();
+}
+
 export function disposeMarkupPane(pane: MarkupPane) {
+  forgetImageUrls(pane);
   pane.marginResizeObserver.disconnect();
   pane.rowObserver?.disconnect();
   pane.listeners.abort();
@@ -248,10 +259,55 @@ function buildPreviewToggle(block: PreviewBlock, isPreviewed: boolean) {
   return toggle;
 }
 
-function buildPreviewRow(block: PreviewBlock, source: string) {
+function imageUrlFor(editor: MarkupHost, imageSource: string): Promise<string | null> {
+  const pane = editor.markup;
+  const knownUrl = pane.imageUrlsBySource.get(imageSource);
+  if (knownUrl) return knownUrl;
+  const readImage = editor.readImage;
+  const pendingUrl = readImage
+    ? readImage(imageSource).then((imageBlob) => imageBlob ? URL.createObjectURL(imageBlob) : null, () => null)
+    : Promise.resolve(null);
+  void pendingUrl.then((objectUrl) => { if (!objectUrl) pane.missingImageSources.add(imageSource); });
+  pane.imageUrlsBySource.set(imageSource, pendingUrl);
+  return pendingUrl;
+}
+
+function renderPreviewImage(editor: MarkupHost, blockText: string) {
+  const image = markdownImageOf(blockText);
+  if (!image) return el('p', 'doc-preview-image-missing', blockText);
+  return renderImage(editor, image);
+}
+
+function renderImage(editor: MarkupHost, image: { alt: string; src: string }): HTMLElement {
+  const missingImage = el('p', 'doc-preview-image-missing', `${image.alt || 'Image'} (${image.src})`);
+  missingImage.dataset.imageSource = image.src;
+  missingImage.dataset.imageAlt = image.alt;
+  const picture = el('img', 'doc-preview-image');
+  picture.alt = image.alt;
+  picture.addEventListener('error', () => picture.replaceWith(missingImage), { once: true });
+  if (WEB_IMAGE_SOURCE.test(image.src)) {
+    picture.src = image.src;
+    return picture;
+  }
+  void imageUrlFor(editor, image.src).then((objectUrl) => {
+    if (!objectUrl) {
+      picture.replaceWith(missingImage);
+      return;
+    }
+    picture.src = objectUrl;
+  });
+  return picture;
+}
+
+function renderPreviewBlock(editor: MarkupHost, block: PreviewBlock, blockText: string) {
+  if (block.kind === 'image') return renderPreviewImage(editor, blockText);
+  return renderPlanBlocks(parsePlanMarkdown(blockText));
+}
+
+function buildPreviewRow(editor: MarkupHost, block: PreviewBlock, source: string) {
   const rendered = el('div', 'doc-preview-block');
   rendered.contentEditable = 'false';
-  rendered.append(renderPlanBlocks(parsePlanMarkdown(acceptEveryMark(source.slice(block.start, block.end)))));
+  rendered.append(renderPreviewBlock(editor, block, acceptEveryMark(source.slice(block.start, block.end))));
   const margin = el('div', 'doc-markup-row-margin');
   margin.setAttribute('aria-hidden', 'true');
   margin.contentEditable = 'false';
@@ -279,7 +335,8 @@ function blocksClearOfMarks(blocks: PreviewBlock[], marks: readonly MarkSegment[
   });
 }
 
-function previewedRows(pane: MarkupPane, source: string, rows: PaperRow[]) {
+function previewedRows(editor: MarkupHost, source: string, rows: PaperRow[]) {
+  const pane = editor.markup;
   const shownRows: Array<{ row: HTMLElement; paperRow: PaperRow | null }> = [];
   let blockIndex = 0;
   for (const paperRow of rows) {
@@ -293,7 +350,7 @@ function previewedRows(pane: MarkupPane, source: string, rows: PaperRow[]) {
     }
     const isBlockStart = block.start === lineStart;
     const isPreviewed = pane.previewedBlockKeys.has(block.key);
-    if (isBlockStart && isPreviewed) shownRows.push({ row: buildPreviewRow(block, source), paperRow: null });
+    if (isBlockStart && isPreviewed) shownRows.push({ row: buildPreviewRow(editor, block, source), paperRow: null });
     if (isPreviewed) continue;
     if (isBlockStart) paperRow.row.append(buildPreviewToggle(block, false));
     shownRows.push({ row: paperRow.row, paperRow });
@@ -366,7 +423,7 @@ function paintPaper(editor: MarkupHost) {
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
   pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
-  const shownRows = previewedRows(pane, source, rows);
+  const shownRows = previewedRows(editor, source, rows);
   pane.paper.replaceChildren(...chunkRows(shownRows.map(({ row }) => row)));
   for (const { paperRow: markupRow } of shownRows) {
     if (!markupRow || markupRow.notesWithAnchors.length === 0) continue;
@@ -456,6 +513,20 @@ function isEveryBlockPreviewed(pane: MarkupPane) {
 
 export function forgetBlockPreviews(editor: MarkupHost) {
   editor.markup.previewedBlockKeys.clear();
+}
+
+export function forgetPreviewImages(editor: MarkupHost) {
+  forgetImageUrls(editor.markup);
+}
+
+export function retryMissingImages(editor: MarkupHost) {
+  const pane = editor.markup;
+  if (pane.missingImageSources.size === 0) return;
+  for (const imageSource of pane.missingImageSources) pane.imageUrlsBySource.delete(imageSource);
+  pane.missingImageSources.clear();
+  for (const missingImage of pane.paper.querySelectorAll<HTMLElement>('.doc-preview-image-missing[data-image-source]')) {
+    missingImage.replaceWith(renderImage(editor, { alt: missingImage.dataset.imageAlt ?? '', src: missingImage.dataset.imageSource ?? '' }));
+  }
 }
 
 function repaintPreviews(editor: MarkupHost) {
