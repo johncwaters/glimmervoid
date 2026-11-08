@@ -958,7 +958,7 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   const laterRow = page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle });
   await laterRow.waitFor();
   assert.equal(await laterRow.locator('.session-row-label').textContent(), 'BOARD', 'a board outside a split shows a BOARD row');
-  assert.equal(await laterRow.locator('.session-row-task').textContent(), 'nobody connected', 'a board row names its connected session, or nobody');
+  assert.equal(await laterRow.locator('.session-row-task').isHidden(), true, 'a board row with no connected session shows no session line');
   assert.equal(await page.locator('.focus-rail .session-row[data-board-id]', { hasText: secondTitle }).count(), 0, 'a board in a split has no row of its own');
   await laterRow.click();
   await openBoardTitle(panel, laterTitle).waitFor();

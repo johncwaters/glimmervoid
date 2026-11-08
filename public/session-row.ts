@@ -211,9 +211,9 @@ export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: str
   if (!refs.glyph.firstChild) refs.glyph.append(createPrStatusIcon('board'));
   writeTextIfChanged(refs.name, title);
   writeTextIfChanged(refs.label, BOARD_LABEL);
-  writeTextIfChanged(refs.task, connectedSessionName ?? 'nobody connected');
-  writeHiddenIfChanged(refs.task, false);
-  const accessibleLabel = `${title}, ${BOARD_LABEL}, ${connectedSessionName ?? 'nobody connected'}`;
+  writeTextIfChanged(refs.task, connectedSessionName ?? '');
+  writeHiddenIfChanged(refs.task, connectedSessionName === null);
+  const accessibleLabel = [title, BOARD_LABEL, connectedSessionName].filter((part) => part !== null).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
 }
 
