@@ -333,8 +333,20 @@ function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
   return JSON.stringify(value) === JSON.stringify(defaultValue);
 }
 
-function matchingOption(options: readonly z.core.$ZodType[], value: unknown): z.core.$ZodType | null {
-  return options.find((option) => z.safeParse(option, value).success) ?? null;
+const optionByTagByUnion = new WeakMap<z.core.$ZodDiscriminatedUnion, Map<unknown, z.core.$ZodType>>();
+
+function optionByTagOf(union: z.core.$ZodDiscriminatedUnion): Map<unknown, z.core.$ZodType> {
+  const known = optionByTagByUnion.get(union);
+  if (known) return known;
+  const { discriminator, options } = union._zod.def;
+  const optionByTag = new Map<unknown, z.core.$ZodType>(options.flatMap((option) => [...(option._zod.propValues?.[discriminator] ?? [])].map((tag): [unknown, z.core.$ZodType] => [tag, option])));
+  optionByTagByUnion.set(union, optionByTag);
+  return optionByTag;
+}
+
+function matchingOption(union: z.core.$ZodUnion, value: unknown): z.core.$ZodType | null {
+  if (union instanceof z.core.$ZodDiscriminatedUnion && typeof value === 'object' && value !== null) return optionByTagOf(union).get(Reflect.get(value, union._zod.def.discriminator)) ?? null;
+  return union._zod.def.options.find((option) => z.safeParse(option, value).success) ?? null;
 }
 
 function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
@@ -343,7 +355,7 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
   if (schema instanceof z.core.$ZodDefault || schema instanceof z.core.$ZodNullable || schema instanceof z.core.$ZodOptional) return withoutDefaults(schema._zod.def.innerType, value);
   if (schema instanceof z.core.$ZodArray && Array.isArray(value)) return value.map((item) => withoutDefaults(schema._zod.def.element, item));
   if (schema instanceof z.core.$ZodUnion) {
-    const option = matchingOption(schema._zod.def.options, value);
+    const option = matchingOption(schema, value);
     return option ? withoutDefaults(option, value) : value;
   }
   if (typeof value !== 'object' || Array.isArray(value)) return value;
