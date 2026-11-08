@@ -27,12 +27,14 @@ interface BoardInspectorOptions {
   linkedBoardChoices: () => readonly Choice[];
   addNoteOn: (boxId: string) => void;
   frameSelectedBoxes: () => void;
+  stackSelectedBoxes: () => void;
   removeSelected: () => void;
 }
 
 interface SelectionActions {
   addNoteOn: (boxId: string) => void;
   frameSelectedBoxes: () => void;
+  stackSelectedBoxes: () => void;
   removeSelected: () => void;
 }
 
@@ -336,6 +338,7 @@ function frameSections(frame: Frame, set: FieldCommit): HTMLElement[] {
     heading('Frame'),
     fieldRow('Title', textField('title', frame.title, WHITEBOARD_LIMITS.title, (title) => set({ title: title.trim() }))),
     checkboxField('loop', 'Repeats as a loop', frame.loop, (loop) => set({ loop })),
+    checkboxField('collapsed', 'Stacked as one card', frame.collapsed, (collapsed) => set({ collapsed })),
   ];
 }
 
@@ -406,6 +409,7 @@ function selectionActionsRow(selected: readonly BoardElement[], actions: Selecti
   const row = el('div', 'wb-inspect-actions');
   if (soleBox && selected.length === 1) row.append(actionButton('add-note', 'Add note', () => actions.addNoteOn(soleBox.id)));
   if (boxes.length > 0) row.append(actionButton('add-frame', 'Frame', actions.frameSelectedBoxes, boxes.length === 1 ? 'Frame this box' : 'Frame selected boxes'));
+  if (boxes.length > 1) row.append(actionButton('add-stack', 'Stack', actions.stackSelectedBoxes, 'Stack selected boxes'));
   const deleteButton = button({ variant: 'danger', size: 'small', label: 'Delete', action: 'delete-selection', onClick: actions.removeSelected });
   deleteButton.classList.add('wb-inspect-delete');
   row.append(deleteButton);

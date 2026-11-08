@@ -48,6 +48,7 @@ interface BoardRenderer {
   hitTest(point: Point): BoardHit | null;
   boundsOf(elementId: string): Rect | null;
   elementsInRect(area: Rect): string[];
+  boxIdsAt(point: Point): string[];
   setSelection(selectedIds: ReadonlySet<string>): void;
   setReviewMarks(marks: ReviewMarks): void;
   setWireTarget(boxId: string | null): void;
@@ -1296,6 +1297,18 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return index === undefined ? null : (current.geometries[index]?.bounds ?? null);
   }
 
+  function boxIdsAt(point: Point): string[] {
+    const current = scene;
+    if (!current) return [];
+    const boxIds: string[] = [];
+    forEachSlotTouching(current.grid, { x: point.x, y: point.y, width: 1, height: 1 }, (slot) => {
+      const element = current.elementById.get(current.geometries[slot]?.id ?? '');
+      const isUnderPoint = element?.kind === 'box' && point.x >= element.x && point.x <= element.x + element.width && point.y >= element.y && point.y <= element.y + element.height;
+      if (element && isUnderPoint && !boxIds.includes(element.id)) boxIds.push(element.id);
+    });
+    return boxIds;
+  }
+
   function elementsInRect(area: Rect): string[] {
     const current = scene;
     if (!current) return [];
@@ -1368,6 +1381,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     hitTest,
     boundsOf,
     elementsInRect,
+    boxIdsAt,
     setSelection: (nextSelectedIds) => {
       selectedIds = nextSelectedIds;
       refreshDecorations();
