@@ -117,7 +117,7 @@ function pressedImageOf(hit: BoardHit | null): PressedImage | null {
   return { boxId: hit.id, href: hit.media.href, alt: hit.media.alt };
 }
 
-const VERTICAL_RESIZE_THRESHOLD = 4;
+const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'nwse-resize', link: 'pointer', media: 'zoom-in' };
 
 function hoverCursorOf(hit: BoardHit | null): string {
@@ -268,7 +268,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function isResizedVertically(drag: Extract<Gesture, { kind: 'drag' }>): boolean {
-    return Math.abs(drag.latest.y - drag.origin.y) >= VERTICAL_RESIZE_THRESHOLD;
+    return Math.abs(drag.latest.y - drag.origin.y) >= VERTICAL_RESIZE_THRESHOLD_PX * viewUnitsPerPixel();
   }
 
   function draggedHeight(drag: Extract<Gesture, { kind: 'drag' }>, start: Rect): number {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { Board, Element, Op } from '../shared/contracts/whiteboard.ts';
+import { Board, Element, Op, dialValuesOfBox } from '../shared/contracts/whiteboard.ts';
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
@@ -668,9 +668,10 @@ test('a collapsed frame draws as one stack card, hides the boxes under its first
       top: { kind: 'box', id: 'top', title: 'Top card', at: { x: 40, y: 40 } },
       under: { kind: 'box', id: 'under', title: 'Under card', at: { x: 40, y: 400 } },
       source: { kind: 'box', id: 'source', title: 'Source', at: { x: 600, y: 400 } },
+      follower: { kind: 'box', id: 'follower', title: 'Follower', near: { of: 'source', side: 'bottom' } },
       w1: { kind: 'wire', id: 'w1', from: 'source', to: 'under' },
       inside: { kind: 'wire', id: 'inside', from: 'top', to: 'under' },
-      refs: { kind: 'frame', id: 'refs', title: 'Refs', contains: ['top', 'under'] },
+      refs: { kind: 'frame', id: 'refs', title: 'Refs', contains: ['top', 'under', 'follower'] },
     },
   });
   let world = createLayoutWorld(stackBoard, null, 0);
@@ -689,7 +690,7 @@ test('a collapsed frame draws as one stack card, hides the boxes under its first
   const topCard = byId.get('top');
   const wire = byId.get('w1');
   assert.ok(card?.kind === 'frame' && topCard?.kind === 'box' && wire?.kind === 'wire');
-  assert.equal(card.stackedBoxCount, 2);
+  assert.equal(card.stackedBoxCount, 3);
   assert.ok(contains(card, topCard), 'the card sits around the top box');
   assert.ok(wire.end.x >= topCard.x - 1 && wire.end.x <= topCard.x + topCard.width + 1 && wire.end.y >= topCard.y - 1 && wire.end.y <= topCard.y + topCard.height + 1, 'a wire to a hidden box ends at the card');
   const moved = stageOps(staged.board, [Op.parse({ op: 'set', id: 'source', fields: { at: { x: 700, y: 420 } } })], author, 0, null);
@@ -697,13 +698,13 @@ test('a collapsed frame draws as one stack card, hides the boxes under its first
   const moveChanges = new Map(Object.entries(moved.diff.elements).map(([id, change]) => [id, { before: staged.board.elements.get(id), after: moved.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
   moved.commit();
   const keptAfterMove = layoutOf(applyLayoutDelta(world, moved.board, moveChanges).world);
-  assert.deepEqual(keptAfterMove.elements.map((element) => element.id).sort(), layoutBoard(moved.board).elements.map((element) => element.id).sort(), 'moving a box wired into a stack keeps its wire to the card');
+  assert.deepEqual(keptAfterMove.elements.map((element) => element.id).sort(), layoutBoard(moved.board).elements.map((element) => element.id).sort(), 'moving a box wired into a stack keeps its wire to the card, and a stacked box placed near it stays hidden');
   const second = applyOps(staged.board, [Op.parse({ op: 'add', element: { kind: 'frame', id: 'again', title: 'Again', contains: ['under'], collapsed: true } })], author, 0);
   assert.equal(second.ok ? '' : second.error, 'op 1: frame again stacks under, which is already in stack refs');
 });
 
 test('a board keeps a box height, dial values, page dials and a collapsed frame through its stored element table', () => {
-  const dialedPage = { kind: 'page' as const, asset: 'b'.repeat(64), mime: 'text/html' as const, width: 800, height: 600, dials: [{ id: 'hue', kind: 'range' as const, label: 'Hue', min: 0, max: 360, default: 120 }, { id: 'dark', kind: 'toggle' as const, label: 'Dark' }] };
+  const dialedPage = { kind: 'page' as const, asset: 'b'.repeat(64), mime: 'text/html' as const, width: 800, height: 600, dials: [{ id: 'hue', kind: 'range' as const, label: 'Hue', min: 0, max: 360, default: 120 }, { id: 'dark', kind: 'toggle' as const, label: 'Dark' }, { id: 'toString', kind: 'toggle' as const, label: 'Named like an object method' }] };
   const rawElements = [
     { kind: 'box', id: 'page', title: 'Page', at: { x: 40, y: 40 }, height: 500, media: dialedPage, params: { hue: 200, dark: true } },
     { kind: 'box', id: 'card', title: 'Card', near: { of: 'page', side: 'right' } },
@@ -711,6 +712,9 @@ test('a board keeps a box height, dial values, page dials and a collapsed frame 
   ];
   const board = Board.parse({ id: 'kept', title: 'kept', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: Object.fromEntries(rawElements.map((element) => [element.id, element])) });
   for (const rawElement of rawElements) assert.deepEqual(board.elements.get(rawElement.id), Element.parse(rawElement), `${rawElement.id} reads back whole`);
+  const page = board.elements.get('page');
+  assert.ok(page?.kind === 'box');
+  assert.deepEqual(dialValuesOfBox(page), { hue: 200, dark: true, toString: false }, 'a dial named like an object method reads its default');
 });
 
 test('a sticky note draws in its tone and a text box draws borderless and refuses media', () => {

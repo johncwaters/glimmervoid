@@ -208,7 +208,7 @@ export function dialValuesOfBox(box: Box): Record<string, DialValue> {
   const media = mediaOfBox(box);
   if (media?.kind !== 'page') return {};
   const params = paramsOfBox(box);
-  return Object.fromEntries(media.dials.map((dial) => [dial.id, params[dial.id] ?? dial.default]));
+  return Object.fromEntries(media.dials.map((dial) => [dial.id, Object.hasOwn(params, dial.id) ? params[dial.id] ?? dial.default : dial.default]));
 }
 
 function isDialValueSuited(dial: Dial, value: DialValue): boolean {

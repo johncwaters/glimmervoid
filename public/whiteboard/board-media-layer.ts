@@ -105,19 +105,33 @@ function postTheme(frame: HTMLIFrameElement, styleSource: Element): void {
   frame.contentWindow?.postMessage({ type: BOARD_PAGE_THEME_MESSAGE, colors: themeColorsOf(styleSource) }, '*');
 }
 
+const themeSourceByFrame = new Map<HTMLIFrameElement, Element>();
+let isWatchingTheme = false;
+
+function forgetDetachedFrames(): void {
+  for (const frame of themeSourceByFrame.keys()) {
+    if (!frame.isConnected) themeSourceByFrame.delete(frame);
+  }
+}
+
+function watchThemeFor(frame: HTMLIFrameElement, styleSource: Element): void {
+  forgetDetachedFrames();
+  themeSourceByFrame.set(frame, styleSource);
+  if (isWatchingTheme) return;
+  isWatchingTheme = true;
+  const themeWatcher = new MutationObserver(() => {
+    forgetDetachedFrames();
+    for (const [watchedFrame, watchedStyleSource] of themeSourceByFrame) postTheme(watchedFrame, watchedStyleSource);
+  });
+  themeWatcher.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+}
+
 export function tunePageOnLoad(frame: HTMLIFrameElement, styleSource: Element, dialValues: () => Readonly<Record<string, DialValue>>): void {
   frame.addEventListener('load', () => {
     postTheme(frame, styleSource);
     postDialValues(frame, dialValues());
+    watchThemeFor(frame, styleSource);
   });
-  const themeWatcher = new MutationObserver(() => {
-    if (!frame.isConnected) {
-      themeWatcher.disconnect();
-      return;
-    }
-    postTheme(frame, styleSource);
-  });
-  themeWatcher.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
 }
 
 function postDialValues(frame: HTMLIFrameElement, dialValues: Readonly<Record<string, DialValue>>): void {
