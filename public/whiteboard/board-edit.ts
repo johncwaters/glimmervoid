@@ -11,7 +11,7 @@ import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
-const WHEEL_ZOOM_STEP = 1.1;
+export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'note', 'frame', 'box'];
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', s: 'sticky', t: 'text', i: 'icon', m: 'device', a: 'wire', b: 'pen' };
 

@@ -366,6 +366,7 @@ async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
   const enlargedBounds = await enlarged.boundingBox();
   assert.ok(closeBounds && enlargedBounds && closeBounds.y + closeBounds.height <= enlargedBounds.y, 'the viewer puts Close in its header above the picture');
   assert.equal(await viewer.locator('.dialog-actions').count(), 0, 'the viewer has no bottom actions row');
+  await verifyViewerZoom(page, enlarged, viewerClose);
   await viewerClose.click();
   await viewer.waitFor({ state: 'detached' });
   await verifyGesturesOverMedia(open, picture.id);
@@ -548,6 +549,103 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await panel.getByRole('button', { name: 'Undo', exact: true }).click();
   await boardWithout(open, 'undo removes the dropped video', isClip);
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+}
+
+function viewerScaleOf(media: Locator): Promise<number> {
+  return media.evaluate(async (node) => {
+    await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
+    const transform = getComputedStyle(node).transform;
+    return transform === 'none' ? 1 : new DOMMatrixReadOnly(transform).a;
+  });
+}
+
+async function pinchOn(page: Page, center: { x: number; y: number }, fromGap: number, toGap: number): Promise<void> {
+  const touchSession = await page.context().newCDPSession(page);
+  const pointsAt = (gap: number) => [{ x: center.x - gap / 2, y: center.y, id: 1 }, { x: center.x + gap / 2, y: center.y, id: 2 }];
+  try {
+    await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pointsAt(fromGap) });
+    for (let step = 1; step <= 6; step += 1) await touchSession.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pointsAt(fromGap + ((toGap - fromGap) * step) / 6) });
+    await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } finally {
+    await touchSession.detach();
+  }
+}
+
+async function settledBoundsOf(media: Locator): ReturnType<Locator['boundingBox']> {
+  await viewerScaleOf(media);
+  return media.boundingBox();
+}
+
+async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator): Promise<void> {
+  const fitted = await settledBoundsOf(media);
+  await viewerClose.evaluate((node) => Promise.all((node.closest('.dialog')?.getAnimations({ subtree: true }) ?? []).map((animation) => animation.finished)));
+  const closeBefore = JSON.stringify(await viewerClose.boundingBox());
+  assert.ok(fitted && closeBefore, 'the viewer media and Close have bounds');
+  const center = { x: fitted.x + fitted.width / 2, y: fitted.y + fitted.height / 2 };
+  await page.mouse.move(center.x, center.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  assert.ok(Math.abs((await viewerScaleOf(media)) - 1.1) < 0.01, 'a ctrl wheel over viewer media zooms it one board step');
+  assert.equal(JSON.stringify(await viewerClose.boundingBox()), closeBefore, 'zooming the media leaves the viewer header alone');
+  const beforePan = await settledBoundsOf(media);
+  await page.mouse.wheel(0, 20);
+  const afterPan = await settledBoundsOf(media);
+  assert.ok(beforePan && afterPan && Math.abs(beforePan.y - afterPan.y - 20) < 1.5, 'a plain wheel pans zoomed media');
+  await page.mouse.dblclick(center.x, center.y);
+  assert.equal(await viewerScaleOf(media), 1, 'a double click on zoomed media returns it to fit');
+  await page.mouse.dblclick(center.x, center.y);
+  assert.equal(await viewerScaleOf(media), 2, 'a double click at fit zooms the media to 2x');
+  const beforeDrag = await settledBoundsOf(media);
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x - 80, center.y, { steps: 5 });
+  await page.mouse.up();
+  const afterDrag = await settledBoundsOf(media);
+  assert.ok(beforeDrag && afterDrag && Math.abs(beforeDrag.x - afterDrag.x - 80) < 1.5, 'a drag pans zoomed media');
+  await page.mouse.dblclick(center.x, center.y);
+  await page.mouse.wheel(0, 40);
+  assert.equal(await viewerScaleOf(media), 1, 'zoom never goes below fit');
+  await pinchOn(page, center, 60, 180);
+  assert.ok((await viewerScaleOf(media)) > 2, 'a two finger pinch over viewer media zooms it');
+  assert.equal(JSON.stringify(await viewerClose.boundingBox()), closeBefore, 'a pinch leaves the viewer header alone');
+  await verifyViewerZoomEdges(page, media, viewerClose, center);
+}
+
+async function verifyViewerZoomEdges(page: Page, media: Locator, viewerClose: Locator, center: { x: number; y: number }): Promise<void> {
+  const viewport = page.viewportSize();
+  assert.ok(viewport, 'the page has a viewport');
+  await page.setViewportSize({ width: Math.round(viewport.width * 0.6), height: Math.round(viewport.height * 0.6) });
+  const stageCovered = await media.evaluate(async (node) => {
+    await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
+    const mediaRect = node.getBoundingClientRect();
+    const stageRect = node.parentElement?.getBoundingClientRect();
+    return Boolean(stageRect && mediaRect.left <= stageRect.left + 1 && mediaRect.top <= stageRect.top + 1 && mediaRect.right >= stageRect.right - 1 && mediaRect.bottom >= stageRect.bottom - 1);
+  });
+  await page.setViewportSize(viewport);
+  assert.ok(stageCovered, 'zoomed media still covers the stage after the viewer shrinks');
+  const closeBounds = await viewerClose.boundingBox();
+  assert.ok(closeBounds, 'Close has bounds');
+  const isHeaderZoomCancelled = await viewerClose.evaluate((node) => {
+    const zoomWheel = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true });
+    node.dispatchEvent(zoomWheel);
+    return zoomWheel.defaultPrevented;
+  });
+  assert.ok(isHeaderZoomCancelled, 'a ctrl wheel over the viewer header never zooms the dashboard');
+  await page.mouse.dblclick(center.x, center.y);
+  assert.equal(await viewerScaleOf(media), 1, 'a double click on pinched media returns it to fit');
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(closeBounds.x - 40, closeBounds.y + closeBounds.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move(center.x, center.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  const beforeHover = await settledBoundsOf(media);
+  await page.mouse.move(center.x - 100, center.y, { steps: 4 });
+  const afterHover = await settledBoundsOf(media);
+  assert.deepEqual(afterHover, beforeHover, 'moving the mouse with no button held never pans the media');
 }
 
 async function verifyGesturesOverMedia(open: OpenBoard, pictureId: string): Promise<void> {
