@@ -14,7 +14,8 @@ import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
 import { LAYOUT_CACHE_FILENAME } from './layout-cache.ts';
-import type { BoardPictureRead, BoardTileService, LayoutSummary, PictureImage } from './board-tile-service.ts';
+import type { BoardPictureRead, BoardTileService, LayoutSummary, OpenStepLog, PictureImage } from './board-tile-service.ts';
+import { createOpenStepLogs } from './open-step-log.ts';
 import type { ChangedElement } from './layout-client.ts';
 import { elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
 import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
@@ -112,7 +113,7 @@ interface WhiteboardWiringOptions {
   broadcastControl?: (message: ControlMessageRecord) => void;
   now?: () => number;
   newBoardId?: () => string;
-  logger?: Pick<Console, 'warn'>;
+  logger?: Pick<Console, 'warn'> & Partial<Pick<Console, 'log'>>;
   codeContextOf?: (sessionId: string) => CodeContext | null;
   projectOf?: (sessionId: string) => string | null;
 }
@@ -256,18 +257,18 @@ function createWhiteboardWiring({
     return assets.sweep(new Set([...storedAssetIds, ...loadedRecords.flatMap((record) => [...assetIdsOf(record.board)])]));
   }
 
-  function loadedRecordOf(boardId: string): Promise<RecordLoad> {
+  function loadedRecordOf(boardId: string, openSteps?: OpenStepLog): Promise<RecordLoad> {
     const record = recordsByBoardId.get(boardId);
     if (!record) return Promise.resolve({ ok: false, reply: refusal(404, DELETED_BOARD_TEXT) });
     if (!unloadedBoardIds.has(boardId)) return Promise.resolve({ ok: true, record });
-    const loading = loadingByBoardId.get(boardId) ?? loadElementsOf(record);
+    const loading = loadingByBoardId.get(boardId) ?? loadElementsOf(record, openSteps);
     loadingByBoardId.set(boardId, loading);
     return loading;
   }
 
-  async function loadElementsOf(head: BoardRecord): Promise<RecordLoad> {
+  async function loadElementsOf(head: BoardRecord, openSteps?: OpenStepLog): Promise<RecordLoad> {
     const boardId = head.board.id;
-    const stored = await store.loadElements(head).then((record) => record ?? DAMAGED_ROWS, (error: unknown) => {
+    const stored = await store.loadElements(head, openSteps?.mark).then((record) => record ?? DAMAGED_ROWS, (error: unknown) => {
       logger.warn(`[whiteboard] board ${boardId} could not be read: ${errorMessage(error)}`);
       return null;
     });
@@ -900,12 +901,23 @@ function createWhiteboardWiring({
     },
   };
 
+  const openStepLogOf = createOpenStepLogs(logger);
+
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
+      const openSteps = openStepLogOf(request.boardId);
       await loaded;
-      if (await tiles.viewCached(viewer, request)) return;
-      await loadedRecordOf(request.boardId);
-      return tiles.view(viewer, request);
+      openSteps.mark('heads ready');
+      if (await tiles.viewCached(viewer, request, openSteps)) {
+        openSteps.logIfBoardLoaded(false);
+        return;
+      }
+      openSteps.mark('saved layout tried');
+      const startsLoad = unloadedBoardIds.has(request.boardId) && !loadingByBoardId.has(request.boardId);
+      await loadedRecordOf(request.boardId, startsLoad ? openSteps : undefined);
+      if (startsLoad) openSteps.mark('board record built');
+      await tiles.view(viewer, request, openSteps);
+      openSteps.logIfBoardLoaded(startsLoad);
     },
     forget: tiles.forget,
     operatorViewOf: tiles.operatorViewOf,
