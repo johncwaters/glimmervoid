@@ -107,6 +107,7 @@ interface BackendLaneDependencies {
   logger: Console;
   provenanceWriterId: () => Promise<string>;
   renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
+  retitleProvisionalBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
 }
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
@@ -433,6 +434,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     getConfig: () => configStore.config,
     logger,
     renameSession: dependencies.renameSessionFromTaskTitle,
+    retitleBoard: dependencies.retitleProvisionalBoard,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,

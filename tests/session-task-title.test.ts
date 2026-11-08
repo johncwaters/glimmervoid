@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Session } from '../session/sessions.ts';
 import { extractPromptTaskTitle, resolveTaskTitle } from '../session/core/task-title-core.ts';
+import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 
@@ -157,4 +158,46 @@ test('prompt and resolved task titles never cut an astral character in half', ()
   assert.ok(resolvedTitle);
   assert.equal(hasLoneSurrogate(promptTitle), false);
   assert.equal(hasLoneSurrogate(resolvedTitle), false);
+});
+
+test('the refiner tells the lane the session name and refuses a title that starts with it', async () => {
+  const session = new Session({ id: 's1', name: 'Markdown editor', path: '/project' });
+  const offeredTitles = ['Markdown editor WYSIWYG examples', 'WYSIWYG examples'];
+  const lanePrompts: string[] = [];
+  const unusableTitleWarnings: string[] = [];
+  const refiner = createTaskTitleRefiner({
+    getConfig: () => ({ taskTitle: { refiner: { minIntervalSeconds: 0 } } }),
+    logger: { warn: (message: string) => unusableTitleWarnings.push(message) },
+    spawnLane: async ({ cwd }) => {
+      lanePrompts.push(await readFile(path.join(cwd, 'task-title-prompt.txt'), 'utf8'));
+      await writeFile(path.join(cwd, 'task-title-result.json'), JSON.stringify({ title: offeredTitles[lanePrompts.length - 1] }));
+    },
+  });
+  const waitUntil = (isSettled: () => boolean) => new Promise<void>((resolve, reject) => {
+    const giveUpAt = Date.now() + 5000;
+    const settleCheck = setInterval(() => {
+      if (Date.now() > giveUpAt) {
+        clearInterval(settleCheck);
+        reject(new Error('the refinement never settled'));
+        return;
+      }
+      if (!isSettled()) return;
+      clearInterval(settleCheck);
+      resolve();
+    }, 5);
+  });
+  try {
+    refiner.attachSession(session);
+    session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: 1, payload: { prompt: 'Show me WYSIWYG examples for the markdown editor' } });
+    await waitUntil(() => unusableTitleWarnings.length > 0);
+    assert.match(lanePrompts[0], /"Markdown editor"/);
+    assert.equal(session.refinedTaskTitle, null);
+    session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: 2, payload: { prompt: 'Add two more WYSIWYG examples please' } });
+    refiner.onTurnEnd(session);
+    await waitUntil(() => lanePrompts.length === 2 && session.refinedTaskTitle !== null);
+    assert.equal(session.refinedTaskTitle, 'WYSIWYG examples');
+  } finally {
+    await refiner.stop();
+    session.destroy();
+  }
 });

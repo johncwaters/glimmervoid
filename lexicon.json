@@ -659,6 +659,10 @@
     {
       "name": "attention note",
       "definition": "A report Glimmervoid itself raises on a session (Coherence hooks, verdict, spec or error, a kept child worktree, the child wake limit), one slot per origin, shown as a card chip and a quiet notification that never moves the session to waiting; cleared by the operator's next prompt or a dismiss"
+    },
+    {
+      "name": "session name",
+      "definition": "A session's display name for its area of work, stable across its steps, shown in the rail; never part of the task title or a board title"
     }
   ],
   "retired": [

@@ -6,6 +6,8 @@ import {
   buildTaskTitleRefinementPrompt, decideTaskTitleRefinement, parseRefinedSessionName, parseRefinedTaskTitle,
 } from '../session/core/task-title-core.ts';
 import type { TaskTitleRefinementResult, TaskTitleSources } from '../session/core/task-title-core.ts';
+import { buildBoardTitlePrompt, parseBoardTitle } from './core/board-title-core.ts';
+import type { BoardNamingContext } from './core/board-title-core.ts';
 import type { Session } from '../session/sessions.ts';
 import { BrowserConfig } from '../shared/contracts/config.ts';
 import { isAutoNameOf } from '../shared/session-naming.ts';
@@ -21,10 +23,16 @@ const BOOTSTRAP_PROMPT = `Read ${PROMPT_FILE} and follow its instructions`;
 const TASK_TITLE_LANE_TOOLS = Object.freeze(['Read', 'Write']);
 const DEFAULT_REFINER_SETTINGS = Object.freeze({ enabled: true, model: DEFAULT_MODELS.taskTitleRefiner, minIntervalSeconds: 60, timeoutSeconds: 60 });
 
+interface BoardNamingRequest extends BoardNamingContext {
+  boardId: string;
+  provisionalTitle: string;
+}
+
 interface TaskTitleRefinerOptions {
   getConfig: () => { taskTitle?: unknown };
   spawnLane: LaneSpawn;
   renameSession?: (session: Session, proposedName: string) => void;
+  retitleBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
   nowFn?: () => number;
   logger?: Pick<Console, 'warn'>;
 }
@@ -36,6 +44,7 @@ interface RefinementRequest {
   recentPrompts: readonly string[];
   titleSources: TaskTitleSources;
   wantsSessionName: boolean;
+  sessionName: string;
 }
 
 interface RefinementOutcome {
@@ -63,35 +72,41 @@ function hasAutoSessionName(session: Session): boolean {
   return isAutoNameOf(session.name, path.basename(session.path));
 }
 
-async function refineTaskTitle(request: RefinementRequest, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<RefinementOutcome> {
+async function runTitleLane(laneName: string, promptFor: (resultPath: string) => string, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<Record<string, unknown> | null> {
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-task-title-'));
   const resultPath = path.join(workDir, RESULT_FILE);
   try {
-    await fs.writeFile(path.join(workDir, PROMPT_FILE), buildTaskTitleRefinementPrompt({
-      currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, titleSources: request.titleSources, resultPath,
-      wantsSessionName: request.wantsSessionName,
-    }), 'utf8');
-    if (signal.aborted) return INVALID_OUTCOME;
+    await fs.writeFile(path.join(workDir, PROMPT_FILE), promptFor(resultPath), 'utf8');
+    if (signal.aborted) return null;
     await spawnLane({
-      id: `task-title:${crypto.randomUUID()}`, name: 'Task title refinement',
+      id: `task-title:${crypto.randomUUID()}`, name: laneName,
       cwd: workDir, prompt: BOOTSTRAP_PROMPT, agent: 'claude-code', model, signal,
     });
-    if (signal.aborted) return INVALID_OUTCOME;
-    const laneResult = await readLaneResultFile(resultPath);
-    return {
-      refinement: parseRefinedTaskTitle(laneResult),
-      proposedSessionName: request.wantsSessionName ? parseRefinedSessionName(laneResult) : null,
-    };
+    if (signal.aborted) return null;
+    return await readLaneResultFile(resultPath);
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
 }
 
-function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = () => Date.now(), logger = console }: TaskTitleRefinerOptions) {
+async function refineTaskTitle(request: RefinementRequest, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<RefinementOutcome> {
+  const laneResult = await runTitleLane('Task title refinement', (resultPath) => buildTaskTitleRefinementPrompt({
+    currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, titleSources: request.titleSources, resultPath,
+    wantsSessionName: request.wantsSessionName, sessionName: request.sessionName,
+  }), model, spawnLane, signal);
+  if (signal.aborted) return INVALID_OUTCOME;
+  const proposedSessionName = request.wantsSessionName ? parseRefinedSessionName(laneResult) : null;
+  const sessionNamesToAvoid = proposedSessionName === null ? [request.sessionName] : [request.sessionName, proposedSessionName];
+  return { refinement: parseRefinedTaskTitle(laneResult, sessionNamesToAvoid), proposedSessionName };
+}
+
+function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBoard, nowFn = () => Date.now(), logger = console }: TaskTitleRefinerOptions) {
   const statesBySession = new Map<Session, SessionRefinementState>();
   const queuedBySession = new Map<Session, RefinementRequest>();
   let active: ActiveRefinement | null = null;
   let isStopped = false;
+  let boardNamingQueue: Promise<void> = Promise.resolve();
+  const boardNamingController = new AbortController();
 
   function settings() {
     const parsed = BrowserConfig.shape.taskTitle.safeParse(getConfig().taskTitle);
@@ -211,7 +226,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     }
     const request: RefinementRequest = {
       session, revision: session.taskTitlePromptRevision, currentTitle: session.refinedTaskTitle, recentPrompts: session.recentTaskPrompts,
-      titleSources: session.persistedTaskTitle?.sources ?? {}, wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session),
+      titleSources: session.persistedTaskTitle?.sources ?? {}, wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session), sessionName: session.name,
     };
     queuedBySession.set(session, request);
     startNext();
@@ -254,15 +269,35 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, nowFn = (
     session.once('teardown', detach);
   }
 
+  async function nameBoardNow(request: BoardNamingRequest): Promise<void> {
+    const { enabled, model, timeoutSeconds } = settings();
+    if (isStopped || !enabled || !retitleBoard) return;
+    const signal = AbortSignal.any([boardNamingController.signal, AbortSignal.timeout(timeoutSeconds * 1000)]);
+    const laneResult = await runTitleLane('Board naming', (resultPath) => buildBoardTitlePrompt(request, resultPath), model, spawnLane, signal);
+    if (signal.aborted) return;
+    const title = parseBoardTitle(laneResult, request);
+    if (title === null || title === request.provisionalTitle) return;
+    await retitleBoard(request.boardId, request.provisionalTitle, title);
+  }
+
+  function nameBoard(request: BoardNamingRequest): Promise<void> {
+    boardNamingQueue = boardNamingQueue.then(() => nameBoardNow(request)).catch((error: unknown) => {
+      logger.warn(`[task-title] board naming failed: ${errorMessage(error)}`);
+    });
+    return boardNamingQueue;
+  }
+
   async function stop(): Promise<void> {
     isStopped = true;
     for (const state of statesBySession.values()) state.detach();
     queuedBySession.clear();
     active?.controller.abort();
+    boardNamingController.abort();
     await active?.settled;
+    await boardNamingQueue;
   }
 
-  return { attachSession, onTurnEnd, stop };
+  return { attachSession, onTurnEnd, nameBoard, stop };
 }
 
 export { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner };

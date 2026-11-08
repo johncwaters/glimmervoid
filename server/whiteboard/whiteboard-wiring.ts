@@ -29,6 +29,7 @@ import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
   upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
+import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -117,6 +118,15 @@ interface WhiteboardWiringOptions {
   logger?: Pick<Console, 'warn'> & Partial<Pick<Console, 'log'>>;
   codeContextOf?: (sessionId: string) => CodeContext | null;
   projectOf?: (sessionId: string) => string | null;
+  onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
+}
+
+interface ProvisionalBoardNaming {
+  boardId: string;
+  provisionalTitle: string;
+  sessionId: string;
+  cardTitle: string;
+  caption: string | null;
 }
 
 function isProjectFolderPresent(projectPath: string): Promise<boolean> {
@@ -141,6 +151,7 @@ interface WhiteboardPort {
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
   };
+  retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
   fileUnfiledBoards(): Promise<void>;
@@ -227,7 +238,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null,
+  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {},
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
@@ -831,12 +842,25 @@ function createWhiteboardWiring({
     }
   }
 
-  async function showBoardIdFor(caller: WhiteboardCaller): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }> {
+  async function showBoardIdFor(caller: WhiteboardCaller, newBoardTitle: string): Promise<{ ok: true; boardId: string; provisionalTitle: string | null } | { ok: false; reply: WhiteboardReply }> {
     const pickedBoardId = pickShowBoardId([...recordsByBoardId.values()], caller.id);
-    if (pickedBoardId) return { ok: true, boardId: pickedBoardId };
-    const created = await createBoardFor(caller, caller.name.slice(0, WHITEBOARD_LIMITS.title));
+    if (pickedBoardId) return { ok: true, boardId: pickedBoardId, provisionalTitle: null };
+    const provisionalTitle = newBoardTitle.slice(0, WHITEBOARD_LIMITS.title);
+    const created = await createBoardFor(caller, provisionalTitle);
     if (!created.body.ok || !('board' in created.body)) return { ok: false, reply: created };
-    return { ok: true, boardId: created.body.board.id };
+    return { ok: true, boardId: created.body.board.id, provisionalTitle };
+  }
+
+  async function retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean> {
+    await loaded;
+    if (!recordsByBoardId.has(boardId)) return false;
+    const reply = await changeRecord(boardId, async (record) => {
+      if (record.board.title !== provisionalTitle) return { ok: false, reply: refusal(409, 'the board was renamed since it was created') };
+      const applied = await applyOpsToRecord(record, [{ op: 'board', title }], GLIMMERVOID_AUTHOR);
+      if (!applied.ok) return { ok: false, reply: refusal(400, applied.error) };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
+    });
+    return reply.status === 200;
   }
 
   async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null): Promise<WhiteboardReply> {
@@ -845,11 +869,20 @@ function createWhiteboardWiring({
     const ingested = await assets.ingestFile(sourcePath);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
     const pageTitle = ingested.media.kind === 'page' ? await pageTitleOf(sourcePath) : null;
-    const target = await showBoardIdFor(caller);
+    const fileName = path.basename(sourcePath);
+    const target = await showBoardIdFor(caller, pageTitle ?? (path.parse(fileName).name || fileName));
     if (!target.ok) return target.reply;
-    const card = { media: ingested.media, title: pageTitle ?? path.basename(sourcePath), caption };
+    const card = { media: ingested.media, title: pageTitle ?? fileName, caption };
     const author: Author = { id: caller.id, name: caller.name };
-    return changeRecord(target.boardId, async (record) => {
+    const reply = await placeShownCard(target.boardId, card, author);
+    if (reply.status === 200 && target.provisionalTitle !== null) {
+      onBoardNamedProvisionally({ boardId: target.boardId, provisionalTitle: target.provisionalTitle, sessionId: caller.id, cardTitle: card.title, caption });
+    }
+    return reply;
+  }
+
+  function placeShownCard(boardId: string, card: ShownCard, author: Author): Promise<WhiteboardReply> {
+    return changeRecord(boardId, async (record) => {
       const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
         logger.warn(`[whiteboard] board ${record.board.id} could not be laid out to place a shown file: ${errorMessage(error)}`);
         return null;
@@ -942,8 +975,8 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, handleOperator, forgetSession, forgetClosedSessions, fileUnfiledBoards, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
-export type { WhiteboardLayouts, WhiteboardPort };
+export type { ProvisionalBoardNaming, WhiteboardLayouts, WhiteboardPort };

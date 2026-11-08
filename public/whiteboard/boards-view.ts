@@ -2,6 +2,7 @@ import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
@@ -10,6 +11,7 @@ import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
+import { onSessionTick } from '../session-card/session-tick.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
@@ -429,9 +431,20 @@ function paintHead(): void {
   parts.emptyText.textContent = hasBoards ? PICK_TEXT : EMPTY_TEXT;
   if (!summary) return;
   parts.boardTitle.textContent = summary.title;
-  parts.boardMeta.textContent = `v${summary.version}`;
+  parts.boardMeta.dataset.boardVersion = String(summary.version);
+  paintBoardEditedAge();
   paintToolbar();
   paintPairedSession();
+}
+
+const EDITED_JUST_NOW_BELOW_SECONDS = 60;
+
+function paintBoardEditedAge(): void {
+  if (!parts) return;
+  const summary = selectedSummary();
+  if (!summary) return;
+  const editedText = `edited ${elapsedText(Date.now() - summary.updatedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: EDITED_JUST_NOW_BELOW_SECONDS })}`;
+  if (parts.boardMeta.textContent !== editedText) parts.boardMeta.textContent = editedText;
 }
 
 function paintPresence(connectedSessionIds: readonly string[]): void {
@@ -982,6 +995,7 @@ export function mountBoardHost(): HTMLElement {
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint };
+  onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
     viewport,

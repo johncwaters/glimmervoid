@@ -58,7 +58,7 @@ async function reviewOf(open: OpenBoard): Promise<BoardReview> {
 
 async function shownBoardOf(open: OpenBoard): Promise<Board> {
   const board = await boardOf(open);
-  await open.panel.locator('.wb-board-meta', { hasText: `v${board.version}` }).waitFor();
+  await open.panel.locator(`.wb-board-meta[data-board-version="${board.version}"]`).waitFor();
   return board;
 }
 
@@ -848,6 +848,22 @@ async function openDesktopBoard(page: Page, sessionId: string, boardTitle: strin
   return { page, panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
 }
 
+async function verifyTerminalHeaderNamesTheTask(card: Locator): Promise<void> {
+  const header = card.locator(':scope > .session-card-header');
+  const sessionNameLabel = header.locator('.session-name');
+  const taskTitle = header.locator('.session-task-title');
+  assert.equal(await sessionNameLabel.isVisible(), true, 'with no task title the terminal header names the session');
+  await taskTitle.click();
+  await taskTitle.locator('input').fill('Check the pane header');
+  await taskTitle.locator('input').press('Enter');
+  await taskTitle.filter({ hasText: 'Check the pane header' }).waitFor();
+  await sessionNameLabel.waitFor({ state: 'hidden' });
+  await taskTitle.click();
+  await taskTitle.locator('input').fill('');
+  await taskTitle.locator('input').press('Enter');
+  await sessionNameLabel.waitFor({ state: 'visible' });
+}
+
 export async function verifyBoardPane(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
   const boardTitle = `Pane plan ${sessionId.slice(0, 8)}`;
   const boardId = await createBoardOverControl(page, boardTitle);
@@ -865,6 +881,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
   assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a board arriving for the centered session opens the stored split');
   assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the rail shows the session and its board as one split item');
+  await verifyTerminalHeaderNamesTheTask(card);
   const splitRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split]`);
   assert.equal(await splitRow.locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`).count(), 0, 'the split item names its board once, with no board link line repeating it');
   const splitBoardHalf = splitRow.locator('.session-row-split-board');
@@ -1226,7 +1243,7 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   assert.equal(await sceneBuildsOf(panel), sceneBuildsAtGrab, 'a drag frame moves only the dragged boxes and their wires, never rebuilding the board scene');
   const versionBeforeUpdate = (await boardOf(open)).version;
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: untouchedBoxId, fields: { title: SCALE_HELD_UPDATE_TITLE } }] });
-  await panel.locator('.wb-board-meta', { hasText: `v${versionBeforeUpdate + 1}` }).waitFor({ timeout: SCALE_SAVE_TIMEOUT_MS });
+  await panel.locator(`.wb-board-meta[data-board-version="${versionBeforeUpdate + 1}"]`).waitFor({ timeout: SCALE_SAVE_TIMEOUT_MS });
   for (let step = 0; step < SCALE_HELD_FRAME_SAMPLES; step += 1) {
     await page.mouse.move(grabAt.x + SCALE_DRAG_OFFSET.x + (step % 2), grabAt.y + SCALE_DRAG_OFFSET.y);
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));

@@ -18,6 +18,7 @@ import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
+import type { ProvisionalBoardNaming } from '../whiteboard/whiteboard-wiring.ts';
 import { createChangeMapService, joinSessionRegistries } from '../change-map/change-map-wiring.ts';
 import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
@@ -276,6 +277,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return session ? { root: session.effectiveCwd(), buildChangeMap: () => changeMaps.build(session) } : null;
     },
     projectOf: (sessionId) => getSessionAny(sessionId)?.path ?? null,
+    onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
   });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
 
@@ -348,6 +350,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry,
     logger: console,
     renameSessionFromTaskTitle,
+    retitleProvisionalBoard: whiteboards.retitleProvisionalBoard,
   });
   const {
     allLiveSessions,
@@ -518,6 +521,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hostLinks.reconcile(newConfig.hosts ?? []);
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
+  }
+
+  function nameProvisionalBoard({ boardId, provisionalTitle, sessionId, cardTitle, caption }: ProvisionalBoardNaming): void {
+    const session = getSessionAny(sessionId);
+    void laneAssembly.taskTitleRefiner.nameBoard({
+      boardId, provisionalTitle, cardTitle, caption, sessionName: session?.name ?? null, taskTitle: session?.taskTitle ?? null,
+    });
   }
 
   function renameSessionFromTaskTitle(session: Session, proposedName: string): void {

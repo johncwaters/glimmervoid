@@ -18,6 +18,7 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
@@ -1180,7 +1181,7 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   assert.equal(relinked.ok, false);
 });
 
-test('show puts each file on a board the session is connected to, creating one named after the session first, placing later cards right of the last and numbering past an oversized shown id', async () => {
+test('show puts each file on a board the session is connected to, creating one named after the first file title, placing later cards right of the last and numbering past an oversized shown id', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));
   const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
@@ -1192,7 +1193,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const first = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after fix' });
   assert.equal(first.status, 200, JSON.stringify(first.body));
   const boardId = (first.body as { board: { id: string; title: string; connectedSessionIds: string[] } }).board.id;
-  assert.deepEqual(wiring.snapshotMessage().boards.map(({ id, title, connectedSessionIds }) => ({ id, title, connectedSessionIds })), [{ id: boardId, title: 'checkout fix', connectedSessionIds: [shower.id] }]);
+  assert.deepEqual(wiring.snapshotMessage().boards.map(({ id, title, connectedSessionIds }) => ({ id, title, connectedSessionIds })), [{ id: boardId, title: 'login', connectedSessionIds: [shower.id] }]);
 
   const second = await wiring.handleAgent(shower, { sub: 'show', path: 'report.html' });
   assert.equal(second.status, 200, JSON.stringify(second.body));
@@ -1213,6 +1214,40 @@ test('show puts each file on a board the session is connected to, creating one n
 
   const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
   assert.equal(remote.status, 409);
+});
+
+test('a board show creates is renamed once by the title lane, never over a rename the operator made first', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-named-'));
+  const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-named-shower-'));
+  fs.writeFileSync(path.join(showerDir, 'report.html'), '<!doctype html><html><head><title>Weekly report</title></head><body>numbers</body></html>');
+  const lanePrompts: string[] = [];
+  const pendingNamings: Promise<void>[] = [];
+  const refiner = createTaskTitleRefiner({
+    getConfig: () => ({}),
+    spawnLane: async ({ cwd }) => {
+      lanePrompts.push(fs.readFileSync(path.join(cwd, 'task-title-prompt.txt'), 'utf8'));
+      fs.writeFileSync(path.join(cwd, 'task-title-result.json'), JSON.stringify({ title: 'Revenue dashboard draft' }));
+    },
+    retitleBoard: (boardId, provisionalTitle, title) => wiring.retitleProvisionalBoard(boardId, provisionalTitle, title),
+  });
+  const wiring = createWhiteboardWiring({
+    boardsRoot,
+    onBoardNamedProvisionally: (naming) => pendingNamings.push(refiner.nameBoard({ ...naming, sessionName: 'checkout fix', taskTitle: 'Chart the numbers' })),
+  });
+  const shower = { id: 'named-agent', name: 'checkout fix', project: showerDir, cwd: showerDir };
+  const titleOf = (boardId: string) => wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.title;
+
+  const shown = await wiring.handleAgent(shower, { sub: 'show', path: 'report.html' });
+  const boardId = (shown.body as { board: { id: string } }).board.id;
+  await Promise.all(pendingNamings);
+  assert.match(lanePrompts[0], /"Weekly report"/);
+  assert.match(lanePrompts[0], /"checkout fix"/);
+  assert.equal(titleOf(boardId), 'Revenue dashboard draft');
+
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'board', title: 'Mine' }]));
+  assert.equal(await wiring.retitleProvisionalBoard(boardId, 'Revenue dashboard draft', 'Late lane title'), false);
+  assert.equal(titleOf(boardId), 'Mine');
+  await refiner.stop();
 });
 
 test('an agent reads operator ink as bounds and may remove it, but is refused drawing or changing a stroke', async () => {
