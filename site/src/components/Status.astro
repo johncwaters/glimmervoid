@@ -3,18 +3,9 @@ import { STATE_ICONS, STATUS_ICON_SHAPES } from '../../../shared/state-icons.ts'
 import { BADGE_LABELS, STATES } from '../../../shared/states.ts';
 import { AGENT_CARDS } from '../lib/product-facts.ts';
 
-const TIER_MARKS_BY_SUPPORT: Readonly<Record<string, 'full' | 'half' | 'ring'>> = {
-  'Full support': 'full',
-  'Hook status': 'half',
-  'Title status': 'ring',
-};
-const OTHER_CLI_CARD = { monogram: '..', label: 'Any other CLI', support: 'Title status' };
-const agentCardsBySupport = Map.groupBy([...AGENT_CARDS, OTHER_CLI_CARD], ({ support }) => support);
-const AGENT_SUPPORT_TIERS = [...agentCardsBySupport].map(([support, cards]) => {
-  const mark = TIER_MARKS_BY_SUPPORT[support];
-  if (!mark) throw new Error(`site/src/components/Status.astro has no tier mark for ${support}`);
-  return { support, cards, mark };
-});
+const FULL_SUPPORT = 'Full support';
+const FULL_SUPPORT_AGENTS = AGENT_CARDS.filter(({ support }) => support === FULL_SUPPORT);
+const ALSO_RUNS_LABELS = [...AGENT_CARDS.filter(({ support }) => support !== FULL_SUPPORT).map(({ label }) => label), 'Any other CLI'];
 
 const SHOWN_STATES = [STATES.RUNNING, STATES.WAITING, STATES.COMPLETE, STATES.FAILED];
 const DEMO_SESSIONS = [
@@ -75,23 +66,16 @@ function terminalVariantsFor(task: string) {
       <button class="queue-question" id="queue-question" type="button">Queue a question</button>
     </div>
   </figure>
-  <ul class="agent-tiers reveal" aria-label="Supported agents">
-    {AGENT_SUPPORT_TIERS.map(({ support, cards, mark }) => (
-      <li class="agent-tier" data-mark={mark}>
-        <h3 class="agent-tier-head">
-          <svg class="tier-mark" viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5" />
-            {mark === 'full' && <circle cx="8" cy="8" r="6" fill="currentColor" />}
-            {mark === 'half' && <path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor" />}
-          </svg>
-          {support}
-        </h3>
-        <ul class="agent-chips">
-          {cards.map(({ monogram, label }) => <li><span class="agent-monogram" aria-hidden="true">{monogram}</span>{label}</li>)}
-        </ul>
-      </li>
-    ))}
-  </ul>
+  <div class="agent-support reveal">
+    <h3 class="agent-row-label">Full support</h3>
+    <ul class="agent-chips is-full">
+      {FULL_SUPPORT_AGENTS.map(({ monogram, label }) => <li><span class="agent-monogram" aria-hidden="true">{monogram}</span>{label}</li>)}
+    </ul>
+    <h3 class="agent-row-label">Also runs</h3>
+    <ul class="agent-chips is-also">
+      {ALSO_RUNS_LABELS.map((label) => <li>{label}</li>)}
+    </ul>
+  </div>
 </section>
 
 <script>
@@ -264,15 +248,14 @@ function terminalVariantsFor(task: string) {
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
   .queue-question { border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-question:hover { border-color: var(--accent); color: var(--text-head); }
-  .agent-tiers { list-style: none; margin: 24px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; max-width: 760px; }
-  .agent-tier { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); }
-  .agent-tier-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15px; font-weight: 700; color: var(--text-head); }
-  .tier-mark { width: 16px; height: 16px; flex: none; color: var(--accent); }
-  .agent-tier[data-mark="ring"] .tier-mark { color: var(--text-dim); }
-  .agent-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--text); }
-  .agent-chips li { display: flex; align-items: center; gap: 10px; }
-  .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-head); }
-  .agent-tier[data-mark="full"] .agent-monogram { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .agent-support { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px 16px; margin-top: 24px; max-width: 760px; }
+  .agent-row-label { margin: 0; font-size: 13px; font-weight: 700; color: var(--text-dim); }
+  .agent-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .agent-chips li { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text); }
+  .agent-chips.is-full li { padding: 6px 14px 6px 6px; font-size: 15px; font-weight: 700; color: var(--text-head); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .agent-chips.is-also li { padding: 3px 10px; font-size: 12px; color: var(--text-dim); }
+  .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); }
+  @media (max-width: 640px) { .agent-support { grid-template-columns: minmax(0, 1fr); gap: 8px; } .agent-chips.is-full { margin-bottom: 8px; } }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }
