@@ -1,7 +1,6 @@
-import { isLoopbackHostname } from '../../shared/loopback-hosts.ts';
 import { VAULT_SOCKET_PATH } from '../../shared/contracts/secrets.ts';
 import { tokensMatch } from './agent-api-core.ts';
-import { decideBindHost } from './remote-config.ts';
+import { decideBindHost, isLoopbackHost } from './remote-config.ts';
 
 const BEARER_PREFIX = 'Bearer ';
 const ANY_FREE_PORT = 0;
@@ -28,7 +27,7 @@ function isAuthorizedCompanion(authorizationHeader: string | undefined, expected
 
 function localCompanionSocketUrl(boundHost: string, boundPort: number): string | null {
   if (WILDCARD_HOSTS.has(boundHost)) return `ws://127.0.0.1:${boundPort}${VAULT_SOCKET_PATH}`;
-  if (!isLoopbackHostname(boundHost)) return null;
+  if (!isLoopbackHost(boundHost)) return null;
   const hostInUrl = boundHost.includes(':') ? `[${boundHost}]` : boundHost;
   return `ws://${hostInUrl}:${boundPort}${VAULT_SOCKET_PATH}`;
 }

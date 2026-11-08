@@ -55,6 +55,12 @@ function probeOutcome(memory: ProbeMemory, response: ProbeResponse, nowMs: numbe
   return { memory: nextMemory, nudge: recoveredNudge ?? (hasBodyChanged ? 'changed' : null) };
 }
 
+function memoryAfterCredentialChange(memory: ProbeMemory, hasCredentialChanged: boolean): ProbeMemory {
+  if (!hasCredentialChanged) return memory;
+  const isRefusedWithoutRateLimit = memory.status === 'failing' && memory.retryAfterMs === null;
+  return isRefusedWithoutRateLimit ? { ...memory, lastRunAtMs: null } : { ...memory };
+}
+
 function nextRunAtMs(probe: Pick<Probe, 'everyMs'>, memory: ProbeMemory, nowMs: number): number {
   if (memory.lastRunAtMs === null) return nowMs;
   const scheduledAtMs = memory.lastRunAtMs + probe.everyMs;
@@ -62,8 +68,8 @@ function nextRunAtMs(probe: Pick<Probe, 'everyMs'>, memory: ProbeMemory, nowMs: 
   return Math.max(scheduledAtMs, memory.lastRunAtMs + memory.retryAfterMs);
 }
 
-function retryAfterMsFromHeaders(status: number, headers: { retryAfter: string | null; rateLimitRemaining: string | null; rateLimitReset: string | null }, nowMs: number): number | null {
-  if (status !== 403 && status !== 429) return null;
+function retryAfterMsFromHeaders({ status, hasErrorInAnswer }: { status: number; hasErrorInAnswer: boolean }, headers: { retryAfter: string | null; rateLimitRemaining: string | null; rateLimitReset: string | null }, nowMs: number): number | null {
+  if (status !== 403 && status !== 429 && !hasErrorInAnswer) return null;
   const retryAfterSeconds = Number(headers.retryAfter);
   if (headers.retryAfter !== null && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) return retryAfterSeconds * 1000;
   const resetEpochSeconds = Number(headers.rateLimitReset);
@@ -71,5 +77,5 @@ function retryAfterMsFromHeaders(status: number, headers: { retryAfter: string |
   return Math.max(0, resetEpochSeconds * 1000 - nowMs);
 }
 
-export { freshProbeMemory, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders };
+export { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders };
 export type { ProbeMemory, ProbeResponse };

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { signedHeaders } from '../link/core/link-signing-core.ts';
 import { GITHUB_API_HOST, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import { freshProbeMemory, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
+import { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
 import { NO_CREDENTIALS } from './watcher-home.ts';
 import type { WatcherHome } from './watcher-home.ts';
@@ -20,6 +20,13 @@ const GRAPHQL_PATH = '/graphql';
 
 function requestFingerprint(probe: Probe): string {
   return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null])).digest('hex');
+}
+
+function credentialKindsChanged(previous: WatcherCredentials, next: WatcherCredentials): Set<Probe['credential']> {
+  const changedKinds = new Set<Probe['credential']>();
+  if (previous.github !== next.github) changedKinds.add('github');
+  if (JSON.stringify(previous.posthog) !== JSON.stringify(next.posthog)) changedKinds.add('posthog');
+  return changedKinds;
 }
 
 function authorizationFor(probe: Probe, credentials: WatcherCredentials): string | { refusal: string } {
@@ -171,7 +178,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     try {
       const response = await fetchFn(probe.url, { method: probe.method, headers, body: probe.body ?? undefined, redirect: 'error', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
       const { bodySha256, errorInAnswer } = await answerOf(response, probe);
-      const retryAfterMs = retryAfterMsFromHeaders(response.status, {
+      const retryAfterMs = retryAfterMsFromHeaders({ status: response.status, hasErrorInAnswer: errorInAnswer !== null }, {
         retryAfter: response.headers.get('retry-after'),
         rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
         rateLimitReset: response.headers.get('x-ratelimit-reset'),
@@ -224,8 +231,13 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
 
   async function applyCredentials(nextCredentials: WatcherCredentials): Promise<void> {
     await home.saveCredentials(nextCredentials);
+    const changedCredentialKinds = credentialKindsChanged(credentials, nextCredentials);
     credentials = nextCredentials;
-    memoryByProbeId = new Map([...memoryByProbeId].map(([probeId, memory]) => [probeId, memory.status === 'failing' ? { ...memory, lastRunAtMs: null, retryAfterMs: null } : { ...memory }]));
+    const credentialByProbeId = new Map((probeSet?.probes ?? []).map((probe) => [probe.id, probe.credential]));
+    memoryByProbeId = new Map([...memoryByProbeId].map(([probeId, memory]) => {
+      const credential = credentialByProbeId.get(probeId);
+      return [probeId, memoryAfterCredentialChange(memory, credential !== undefined && changedCredentialKinds.has(credential))];
+    }));
     scheduleWake();
   }
 

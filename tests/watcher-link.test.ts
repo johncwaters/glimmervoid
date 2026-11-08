@@ -142,6 +142,36 @@ test('a probe GitHub refuses by status or by a GraphQL error shows on its lane a
   await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
 });
 
+test('a GraphQL rate limit answered with 200 waits for its reset even when the same token is delivered again', async (t) => {
+  const homeDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-watcher-runner-'));
+  t.after(() => fsp.rm(homeDir, { recursive: true, force: true }));
+  const clock = { nowMs: Date.now() };
+  const sentTokens: string[] = [];
+  const resetEpochSeconds = Math.ceil(clock.nowMs / 1000) + 3600;
+  const fetchFn: typeof fetch = async (_input, init) => {
+    sentTokens.push(new Headers(init?.headers).get('authorization') ?? '');
+    return new Response('{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}', { status: 200, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetEpochSeconds) } });
+  };
+  const runner = createProbeRunner({
+    home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
+    nudges: { send: () => {} },
+    fetchFn,
+    now: () => clock.nowMs,
+    log: QUIET_LOG,
+  });
+  t.after(() => runner.stop());
+  await runner.start();
+  await runner.applyCredentials({ github: 'read-token', posthog: null });
+  await runner.applyProbeSet({ revision: 'one-probe', probes: [LIGHT_PROBE] });
+  await eventually(() => runner.status().probes[0]?.status === 'failing' ? true : undefined);
+
+  clock.nowMs += 61_000;
+  await runner.applyCredentials({ github: 'read-token', posthog: null });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(sentTokens.length, 1);
+});
+
 test('an answer to a request sent with the old token is dropped once a new token arrives', async (t) => {
   const homeDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-watcher-runner-'));
   t.after(() => fsp.rm(homeDir, { recursive: true, force: true }));
