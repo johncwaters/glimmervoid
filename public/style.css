@@ -3576,12 +3576,12 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .pane-layout[data-direction="row"] { flex-direction: row; }
 .pane-layout[hidden] { display: none; }
 .pane-group { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.pane-header { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px 0 0; background: var(--bg-surface); border-bottom: 1px solid var(--border-dim); font-size: var(--type-meta); }
+.pane-header { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 8px 0 12px; background: var(--bg-surface); border-bottom: 1px solid var(--border-dim); font-size: var(--type-meta); }
 .pane-header .pane-header-title, .pane-header .session-task-title, .pane-header .session-name { font-size: var(--type-meta); font-weight: 400; color: var(--text-head); }
 .pane-header .pane-header-subtitle, .pane-header:has(.session-task-title:not(:empty)) .session-name { font-size: var(--type-meta); font-weight: 400; color: var(--text-muted); }
 .pane-strip { position: relative; z-index: 4; flex: none; }
 .session-card-header > .pane-strip { display: contents; }
-.pane-group[data-pane="board"] > .pane-header { cursor: grab; padding-left: 12px; }
+.pane-group[data-pane="board"] > .pane-header { cursor: grab; }
 .pane-layout[data-dragging] .pane-group[data-pane="board"] > .pane-header { cursor: grabbing; }
 .pane-title { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; }
 .pane-title > .wb-island { position: static; flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; box-shadow: none; }

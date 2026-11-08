@@ -372,7 +372,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
-  const trigger = menuButton({ label: 'board menu', action: 'open-board-menu', onClick: () => setOpen(!isOpen()) });
+  const trigger = menuButton({ label: 'Board actions', action: 'open-board-menu', onClick: () => setOpen(!isOpen()) });
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');
   const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
@@ -382,13 +382,13 @@ function buildBoardMenu(onBoardSettings: () => void) {
   };
   const divider = el('div', 'menu-divider');
   divider.setAttribute('role', 'separator');
-  const boardSettingsItem = actionItem('board settings', onBoardSettings);
+  const boardSettingsItem = actionItem('Board settings', onBoardSettings);
   const actionItems = [
     divider,
-    actionItem('rename board', startTitleRename),
-    actionItem('new board', newBoardFromDialog),
+    actionItem('Rename board', startTitleRename),
+    actionItem('New board', newBoardFromDialog),
     boardSettingsItem,
-    actionItem('delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
+    actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
   menu.addEventListener('click', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('[role^="menuitem"]')) setOpen(false);
@@ -406,7 +406,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
   });
   let paintedSummaries: readonly BoardSummary[] = [];
-  const archivedToggle = buildMenuItem('archived boards', 'visible wb-board-menu-archived');
+  const archivedToggle = buildMenuItem('Archived boards', 'visible wb-board-menu-archived');
   archivedToggle.setAttribute('aria-expanded', 'false');
   archivedToggle.addEventListener('click', (event) => {
     event.stopPropagation();

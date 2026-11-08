@@ -458,14 +458,14 @@ async function renameOpenBoard(page: Page, panel: Locator, currentTitle: string,
 }
 
 async function openBoardMenuItem(page: Page, panel: Locator, itemName: string): Promise<void> {
-  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitem', { name: itemName, exact: true }).click();
 }
 
 async function createBoardFromView(page: Page, panel: Locator, boardTitle: string): Promise<void> {
   const emptyNewBoard = panel.locator('.wb-empty').getByRole('button', { name: 'new board', exact: true });
   if (await emptyNewBoard.isVisible()) await emptyNewBoard.click();
-  if (!(await page.getByRole('textbox', { name: 'Board title', exact: true }).isVisible())) await openBoardMenuItem(page, panel, 'new board');
+  if (!(await page.getByRole('textbox', { name: 'Board title', exact: true }).isVisible())) await openBoardMenuItem(page, panel, 'New board');
   await submitTextDialog(page, 'Board title', boardTitle, 'Create board');
   await openBoardTitle(panel, boardTitle).waitFor();
 }
@@ -532,9 +532,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   if (layout === 'phone') await createBoardFromView(page, panel, boardTitle);
   await panel.locator('.wb-viewport').waitFor({ state: 'visible' });
   if (layout === 'phone') {
-    await panel.getByRole('button', { name: 'board menu', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'new board', exact: true }).waitFor();
-    assert.equal(await page.getByRole('menuitem', { name: 'board settings', exact: true }).isVisible(), false, 'phone hides the properties panel, so the menu offers no board settings');
+    await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New board', exact: true }).waitFor();
+    assert.equal(await page.getByRole('menuitem', { name: 'Board settings', exact: true }).isVisible(), false, 'phone hides the properties panel, so the menu offers no board settings');
     await page.keyboard.press('Escape');
   }
   if (desktopBoard) {
@@ -631,14 +631,14 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const inspect = panel.locator('.wb-inspect');
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
-    await openBoardMenuItem(page, panel, 'board settings');
+    await openBoardMenuItem(page, panel, 'Board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Code session', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
-    await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+    await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
     await page.getByRole('menuitemradio', { name: boardTitle }).waitFor();
-    await page.getByRole('menuitem', { name: 'delete board', exact: true }).waitFor();
+    await page.getByRole('menuitem', { name: 'Delete board', exact: true }).waitFor();
     await page.keyboard.press('Escape');
     await clickElement(open, targetBox.id);
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
@@ -707,7 +707,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await verifyBoxStaysWhereDropped(open, step.id, 'a plan step');
-    await openBoardMenuItem(page, panel, 'board settings');
+    await openBoardMenuItem(page, panel, 'Board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
   }
   assert.equal(await panel.getByRole('button', { name: 'fit', exact: true }).isVisible(), true);
@@ -850,20 +850,20 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   const unrelatedTitle = `Unrelated plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, unrelatedTitle);
   assert.equal(await splitBoardTitleOf(page, sessionId), shownBoardTitle, 'a second board connecting leaves the open split alone');
-  await openBoardMenuItem(page, panel, 'delete board');
+  await openBoardMenuItem(page, panel, 'Delete board');
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await waitForSplitBoardTitle(page, sessionId, null);
   await page.keyboard.press('Alt+KeyB');
   await openBoardTitle(panel, secondTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, secondTitle);
-  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitemradio', { name: unrelatedTitle }).click();
   await openBoardTitle(panel, unrelatedTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, laterTitle);
-  await panel.getByRole('button', { name: 'board menu', exact: true }).click();
+  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
   await page.getByRole('menuitemradio', { name: laterTitle }).waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');

@@ -136,9 +136,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const isHeader = style === 'header';
     const icon = createLineIcon(page.iconPath);
     const action = `${isHeader ? 'open' : 'show'}-${page.id}`;
-    const control = isHeader
-      ? button({ variant: 'quiet', size: 'small', label: page.label, icon, action })
-      : button({ variant: 'icon', label: page.label, icon, action });
+    const control = button({ variant: 'icon', size: isHeader ? 'small' : undefined, label: page.label, icon, action });
     control.addEventListener('click', () => {
       if (shownSessionId) openSessionPage(page.id, shownSessionId);
     });
