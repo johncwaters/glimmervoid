@@ -53,14 +53,8 @@ function buildLinkListItem(signal: ActivatableSignal): HTMLElement {
 }
 
 function paintSessionRowLinks(row: HTMLElement, linksSlot: HTMLElement, sessionId: string) {
-  const links = signalsFromSlot(sessionId, 'links');
-  const isExpanded = row.classList.contains('focused');
-  linksSlot.toggleAttribute('data-expanded', isExpanded);
-  if (!isExpanded) {
-    linksSlot.removeAttribute('data-links-revealed');
-    paintSignalLine(linksSlot, links, undefined, { variant: 'line' });
-    return;
-  }
+  const splitBoardSignalKey = row.dataset.splitBoardId ? `board:${row.dataset.splitBoardId}` : null;
+  const links = signalsFromSlot(sessionId, 'links').filter((signal) => signal.key !== splitBoardSignalKey);
   if (linksSlot.hasAttribute('data-links-revealed')) {
     paintSignalLine(linksSlot, links, buildLinkListItem, { visibleCount: links.length, variant: 'revealed' });
     return;
@@ -183,9 +177,14 @@ function paintShellRowMark(row: HTMLElement, refs: Pick<SessionRowRefs, 'glyph' 
 
 const BOARD_LABEL = 'BOARD';
 
-export function paintSessionRowSplit(row: HTMLElement, splitBoardTitle: string | null, activePane: 'terminal' | 'board' | null) {
-  row.toggleAttribute('data-split', splitBoardTitle !== null);
+export function paintSessionRowSplit(row: HTMLElement, splitBoard: { id: string; title: string } | null, activePane: 'terminal' | 'board' | null) {
+  const splitBoardTitle = splitBoard?.title ?? null;
+  row.toggleAttribute('data-split', splitBoard !== null);
   writeDataIfChanged(row, 'activePane', activePane ?? '');
+  if ((row.dataset.splitBoardId ?? '') !== (splitBoard?.id ?? '')) {
+    writeDataIfChanged(row, 'splitBoardId', splitBoard?.id ?? '');
+    paintSessionRowSignals(row);
+  }
   const existingMember = row.querySelector<HTMLElement>(':scope > .session-row-main > .session-row-split-board');
   if (splitBoardTitle === null) {
     existingMember?.remove();

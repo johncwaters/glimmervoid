@@ -738,13 +738,13 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
   assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a board arriving for the centered session opens the stored split');
   assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the rail shows the session and its board as one split item');
-  const boardChip = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`);
-  await boardChip.waitFor();
+  const splitRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split]`);
+  assert.equal(await splitRow.locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`).count(), 0, 'the split item names its board once, with no board link line repeating it');
+  const splitBoardHalf = splitRow.locator('.session-row-split-board');
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   await commitFile(worktreePath, UNCOVERED_FILE_NAME, 'changed outside any board ref\n', 'test: a change no board ref covers');
-  assert.equal((await boardChip.textContent())?.trim(), boardTitle);
-  assert.equal(await boardChip.locator('.pr-status-icon').count(), 1, 'the board chip carries an icon like a PR chip');
-  await boardChip.click();
+  assert.equal(await splitBoardHalf.locator('.pr-status-icon').count(), 1, 'the board half carries the board icon');
+  await splitBoardHalf.click();
   const panel = page.locator('#focus-center');
   const open: OpenBoard = { page, panel, boardId };
   await openBoardTitle(panel, boardTitle).waitFor();

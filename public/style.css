@@ -3507,18 +3507,14 @@ html[data-layout="phone"] .coherence-journal-drawer button { min-height: 44px; }
 html[data-layout="phone"] .coherence-journal-button::after { content: ""; position: absolute; inset: -12px -6px; }
 .session-row-signals { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted); }
 .session-row-signals[hidden] { display: none; }
-.session-row-links { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; color: var(--text-muted); }
+.session-row-links { display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 0; margin-top: 2px; padding-left: 8px; overflow: hidden; border-left: 1px solid var(--border); color: var(--text-muted); }
 .session-row-links[hidden] { display: none; }
-.session-row-links:not([data-expanded]) > .signal { flex: 0 1 auto; min-width: 6ch; }
-.session-row-links:not([data-expanded]) > .signal + .signal::before { content: '\00B7'; margin-right: 3px; color: var(--border-hover); }
 .session-row .session-row-links .signal { font-weight: 400; }
-.session-row-links .signal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.session-row-links[data-expanded] { flex-direction: column; align-items: stretch; gap: 3px; margin-top: 2px; padding-left: 8px; border-left: 1px solid var(--border); }
-.session-row-links[data-expanded] > .signal { width: 100%; }
-.session-row-links[data-expanded] .signal-text { flex: 1 1 auto; min-width: 8ch; }
+.session-row-links .signal-text { flex: 1 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+.session-row-links > .signal { width: 100%; }
 .session-row-link-state { flex: 0 1 auto; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
-.session-row-links[data-expanded] > .signal-overflow::after { content: ' more'; }
-.session-row-links[data-expanded] > .signal-overflow { cursor: pointer; }
+.session-row-links > .signal-overflow::after { content: ' more'; }
+.session-row-links > .signal-overflow { cursor: pointer; }
 .session-row .signal { display: inline-flex; align-items: center; gap: 3px; padding: 0; border: none; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 14px; white-space: nowrap; cursor: pointer; }
 .session-row .signal .pr-status-icon { width: 11px; height: 11px; }
 @media (hover: hover) {

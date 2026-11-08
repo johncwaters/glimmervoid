@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A session's links stay listed in the Focus rail.** A session's pull requests and boards now show as their own lines under it whether or not it is selected, instead of folding into one dotted line until you select it. A session with its board open beside it no longer also lists that board as a link, since the board half of its rail item already names it.
 - **Settings pages sit under headings.** The settings list now groups its pages under This browser (Appearance, Notifications, Shortcuts, Status key), Sessions (Sessions, Sane YOLO, Packs, Secrets), Machine (Updates, Hosts, Server, Usage, Privacy, About) and Lanes, instead of one long run before the Lanes heading.
 - **Agent icons in New session show their colors.** The agent list, the project rows that mark your last-used agent, and the agent word in the sentence now draw each agent's icon in its brand color (Claude Code, Gemini CLI, Kimi Code and Qwen Code); agents without one show in the regular text color instead of dimmed.
 - **`glimmervoid board` is now `glimmervoid sessions`.** The agent command that lists the live sessions, and the MCP session tool's action for it, are renamed to `sessions`, so "board" only ever means a whiteboard. `board` no longer works; agents read the new name from `--help` and the MCP tool list.

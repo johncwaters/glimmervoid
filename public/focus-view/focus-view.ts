@@ -451,7 +451,8 @@ function boardTitlesById() {
 function paintPillSplit(pill: FocusPill, id: string, boardTitleById: ReadonlyMap<string, string>) {
   const boardId = splitBoardIdOf(id);
   const boardTitle = boardId ? boardTitleById.get(boardId) ?? null : null;
-  paintSessionRowSplit(pill, boardTitle, id === getFocusedSessionId() && boardTitle !== null ? activePane : null);
+  const splitBoard = boardId && boardTitle !== null ? { id: boardId, title: boardTitle } : null;
+  paintSessionRowSplit(pill, splitBoard, id === getFocusedSessionId() && splitBoard !== null ? activePane : null);
 }
 
 function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
