@@ -3,7 +3,7 @@ import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, St
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
-import { planSteps } from './whiteboard-plan-core.ts';
+import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
 import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
@@ -580,10 +580,7 @@ interface StepBand {
 }
 
 function stepBandOf(board: Board): StepBand {
-  const bandBoxById = new Map<string, Box>();
-  for (const element of board.elements.values()) {
-    if (element.kind === 'box' && isInStepBand(element)) bandBoxById.set(element.id, element);
-  }
+  const bandBoxById = new Map<string, Box>(stepBoxesOf(board).filter(isInStepBand).map((box) => [box.id, box]));
   const positionById = new Map<string, Point>();
   if (bandBoxById.size === 0) return { positionById, bottom: MARGIN, columns: [] };
   const bandBoxesByLevel = new Map<number, Box[]>();
