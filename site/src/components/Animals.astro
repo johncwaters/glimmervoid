@@ -57,4 +57,11 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
   .flying-animal-preview { position: relative; height: 64px; overflow: hidden; }
   .egg-sky { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
   .flying-animal-preview-stage { position: absolute; left: calc(65% - var(--nyan-width) / 2); top: 13px; width: var(--nyan-width); height: var(--nyan-height); }
+  @media (max-width: 640px) {
+    .animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .animal-tile { padding: 6px 8px 8px; }
+    .animal-tile .name { font-size: 12px; }
+    .flying-animal-preview { height: 40px; }
+    .flying-animal-preview-stage { top: 2px; scale: 0.6; transform-origin: 50% 0; }
+  }
 </style>

@@ -74,6 +74,13 @@ import Animals from './Animals.astro';
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
   .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-merge:hover { border-color: var(--accent); color: var(--text-head); }
+  @media (max-width: 640px) {
+    .celebration-demo { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%; gap: 12px; margin-bottom: 28px; padding: 14px; }
+    .trophy-stage { gap: 10px; }
+    .celebration-demo .celebration-tray .btn-celebrations { width: 52px; height: 52px; }
+    .trophy-callout { font-size: 14px; }
+    .queue-row { padding-top: 0; border-top: 0; }
+  }
   @keyframes trophy-pulse {
     from { opacity: 0.55; transform: scale(1); }
     to { opacity: 0; transform: scale(1.5); }

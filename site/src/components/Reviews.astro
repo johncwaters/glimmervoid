@@ -41,7 +41,6 @@ const TEAM_PULL_STATES = [
     <div class="act-copy">
       <p class="act-label">Team</p>
       <h3>Teammates' PRs, reviewed before you open them.</h3>
-      <p class="act-note">Nothing posts until you click. <span class="no-break">Opt-in.</span></p>
     </div>
     <figure class="act-demo" id="team-review-demo" role="img" aria-label="A drafted review of pull request 482 says approve with nits, with a high, a medium and a low finding, all included. You untick the low one and press Approve and comment, and the review posts as You approved. After new commits, the re-review raises no new high findings and both of your comments are resolved.">
       <div class="pull-card" aria-hidden="true">
@@ -92,7 +91,6 @@ const TEAM_PULL_STATES = [
     <div class="act-copy">
       <p class="act-label">Mine</p>
       <h3>Your PRs, watched until they merge.</h3>
-      <p class="act-note">Conflicts repaired, branches rebased, merged when green.</p>
     </div>
     <figure class="act-demo" id="my-prs-demo" role="img" aria-label="Your pull request 501 has merge conflicts and is 2 commits behind main, with Merge when ready and Keep mergeable on. Keep mergeable repairs the conflict, the branch is rebased, the PR becomes Ready to merge and then merges. Your stacked pull request 502 sits under it with its checks running.">
       <div class="pull-card" aria-hidden="true">
@@ -143,8 +141,6 @@ const TEAM_PULL_STATES = [
   .review-act + .review-act { margin-top: 64px; }
   .act-copy { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .act-label { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
-  .act-note { color: var(--text-dim); font-size: 15px; }
-  .no-break { white-space: nowrap; }
   .act-demo { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
   .pull-card { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; font-size: 14px; }
   .pull-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
