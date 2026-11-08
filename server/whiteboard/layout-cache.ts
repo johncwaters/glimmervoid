@@ -5,6 +5,8 @@ import { z } from 'zod';
 
 import { BoardChrome, PlacedPaint, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
+import { elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';
@@ -21,14 +23,16 @@ CREATE TABLE IF NOT EXISTS layout_head (
   code_stamp TEXT NOT NULL,
   chrome TEXT NOT NULL
 ) STRICT;
-CREATE TABLE IF NOT EXISTS laid_out (
+CREATE TABLE IF NOT EXISTS placed (
   board_id TEXT NOT NULL,
   element_id TEXT NOT NULL,
   slot INTEGER NOT NULL,
   body TEXT NOT NULL,
+  record_kind TEXT NOT NULL,
+  record_body TEXT NOT NULL,
   PRIMARY KEY (board_id, element_id)
 ) STRICT;
-CREATE INDEX IF NOT EXISTS laid_out_by_slot ON laid_out (board_id, slot);
+CREATE INDEX IF NOT EXISTS placed_by_slot ON placed (board_id, slot);
 CREATE TABLE IF NOT EXISTS saved_route (
   board_id TEXT NOT NULL,
   wire_id TEXT NOT NULL,
@@ -44,23 +48,25 @@ CREATE TABLE IF NOT EXISTS saved_warning (
 `;
 
 const HeadRow = z.object({ version: z.number().int(), updated_at: z.number().int(), code_stamp: z.string(), chrome: z.string() });
-const LaidOutRow = z.object({ slot: z.number().int().nonnegative(), body: z.string() });
+const PlacedRow = z.object({ slot: z.number().int().nonnegative(), element_id: z.string(), body: z.string(), record_kind: z.enum(['box', 'frame', 'wire', 'note']), record_body: z.string() });
 const RouteRow = z.object({ wire_id: z.string(), body: z.string() });
 const WarningRow = z.object({ book: z.enum(['route', 'placement']), text: z.string() });
 
 interface CachedLayout {
   chrome: BoardChrome;
   painted: (PlacedPaint | null)[];
+  records: ElementTable;
+}
+
+interface SavedPaint {
+  slot: number;
+  painted: PlacedPaint;
+  record: StoredElementRow;
 }
 
 interface LayoutStamp {
   version: number;
   updatedAt: number;
-}
-
-interface ChangedPaint {
-  slot: number;
-  painted: PlacedPaint;
 }
 
 interface WorldSave {
@@ -71,8 +77,8 @@ interface WorldSave {
 interface LayoutCache {
   layoutOf(boardId: string, stamp: LayoutStamp): CachedLayout | null;
   worldOf(boardId: string, stamp: LayoutStamp): SavedWorldParts | null;
-  save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[], world: WorldSave): void;
-  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[], world: SavedWorldParts): void;
+  save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly SavedPaint[], removedIds: readonly string[], world: WorldSave): void;
+  saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly SavedPaint[], world: SavedWorldParts): void;
   forget(boardId: string): void;
 }
 
@@ -95,10 +101,10 @@ function statementsOf(database: DatabaseSync) {
     head: database.prepare('SELECT version, updated_at, code_stamp, chrome FROM layout_head WHERE board_id = ?'),
     upsertHead: database.prepare('INSERT INTO layout_head (board_id, version, updated_at, code_stamp, chrome) VALUES (?, ?, ?, ?, ?) ON CONFLICT(board_id) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at, code_stamp = excluded.code_stamp, chrome = excluded.chrome'),
     removeHead: database.prepare('DELETE FROM layout_head WHERE board_id = ?'),
-    rows: database.prepare('SELECT slot, body FROM laid_out WHERE board_id = ? ORDER BY slot'),
-    upsertRow: database.prepare('INSERT INTO laid_out (board_id, element_id, slot, body) VALUES (?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET slot = excluded.slot, body = excluded.body'),
-    removeRow: database.prepare('DELETE FROM laid_out WHERE board_id = ? AND element_id = ?'),
-    removeRows: database.prepare('DELETE FROM laid_out WHERE board_id = ?'),
+    rows: database.prepare('SELECT slot, element_id, body, record_kind, record_body FROM placed WHERE board_id = ? ORDER BY slot'),
+    upsertRow: database.prepare('INSERT INTO placed (board_id, element_id, slot, body, record_kind, record_body) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET slot = excluded.slot, body = excluded.body, record_kind = excluded.record_kind, record_body = excluded.record_body'),
+    removeRow: database.prepare('DELETE FROM placed WHERE board_id = ? AND element_id = ?'),
+    removeRows: database.prepare('DELETE FROM placed WHERE board_id = ?'),
     routes: database.prepare('SELECT wire_id, body FROM saved_route WHERE board_id = ?'),
     upsertRoute: database.prepare('INSERT INTO saved_route (board_id, wire_id, body) VALUES (?, ?, ?) ON CONFLICT(board_id, wire_id) DO UPDATE SET body = excluded.body'),
     removeRoute: database.prepare('DELETE FROM saved_route WHERE board_id = ? AND wire_id = ?'),
@@ -141,15 +147,17 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     const chrome = BoardChrome.safeParse(parsedJson(head.chrome));
     if (!chrome.success) return null;
     const painted: (PlacedPaint | null)[] = [];
+    const records: StoredElementRow[] = [];
     for (const row of statements.rows.iterate(boardId)) {
-      const laidOut = LaidOutRow.safeParse(row);
-      if (!laidOut.success) return null;
-      const entry = PlacedPaint.safeParse(parsedJson(laidOut.data.body));
-      if (!entry.success) return null;
-      while (painted.length < laidOut.data.slot) painted.push(null);
-      painted[laidOut.data.slot] = entry.data;
+      const placed = PlacedRow.safeParse(row);
+      if (!placed.success) return null;
+      const entry = PlacedPaint.safeParse(parsedJson(placed.data.body));
+      if (!entry.success || entry.data.element.id !== placed.data.element_id) return null;
+      while (painted.length < placed.data.slot) painted.push(null);
+      painted[placed.data.slot] = entry.data;
+      records.push({ id: placed.data.element_id, kind: placed.data.record_kind, body: placed.data.record_body });
     }
-    return { chrome: chrome.data, painted };
+    return { chrome: chrome.data, painted, records: elementTableOfStoredRows(records) };
   }
 
   function worldOf(boardId: string, stamp: LayoutStamp): SavedWorldParts | null {
@@ -177,14 +185,14 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     }
   }
 
-  function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly ChangedPaint[], removedIds: readonly string[], world: WorldSave): void {
+  function save(boardId: string, from: LayoutStamp, to: LayoutStamp, chrome: BoardChrome, changed: readonly SavedPaint[], removedIds: readonly string[], world: WorldSave): void {
     inTransaction(() => {
       if (!currentHeadOf(boardId, from)) {
         statements.removeHead.run(boardId);
         return;
       }
       for (const id of removedIds) statements.removeRow.run(boardId, id);
-      for (const { slot, painted } of changed) statements.upsertRow.run(boardId, painted.element.id, slot, JSON.stringify(painted));
+      for (const saved of changed) upsertPlaced(boardId, saved);
       for (const [wireId, route] of world.routes) {
         if (route) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
         if (!route) statements.removeRoute.run(boardId, wireId);
@@ -194,14 +202,16 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     });
   }
 
-  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly (PlacedPaint | null)[], world: SavedWorldParts): void {
+  function upsertPlaced(boardId: string, { slot, painted, record }: SavedPaint): void {
+    statements.upsertRow.run(boardId, painted.element.id, slot, JSON.stringify(painted), record.kind, record.body);
+  }
+
+  function saveWhole(boardId: string, stamp: LayoutStamp, chrome: BoardChrome, painted: readonly SavedPaint[], world: SavedWorldParts): void {
     inTransaction(() => {
       statements.removeRows.run(boardId);
       statements.removeRoutes.run(boardId);
       statements.removeWarnings.run(boardId);
-      for (const [slot, entry] of painted.entries()) {
-        if (entry) statements.upsertRow.run(boardId, entry.element.id, slot, JSON.stringify(entry));
-      }
+      for (const saved of painted) upsertPlaced(boardId, saved);
       for (const [wireId, route] of world.routeById) statements.upsertRoute.run(boardId, wireId, JSON.stringify(route));
       for (const text of world.routeWarnings) statements.insertWarning.run(boardId, 'route', text);
       for (const text of world.placementWarnings) statements.insertWarning.run(boardId, 'placement', text);
@@ -276,4 +286,4 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null): Lay
 }
 
 export { LAYOUT_CACHE_FILENAME, openLayoutCache };
-export type { LayoutCache, LayoutStamp };
+export type { LayoutCache, LayoutStamp, SavedPaint };

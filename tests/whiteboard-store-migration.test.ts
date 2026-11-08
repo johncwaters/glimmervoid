@@ -206,7 +206,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
 
   const restarted = restartIn(boardsRoot);
   assert.deepEqual(await tilesSeenBy(restarted, boardId), drawnBeforeRestart);
-  editCache(`UPDATE laid_out SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-1'`);
+  editCache(`UPDATE placed SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-1'`);
   assert.match(JSON.stringify(await tilesSeenBy(restartIn(boardsRoot), boardId)), /"x":1800/);
   editCache(`UPDATE layout_head SET code_stamp = 'older layout code'`);
   assert.deepEqual(await tilesSeenBy(restartIn(boardsRoot), boardId), drawnBeforeRestart);
@@ -232,7 +232,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   assert.deepEqual(drawnFromCache, drawnFromFullLayout);
   assert.match(JSON.stringify(drawnFromCache), /renamed after restart/);
 
-  editCache(`UPDATE laid_out SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-3'`);
+  editCache(`UPDATE placed SET body = json_set(body, '$.element.x', 1800) WHERE element_id = 'box-3'`);
   const resuming = restartIn(boardsRoot);
   await resuming.loaded;
   assert.equal((await resuming.handleOperator.put(boardId, retitle('box-7', 'put after restart'))).ok, true);

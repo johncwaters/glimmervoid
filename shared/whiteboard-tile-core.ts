@@ -4,7 +4,7 @@ import type { Board, BoardOutline, Element } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import { dressedElement } from './whiteboard-layout-core.ts';
 import { elementsOfKind } from './whiteboard-board-index.ts';
-import { elementTableOf } from './whiteboard-element-table.ts';
+import type { ElementTable } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
@@ -21,14 +21,10 @@ const WIRE_PAD = 12;
 const FRAME_TITLE_PAD = 28;
 const PAINT_RANK_STRIDE = 2 ** 32;
 
-interface RecordLookup {
-  get(id: string): Element | undefined;
-}
-
 interface TileIndex {
   version: number;
   chrome: BoardChrome;
-  records: RecordLookup;
+  records: ElementTable;
   painted: (PlacedPaint | null)[];
   bounds: (Rect | null)[];
   slotById: Map<string, number>;
@@ -160,20 +156,11 @@ function paintedAt(board: Board, element: PlacedElement, slot: number): PlacedPa
   return { paintOrder: paintRankOf(element, board.elements.get(element.id)) * PAINT_RANK_STRIDE + slot, element };
 }
 
-function withRecord(index: TileIndex, painted: PlacedPaint): PlacedPaint {
-  return { ...painted, record: painted.record ?? index.records.get(painted.element.id) };
-}
-
 function tileIndexOf(layout: PlacedLayout, version: number, board: Board): TileIndex {
-  return indexOfPainted(version, chromeOf(layout), board.elements, layout.elements.map((element, slot) => paintedAt(board, element, slot)));
+  return tileIndexOfPainted(version, chromeOf(layout), board.elements, layout.elements.map((element, slot) => paintedAt(board, element, slot)));
 }
 
-function tileIndexOfPainted(version: number, chrome: BoardChrome, painted: (PlacedPaint | null)[]): TileIndex {
-  const records = elementTableOf(painted.flatMap((entry) => entry?.record ?? []));
-  return indexOfPainted(version, chrome, records, painted.map((entry) => (entry ? { paintOrder: entry.paintOrder, element: entry.element } : null)));
-}
-
-function indexOfPainted(version: number, chrome: BoardChrome, records: RecordLookup, painted: (PlacedPaint | null)[]): TileIndex {
+function tileIndexOfPainted(version: number, chrome: BoardChrome, records: ElementTable, painted: (PlacedPaint | null)[]): TileIndex {
   const bounds = painted.map((entry) => (entry ? paintedBoundsOf(entry.element) : null));
   const slotById = new Map<string, number>();
   const grid = createSpatialGrid(CHUNK_SIZE, painted.length);
@@ -292,9 +279,9 @@ function withTitlesOnly(element: LaidOutElement): LaidOutElement {
 }
 
 function forLod(index: TileIndex, painted: PlacedPaint, lod: TileLod): PaintedElement {
-  const recorded = withRecord(index, painted);
-  const dressed = dressedElement(recorded.element, recorded.record);
-  return { ...recorded, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed };
+  const record = index.records.get(painted.element.id);
+  const dressed = dressedElement(painted.element, record);
+  return { paintOrder: painted.paintOrder, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed, record };
 }
 
 function base64Of(bytes: Uint8Array): string {
@@ -402,5 +389,5 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf, withRecord };
+export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };

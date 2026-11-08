@@ -16,6 +16,12 @@ interface ElementTable extends ReadonlyMap<string, Element> {
   toJSON(): Record<string, Element>;
 }
 
+interface StoredElementRow {
+  id: string;
+  kind: ElementKind;
+  body: string;
+}
+
 interface TableRows {
   ids: (string | null)[];
   bodies: (string | null)[];
@@ -239,9 +245,18 @@ function elementTableOf(elements: Iterable<Element> = []): ElementTable {
   return table;
 }
 
+function elementTableOfStoredRows(storedRows: Iterable<StoredElementRow>): ElementTable {
+  const rows = emptyRows();
+  for (const { id, kind, body } of storedRows) {
+    if (rows.slotById.has(id)) continue;
+    appendRow(rows, id, KIND_CODE_BY_NAME.get(kind) ?? 0, body);
+  }
+  return tableOfRows(rows);
+}
+
 function isElementTable(value: unknown): value is ElementTable {
   return typeof value === 'object' && value !== null && builtTables.has(value);
 }
 
-export { elementTableOf, isElementTable };
-export type { ElementTable };
+export { elementTableOf, elementTableOfStoredRows, isElementTable };
+export type { ElementKind, ElementTable, StoredElementRow };
