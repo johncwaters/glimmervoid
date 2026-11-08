@@ -1,7 +1,7 @@
-import type { Board, Box, BoxLine, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, Dial, DialValue, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, BOX_SHAPES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -301,10 +301,52 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
+    ...dialSections(box, latestBox, set),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
     checkboxField('is-step', 'Plan step', box.step !== null, commitIsStep),
     ...(box.step ? stepSections(box.step, linkedBoardChoices, set) : []),
+  ];
+}
+
+function dialControlOf(dial: Dial, value: DialValue, commit: (value: DialValue) => void): HTMLElement {
+  const field = `dial-${dial.id}`;
+  switch (dial.kind) {
+    case 'toggle': return checkboxField(field, dial.label, value === true, commit);
+    case 'choice': return fieldRow(dial.label, selectField(field, dial.options.map((option) => ({ value: option, text: option })), String(value), commit));
+    case 'color': return fieldRow(dial.label, dialInput(field, 'color', String(value), (input) => commit(input.value)));
+    case 'range': {
+      const slider = dialInput(field, 'range', String(value), (input) => commit(Number(input.value)));
+      slider.min = String(dial.min);
+      slider.max = String(dial.max);
+      slider.step = String(dial.step);
+      slider.value = String(value);
+      return fieldRow(dial.label, slider);
+    }
+  }
+}
+
+function dialInput(field: string, type: 'color' | 'range', value: string, commit: (input: HTMLInputElement) => void): HTMLInputElement {
+  const input = el('input', 'wb-inspect-dial');
+  input.type = type;
+  input.value = value;
+  input.dataset.field = field;
+  input.addEventListener('change', () => commit(input));
+  return input;
+}
+
+function dialSections(box: Box, latestBox: () => Box | null, set: FieldCommit): HTMLElement[] {
+  const media = mediaOfBox(box);
+  if (media?.kind !== 'page' || media.dials.length === 0) return [];
+  const dialValues = dialValuesOfBox(box);
+  const commitDial = (dialId: string, value: DialValue) => {
+    const latest = latestBox();
+    const latestParams = latest && latest.shape !== 'icon' ? latest.params : {};
+    set({ params: { ...latestParams, [dialId]: value } });
+  };
+  return [
+    heading('Dials'),
+    ...media.dials.map((dial) => dialControlOf(dial, dialValues[dial.id] ?? dial.default, (value) => commitDial(dial.id, value))),
   ];
 }
 

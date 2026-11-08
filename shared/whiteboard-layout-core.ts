@@ -1,5 +1,5 @@
-import { BOX_CHANGES, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxLine, BoxMedia, Element, Frame, Note, Wire } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, dialValuesOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
@@ -134,6 +134,7 @@ interface BoxContent {
   fit: DeviceFit;
   glyphRoom: number;
   titleIconChars: number;
+  dialValues: Record<string, DialValue>;
 }
 
 interface ContentArt {
@@ -145,9 +146,10 @@ interface ContentArt {
 
 function boxContentOf(box: Box): BoxContent {
   const titleIconChars = box.icon ? TITLE_ICON_CHARS : 0;
-  if (box.shape === 'icon') return { lines: [], media: null, device: null, fit: 'fit', glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0 };
-  if (box.shape === 'device') return { lines: [], media: box.media, device: box.device, fit: box.fit, glyphRoom: 0, titleIconChars };
-  return { lines: box.lines, media: box.media, device: null, fit: 'fit', glyphRoom: 0, titleIconChars };
+  if (box.shape === 'icon') return { lines: [], media: null, device: null, fit: 'fit', glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0, dialValues: {} };
+  const dialValues = dialValuesOfBox(box);
+  if (box.shape === 'device') return { lines: [], media: box.media, device: box.device, fit: box.fit, glyphRoom: 0, titleIconChars, dialValues };
+  return { lines: box.lines, media: box.media, device: null, fit: 'fit', glyphRoom: 0, titleIconChars, dialValues };
 }
 
 function deviceArtOf(device: DeviceName, artWidth: number): ContentArt {
@@ -183,7 +185,7 @@ function laidOutMedia(content: BoxContent, position: Point, artTop: number, art:
   const { media } = content;
   if (!media || !art) return null;
   return {
-    kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, fit: content.fit,
+    kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, fit: content.fit, dialValues: content.dialValues,
     x: position.x + BOX_PADDING + art.screen.x, y: position.y + artTop + art.screen.y, width: art.screen.width, height: art.screen.height,
   };
 }

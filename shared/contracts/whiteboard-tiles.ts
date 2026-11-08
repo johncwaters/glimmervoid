@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEVICE_FITS } from '../whiteboard-devices.ts';
-import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, Element, IconName, STEP_STATUSES, Wire } from './whiteboard.ts';
+import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, DialValue, Element, IconName, STEP_STATUSES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
 export const BLOCK_RASTER_PX = 64;
@@ -29,6 +29,7 @@ export const LaidOutMedia = z.object({
   hasPreview: z.boolean(),
   alt: z.string(),
   fit: z.enum(DEVICE_FITS),
+  dialValues: z.record(z.string(), DialValue),
 });
 
 export const LaidOutDevice = z.object({ ...rectShape, name: DeviceName, scale: z.number(), screen: LayoutRect });
