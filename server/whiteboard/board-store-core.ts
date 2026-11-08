@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import { ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS board_log_by_version ON board_log (board_id, version)
 
 const Rect = z.strictObject({ minX: z.number(), maxX: z.number(), minY: z.number(), maxY: z.number() });
 
-const ElementKind = z.enum(['box', 'frame', 'wire', 'note']);
+const ElementKind = z.enum(ELEMENT_KIND_NAMES);
 
 const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), linkedBoardId: z.string().nullable(), text: z.string() });
 
@@ -118,7 +118,7 @@ type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? 
 type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
 
 const EMPTY_BODY = '{}';
-const ELEMENT_KIND_NAMES = new Set<string>(ElementKind.options);
+const ELEMENT_KIND_NAME_SET = new Set<string>(ElementKind.options);
 const BoardHeadFields = z.record(z.string(), z.unknown());
 const ElementIdentity = z.object({ id: z.string() });
 
@@ -126,6 +126,7 @@ function searchableTextOf(element: Element): string {
   if (element.kind === 'box') return [element.title, ...linesOfBox(element).map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
   if (element.kind === 'wire') return element.label ?? '';
   if (element.kind === 'note') return element.text;
+  if (element.kind === 'stroke') return '';
   return element.title;
 }
 
@@ -212,7 +213,7 @@ function headRowsOf(record: BoardRecord): StoredHeadRows {
 }
 
 function isElementKind(value: unknown): value is ElementKindName {
-  return typeof value === 'string' && ELEMENT_KIND_NAMES.has(value);
+  return typeof value === 'string' && ELEMENT_KIND_NAME_SET.has(value);
 }
 
 function isEveryRowDecodable(storedRows: readonly StoredElementRow[]): boolean {

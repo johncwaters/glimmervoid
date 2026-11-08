@@ -6,6 +6,7 @@ type ElementOfKind<Kind extends ElementKind> = Extract<Element, { kind: Kind }>;
 
 interface BoardIndex {
   elementCount: number;
+  strokeCount: number;
   assetRefCount: Map<string, number>;
   dependentIdsByBoxId: Map<string, readonly string[] | Set<string>>;
   stepBoxIds: Set<string>;
@@ -101,6 +102,7 @@ function withStoredId(elements: Board['elements'], element: Element): Element {
 
 function addToIndex(index: BoardIndex, element: Element, elements: Board['elements']): void {
   index.elementCount += 1;
+  if (element.kind === 'stroke') index.strokeCount += 1;
   countAsset(index, assetIdOf(element), 1);
   linkDependent(index, element, elements);
   trackStep(index, element, true);
@@ -109,6 +111,7 @@ function addToIndex(index: BoardIndex, element: Element, elements: Board['elemen
 
 function removeFromIndex(index: BoardIndex, element: Element): void {
   index.elementCount -= 1;
+  if (element.kind === 'stroke') index.strokeCount -= 1;
   countAsset(index, assetIdOf(element), -1);
   unlinkDependent(index, element);
   trackStep(index, element, false);
@@ -116,7 +119,7 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
 }
 
 function emptyIndex(): BoardIndex {
-  return { elementCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
+  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
 }
 
 function boardIndexOf(elements: Board['elements']): BoardIndex {
@@ -145,6 +148,7 @@ async function indexBoardInSlices(elements: Board['elements'], elementsPerSlice:
 function copyOfIndex(index: BoardIndex): BoardIndex {
   return {
     elementCount: index.elementCount,
+    strokeCount: index.strokeCount,
     assetRefCount: new Map(index.assetRefCount),
     dependentIdsByBoxId: new Map([...index.dependentIdsByBoxId].map(([boxId, dependentIds]) => [boxId, dependentIds instanceof Set ? new Set(dependentIds) : dependentIds])),
     stepBoxIds: new Set(index.stepBoxIds),

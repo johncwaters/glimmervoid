@@ -1214,3 +1214,23 @@ test('show puts each file on a board the session is connected to, creating one n
   const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
   assert.equal(remote.status, 409);
 });
+
+test('an agent reads operator ink as bounds and may remove it, but is refused drawing or changing a stroke', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'ink-'));
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  const agent = { id: 'ink-agent', name: 'ink agent', project: boardsRoot };
+  const created = await wiring.handleAgent(agent, { sub: 'new', title: 'Ink' });
+  const boardId = (created.body as { board: { id: string } }).board.id;
+  await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'stroke', id: 'ink', points: [40, 60, 140, 60, 140, 160], width: 4 } }]));
+
+  const read = await wiring.handleAgent(agent, { sub: 'get', board: boardId });
+  const elements = (read.body as { elements?: unknown[] }).elements;
+  assert.deepEqual(elements, [{ kind: 'stroke', id: 'ink', bounds: { x: 38, y: 58, width: 104, height: 104 }, pointCount: 3, width: 4, tone: 'ink' }]);
+
+  const drawn = await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'stroke', id: 'mine', points: [0, 0, 10, 10] } }]) });
+  assert.equal((drawn.body as { error?: string }).error, 'op 1: only the operator draws strokes; an agent may read or remove one, so nothing changed');
+  const changed = await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'ink', fields: { tone: 'pink' } }]) });
+  assert.equal((changed.body as { error?: string }).error, 'op 1: only the operator changes strokes; an agent may read or remove one, so nothing changed');
+  const removed = await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'ink' }]) });
+  assert.equal(removed.status, 200);
+});

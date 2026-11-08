@@ -1,5 +1,5 @@
 import { BOX_CHANGES, dialValuesOfBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Stroke, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
@@ -9,7 +9,7 @@ import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, wa
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
-import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlacedNote, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlacedNote, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 
 const MARGIN = 40;
@@ -262,11 +262,14 @@ function addByKind(elementsByKind: ElementsByKind, element: Element): void {
     case 'note':
       elementsByKind.note.push(element);
       return;
+    case 'stroke':
+      elementsByKind.stroke.push(element);
+      return;
   }
 }
 
 function indexedBoardOf(board: Board): IndexedBoard {
-  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [] };
+  const elementsByKind: ElementsByKind = { box: [], frame: [], wire: [], note: [], stroke: [] };
   for (const element of board.elements.values()) addByKind(elementsByKind, element);
   return { ...board, elementsByKind, planStepById: new Map(planSteps(board).map((step) => [step.boxId, step])) };
 }
@@ -627,6 +630,24 @@ function pinnedOffsetYAfterLeaving(plan: PlanBand | null, leavingBoxes: readonly
   return Math.max(MARGIN, ...remainingBottoms) + PLAN_BAND_GAP - MARGIN;
 }
 
+function laidOutStrokeOf(stroke: Stroke, pinnedOffsetY: number): LaidOutStroke {
+  const points = stroke.points.map((value, index) => (index % 2 === 1 ? value + pinnedOffsetY : value));
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    const x = points[index] ?? 0;
+    const y = points[index + 1] ?? 0;
+    left = Math.min(left, x);
+    top = Math.min(top, y);
+    right = Math.max(right, x);
+    bottom = Math.max(bottom, y);
+  }
+  const halfWidth = stroke.width / 2;
+  return { kind: 'stroke', id: stroke.id, points, strokeWidth: stroke.width, tone: stroke.tone, x: left - halfWidth, y: top - halfWidth, width: right - left + stroke.width, height: bottom - top + stroke.width };
+}
+
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   if (offsetY === 0) return board;
   const elements = [...board.elements.values()].map((element) => (element.kind !== 'box' || !element.at ? element : { ...element, at: { x: element.at.x, y: element.at.y + offsetY } }));
@@ -722,6 +743,7 @@ function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null)
     ...placed.routing.wires,
     ...placed.boxesById.values(),
     ...placed.notes,
+    ...elementsOfKind(board, 'stroke').map((stroke) => laidOutStrokeOf(stroke, pinnedOffsetY)),
   ];
   const chrome = chromeAround(board.caption, boundsOf(elements, placed.routing.extent, boxesTop), legendEntriesOf(board), stepBandPositions.size > 0 ? planColumns : [], pinnedOffsetY);
   const warningLists = [...placed.routing.collectWarnings(), warningListOf(placed.collectPlacementWarnings())];
@@ -798,6 +820,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
+  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
 };
-export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };
+export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };

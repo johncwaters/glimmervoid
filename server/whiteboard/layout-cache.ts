@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { BoardChrome, PlacedPaint, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
-import { elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import { ELEMENT_KIND_NAMES, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS saved_warning (
 `;
 
 const HeadRow = z.object({ version: z.number().int(), updated_at: z.number().int(), code_stamp: z.string(), chrome: z.string() });
-const PlacedRow = z.object({ slot: z.number().int().nonnegative(), element_id: z.string(), body: z.string(), record_kind: z.enum(['box', 'frame', 'wire', 'note']), record_body: z.string() });
+const PlacedRow = z.object({ slot: z.number().int().nonnegative(), element_id: z.string(), body: z.string(), record_kind: z.enum(ELEMENT_KIND_NAMES), record_body: z.string() });
 const RouteRow = z.object({ wire_id: z.string(), body: z.string() });
 const WarningRow = z.object({ book: z.enum(['route', 'placement']), text: z.string() });
 

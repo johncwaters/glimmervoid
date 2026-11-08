@@ -4,7 +4,7 @@ import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutNote, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -340,12 +340,21 @@ function noteMarkup(note: LaidOutNote): string {
   return elementGroup(note, note.isResolved ? 'wb-note wb-resolved' : 'wb-note', parts);
 }
 
+function strokeMarkup(stroke: LaidOutStroke): string {
+  const points: string[] = [];
+  for (let index = 0; index + 1 < stroke.points.length; index += 2) points.push(`${stroke.points[index]},${stroke.points[index + 1]}`);
+  const color = stroke.tone === 'ink' ? '#e6e0f5' : STICKY_TONE_HEX[stroke.tone];
+  const line = tag('polyline', { points: points.join(' '), fill: 'none', stroke: color, 'stroke-width': stroke.strokeWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  return elementGroup(stroke, 'wb-stroke', [line]);
+}
+
 function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_HREF): string {
   switch (element.kind) {
     case 'box': return boxMarkup(element, assetHref);
     case 'frame': return frameMarkup(element);
     case 'wire': return wireMarkup(element);
     case 'note': return noteMarkup(element);
+    case 'stroke': return strokeMarkup(element);
   }
 }
 

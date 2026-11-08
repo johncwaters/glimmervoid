@@ -5,7 +5,7 @@ import { elementTableOf, isElementTable } from '../whiteboard-element-table.ts';
 import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12,
+  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12, strokePoints: 1000, strokes: 500, strokeWidthMax: 24,
 });
 
 
@@ -263,7 +263,20 @@ export const Note = z.object({
   resolvedBy: z.string().max(200).nullable().default(null),
 }).strict();
 
-export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note], { error: 'an element kind is box, frame, wire or note' });
+export const STROKE_TONES = ['ink', ...STICKY_TONES] as const;
+
+export const Stroke = z.object({
+  kind: z.literal('stroke'),
+  id: ElementId,
+  points: z.array(z.number().int()).min(4, { error: 'a stroke needs at least two points' })
+    .max(WHITEBOARD_LIMITS.strokePoints * 2, { error: `a stroke has at most ${WHITEBOARD_LIMITS.strokePoints} points` })
+    .refine((points) => points.length % 2 === 0, { error: 'stroke points are x, y pairs' })
+    .describe('flat x, y pairs in board units'),
+  width: z.number().int().min(1).max(WHITEBOARD_LIMITS.strokeWidthMax, { error: `a stroke width is 1 to ${WHITEBOARD_LIMITS.strokeWidthMax}` }).default(3),
+  tone: z.enum(STROKE_TONES).default('ink'),
+}).strict().describe('freehand ink the operator drew; agents read and remove strokes but never draw or change them');
+
+export const Element = z.discriminatedUnion('kind', [Box, Frame, Wire, Note, Stroke], { error: 'an element kind is box, frame, wire, note or stroke' });
 
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
@@ -387,8 +400,19 @@ export const BoardOutline = z.object({
   clustersOutsideFocus: z.array(z.object({ rect: BoardRegion, elementCount: z.number().int(), titles: z.array(z.string()) }).strict()).max(WHITEBOARD_LIMITS.outlineClusters),
 }).strict();
 
+const StrokeBounds = z.object({
+  kind: z.literal('stroke'),
+  id: ElementId,
+  bounds: BoardRegion,
+  pointCount: z.number().int(),
+  width: z.number().int(),
+  tone: z.enum(STROKE_TONES),
+}).strict().describe('operator ink, read as its bounds; remove it by id');
+
+export const ReadElement = z.union([Element, StrokeBounds]);
+
 const ElementPage = {
-  elements: z.array(Element).max(WHITEBOARD_LIMITS.readPage),
+  elements: z.array(ReadElement).max(WHITEBOARD_LIMITS.readPage),
   nextCursor: z.string().nullable(),
 };
 
@@ -504,6 +528,7 @@ export function filledElement(element: SparseElement): Element {
       label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null, back: element.back ?? false,
     };
     case 'note': return { kind: 'note', id: element.id, on: element.on, text: element.text, ref: element.ref ?? null, author: element.author ?? '', resolvedBy: element.resolvedBy ?? null };
+    case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };
   }
 }
 
@@ -528,6 +553,8 @@ export type IconName = z.infer<typeof IconName>;
 export type Frame = z.infer<typeof Frame>;
 export type Wire = z.infer<typeof Wire>;
 export type Note = z.infer<typeof Note>;
+export type Stroke = z.infer<typeof Stroke>;
+export type ReadElement = z.infer<typeof ReadElement>;
 export type Step = z.infer<typeof Step>;
 export type Element = z.infer<typeof Element>;
 export type Board = z.infer<typeof Board>;

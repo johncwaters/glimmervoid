@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardRecord, mediaOfBox, STICKY_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -56,7 +56,7 @@ const PUT_GUIDE = [
   `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe.`,
   'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
-  `A box with shape sticky is a sticky note in its tone ${STICKY_TONES.join('|')}, yellow by default; a box with shape text draws its title and lines with no border and holds no media. A box height is a least height the content can still exceed. A frame with collapsed true draws as one stack card of its first box.`,
+  `A box with shape sticky is a sticky note in its tone ${STICKY_TONES.join('|')}, yellow by default; a box with shape text draws its title and lines with no border and holds no media. A box height is a least height the content can still exceed. A frame with collapsed true draws as one stack card of its first box. A stroke is ink the operator drew: a read gives its bounds, and you may remove one but never add or set one.`,
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
   'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; build columns, rows or lanes yourself from at positions, frames and text boxes.',
   'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
@@ -213,7 +213,7 @@ function pageStartOf(board: Board, cursor: string | undefined): PageStart {
   return { ok: true, offset: cursorOffset ?? 0 };
 }
 
-function pageReplyOf(board: Board, elementIds: readonly string[], offset: number): { elements: Element[]; nextCursor: string | null } {
+function pageReplyOf(board: Board, elementIds: readonly string[], offset: number): { elements: ReadElement[]; nextCursor: string | null } {
   const { elements, nextOffset } = elementPageOf(board, elementIds, offset);
   return { elements, nextCursor: nextOffset === null ? null : `${board.version}.${nextOffset}` };
 }

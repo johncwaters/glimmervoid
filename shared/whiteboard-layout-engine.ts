@@ -1,9 +1,9 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, Element } from './contracts/whiteboard.ts';
-import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, wireEndingAtCard,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
   laidOutNearBox, placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
@@ -87,6 +87,7 @@ interface LayoutWorld {
   softGrid: IdGrid;
   frameGrid: IdGrid;
   wireGrid: IdGrid;
+  inkGrid: IdGrid;
   loopFrameIds: Set<string>;
   routeMemory: RouteMemory;
   changedRouteIds: Set<string>;
@@ -266,6 +267,7 @@ function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   world.laidOutById.set(element.id, element);
   if (element.kind === 'box') placeId(world.boxGrid, element.id, element);
   if (element.kind === 'note') placeId(world.softGrid, element.id, element);
+  if (element.kind === 'stroke') placeId(world.inkGrid, element.id, element);
   if (element.kind === 'frame') {
     placeId(world.softGrid, element.id, frameTitleStripOf(element));
     placeId(world.frameGrid, element.id, element);
@@ -281,12 +283,13 @@ function forgetLaidOut(world: LayoutWorld, id: string): void {
   dropId(world.softGrid, id);
   dropId(world.frameGrid, id);
   dropId(world.wireGrid, id);
+  dropId(world.inkGrid, id);
   world.loopFrameIds.delete(id);
 }
 
 function recomputedAround(world: LayoutWorld): Rect | null {
   const header = headerRectOf(world.boxesTop);
-  return [world.boxGrid, world.softGrid, world.frameGrid, world.wireGrid].reduce<Rect | null>((around, idGrid) => unionOfStored(idGrid, around), header);
+  return [world.boxGrid, world.softGrid, world.frameGrid, world.wireGrid, world.inkGrid].reduce<Rect | null>((around, idGrid) => unionOfStored(idGrid, around), header);
 }
 
 function chromeOfWorld(world: LayoutWorld, board: Board): Omit<PlacedLayout, 'elements' | 'warnings'> {
@@ -301,7 +304,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
   lastLineage += 1;
   return {
     lineage: lastLineage, version: board.version, board, minIncrementalElements, laidOutById: new Map(),
-    boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE),
+    boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE), inkGrid: createIdGrid(SOLID_CELL_SIZE),
     loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
     noteOrderById: new Map(), nextNoteOrder: 0, routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
     wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
@@ -397,6 +400,7 @@ function touchesStack(board: Board, element: Element | null | undefined): boolea
   if (element.kind === 'frame') return element.collapsed;
   if (element.kind === 'box') return isInStack(board, element.id);
   if (element.kind === 'wire') return isInStack(board, element.from) || isInStack(board, element.to);
+  if (element.kind === 'stroke') return false;
   return isInStack(board, element.on);
 }
 
@@ -503,6 +507,7 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
     if (change.after?.kind === 'note') stackBoxIds.add(change.after.on);
     if (change.before?.kind === 'note' || change.after?.kind === 'note') nextById.set(id, null);
     if (change.before?.kind === 'frame' || change.after?.kind === 'frame') dirtyFrameIds.add(id);
+    if (change.before?.kind === 'stroke' || change.after?.kind === 'stroke') nextById.set(id, change.after?.kind === 'stroke' ? laidOutStrokeOf(change.after, world.pinnedOffsetY) : null);
     if (change.after?.kind === 'note' && (change.isAppended || !world.noteOrderById.has(id))) world.noteOrderById.set(id, nextNoteOrderOf(world, id));
     if (change.after?.kind !== 'note' && change.before?.kind === 'note') world.noteOrderById.delete(id);
   }
@@ -879,6 +884,7 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
   const pinnedBoxes: PlacedBox[] = [];
   const nearBoxes: PlacedBox[] = [];
   const notes: PlacedNote[] = [];
+  const strokes: LaidOutStroke[] = [];
   for (const element of world.board.elements.values()) {
     const laidOut = world.laidOutById.get(element.id);
     if (laidOut?.kind === 'frame') frames.push(laidOut);
@@ -886,8 +892,9 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
     if (laidOut?.kind === 'box' && element.kind === 'box' && element.at) pinnedBoxes.push(laidOut);
     if (laidOut?.kind === 'box' && element.kind === 'box' && !element.at) nearBoxes.push(laidOut);
     if (laidOut?.kind === 'note') notes.push(laidOut);
+    if (laidOut?.kind === 'stroke') strokes.push(laidOut);
   }
-  const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...notes], ...world.chrome, warnings: warningsOf(world) };
+  const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...notes, ...strokes], ...world.chrome, warnings: warningsOf(world) };
   world.layout = layout;
   return layout;
 }

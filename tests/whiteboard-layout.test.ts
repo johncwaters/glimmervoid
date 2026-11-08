@@ -441,7 +441,7 @@ test('styled lines carry their markers, a panel with no place stacks clear right
   assert.ok(withBoxNearPanel.ok, withBoxNearPanel.ok ? '' : withBoxNearPanel.error);
   const restacked = applyOps(withBoxNearPanel.board, [{ op: 'set', id: 'prior', fields: { at: null } }], author, 0);
   assert.equal(restacked.ok ? '' : restacked.error, 'op 1: box beside sits near prior, so prior cannot go back to the panel stack with no place: keep a near or at on it, or move box beside first');
-  assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire or note/);
+  assert.throws(() => Element.parse({ kind: 'panel', id: 'old', title: 'Old' }), /an element kind is box, frame, wire, note or stroke/);
 });
 
 test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, note authors and cascades included, while agents cannot forge a note author, and the history keeps only the newest entries', () => {
@@ -733,4 +733,24 @@ test('a sticky note draws in its tone and a text box draws borderless and refuse
   assert.match(svg, /class="wb-element wb-box wb-text"/);
   const refused = applyOps(noteBoard, [{ op: 'set', id: 'words', fields: { media: { kind: 'image', asset: 'a'.repeat(64), mime: 'image/png', width: 10, height: 10 } } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok, false);
+});
+
+test('a layout world kept across an edit bounds the board around far ink as a fresh layout does', () => {
+  const author = { id: 'operator', name: 'operator' };
+  const inkBoard = Board.parse({
+    id: 'ink', title: 'ink', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      a: { kind: 'box', id: 'a', title: 'A', at: { x: 40, y: 40 } },
+      c: { kind: 'box', id: 'c', title: 'C', at: { x: 400, y: 40 } },
+      far: { kind: 'stroke', id: 'far', points: [5000, 5000, 5100, 5100] },
+    },
+  });
+  const world = createLayoutWorld(inkBoard, null, 1);
+  const staged = stageOps(inkBoard, [Op.parse({ op: 'set', id: 'c', fields: { at: { x: 420, y: 40 } } })], author, 0, null);
+  assert.ok(staged.ok, staged.ok ? '' : staged.error);
+  const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: inkBoard.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  staged.commit();
+  const kept = applyLayoutDelta(world, staged.board, changes);
+  assert.equal(kept.delta.isRebuilt, false);
+  assert.deepEqual(layoutOf(kept.world).bounds, layoutBoard(staged.board).bounds);
 });
