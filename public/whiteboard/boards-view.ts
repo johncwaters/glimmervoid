@@ -25,6 +25,7 @@ import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './board-media-layer.ts';
+import { attachMediaZoom } from './media-zoom.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
@@ -602,6 +603,7 @@ function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HT
   const picture = el('img', 'wb-image-viewer-picture');
   picture.src = originalHref;
   picture.alt = pressedImage.alt;
+  picture.draggable = false;
   return picture;
 }
 
@@ -689,8 +691,15 @@ function openImageViewer(pressedImage: PressedImage): void {
   const header = el('div', 'wb-image-viewer-header');
   titleEl.replaceWith(header);
   header.append(titleEl, btnCancel);
+  overlay.classList.add('wb-image-viewer-overlay');
+  overlay.addEventListener('wheel', (event) => {
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
+  }, { passive: false });
   const enlargedMedia = enlargedMediaOf(pressedImage, media);
-  dialog.append(enlargedMedia);
+  const zoomStage = el('div', 'wb-image-viewer-stage');
+  zoomStage.append(enlargedMedia);
+  dialog.append(zoomStage);
+  attachMediaZoom(zoomStage, enlargedMedia, () => {});
   if (enlargedMedia instanceof HTMLIFrameElement) closeOnEscapeInsidePage(enlargedMedia, overlay, close);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
