@@ -17,7 +17,7 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 - Violet-tinted graphite surfaces and one vivid violet accent used sparingly.
 - Flat by default; depth comes from tonal layering and 1px borders, never resting shadows.
 - Color and motion are reserved for genuine state signals, so a signal always means something.
-- Four sizes (the `--type-*` tokens) carry five roles; hierarchy is built from weight, tracking, color, and case, not size.
+- Four interface sizes (the `--type-*` tokens) carry the chrome, and the doc editor's paper adds its own doc sizes; hierarchy is built from weight, tracking, color, and case, not size.
 - Glimmer is the default theme, Glimmer Light its light counterpart, with Phyrexian, Midnight, Golgari and Compleated among the alternates; the system is theme-agnostic and reads colors from CSS variables.
 
 ## 2. Colors
@@ -75,7 +75,8 @@ Each role names a `--type-*` size token in `public/style.css`, and Tailwind expo
 - **Title** (700, `--type-title`): Page and section titles (settings sections, plan headings, first run, merge celebration). Dialog titles stay at body size. Phone and dialog form fields also sit at 16px, because iOS Safari zooms the page into any smaller focused field.
 - **Body** (400, `--type-body`, line-height 1.5): Base reading size; the document default.
 - **Meta** (400, `--type-meta`, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels, and the floor: CommitMono's 0.54 x-height keeps 12px legible.
-- **Label** (700, `--type-meta`, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. Shares the meta size and differs by weight, case, and tracking.
+- **Label** (700, `--type-meta`, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. A style of the meta size, not a brand bible scale role; the tracking gate pins it.
+- **Doc** (IBM Plex Sans; `--type-doc-body` 400 at line-height 1.75, 1.5 on phone; `--type-doc-h1` to `--type-doc-h3` 700): The doc editor's paper only.
 
 ### Named Rules
 **The Weight-Not-Size Rule.** The type scale is deliberately compressed (four sizes, `--type-meta` to `--type-display`). Build hierarchy with weight, tracking, color, and case. Do not reach for larger sizes to signal importance.
