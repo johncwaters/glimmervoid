@@ -37,6 +37,7 @@ export const BoxLine = z.object({
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
+export const WIRE_TONES = ['plain', 'fail', 'join'] as const;
 export const STICKY_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
 export type StickyTone = (typeof STICKY_TONES)[number];
 export const STICKY_TONE_HEX: Readonly<Record<StickyTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
@@ -266,7 +267,7 @@ export const Wire = z.object({
   to: ElementId.describe('the element id it ends at'),
   fromOutput: ElementId.nullable().default(null).describe('the output id of a decision from'),
   dashed: z.boolean().default(false),
-  tone: z.enum(['plain', 'fail', 'join']).default('plain'),
+  tone: z.enum(WIRE_TONES).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),

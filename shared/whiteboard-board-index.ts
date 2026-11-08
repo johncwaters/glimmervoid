@@ -1,5 +1,5 @@
-import { linesOfBox, mediaOfBox } from './contracts/whiteboard.ts';
-import type { Board, Element } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, WIRE_TONES, linesOfBox, mediaOfBox } from './contracts/whiteboard.ts';
+import type { Board, Box, Element, Wire } from './contracts/whiteboard.ts';
 
 type ElementKind = Element['kind'];
 type ElementOfKind<Kind extends ElementKind> = Extract<Element, { kind: Kind }>;
@@ -11,7 +11,18 @@ interface BoardIndex {
   dependentIdsByBoxId: Map<string, readonly string[] | Set<string>>;
   stepBoxIds: Set<string>;
   anchoredIds: Set<string>;
+  wireCountByStyleSlot: number[];
+  boxCountByChangeSlot: number[];
+  floatingBoxCount: number;
 }
+
+interface WireStyle {
+  tone: Wire['tone'];
+  dashed: boolean;
+  back: boolean;
+}
+
+const WIRE_STYLES: readonly WireStyle[] = WIRE_TONES.flatMap((tone) => [false, true].flatMap((dashed) => [false, true].map((back) => ({ tone, dashed, back }))));
 
 const MAX_DEPENDENT_ARRAY_LENGTH = 16;
 const indexByElements = new WeakMap<Board['elements'], BoardIndex>();
@@ -28,6 +39,28 @@ function countAsset(index: BoardIndex, assetId: string | null, step: number): vo
     return;
   }
   index.assetRefCount.delete(assetId);
+}
+
+function wireStyleSlotOf(wire: Wire): number {
+  return WIRE_TONES.indexOf(wire.tone) * 4 + (wire.dashed ? 2 : 0) + (wire.back ? 1 : 0);
+}
+
+function countLayoutParts(index: BoardIndex, element: Element, step: number): void {
+  if (element.kind === 'wire') {
+    index.wireCountByStyleSlot[wireStyleSlotOf(element)] += step;
+    return;
+  }
+  if (element.kind !== 'box') return;
+  index.boxCountByChangeSlot[BOX_CHANGES.indexOf(element.change)] += step;
+  if (element.at === null && element.step === null) index.floatingBoxCount += step;
+}
+
+function usedWireStylesOf(index: BoardIndex): WireStyle[] {
+  return WIRE_STYLES.filter((_style, slot) => (index.wireCountByStyleSlot[slot] ?? 0) > 0);
+}
+
+function usedBoxChangesOf(index: BoardIndex): Set<Box['change']> {
+  return new Set(BOX_CHANGES.filter((_change, slot) => (index.boxCountByChangeSlot[slot] ?? 0) > 0));
 }
 
 function boxIdsDependedOnBy(element: Element): readonly string[] {
@@ -101,6 +134,7 @@ function addToIndex(index: BoardIndex, element: Element, elements: Board['elemen
   index.elementCount += 1;
   if (element.kind === 'stroke') index.strokeCount += 1;
   countAsset(index, assetIdOf(element), 1);
+  countLayoutParts(index, element, 1);
   linkDependent(index, element, elements);
   trackStep(index, element, true);
   trackAnchor(index, element);
@@ -110,13 +144,14 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   index.elementCount -= 1;
   if (element.kind === 'stroke') index.strokeCount -= 1;
   countAsset(index, assetIdOf(element), -1);
+  countLayoutParts(index, element, -1);
   unlinkDependent(index, element);
   trackStep(index, element, false);
   index.anchoredIds.delete(element.id);
 }
 
 function emptyIndex(): BoardIndex {
-  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set() };
+  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), floatingBoxCount: 0 };
 }
 
 function boardIndexOf(elements: Board['elements']): BoardIndex {
@@ -151,6 +186,9 @@ function copyOfIndex(index: BoardIndex): BoardIndex {
     dependentIdsByBoxId: new Map([...index.dependentIdsByBoxId].map(([boxId, dependentIds]) => [boxId, dependentIds instanceof Set ? new Set(dependentIds) : dependentIds])),
     stepBoxIds: new Set(index.stepBoxIds),
     anchoredIds: new Set(index.anchoredIds),
+    wireCountByStyleSlot: [...index.wireCountByStyleSlot],
+    boxCountByChangeSlot: [...index.boxCountByChangeSlot],
+    floatingBoxCount: index.floatingBoxCount,
   };
 }
 
@@ -177,6 +215,8 @@ function storeElement(elements: Board['elements'], element: Element): void {
   }
   countAsset(index, assetIdOf(previous), -1);
   countAsset(index, assetIdOf(element), 1);
+  countLayoutParts(index, previous, -1);
+  countLayoutParts(index, stored, 1);
   unlinkDependent(index, previous);
   linkDependent(index, stored, elements);
   trackStep(index, previous, false);
@@ -201,4 +241,4 @@ function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement, usedBoxChangesOf, usedWireStylesOf };

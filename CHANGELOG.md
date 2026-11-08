@@ -64,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The first edit to a large whiteboard after a server restart is about 2 s sooner.** Picking the board's layout back up no longer reads every element a second time to count wire styles, box changes and boxes without a place; the board's index keeps those counts as elements change. On a million-element board that first edit takes about 8.2 s instead of 10.1 s.
 - **The Focus rail no longer spells out session ownership.** A session started by another already sits indented under its owner, so the "Owns 1 session" and "Owned by" lines are gone from the rail; the card header still names the owner.
 - **Panning a large whiteboard right after it first opens no longer freezes.** After a board is laid out for the first time, its layout is saved in small steps between requests instead of in one long write, and edits made meanwhile save beside it. On a million-element board the first pan answers in about 15 ms instead of 15 s, and edits keep answering in tens of milliseconds while the save runs. If the server stops before that save finishes, the next start lays the board out again.
 - **A full-size board picture, video or page fills its viewer.** The viewer keeps its size and frame, but the media now runs to the frame's edges under a slim title bar instead of sitting inside a padded margin, on the phone and on desktop.

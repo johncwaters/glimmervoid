@@ -1,7 +1,7 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, Element } from './contracts/whiteboard.ts';
 import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
-import { boardIndexOf } from './whiteboard-board-index.ts';
+import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
   placeBoardWithMemory, legendEntriesFrom, stepBandOf, wireCeilingOf,
@@ -57,11 +57,6 @@ interface SavedWorld extends SavedWorldParts {
   chrome: Omit<PlacedLayout, 'elements' | 'warnings'>;
 }
 
-interface WireStyleCount {
-  style: { tone: LaidOutWire['tone']; dashed: boolean; back: boolean };
-  count: number;
-}
-
 interface ElementChange {
   before: Element | undefined;
   after: Element | null;
@@ -93,9 +88,6 @@ interface LayoutWorld {
   changedRouteIds: Set<string>;
   routeWarnings: WarningBook;
   placementWarnings: WarningBook;
-  wireStyleByKey: Map<string, WireStyleCount>;
-  boxCountByChange: Map<Box['change'], number>;
-  floatingBoxCount: number;
   pinnedOffsetY: number;
   contentTop: number;
   boxesTop: number;
@@ -241,25 +233,6 @@ function warningsOf(world: LayoutWorld): string[] {
   }));
 }
 
-function wireStyleKeyOf(wire: { tone: LaidOutWire['tone']; dashed: boolean; back: boolean }): string {
-  return `${wire.tone}|${wire.dashed}|${wire.back}`;
-}
-
-function countElement(world: LayoutWorld, element: Element | null | undefined, step: number): void {
-  if (element?.kind === 'wire') {
-    const key = wireStyleKeyOf(element);
-    const known = world.wireStyleByKey.get(key) ?? { style: { tone: element.tone, dashed: element.dashed, back: element.back }, count: 0 };
-    known.count += step;
-    if (known.count > 0) world.wireStyleByKey.set(key, known);
-    if (known.count <= 0) world.wireStyleByKey.delete(key);
-    return;
-  }
-  if (element?.kind !== 'box') return;
-  const count = (world.boxCountByChange.get(element.change) ?? 0) + step;
-  if (count > 0) world.boxCountByChange.set(element.change, count);
-  if (count <= 0) world.boxCountByChange.delete(element.change);
-}
-
 function isFloatingShaped(box: Box): boolean {
   return box.at === null && !isInStepBand(box);
 }
@@ -312,8 +285,8 @@ function recomputedAround(world: LayoutWorld): Rect | null {
 }
 
 function chromeOfWorld(world: LayoutWorld, board: Board): Omit<PlacedLayout, 'elements' | 'warnings'> {
-  const usedStyles = [...world.wireStyleByKey.values()].map((entry) => entry.style);
-  const legend = legendEntriesFrom(board.legend, usedStyles, new Set(world.boxCountByChange.keys()), boardIndexOf(board.elements).stepBoxIds.size > 0);
+  const index = boardIndexOf(board.elements);
+  const legend = legendEntriesFrom(board.legend, usedWireStylesOf(index), usedBoxChangesOf(index), index.stepBoxIds.size > 0);
   return chromeAround(board.caption, contentBoundsOf(world.around), legend, world.planColumns, world.pinnedOffsetY);
 }
 
@@ -326,7 +299,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE), inkGrid: createIdGrid(SOLID_CELL_SIZE),
     loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
     routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
-    wireStyleByKey: new Map(), boxCountByChange: new Map(), floatingBoxCount: 0, pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
+    pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
   };
 }
@@ -353,10 +326,6 @@ function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLis
     return world;
   }
   yield* inSlices(laidOut, elementsPerSlice, (element) => storeLaidOut(world, element));
-  yield* inSlices(board.elements.values(), elementsPerSlice, (element) => {
-    countElement(world, element, 1);
-    if (element.kind === 'box' && isFloatingShaped(element)) world.floatingBoxCount += 1;
-  });
   addWarningLists(world.routeWarnings, warningLists.slice(0, -1));
   addWarningLists(world.placementWarnings, warningLists.slice(-1));
   world.around = yield* recomputingAround(world, elementsPerSlice);
@@ -437,7 +406,7 @@ function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
     if (touchesStack(board, change.before) || touchesStack(board, change.after)) return true;
     const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box';
-    if (isSolidChange && world.floatingBoxCount > 0) return true;
+    if (isSolidChange && index.floatingBoxCount > 0) return true;
   }
   return false;
 }
@@ -833,10 +802,6 @@ function applyIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyM
   forgetWorldChanges(world);
   const commit: Commit = { previousById: new Map(), changed: [], removedIds: [], oldObstacles: [], newObstacles: [], isAroundStale: false };
   for (const [id, next] of solids.nextById) commitElement(world, commit, id, next);
-  for (const change of changes.values()) {
-    countElement(world, change.before, -1);
-    countElement(world, change.after, 1);
-  }
   updatePlacementWarnings(world, board, solids);
   rerouteWires(world, board, changes, solids, commit);
   rememberObstacles(world, commit);
