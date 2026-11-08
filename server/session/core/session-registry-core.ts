@@ -57,12 +57,17 @@ function decideWasWorkingFlip(to: SessionState, event: string, isIdleCompactionA
   if (isIdleCompactionActivity) return null;
   if (to === STATES.RUNNING && OPERATOR_PROMPT_EXIT_EVENTS.has(event)) return null;
   if (to === STATES.RUNNING) return true;
-  if (to === STATES.STARTING || to === STATES.INITIALIZING) return null;
+  if (to === STATES.STARTING || to === STATES.INITIALIZING || to === STATES.WAITING) return null;
   return false;
 }
 
-function isTurnWorkHookEvent(hookEvent: string): boolean {
-  return TOOL_RESULT_HOOK_EVENTS.has(hookEvent.toLowerCase());
+const TURN_END_HOOK_EVENTS: ReadonlySet<string> = new Set(['stop', 'stopfailure']);
+
+function decideTurnWorkingFromHook(hookEvent: string): boolean | null {
+  const normalizedEvent = hookEvent.toLowerCase();
+  if (TOOL_RESULT_HOOK_EVENTS.has(normalizedEvent)) return true;
+  if (TURN_END_HOOK_EVENTS.has(normalizedEvent)) return false;
+  return null;
 }
 
 function haveSameWorkspaceRepos(projectRepos: string[] | undefined, sessionRepos: string[] | null | undefined): boolean {
@@ -123,4 +128,4 @@ function diffProjects(
   return { added, removed, modified, renamed, unchanged };
 }
 
-export { decideWasActiveFlip, decideWasWorkingFlip, diffProjects, isTurnWorkHookEvent, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };
+export { decideTurnWorkingFromHook, decideWasActiveFlip, decideWasWorkingFlip, diffProjects, machineSkipsPermissionsByDefault, projectSkipsPermissions, shouldStartAfterModify };

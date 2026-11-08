@@ -10,10 +10,12 @@ import { createBackend, runAutoResume, persistSessionField, decideWasActiveFlip 
 import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore } from '../server/config-store.ts';
 import type { RegistryConfig } from '../server/session/session-registry.ts';
+import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { Session } from '../session/sessions.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
-import { AUTO_CONTINUE_PROMPT } from '../session/core/auto-resume.ts';
+import { AUTO_CONTINUE_PROMPT, resumePromptFor } from '../session/core/auto-resume.ts';
+import { ASK_USER_QUESTION_TOOL_NAME } from '../shared/contracts/session.ts';
 import { STATES } from '../shared/states.ts';
 import { UNREACHABLE_PID, fakePty } from './helpers/fake-pty.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -431,6 +433,56 @@ test('finishing a live agent runs merge-and-reset once its process exits, and an
   } finally {
     sess.destroy();
   }
+});
+
+function wireToStore(session: Session, store: ConfigStore): void {
+  createSessionEventWiring({
+    configStore: store, config: store.config, recordLane: () => {},
+    usage: { refreshSessions: () => {}, nudgeSession: () => {} },
+    broadcastControl: () => {},
+    telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
+    notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
+    attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
+    logger: { error: () => {}, log: () => {}, warn: () => {} },
+  })(session);
+}
+
+async function resumePromptAfter(drive: (session: Session) => void): Promise<string | null> {
+  return withStoreAsync({ projects: [{ id: 'turn', name: 'turn', path: process.cwd() }] }, async (store, configPath) => {
+    const session = new Session({ id: 'turn', name: 'turn', path: process.cwd() });
+    wireToStore(session, store);
+    try {
+      session.transition('user_start');
+      session.transition('spawn_success', { spawnCwdExists: true });
+      session.transition('first_output');
+      session.transition('new_output');
+      drive(session);
+      await store.idle();
+      return resumePromptFor(JSON.parse(fs.readFileSync(configPath, 'utf8')).projects[0]);
+    } finally {
+      session.destroy();
+      await store.idle();
+    }
+  });
+}
+
+test('a session restarted while its agent waits on a question it was asked mid-turn is still told to continue', async () => {
+  const resumePrompt = await resumePromptAfter((session) => {
+    session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', event: 'PermissionRequest', promptKind: 'permission', promptToolName: ASK_USER_QUESTION_TOOL_NAME, ts: Date.now() });
+    assert.equal(session.state, STATES.WAITING);
+    session.transition('user_dismiss');
+    assert.equal(session.state, STATES.RUNNING);
+  });
+  assert.equal(resumePrompt, AUTO_CONTINUE_PROMPT);
+});
+
+test('a session whose turn ended on a proposed plan resumes without the continue prompt', async () => {
+  const resumePrompt = await resumePromptAfter((session) => {
+    session.emit('hook-event', { event: 'Stop', payload: {} });
+    session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', event: 'Stop', promptKind: 'plan', ts: Date.now() });
+    assert.equal(session.state, STATES.WAITING);
+  });
+  assert.equal(resumePrompt, null);
 });
 
 test('a genuine kill (not a restart) still persists wasActive:false', async () => {

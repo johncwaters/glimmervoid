@@ -9,7 +9,7 @@ import { decideExitClose } from '../../session/core/exit-close.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
-import { decideWasActiveFlip, decideWasWorkingFlip, isTurnWorkHookEvent } from './core/session-registry-core.ts';
+import { decideTurnWorkingFromHook, decideWasActiveFlip, decideWasWorkingFlip } from './core/session-registry-core.ts';
 import type { HintedCommand } from '../../session/core/session-routes.ts';
 import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
@@ -184,7 +184,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       persistWasWorking();
     };
     session.on('hook-event', ({ event }: { event: string }) => {
-      if (isTurnWorkHookEvent(event)) markTurnWorking();
+      const nextIsTurnWorking = decideTurnWorkingFromHook(event);
+      if (nextIsTurnWorking === null) return;
+      isTurnWorking = nextIsTurnWorking;
+      persistWasWorking();
     });
 
     let liveTranscriptPath: string | null = null;
