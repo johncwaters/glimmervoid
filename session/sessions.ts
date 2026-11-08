@@ -9,6 +9,7 @@ import type { TerminalColors } from "./core/terminal-color-query.ts";
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
+import { maskSecrets } from "../shared/secret-patterns.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
@@ -444,8 +445,9 @@ class Session extends EventEmitter {
     this.ownerId = ownerId;
     this.name = name;
     this.customTitle = customTitle || null;
-    this._taskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt });
-    this._taskTitleStateSignature = JSON.stringify(buildPersistedTaskTitle(this._taskTitleSources));
+    const seededTaskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt: initialPrompt ? maskSecrets(initialPrompt) : initialPrompt });
+    this._taskTitleStateSignature = JSON.stringify(buildPersistedTaskTitle(seededTaskTitleSources));
+    this._taskTitleSources = this._maskedTaskTitleSources(seededTaskTitleSources);
     const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
     this.taskTitle = effectiveTitle.taskTitle;
     this.taskTitleIsCustom = effectiveTitle.isCustom;
@@ -756,7 +758,16 @@ class Session extends EventEmitter {
     this._updateTaskTitle();
   }
 
+  _maskedTaskTitleSources(sources: TaskTitleSources): TaskTitleSources {
+    const maskedSources: TaskTitleSources = {};
+    for (const [source, title] of Object.entries(sources)) {
+      maskedSources[source as keyof TaskTitleSources] = title ? maskSecrets(title, this._deliveredSecretValues) : title;
+    }
+    return maskedSources;
+  }
+
   _updateTaskTitle(): void {
+    this._taskTitleSources = this._maskedTaskTitleSources(this._taskTitleSources);
     const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
     if (this.taskTitle !== effectiveTitle.taskTitle || this.taskTitleIsCustom !== effectiveTitle.isCustom) {
       this.taskTitle = effectiveTitle.taskTitle;
@@ -801,6 +812,7 @@ class Session extends EventEmitter {
   maskDeliveredSecretValues(values: readonly string[]): void {
     this._deliveredSecretValues = values;
     this._recorder?.maskDeliveredValues?.(values);
+    this._updateTaskTitle();
   }
 
   get auditLog(): Record<string, unknown>[] {
@@ -903,7 +915,7 @@ class Session extends EventEmitter {
       const prompt = raw.payload?.prompt;
       this._queuePromptHint(prompt);
       if (!this._taskTitleSources.promptTitle) {
-        this._taskTitleSources.promptTitle = extractPromptTaskTitle(prompt);
+        this._taskTitleSources.promptTitle = extractPromptTaskTitle(typeof prompt === "string" ? maskSecrets(prompt, this._deliveredSecretValues) : prompt);
         this._updateTaskTitle();
       }
       if (typeof prompt === "string" && isSubstantivePrompt(prompt)) {

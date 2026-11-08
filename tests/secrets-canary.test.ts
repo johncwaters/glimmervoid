@@ -84,6 +84,16 @@ async function runNeedUntilSettled(context: CanaryBackend, names: readonly strin
   return attempt;
 }
 
+async function submitPrompt(context: CanaryBackend, prompt: string): Promise<void> {
+  const session = context.backend.getSession(SESSION_ID);
+  const hookToken = session?._hooks.token();
+  assert.ok(hookToken, 'hook injection minted a token');
+  const reply = await fetch(`${context.base}/hook/${SESSION_ID}/UserPromptSubmit?t=${encodeURIComponent(hookToken)}`, {
+    method: 'POST', body: JSON.stringify({ prompt }), headers: { 'content-type': 'application/json' },
+  });
+  assert.equal(reply.status, 200);
+}
+
 async function askNeedOverMcp(context: CanaryBackend, names: readonly string[]): Promise<string> {
   const session = context.backend.getSession(SESSION_ID);
   assert.ok(session?.agentToken, 'the session was minted an agent token');
@@ -131,6 +141,8 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     const delivered = await runNeedUntilSettled(context, ['CANARY_KEY']);
     assert.equal(delivered.exitCode, 0, delivered.output);
     const envFile = String(JSON.parse(delivered.output).envFile);
+    await submitPrompt(context, `${CANARY_MARKER}-${CANARY_VALUE}${CANARY_VALUE}`);
+    assert.equal(session.taskTitle?.startsWith(CANARY_MARKER), true, 'the prompt became the task title, its readable part kept');
     assert.ok(fs.readFileSync(envFile, 'utf8').includes(CANARY_VALUE), 'the value reached the env file');
 
     assert.equal((await runNeedCli(context, ['CANARY_KEY', 'UNSEEN_KEY'])).exitCode, 10, 'an unapproved name is pending');
@@ -146,6 +158,8 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     session.emit('conversation-records', { records: [{ ts: Date.now(), uuid: 'canary-prompt', parentUuid: null, vendorSessionId: 'canary-vendor', kind: 'prompt', text: `${CANARY_MARKER} ${CANARY_VALUE}` }] });
     const sinkDirectories = [context.tmpDir, glimmervoidHomeDir()];
     await waitFor(() => filesHoldingText(sinkDirectories, CANARY_MARKER, envFile).length >= 2, 'the trace and the recording both wrote the printed line', 10_000);
+    await waitFor(() => fs.readFileSync(path.join(context.tmpDir, 'config.json'), 'utf8').includes(CANARY_MARKER), 'config persisted the task title', 10_000);
+    assert.equal(fs.readFileSync(path.join(context.tmpDir, 'config.json'), 'utf8').includes(CANARY_VALUE.slice(0, 7)), false, 'a value cut by the title length limit leaves no readable head');
 
     assert.deepEqual(filesHoldingText(sinkDirectories, CANARY_VALUE, envFile), [], 'no glimmervoid file holds the canary');
   } finally {
