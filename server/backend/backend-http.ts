@@ -734,18 +734,16 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   mountCustomSoundRoutes(app, { soundsDir: customSoundsDir });
 
-  if (staticDir === 'auto') {
-    if (!fs.existsSync(path.join(clientDir, 'index.html'))) {
-      throw Object.assign(
-        new Error('Dashboard build not found (dist/client). Run `npm run build` first, or use `npm run dev`.'),
-        { glimmervoidBoot: true },
-      );
-    }
-    serveClientDir(app, clientDir);
-  }
-  if (staticDir !== 'auto' && typeof staticDir === 'string') {
-    serveClientDir(app, staticDir);
-  }
+  if (staticDir === null) return app;
+  const servedClientDir = staticDir === 'auto' ? clientDir : staticDir;
+  serveClientDir(app, servedClientDir);
+  if (staticDir !== 'auto') return app;
+  if (fs.existsSync(path.join(clientDir, 'index.html'))) return app;
+  const dashboardBuildMissingHint = 'Dashboard build not found (dist/client). Run `npm run build` first, or use `npm run dev`.';
+  console.error(dashboardBuildMissingHint);
+  app.get('/', (_req, res) => {
+    res.status(503).type('text').send(dashboardBuildMissingHint);
+  });
 
   return app;
 }
