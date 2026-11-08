@@ -712,3 +712,21 @@ test('a board keeps a box height, dial values, page dials and a collapsed frame 
   const board = Board.parse({ id: 'kept', title: 'kept', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: Object.fromEntries(rawElements.map((element) => [element.id, element])) });
   for (const rawElement of rawElements) assert.deepEqual(board.elements.get(rawElement.id), Element.parse(rawElement), `${rawElement.id} reads back whole`);
 });
+
+test('a sticky note draws in its tone and a text box draws borderless and refuses media', () => {
+  const noteBoard = Board.parse({
+    id: 'notes', title: 'notes', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      pink: { kind: 'box', id: 'pink', title: 'Pink note', shape: 'sticky', tone: 'pink', at: { x: 40, y: 40 } },
+      plain: { kind: 'box', id: 'plain', title: 'Default note', shape: 'sticky', at: { x: 400, y: 40 } },
+      words: { kind: 'box', id: 'words', title: 'Words', shape: 'text', at: { x: 40, y: 300 }, lines: [{ text: 'free text' }] },
+    },
+  });
+  const tones = new Map(layoutBoard(noteBoard).elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element.tone] as const] : [])));
+  assert.deepEqual([tones.get('pink'), tones.get('plain'), tones.get('words')], ['pink', 'yellow', null]);
+  const svg = boardSvgDocument(layoutBoard(noteBoard));
+  assert.match(svg, /class="wb-element wb-box wb-sticky wb-tone-pink"/);
+  assert.match(svg, /class="wb-element wb-box wb-text"/);
+  const refused = applyOps(noteBoard, [{ op: 'set', id: 'words', fields: { media: { kind: 'image', asset: 'a'.repeat(64), mime: 'image/png', width: 10, height: 10 } } }], { id: 'agent', name: 'agent' }, 0);
+  assert.equal(refused.ok, false);
+});

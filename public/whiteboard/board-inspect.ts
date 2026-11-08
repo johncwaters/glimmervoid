@@ -1,7 +1,7 @@
 import type { Board, Box, BoxLine, Dial, DialValue, Element as BoardElement, Frame, Note, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -52,9 +52,10 @@ const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(BOX_SHAPES);
-const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device' };
+const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device', sticky: 'Sticky', text: 'Text' };
 const DEVICE_CHOICES = choicesOf(DEVICE_NAMES);
 const FIT_CHOICES = choicesOf(DEVICE_FITS);
+const STICKY_TONE_CHOICES = choicesOf(STICKY_TONES);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'Auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
@@ -270,6 +271,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     if (shape === 'panel') set({ shape });
     if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
     if (shape === 'device') set({ shape, device: PLACED_DEVICE, ...placeLeavingStack() });
+    if (shape === 'sticky' || shape === 'text') set({ shape, ...placeLeavingStack() });
   };
   const commitIsStep = (isStep: boolean) => {
     if (isStep) {
@@ -301,6 +303,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
+    ...(box.shape === 'sticky' ? [fieldRow('Tone', selectField('tone', STICKY_TONE_CHOICES, box.tone, (tone) => set({ tone })))] : []),
     ...dialSections(box, latestBox, set),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),

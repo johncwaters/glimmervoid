@@ -1,4 +1,5 @@
 import { BRAND_ACCENT } from './brand-mark.ts';
+import { STICKY_TONE_HEX, STICKY_TONES } from './contracts/whiteboard.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
@@ -52,6 +53,8 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-plan-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
+.wb-text .wb-box-outline { fill: transparent; stroke: transparent; }
+${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_TONE_HEX[tone]}; fill-opacity: 0.3; stroke: ${STICKY_TONE_HEX[tone]}; }`).join('\n')}
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
 .wb-change-removed .wb-box-outline { fill: transparent; stroke: #ef4444; stroke-dasharray: 7 5; }
@@ -297,7 +300,8 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const shapeClass = box.shape === 'box' || box.shape === 'decision' ? '' : ` wb-${box.shape}`;
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
-  return elementGroup(box, `wb-box${shapeClass}${stepClass}${changeClass}`, parts);
+  const toneClass = box.tone ? ` wb-tone-${box.tone}` : '';
+  return elementGroup(box, `wb-box${shapeClass}${toneClass}${stepClass}${changeClass}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {

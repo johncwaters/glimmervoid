@@ -37,6 +37,9 @@ export const BoxLine = z.object({
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
 
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
+export const STICKY_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
+export type StickyTone = (typeof STICKY_TONES)[number];
+export const STICKY_TONE_HEX: Readonly<Record<StickyTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
 
 export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 
@@ -143,6 +146,13 @@ const NoIconBoxContent = z.never({ error: 'an icon box holds no lines or media, 
 const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields };
 const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
 const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
+const stickyBoxFields = {
+  ...boxBaseFields, shape: z.literal('sticky').describe('draws a sticky note in its tone'), ...boxContentFields,
+  tone: z.enum(STICKY_TONES).default('yellow').describe('the sticky note color'),
+};
+const NoTextBoxContent = z.never({ error: 'a text box holds only a title and lines, so set shape to box first' }).optional()
+  .describe('refused: a text box holds only a title and lines');
+const textBoxFields = { ...boxBaseFields, shape: z.literal('text').describe('draws its title and lines as plain text with no border'), lines: boxContentFields.lines };
 const NoDeviceBoxLines = z.never({ error: 'a device box holds no lines, so set shape to box first' }).optional()
   .describe('refused: a device box holds no lines');
 
@@ -162,9 +172,11 @@ const FIELD_NAMES_BY_SHAPE = Object.freeze({
   panel: new Set(Object.keys(panelBoxFields)),
   icon: new Set(Object.keys(iconBoxFields)),
   device: new Set(Object.keys(deviceBoxFields)),
+  sticky: new Set(Object.keys(stickyBoxFields)),
+  text: new Set(Object.keys(textBoxFields)),
 });
 
-export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device'] as const;
+export const BOX_SHAPES = ['box', 'decision', 'panel', 'icon', 'device', 'sticky', 'text'] as const;
 
 export const Box = z.discriminatedUnion('shape', [
   z.object({ ...plainBoxFields, outputs: OnlyDecisionOutputs }).strict(),
@@ -172,6 +184,8 @@ export const Box = z.discriminatedUnion('shape', [
   z.object({ ...panelBoxFields, outputs: OnlyDecisionOutputs }).strict(),
   z.object({ ...iconBoxFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
   z.object({ ...deviceBoxFields, lines: NoDeviceBoxLines }).strict(),
+  z.object({ ...stickyBoxFields, outputs: OnlyDecisionOutputs }).strict(),
+  z.object({ ...textBoxFields, outputs: OnlyDecisionOutputs, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
 ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe('a box needs one place: near or at; a plan step may have none and joins the build-order band, and a panel may have none and stacks right of the drawing');
 
 export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
@@ -183,11 +197,11 @@ export function linesOfBox(box: Box): readonly BoxLine[] {
 }
 
 export function mediaOfBox(box: Box): BoxMedia | null {
-  return box.shape === 'icon' ? null : box.media;
+  return box.shape === 'icon' || box.shape === 'text' ? null : box.media;
 }
 
 function paramsOfBox(box: Box): Readonly<Record<string, DialValue>> {
-  return box.shape === 'icon' ? {} : box.params;
+  return box.shape === 'icon' || box.shape === 'text' ? {} : box.params;
 }
 
 export function dialValuesOfBox(box: Box): Record<string, DialValue> {
@@ -474,6 +488,8 @@ function filledBox(box: SparseBox): Box {
     case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon' };
     case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', media: filledMedia(box.media) };
     case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
+    case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    case 'text': return { ...filledBoxBase(box), shape: 'text', lines: (box.lines ?? []).map(filledLine), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
   }

@@ -171,6 +171,8 @@
 .wb-viewport[data-tool='box'],
 .wb-viewport[data-tool='decision'],
 .wb-viewport[data-tool='panel'],
+.wb-viewport[data-tool='sticky'],
+.wb-viewport[data-tool='text'],
 .wb-viewport[data-tool='wire'] {
   cursor: crosshair;
 }

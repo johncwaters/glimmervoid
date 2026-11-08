@@ -13,10 +13,10 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER = ['wire', 'note', 'frame', 'box'] as const;
-const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', i: 'icon', m: 'device', a: 'wire' };
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', s: 'sticky', t: 'text', i: 'icon', m: 'device', a: 'wire' };
 
-type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'icon' | 'device' | 'wire';
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'icon' | 'device'>;
+type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'sticky' | 'text' | 'icon' | 'device' | 'wire';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'sticky' | 'text' | 'icon' | 'device'>;
 
 interface ViewPoint {
   x: number;
@@ -29,9 +29,9 @@ export function stacksByTopBoxIdOf(board: Board): Map<string, Frame> {
   const cached = stacksByTopBoxIdByBoard.get(board);
   if (cached) return cached;
   const stacksByTopBoxId = new Map<string, Frame>();
-  for (const element of Object.values(board.elements)) {
-    const topBoxId = element.kind === 'frame' && element.collapsed ? element.contains[0] : undefined;
-    if (element.kind === 'frame' && topBoxId !== undefined) stacksByTopBoxId.set(topBoxId, element);
+  for (const frame of board.elements.valuesOfKind('frame')) {
+    const topBoxId = frame.collapsed ? frame.contains[0] : undefined;
+    if (topBoxId !== undefined) stacksByTopBoxId.set(topBoxId, frame);
   }
   stacksByTopBoxIdByBoard.set(board, stacksByTopBoxId);
   return stacksByTopBoxId;
@@ -94,10 +94,10 @@ function isPhoneLayout(): boolean {
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
-  return tool === 'box' || tool === 'decision' || tool === 'panel' || tool === 'icon' || tool === 'device';
+  return tool !== 'select' && tool !== 'wire';
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device' };
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', sticky: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
 
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): BoardElement {
   const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
@@ -105,6 +105,8 @@ function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: 
     case 'icon': return { ...placed, shape, icon: PLACED_ICON };
     case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', media, params: {} };
     case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }], params: {} };
+    case 'sticky': return { ...placed, shape, tone: 'yellow', lines: [], media, params: {} };
+    case 'text': return { ...placed, shape, lines: [] };
     case 'box':
     case 'panel': return { ...placed, shape, lines: [], media, params: {} };
   }
