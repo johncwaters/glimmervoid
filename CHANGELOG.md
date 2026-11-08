@@ -100,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Saving a whiteboard edit takes less time.** Turning an element into its compact stored form now looks up the element's shape from its kind instead of checking it against every shape in turn, so encoding all 100,000 elements of the bench board takes about 0.6 s instead of 1.0 s. Edits, board loads and agent reads produce exactly the same data as before.
 - **The reconnecting dot beside the logo stays red.** It no longer fades in and out while the dashboard reconnects (or amber while it connects), so it reads like every other status color.
 - **The Split label is easy to read while you drag a board over a session.** The row behind dims and Split shows as a bordered chip on top of it.
 - **A setting marked Experimental keeps its # link beside the title.** On a narrow screen the Experimental tag now wraps under the setting's title with the # link next to it, instead of pushing the # to the far side of the row.
