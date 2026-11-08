@@ -110,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Stopping Glimmervoid no longer restarts the watcher.** A shutdown now stops the watcher link with the other lanes, so the watcher child is not respawned while the server is going down.
 - **Wire routing on a large whiteboard makes less garbage.** The route search writes its queue entries straight into its typed arrays and keeps its visited list between searches, cutting about 15% of what a 300,000 element layout allocates and about 10% of its time, with the same drawing.
 - **Settings group headings stand out from the sections under them.** This browser, Sessions, Machine and Lanes in the settings sidebar are now bold and bright with a hairline running to the edge, so a heading no longer reads like one more section.
 - **No more npm rebuild warning for core-js in a new session worktree.** core-js and core-js-pure run an install script that only prints a donation banner, so the worktree install no longer names them as needing `npm rebuild`. Any other package whose build could not be copied from the main checkout is still named.

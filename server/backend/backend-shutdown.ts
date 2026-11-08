@@ -52,6 +52,7 @@ interface BackendShutdownDependencies {
   outcomes?: Stoppable | null;
   telemetry?: Stoppable | null;
   hostLinks?: Stoppable | null;
+  watcherLink?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
 }
@@ -93,6 +94,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const pendingReaps: Promise<unknown>[] = [];
     destroySessions([dependencies.sessions], pendingReaps);
     if (dependencies.taskTitleRefiner) stoppers.add('task-title', () => dependencies.taskTitleRefiner?.stop());
+    const watcherLink = dependencies.watcherLink;
+    if (watcherLink) stoppers.add('watcher-link', () => watcherLink.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
     stoppers.add('coder-activity', () => dependencies.coderActivity.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);

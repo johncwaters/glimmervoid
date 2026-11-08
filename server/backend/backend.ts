@@ -606,6 +606,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       isRecheckingPostTurnReports = false;
     });
   }
+  const watcherLink = createWatcherLink({
+    watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
+    linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
+    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
+  });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
@@ -648,15 +653,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     outcomes,
     telemetry,
     hostLinks,
+    watcherLink,
     controlWss,
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
-  const watcherLink = createWatcherLink({
-    watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
-    linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
-    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
-  });
   watcherLink.registerProbeSource({
     ...laneAssembly.githubStore.probeSource,
     onWatcherProblem: (problem) => {

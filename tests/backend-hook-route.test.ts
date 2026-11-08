@@ -425,3 +425,9 @@ test('a Claude conversation gets the Glimmervoid start line with its first promp
   assert.equal((await postHook('UserPromptSubmit', { prompt: 'second' })).hookSpecificOutput, undefined);
 });
 
+
+test('a backend shutdown stops the watcher link, so its supervisor cannot respawn the watcher mid-shutdown', async () => {
+  const settled = ctx().backend.shutdown();
+  await Promise.allSettled([...settled.reaps, ...settled.stoppers.map((entry) => entry.promise)]);
+  assert.ok(settled.stoppers.some((entry) => entry.name === 'watcher-link'));
+});
