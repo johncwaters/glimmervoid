@@ -38,6 +38,7 @@ const MIN_HOLES_BEFORE_COMPACTING = 1024;
 const builtTables = new WeakSet<object>();
 const KIND_NAMES = ['box', 'frame', 'wire', 'note', 'stroke'] as const satisfies readonly ElementKind[];
 const KIND_CODE_BY_NAME = new Map<ElementKind, number>(KIND_NAMES.map((kind, code) => [kind, code]));
+const KIND_NAME_SET = new Set<string>(KIND_NAMES);
 const EMPTY_BODY = '{}';
 const SHORTENED_KEYS = [
   'title', 'at', 'x', 'y', 'lines', 'text', 'style', 'from', 'to', 'label', 'on', 'contains', 'near', 'of', 'side', 'gap',
@@ -58,6 +59,10 @@ function jsonOfStored(body: string): string {
 
 function isArrayIndexKey(id: string): boolean {
   return ARRAY_INDEX_KEY.test(id) && Number(id) <= MAX_ARRAY_INDEX;
+}
+
+function isElementKind(value: unknown): value is ElementKind {
+  return typeof value === 'string' && KIND_NAME_SET.has(value);
 }
 
 function elementOfRow(id: string, kindCode: number, body: string): Element {
@@ -258,5 +263,5 @@ function isElementTable(value: unknown): value is ElementTable {
   return typeof value === 'object' && value !== null && builtTables.has(value);
 }
 
-export { KIND_NAMES as ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementTable };
+export { KIND_NAMES as ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementKind, isElementTable };
 export type { ElementKind, ElementTable, StoredElementRow };

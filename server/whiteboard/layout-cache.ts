@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import { BoardChrome, PlacedPaint, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
+import { BoardChrome, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
-import { ELEMENT_KIND_NAMES, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import { isUnreadableDatabase, openDatabase, setAside } from './sqlite-files.ts';
 
@@ -49,7 +50,6 @@ CREATE TABLE IF NOT EXISTS saved_warning (
 `;
 
 const HeadRow = z.object({ version: z.number().int(), updated_at: z.number().int(), code_stamp: z.string(), chrome: z.string() });
-const PlacedRow = z.object({ slot: z.number().int().nonnegative(), element_id: z.string(), body: z.string(), record_kind: z.enum(ELEMENT_KIND_NAMES), record_body: z.string() });
 const RouteRow = z.object({ wire_id: z.string(), body: z.string() });
 const WarningRow = z.object({ book: z.enum(['route', 'placement']), text: z.string() });
 
@@ -106,12 +106,27 @@ function parsedJson(text: string): unknown {
   }
 }
 
+function isPaintOfElement(value: unknown, elementId: string): value is PlacedPaint {
+  if (typeof value !== 'object' || value === null) return false;
+  const element = Reflect.get(value, 'element');
+  return Number.isInteger(Reflect.get(value, 'paintOrder')) && typeof element === 'object' && element !== null && Reflect.get(element, 'id') === elementId;
+}
+
+function isSlot(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function columnsOnly(statement: StatementSync): StatementSync {
+  statement.setReturnArrays(true);
+  return statement;
+}
+
 function statementsOf(database: DatabaseSync) {
   return {
     head: database.prepare('SELECT version, updated_at, code_stamp, chrome FROM layout_head WHERE board_id = ?'),
     upsertHead: database.prepare('INSERT INTO layout_head (board_id, version, updated_at, code_stamp, chrome) VALUES (?, ?, ?, ?, ?) ON CONFLICT(board_id) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at, code_stamp = excluded.code_stamp, chrome = excluded.chrome'),
     removeHead: database.prepare('DELETE FROM layout_head WHERE board_id = ?'),
-    rows: database.prepare('SELECT slot, element_id, body, record_kind, record_body FROM placed WHERE board_id = ? ORDER BY slot'),
+    rowColumns: columnsOnly(database.prepare('SELECT slot, element_id, body, record_kind, record_body FROM placed WHERE board_id = ? ORDER BY slot')),
     upsertRow: database.prepare('INSERT INTO placed (board_id, element_id, slot, body, record_kind, record_body) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET slot = excluded.slot, body = excluded.body, record_kind = excluded.record_kind, record_body = excluded.record_body'),
     removeRow: database.prepare('DELETE FROM placed WHERE board_id = ? AND element_id = ?'),
     removeRows: database.prepare('DELETE FROM placed WHERE board_id = ?'),
@@ -158,14 +173,15 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     if (!chrome.success) return null;
     const painted: (PlacedPaint | null)[] = [];
     const records: StoredElementRow[] = [];
-    for (const row of statements.rows.iterate(boardId)) {
-      const placed = PlacedRow.safeParse(row);
-      if (!placed.success) return null;
-      const entry = PlacedPaint.safeParse(parsedJson(placed.data.body));
-      if (!entry.success || entry.data.element.id !== placed.data.element_id) return null;
-      while (painted.length < placed.data.slot) painted.push(null);
-      painted[placed.data.slot] = entry.data;
-      records.push({ id: placed.data.element_id, kind: placed.data.record_kind, body: placed.data.record_body });
+    for (const row of statements.rowColumns.iterate(boardId)) {
+      if (!Array.isArray(row)) return null;
+      const [slot, elementId, body, recordKind, recordBody] = row;
+      if (!isSlot(slot) || typeof elementId !== 'string' || typeof body !== 'string' || !isElementKind(recordKind) || typeof recordBody !== 'string') return null;
+      const paint = parsedJson(body);
+      if (!isPaintOfElement(paint, elementId)) return null;
+      while (painted.length < slot) painted.push(null);
+      painted[slot] = paint;
+      records.push({ id: elementId, kind: recordKind, body: recordBody });
     }
     return { chrome: chrome.data, painted, records: elementTableOfStoredRows(records) };
   }

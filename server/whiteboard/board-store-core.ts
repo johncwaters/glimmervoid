@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
+import { ELEMENT_KIND_NAMES, elementTableOf, elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
@@ -118,7 +118,6 @@ type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? 
 type StoreRequestBody = DistributiveOmit<StoreRequest, 'requestId'>;
 
 const EMPTY_BODY = '{}';
-const ELEMENT_KIND_NAME_SET = new Set<string>(ElementKind.options);
 const BoardHeadFields = z.record(z.string(), z.unknown());
 const ElementIdentity = z.object({ id: z.string() });
 
@@ -210,10 +209,6 @@ function parsedJson(text: string): unknown {
 
 function headRowsOf(record: BoardRecord): StoredHeadRows {
   return { boardId: record.board.id, head: headOf(record.board), cursors: JSON.stringify(record.cursorBySessionId), createdBy: record.createdBy, logBodies: record.log.map((change) => JSON.stringify(change)) };
-}
-
-function isElementKind(value: unknown): value is ElementKindName {
-  return typeof value === 'string' && ELEMENT_KIND_NAME_SET.has(value);
 }
 
 function isEveryRowDecodable(storedRows: readonly StoredElementRow[]): boolean {
