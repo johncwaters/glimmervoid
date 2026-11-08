@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetPreviewImages, paintMarkupTools, retryMissingImages, renderMarkup, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, paintMarkupTools, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -174,6 +174,7 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   cancelAutosave(editor);
   if (editor.docPath !== docPath) forgetBlockPreviews(editor);
   forgetPreviewImages(editor);
+  forgetDocHistory(editor);
   editor.docPath = docPath;
   editor.isBusy = true;
   editor.baseHash = null;
@@ -227,6 +228,16 @@ async function writeDoc(editor: OpenEditor): Promise<boolean> {
   return true;
 }
 
+function editorShortcutOf(event: KeyboardEvent): 'save' | 'undo' | 'redo' | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return null;
+  const isLatinLetterKey = /^[a-z]$/i.test(event.key);
+  const key = isLatinLetterKey ? event.key.toLowerCase() : event.code.replace(/^Key/, '').toLowerCase();
+  if (key === 's') return 'save';
+  if (key === 'y' && event.ctrlKey) return 'redo';
+  if (key !== 'z') return null;
+  return event.shiftKey ? 'redo' : 'undo';
+}
+
 export function openDocEditor(sessionId: string) {
   openDocEditorOn(sessionDocSource(sessionId));
 }
@@ -276,8 +287,13 @@ export function openDocEditorOn(source: DocSource) {
     scheduleAutosave(currentEditor);
   });
   modal.dialog.addEventListener('keydown', (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+    const shortcut = editorShortcutOf(event);
+    if (!shortcut || (shortcut !== 'save' && event.target === markup.noteInput)) return;
     event.preventDefault();
+    if (shortcut !== 'save') {
+      stepDocEdit(currentEditor, shortcut);
+      return;
+    }
     cancelAutosave(currentEditor);
     void saveDoc(currentEditor);
   });

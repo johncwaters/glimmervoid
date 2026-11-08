@@ -7,6 +7,9 @@ import { acceptEveryMark, isEndNote, parseCriticMarkup, resolveMark, suggestEdit
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
 import type { BlockStyle, InlineStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
 import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
+import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
+import type { DocHistory, EditKind } from './undo-history-core.ts';
+import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
 
 export interface MarkupHost {
   baseHash: string | null;
@@ -48,6 +51,7 @@ interface MarkupPane {
   noteSelection: SourceSelection | null;
   compositionSelection: SourceSelection | null;
   run: SuggestRun | null;
+  history: DocHistory;
   tip: string;
   marks: MarkSegment[];
   elementsByMarkIndex: HTMLElement[][];
@@ -129,7 +133,7 @@ export function buildMarkupPane(): MarkupPane {
     root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(),
-    selection: null, noteSelection: null, compositionSelection: null, run: null, tip: '',
+    selection: null, noteSelection: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
     marks: [], elementsByMarkIndex: [], selectedMarkIndex: null,
   };
   pane.marginResizeObserver.observe(paper);
@@ -666,6 +670,11 @@ function writeDocText(editor: MarkupHost, nextText: string) {
   editor.textarea.dispatchEvent(new Event('input'));
 }
 
+function rememberDocEdit(editor: MarkupHost, edit: { kind: EditKind; after: string; caretBefore: number; caretAfter: number }) {
+  editor.markup.history = recordDocEdit(editor.markup.history, { ...edit, before: editor.textarea.value, atMs: Date.now() });
+  writeDocText(editor, edit.after);
+}
+
 function showTip(editor: MarkupHost, refusal: SuggestRefusal) {
   editor.markup.tip = REFUSAL_TIPS[refusal];
   paintMarkupTools(editor);
@@ -678,7 +687,7 @@ function applySuggestion(editor: MarkupHost, edit: SuggestEdit) {
     showTip(editor, outcome.reason);
     return;
   }
-  writeDocText(editor, outcome.source);
+  rememberDocEdit(editor, { kind: edit.kind, after: outcome.source, caretBefore: edit.selection.start, caretAfter: outcome.caret });
   pane.tip = '';
   paintPaper(editor);
   placeCaret(pane, outcome.caret);
@@ -746,8 +755,22 @@ function trackPaperSelection(editor: MarkupHost) {
 function decideSelectedMark(editor: MarkupHost, decision: MarkDecision) {
   const mark = selectedMarkOf(editor.markup);
   if (!mark || isMarkupLocked(editor)) return;
-  writeDocText(editor, resolveMark(editor.textarea.value, mark, decision));
+  rememberDocEdit(editor, { kind: 'decide', after: resolveMark(editor.textarea.value, mark, decision), caretBefore: mark.start, caretAfter: mark.start });
   renderMarkup(editor);
+}
+
+export function stepDocEdit(editor: MarkupHost, direction: UndoDirection) {
+  if (isMarkupLocked(editor)) return;
+  const stepped = stepDocHistory(editor.markup.history, direction, editor.textarea.value);
+  if (!stepped) return;
+  editor.markup.history = stepped.history;
+  writeDocText(editor, stepped.source);
+  renderMarkup(editor);
+  placeCaret(editor.markup, stepped.caret);
+}
+
+export function forgetDocHistory(editor: MarkupHost) {
+  editor.markup.history = EMPTY_DOC_HISTORY;
 }
 
 function openNoteComposer(editor: MarkupHost) {

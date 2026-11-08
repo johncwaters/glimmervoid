@@ -4,7 +4,7 @@ import { applyBoardDiff } from './whiteboard-ops-core.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 
 type UndoDirection = 'undo' | 'redo';
-type UndoHistory = Readonly<Record<UndoDirection, readonly Op[][]>>;
+type UndoHistory<Entry extends readonly unknown[] = Op[]> = Readonly<Record<UndoDirection, readonly Entry[]>>;
 
 const UNDO_LIMIT = 100;
 const EMPTY_HISTORY: UndoHistory = Object.freeze({ undo: [], redo: [] });
@@ -79,25 +79,25 @@ function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
   return touchedAfter ? restoringOps(touchedAfter, touchedBefore) : [];
 }
 
-function withEntry(stack: readonly Op[][], entry: Op[]): Op[][] {
+function withEntry<Entry extends readonly unknown[]>(stack: readonly Entry[], entry: Entry): Entry[] {
   if (entry.length === 0) return [...stack];
   return [...stack, entry].slice(-UNDO_LIMIT);
 }
 
-function recordEdit(history: UndoHistory, inverse: Op[]): UndoHistory {
-  if (inverse.length === 0) return history;
-  return { undo: withEntry(history.undo, inverse), redo: [] };
+function recordEdit<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, entry: Entry): UndoHistory<Entry> {
+  if (entry.length === 0) return history;
+  return { undo: withEntry(history.undo, entry), redo: [] };
 }
 
-function takeStep(history: UndoHistory, direction: UndoDirection): { entry: Op[]; history: UndoHistory } | null {
+function takeStep<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, direction: UndoDirection): { entry: Entry; history: UndoHistory<Entry> } | null {
   const entry = history[direction].at(-1);
   if (!entry) return null;
   return { entry, history: { ...history, [direction]: history[direction].slice(0, -1) } };
 }
 
-function recordStep(history: UndoHistory, direction: UndoDirection, inverse: Op[]): UndoHistory {
+function recordStep<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, direction: UndoDirection, entry: Entry): UndoHistory<Entry> {
   const opposite: UndoDirection = direction === 'undo' ? 'redo' : 'undo';
-  return { ...history, [opposite]: withEntry(history[opposite], inverse) };
+  return { ...history, [opposite]: withEntry(history[opposite], entry) };
 }
 
 export { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, recordStep, takeStep, undoOpsOf };
