@@ -160,7 +160,7 @@ async function withBenchMedia(board: Board, assetsRoot: string): Promise<number>
   let mediaCount = 0;
   for (const boxId of boxIdsOf(board).filter((_, boxIndex) => boxIndex % MEDIA_EVERY_NTH_BOX === 0)) {
     const box = board.elements.get(boxId);
-    if (box?.kind !== 'box' || box.shape === 'icon') continue;
+    if (box?.kind !== 'box' || box.shape === 'icon' || box.shape === 'text') continue;
     const picture = pictures[mediaCount % pictures.length];
     const media = mediaCount % PAGE_EVERY_NTH_MEDIA === PAGE_EVERY_NTH_MEDIA - 1 ? page : picture;
     if (!media) continue;

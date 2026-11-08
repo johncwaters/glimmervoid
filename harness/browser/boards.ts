@@ -235,6 +235,24 @@ async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<voi
   await boardWithout(open, 'the stack check cleans up', (element) => element.id === cardId);
 }
 
+async function verifyNoteShapes(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('s');
+  const sticky = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
+  await panel.locator('.wb-inspect').getByRole('combobox', { name: 'Tone', exact: true }).selectOption('green');
+  await elementWhere(open, 'a sticky note takes the picked tone', (element) => element.id === sticky.id && element.kind === 'box' && element.shape === 'sticky' && element.tone === 'green');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('t');
+  const looseWords = await placeBoxWithTool(open, { x: 40, y: 420 }, 'Loose words');
+  assert.ok(looseWords.kind === 'box' && looseWords.shape === 'text', 'the text tool places a text box');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [sticky.id, looseWords.id].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the note and text check cleans up', (element) => element.id === sticky.id);
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
 async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
@@ -424,7 +442,7 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
     slider.value = '7';
     slider.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.params.speed === 7);
+  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.shape !== 'text' && element.params.speed === 7);
   await postedDialValues(JSON.stringify({ speed: 7, loud: false }));
   await page.frameLocator(`.wb-media[data-box-id="${dialsBox.id}"] iframe`).getByLabel('dials field').focus();
   await page.keyboard.press('Escape');
@@ -660,6 +678,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyStacking(open, parseFeed.id);
+    await verifyNoteShapes(open);
     await verifyPageDials(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);

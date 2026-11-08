@@ -1,4 +1,5 @@
-import { boardMediaDrawnFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { boardMediaDrawnFilename, STICKY_TONE_HEX, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import type { StickyTone } from '#shared/contracts/whiteboard.ts';
 import { BLOCK_RASTER_PX } from '#shared/contracts/whiteboard-tiles.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
@@ -479,6 +480,10 @@ function createColorReader(host: HTMLElement): { colorOf: (expression: string) =
   };
 }
 
+function toneColorsOf(colorOfTone: (tone: StickyTone) => Rgba): Record<StickyTone, Rgba> {
+  return { yellow: colorOfTone('yellow'), pink: colorOfTone('pink'), green: colorOfTone('green'), blue: colorOfTone('blue'), violet: colorOfTone('violet') };
+}
+
 function resolvePalette(host: HTMLElement): BoardPalette {
   const reader = createColorReader(host);
   const palette: BoardPalette = {
@@ -498,6 +503,8 @@ function resolvePalette(host: HTMLElement): BoardPalette {
     noteByline: reader.colorOf('#c9a868'),
     codeBand: reader.colorOf('color-mix(in oklab, var(--accent) 14%, var(--wb-board))'),
     panelFill: reader.colorOf('color-mix(in oklab, var(--wb-board) 80%, var(--bg))'),
+    stickyFillByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${STICKY_TONE_HEX[tone]} 30%, var(--wb-board))`)),
+    stickyEdgeByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${STICKY_TONE_HEX[tone]} 70%, var(--wb-board))`)),
     frameFill: reader.colorOf('color-mix(in srgb, var(--accent) 4%, transparent)'),
     placeholderFill: reader.colorOf('color-mix(in oklab, var(--accent) 8%, var(--wb-board))'),
     metaSize: reader.sizeOf('var(--type-meta)'),

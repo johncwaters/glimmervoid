@@ -1,4 +1,4 @@
-import { BOX_CHANGES, dialValuesOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, dialValuesOfBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
 import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Note, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
@@ -149,7 +149,7 @@ function boxContentOf(box: Box): BoxContent {
   if (box.shape === 'icon') return { lines: [], media: null, device: null, fit: 'fit', glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0, dialValues: {} };
   const dialValues = dialValuesOfBox(box);
   if (box.shape === 'device') return { lines: [], media: box.media, device: box.device, fit: box.fit, glyphRoom: 0, titleIconChars, dialValues };
-  return { lines: box.lines, media: box.media, device: null, fit: 'fit', glyphRoom: 0, titleIconChars, dialValues };
+  return { lines: box.lines, media: mediaOfBox(box), device: null, fit: 'fit', glyphRoom: 0, titleIconChars, dialValues };
 }
 
 function deviceArtOf(device: DeviceName, artWidth: number): ContentArt {
@@ -314,7 +314,7 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, posit
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.shape === 'sticky' ? box.tone : null, headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + width, y: position.y + shape.headerHeight + index * outputRowHeight + outputRowHeight / 2 },

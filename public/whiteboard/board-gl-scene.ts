@@ -1,4 +1,4 @@
-import type { IconName } from '#shared/contracts/whiteboard.ts';
+import type { IconName, StickyTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
@@ -37,6 +37,8 @@ interface BoardPalette {
   noteByline: Rgba;
   codeBand: Rgba;
   panelFill: Rgba;
+  stickyFillByTone: Readonly<Record<StickyTone, Rgba>>;
+  stickyEdgeByTone: Readonly<Record<StickyTone, Rgba>>;
   frameFill: Rgba;
   placeholderFill: Rgba;
   metaSize: number;
@@ -313,17 +315,29 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   });
 }
 
-type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape'> & { step: unknown };
+type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
   const isPanel = box.shape === 'panel';
   const width = isPanel && !box.step ? 1.4 : OUTLINE_WIDTH;
   const stepStroke = box.step ? palette.accent : null;
-  const restingFill = isPanel ? palette.panelFill : palette.board;
+  const restingFill = restingFillOf(box, palette);
   if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width };
   if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width };
   if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width };
-  return { fill: restingFill, stroke: stepStroke ?? (isPanel ? palette.line : palette.inkDim), dash: SOLID, width };
+  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width };
+}
+
+function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
+  if (box.tone) return palette.stickyFillByTone[box.tone];
+  if (box.shape === 'text') return TRANSPARENT;
+  return box.shape === 'panel' ? palette.panelFill : palette.board;
+}
+
+function restingStrokeOf(box: OutlinedBox, palette: BoardPalette): Rgba {
+  if (box.tone) return palette.stickyEdgeByTone[box.tone];
+  if (box.shape === 'text') return TRANSPARENT;
+  return box.shape === 'panel' ? palette.line : palette.inkDim;
 }
 
 function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): Rgba {
@@ -559,7 +573,7 @@ function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], p
   }
   if (swatch.kind === 'change') {
     const sample = { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14 };
-    const colors = boxOutlineColors({ change: swatch.change, shape: 'box', step: null }, palette);
+    const colors = boxOutlineColors({ change: swatch.change, shape: 'box', tone: null, step: null }, palette);
     const opacity = swatch.change === 'removed' ? 0.6 : 1;
     pushOutlinedRect(part, sample, 3, faded(colors.fill, opacity), faded(colors.stroke, opacity), colors.width, colors.dash, ALWAYS);
     return;

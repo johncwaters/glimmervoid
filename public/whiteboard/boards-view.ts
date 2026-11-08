@@ -49,6 +49,8 @@ const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; icon
   { tool: 'box', label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
   { tool: 'decision', label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
   { tool: 'panel', label: 'Panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11', hint: 'Click the board to place a panel. Esc to cancel.' },
+  { tool: 'sticky', label: 'Sticky note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click the board to place a sticky note. Esc to cancel.' },
+  { tool: 'text', label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click the board to place text. Esc to cancel.' },
   { tool: 'icon', label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
   { tool: 'device', label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
   { tool: 'wire', label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
@@ -632,7 +634,7 @@ async function saveBoardDoc(boardId: string, boxId: string, docText: string, loa
   const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
   if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
   const savedBox = docBoxOf(boardId, boxId);
-  if (savedBox && savedBox.shape !== 'icon' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
+  if (savedBox && savedBox.shape !== 'icon' && savedBox.shape !== 'text' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
   return { ok: true, hash: stored.media.asset };
 }
 
