@@ -89,8 +89,8 @@ type OwnedCommandRunner = (parsed: ParsedRun) => Promise<number>;
 
 const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   doctor: async () => {
-    const isNodePtyLoading = await runDoctor();
-    return isNodePtyLoading ? 0 : 1;
+    const isEveryNativeModuleLoading = await runDoctor();
+    return isEveryNativeModuleLoading ? 0 : 1;
   },
   pair: async ({ values }) => {
     const { runPairCli } = await import('../server/pair-cli.ts');
@@ -335,6 +335,9 @@ async function runDoctor(): Promise<boolean> {
     line('reason', nodePty.reason);
     line('hint', nodePtyRebuildHint(platform));
   }
+  const { isEveryProbeLoading, probeNativeModules } = await import('../server/native-probes.ts');
+  const nativeProbeRows = await probeNativeModules();
+  for (const [label, outcome] of nativeProbeRows) line(label, outcome);
 
   switchSection('Git');
   for (const [label, value] of gitDoctorRows(probeGitVersion())) line(label, value);
@@ -346,7 +349,7 @@ async function runDoctor(): Promise<boolean> {
   if (npmBin && !npmOn) {
     console.log(`\n${formatPathNotice({ installedBinDir: npmBin, onPathFlag: false, platform })}`);
   }
-  return nodePty.ok;
+  return nodePty.ok && isEveryProbeLoading(nativeProbeRows);
 }
 
 function resolveNpmGlobalPrefix(exec: typeof execSync): string | null {

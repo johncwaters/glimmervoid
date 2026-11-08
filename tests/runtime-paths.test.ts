@@ -15,6 +15,7 @@ test('a bundled install resolves the same assets as .js under dist', () => {
   const paths = computeRuntimePaths({
     moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.js'),
     hasPackageJson: onlyRootHasPackageJson,
+    isBinary: false,
   });
 
   assert.equal(paths.packageRoot, PACKAGE_ROOT);
@@ -29,10 +30,12 @@ test('the dashboard build is always read from dist/client, bundled or not', () =
   const fromSource = computeRuntimePaths({
     moduleFile: path.join(PACKAGE_ROOT, 'server', 'backend', 'backend-http.ts'),
     hasPackageJson: onlyRootHasPackageJson,
+    isBinary: false,
   });
   const fromBundle = computeRuntimePaths({
     moduleFile: path.join(PACKAGE_ROOT, 'dist', 'chunks', 'shared-abc123.js'),
     hasPackageJson: onlyRootHasPackageJson,
+    isBinary: false,
   });
 
   assert.equal(fromSource.clientDir, path.join(PACKAGE_ROOT, 'dist', 'client'));
@@ -40,3 +43,20 @@ test('the dashboard build is always read from dist/client, bundled or not', () =
   assert.equal(fromBundle.bundled, true, 'a shared chunk under dist is still a bundled layout');
 });
 
+test('a binary relaunches itself through __run, while node installs launch the entry file', () => {
+  const binaryPaths = computeRuntimePaths({
+    moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.mjs'),
+    hasPackageJson: onlyRootHasPackageJson,
+    isBinary: true,
+  });
+  const bundledPaths = computeRuntimePaths({
+    moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.js'),
+    hasPackageJson: onlyRootHasPackageJson,
+    isBinary: false,
+  });
+
+  assert.equal(binaryPaths.boardStoreWorkerPath, path.join(PACKAGE_ROOT, 'dist', 'server', 'whiteboard', 'board-store-worker.mjs'));
+  assert.deepEqual(binaryPaths.selfLaunch('cli', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid']);
+  assert.deepEqual(binaryPaths.selfLaunch('hook-relay', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid', '__run', 'hook-relay']);
+  assert.deepEqual(bundledPaths.selfLaunch('hook-relay', '/usr/bin/node'), ['/usr/bin/node', path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js')]);
+});

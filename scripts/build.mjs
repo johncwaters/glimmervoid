@@ -31,6 +31,31 @@ function fail(message) {
   process.exit(1);
 }
 
+const PKG_PLATFORM_BY_NODE_PLATFORM = { linux: 'linux', darwin: 'macos', win32: 'win' };
+const BINARY_NODE_MAJOR = 24;
+
+async function buildBinary() {
+  const pkgPlatform = PKG_PLATFORM_BY_NODE_PLATFORM[process.platform];
+  if (!pkgPlatform) fail(`no standalone binary target for platform ${process.platform}`);
+  await build({
+    configFile: path.join(repoRoot, 'vite.server.config.ts'),
+    build: { rolldownOptions: { output: { entryFileNames: '[name].mjs', chunkFileNames: 'chunks/[name]-[hash].mjs' } } },
+  });
+  const binaryName = process.platform === 'win32' ? 'glimmervoid.exe' : 'glimmervoid';
+  const binaryPath = path.join(repoRoot, 'dist-binary', binaryName);
+  fs.rmSync(path.dirname(binaryPath), { recursive: true, force: true });
+  const { exec: packageExecutable } = await import('@yao-pkg/pkg');
+  await packageExecutable([
+    path.join(distDir, 'bin', 'glimmervoid.mjs'),
+    '--sea',
+    '--config', path.join(repoRoot, 'package.json'),
+    '--targets', `node${BINARY_NODE_MAJOR}-${pkgPlatform}-${process.arch}`,
+    '--output', binaryPath,
+  ]);
+  if (!fs.existsSync(binaryPath)) fail(`pkg wrote no binary at ${binaryPath}`);
+  console.log(`build: standalone binary at ${path.relative(repoRoot, binaryPath)}`);
+}
+
 function nodeOutputFiles(directory, found = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const absolutePath = path.join(directory, entry.name);
@@ -101,3 +126,5 @@ const declaredBins = typeof declaredBin === 'string' ? [declaredBin] : Object.va
 for (const relativePath of declaredBins) fs.chmodSync(path.join(repoRoot, relativePath), 0o755);
 
 console.log(`build: dist/ complete (${REQUIRED_OUTPUTS.length} load-bearing outputs present)`);
+
+if (process.argv.includes('--binary')) await buildBinary();

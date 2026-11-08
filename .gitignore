@@ -27,3 +27,5 @@ marketing/social/out/
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/
+
+dist-binary/
