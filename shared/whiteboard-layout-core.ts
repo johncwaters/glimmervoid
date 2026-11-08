@@ -221,7 +221,7 @@ function measuredBoxShape(box: Box) {
   const artRoom = art ? art.height + MEDIA_GAP : 0;
   const headerHeight = textHeight + BOX_PADDING + artRoom;
   const outputs = box.shape === 'decision' ? box.outputs : [];
-  return { titleLines, wasLines, bodyLines, headerHeight, outputs, content, artTop: textHeight + MEDIA_GAP, art, height: headerHeight + outputs.length * OUTPUT_ROW_HEIGHT };
+  return { titleLines, wasLines, bodyLines, headerHeight, outputs, content, artTop: textHeight + MEDIA_GAP, art, height: Math.max(headerHeight + outputs.length * OUTPUT_ROW_HEIGHT, box.height ?? 0) };
 }
 
 type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind }>[] };
@@ -290,13 +290,14 @@ function laidOutStep(planStepById: ReadonlyMap<string, PlanStep>, box: Box): Lai
 function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, position: Point): LaidOutBox {
   const shape = boxShape(box);
   const width = boxWidthOf(box);
+  const outputRowHeight = shape.outputs.length > 0 ? (shape.height - shape.headerHeight) / shape.outputs.length : OUTPUT_ROW_HEIGHT;
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     titleLines: shape.titleLines, icon: box.icon, bodyLines: shape.bodyLines, change: box.change, wasLines: shape.wasLines,
     shape: box.shape, headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
-      port: { x: position.x + width, y: position.y + shape.headerHeight + index * OUTPUT_ROW_HEIGHT + OUTPUT_ROW_HEIGHT / 2 },
+      port: { x: position.x + width, y: position.y + shape.headerHeight + index * outputRowHeight + outputRowHeight / 2 },
     })),
   };
 }
