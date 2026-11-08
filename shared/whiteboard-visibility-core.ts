@@ -908,8 +908,11 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
     if (known !== 0) return known === SOFT_STEP;
     const next = neighborOf(node, direction);
     const isAlongX = direction === RIGHT || direction === LEFT;
-    const [across, from, to] = isAlongX ? [graph.ys[node] ?? 0, graph.xs[node] ?? 0, graph.xs[next] ?? 0] : [graph.xs[node] ?? 0, graph.ys[node] ?? 0, graph.ys[next] ?? 0];
-    const isSoft = next >= 0 && crossesSoftRect(isAlongX ? softAlongX : softAlongY, across, Math.min(from, to), Math.max(from, to));
+    const acrossValues = isAlongX ? graph.ys : graph.xs;
+    const alongValues = isAlongX ? graph.xs : graph.ys;
+    const from = alongValues[node] ?? 0;
+    const to = alongValues[next] ?? 0;
+    const isSoft = next >= 0 && crossesSoftRect(isAlongX ? softAlongX : softAlongY, acrossValues[node] ?? 0, Math.min(from, to), Math.max(from, to));
     const marker = isSoft ? SOFT_STEP : CLEAR_STEP;
     nodes.softSteps[node * 4 + direction] = marker;
     if (next >= 0) nodes.softSteps[next * 4 + (direction ^ 1)] = marker;

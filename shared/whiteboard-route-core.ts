@@ -199,7 +199,8 @@ interface Crossables {
 interface SearchBuffers {
   bestCost: Float64Array;
   cameFrom: Int32Array;
-  touchedStates: number[];
+  touchedStates: Int32Array;
+  touchedCount: number;
   heap: MinHeap;
 }
 
@@ -751,7 +752,7 @@ function swapHeapEntries(heap: MinHeap, first: number, second: number): void {
   heap.tieBreaks[second] = firstTieBreak;
 }
 
-function pushToHeap(heap: MinHeap, state: number, priority: number, tieBreak: number): void {
+function reserveHeapSlot(heap: MinHeap): number {
   if (heap.size === heap.states.length) {
     const states = new Int32Array(heap.size * 2);
     const priorities = new Float64Array(heap.size * 2);
@@ -763,11 +764,12 @@ function pushToHeap(heap: MinHeap, state: number, priority: number, tieBreak: nu
     heap.priorities = priorities;
     heap.tieBreaks = tieBreaks;
   }
-  heap.states[heap.size] = state;
-  heap.priorities[heap.size] = priority;
-  heap.tieBreaks[heap.size] = tieBreak;
-  let index = heap.size;
   heap.size += 1;
+  return heap.size - 1;
+}
+
+function siftUpHeap(heap: MinHeap, slot: number): void {
+  let index = slot;
   while (index > 0) {
     const parent = (index - 1) >> 1;
     if (!isHeapEntryBefore(heap, index, parent)) return;
@@ -797,7 +799,7 @@ function popFromHeap(heap: MinHeap): number {
 }
 
 function createSearchBuffers(): SearchBuffers {
-  return { bestCost: new Float64Array(INITIAL_STATE_CAPACITY).fill(Infinity), cameFrom: new Int32Array(INITIAL_STATE_CAPACITY).fill(-1), touchedStates: [], heap: createMinHeap() };
+  return { bestCost: new Float64Array(INITIAL_STATE_CAPACITY).fill(Infinity), cameFrom: new Int32Array(INITIAL_STATE_CAPACITY).fill(-1), touchedStates: new Int32Array(INITIAL_STATE_CAPACITY), touchedCount: 0, heap: createMinHeap() };
 }
 
 function ensureStateCapacity(buffers: SearchBuffers, stateCount: number): void {
@@ -811,12 +813,23 @@ function ensureStateCapacity(buffers: SearchBuffers, stateCount: number): void {
   buffers.cameFrom = cameFrom;
 }
 
+function markStateTouched(buffers: SearchBuffers, state: number): void {
+  if (buffers.touchedCount === buffers.touchedStates.length) {
+    const touchedStates = new Int32Array(buffers.touchedCount * 2);
+    touchedStates.set(buffers.touchedStates);
+    buffers.touchedStates = touchedStates;
+  }
+  buffers.touchedStates[buffers.touchedCount] = state;
+  buffers.touchedCount += 1;
+}
+
 function resetSearchBuffers(buffers: SearchBuffers): void {
-  for (const state of buffers.touchedStates) {
+  for (let index = 0; index < buffers.touchedCount; index += 1) {
+    const state = buffers.touchedStates[index] ?? 0;
     buffers.bestCost[state] = Infinity;
     buffers.cameFrom[state] = -1;
   }
-  buffers.touchedStates.length = 0;
+  buffers.touchedCount = 0;
   buffers.heap.size = 0;
 }
 
@@ -919,7 +932,7 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
   const placedExits = placedTerminalsOf(graph, exits).filter((exit) => placedEntries.some((entry) => entry.component === exit.component));
   const reachableEntries = placedEntries.filter((entry) => placedExits.some((exit) => exit.component === entry.component));
   if (placedExits.length === 0 || reachableEntries.length === 0) return null;
-  const { touchedStates, heap } = buffers;
+  const { heap } = buffers;
   ensureStateCapacity(buffers, graph.nodeCount * 4);
   const estimate = (node: number, direction: number) => {
     const x = graph.xs[node] ?? 0;
@@ -933,8 +946,12 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
   for (const exit of placedExits) {
     const state = exit.node * 4 + exit.direction;
     buffers.bestCost[state] = exit.bias;
-    touchedStates.push(state);
-    pushToHeap(heap, state, exit.bias + estimate(exit.node, exit.direction), -exit.bias);
+    markStateTouched(buffers, state);
+    const slot = reserveHeapSlot(heap);
+    heap.states[slot] = state;
+    heap.priorities[slot] = exit.bias + estimate(exit.node, exit.direction);
+    heap.tieBreaks[slot] = -exit.bias;
+    siftUpHeap(heap, slot);
   }
   for (;;) {
     const state = popFromHeap(heap);
@@ -970,8 +987,12 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
       if (nextCost >= (buffers.bestCost[nextState] ?? Infinity)) continue;
       buffers.bestCost[nextState] = nextCost;
       buffers.cameFrom[nextState] = state;
-      touchedStates.push(nextState);
-      pushToHeap(heap, nextState, nextCost + estimate(nextNode, nextDirection), -nextCost);
+      markStateTouched(buffers, nextState);
+      const slot = reserveHeapSlot(heap);
+      heap.states[slot] = nextState;
+      heap.priorities[slot] = nextCost + estimate(nextNode, nextDirection);
+      heap.tieBreaks[slot] = -nextCost;
+      siftUpHeap(heap, slot);
     }
   }
 }
