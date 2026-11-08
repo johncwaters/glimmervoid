@@ -141,6 +141,7 @@ async function indexBoardInSlices(elements: Board['elements'], elementsPerSlice:
     if (indexedSinceYield < elementsPerSlice) continue;
     indexedSinceYield = 0;
     await yieldBetweenSlices();
+    if (indexByElements.has(elements)) return;
   }
   indexByElements.set(elements, index);
 }

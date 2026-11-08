@@ -6,7 +6,7 @@ import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileK
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
-import { advanceBoardLayout, chromeOfBoard, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, resumeBoardLayout, savedWorldOfBoard, setSavedWorldSource, warmBoardLayout, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
@@ -15,6 +15,7 @@ import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
 import type { LayoutCache, LayoutStamp, SavedPaint } from './layout-cache.ts';
 import { elementTableOf, isElementTable } from '../../shared/whiteboard-element-table.ts';
 
+const WARM_ELEMENTS_PER_SLICE = 5000;
 const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
 const ChangedElement = z.strictObject({ id: z.string(), after: Element.nullable(), isAppended: z.boolean() });
@@ -97,7 +98,7 @@ function savedPaintOf(index: TileIndex, slot: number, painted: PlacedPaint | nul
   return kind && body !== undefined ? [{ slot, painted, record: { id, kind, body } }] : [];
 }
 
-function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void): LayoutHost {
+function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, yieldToNextTurn: () => Promise<unknown>): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
   const syncIdByBoardId = new Map<string, number>();
@@ -218,9 +219,12 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
     switch (request.kind) {
       case 'sync-start': {
         syncIdByBoardId.set(request.head.id, request.syncId);
+        forgetBoardWarm(request.head.id);
         const records = cachedTilesOf(request.head.id, request.head)?.index.records;
         if (isElementTable(records) && records.size === request.elementCount) {
-          boardById.set(request.head.id, { ...request.head, elements: records });
+          const board = { ...request.head, elements: records };
+          boardById.set(request.head.id, board);
+          if (request.elementCount >= INCREMENTAL_MIN_ELEMENTS) void warmBoardLayout(board, WARM_ELEMENTS_PER_SLICE, yieldToNextTurn).catch(() => {});
           return {};
         }
         tilesByBoardId.delete(request.head.id);
@@ -265,6 +269,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
         return { version: board.version, chrome: chromeOfBoard(board), warnings: warningsOfBoard(board) };
       }
       case 'forget':
+        forgetBoardWarm(request.boardId);
         cache.forget(request.boardId);
         boardById.delete(request.boardId);
         tilesByBoardId.delete(request.boardId);

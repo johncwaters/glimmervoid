@@ -955,6 +955,14 @@ function createWhiteboardWiring({
     },
   };
 
+  async function warmEditPathOf(boardId: string): Promise<void> {
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return;
+    await tiles.hold(loading.record.board).catch((error: unknown) => {
+      logger.warn(`[whiteboard] board ${boardId} could not be readied for its first edit: ${errorMessage(error)}`);
+    });
+  }
+
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
       const openSteps = openStepLogs.openStepLogOf(request.boardId);
@@ -962,6 +970,7 @@ function createWhiteboardWiring({
       openSteps.mark('heads ready');
       if (await tiles.viewCached(viewer, request, openSteps)) {
         openSteps.logIfBoardLoaded(false);
+        void warmEditPathOf(request.boardId);
         return;
       }
       openSteps.mark('saved layout tried');

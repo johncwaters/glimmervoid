@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import v8 from 'node:v8';
 import { parentPort, workerData } from 'node:worker_threads';
 
@@ -23,7 +24,7 @@ function serve(): void {
   const cache = openLayoutCache(typeof cachePath === 'string' ? cachePath : null, codeStampOf(layoutWorkerPath), ({ boardId, elapsedMs }) => {
     port.postMessage({ savedLayoutWritten: { boardId, elapsedMs, heapBytes: v8.getHeapStatistics().used_heap_size } });
   });
-  const host = createLayoutHost(cache, markStep);
+  const host = createLayoutHost(cache, markStep, yieldToEventLoop);
   port.on('message', (message: unknown) => {
     const parsed = LayoutRequest.safeParse(message);
     if (!parsed.success) {

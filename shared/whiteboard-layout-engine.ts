@@ -134,15 +134,37 @@ function forEachIdTouching(idGrid: IdGrid, rect: Rect, visit: (id: string) => vo
   });
 }
 
-function unionOfStored(idGrid: IdGrid, around: Rect | null): Rect | null {
+function* unioningStored(idGrid: IdGrid, around: Rect | null, elementsPerSlice: number): Generator<void, Rect | null> {
   const { grid } = idGrid;
   let union = around;
+  let unitedSinceYield = 0;
   for (const slot of idGrid.slotById.values()) {
     const minX = grid.minX[slot] ?? 0;
     const minY = grid.minY[slot] ?? 0;
     union = unionOf([...(union ? [union] : []), { x: minX, y: minY, width: (grid.maxX[slot] ?? 0) - minX, height: (grid.maxY[slot] ?? 0) - minY }]);
+    unitedSinceYield += 1;
+    if (unitedSinceYield < elementsPerSlice) continue;
+    unitedSinceYield = 0;
+    yield;
   }
   return union;
+}
+
+function drained<Value>(steps: Generator<void, Value>): Value {
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+function* inSlices<Item>(items: Iterable<Item>, elementsPerSlice: number, visit: (item: Item) => void): Generator<void, void> {
+  let visitedSinceYield = 0;
+  for (const item of items) {
+    visit(item);
+    visitedSinceYield += 1;
+    if (visitedSinceYield < elementsPerSlice) continue;
+    visitedSinceYield = 0;
+    yield;
+  }
 }
 
 function createWarningBook(): WarningBook {
@@ -287,9 +309,14 @@ function forgetLaidOut(world: LayoutWorld, id: string): void {
   world.loopFrameIds.delete(id);
 }
 
+function* recomputingAround(world: LayoutWorld, elementsPerSlice: number): Generator<void, Rect | null> {
+  let around: Rect | null = headerRectOf(world.boxesTop);
+  for (const idGrid of [world.boxGrid, world.softGrid, world.frameGrid, world.wireGrid, world.inkGrid]) around = yield* unioningStored(idGrid, around, elementsPerSlice);
+  return around;
+}
+
 function recomputedAround(world: LayoutWorld): Rect | null {
-  const header = headerRectOf(world.boxesTop);
-  return [world.boxGrid, world.softGrid, world.frameGrid, world.wireGrid, world.inkGrid].reduce<Rect | null>((around, idGrid) => unionOfStored(idGrid, around), header);
+  return drained(recomputingAround(world, Number.POSITIVE_INFINITY));
 }
 
 function chromeOfWorld(world: LayoutWorld, board: Board): Omit<PlacedLayout, 'elements' | 'warnings'> {
@@ -329,7 +356,7 @@ interface WorldParts {
   warningLists: readonly WarningList[];
 }
 
-function worldFromParts(board: Board, { laidOut, chrome, routeMemory, warningLists }: WorldParts, minIncrementalElements: number): LayoutWorld {
+function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLists }: WorldParts, minIncrementalElements: number, elementsPerSlice: number): Generator<void, LayoutWorld> {
   const world = emptyWorld(board, minIncrementalElements);
   const freeformTop = stepBandOf(board).bottom;
   world.routeMemory = routeMemory;
@@ -342,16 +369,20 @@ function worldFromParts(board: Board, { laidOut, chrome, routeMemory, warningLis
     for (const element of laidOut) world.laidOutById.set(element.id, element);
     return world;
   }
-  for (const element of laidOut) storeLaidOut(world, element);
-  for (const element of board.elements.values()) {
+  yield* inSlices(laidOut, elementsPerSlice, (element) => storeLaidOut(world, element));
+  yield* inSlices(board.elements.values(), elementsPerSlice, (element) => {
     countElement(world, element, 1);
     if (element.kind === 'note') world.noteOrderById.set(element.id, nextNoteOrderOf(world, element.id));
     if (element.kind === 'box' && isFloating(element, board)) world.floatingBoxCount += 1;
-  }
+  });
   addWarningLists(world.routeWarnings, warningLists.slice(0, -1));
   addWarningLists(world.placementWarnings, warningLists.slice(-1));
-  world.around = recomputedAround(world);
+  world.around = yield* recomputingAround(world, elementsPerSlice);
   return world;
+}
+
+function worldFromParts(board: Board, parts: WorldParts, minIncrementalElements: number): LayoutWorld {
+  return drained(buildingWorld(board, parts, minIncrementalElements, Number.POSITIVE_INFINITY));
 }
 
 function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncrementalElements: number): LayoutWorld {
@@ -366,11 +397,25 @@ function warningListOfTexts(texts: readonly string[]): WarningList {
   return { count: texts.length, messageAt: (index) => texts[index] ?? '' };
 }
 
-function resumeLayoutWorld(board: Board, saved: SavedWorld, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): LayoutWorld {
+function* obstacleRectsInSlices(contentTop: number, laidOut: readonly PlacedElement[], elementsPerSlice: number): Generator<void, Map<string, Rect>> {
+  const rectByKey = new Map<string, Rect>();
+  for (let start = 0; start < laidOut.length; start += elementsPerSlice) {
+    for (const [key, rect] of obstacleRectsByKey(obstacleInputOf(contentTop, laidOut.slice(start, start + elementsPerSlice)))) rectByKey.set(key, rect);
+    yield;
+  }
+  return rectByKey;
+}
+
+function* resumingLayoutWorld(board: Board, saved: SavedWorld, elementsPerSlice: number, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): Generator<void, LayoutWorld> {
   const contentTop = wireCeilingOf(stepBandOf(board).bottom);
-  const routeMemory: RouteMemory = { contentTop, rectByKey: obstacleRectsByKey(obstacleInputOf(contentTop, saved.laidOut)), routeById: new Map(saved.routeById), warningPairs: null };
+  const rectByKey = yield* obstacleRectsInSlices(contentTop, saved.laidOut, elementsPerSlice);
+  const routeMemory: RouteMemory = { contentTop, rectByKey, routeById: new Map(saved.routeById), warningPairs: null };
   const warningLists = [warningListOfTexts(saved.routeWarnings), warningListOfTexts(saved.placementWarnings)];
-  return worldFromParts(board, { laidOut: saved.laidOut, chrome: saved.chrome, routeMemory, warningLists }, minIncrementalElements);
+  return yield* buildingWorld(board, { laidOut: saved.laidOut, chrome: saved.chrome, routeMemory, warningLists }, minIncrementalElements, elementsPerSlice);
+}
+
+function resumeLayoutWorld(board: Board, saved: SavedWorld, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): LayoutWorld {
+  return drained(resumingLayoutWorld(board, saved, Number.POSITIVE_INFINITY, minIncrementalElements));
 }
 
 function savedWorldOf(world: LayoutWorld): SavedWorldParts {
@@ -903,5 +948,5 @@ function warningsOfWorld(world: LayoutWorld): string[] {
   return world.layout ? world.layout.warnings : warningsOf(world);
 }
 
-export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld };
+export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, createLayoutWorld, drained, layoutOf, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
 export type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange };
