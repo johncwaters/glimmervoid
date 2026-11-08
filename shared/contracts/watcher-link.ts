@@ -74,8 +74,8 @@ export const WatcherCredentials = z.strictObject({
 export type WatcherCredentials = z.infer<typeof WatcherCredentials>;
 
 const GITHUB_API_ORIGIN = 'https://api.github.com';
-export const GITHUB_API_BASE_VARIABLE = 'GLIMMERVOID_GITHUB_API_BASE';
+export const GITHUB_API_BASE_ENV = 'GLIMMERVOID_GITHUB_API_BASE';
 
 export function githubApiOrigin(environment: Readonly<Record<string, string | undefined>>): string {
-  return loopbackOverrideOrigin(environment[GITHUB_API_BASE_VARIABLE], GITHUB_API_ORIGIN);
+  return loopbackOverrideOrigin(environment[GITHUB_API_BASE_ENV], GITHUB_API_ORIGIN);
 }

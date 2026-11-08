@@ -6,8 +6,9 @@ import type { ClientErrorReport } from '../shared/contracts/control-messages.ts'
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties, WatcherRollup } from '../shared/contracts/telemetry.ts';
 import {
-  TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
-  buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, nodeMajorVersion, resolveProjectToken,
+  buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
+  buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, POSTHOG_INGEST_HOST_ENV, isIngestOverrideIgnored, nodeMajorVersion, resolveProjectToken,
+  telemetryBatchUrl, telemetryFlagsUrl,
 } from './core/telemetry-core.ts';
 import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
@@ -133,6 +134,8 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     },
     warn: (message, fields) => log.warnOnce(message, message, fields),
   });
+
+  if (isIngestOverrideIgnored(options.env)) log.warnOnce('ingest-override-ignored', `${POSTHOG_INGEST_HOST_ENV} does not name a loopback address, so telemetry keeps going to PostHog`);
 
   const heartbeatTimer = setInterval(() => {
     const activeSessionCount = options.getActiveSessionCount?.() ?? 0;
@@ -304,7 +307,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   async function post(outgoing: QueuedEvent[], installId: string, timeoutMs: number): Promise<boolean> {
     try {
-      const response = await fetchFn(TELEMETRY_BATCH_URL, {
+      const response = await fetchFn(telemetryBatchUrl(options.env), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -351,7 +354,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     try {
       const { installId } = await ensureInstallState();
       if (isStopped || !isLocalConsentGiven()) return null;
-      const response = await fetchFn(TELEMETRY_FLAGS_URL, {
+      const response = await fetchFn(telemetryFlagsUrl(options.env), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: resolveProjectToken(options.env), distinct_id: installId }),

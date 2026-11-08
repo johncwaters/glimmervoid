@@ -9,11 +9,11 @@ import type {
   AiGenerationProperties, ExceptionFrame, ExceptionProperties, PersonProperties, SessionExitKind, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
 import type { UsageGenerationRollupRow } from '../usage/core/usage-entry-core.ts';
+import { loopbackOverrideOrigin } from '../../shared/loopback-hosts.ts';
 
-const POSTHOG_INGEST_HOST = 'https://us.i.posthog.com';
+const POSTHOG_INGEST_ORIGIN = 'https://us.i.posthog.com';
+const POSTHOG_INGEST_HOST_ENV = 'GLIMMERVOID_POSTHOG_INGEST_HOST';
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
-const TELEMETRY_BATCH_URL = `${POSTHOG_INGEST_HOST}/batch/`;
-const TELEMETRY_FLAGS_URL = `${POSTHOG_INGEST_HOST}/flags?v=2`;
 
 const MAX_STACK_LENGTH = 16384;
 const ACCOUNT_HASH_SALT = 'glimmervoid-account-hash-v1';
@@ -39,6 +39,7 @@ interface TelemetryEnvironment {
   GLIMMERVOID_TELEMETRY_PROJECT_TOKEN?: string;
   CI?: string;
   NODE_TEST_CONTEXT?: string;
+  GLIMMERVOID_POSTHOG_INGEST_HOST?: string;
 }
 
 interface TelemetryConfig {
@@ -66,6 +67,22 @@ function decideTelemetryConsent(env: TelemetryEnvironment, config: TelemetryConf
   const configured = config.telemetry?.enabled;
   if (typeof configured === 'boolean') return { isEnabled: configured, source: 'config' };
   return { isEnabled: true, source: 'default' };
+}
+
+function telemetryIngestOrigin(env: TelemetryEnvironment): string {
+  return loopbackOverrideOrigin(env[POSTHOG_INGEST_HOST_ENV], POSTHOG_INGEST_ORIGIN);
+}
+
+function isIngestOverrideIgnored(env: TelemetryEnvironment): boolean {
+  return Boolean(env[POSTHOG_INGEST_HOST_ENV]) && telemetryIngestOrigin(env) === POSTHOG_INGEST_ORIGIN;
+}
+
+function telemetryBatchUrl(env: TelemetryEnvironment): string {
+  return `${telemetryIngestOrigin(env)}/batch/`;
+}
+
+function telemetryFlagsUrl(env: TelemetryEnvironment): string {
+  return `${telemetryIngestOrigin(env)}/flags?v=2`;
 }
 
 function isTelemetryForcedOff(env: TelemetryEnvironment): boolean {
@@ -428,9 +445,9 @@ function nodeMajorVersion(nodeVersion: string): number {
 }
 
 export {
-  FIRST_RUN_NOTICE, POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, TELEMETRY_FLAGS_URL,
+  FIRST_RUN_NOTICE, POSTHOG_INGEST_HOST_ENV, POSTHOG_PROJECT_TOKEN,
   adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, claudeAccountUuidOf,
-  classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isTelemetryForcedOff, nodeMajorVersion,
-  parsePosthogReleaseId, resolveProjectToken,
+  classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isIngestOverrideIgnored, isTelemetryForcedOff, nodeMajorVersion,
+  parsePosthogReleaseId, resolveProjectToken, telemetryBatchUrl, telemetryFlagsUrl,
 };
 export type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };

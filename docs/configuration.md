@@ -298,6 +298,8 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |
 | `GLIMMERVOID_LINK_SECRET` | internal | The link secret the server hands the watcher it starts, from which each direction of the link derives its own signing key. Read once and removed from the watcher's environment. Not an operator setting. |
+| `GLIMMERVOID_GITHUB_API_BASE` | internal | Points GitHub probes at a fake GitHub API for the end-to-end runs. Honored only on a loopback address; any other value is ignored with one warning. Not an operator setting. |
+| `GLIMMERVOID_POSTHOG_INGEST_HOST` | internal | Sends telemetry to a fake PostHog ingest for the end-to-end runs. Honored only on a loopback address; any other value is ignored with one warning. Not an operator setting. |
 | `GLIMMERVOID_LINK_SERVER_URL` | internal | Where the watcher sends its nudges: plain http only on loopback, https otherwise. Not an operator setting. |
 | `GLIMMERVOID_WATCHER_HOME` | internal | Folder the watcher keeps its probe set and encrypted credentials in. The server passes `watcher` inside the Glimmervoid home. Not an operator setting. |
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |

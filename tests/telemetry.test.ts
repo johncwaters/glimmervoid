@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { POSTHOG_PROJECT_TOKEN, TELEMETRY_BATCH_URL, } from '../server/core/telemetry-core.ts';
+import { POSTHOG_PROJECT_TOKEN, telemetryBatchUrl } from '../server/core/telemetry-core.ts';
 import { createAccountIdReader, createTelemetry, } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
 import { TELEMETRY_BASE_PROPERTY_KEYS } from '../shared/contracts/telemetry.ts';
@@ -70,7 +70,7 @@ test('a batch posts the project token, the install id and an allowlisted event',
   await telemetry.flush();
   await telemetry.stop();
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].url, TELEMETRY_BATCH_URL);
+  assert.equal(sent[0].url, telemetryBatchUrl({}));
   assert.ok(sent[0].signal instanceof AbortSignal);
   assert.equal(sent[0].body.api_key, POSTHOG_PROJECT_TOKEN);
   const [event] = sent[0].body.batch;

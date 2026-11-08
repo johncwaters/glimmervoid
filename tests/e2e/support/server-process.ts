@@ -26,6 +26,7 @@ interface ServerStartOptions {
   extraEnvironment?: Readonly<Record<string, string>>;
   removedEnvironmentNames?: readonly string[];
   pathPrefix?: string;
+  seedConfig?: Readonly<Record<string, unknown>>;
 }
 
 interface StoppedServer {
@@ -127,6 +128,7 @@ async function waitForDashboard(port: number, exited: () => boolean): Promise<vo
     if (response?.ok) return;
     await sleep(POLL_INTERVAL_MS * 4);
   }
+  if (exited()) throw new Error('the server exited before it answered /control-token');
   throw new Error(`the server did not answer /control-token within ${BOOT_DEADLINE_MS} ms`);
 }
 
@@ -134,6 +136,7 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
   const scenarioHomes = path.join(process.env.GLIMMERVOID_HOME ?? REPO_ROOT, 'e2e');
   fs.mkdirSync(scenarioHomes, { recursive: true });
   const home = fs.mkdtempSync(path.join(scenarioHomes, `${options.scenarioName}-`));
+  if (options.seedConfig !== undefined) fs.writeFileSync(path.join(home, 'config.json'), `${JSON.stringify(options.seedConfig, null, 2)}\n`);
   const port = await reserveFreePort();
   const startedAt = Date.now();
   const server = spawn(process.execPath, [SERVER_ENTRY], {
