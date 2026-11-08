@@ -236,11 +236,13 @@ function createWhiteboardWiring({
   const store = createBoardStore(boardsRoot);
   const unloadedBoardIds = new Set<string>();
   const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
+  const openStepLogs = createOpenStepLogs(logger);
   const tiles = createBoardTileService({
     boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null),
     unloadedBoardOf: (boardId) => (unloadedBoardIds.has(boardId) ? recordsByBoardId.get(boardId)?.board ?? null : null),
     layoutCachePath: path.join(boardsRoot, LAYOUT_CACHE_FILENAME),
     logger,
+    onSavedLayoutWritten: openStepLogs.logSavedLayoutWritten,
   });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
@@ -919,11 +921,9 @@ function createWhiteboardWiring({
     },
   };
 
-  const openStepLogOf = createOpenStepLogs(logger);
-
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
-      const openSteps = openStepLogOf(request.boardId);
+      const openSteps = openStepLogs.openStepLogOf(request.boardId);
       await loaded;
       openSteps.mark('heads ready');
       if (await tiles.viewCached(viewer, request, openSteps)) {

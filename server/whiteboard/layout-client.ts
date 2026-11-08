@@ -6,8 +6,8 @@ import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import type { TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { layoutWorkerPath } from '../runtime-paths.ts';
 import { ELEMENT_PAGE_SIZE } from './board-store-core.ts';
-import { LayoutReply } from './layout-worker-core.ts';
-import type { LayoutAnswer, LayoutRequestBody, ViewerTiles } from './layout-worker-core.ts';
+import { LayoutReply, SavedLayoutWritten } from './layout-worker-core.ts';
+import type { LayoutAnswer, LayoutRequestBody, SavedLayoutWrite, ViewerTiles } from './layout-worker-core.ts';
 import type { LayoutStamp } from './layout-cache.ts';
 
 const WORKER_HEAP_SHARE = 0.5;
@@ -40,7 +40,7 @@ interface LayoutClient {
   forget(boardId: string): void;
 }
 
-function createLayoutClient({ cachePath }: { cachePath: string | null }): LayoutClient {
+function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: string | null; onSavedLayoutWritten: (written: SavedLayoutWrite) => void }): LayoutClient {
   const pendingByRequestId = new Map<number, PendingRequest>();
   const syncByBoardId = new Map<string, BoardSync>();
   let nextRequestId = 1;
@@ -61,6 +61,11 @@ function createLayoutClient({ cachePath }: { cachePath: string | null }): Layout
     started.on('error', (error: unknown) => failAll(started, error instanceof Error ? error : new Error(String(error))));
     started.on('exit', (exitCode) => failAll(started, new Error(`the whiteboard layout stopped with exit code ${exitCode}`)));
     started.on('message', (message: unknown) => {
+      const written = SavedLayoutWritten.safeParse(message);
+      if (written.success) {
+        onSavedLayoutWritten(written.data.savedLayoutWritten);
+        return;
+      }
       const reply = LayoutReply.safeParse(message);
       if (!reply.success) return;
       const pending = pendingByRequestId.get(reply.data.requestId);

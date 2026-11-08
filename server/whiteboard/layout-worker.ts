@@ -20,7 +20,10 @@ function serve(): void {
     openSteps.push({ step, elapsedMs: now - previousStepAt, heapBytes: v8.getHeapStatistics().used_heap_size });
     previousStepAt = now;
   }
-  const host = createLayoutHost(openLayoutCache(typeof cachePath === 'string' ? cachePath : null, codeStampOf(layoutWorkerPath)), markStep);
+  const cache = openLayoutCache(typeof cachePath === 'string' ? cachePath : null, codeStampOf(layoutWorkerPath), ({ boardId, elapsedMs }) => {
+    port.postMessage({ savedLayoutWritten: { boardId, elapsedMs, heapBytes: v8.getHeapStatistics().used_heap_size } });
+  });
+  const host = createLayoutHost(cache, markStep);
   port.on('message', (message: unknown) => {
     const parsed = LayoutRequest.safeParse(message);
     if (!parsed.success) {
@@ -29,6 +32,7 @@ function serve(): void {
       return;
     }
     const { requestId, ...request } = parsed.data;
+    cache.runQueuedWrites();
     openSteps = [];
     previousStepAt = performance.now();
     try {
@@ -37,6 +41,7 @@ function serve(): void {
     } catch (error) {
       port.postMessage({ requestId, ok: false, error: errorMessage(error) });
     }
+    setImmediate(cache.runQueuedWrites);
   });
 }
 
