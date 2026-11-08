@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { performance } from 'node:perf_hooks';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { setTimeout as sleep } from 'node:timers/promises';
 import v8 from 'node:v8';
 import vm from 'node:vm';
@@ -20,9 +20,8 @@ import { BOARD_STORE_FILENAME } from '../../server/whiteboard/board-store-core.t
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
-import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engine.ts';
-import type { BoardLayout } from '../../shared/whiteboard-layout-core.ts';
+import type { PlacedLayout } from '../../shared/whiteboard-layout-core.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
@@ -78,6 +77,12 @@ const PAGE_WIDTH_PX = 1280;
 const PAGE_HEIGHT_PX = 800;
 const BENCH_PAGE_HTML = '<!doctype html><html><body><h1>Bench page</h1><p>A page on the bench board.</p></body></html>';
 const GC_SETTLE_PASSES = 4;
+const LOOP_DELAY_RESOLUTION_MS = 10;
+const NANOSECONDS_PER_MS = 1e6;
+const CHILD_RESULT_PREFIX = 'whiteboard-child-result ';
+const STEP_LINE_PREFIX = '[bench-step] ';
+const CHILD_TIMEOUT_MS = 1_200_000;
+const CHILD_OUTPUT_BYTES = 64 * 1024 * 1024;
 const SECTION_FLAGS: Record<string, BenchSection> = { '--server-only': 'server', '--browser': 'browser', '--mcp': 'mcp' };
 
 function parseWhiteboardOptions(argv: readonly string[]): WhiteboardBenchOptions {
@@ -110,6 +115,15 @@ function parseSize(text: string): number {
 
 function metricOf(key: string, label: string, unit: WhiteboardMetricUnit, value: number | null): WhiteboardMetric {
   return { key, label, unit, value };
+}
+
+let previousStepAt = performance.now();
+
+function logStep(step: string): void {
+  const now = performance.now();
+  const usage = process.memoryUsage();
+  console.error(`${STEP_LINE_PREFIX}${step}: +${Math.round(now - previousStepAt)} ms, heap ${Math.round(megabytes(usage.heapUsed))} MB, buffers ${Math.round(megabytes(usage.arrayBuffers))} MB, rss ${Math.round(megabytes(usage.rss))} MB`);
+  previousStepAt = now;
 }
 
 function megabytes(byteCount: number): number {
@@ -160,19 +174,20 @@ async function benchBoardRecordOf(elementCount: number, boardsRoot: string, hasM
   return { record, mediaCount };
 }
 
-function measureLayout(board: Board): { layoutMs: number; layout: BoardLayout } {
+function measureLayout(board: Board): { layoutMs: number; layout: PlacedLayout } {
   const runCount = board.elements.size >= SINGLE_LAYOUT_RUN_FROM_ELEMENTS ? 1 : LAYOUT_RUNS;
-  const runs = Array.from({ length: runCount }, () => {
+  const elapsedMsPerRun: number[] = [];
+  let layout: PlacedLayout | null = null;
+  for (let run = 0; run < runCount; run += 1) {
     const startedAt = performance.now();
-    const layout = layoutBoard(board);
-    return { layout, elapsedMs: performance.now() - startedAt };
-  });
-  const lastRun = runs.at(-1);
-  if (!lastRun) throw new Error('the layout ran no times');
-  return { layoutMs: median(runs.map((run) => run.elapsedMs)), layout: lastRun.layout };
+    layout = layoutOf(createLayoutWorld(board));
+    elapsedMsPerRun.push(performance.now() - startedAt);
+  }
+  if (!layout) throw new Error('the layout ran no times');
+  return { layoutMs: median(elapsedMsPerRun), layout };
 }
 
-function mcpGetReplyBody(board: Board, layout: BoardLayout): Record<string, unknown> {
+function mcpGetReplyBody(board: Board, layout: PlacedLayout): Record<string, unknown> {
   if (fitsOnePage(board)) return { ok: true, board, changes: [], readingVersion: board.version, ...boardReading(board, layout.warnings) };
   const index = tileIndexOf(layout, board.version, board);
   const focus = defaultFocusOf(index);
@@ -180,7 +195,7 @@ function mcpGetReplyBody(board: Board, layout: BoardLayout): Record<string, unkn
   return { ok: true, board: summary, outline: boardOutlineOf(board, index, focus), focus, elements: elementPageOf(board, elementIdsTouching(index, focus), 0).elements, nextCursor: null, changes: [] };
 }
 
-function measureMcpChars(board: Board, layout: BoardLayout): number {
+function measureMcpChars(board: Board, layout: PlacedLayout): number {
   return JSON.stringify(toolResultFromReply({ status: 200, body: mcpGetReplyBody(board, layout) })).length;
 }
 
@@ -255,6 +270,7 @@ async function measurePuts(socket: WebSocket, { boxIds, version }: SeededBoard):
       if (!reply.ok) throw new Error(`a ${batchSize} op put was refused: ${reply.error ?? 'no reason'}`);
       runsMs.push(elapsedMs);
     }
+    logStep(`puts: ${PUT_ROUNDS} puts of ${batchSize} op(s)`);
     metrics.push(metricOf(`put-${batchSize}-p50`, `Put of ${batchSize} op(s), p50`, 'ms', percentile(runsMs, 0.5)));
     metrics.push(metricOf(`put-${batchSize}-p95`, `Put of ${batchSize} op(s), p95`, 'ms', percentile(runsMs, 0.95)));
   }
@@ -356,15 +372,19 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
   try {
     const page = await context.newPage();
     const openMs = await openBoardInFocus(page, port);
+    logStep('browser: board drawn');
     await sleep(500);
     const pan = await sampleFrames(page, 'pan', 'Pan', () => wheelEveryFrame(page, PAN_FRAMES, { deltaX: 14, deltaY: 9, ctrlKey: false }));
+    logStep('browser: pan sampled');
     const zoom = await sampleFrames(page, 'zoom', 'Zoom sweep', async () => {
       await wheelEveryFrame(page, ZOOM_FRAMES, { deltaX: 0, deltaY: 1, ctrlKey: true });
       await wheelEveryFrame(page, ZOOM_FRAMES, { deltaX: 0, deltaY: -1, ctrlKey: true });
     });
+    logStep('browser: zoom sampled');
     const boxCenter = await boxBodyPoint(page);
     if (!boxCenter) throw new Error('no box body is in view to drag');
     const drag = await sampleFrames(page, 'drag', 'Drag a box', () => dragOneBox(page, boxCenter));
+    logStep('browser: drag sampled');
     const pageFacts = await page.evaluate(() => ({
       mediaTextures: Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.mediaTextures ?? 0),
       livePages: document.querySelectorAll('.wb-media-layer iframe').length,
@@ -395,7 +415,9 @@ async function stopBackend(backend: ReturnType<typeof createBackend>, httpServer
 async function seedAndMeasureStore(configPath: string, elementCount: number, options: WhiteboardBenchOptions): Promise<SeededBoard> {
   const boardsRoot = path.join(path.dirname(configPath), WHITEBOARDS_FOLDER_NAME);
   const { record, mediaCount } = await benchBoardRecordOf(elementCount, boardsRoot, options.hasMedia);
+  logStep('seed: board generated');
   await createBoardStore(boardsRoot).saveMany([record]);
+  logStep('seed: store saved');
   const storeFilenames = (await fs.promises.readdir(boardsRoot)).filter((filename) => filename.startsWith(BOARD_STORE_FILENAME));
   const storeFileSizes = await Promise.all(storeFilenames.map(async (filename) => (await fs.promises.stat(path.join(boardsRoot, filename))).size));
   const fileBytes = storeFileSizes.reduce((total, size) => total + size, 0);
@@ -406,17 +428,40 @@ async function seedAndMeasureStore(configPath: string, elementCount: number, opt
   return { boxIds: boxIdsOf(record.board), version: record.board.version, metrics };
 }
 
-async function measureInProcessLayout(elementCount: number, options: WhiteboardBenchOptions): Promise<WhiteboardMetric[]> {
+async function layoutAndMcpSizeOf(elementCount: number, hasMedia: boolean, wantsMcp: boolean): Promise<{ layoutMs: number; mcpChars: number | null }> {
   const scratchDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-layout-'));
   try {
-    const { record: { board } } = await benchBoardRecordOf(elementCount, scratchDirectory, options.hasMedia);
+    const { record: { board } } = await benchBoardRecordOf(elementCount, scratchDirectory, hasMedia);
+    logStep('layout: board generated');
     const { layoutMs, layout } = measureLayout(board);
-    const metrics = [metricOf('layout', 'Whole-board layout', 'ms', layoutMs)];
-    if (options.sections.includes('mcp')) metrics.push(metricOf('mcp-get-chars', 'MCP whiteboard get tool result, text plus structured copy', 'chars', measureMcpChars(board, layout)));
-    return metrics;
+    logStep('layout: board laid out');
+    const mcpChars = wantsMcp ? measureMcpChars(board, layout) : null;
+    logStep('layout: MCP reply sized');
+    return { layoutMs, mcpChars };
   } finally {
     removeHarnessTempDirectory(scratchDirectory);
   }
+}
+
+const LayoutLineSchema = z.object({ layoutMs: z.number(), mcpChars: z.number().nullable() });
+
+function elementCountAfter(argv: string[], flag: string): number {
+  const elementCount = Number(argv[argv.indexOf(flag) + 1]);
+  if (!Number.isInteger(elementCount) || elementCount <= 0) throw new Error(`${flag} needs a positive element count`);
+  return elementCount;
+}
+
+async function runWhiteboardLayout(argv: string[]): Promise<number> {
+  return printChildResult(await layoutAndMcpSizeOf(elementCountAfter(argv, '--whiteboard-layout'), argv.includes('--media'), argv.includes('--mcp')));
+}
+
+async function measureInProcessLayout(harnessPath: string, elementCount: number, options: WhiteboardBenchOptions): Promise<WhiteboardMetric[]> {
+  const wantsMcp = options.sections.includes('mcp');
+  const childArguments = ['--whiteboard-layout', String(elementCount), ...(options.hasMedia ? ['--media'] : []), ...(wantsMcp ? ['--mcp'] : [])];
+  const measured = await childResultOf(harnessPath, childArguments, LayoutLineSchema);
+  const metrics = [metricOf('layout', 'Whole-board layout', 'ms', measured.layoutMs)];
+  if (measured.mcpChars !== null) metrics.push(metricOf('mcp-get-chars', 'MCP whiteboard get tool result, text plus structured copy', 'chars', measured.mcpChars));
+  return metrics;
 }
 
 function collectGarbage(): () => void {
@@ -435,29 +480,125 @@ async function retainedBytes(runGc: () => void): Promise<number> {
   return usage.heapUsed + usage.arrayBuffers;
 }
 
-async function measureRetainedPerThread(elementCount: number): Promise<WhiteboardMetric[]> {
+async function retainedBytesPerElement(elementCount: number): Promise<{ mainBytes: number; workerBytes: number }> {
   const runGc = collectGarbage();
   const boardOf = () => generateBoardRecord({ boardId: BOARD_ID, title: BOARD_TITLE, elementCount, seed: elementCount, createdAt: 0 }).board;
   boardOf();
   const atStart = await retainedBytes(runGc);
+  logStep('retained: warmed up');
   const board = boardOf();
   boardIndexOf(board.elements);
   const withBoard = await retainedBytes(runGc);
+  logStep('retained: board and index built');
   const world = createLayoutWorld(board);
+  logStep('retained: layout world built');
   const tiles = tileIndexOf(layoutOf(world), board.version, board);
   const withLayout = await retainedBytes(runGc);
+  logStep('retained: tiles built');
   if (tiles.painted.length === 0 || world.version !== board.version) throw new Error('the retained-memory board was not laid out');
+  return { mainBytes: Math.round((withBoard - atStart) / elementCount), workerBytes: Math.round((withLayout - atStart) / elementCount) };
+}
+
+function printChildResult(childResult: unknown): number {
+  console.log(`${CHILD_RESULT_PREFIX}${JSON.stringify(childResult)}`);
+  return 0;
+}
+
+function relayChildSteps(stderr: string): void {
+  for (const line of stderr.split('\n')) {
+    if (line.startsWith(STEP_LINE_PREFIX)) console.error(line);
+  }
+}
+
+function stderrOf(error: unknown): string {
+  return error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' ? error.stderr : '';
+}
+
+async function childResultOf<Shape extends z.ZodType>(harnessPath: string, childArguments: string[], schema: Shape): Promise<z.infer<Shape>> {
+  const { stdout, stderr } = await runCommand(process.execPath, [harnessPath, ...childArguments], { timeout: CHILD_TIMEOUT_MS, maxBuffer: CHILD_OUTPUT_BYTES }).catch((error: unknown) => {
+    relayChildSteps(stderrOf(error));
+    throw error;
+  });
+  relayChildSteps(stderr);
+  logStep(`${childArguments[0]} child process done`);
+  const line = stdout.split('\n').find((text) => text.startsWith(CHILD_RESULT_PREFIX));
+  if (!line) throw new Error(`the ${childArguments[0]} process printed no result`);
+  return schema.parse(JSON.parse(line.slice(CHILD_RESULT_PREFIX.length)));
+}
+
+const RetainedLineSchema = z.object({ mainBytes: z.number(), workerBytes: z.number() });
+
+async function runWhiteboardRetained(argv: string[]): Promise<number> {
+  return printChildResult(await retainedBytesPerElement(elementCountAfter(argv, '--whiteboard-retained')));
+}
+
+async function measureRetainedPerThread(harnessPath: string, elementCount: number): Promise<WhiteboardMetric[]> {
+  const retained = await childResultOf(harnessPath, ['--whiteboard-retained', String(elementCount)], RetainedLineSchema);
   return [
-    metricOf('heap-main', 'Main thread heap and buffers per element, board and index, after a forced GC', 'bytes', Math.round((withBoard - atStart) / elementCount)),
-    metricOf('heap-worker', 'Layout worker heap and buffers per element, board, index, layout and tiles, after a forced GC', 'bytes', Math.round((withLayout - atStart) / elementCount)),
+    metricOf('heap-main', 'Main thread heap and buffers per element, board and index, after a forced GC', 'bytes', retained.mainBytes),
+    metricOf('heap-worker', 'Layout worker heap and buffers per element, board, index, layout and tiles, after a forced GC', 'bytes', retained.workerBytes),
   ];
 }
 
-async function measureSize(elementCount: number, options: WhiteboardBenchOptions, browser: Browser | null): Promise<WhiteboardMetric[]> {
+interface RunningBackend {
+  backend: ReturnType<typeof createBackend>;
+  httpServer: http.Server;
+}
+
+async function bootBackend(port: number): Promise<RunningBackend> {
+  const httpServer = http.createServer();
+  const backend = createBackend(httpServer, { staticDir: 'auto' });
+  httpServer.on('request', backend.app);
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, '127.0.0.1', () => resolve());
+  });
+  return { backend, httpServer };
+}
+
+interface OpenedView {
+  view: Awaited<ReturnType<typeof viewRequest>>;
+  longestStallMs: number;
+}
+
+async function openWatchingTheLoop(port: number, boot: (port: number) => Promise<RunningBackend>, stepPrefix: string): Promise<{ running: RunningBackend; socket: WebSocket; opened: OpenedView }> {
+  const loopDelay = monitorEventLoopDelay({ resolution: LOOP_DELAY_RESOLUTION_MS });
+  loopDelay.enable();
+  logStep(`${stepPrefix}: starting`);
+  const running = await boot(port);
+  logStep(`${stepPrefix}: server booted`);
+  const socket = await connectControl(port);
+  logStep(`${stepPrefix}: control socket connected`);
+  const view = await viewRequest(socket, OPEN_VIEW, null);
+  logStep(`${stepPrefix}: open view answered`);
+  loopDelay.disable();
+  if (view.tileCount === 0) throw new Error('the seeded board sent no tiles for the open view');
+  return { running, socket, opened: { view, longestStallMs: Math.max(0, loopDelay.max / NANOSECONDS_PER_MS - LOOP_DELAY_RESOLUTION_MS) } };
+}
+
+const ReopenLineSchema = z.object({ elapsedMs: z.number(), longestStallMs: z.number() });
+
+async function runWhiteboardReopen(): Promise<number> {
+  const port = Number(process.env.GLIMMERVOID_PORT);
+  const { running, socket, opened } = await openWatchingTheLoop(port, bootBackend, 'reopen');
+  socket.terminate();
+  await stopBackend(running.backend, running.httpServer);
+  logStep('reopen: server stopped');
+  return printChildResult({ elapsedMs: opened.view.elapsedMs, longestStallMs: opened.longestStallMs });
+}
+
+async function measureReopen(harnessPath: string): Promise<WhiteboardMetric[]> {
+  const reopened = await childResultOf(harnessPath, ['--whiteboard-reopen'], ReopenLineSchema);
+  return [
+    metricOf('view-reopen', 'First open view after a server restart in a fresh process, saved layout included', 'ms', reopened.elapsedMs),
+    metricOf('stall-reopen', 'Longest event loop stall while the restarted server opens the board', 'ms', reopened.longestStallMs),
+  ];
+}
+
+async function measureSize(elementCount: number, options: WhiteboardBenchOptions, browser: Browser | null, harnessPath: string): Promise<WhiteboardMetric[]> {
   const tempDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-bench-'));
   const restoreEnvironment = snapshotEnvironment();
-  const httpServer = http.createServer();
-  let backend: ReturnType<typeof createBackend> | undefined;
+  let running: RunningBackend | null = null;
   let controlSocket: WebSocket | undefined;
   let seeded: SeededBoard | undefined;
   try {
@@ -466,31 +607,33 @@ async function measureSize(elementCount: number, options: WhiteboardBenchOptions
     seeded = await seedAndMeasureStore(configPath, elementCount, options);
     const { metrics } = seeded;
     const rssBeforeBoot = process.memoryUsage().rss;
-    backend = createBackend(httpServer, { staticDir: 'auto' });
-    httpServer.on('request', backend.app);
-    await new Promise<void>((resolve, reject) => {
-      httpServer.once('error', reject);
-      httpServer.listen(port, '127.0.0.1', () => resolve());
-    });
-    controlSocket = await connectControl(port);
-    const firstView = await viewRequest(controlSocket, OPEN_VIEW, null);
-    if (firstView.tileCount === 0) throw new Error('the seeded board sent no tiles for the open view');
+    const firstOpen = await openWatchingTheLoop(port, bootBackend, 'first open');
+    running = firstOpen.running;
+    controlSocket = firstOpen.socket;
+    const firstView = firstOpen.opened.view;
     const pannedView = await viewRequest(controlSocket, PANNED_VIEW, firstView.version);
+    logStep('first open: panned view answered');
     metrics.push(
       metricOf('view-first', 'First open view over the control socket, board load and layout included', 'ms', firstView.elapsedMs),
+      metricOf('stall-first', 'Longest event loop stall while the server first opens the board', 'ms', firstOpen.opened.longestStallMs),
       metricOf('view-pan', 'Panned view over the control socket, warm', 'ms', pannedView.elapsedMs),
       metricOf('view-bytes', 'Open view reply size, head and tiles in view', 'bytes', firstView.replyBytes),
       metricOf('rss-growth', 'Server RSS growth after boot and open', 'mb', megabytes(process.memoryUsage().rss - rssBeforeBoot)),
       ...await measurePuts(controlSocket, seeded),
     );
     if (browser && options.sections.includes('browser')) metrics.push(...await measureBrowser(browser, port));
+    controlSocket.terminate();
+    await stopBackend(running.backend, running.httpServer);
+    running = null;
+    logStep('first open: server stopped');
+    metrics.push(...await measureReopen(harnessPath));
   } finally {
     controlSocket?.terminate();
-    if (backend) await stopBackend(backend, httpServer);
+    if (running) await stopBackend(running.backend, running.httpServer);
     removeHarnessTempDirectory(tempDirectory);
     restoreEnvironment();
   }
-  return [...seeded.metrics, ...await measureInProcessLayout(elementCount, options), ...await measureRetainedPerThread(elementCount)];
+  return [...seeded.metrics, ...await measureInProcessLayout(harnessPath, elementCount, options), ...await measureRetainedPerThread(harnessPath, elementCount)];
 }
 
 async function launchBenchBrowser(executablePath: string | undefined): Promise<Browser> {
@@ -533,7 +676,7 @@ async function runWhiteboardBench(argv: readonly string[], environment: BenchEnv
   try {
     for (const elementCount of options.sizes) {
       console.log(`measuring a ${elementCount} element board`);
-      sizes.push({ elementCount, metrics: await measureSize(elementCount, options, browser) });
+      sizes.push({ elementCount, metrics: await measureSize(elementCount, options, browser, path.join(environment.repoRoot, 'harness', 'load-cost', 'harness.ts')) });
     }
   } finally {
     await browser?.close().catch(() => {});
@@ -557,4 +700,4 @@ async function runWhiteboardBench(argv: readonly string[], environment: BenchEnv
   return 0;
 }
 
-export { runWhiteboardBench };
+export { runWhiteboardBench, runWhiteboardLayout, runWhiteboardReopen, runWhiteboardRetained };
