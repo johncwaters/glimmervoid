@@ -173,3 +173,45 @@ test('the CLI refuses a path outside the checkout, a symlink escape, a missing, 
     assert.equal(fs.readFileSync(path.join(outside, 'secret.md'), 'utf8'), 'not yours\n');
   });
 });
+
+test('the browser reads only an image the surfaced doc shows, by an image extension, inside the checkout', async () => {
+  await docsFixture(async ({ checkout, outside, edit, control }) => {
+    const pixel = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    fs.mkdirSync(path.join(checkout, 'docs', 'img'), { recursive: true });
+    fs.writeFileSync(path.join(checkout, 'docs', 'img', 'chart.png'), pixel);
+    fs.writeFileSync(path.join(checkout, 'docs', 'img', 'hidden.png'), pixel);
+    fs.writeFileSync(path.join(checkout, 'docs', 'notes.md'), 'private\n');
+    fs.writeFileSync(path.join(outside, 'leak.png'), pixel);
+    fs.writeFileSync(path.join(checkout, '.env'), 'API_KEY=hunter2\n');
+    fs.symlinkSync(path.join(checkout, '.env'), path.join(checkout, 'docs', 'img', 'env.png'));
+    const docText = '# Plan\n\n![chart](img/chart.png)\n\n![notes](notes.md)\n\n![leak](../../outside/leak.png)\n\n![env](img/env.png)\n\n```md\n![fenced](img/hidden.png)\n```\n';
+    fs.writeFileSync(path.join(checkout, 'docs', 'plan.md'), docText);
+    assert.equal((await edit('docs/plan.md')).code, 0);
+    const realDocPath = fs.realpathSync(path.join(checkout, 'docs', 'plan.md'));
+    const readImage = (src: string) => control.request({ type: 'session-doc-asset-read', requestId: src, id: SESSION_ID, path: realDocPath, src });
+
+    const shown = await readImage('img/chart.png');
+    assert.deepEqual([shown.type, shown.requestId, shown.ok, shown.mime, shown.base64], ['session-doc-asset-response', 'img/chart.png', true, 'image/png', pixel.toString('base64')]);
+
+    const refusals = [
+      ['img/hidden.png', /does not show that image/],
+      ['notes.md', /not a PNG/],
+      ['../../outside/leak.png', /outside this session's checkout/],
+      ['img/env.png', /not a PNG/],
+    ] as const;
+    for (const [src, reason] of refusals) {
+      const refused = await readImage(src);
+      assert.deepEqual([refused.ok, refused.base64], [false, undefined], src);
+      assert.match(String(refused.error), reason, src);
+    }
+
+    const opened = await control.request({ type: 'session-doc-read', requestId: 'r1', id: SESSION_ID, path: realDocPath });
+    const saved = await control.request({ type: 'session-doc-save', requestId: 's1', id: SESSION_ID, path: realDocPath, text: `${docText}\n![hidden](img/hidden.png)\n`, baseHash: opened.hash });
+    assert.equal(saved.ok, true);
+    assert.match(String((await readImage('img/hidden.png')).error), /does not show that image/, 'an image the browser wrote into the doc stays unreadable');
+    assert.equal((await readImage('img/chart.png')).ok, true);
+
+    const unsurfaced = await control.request({ type: 'session-doc-asset-read', requestId: 'u1', id: SESSION_ID, path: path.join(checkout, 'docs', 'notes.md'), src: 'img/chart.png' });
+    assert.equal(unsurfaced.ok, false);
+  });
+});

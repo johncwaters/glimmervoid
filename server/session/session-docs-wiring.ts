@@ -7,7 +7,7 @@ import type { AgentEditRequest, SessionDoc } from '../../shared/contracts/sessio
 import { isPathInside } from '../../shared/paths.ts';
 import { openContainedFile } from '../contained-file.ts';
 import type { OpenedFile } from '../contained-file.ts';
-import { decodeDocBytes, describeDocRefusal, encodeDocText, hashDocBytes, withSurfacedDoc } from './core/session-docs-core.ts';
+import { DOC_IMAGE_CAP_BYTES, decodeDocBytes, describeDocRefusal, encodeDocText, hashDocBytes, imageMimeOf, imageReferencesOf, withSurfacedDoc } from './core/session-docs-core.ts';
 import type { DocRefusal } from './core/session-docs-core.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -26,6 +26,10 @@ type ReadReply =
   | { ok: true; text: string; hash: string }
   | { ok: false; error: string };
 
+type ImageReply =
+  | { ok: true; mime: string; base64: string }
+  | { ok: false; error: string };
+
 type SaveReply =
   | { ok: true; hash: string }
   | { ok: false; error: string; conflict: boolean };
@@ -42,12 +46,13 @@ type VerifiedOpen = { ok: true; file: OpenedFile } | { ok: false; reason: DocRef
 interface SessionDocsPort {
   surface(session: DocSession, request: AgentEditRequest): Promise<SurfaceReply>;
   read(session: DocSession, docPath: string): Promise<ReadReply>;
+  readImage(session: DocSession, docPath: string, imageSource: string): Promise<ImageReply>;
   save(session: DocSession, docPath: string, text: string, baseHash: string): Promise<SaveReply>;
   snapshotMessage(): Record<string, unknown>;
 }
 
-async function readAtMostCapPlusOneByte(handle: FileHandle): Promise<Buffer> {
-  const buffer = Buffer.alloc(SESSION_DOC_BODY_CAP_BYTES + 1);
+async function readAtMostCapPlusOneByte(handle: FileHandle, capBytes: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(capBytes + 1);
   let filledBytes = 0;
   while (filledBytes < buffer.byteLength) {
     const { bytesRead } = await handle.read(buffer, filledBytes, buffer.byteLength - filledBytes, filledBytes);
@@ -60,7 +65,7 @@ async function readAtMostCapPlusOneByte(handle: FileHandle): Promise<Buffer> {
 async function readOpenedDoc(file: OpenedFile): Promise<LoadOutcome> {
   if (file.stat.size > SESSION_DOC_BODY_CAP_BYTES) return { ok: false, reason: 'too-large' };
   try {
-    return { ok: true, loaded: { file, bytes: await readAtMostCapPlusOneByte(file.handle) } };
+    return { ok: true, loaded: { file, bytes: await readAtMostCapPlusOneByte(file.handle, SESSION_DOC_BODY_CAP_BYTES) } };
   } catch {
     return { ok: false, reason: 'unreadable' };
   }
@@ -90,6 +95,22 @@ async function loadContainedDoc(candidate: string, root: string): Promise<LoadOu
   if (!opened.ok) return opened;
   try {
     return await readOpenedDoc(opened.file);
+  } finally {
+    await opened.file.handle.close().catch(() => {});
+  }
+}
+
+async function loadContainedImage(candidate: string, root: string): Promise<LoadOutcome> {
+  const opened = await openVerifiedDoc(candidate, root, false);
+  if (!opened.ok) return opened;
+  try {
+    if (imageMimeOf(opened.file.realPath) === null) return { ok: false, reason: 'not-an-image' };
+    if (opened.file.stat.size > DOC_IMAGE_CAP_BYTES) return { ok: false, reason: 'image-too-large' };
+    const bytes = await readAtMostCapPlusOneByte(opened.file.handle, DOC_IMAGE_CAP_BYTES);
+    if (bytes.byteLength > DOC_IMAGE_CAP_BYTES) return { ok: false, reason: 'image-too-large' };
+    return { ok: true, loaded: { file: opened.file, bytes } };
+  } catch {
+    return { ok: false, reason: 'unreadable' };
   } finally {
     await opened.file.handle.close().catch(() => {});
   }
@@ -127,6 +148,7 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
   now?: () => number;
 }): SessionDocsPort {
   const docsBySessionId = new Map<string, SessionDoc[]>();
+  const surfacedImagesByDocPathBySessionId = new Map<string, Map<string, Set<string>>>();
   const saveQueue = createKeyedSerialQueue();
 
   function broadcastDocs(sessionId: string): void {
@@ -134,12 +156,23 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
   }
 
   function forgetSession(sessionId: string): void {
+    surfacedImagesByDocPathBySessionId.delete(sessionId);
     if (!docsBySessionId.delete(sessionId)) return;
     broadcastDocs(sessionId);
   }
 
   function isSurfaced(session: DocSession, docPath: string): boolean {
     return (docsBySessionId.get(session.id) ?? []).some((doc) => doc.path === docPath);
+  }
+
+  function rememberSurfacedImages(sessionId: string, surfacedDocs: readonly SessionDoc[], docPath: string, imageSources: Set<string>): void {
+    const previousImages = surfacedImagesByDocPathBySessionId.get(sessionId) ?? new Map<string, Set<string>>();
+    const keptImages = new Map(surfacedDocs.flatMap((doc) => {
+      const docImages = previousImages.get(doc.path);
+      return docImages ? [[doc.path, docImages] as const] : [];
+    }));
+    keptImages.set(docPath, imageSources);
+    surfacedImagesByDocPathBySessionId.set(sessionId, keptImages);
   }
 
   async function surface(session: DocSession, request: AgentEditRequest): Promise<SurfaceReply> {
@@ -151,7 +184,9 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
     const realPath = outcome.loaded.file.realPath;
     const doc: SessionDoc = { path: realPath, name: await nameWithinRoot(root, realPath), surfacedAt: now() };
     if (!docsBySessionId.has(session.id)) session.once('teardown', () => forgetSession(session.id));
-    docsBySessionId.set(session.id, withSurfacedDoc(docsBySessionId.get(session.id) ?? [], doc, SESSION_DOCS_MAX));
+    const surfacedDocs = withSurfacedDoc(docsBySessionId.get(session.id) ?? [], doc, SESSION_DOCS_MAX);
+    docsBySessionId.set(session.id, surfacedDocs);
+    rememberSurfacedImages(session.id, surfacedDocs, realPath, imageReferencesOf(decoded.text));
     broadcastDocs(session.id);
     return { ok: true, doc };
   }
@@ -163,6 +198,17 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
     const decoded = decodeDocBytes(outcome.loaded.bytes);
     if (!decoded.ok) return { ok: false, error: describeDocRefusal(decoded.reason) };
     return { ok: true, text: decoded.text, hash: hashDocBytes(outcome.loaded.bytes) };
+  }
+
+  async function readImage(session: DocSession, docPath: string, imageSource: string): Promise<ImageReply> {
+    if (!isSurfaced(session, docPath)) return { ok: false, error: describeDocRefusal('not-surfaced') };
+    const surfacedImages = surfacedImagesByDocPathBySessionId.get(session.id)?.get(docPath);
+    if (!surfacedImages?.has(imageSource)) return { ok: false, error: describeDocRefusal('image-not-referenced') };
+    const mime = imageMimeOf(imageSource);
+    if (mime === null) return { ok: false, error: describeDocRefusal('not-an-image') };
+    const outcome = await loadContainedImage(path.resolve(path.dirname(docPath), imageSource), session.effectiveCwd());
+    if (!outcome.ok) return { ok: false, error: describeDocRefusal(outcome.reason) };
+    return { ok: true, mime, base64: outcome.loaded.bytes.toString('base64') };
   }
 
   async function writeIfUnchanged(session: DocSession, docPath: string, text: string, baseHash: string): Promise<SaveReply> {
@@ -184,7 +230,7 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
     return { type: 'session-docs-snapshot', sessions: Object.fromEntries(docsBySessionId) };
   }
 
-  return { surface, read, save, snapshotMessage };
+  return { surface, read, readImage, save, snapshotMessage };
 }
 
 export { createSessionDocsWiring };

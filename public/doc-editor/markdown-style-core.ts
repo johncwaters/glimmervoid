@@ -2,7 +2,7 @@ import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 
 export type BlockStyle = 'h1' | 'h2' | 'h3' | 'quote' | 'list' | 'fence' | 'table' | 'plain';
 export type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code';
-export type PreviewBlockKind = 'table' | 'fence';
+export type PreviewBlockKind = 'table' | 'fence' | 'image';
 
 export interface PreviewBlock {
   kind: PreviewBlockKind;
@@ -22,6 +22,7 @@ const HEADING_MARKER = /^ {0,3}#{1,6}[ \t]+/;
 const QUOTE_MARKER = /^ {0,3}(?:>[ \t]?)+/;
 const LIST_MARKER = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/;
 const TABLE_ROW = /^[ \t]*\|/;
+const IMAGE_ONLY_LINE = /^[ \t]*!\[([^\]\n]*)\]\(\s*<?([^\s)<>]+)>?(?:\s+"[^"\n]*")?\s*\)[ \t]*$/;
 const TABLE_DIVIDER_ROW = /^[ \t]*\|?(?:[ \t]*:?-{3,}:?[ \t]*\|)*[ \t]*:?-{3,}:?[ \t]*\|?[ \t]*$/;
 const INLINE_SPAN = /(`+)(?!`)(.+?)(?<!`)\1(?!`)|(\*\*|__)(?=\S)(.+?)(?<=\S)\3|(?<![\w*])([*_])(?=[^\s*_])(.+?)(?<=[^\s*_])\5(?![\w*])/g;
 const HEADING_STYLES: readonly BlockStyle[] = ['plain', 'h1', 'h2', 'h3', 'h3', 'h3', 'h3'];
@@ -78,8 +79,27 @@ export function inlineRunsOf(text: string, block: BlockStyle, startsLine: boolea
   return runs;
 }
 
-function isPreviewBlockKind(block: BlockStyle | undefined): block is PreviewBlockKind {
-  return block === 'table' || block === 'fence';
+interface MarkdownImage {
+  alt: string;
+  src: string;
+}
+
+export function markdownImageOf(line: string): MarkdownImage | null {
+  const imageMatch = IMAGE_ONLY_LINE.exec(line);
+  if (!imageMatch) return null;
+  return { alt: imageMatch[1] ?? '', src: imageMatch[2] ?? '' };
+}
+
+function previewKindOfLine(block: BlockStyle | undefined, line: string): PreviewBlockKind | null {
+  if (block === 'table' || block === 'fence') return block;
+  if (block === 'plain' && IMAGE_ONLY_LINE.test(line)) return 'image';
+  return null;
+}
+
+function isBlockWhole(kind: PreviewBlockKind, blockLines: readonly string[]) {
+  if (kind === 'image') return blockLines.length === 1;
+  if (blockLines.length < 2) return false;
+  return kind === 'fence' || TABLE_DIVIDER_ROW.test(blockLines[1] ?? '');
 }
 
 export function previewBlocksOf(source: string): PreviewBlock[] {
@@ -92,17 +112,16 @@ export function previewBlocksOf(source: string): PreviewBlock[] {
     nextLineStart += line.length + 1;
   }
   const blocks: PreviewBlock[] = [];
-  const countByKind: Record<PreviewBlockKind, number> = { table: 0, fence: 0 };
+  const countByKind: Record<PreviewBlockKind, number> = { table: 0, fence: 0, image: 0 };
   let lineIndex = 0;
   while (lineIndex < lines.length) {
-    const kind = blockStyles[lineIndex];
+    const kind = previewKindOfLine(blockStyles[lineIndex], lines[lineIndex] ?? '');
     const firstLineIndex = lineIndex;
     lineIndex += 1;
-    if (!isPreviewBlockKind(kind)) continue;
-    while (blockStyles[lineIndex] === kind) lineIndex += 1;
+    if (kind === null) continue;
+    while (kind !== 'image' && blockStyles[lineIndex] === kind) lineIndex += 1;
     const lastLineIndex = lineIndex - 1;
-    const isTableWithoutDivider = kind === 'table' && !TABLE_DIVIDER_ROW.test(lines[firstLineIndex + 1] ?? '');
-    if (isTableWithoutDivider || lastLineIndex === firstLineIndex) continue;
+    if (!isBlockWhole(kind, lines.slice(firstLineIndex, lineIndex))) continue;
     const start = lineStarts[firstLineIndex] ?? 0;
     const end = (lineStarts[lastLineIndex] ?? 0) + (lines[lastLineIndex]?.length ?? 0);
     blocks.push({ kind, key: `${kind}-${countByKind[kind]}`, start, end });
