@@ -21,6 +21,8 @@ import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiri
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engine.ts';
+import type { LayoutWorld } from '../../shared/whiteboard-layout-engine.ts';
+import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
 import type { PlacedLayout } from '../../shared/whiteboard-layout-core.ts';
 import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
@@ -175,17 +177,66 @@ async function benchBoardRecordOf(elementCount: number, boardsRoot: string, hasM
   return { record, mediaCount };
 }
 
-function measureLayout(board: Board): { layoutMs: number; layout: PlacedLayout } {
+function measureLayout(board: Board): { layoutMs: number; layout: PlacedLayout; world: LayoutWorld } {
   const runCount = board.elements.size >= SINGLE_LAYOUT_RUN_FROM_ELEMENTS ? 1 : LAYOUT_RUNS;
   const elapsedMsPerRun: number[] = [];
-  let layout: PlacedLayout | null = null;
+  let laidOut: { layout: PlacedLayout; world: LayoutWorld } | null = null;
   for (let run = 0; run < runCount; run += 1) {
     const startedAt = performance.now();
-    layout = layoutOf(createLayoutWorld(board));
+    const world = createLayoutWorld(board);
+    laidOut = { layout: layoutOf(world), world };
     elapsedMsPerRun.push(performance.now() - startedAt);
   }
-  if (!layout) throw new Error('the layout ran no times');
-  return { layoutMs: median(elapsedMsPerRun), layout };
+  if (!laidOut) throw new Error('the layout ran no times');
+  return { layoutMs: median(elapsedMsPerRun), ...laidOut };
+}
+
+const RouteQualitySchema = z.object({
+  wires: z.number(),
+  unrouted: z.number(),
+  overlaps: z.number(),
+  crossings: z.number(),
+  runsThrough: z.number(),
+  bendsPerWire: z.number(),
+  labelsWithoutSpot: z.number(),
+});
+
+type RouteQuality = z.infer<typeof RouteQualitySchema>;
+
+const ROUTE_WARNING_KINDS = [
+  { key: 'unrouted', pattern: / found no clear route/ },
+  { key: 'overlaps', pattern: / overlaps wire / },
+  { key: 'crossings', pattern: / crosses wire / },
+  { key: 'runsThrough', pattern: / runs through / },
+  { key: 'labelsWithoutSpot', pattern: / has no clear spot$/ },
+] as const;
+
+function routeQualityOf(world: LayoutWorld, layout: PlacedLayout): RouteQuality {
+  const countByKind = { unrouted: 0, overlaps: 0, crossings: 0, runsThrough: 0, labelsWithoutSpot: 0 };
+  for (const text of world.routeWarnings.idsByText.keys()) {
+    const kind = ROUTE_WARNING_KINDS.find((candidate) => candidate.pattern.test(text));
+    if (kind) countByKind[kind.key] += 1;
+  }
+  let wireCount = 0;
+  let bendCount = 0;
+  for (const element of layout.elements) {
+    if (element.kind !== 'wire') continue;
+    wireCount += 1;
+    bendCount += Math.max(0, pointsOfPath(element.path).length - 2);
+  }
+  return { wires: wireCount, ...countByKind, bendsPerWire: wireCount === 0 ? 0 : Math.round((bendCount / wireCount) * 100) / 100 };
+}
+
+function routeQualityMetrics(quality: RouteQuality): WhiteboardMetric[] {
+  return [
+    metricOf('route-wires', 'Wires laid out', 'count', quality.wires),
+    metricOf('route-unrouted', 'Wires with no clear route', 'count', quality.unrouted),
+    metricOf('route-overlaps', 'Wire pairs overlapping on a shared line', 'count', quality.overlaps),
+    metricOf('route-crossings', 'Wire pairs crossing', 'count', quality.crossings),
+    metricOf('route-runs-through', 'Wires running through a box or note', 'count', quality.runsThrough),
+    metricOf('route-bends-per-wire', 'Mean bends per wire', 'count', quality.bendsPerWire),
+    metricOf('route-labels-without-spot', 'Wire labels with no clear spot', 'count', quality.labelsWithoutSpot),
+  ];
 }
 
 function mcpGetReplyBody(board: Board, layout: PlacedLayout): Record<string, unknown> {
@@ -431,22 +482,24 @@ async function seedAndMeasureStore(configPath: string, elementCount: number, opt
   return { boxIds: boxIdsOf(record.board), version: record.board.version, metrics };
 }
 
-async function layoutAndMcpSizeOf(elementCount: number, hasMedia: boolean, wantsMcp: boolean): Promise<{ layoutMs: number; mcpChars: number | null }> {
+async function layoutAndMcpSizeOf(elementCount: number, hasMedia: boolean, wantsMcp: boolean): Promise<{ layoutMs: number; mcpChars: number | null; routeQuality: RouteQuality }> {
   const scratchDirectory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-whiteboard-layout-'));
   try {
     const { record: { board } } = await benchBoardRecordOf(elementCount, scratchDirectory, hasMedia);
     logStep('layout: board generated');
-    const { layoutMs, layout } = measureLayout(board);
+    const { layoutMs, layout, world } = measureLayout(board);
     logStep('layout: board laid out');
+    const routeQuality = routeQualityOf(board.elements.size >= world.minIncrementalElements ? world : createLayoutWorld(board, null, 0), layout);
+    logStep(`layout: route quality counted ${JSON.stringify(routeQuality)}`);
     const mcpChars = wantsMcp ? measureMcpChars(board, layout) : null;
     logStep('layout: MCP reply sized');
-    return { layoutMs, mcpChars };
+    return { layoutMs, mcpChars, routeQuality };
   } finally {
     removeHarnessTempDirectory(scratchDirectory);
   }
 }
 
-const LayoutLineSchema = z.object({ layoutMs: z.number(), mcpChars: z.number().nullable() });
+const LayoutLineSchema = z.object({ layoutMs: z.number(), mcpChars: z.number().nullable(), routeQuality: RouteQualitySchema });
 
 function elementCountAfter(argv: string[], flag: string): number {
   const elementCount = Number(argv[argv.indexOf(flag) + 1]);
@@ -462,7 +515,7 @@ async function measureInProcessLayout(harnessPath: string, elementCount: number,
   const wantsMcp = options.sections.includes('mcp');
   const childArguments = ['--whiteboard-layout', String(elementCount), ...(options.hasMedia ? ['--media'] : []), ...(wantsMcp ? ['--mcp'] : [])];
   const measured = await childResultOf(harnessPath, childArguments, LayoutLineSchema);
-  const metrics = [metricOf('layout', 'Whole-board layout', 'ms', measured.layoutMs)];
+  const metrics = [metricOf('layout', 'Whole-board layout', 'ms', measured.layoutMs), ...routeQualityMetrics(measured.routeQuality)];
   if (measured.mcpChars !== null) metrics.push(metricOf('mcp-get-chars', 'MCP whiteboard get tool result, text plus structured copy', 'chars', measured.mcpChars));
   return metrics;
 }
