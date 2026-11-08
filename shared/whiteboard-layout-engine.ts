@@ -485,6 +485,9 @@ interface SolidOutcome {
 
 function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): SolidOutcome | null {
   const dirtyBoxIds = dirtyBoxIdsOf(board, changes);
+  for (const boxId of dirtyBoxIds) {
+    if (isInStack(board, boxId)) return null;
+  }
   const placedBoxes = placedDirtyBoxes(world, board, dirtyBoxIds);
   if (!placedBoxes) return null;
   const nextById = new Map<string, PlacedElement | null>(placedBoxes);
