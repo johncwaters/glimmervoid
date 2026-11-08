@@ -12,7 +12,7 @@ type StageGesture =
   | { kind: 'panning'; pointerId: number; last: StagePoint }
   | { kind: 'pinching'; distance: number; midpoint: StagePoint };
 
-export type MediaZoomControl = {
+type MediaZoomControl = {
   zoomAt: (mediaPoint: StagePoint, factor: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   toggleFitAt: (mediaPoint: StagePoint) => void;

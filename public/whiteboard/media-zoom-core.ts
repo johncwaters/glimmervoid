@@ -1,10 +1,10 @@
 export type MediaZoom = { scale: number; offsetX: number; offsetY: number };
-export type StageSize = { width: number; height: number };
+type StageSize = { width: number; height: number };
 export type StagePoint = { x: number; y: number };
 
 export const FIT_ZOOM: MediaZoom = { scale: 1, offsetX: 0, offsetY: 0 };
-export const MAX_MEDIA_SCALE = 8;
-export const DOUBLE_TAP_SCALE = 2;
+const MAX_MEDIA_SCALE = 8;
+const DOUBLE_TAP_SCALE = 2;
 
 function clampToStage(zoom: MediaZoom, stage: StageSize): MediaZoom {
   const scale = Math.min(MAX_MEDIA_SCALE, Math.max(1, zoom.scale));
