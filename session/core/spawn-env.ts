@@ -3,8 +3,9 @@ import { AGENT_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
 import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
+import { ENV_SECRET_BINDINGS } from "../../server/core/config-secrets-core.ts";
 
-const GLIMMERVOID_SECRET_KEYS = ["GLIMMERVOID_POSTHOG_API_KEY", "GLIMMERVOID_TELEGRAM_BOT_TOKEN", "GLIMMERVOID_GITHUB_READ_TOKEN", "GLIMMERVOID_CLAUDE_OAUTH_TOKEN", "GLIMMERVOID_VAULT_TOKEN"];
+const GLIMMERVOID_SECRET_KEYS = [...ENV_SECRET_BINDINGS.map((binding) => binding.environmentVariable), "GLIMMERVOID_CLAUDE_OAUTH_TOKEN"];
 const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", HOOK_URL_ENV, AGENT_URL_ENV, MCP_CREDENTIAL_ENV, SIGN_URL_ENV, SANE_YOLO_PATH_ENV, ...GLIMMERVOID_SECRET_KEYS];
 const SANE_YOLO_GUARD_KEYS = [SANE_YOLO_PATH_ENV, ...Object.keys(saneYoloEnv(""))];
 const SAFETY_NET_ENV_PREFIXES = ["CC_SAFETY_NET_", "SAFETY_NET_"];

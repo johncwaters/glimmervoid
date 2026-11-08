@@ -16,6 +16,7 @@ const NUDGE_RETRY_MAX_MS = 300_000;
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const CHECK_IN_EVERY_MS = 24 * 60 * 60_000;
 const USER_AGENT = 'glimmervoid-watcher';
+const GRAPHQL_PATH = '/graphql';
 
 function requestFingerprint(probe: Probe): string {
   return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null])).digest('hex');
@@ -50,12 +51,25 @@ function fieldOfAnswer(answerText: string, answerField: string): unknown {
   }
 }
 
-async function sha256OfAnswer(response: Response, answerField: string | undefined): Promise<string> {
-  if (answerField === undefined) return sha256OfBody(response);
+function isGraphqlProbe(probe: Probe): boolean {
+  return probe.credential === 'github' && new URL(probe.url).pathname === GRAPHQL_PATH;
+}
+
+function graphqlErrorOf(answerText: string): string | null {
+  const errors = fieldOfAnswer(answerText, 'errors');
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+  const firstError: unknown = errors[0];
+  const hasErrorType = typeof firstError === 'object' && firstError !== null && 'type' in firstError && typeof firstError.type === 'string';
+  return `GraphQL error ${hasErrorType ? String(firstError.type) : 'without a type'}`;
+}
+
+async function answerOf(response: Response, probe: Probe): Promise<{ bodySha256: string; errorInAnswer: string | null }> {
+  const isGraphql = isGraphqlProbe(probe);
+  if (probe.answerField === undefined && !isGraphql) return { bodySha256: await sha256OfBody(response), errorInAnswer: null };
   const answerText = await response.text();
-  const field = fieldOfAnswer(answerText, answerField);
+  const field = probe.answerField === undefined ? undefined : fieldOfAnswer(answerText, probe.answerField);
   const hashedText = field === undefined ? answerText : JSON.stringify(field);
-  return crypto.createHash('sha256').update(hashedText).digest('hex');
+  return { bodySha256: crypto.createHash('sha256').update(hashedText).digest('hex'), errorInAnswer: isGraphql ? graphqlErrorOf(answerText) : null };
 }
 
 function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.now, log = console }: {
@@ -156,13 +170,13 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     if (probe.body !== null) headers['content-type'] = 'application/json';
     try {
       const response = await fetchFn(probe.url, { method: probe.method, headers, body: probe.body ?? undefined, redirect: 'error', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-      const bodySha256 = await sha256OfAnswer(response, probe.answerField);
+      const { bodySha256, errorInAnswer } = await answerOf(response, probe);
       const retryAfterMs = retryAfterMsFromHeaders(response.status, {
         retryAfter: response.headers.get('retry-after'),
         rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
         rateLimitReset: response.headers.get('x-ratelimit-reset'),
       }, now());
-      return { kind: 'answered', status: response.status, etag: response.headers.get('etag'), bodySha256, retryAfterMs };
+      return { kind: 'answered', status: response.status, etag: response.headers.get('etag'), bodySha256, errorInAnswer, retryAfterMs };
     } catch (fetchError) {
       return { kind: 'unreachable', error: (fetchError as Error).message };
     }
@@ -211,6 +225,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
   async function applyCredentials(nextCredentials: WatcherCredentials): Promise<void> {
     await home.saveCredentials(nextCredentials);
     credentials = nextCredentials;
+    memoryByProbeId = new Map([...memoryByProbeId].map(([probeId, memory]) => [probeId, memory.status === 'failing' ? { ...memory, lastRunAtMs: null, retryAfterMs: null } : { ...memory }]));
     scheduleWake();
   }
 

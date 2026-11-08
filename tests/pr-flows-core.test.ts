@@ -219,7 +219,7 @@ test('a configured source runs only after the operator approves its exact comman
     const scriptPath = path.join(homeDir, 'source.mjs');
     fs.writeFileSync(scriptPath, [
       "const [prUrl, head] = process.argv.slice(2);",
-      "const leaked = process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN ?? 'none';",
+      "const leaked = process.env.GLIMMERVOID_TELEGRAM_BOT_TOKEN ?? process.env.GLIMMERVOID_POSTHOG_READ_API_KEY ?? 'none';",
       "console.log(JSON.stringify({ findings: [{ path: 'src/a.ts', lineStart: 40, lineEnd: 41, priority: 'high', body: 'seen ' + prUrl + ' at ' + head.slice(0, 4) + ' env ' + process.env.GLIMMERVOID_PR_NUMBER + ' token ' + leaked }], status: [{ label: 'verdict', state: 'must fix' }] }));",
     ].join('\n'));
     let source: Record<string, unknown> = { id: 'scanner', label: 'scanner', command: [process.execPath, scriptPath, '{prUrl}', '{head}'] };
@@ -227,7 +227,7 @@ test('a configured source runs only after the operator approves its exact comman
     const prFlows = createPrFlowsWiring({
       statePath: null, openPrs: () => [myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, [])))], broadcast: (frame) => frames.push(frame), log: console,
       linkedSession: () => null, readConfigFile: async () => ({ prFlows: { sources: [source] } }), appendRule: async () => true,
-      external: createPrFlowsExternal({ homeDir, baseEnv: () => ({ ...process.env, GLIMMERVOID_TELEGRAM_BOT_TOKEN: 'secret-token' }) }),
+      external: createPrFlowsExternal({ homeDir, baseEnv: () => ({ ...process.env, GLIMMERVOID_TELEGRAM_BOT_TOKEN: 'secret-token', GLIMMERVOID_POSTHOG_READ_API_KEY: 'secret-read-key' }) }),
       github: { replyToReviewThread: async () => ({ ok: true, err: '' }), resolveReviewThread: async () => ({ ok: true, err: '' }), unresolveReviewThread: async () => ({ ok: true, err: '' }) },
     });
 

@@ -11,7 +11,7 @@ interface ProbeMemory {
 }
 
 type ProbeResponse =
-  | { kind: 'answered'; status: number; etag: string | null; bodySha256: string; retryAfterMs: number | null }
+  | { kind: 'answered'; status: number; etag: string | null; bodySha256: string; errorInAnswer: string | null; retryAfterMs: number | null }
   | { kind: 'unreachable'; error: string };
 
 type NudgeKind = Nudge['kind'];
@@ -34,11 +34,12 @@ function isSuccessStatus(status: number): boolean {
 
 function failureOf(response: ProbeResponse): ProbeFailure {
   if (response.kind === 'unreachable') return { status: null, reason: response.error.slice(0, MAX_FAILURE_REASON_LENGTH) };
+  if (response.errorInAnswer !== null) return { status: null, reason: response.errorInAnswer.slice(0, MAX_FAILURE_REASON_LENGTH) };
   return { status: response.status, reason: `answered ${response.status}` };
 }
 
 function probeOutcome(memory: ProbeMemory, response: ProbeResponse, nowMs: number): { memory: ProbeMemory; nudge: NudgeKind | null } {
-  const isOk = response.kind === 'answered' && (response.status === NOT_MODIFIED || isSuccessStatus(response.status));
+  const isOk = response.kind === 'answered' && response.errorInAnswer === null && (response.status === NOT_MODIFIED || isSuccessStatus(response.status));
   const status = STATUS_AFTER_RESPONSE[memory.status][isOk ? 'responded ok' : 'responded failing'];
   const retryAfterMs = response.kind === 'answered' ? response.retryAfterMs : null;
   if (!isOk) {

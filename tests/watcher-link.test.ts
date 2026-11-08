@@ -97,7 +97,7 @@ test('a probe whose GitHub answer changes nudges its lane, and the lane hears th
   assert.equal(nudge.kind, 'changed');
 });
 
-test('a probe GitHub refuses shows on its lane as a watcher problem and leaves watcher coverage until it recovers', async (t) => {
+test('a probe GitHub refuses by status or by a GraphQL error shows on its lane as a watcher problem, leaves watcher coverage until it recovers, and runs again at once on a new token', async (t) => {
   const { clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher } = await startLinkedWatcher(t);
   const runProbeAgain = async () => {
     const requestCount = github.requests.length;
@@ -121,12 +121,61 @@ test('a probe GitHub refuses shows on its lane as a watcher problem and leaves w
   assert.equal(coveredProbeCounts.at(-1), 1);
   assert.equal((await eventually(() => nudges[0])).kind, 'recovered');
 
+  github.body = '{"data":null,"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository"}]}';
+  await runProbeAgain();
+  await eventually(() => watcherProblems.at(-1) === 'Watcher cannot read GitHub: GraphQL error NOT_FOUND' ? true : undefined);
+  assert.equal(coveredProbeCounts.at(-1), 0);
+
+  github.body = '{"data":{"viewer":{"login":"granted"}}}';
+  const requestCountBeforeNewToken = github.requests.length;
+  await watcher.runner?.applyCredentials({ github: 'new-read-token', posthog: null });
+  await eventually(() => github.requests.length > requestCountBeforeNewToken ? true : undefined);
+  assert.equal(github.requests.at(-1), 'Bearer new-read-token');
+  await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
+  assert.equal(coveredProbeCounts.at(-1), 1);
+
   github.status = 401;
   await runProbeAgain();
   await eventually(() => watcherProblems.at(-1) === 'Watcher cannot read GitHub: 401' ? true : undefined);
   linkCredentials.github = null;
   link.credentialsMayHaveChanged();
   await eventually(() => watcherProblems.at(-1) === null ? true : undefined);
+});
+
+test('an answer to a request sent with the old token is dropped once a new token arrives', async (t) => {
+  const homeDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-watcher-runner-'));
+  t.after(() => fsp.rm(homeDir, { recursive: true, force: true }));
+  const clock = { nowMs: Date.now() };
+  const sentTokens: string[] = [];
+  const heldAnswer: { release: (response: Response) => void } = { release: () => {} };
+  const fetchFn: typeof fetch = async (_input, init) => {
+    sentTokens.push(new Headers(init?.headers).get('authorization') ?? '');
+    if (sentTokens.length !== 2) return new Response('{"data":{"viewer":{"login":"first"}}}', { status: 200 });
+    return new Promise<Response>((resolve) => { heldAnswer.release = resolve; });
+  };
+  const nudgeKinds: string[] = [];
+  const runner = createProbeRunner({
+    home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
+    nudges: { send: (kind) => { nudgeKinds.push(kind); } },
+    fetchFn,
+    now: () => clock.nowMs,
+    log: QUIET_LOG,
+  });
+  t.after(() => runner.stop());
+  await runner.start();
+  await runner.applyCredentials({ github: 'old-read-token', posthog: null });
+  await runner.applyProbeSet({ revision: 'one-probe', probes: [LIGHT_PROBE] });
+  await eventually(() => runner.status().probes[0]?.status === 'ok' ? true : undefined);
+
+  clock.nowMs += 61_000;
+  await runner.applyCredentials({ github: 'old-read-token', posthog: null });
+  await eventually(() => sentTokens.length === 2 ? true : undefined);
+  await runner.applyCredentials({ github: 'new-read-token', posthog: null });
+  heldAnswer.release(new Response('{"message":"Bad credentials"}', { status: 401 }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(runner.status().probes[0]?.status, 'ok');
+  assert.deepEqual(nudgeKinds, []);
 });
 
 test('a probe naming an answer field nudges only when that field changes, never on per-run fields beside it', async (t) => {
