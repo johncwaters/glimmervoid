@@ -12,8 +12,6 @@ interface TerminalNotices {
   shownKind: TerminalNoticeKind | null;
   clearTimerId: ReturnType<typeof setTimeout> | null;
   clipboardPrompt: HTMLElement;
-  clipboardPreview: HTMLElement;
-  clipboardSummary: HTMLElement;
   pendingClipboardText: string | null;
   jumpToLatest: HTMLElement;
 }
@@ -24,6 +22,7 @@ const OK_NOTICE_CLEAR_MS = 5000;
 
 const ERROR_NOTICE_CLEAR_MS = 15000;
 
+const CLIPBOARD_PROMPT_TEXT = 'The agent copied text. The browser needs a click before it can reach your clipboard.';
 
 const CLIPBOARD_UNAVAILABLE_TEXT = 'The clipboard is unavailable in this browser.';
 
@@ -94,22 +93,7 @@ function offerClipboardCopy(ui: SessionUi, text: string) {
   const notices = terminalNoticesBySessionUi.get(ui);
   if (!notices) return;
   notices.pendingClipboardText = text;
-  notices.clipboardPreview.textContent = text;
-  notices.clipboardSummary.textContent = describeClipboardOffer(text);
   notices.clipboardPrompt.hidden = false;
-}
-
-function describeClipboardOffer(text: string): string {
-  const lineCount = text.replace(/\n$/, '').split('\n').length;
-  const lineWord = lineCount === 1 ? 'line' : 'lines';
-  return `The agent wants to copy ${lineCount} ${lineWord}, ${text.length} characters:`;
-}
-
-function dismissOfferedClipboardText(ui: SessionUi) {
-  const notices = terminalNoticesBySessionUi.get(ui);
-  if (!notices) return;
-  notices.pendingClipboardText = null;
-  notices.clipboardPrompt.hidden = true;
 }
 
 function copyOfferedClipboardText(ui: SessionUi) {
@@ -126,12 +110,7 @@ function buildTerminalNotices(termWrap: HTMLElement, ui: SessionUi, term: Termin
   const clipboardPrompt = el('div', 'terminal-clipboard-prompt');
   clipboardPrompt.hidden = true;
   const copyButton = button({ variant: 'primary', label: 'Copy to clipboard', onClick: () => copyOfferedClipboardText(ui) });
-  const dismissButton = button({ variant: 'secondary', label: 'Dismiss', onClick: () => dismissOfferedClipboardText(ui) });
-  const clipboardSummary = el('span', 'terminal-clipboard-prompt-text');
-  const clipboardActions = el('div', 'terminal-clipboard-prompt-actions');
-  clipboardActions.append(clipboardSummary, copyButton, dismissButton);
-  const clipboardPreview = el('pre', 'terminal-clipboard-prompt-preview');
-  clipboardPrompt.append(clipboardActions, clipboardPreview);
+  clipboardPrompt.append(el('span', 'terminal-clipboard-prompt-text', CLIPBOARD_PROMPT_TEXT), copyButton);
   const noticeStack = el('div', 'terminal-notices');
   noticeStack.append(clipboardPrompt, status.element);
 
@@ -147,7 +126,7 @@ function buildTerminalNotices(termWrap: HTMLElement, ui: SessionUi, term: Termin
   dropZone.append(el('span', 'terminal-drop-zone-label', 'Drop to upload to this session'));
 
   termWrap.append(noticeStack, jumpToLatest, dropZone);
-  terminalNoticesBySessionUi.set(ui, { status, shownKind: null, clearTimerId: null, clipboardPrompt, clipboardPreview, clipboardSummary, pendingClipboardText: null, jumpToLatest });
+  terminalNoticesBySessionUi.set(ui, { status, shownKind: null, clearTimerId: null, clipboardPrompt, pendingClipboardText: null, jumpToLatest });
 }
 
 export { buildTerminalNotices, clearTerminalNotice, copyTextToClipboard, decodeOsc52Payload, isScrolledAwayFromLatest, offerClipboardCopy, refreshJumpToLatest, reportClipboardFailure, showTerminalNotice };

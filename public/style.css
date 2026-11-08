@@ -832,14 +832,11 @@ body {
 
 .terminal-clipboard-prompt {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: min(72ch, 100%);
+  align-items: center;
+  gap: 10px;
   font-size: var(--type-meta);
   color: var(--text-head);
 }
-.terminal-clipboard-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
-.terminal-clipboard-prompt-preview { max-height: 9lh; margin: 0; padding: 4px 6px; overflow: auto; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-card); color: var(--text-dim); font: inherit; white-space: pre; }
 
 .terminal-jump-latest {
   position: absolute;
