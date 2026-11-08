@@ -5,7 +5,10 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { GROUPED_TOOLS, routeToolCall } from '../../mcp/core/tools.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
+import { resolveHookTarget } from '../../session/core/hook-relay-core.ts';
+import { AGENT_URL_ENV } from '../../shared/contracts/session.ts';
 import { ReplayEnvironment, compressTimeline, findEnterAnswerTimestamps, findHookEndpoint, parseCaptureRecording, redactRecording } from './manifest-core.ts';
 
 const runCommand = promisify(execFile);
@@ -14,21 +17,72 @@ process.once('SIGTERM', () => cancellation.abort());
 process.once('SIGINT', () => cancellation.abort());
 const keepAlive = setInterval(() => {}, 60_000);
 let statusPath: string | undefined;
-const GlimmervoidCall = z.strictObject({ ts: z.number().finite(), args: z.array(z.string()).min(1), exitCode: z.number().int() });
+const CliCall = z.strictObject({ ts: z.number().finite(), args: z.array(z.string()).min(1), exitCode: z.number().int() });
+const McpCall = z.strictObject({
+  ts: z.number().finite(), tool: z.string().min(1), input: z.record(z.string(), z.unknown()), filesByRelativePath: z.record(z.string(), z.string()),
+});
+const GlimmervoidCall = z.union([CliCall, McpCall]);
 type GlimmervoidCall = z.infer<typeof GlimmervoidCall>;
+type McpCall = z.infer<typeof McpCall>;
 const dashboardChangingVerbs = new Set(['spawn', 'whiteboard']);
+const agentPathPrefix = '/agent/';
+
+function routeMcpCall(call: McpCall, worktreePath: string) {
+  const tool = GROUPED_TOOLS.find((candidate) => candidate.name === call.tool);
+  if (!tool) return null;
+  const route = routeToolCall(tool, call.input, { resolveSessionPath: (requestedPath) => path.resolve(worktreePath, requestedPath), ownsSpawnedSessions: true });
+  return route.ok ? route : null;
+}
+
+function changesDashboard(call: GlimmervoidCall): boolean {
+  if ('args' in call) return call.exitCode === 0 && dashboardChangingVerbs.has(call.args[0] ?? '');
+  const route = routeMcpCall(call, process.cwd());
+  return route !== null && dashboardChangingVerbs.has(route.verb);
+}
 
 async function readGlimmervoidCalls(callLogPath: string | undefined): Promise<GlimmervoidCall[]> {
   if (!callLogPath) return [];
   const lines = (await fs.readFile(callLogPath, 'utf8')).split('\n').filter((line) => line.trim().length > 0);
-  return lines.map((line) => GlimmervoidCall.parse(JSON.parse(line)))
-    .filter((call) => call.exitCode === 0 && dashboardChangingVerbs.has(call.args[0] ?? ''));
+  return lines.map((line) => GlimmervoidCall.parse(JSON.parse(line))).filter(changesDashboard);
+}
+
+async function writeSnapshotFiles(call: McpCall, worktreePath: string): Promise<void> {
+  for (const [relativePath, contentsBase64] of Object.entries(call.filesByRelativePath)) {
+    const targetPath = path.resolve(worktreePath, relativePath);
+    const relativeToWorktree = path.relative(worktreePath, targetPath);
+    if (relativeToWorktree.startsWith('..') || path.isAbsolute(relativeToWorktree)) throw new Error(`snapshot ${relativePath} escapes the worktree`);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, Buffer.from(contentsBase64, 'base64'));
+  }
+}
+
+async function replayMcpCall(call: McpCall, worktreePath: string): Promise<void> {
+  const route = routeMcpCall(call, worktreePath);
+  if (!route) throw new Error(`glimmervoid MCP ${call.tool} no longer routes`);
+  await writeSnapshotFiles(call, worktreePath);
+  const target = resolveHookTarget(process.env[AGENT_URL_ENV] ?? '', route.verb, agentPathPrefix);
+  if (!target.url) throw new Error(`replay needs ${AGENT_URL_ENV}: ${target.reason}`);
+  const endpoint = new URL(target.url);
+  const token = endpoint.searchParams.get('t') ?? '';
+  endpoint.search = '';
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify(route.payload),
+    signal: AbortSignal.any([cancellation.signal, AbortSignal.timeout(30_000)]),
+  });
+  if (!response.ok) throw new Error(`glimmervoid MCP ${call.tool} failed: ${response.status} ${await response.text()}`);
+  await response.arrayBuffer();
 }
 
 async function replayGlimmervoidCall(call: GlimmervoidCall): Promise<void> {
   const worktreePath = await fs.realpath(process.cwd());
-  await runCommand('glimmervoid', call.args, { cwd: worktreePath, signal: cancellation.signal, timeout: 30_000 }).catch((error: Error & { stderr?: string }) => {
-    throw new Error(`glimmervoid ${call.args[0]} failed: ${error.stderr?.trim() || error.message}`);
+  if (!('args' in call)) {
+    await replayMcpCall(call, worktreePath);
+    return;
+  }
+  await runCommand('glimmervoid', call.args, { cwd: worktreePath, signal: cancellation.signal, timeout: 30_000 }).catch((error: Error & { stderr?: string; stdout?: string }) => {
+    throw new Error(`glimmervoid ${call.args[0]} failed: ${error.stderr?.trim() || error.stdout?.trim() || error.message}`);
   });
 }
 

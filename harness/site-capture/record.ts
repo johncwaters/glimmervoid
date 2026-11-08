@@ -21,6 +21,7 @@ import type { RecordManifest } from './manifest-core.ts';
 import { choiceSelection, selectionArgs } from '../../shared/agent-models-core.ts';
 
 type RecordSession = RecordManifest['sessions'][number];
+type HarnessGlobalConfig = { hasCompletedOnboarding: boolean; hasRunUltrareview: boolean; lastOnboardingVersion?: string };
 
 interface SessionProgress {
   statesSeen: SessionState[];
@@ -42,6 +43,7 @@ interface RecordContext {
 const StatusFields = z.object({ id: SessionCardFields.shape.id, transition: z.object({ to: SessionStateSchema }).optional() });
 const WorktreeReadyFields = z.object({ id: SessionCardFields.shape.id, branch: z.string().nullable() });
 const OnboardingState = z.object({ hasCompletedOnboarding: z.boolean().optional(), lastOnboardingVersion: z.string().optional() });
+const RemoveSessionResult = z.object({ type: z.literal('remove-session-result'), requestId: z.string().nullable(), ok: z.boolean(), error: z.string().nullish(), canDiscardWork: z.boolean().optional() });
 const socketOpenState = 1;
 const recordedSessionEnvironmentAllowlist = new Set(['PATH', 'HOME', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME']);
 const harnessClaudeConfigDirectoryName = 'claude-config';
@@ -108,17 +110,18 @@ function resolveOperatorClaudeConfigDirectory(): string {
   return readConfiguredClaudeConfigDirectory() ?? path.join(os.homedir(), '.claude');
 }
 
-async function readOperatorOnboardingState(): Promise<z.infer<typeof OnboardingState>> {
+async function readOperatorOnboardingState(): Promise<HarnessGlobalConfig> {
   const globalConfigPath = path.join(readConfiguredClaudeConfigDirectory() ?? os.homedir(), claudeGlobalConfigFileName);
   const globalConfigText = await fs.readFile(globalConfigPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;
     throw error;
   });
-  if (globalConfigText === null) return { hasCompletedOnboarding: true };
-  return { ...OnboardingState.parse(JSON.parse(globalConfigText)), hasCompletedOnboarding: true };
+  const harnessGlobalConfig = { hasCompletedOnboarding: true, hasRunUltrareview: true };
+  if (globalConfigText === null) return harnessGlobalConfig;
+  return { ...OnboardingState.parse(JSON.parse(globalConfigText)), ...harnessGlobalConfig };
 }
 
-async function isolateClaudeConfig(tempDirectory: string, operatorCredentialsPath: string, onboardingState: z.infer<typeof OnboardingState>): Promise<void> {
+async function isolateClaudeConfig(tempDirectory: string, operatorCredentialsPath: string, onboardingState: HarnessGlobalConfig): Promise<void> {
   for (const key of Object.keys(process.env)) if (!recordedSessionEnvironmentAllowlist.has(key)) delete process.env[key];
   const claudeConfigDirectory = path.join(tempDirectory, harnessClaudeConfigDirectoryName);
   await fs.mkdir(claudeConfigDirectory, { mode: 0o700 });
@@ -229,6 +232,27 @@ async function answerWaitsWithEnter(inputSocket: WebSocket, progress: SessionPro
   }
 }
 
+function requestRemoval(socket: WebSocket, sessionId: string, requestId: string): Promise<z.infer<typeof RemoveSessionResult>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => { socket.off('message', onMessage); reject(new Error(`removing ${sessionId} got no reply within 30s`)); }, 30_000);
+    const onMessage = (raw: Buffer) => {
+      const reply = RemoveSessionResult.safeParse(JSON.parse(raw.toString()));
+      if (!reply.success || reply.data.requestId !== requestId) return;
+      clearTimeout(timeout);
+      socket.off('message', onMessage);
+      resolve(reply.data);
+    };
+    socket.on('message', onMessage);
+    socket.send(JSON.stringify({ type: 'remove-session', id: sessionId, discardWork: true, requestId }));
+  });
+}
+
+async function removeSessionAndWait(socket: WebSocket, sessionId: string): Promise<void> {
+  const firstRemoval = await requestRemoval(socket, sessionId, `site-record-remove-${sessionId}`);
+  const removal = !firstRemoval.ok && firstRemoval.canDiscardWork ? await requestRemoval(socket, sessionId, `site-record-confirm-remove-${sessionId}`) : firstRemoval;
+  if (!removal.ok) console.log(`  removal of ${sessionId} refused: ${removal.error ?? 'no reason given'}`);
+}
+
 async function exportCommits(projectPath: string, branch: string | null, patchPath: string): Promise<string[]> {
   await fs.rm(patchPath, { force: true });
   if (!branch) return [];
@@ -321,7 +345,7 @@ async function recordSession(context: RecordContext, session: RecordSession): Pr
     inputSocket.terminate();
   }
   const recordingPaths = await collectRecordings(context.recordingsDirectory, previousRecordings, context.outputDirectory, session, 1 + childIds.length);
-  for (const id of [...childIds, sessionId]) context.socket.send(JSON.stringify({ type: 'remove-session', id }));
+  for (const id of [...childIds, sessionId]) await removeSessionAndWait(context.socket, id);
   const sessionCallLogPath = path.join(context.outputDirectory, `${session.name}.glimmervoid-calls.jsonl`);
   await fs.rm(sessionCallLogPath, { force: true });
   const callLogText = await fs.readFile(context.runCallLogPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
@@ -370,10 +394,17 @@ async function main(): Promise<void> {
     for (const [projectName, seedDirectory] of seedDirectories) projectPaths.set(projectName, await createProject(tempDirectory, projectName, seedDirectory));
     for (const projectPath of projectPaths.values()) await excludeDemoSettings(projectPath);
     const demoSettingsPath = path.join(tempDirectory, 'demo-settings.local.json');
-    const demoSettings = { skipDangerousModePermissionPrompt: true, permissions: { deny: demoDeniedPermissions } };
+    const runCallLogPath = path.join(tempDirectory, 'glimmervoid-calls.jsonl');
+    const mcpCallLogCommand = [process.execPath, glimmervoidCallLogPath, '--mcp-hook', runCallLogPath].map(quoteShell).join(' ');
+    const demoSettings = {
+      skipDangerousModePermissionPrompt: true,
+      spinnerTipsEnabled: false,
+      permissions: { deny: demoDeniedPermissions },
+      hooks: { PostToolUse: [{ matcher: 'mcp__glimmervoid__.*', hooks: [{ type: 'command', command: mcpCallLogCommand }] }] },
+    };
     await fs.writeFile(demoSettingsPath, `${JSON.stringify(demoSettings, null, 2)}\n`);
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: true });
-    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed));
+    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed), projectPaths);
     processNeedles = [tempDirectory, `127.0.0.1:${port}`];
     const wrapperDirectory = path.join(tempDirectory, 'bin');
     await fs.mkdir(wrapperDirectory);
@@ -388,7 +419,6 @@ async function main(): Promise<void> {
       `exec ${quoteShell(realClaudePath)} ${isolationArguments} $permission_mode_arguments "$@"`,
     ].join('\n');
     await fs.writeFile(path.join(wrapperDirectory, 'claude'), `${wrapperScript}\n`, { mode: 0o755 });
-    const runCallLogPath = path.join(tempDirectory, 'glimmervoid-calls.jsonl');
     const callLogArguments = [process.execPath, glimmervoidCallLogPath, runCallLogPath, glimmervoidCliPath].map(quoteShell).join(' ');
     const glimmervoidWrapperScript = `#!/bin/sh\nexec ${callLogArguments} "$@"`;
     await fs.writeFile(path.join(wrapperDirectory, 'glimmervoid'), `${glimmervoidWrapperScript}\n`, { mode: 0o755 });

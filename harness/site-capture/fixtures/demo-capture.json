@@ -109,6 +109,18 @@
       "name": "hero"
     },
     {
+      "atMs": 4200,
+      "click": "[data-board-id=\"invoice-total\"]"
+    },
+    {
+      "atMs": 4800,
+      "click": ".wb-island-view [data-action=\"fit-board\"]"
+    },
+    {
+      "atMs": 5600,
+      "name": "board"
+    },
+    {
       "atMs": 8700,
       "pressUntilFocused": "migrate-billing-schema",
       "name": "needs-input"
@@ -122,11 +134,6 @@
       "pressUntilFocused": "invoice-rounding"
     },
     {
-      "atMs": 16800,
-      "click": ".session-board-chip",
-      "clickIn": "invoice-rounding"
-    },
-    {
       "atMs": 18200,
       "click": "#focus-pane-terminal .xterm-screen"
     },
@@ -137,6 +144,10 @@
     {
       "atMs": 23200,
       "click": ".wb-island-view [data-action=\"fit-board\"]"
+    },
+    {
+      "atMs": 23700,
+      "name": "board-split"
     },
     {
       "atMs": 24000,

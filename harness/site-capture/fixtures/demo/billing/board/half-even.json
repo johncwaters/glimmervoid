@@ -29,7 +29,9 @@
     "op": "set",
     "id": "fix-drift",
     "fields": {
-      "status": "building"
+      "step": {
+        "status": "building"
+      }
     }
   },
   {

@@ -11,10 +11,10 @@ import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
 import {
-  addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runCommand, runIsolatedDashboard, seedWhiteboard, selectSession,
+  addSession, cancellation, createProject, listProcessesMentioning, prepareIsolatedEnvironment, quoteShell, refuseUnsupportedLaunch, runCommand, runIsolatedDashboard, seedWhiteboard, selectSession, settleStarHint,
 } from './isolated-glimmervoid.ts';
 import { ReplayStatus, parseCaptureRecording, redactRecording, validateManifest } from './manifest-core.ts';
-import type { ReplayEnvironment } from './manifest-core.ts';
+import type { Redaction, ReplayEnvironment } from './manifest-core.ts';
 
 const replayAgentPath = path.join(import.meta.dirname, 'replay-agent.ts');
 const glimmervoidCliPath = path.resolve(import.meta.dirname, '../../bin/glimmervoid.ts');
@@ -55,6 +55,21 @@ function parseArguments(argv: string[]): { manifestPath: string; outputDirectory
 }
 
 const maxAltJPressesToReachSession = 8;
+const recordedWorktreesSegment = `${path.sep}worktrees${path.sep}`;
+
+function findRecordedWorktree(records: ReturnType<typeof parseCaptureRecording>): string | null {
+  const recordedCwd = records.map((record) => record.payload?.cwd).find((cwd) => typeof cwd === 'string' && cwd.includes(recordedWorktreesSegment));
+  return typeof recordedCwd === 'string' ? recordedCwd : null;
+}
+
+async function recordedPathRedactions(sessions: readonly { recording: string; project: string }[], manifestDirectory: string): Promise<Redaction[]> {
+  const worktreeRedactions: Redaction[] = [];
+  for (const session of sessions) {
+    const recordedWorktree = findRecordedWorktree(parseCaptureRecording(await fs.readFile(path.resolve(manifestDirectory, session.recording), 'utf8')));
+    if (recordedWorktree !== null) worktreeRedactions.push({ from: recordedWorktree, to: `~/code/${session.project}` });
+  }
+  return worktreeRedactions;
+}
 
 async function pressAltJUntilFocused(page: Page, sessionIds: ReadonlyMap<string, string>, sessionName: string): Promise<void> {
   const sessionId = sessionIds.get(sessionName);
@@ -227,6 +242,7 @@ async function main(): Promise<void> {
   const manifest = validateManifest(JSON.parse(await fs.readFile(options.manifestPath, 'utf8')));
   const operatorHomeDirectory = os.homedir();
   manifest.redactions.push({ from: operatorHomeDirectory, to: demoHomeDirectory.length <= operatorHomeDirectory.length ? demoHomeDirectory : '~' });
+  manifest.redactions.unshift(...await recordedPathRedactions(manifest.sessions, manifestDirectory));
   manifest.sessions = await Promise.all(manifest.sessions.map(async (session) => {
     const recording = path.resolve(manifestDirectory, session.recording);
     const records = redactRecording(parseCaptureRecording(await fs.readFile(recording, 'utf8')), manifest.redactions);
@@ -258,7 +274,8 @@ async function main(): Promise<void> {
       projectPaths.set(session.project, await createProject(tempDirectory, directoryName, seedDirectory));
     }
     const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
-    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed));
+    if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed), projectPaths);
+    await settleStarHint(configPath);
     const isolatedConfig = z.record(z.string(), z.unknown()).parse(JSON.parse(await fs.readFile(configPath, 'utf8')));
     await writeJsonAtomic(configPath, { ...isolatedConfig, sessionMemoryReserveMB: replayAgentMemoryReserveMB });
     const mapPath = path.join(tempDirectory, 'replay-map.json');

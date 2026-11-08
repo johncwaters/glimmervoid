@@ -1,6 +1,7 @@
 {
   "id": "invoice-total",
   "title": "Invoice total",
+  "project": "billing",
   "ops": [
     {
       "op": "board",
