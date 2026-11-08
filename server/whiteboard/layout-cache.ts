@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
@@ -84,6 +85,15 @@ interface LayoutCache {
 
 interface OpenCache extends LayoutCache {
   close(): void;
+}
+
+interface QueuedLayoutCache extends LayoutCache {
+  runQueuedWrites(): void;
+}
+
+interface QueuedWriteTiming {
+  boardId: string;
+  elapsedMs: number;
 }
 
 const NO_CACHE: OpenCache = { layoutOf: () => null, worldOf: () => null, save: () => {}, saveWhole: () => {}, forget: () => {}, close: () => {} };
@@ -261,8 +271,8 @@ function reopenedAfter(filePath: string, codeStamp: string, failed: OpenCache, e
   }
 }
 
-function openLayoutCache(filePath: string | null, codeStamp: string | null): LayoutCache {
-  if (!filePath || !codeStamp) return NO_CACHE;
+function openLayoutCache(filePath: string | null, codeStamp: string | null, onQueuedWrite: (timing: QueuedWriteTiming) => void = () => {}): QueuedLayoutCache {
+  if (!filePath || !codeStamp) return { ...NO_CACHE, runQueuedWrites: () => {} };
   const cacheFilePath = filePath;
   const layoutCodeStamp = codeStamp;
   let cache = openCacheFile(cacheFilePath, layoutCodeStamp);
@@ -276,12 +286,32 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null): Lay
     }
   }
 
+  const queuedWrites: (() => void)[] = [];
+
+  function runQueuedWrites(): void {
+    for (let write = queuedWrites.shift(); write; write = queuedWrites.shift()) write();
+  }
+
+  function afterQueuedWrites<Value>(work: () => Value): Value {
+    runQueuedWrites();
+    return work();
+  }
+
+  function queueWholeSave(boardId: string, write: () => void): void {
+    queuedWrites.push(() => {
+      const startedAt = performance.now();
+      write();
+      onQueuedWrite({ boardId, elapsedMs: performance.now() - startedAt });
+    });
+  }
+
   return {
-    layoutOf: (boardId, stamp) => recovered(null, (open) => open.layoutOf(boardId, stamp)),
-    worldOf: (boardId, stamp) => recovered(null, (open) => open.worldOf(boardId, stamp)),
-    save: (boardId, from, to, chrome, changed, removedIds, world) => recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds, world)),
-    saveWhole: (boardId, stamp, chrome, painted, world) => recovered(undefined, (open) => open.saveWhole(boardId, stamp, chrome, painted, world)),
-    forget: (boardId) => recovered(undefined, (open) => open.forget(boardId)),
+    layoutOf: (boardId, stamp) => afterQueuedWrites(() => recovered(null, (open) => open.layoutOf(boardId, stamp))),
+    worldOf: (boardId, stamp) => afterQueuedWrites(() => recovered(null, (open) => open.worldOf(boardId, stamp))),
+    save: (boardId, from, to, chrome, changed, removedIds, world) => afterQueuedWrites(() => recovered(undefined, (open) => open.save(boardId, from, to, chrome, changed, removedIds, world))),
+    saveWhole: (boardId, stamp, chrome, painted, world) => queueWholeSave(boardId, () => recovered(undefined, (open) => open.saveWhole(boardId, stamp, chrome, painted, world))),
+    forget: (boardId) => afterQueuedWrites(() => recovered(undefined, (open) => open.forget(boardId))),
+    runQueuedWrites,
   };
 }
 

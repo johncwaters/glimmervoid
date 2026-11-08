@@ -64,11 +64,13 @@ const LayoutAnswer = z.strictObject({
   ]).optional(),
 });
 
+const SavedLayoutWritten = z.strictObject({ savedLayoutWritten: z.strictObject({ boardId: z.string(), elapsedMs: z.number(), heapBytes: z.number() }) });
 const LayoutReply = z.union([LayoutAnswer, z.strictObject({ requestId: RequestId, ok: z.literal(false), error: z.string() })]);
 
 type LayoutRequest = z.infer<typeof LayoutRequest>;
 type LayoutAnswer = z.infer<typeof LayoutAnswer>;
 type OpenStep = z.infer<typeof OpenStep>;
+type SavedLayoutWrite = z.infer<typeof SavedLayoutWritten>['savedLayoutWritten'];
 type ViewerMessage = z.infer<typeof ViewerMessage>;
 type ViewerTiles = z.infer<typeof ViewerTiles>;
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
@@ -130,7 +132,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
     markStep('tile index built');
     tilesByBoardId.set(board.id, fresh);
     cache.saveWhole(board.id, board, fresh.index.chrome, fresh.index.painted.flatMap((painted, slot) => savedPaintOf(fresh.index, slot, painted)), savedWorldOfBoard(board));
-    markStep('saved layout written');
+    markStep('saved layout queued');
     return fresh;
   }
 
@@ -269,5 +271,5 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void):
   return { handle };
 }
 
-export { LayoutReply, LayoutRequest, createLayoutHost };
-export type { LayoutAnswer, LayoutRequestBody, OpenStep, ViewerMessage, ViewerTiles };
+export { LayoutReply, LayoutRequest, SavedLayoutWritten, createLayoutHost };
+export type { LayoutAnswer, LayoutRequestBody, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles };

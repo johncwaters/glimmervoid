@@ -192,6 +192,20 @@ test('a restart draws a viewed board from its saved layout and edits it without 
     cache.exec(sql);
     cache.close();
   };
+  const isSavedLayoutWritten = (): boolean => {
+    try {
+      const cache = new DatabaseSync(cachePath, { readOnly: true });
+      const head = cache.prepare(`SELECT count(*) AS heads FROM layout_head WHERE code_stamp != 'older layout code'`).get();
+      cache.close();
+      return Number(head?.heads ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  };
+  const savedLayoutWritten = async (): Promise<void> => {
+    for (let attempt = 0; attempt < 400 && !isSavedLayoutWritten(); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(isSavedLayoutWritten(), true);
+  };
   const copyFiles = (fromRoot: string, toRoot: string, filename: string) => {
     for (const suffix of ['', '-wal']) {
       if (fs.existsSync(path.join(fromRoot, `${filename}${suffix}`))) fs.copyFileSync(path.join(fromRoot, `${filename}${suffix}`), path.join(toRoot, `${filename}${suffix}`));
@@ -203,6 +217,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const boardId = (await first.handleOperator.create('Cached plan')).summary?.id ?? '';
   assert.equal((await first.handleOperator.put(boardId, boxesFrom(0, 2000))).ok, true);
   const drawnBeforeRestart = await tilesSeenBy(first, boardId);
+  await savedLayoutWritten();
 
   const restarted = restartIn(boardsRoot);
   assert.deepEqual(await tilesSeenBy(restarted, boardId), drawnBeforeRestart);
@@ -210,6 +225,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   assert.match(JSON.stringify(await tilesSeenBy(restartIn(boardsRoot), boardId)), /"x":1800/);
   editCache(`UPDATE layout_head SET code_stamp = 'older layout code'`);
   assert.deepEqual(await tilesSeenBy(restartIn(boardsRoot), boardId), drawnBeforeRestart);
+  await savedLayoutWritten();
 
   const storeBeforeLostEdit = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-lost-'));
   copyFiles(boardsRoot, storeBeforeLostEdit, 'boards.sqlite');
@@ -229,6 +245,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const drawnFromCache = await tilesSeenBy(restartIn(boardsRoot), boardId);
   fs.writeFileSync(cachePath, 'not a database');
   const drawnFromFullLayout = await tilesSeenBy(restartIn(boardsRoot), boardId);
+  await savedLayoutWritten();
   assert.deepEqual(drawnFromCache, drawnFromFullLayout);
   assert.match(JSON.stringify(drawnFromCache), /renamed after restart/);
 

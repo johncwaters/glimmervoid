@@ -8,7 +8,7 @@ import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
-import type { LayoutAnswer, OpenStep, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
+import type { LayoutAnswer, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 
 interface TileViewer {
   send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
@@ -94,10 +94,11 @@ interface TileServiceOptions {
   unloadedBoardOf: (boardId: string) => Board | null;
   layoutCachePath: string | null;
   logger: Pick<Console, 'warn'>;
+  onSavedLayoutWritten: (written: SavedLayoutWrite) => void;
 }
 
-function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger }: TileServiceOptions): BoardTileService {
-  const layouts = createLayoutClient({ cachePath: layoutCachePath });
+function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger, onSavedLayoutWritten }: TileServiceOptions): BoardTileService {
+  const layouts = createLayoutClient({ cachePath: layoutCachePath, onSavedLayoutWritten });
   const stateByViewer = new Map<TileViewer, ViewerState>();
   const viewerById = new Map<number, TileViewer>();
   const lastViewByBoardId = new Map<string, BoardView>();
