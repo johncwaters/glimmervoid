@@ -97,6 +97,15 @@ function checkReferences(draft: Draft, element: Element, previous: Element | und
   if (element.kind !== 'frame') return OK;
   const strangerId = element.contains.find((id) => !isBox(draft, id));
   if (strangerId) return refuse(`frame ${element.id} contains ${strangerId}, which is not a box`);
+  return checkStackMembership(draft, element);
+}
+
+function checkStackMembership(draft: Draft, frame: Frame): OpOutcome {
+  if (!frame.collapsed) return OK;
+  for (const boxId of frame.contains) {
+    const otherStack = currentDependentsOf(draft, boxId).find((dependent) => dependent.kind === 'frame' && dependent.collapsed && dependent.id !== frame.id);
+    if (otherStack) return refuse(`frame ${frame.id} stacks ${boxId}, which is already in stack ${otherStack.id}`);
+  }
   return OK;
 }
 

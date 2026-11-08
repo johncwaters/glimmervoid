@@ -163,6 +163,7 @@ export const Frame = z.object({
   title: Title,
   contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }).describe('the box ids it encloses'),
   loop: z.boolean().default(false),
+  collapsed: z.boolean().default(false).describe('a stack: draws as one card showing its first box, hides the rest, and ends their wires at the card; a box sits in at most one collapsed frame'),
 }).strict();
 
 export const Wire = z.object({
@@ -422,7 +423,7 @@ function filledBox(box: SparseBox): Box {
 export function filledElement(element: SparseElement): Element {
   switch (element.kind) {
     case 'box': return filledBox(element);
-    case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, loop: element.loop ?? false };
+    case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, loop: element.loop ?? false, collapsed: element.collapsed ?? false };
     case 'wire': return {
       kind: 'wire', id: element.id, from: element.from, to: element.to, fromOutput: element.fromOutput ?? null, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
       label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null, back: element.back ?? false,

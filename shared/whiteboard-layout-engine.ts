@@ -3,7 +3,7 @@ import type { Board, Box, Element } from './contracts/whiteboard.ts';
 import type { PlacedBox, PlacedElement, LaidOutFrame, PlacedNote, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import {
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, wireEndingAtCard,
   laidOutNearBox, placeBoardWithMemory, legendEntriesFrom, noteStackOn, stepBandOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
@@ -384,11 +384,28 @@ function touchesStepBox(element: Element | null | undefined, stepBoxIds: Readonl
   return false;
 }
 
+function isInStack(board: Board, boxId: string): boolean {
+  return dependentsOfKind(board, boxId, 'frame').some((frame) => frame.collapsed);
+}
+
+function cardIdOf(board: Board, boxId: string): string {
+  return dependentsOfKind(board, boxId, 'frame').find((frame) => frame.collapsed)?.contains[0] ?? boxId;
+}
+
+function touchesStack(board: Board, element: Element | null | undefined): boolean {
+  if (!element) return false;
+  if (element.kind === 'frame') return element.collapsed;
+  if (element.kind === 'box') return isInStack(board, element.id);
+  if (element.kind === 'wire') return isInStack(board, element.from) || isInStack(board, element.to);
+  return isInStack(board, element.on);
+}
+
 function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): boolean {
   const index = boardIndexOf(board.elements);
   if (world.version !== board.version - 1 || index.elementCount < world.minIncrementalElements || world.laidOutById.size === 0) return true;
   for (const change of changes.values()) {
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
+    if (touchesStack(board, change.before) || touchesStack(board, change.after)) return true;
     const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box' || change.before?.kind === 'note' || change.after?.kind === 'note';
     if (isSolidChange && world.floatingBoxCount > 0) return true;
   }
@@ -638,7 +655,7 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
     const box = world.laidOutById.get(id);
     if (box?.kind === 'box') boxesById.set(id, box);
   };
-  for (const id of endpointIdsOf(board, [...rerouteIds, ...contextIds])) addBox(id);
+  for (const id of endpointIdsOf(board, [...rerouteIds, ...contextIds])) addBox(cardIdOf(board, id));
   const areas = [...rerouteIds].flatMap((id) => {
     const laidOut = world.laidOutById.get(id);
     return laidOut?.kind === 'wire' ? segmentRectsOf(laidOut).map((rect) => inflated(rect, CLEARANCE)) : [];
@@ -658,7 +675,8 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
   });
   const wiresOf = (ids: ReadonlySet<string>) => [...ids].flatMap((id) => {
     const wire = board.elements.get(id);
-    return wire?.kind === 'wire' ? [wire] : [];
+    if (wire?.kind !== 'wire') return [];
+    return wireEndingAtCard(wire, (boxId) => cardIdOf(board, boxId)) ?? [];
   });
   return {
     wires: wiresOf(rerouteIds), contextWires: wiresOf(contextIds), boxesById, softObstacles: [...softById.values()], loopFrames, contentTop: world.contentTop,

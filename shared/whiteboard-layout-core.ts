@@ -27,6 +27,7 @@ const TITLE_CHARS_PER_LINE = 20;
 const BODY_CHARS_PER_LINE = 26;
 const FRAME_PADDING = 18;
 const FRAME_TITLE_HEIGHT = 26;
+const STACK_SPREAD = 6;
 const NOTE_WIDTH = 170;
 const NOTE_CHARS_PER_LINE = 21;
 const NOTE_LINE_HEIGHT = 17;
@@ -392,13 +393,56 @@ function layoutBoxes(board: IndexedBoard, boxesTop: number, stackHeightByBoxId: 
 }
 
 function laidOutFrameOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame | null {
+  if (frame.collapsed) return laidOutStackOf(frame, boxesById);
   const around = unionOf(frame.contains.flatMap((id) => boxesById.get(id) ?? []));
   if (!around) return null;
   return {
-    kind: 'frame', id: frame.id, title: frame.title, isLoop: frame.loop,
+    kind: 'frame', id: frame.id, title: frame.title, isLoop: frame.loop, stackedBoxCount: null,
     x: around.x - FRAME_PADDING, y: around.y - FRAME_PADDING - FRAME_TITLE_HEIGHT,
     width: around.width + FRAME_PADDING * 2, height: around.height + FRAME_PADDING * 2 + FRAME_TITLE_HEIGHT,
   };
+}
+
+function laidOutStackOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame | null {
+  const topCardId = frame.contains[0];
+  const topCard = topCardId === undefined ? undefined : boxesById.get(topCardId);
+  if (!topCard) return null;
+  return {
+    kind: 'frame', id: frame.id, title: frame.title, isLoop: frame.loop, stackedBoxCount: frame.contains.length,
+    x: topCard.x, y: topCard.y - FRAME_TITLE_HEIGHT,
+    width: topCard.width + STACK_SPREAD * 2, height: topCard.height + FRAME_TITLE_HEIGHT + STACK_SPREAD * 2,
+  };
+}
+
+interface StackedView {
+  visibleBoxesById: Map<string, PlacedBox>;
+  topCardIdByHiddenId: Map<string, string>;
+}
+
+function stackedViewOf(board: IndexedBoard, boxesById: Map<string, PlacedBox>): StackedView {
+  const topCardIdByHiddenId = new Map<string, string>();
+  for (const frame of elementsOfKind(board, 'frame')) {
+    const topCardId = frame.collapsed ? frame.contains[0] : undefined;
+    if (topCardId === undefined) continue;
+    for (const hiddenId of frame.contains.slice(1)) topCardIdByHiddenId.set(hiddenId, topCardId);
+  }
+  if (topCardIdByHiddenId.size === 0) return { visibleBoxesById: boxesById, topCardIdByHiddenId };
+  const visibleBoxesById = new Map([...boxesById].filter(([boxId]) => !topCardIdByHiddenId.has(boxId)));
+  return { visibleBoxesById, topCardIdByHiddenId };
+}
+
+function wireEndingAtCard(wire: Wire, cardIdOf: (boxId: string) => string): Wire | null {
+  const from = cardIdOf(wire.from);
+  const to = cardIdOf(wire.to);
+  if (from === to) return null;
+  if (from === wire.from && to === wire.to) return wire;
+  return { ...wire, from, to, fromOutput: from === wire.from ? wire.fromOutput : null };
+}
+
+function wiresEndingAtCards(wires: readonly Wire[], topCardIdByHiddenId: ReadonlyMap<string, string>): readonly Wire[] {
+  if (topCardIdByHiddenId.size === 0) return wires;
+  const cardIdOf = (boxId: string) => topCardIdByHiddenId.get(boxId) ?? boxId;
+  return wires.flatMap((wire) => wireEndingAtCard(wire, cardIdOf) ?? []);
 }
 
 function layoutFrames(board: IndexedBoard, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame[] {
@@ -502,11 +546,12 @@ function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: read
 }
 
 function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
-  const { boxesById, warnings: nearWarnings } = layoutBoxes(board, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
+  const { boxesById: placedBoxesById, warnings: nearWarnings } = layoutBoxes(board, placement.boxesTop, placement.stackHeightByBoxId, placement.stepBandPositions);
+  const { visibleBoxesById: boxesById, topCardIdByHiddenId } = stackedViewOf(board, placedBoxesById);
   const frames = layoutFrames(board, boxesById);
   const notes = layoutNotes(board, boxesById);
   const routing = routeWires({
-    wires: elementsOfKind(board, 'wire'), boxesById,
+    wires: wiresEndingAtCards(elementsOfKind(board, 'wire'), topCardIdByHiddenId), boxesById,
     softObstacles: [...notes, ...frames.map(frameTitleStripOf)],
     loopFrames: frames.filter((frame) => frame.isLoop),
     contentTop: placement.contentTop,
@@ -748,7 +793,8 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 }
 
 export {
+  FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
+  dressedElement, dressedLayout, laidOutBox, laidOutFrameOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, noteStackOn, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutNote, LaidOutStep, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, PlacedNote, Rect };
