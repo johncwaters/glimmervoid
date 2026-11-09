@@ -132,7 +132,7 @@ glimmervoid pair --name phone  # pair a remote device
 
 Glimmervoid creates `~/.glimmervoid/config.json` on first run. Most settings live in the dashboard's **Settings** view; the rest you can change with `glimmervoid settings` or by editing the file, which the server reloads on save. Every key, default and environment variable is in the [configuration reference](docs/configuration.md), generated from the code.
 
-Worktrees branch from each repo's default branch (`origin/HEAD`, then `main`, then `master`) unless you set `integrationBranch`.
+Worktrees branch from each repo's default branch (`origin/HEAD`, then `main`, then `master`) unless you set `worktree.integrationBranch`.
 
 Glimmervoid sends anonymous usage and error data by default. [Telemetry](docs/configuration.md#telemetry) lists exactly what is sent and how to turn it off.
 

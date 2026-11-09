@@ -41,7 +41,7 @@ import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowR
 import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
 import { makeLaneGhConfigDirectory } from '../lanes/lane-spawn.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME } from '../../shared/contracts/untrusted-payload.ts';
-import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
+import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -84,8 +84,7 @@ interface RadarLaneConfig {
 
 interface RadarWiringConfig {
   replayBufferKB?: number;
-  worktreeRoot?: string;
-  integrationBranch?: string | null;
+  worktree?: { integrationBranch?: string | null; root?: string } | null;
   saneYolo?: boolean;
   saneYoloUnreadablePaths?: readonly string[];
   posthog?: RadarLaneConfig | null;
@@ -375,7 +374,7 @@ function createRadarWiring({
   }
 
   function worktreeBaseFor(repoPath: string): string {
-    return config.worktreeRoot || path.join(path.dirname(path.resolve(repoPath)), '.glimmervoid-worktrees');
+    return configuredWorktreeRoot(config, repoPath);
   }
 
   const waitForExit = (sess: Session, signal: AbortSignal | null | undefined) => awaitSessionExit(sess, { signal, spawnGate });

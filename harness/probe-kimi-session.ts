@@ -57,7 +57,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
     teams: [],
     repoRoots: [],
     autoResume: false,
-    worktreeAutoRebase: false,
+    worktree: { autoRebase: false },
     capture: { enabled: true },
     ...(SHOULD_RUN_ONLY_QUESTION_MANAGER_PROBE ? { questionManager: QUESTION_MANAGER_PROBE_SETTINGS } : {}),
   }, null, 2), "utf8");

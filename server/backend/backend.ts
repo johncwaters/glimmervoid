@@ -528,7 +528,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       ledger: laneAssembly.ownedPaths,
       configuredSessionIds: new Set(config.projects.map((project) => project.id)),
       git: laneAssembly.gitWorkspace,
-      shareList: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
+      shareList: config.worktree?.share ?? DEFAULT_CONFIG.worktree.share,
     }),
   ];
   laneAssembly.startRuntimeLanes();

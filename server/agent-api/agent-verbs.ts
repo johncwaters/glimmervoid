@@ -11,6 +11,7 @@ import { AGENT_LANE_TAG } from './agent-api-context.ts';
 import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts';
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
+import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
   const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets } = runtime;
@@ -197,7 +198,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so a checkout made on this machine would not be there');
     const resolved = await resolveCheckoutRepo(repo);
     if (!resolved.ok) return refusal(404, resolved.error);
-    const checkoutRoot = config.worktreeRoot || path.join(path.dirname(resolved.repoPath), '.glimmervoid-worktrees');
+    const checkoutRoot = configuredWorktreeRoot(config, resolved.repoPath);
     const added = await session.addCheckout({ repoPath: resolved.repoPath, checkoutRoot });
     if (!added.ok) return refusal(409, added.error);
     return { status: 200, body: added };

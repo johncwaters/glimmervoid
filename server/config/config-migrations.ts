@@ -124,8 +124,24 @@ function moveWatcherUrlToRemote(config: Record<string, unknown>): string | null 
   return keyMoveMessage(outcome, (move) => ({ from: `watcher.${move.from}`, to: `remote.${move.to}` }));
 }
 
+const WORKTREE_KEY_MOVES: readonly KeyMove[] = Object.freeze([
+  { from: 'worktreeRoot', to: 'root' },
+  { from: 'worktreeShare', to: 'share' },
+  { from: 'integrationBranch', to: 'integrationBranch' },
+  { from: 'worktreeAutoRebase', to: 'autoRebase' },
+  { from: 'worktreeSyncOnStart', to: 'syncOnStart' },
+  { from: 'worktreeCloneDependencies', to: 'cloneDependencies' },
+  { from: 'worktreeRerere', to: 'rerere' },
+]);
+
+function nestWorktreeKeys(config: Record<string, unknown>): string | null {
+  if (!WORKTREE_KEY_MOVES.some((move) => Object.hasOwn(config, move.from))) return null;
+  const outcome = moveKeysIntoBlock(config, blockOf(config, 'worktree'), WORKTREE_KEY_MOVES);
+  return keyMoveMessage(outcome, (move) => ({ from: move.from, to: `worktree.${move.to}` }));
+}
+
 function moveRenamedKeys(config: Record<string, unknown>): string[] {
-  return [moveWatcherUrlToRemote(config)].filter((message) => message !== null);
+  return [moveWatcherUrlToRemote(config), nestWorktreeKeys(config)].filter((message) => message !== null);
 }
 
 function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {

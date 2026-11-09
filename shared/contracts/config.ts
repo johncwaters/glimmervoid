@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
-  createBrowserConfig, optionalBoolean, optionalLooseObject,
+  createBrowserConfig, optionalBoolean, optionalLooseObject, WorktreeControlSettings,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings, VaultFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
@@ -11,7 +11,7 @@ import { isLinkUrlSafe } from './watcher-link.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
 import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
-import type { BranchGcFileSettings as BranchGcFileSettingsSchema } from './browser-config.ts';
+import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
 
 export {
   BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
@@ -25,13 +25,10 @@ export const ConfigUpdate = z.object({
   notifyDebounceMs: z.number({ error: 'notifyDebounceMs must be a positive number' }).finite().positive({ error: 'notifyDebounceMs must be a positive number' }).optional(),
   phoneEscalationMs: z.number({ error: 'phoneEscalationMs must be a positive number' }).finite().positive({ error: 'phoneEscalationMs must be a positive number' }).optional(),
   branchGc: BranchGcControlSettings,
-  worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
-  worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
-  worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
-  worktreeRerere: optionalBoolean('worktreeRerere'),
+  worktree: WorktreeControlSettings,
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   workflows: WorkflowsSettingsUpdate.optional(),
-}).omit({ port: true, worktreeShare: true }).strict();
+}).omit({ port: true }).strict();
 const AGENT_ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
 export const SHELL_AGENT_ID = 'shell';
 export const BUILTIN_AGENT_IDS = Object.freeze(['claude-code', 'codex', 'gemini', 'grok', 'kimi', 'qwen', 'copilot', 'opencode', 'goose', 'cursor', SHELL_AGENT_ID] as const);
@@ -199,10 +196,6 @@ const FILE_CONFIG_SHAPE = {
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,
   detectScheduledWakeups: optionalBoolean('detectScheduledWakeups'),
-  worktreeAutoRebase: optionalBoolean('worktreeAutoRebase'),
-  worktreeSyncOnStart: optionalBoolean('worktreeSyncOnStart'),
-  worktreeCloneDependencies: optionalBoolean('worktreeCloneDependencies'),
-  worktreeRerere: optionalBoolean('worktreeRerere'),
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   hooks: z.unknown().optional(),
   remote: z.object({
@@ -243,26 +236,18 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'benchmarks', 'coherence', 'issues', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
-  'telemetry', 'vault', 'workflows', 'coder',
+  'telemetry', 'vault', 'workflows', 'coder', 'worktree',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;
-  return key !== 'port' && key !== 'repoRoots' && key !== 'worktreeShare';
+  return key !== 'port' && key !== 'repoRoots';
 }));
 export const RUNTIME_CONFIG_SCALAR_KEYS = Object.freeze([
   ...CONFIG_SCALAR_KEYS,
-  'worktreeAutoRebase',
-  'worktreeSyncOnStart',
-  'worktreeCloneDependencies',
-  'worktreeRerere',
   'shareCommitProvenance',
 ]);
 export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'detectScheduledWakeups',
-  'worktreeAutoRebase',
-  'worktreeSyncOnStart',
-  'worktreeCloneDependencies',
-  'worktreeRerere',
   'shareCommitProvenance',
   'hooks',
   'remote',
@@ -277,6 +262,7 @@ export type BranchGcFileSettings = z.infer<typeof BranchGcFileSettingsSchema>;
 export type Config = z.infer<typeof Config>;
 export type BrowserConfig = z.infer<typeof BrowserConfig>;
 export type ConfigUpdate = z.infer<typeof ConfigUpdate>;
+export type WorktreeSettings = z.infer<typeof WorktreeFileSettings>;
 export type ProjectConfig = z.infer<typeof ProjectConfig>;
 export type CustomAgentDeclaration = z.infer<typeof CustomAgentDeclaration>;
 export type TaskTitleSources = z.infer<typeof TaskTitleSources>;

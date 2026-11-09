@@ -8,6 +8,7 @@ import { writeJsonAtomicSync, writeTextAtomicSync } from '../json-file.ts';
 import { errorLabel, errorMessage } from '../../shared/text.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../../shared/contracts/config-numbers-core.ts';
+import { WorktreeFileSettings } from '../../shared/contracts/browser-config.ts';
 import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } from './config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
 import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
@@ -62,7 +63,7 @@ function validateConfig(candidate: unknown): ConfigValidation {
       const [root, index, field] = issue.path;
       if (root === 'port') return 'port must be an integer from 0 to 65535';
       if (root === 'replayBufferKB') return issue.message;
-      if (root === 'repoRoots' || root === 'worktreeShare') return `${root} must be an array of strings`;
+      if (root === 'repoRoots') return `${root} must be an array of strings`;
       if (root === 'remote') return 'remote must be a plain object';
       if (root !== 'projects' && typeof DEFAULT_CONFIG_BY_KEY[String(root)] === 'number') {
         return `${String(root)} must be a finite number greater than or equal to 0`;
@@ -80,10 +81,23 @@ function validateConfig(candidate: unknown): ConfigValidation {
   return { ok: true, config: parsedConfig.data as GlimmervoidConfig };
 }
 
+function replaceInvalidWorktreeLeaves(draft: Record<string, unknown>): void {
+  const worktree = draft.worktree;
+  if (!isRecord(worktree)) return;
+  for (const [leaf, fallback] of Object.entries(DEFAULT_CONFIG.worktree)) {
+    if (!Object.hasOwn(worktree, leaf)) continue;
+    const leafSchema = WorktreeFileSettings.shape[leaf as keyof typeof WorktreeFileSettings.shape];
+    if (leafSchema.safeParse(worktree[leaf]).success) continue;
+    console.warn(`[config] worktree.${leaf} value ${JSON.stringify(worktree[leaf])} is invalid; using ${JSON.stringify(fallback)}`);
+    worktree[leaf] = fallback;
+  }
+}
+
 function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = []): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
   renamedKeyMessages.push(...moveRenamedKeys(draft));
+  replaceInvalidWorktreeLeaves(draft);
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
     if (!Object.hasOwn(draft, key)) continue;

@@ -229,6 +229,17 @@ const vaultShape = {
 const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
 export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
 
+export const WorktreeFileSettings = z.object({
+  root: optionalString('worktree.root'),
+  share: z.array(z.string({ error: 'worktree.share must be an array of strings' }), { error: 'worktree.share must be an array of strings' }).optional(),
+  integrationBranch: optionalString('worktree.integrationBranch').nullable(),
+  autoRebase: optionalBoolean('worktree.autoRebase'),
+  syncOnStart: optionalBoolean('worktree.syncOnStart'),
+  cloneDependencies: optionalBoolean('worktree.cloneDependencies'),
+  rerere: optionalBoolean('worktree.rerere'),
+}, { error: 'worktree must be an object' });
+export const WorktreeControlSettings = WorktreeFileSettings.omit({ share: true }).nullable().optional();
+
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
   notifyDebounceMs: z.number().finite().nonnegative().optional(),
@@ -252,9 +263,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   checkForUpdates: optionalBoolean('checkForUpdates'),
   autoResume: optionalBoolean('autoResume'),
   telegramNotifications: optionalBoolean('telegramNotifications'),
-  integrationBranch: optionalString('integrationBranch').nullable(),
-  worktreeRoot: optionalString('worktreeRoot'),
-  worktreeShare: z.array(z.string()).optional(),
+  worktree: WorktreeFileSettings.optional(),
   repoRoots: z.array(z.string()).optional(),
   taskTitle: TaskTitleSettings,
   branchGc: BranchGcSettings,

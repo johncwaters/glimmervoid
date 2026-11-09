@@ -108,9 +108,8 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
     port: 65535,
     notifyDebounceMs: 0,
     cursorBlink: true,
-    integrationBranch: 'develop',
+    worktree: { integrationBranch: 'develop', share: ['node_modules'] },
     repoRoots: ['/repo'],
-    worktreeShare: ['node_modules'],
     remote: {},
     unknownKey: 123,
   };
@@ -158,9 +157,8 @@ test('validateConfig rejects malformed known fields', () => {
     port: 70000,
     notifyDebounceMs: Number.POSITIVE_INFINITY,
     cursorBlink: 'yes',
-    integrationBranch: 3,
+    worktree: { integrationBranch: 3, share: 'node_modules' },
     repoRoots: ['/repo', 5],
-    worktreeShare: 'node_modules',
     remote: [],
   });
   assert.equal(validation.ok, false);
@@ -169,9 +167,9 @@ test('validateConfig rejects malformed known fields', () => {
   assert.match(errors.join('\n'), /port must be an integer/);
   assert.match(errors.join('\n'), /notifyDebounceMs must be a finite number/);
   assert.match(errors.join('\n'), /cursorBlink must be a boolean/);
-  assert.match(errors.join('\n'), /integrationBranch must be a string/);
+  assert.match(errors.join('\n'), /worktree\.integrationBranch must be a string/);
   assert.match(errors.join('\n'), /repoRoots must be an array of strings/);
-  assert.match(errors.join('\n'), /worktreeShare must be an array of strings/);
+  assert.match(errors.join('\n'), /worktree\.share must be an array of strings/);
   assert.match(errors.join('\n'), /remote must be a plain object/);
   assert.equal(validateConfig(null).ok, false);
   assert.equal(validateConfig([]).ok, false);
@@ -355,13 +353,25 @@ test('a stored watcher.url moves to remote.doormanUrl on load, and a doormanUrl 
   });
 });
 
+test('flat worktree keys nest into the worktree block on load, and a worktree key already set wins', () => {
+  const flatKeys = { worktreeRoot: '/wt', worktreeShare: ['.env'], integrationBranch: 'develop', worktreeAutoRebase: false, worktreeSyncOnStart: false, worktreeCloneDependencies: false, worktreeRerere: false };
+  withStore({ projects: [], ...flatKeys, worktree: { root: '/kept' } }, (_store, configPath) => {
+    const stored = readJson(configPath);
+    assert.deepEqual(Object.keys(flatKeys).filter((key) => Object.hasOwn(stored, key)), []);
+    assert.deepEqual(stored.worktree, { root: '/kept', share: ['.env'], integrationBranch: 'develop', autoRebase: false, syncOnStart: false, cloneDependencies: false, rerere: false });
+  });
+  withStore({ projects: [], worktreeAutoRebase: 'false', worktreeRoot: null }, (store) => {
+    assert.equal(store.config.worktree?.autoRebase, true);
+    assert.equal(store.config.worktree?.root, '');
+  });
+});
+
 test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   withStore({ projects: [] }, (store) => {
     const s = store.getSettings();
     assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
     assert.equal(s.detectBackgroundAgents, DEFAULT_CONFIG.detectBackgroundAgents);
-    assert.equal(s.integrationBranch, DEFAULT_CONFIG.integrationBranch);
-    assert.deepEqual(s.worktreeShare, DEFAULT_CONFIG.worktreeShare);
+    assert.deepEqual(s.worktree, DEFAULT_CONFIG.worktree);
   });
 });
 

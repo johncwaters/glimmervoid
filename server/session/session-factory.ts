@@ -15,7 +15,7 @@ import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
-import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
+import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
 import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
@@ -124,12 +124,12 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getHookPort: dependencies.getHookPort,
       gitWorkspace: builtMapping || isMachineShell ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
-      autoRebase: config.worktreeAutoRebase !== false,
-      syncOnStart: config.worktreeSyncOnStart !== false,
+      autoRebase: config.worktree?.autoRebase !== false,
+      syncOnStart: config.worktree?.syncOnStart !== false,
       liveWorktreeReview: config.liveWorktreeReview !== false,
-      worktreeRoot: config.worktreeRoot || path.join(path.dirname(path.resolve(project.path)), '.glimmervoid-worktrees'),
-      worktreeShare: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
-      seedDependencies: config.worktreeCloneDependencies === false ? null : (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
+      worktreeRoot: configuredWorktreeRoot(config, project.path),
+      worktreeShare: config.worktree?.share ?? DEFAULT_CONFIG.worktree.share,
+      seedDependencies: config.worktree?.cloneDependencies === false ? null : (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
       detectBackgroundAgents: config.detectBackgroundAgents,
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,

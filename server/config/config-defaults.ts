@@ -61,17 +61,15 @@ const DEFAULT_CONFIG = {
 
   telegramNotifications: false,
 
-  integrationBranch: null as string | null,
-
-  worktreeRoot: '',
-
-  worktreeShare: ['.env*', '.claude'],
-
-  worktreeAutoRebase: true,
-  worktreeSyncOnStart: true,
-  worktreeCloneDependencies: true,
-
-  worktreeRerere: true,
+  worktree: {
+    root: '',
+    share: ['.env*', '.claude'],
+    integrationBranch: null as string | null,
+    autoRebase: true,
+    syncOnStart: true,
+    cloneDependencies: true,
+    rerere: true,
+  },
   shareCommitProvenance: true,
   branchGc: {
     enabled: true,

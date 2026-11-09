@@ -210,9 +210,7 @@ function createConfigStore({
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
       skipPermissionsByDefault: config.skipPermissionsByDefault ?? effectiveDefaults.skipPermissionsByDefault,
       telegramNotifications: config.telegramNotifications ?? effectiveDefaults.telegramNotifications,
-      integrationBranch: config.integrationBranch === undefined ? effectiveDefaults.integrationBranch : config.integrationBranch,
-      worktreeRoot: config.worktreeRoot ?? effectiveDefaults.worktreeRoot,
-      worktreeShare: config.worktreeShare ?? effectiveDefaults.worktreeShare,
+      worktree: pickBlock('worktree', { ...DEFAULT_CONFIG.worktree, ...config.worktree }),
       repoRoots: config.repoRoots,
       repositoryRootCaseInsensitive: equalsIgnoringCaseOnWindows('root', 'ROOT'),
 
@@ -243,10 +241,6 @@ function createConfigStore({
 
   function applySettings(newConfig: Partial<GlimmervoidConfig>): void {
     for (const key of RUNTIME_CONFIG_SCALAR_KEYS) {
-      if (key === 'integrationBranch' && newConfig[key] !== undefined) {
-        config[key] = newConfig[key] === null || String(newConfig[key]) === '' ? null : String(newConfig[key]);
-        continue;
-      }
       if (newConfig[key] == null) {
         delete config[key];
         continue;
@@ -259,8 +253,8 @@ function createConfigStore({
     }
     config.repoRoots = newConfig.repoRoots || [];
 
-    if (newConfig.worktreeShare == null) delete config.worktreeShare;
-    if (newConfig.worktreeShare != null) config.worktreeShare = newConfig.worktreeShare;
+    if (newConfig.worktree == null) delete config.worktree;
+    if (newConfig.worktree != null) config.worktree = newConfig.worktree;
     if (newConfig.taskTitle != null) config.taskTitle = newConfig.taskTitle;
     if (newConfig.branchGc != null) config.branchGc = resolveBranchGc(newConfig.branchGc);
     if (newConfig.github != null) config.github = newConfig.github;

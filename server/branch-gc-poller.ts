@@ -2,7 +2,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { DEFAULT_BRANCH_GC_PREFIXES, matchedPrefix, planBranchGc, planWorktreeGc, worktreeIntegrationTips } from './core/branch-gc-core.ts';
-import { configuredIntegrationBranch } from './core/integration-branch-core.ts';
+import { configuredIntegrationBranch, configuredWorktreeRoot } from './core/integration-branch-core.ts';
 import { ancestorProvenProbe, ancestryFromResult, buildTipProbe, proveMergedAcrossTips } from './core/merge-proof-core.ts';
 import type { MergeProbeEnvResult, MergeProofReason, MergeTreeOutcome, TipProbe } from './core/merge-proof-core.ts';
 import type { IntegrationTip, KeptBranch, LocalWorktreeTip, RemoteBranchTip, WorktreeGcDecision } from './core/branch-gc-core.ts';
@@ -50,8 +50,7 @@ interface BranchGcGitWorkspace {
 }
 
 interface BranchGcConfig {
-  integrationBranch?: string | null;
-  worktreeRoot?: string;
+  worktree?: { integrationBranch?: string | null; root?: string } | null;
   projects?: { id?: string; path?: string }[];
 }
 
@@ -456,7 +455,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
 
     await pruneLocalWorktrees({
       projectPath,
-      worktreeRoot: config.worktreeRoot || path.join(path.dirname(path.resolve(projectPath)), '.glimmervoid-worktrees'),
+      worktreeRoot: configuredWorktreeRoot(config, projectPath),
       summary,
       integrationBranch,
       integrationTips,

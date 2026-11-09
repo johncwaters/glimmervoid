@@ -102,7 +102,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
     teams: [],
     repoRoots: [],
     autoResume: false,
-    worktreeAutoRebase: false,
+    worktree: { autoRebase: false },
     capture: { enabled: true },
   }, null, 2), "utf8");
 }

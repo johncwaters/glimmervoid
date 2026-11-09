@@ -342,8 +342,8 @@ export async function prepareIsolatedEnvironment({ tempDirectory, repoRoots, rec
   const configPath = path.join(tempDirectory, 'config.json');
   await writeJsonAtomic(configPath, {
     port, projects: [], teams: [], repoRoots,
-    worktreeRoot: path.join(tempDirectory, 'worktrees'), integrationBranch: 'main',
-    autoResume: false, worktreeAutoRebase: false, worktreeSyncOnStart: false,
+    worktree: { root: path.join(tempDirectory, 'worktrees'), integrationBranch: 'main', autoRebase: false, syncOnStart: false },
+    autoResume: false,
     branchGc: { enabled: false }, usage: { enabled: false }, capture: { enabled: recordSessions },
     recordSignals: recordSessions, postTurnChecks: { enabled: false }, checkForUpdates: false,
     planReview: { enabled: false },

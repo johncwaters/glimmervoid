@@ -1,7 +1,19 @@
-export function configuredIntegrationBranch(config: { integrationBranch?: unknown } | null | undefined): string | null {
-  const configuredBranch = config?.integrationBranch;
+import path from 'node:path';
+
+interface WorktreeConfigHolder {
+  worktree?: { root?: unknown; integrationBranch?: unknown } | null;
+}
+
+export function configuredIntegrationBranch(config: WorktreeConfigHolder | null | undefined): string | null {
+  const configuredBranch = config?.worktree?.integrationBranch;
   if (typeof configuredBranch !== 'string') return null;
   return configuredBranch || null;
+}
+
+export function configuredWorktreeRoot(config: WorktreeConfigHolder | null | undefined, repoPath: string): string {
+  const configuredRoot = config?.worktree?.root;
+  if (typeof configuredRoot === 'string' && configuredRoot !== '') return configuredRoot;
+  return path.join(path.dirname(path.resolve(repoPath)), '.glimmervoid-worktrees');
 }
 
 export const DEFAULT_BRANCH_FALLBACKS = ['main', 'master'] as const;

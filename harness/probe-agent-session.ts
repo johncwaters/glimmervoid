@@ -192,7 +192,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string, agentId:
     repoRoots: [],
     autoResume: false,
     saneYolo: true,
-    worktreeAutoRebase: false,
+    worktree: { autoRebase: false },
     capture: { enabled: true },
   }, null, 2), "utf8");
 }

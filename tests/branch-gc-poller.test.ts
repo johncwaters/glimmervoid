@@ -215,7 +215,7 @@ test('a dry run tick leaves the admin entry of a hand-deleted worktree on disk',
     const statuses: Record<string, unknown>[] = [];
     const poller = createBranchGcPoller({
       gitWorkspace: createGitWorkspace(),
-      getConfig: () => ({ integrationBranch: 'main', projects: [{ path: repo }] }),
+      getConfig: () => ({ worktree: { integrationBranch: 'main' }, projects: [{ path: repo }] }),
       liveSessionIds: () => new Set(),
       liveWorktreePaths: () => new Set(),
       dryRun: true,
@@ -266,7 +266,7 @@ test('branch-gc removes a clean merged worktree an agent made under the worktree
     const statuses: Record<string, unknown>[] = [];
     const poller = createBranchGcPoller({
       gitWorkspace: createGitWorkspace({ removalGuard: { journalPath: path.join(worktreeRoot, 'removals.jsonl'), now: () => guardNowMs } }),
-      getConfig: () => ({ integrationBranch: 'main', worktreeRoot, projects: [{ path: repo }, { path: worktreeByBranch['feat/registered-project'] }] }),
+      getConfig: () => ({ worktree: { integrationBranch: 'main', root: worktreeRoot }, projects: [{ path: repo }, { path: worktreeByBranch['feat/registered-project'] }] }),
       liveSessionIds: () => new Set(),
       liveWorktreePaths: () => new Set([liveSessionDir]),
       log: { warn: () => {} },
@@ -328,7 +328,7 @@ async function deletionsAfterTick({ branchIds, configuredProjectIds, injectedLiv
   const poller = createBranchGcPoller({
     gitWorkspace,
     getConfig: () => ({
-      integrationBranch: 'develop',
+      worktree: { integrationBranch: 'develop' },
       projects: configuredProjectIds.map((projectId) => ({ id: projectId, path: '/repo' })),
     }),
     liveSessionIds: () => new Set(injectedLiveSessionIds),

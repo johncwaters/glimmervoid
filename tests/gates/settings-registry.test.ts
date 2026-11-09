@@ -41,7 +41,7 @@ test('search match spans expose original text without changing partial-word rank
 const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
 const EFFECTS = new Set(['now', 'new-sessions', 'restart']);
-const FILE_ONLY_BY_RULE_PATHS = ['port', 'worktreeShare', 'customAgents', 'hooks', 'remote', 'projects'];
+const FILE_ONLY_BY_RULE_PATHS = ['port', 'worktree.share', 'customAgents', 'hooks', 'remote', 'projects'];
 const EFFECT_OR_SCOPE_PROSE = /applies to every browser|applies (?:now|immediately)|takes effect|(?:after|needs|requires|on) (?:a |the next )?restart|newly (?:started|spawned|created) sessions|only new sessions|new sessions only/i;
 
 interface SchemaDef {

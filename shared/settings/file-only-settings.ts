@@ -73,22 +73,22 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['schedule', 'sleep'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-auto-rebase', path: 'worktreeAutoRebase', title: 'Worktree auto-rebase', group: 'machine-detection-sessions',
+    id: 'file-worktree-auto-rebase', path: 'worktree.autoRebase', title: 'Worktree auto-rebase', group: 'machine-detection-sessions',
     description: 'Rebase eligible session worktrees when the integration branch moves.',
     control: 'toggle', keywords: ['git', 'branch'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-sync-on-start', path: 'worktreeSyncOnStart', title: 'Worktree sync on start', group: 'machine-detection-sessions',
+    id: 'file-worktree-sync-on-start', path: 'worktree.syncOnStart', title: 'Worktree sync on start', group: 'machine-detection-sessions',
     description: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
     control: 'toggle', keywords: ['git', 'fetch', 'fast-forward'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-clone-dependencies', path: 'worktreeCloneDependencies', title: 'Worktree dependencies', group: 'machine-detection-sessions',
+    id: 'file-worktree-clone-dependencies', path: 'worktree.cloneDependencies', title: 'Worktree dependencies', group: 'machine-detection-sessions',
     description: "Give a session worktree its node_modules before the agent starts: on macOS, clone the main checkout's when it matches the worktree's lockfile, then, except on Windows, install each folder still without one from its package-lock.json or pnpm-lock.yaml, with no package scripts.",
     control: 'toggle', keywords: ['node_modules', 'npm', 'pnpm', 'install'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-rerere', path: 'worktreeRerere', title: 'Worktree rerere', group: 'machine-detection-sessions',
+    id: 'file-worktree-rerere', path: 'worktree.rerere', title: 'Worktree rerere', group: 'machine-detection-sessions',
     description: 'Reuse recorded Git conflict resolutions.',
     control: 'toggle', keywords: ['git', 'conflicts'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
@@ -98,17 +98,17 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['git', 'notes', 'why', 'privacy'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-integration-branch', path: 'integrationBranch', title: 'Integration branch', group: 'machine-detection-sessions',
+    id: 'file-integration-branch', path: 'worktree.integrationBranch', title: 'Integration branch', group: 'machine-detection-sessions',
     description: "Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted.",
     control: 'text', nullable: true, keywords: ['git', 'merge'], defaultValue: null, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-root', path: 'worktreeRoot', title: 'Worktree root', group: 'machine-detection-sessions',
+    id: 'file-worktree-root', path: 'worktree.root', title: 'Worktree root', group: 'machine-detection-sessions',
     description: 'Directory that contains session worktrees. Existing worktrees are never relocated.',
     control: 'text', keywords: ['git', 'directory'], defaultValue: '', takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-worktree-share', path: 'worktreeShare', title: 'Shared worktree paths', group: 'machine-detection-sessions',
+    id: 'file-worktree-share', path: 'worktree.share', title: 'Shared worktree paths', group: 'machine-detection-sessions',
     description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',
     control: 'list', keywords: ['files', 'context', 'env'], defaultValue: ['.env*', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
   },

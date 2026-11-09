@@ -7,6 +7,7 @@ import { planWorkspace } from '../../session/core/workspace-core.ts';
 import type { ControlSocket } from '../backend/backend-websockets.ts';
 import type { ProjectEntry } from '../config-store.ts';
 import type { ControlHandlerDeps } from '../control-handlers.ts';
+import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 
 const SESSION_GONE_TEXT = 'That session no longer exists. Reload the page to refresh the session list.';
 
@@ -96,7 +97,7 @@ function createControlContext(deps: ControlHandlerDeps): ControlContext {
     if (repos) {
       const firstRepo = repos[0];
       if (!firstRepo) return { ok: false, error: 'A workspace needs at least two repositories' };
-      const worktreeRoot = config.worktreeRoot || path.join(path.dirname(path.resolve(firstRepo)), '.glimmervoid-worktrees');
+      const worktreeRoot = configuredWorktreeRoot(config, firstRepo);
       const planned = planWorkspace({ worktreeRoot, sessionName: uniqueName, sessionId: id, repoPaths: repos });
       if (!planned.ok) return { ok: false, error: planned.error };
       resolvedPath = planned.plan.folder;

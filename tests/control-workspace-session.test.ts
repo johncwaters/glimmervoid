@@ -20,14 +20,15 @@ test('add-session persists the workspace folder and chosen repositories', () => 
     const second = path.join(root, 'second');
     fs.mkdirSync(first);
     fs.mkdirSync(second);
-    const config: { projects: ProjectEntry[]; worktreeRoot: string } = { projects: [], worktreeRoot: path.join(root, 'worktrees') };
+    const worktreeRoot = path.join(root, 'worktrees');
+    const config: { projects: ProjectEntry[]; worktree: { root: string } } = { projects: [], worktree: { root: worktreeRoot } };
     const server = createControlServer(controlDeps(config, { generateProjectId: () => '12345678-session' }));
     const connection = connectControl<{ type: string; message?: string }>(server);
     connection.send({ type: 'add-session', name: 'Team Work', path: first, repos: [first, second] });
     assert.deepEqual(config.projects, [{
       id: '12345678-session',
       name: 'Team Work',
-      path: path.join(config.worktreeRoot, 'ws-Team-Work-12345678'),
+      path: path.join(worktreeRoot, 'ws-Team-Work-12345678'),
       repos: [first, second],
       dangerouslySkipPermissions: false,
     }]);
@@ -114,7 +115,7 @@ test('quick-session copies a workspace session under the next free name and name
     };
     const renamedSource: ProjectEntry = { id: 'cccccccc-renamed', name: 'Fix the login page', path: first };
     const unnameableSource: ProjectEntry = { id: 'eeeeeeee-unnameable', name: 'My App', path: unnameableFolder };
-    const config: { projects: ProjectEntry[]; worktreeRoot: string } = { projects: [source, renamedSource, unnameableSource], worktreeRoot };
+    const config: { projects: ProjectEntry[]; worktree: { root: string } } = { projects: [source, renamedSource, unnameableSource], worktree: { root: worktreeRoot } };
     const sourceSession = new Session({ id: source.id, name: source.name, path: source.path, workspaceRepos: source.repos, dangerouslySkipPermissions: true, ptySpawn: () => fakePty() });
     const renamedSession = new Session({ id: renamedSource.id, name: renamedSource.name, path: first, ptySpawn: () => fakePty() });
     const unnameableSession = new Session({ id: unnameableSource.id, name: unnameableSource.name, path: unnameableFolder, ptySpawn: () => fakePty() });
