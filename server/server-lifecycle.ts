@@ -81,6 +81,8 @@ function closeExtraServers(extraServers: ClosableServer[]): void {
   }
 }
 
+const BEFORE_HAND_OFF_CAP_MS = 300_000;
+
 function createLifecycle({
   shutdown,
   httpServer,
@@ -95,7 +97,7 @@ function createLifecycle({
   capMs = 3000,
   closeTimeoutMs = 2000,
   beforeHandOff,
-  beforeHandOffCapMs = 300_000,
+  beforeHandOffCapMs = BEFORE_HAND_OFF_CAP_MS,
   superviseSuccessor,
 }: LifecycleOptions): Lifecycle {
   let requested = false;
@@ -217,4 +219,4 @@ function createLifecycle({
   return { requestShutdown, requestRestart };
 }
 
-export { createLifecycle };
+export { BEFORE_HAND_OFF_CAP_MS, createLifecycle };

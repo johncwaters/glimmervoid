@@ -43,6 +43,7 @@ import type { CommandResult } from './git/git-exec.ts';
 import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
 import { probeBranchAndUpstream, standaloneExecutableRealpath } from './update-check.ts';
+import { BEFORE_HAND_OFF_CAP_MS } from './server-lifecycle.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 
 const FETCH_TIMEOUT_MS = 60_000;
@@ -50,6 +51,7 @@ const HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS = 30_000;
 const MERGE_COMMAND_TIMEOUT_MS = 30_000;
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
+const HANDOFF_REBUILD_BUDGET_MS = BEFORE_HAND_OFF_CAP_MS - 60_000;
 const VERIFY_TIMEOUT_MS = 60_000;
 const SUCCESSOR_LISTEN_TIMEOUT_MS = 30_000;
 const SUCCESSOR_POLL_INTERVAL_MS = 500;
@@ -127,6 +129,11 @@ type SuccessorFate = 'exited' | 'listening' | 'still-starting';
 interface CheckoutTargetProbe {
   fastForward: PreflightDecision;
   lockfileChanged: boolean;
+}
+
+interface StagingRebuild {
+  failure: string | null;
+  hasOwnDependencies: boolean;
 }
 
 interface CommandOutcome {
@@ -728,22 +735,31 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return true;
   }
 
-  async function rebuildStagingAt(descriptor: CloneStagedDescriptor, headSha: string): Promise<string | null> {
-    if (await hasLockfileChanged(descriptor.fromSha, headSha)) return 'handoff-preflight-failed';
+  async function rebuildStagingAt(descriptor: CloneStagedDescriptor, headSha: string, rebuildDeadline: number): Promise<StagingRebuild> {
+    const dependenciesInstalledForSha = descriptor.lockfileChanged ? descriptor.targetSha : descriptor.fromSha;
+    const needsInstall = await hasLockfileChanged(dependenciesInstalledForSha, headSha);
+    const hasOwnDependencies = descriptor.lockfileChanged || needsInstall;
     const checkout = await gitCommand(['checkout', '--quiet', '--detach', headSha], descriptor.stagingPath);
-    if (!checkout.ok) return `handoff-rebuild-failed: ${checkout.reason}`;
-    if (descriptor.lockfileChanged) {
-      const stagingDependenciesPath = path.join(descriptor.stagingPath, 'node_modules');
-      await fsPromises.rm(stagingDependenciesPath, { recursive: true, force: true });
-      await fsPromises.symlink(path.join(dependencies.packageRoot, 'node_modules'), stagingDependenciesPath, 'dir');
+    if (!checkout.ok) return { failure: `handoff-rebuild-failed: ${checkout.reason}`, hasOwnDependencies };
+    if (needsInstall) {
+      await fsPromises.rm(path.join(descriptor.stagingPath, 'node_modules'), { recursive: true, force: true });
+      const install = await lowPriorityStagingCommand(['ci'], descriptor.stagingPath, rebuildDeadline);
+      if (!install.ok) return { failure: `handoff-rebuild-failed: ${install.reason}`, hasOwnDependencies };
+      return { failure: null, hasOwnDependencies };
     }
-    const throttled = lowPriorityCommand({ file: 'npm', args: ['run', 'build'], platform: dependencies.platform || process.platform });
-    const build = await command(throttled.file, throttled.args, descriptor.stagingPath, BUILD_TIMEOUT_MS);
-    if (!build.ok) return `handoff-rebuild-failed: ${build.reason}`;
-    return null;
+    const build = await lowPriorityStagingCommand(['run', 'build'], descriptor.stagingPath, rebuildDeadline);
+    if (!build.ok) return { failure: `handoff-rebuild-failed: ${build.reason}`, hasOwnDependencies };
+    return { failure: null, hasOwnDependencies };
   }
 
-  async function performHandOff(descriptor: CloneStagedDescriptor): Promise<void> {
+  async function lowPriorityStagingCommand(npmArguments: string[], cwd: string, deadline: number): Promise<CommandOutcome> {
+    const remainingMs = deadline - clock();
+    if (remainingMs <= 0) return { ok: false, output: '', reason: 'the restart ran out of time before npm could run' };
+    const throttled = lowPriorityCommand({ file: 'npm', args: npmArguments, platform: dependencies.platform || process.platform });
+    return command(throttled.file, throttled.args, cwd, remainingMs);
+  }
+
+  async function performHandOff(descriptor: CloneStagedDescriptor, rebuildDeadline: number): Promise<void> {
     let mergeMovedHead = false;
     let sampledHead: string | null = null;
     try {
@@ -776,12 +792,14 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
           return;
         }
       }
+      let stagingOwnsDependencies = descriptor.lockfileChanged;
       if (isCheckoutPastTarget) {
-        const rebuildFailure = await rebuildStagingAt(descriptor, handOffHead);
-        if (rebuildFailure) {
-          await failHandOff(rebuildFailure, false, null, handOffHead);
+        const rebuild = await rebuildStagingAt(descriptor, handOffHead, rebuildDeadline);
+        if (rebuild.failure) {
+          await failHandOff(rebuild.failure, false, null, handOffHead);
           return;
         }
+        stagingOwnsDependencies = rebuild.hasOwnDependencies;
       }
       if (!isCheckoutPastTarget) {
         const merged = await dependencies.gitWorkspace.mergeFastForwardTo({
@@ -801,7 +819,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       const plan = planHandOffRenames({
         root: dependencies.packageRoot,
         stagingPath: descriptor.stagingPath,
-        lockfileChanged: descriptor.lockfileChanged && !isCheckoutPastTarget,
+        lockfileChanged: stagingOwnsDependencies,
       });
       for (let renameIndex = 0; renameIndex < plan.renames.length; renameIndex += 1) {
         const rename = plan.renames[renameIndex];
@@ -828,6 +846,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   }
 
   async function handOffStagedUpdate(): Promise<void> {
+    const rebuildDeadline = clock() + HANDOFF_REBUILD_BUDGET_MS;
     await bootRun;
     const descriptor = stagedDescriptor;
     if (standaloneExecutablePath) {
@@ -848,7 +867,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       return;
     }
     inFlight = true;
-    const run = performHandOff(descriptor).finally(() => { inFlight = false; });
+    const run = performHandOff(descriptor, rebuildDeadline).finally(() => { inFlight = false; });
     activeRun = run;
     await run;
   }

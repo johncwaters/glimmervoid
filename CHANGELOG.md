@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A downloaded update no longer fails when your checkout already moved past it.** If sessions landed commits that changed `package-lock.json` after an update downloaded, restarting used to show "Update failed. The checkout changed after the update downloaded." even though you were already on newer code. The restart now installs the dependencies for your current checkout, builds it and switches to that build.
 - **Session worktrees build packages that need install scripts.** When a package such as esbuild could not be copied already built from the main checkout, a new session's worktree used to warn you to run `npm rebuild` yourself. Glimmervoid now runs `npm rebuild` for those packages in the worktree, and only warns if that fails.
 - **Boards no longer load as blank black boxes.** A board that changed while its pane was closed drew every box black with no text, and stayed that way until the page reloaded. It now redraws in the theme colors when the pane opens.
 

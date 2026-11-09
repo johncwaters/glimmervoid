@@ -18,7 +18,9 @@ function commitFile(repositoryPath: string, fileName: string, contents: string):
   return git(['rev-parse', 'HEAD'], repositoryPath).trim();
 }
 
-function createCloneInstall() {
+type LockfileChange = 'none' | 'at-target' | 'past-target';
+
+function createCloneInstall(lockfileChange: LockfileChange = 'none') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-clone-update-')));
   const originPath = path.join(root, 'origin.git');
   const publisherPath = path.join(root, 'publisher');
@@ -35,12 +37,16 @@ function createCloneInstall() {
   fs.writeFileSync(path.join(packageRoot, 'dist', 'built-from'), installedSha);
   fs.mkdirSync(path.join(packageRoot, 'node_modules'));
   const landedSha = commitFile(publisherPath, 'landed.txt', 'landed by a session\n');
+  if (lockfileChange === 'at-target') commitFile(publisherPath, 'package-lock.json', '{"changed":"at-target"}\n');
   const targetSha = commitFile(publisherPath, 'release.txt', 'target\n');
-  const pastTargetSha = commitFile(publisherPath, 'landed-after.txt', 'landed after the target\n');
+  const landedAfterSha = commitFile(publisherPath, 'landed-after.txt', 'landed after the target\n');
+  const pastTargetSha = lockfileChange === 'past-target'
+    ? commitFile(publisherPath, 'package-lock.json', '{"changed":"past-target"}\n')
+    : landedAfterSha;
   git(['push', '-q', 'origin', 'main'], publisherPath);
   const fakeBinPath = path.join(root, 'bin');
   fs.mkdirSync(fakeBinPath);
-  fs.writeFileSync(path.join(fakeBinPath, 'npm'), '#!/bin/sh\nmkdir -p dist && git rev-parse HEAD > dist/built-from\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(fakeBinPath, 'npm'), '#!/bin/sh\nmkdir -p dist && git rev-parse HEAD > dist/built-from\ncase " $* " in *" ci "*) mkdir -p node_modules && git rev-parse HEAD > node_modules/installed-from ;; esac\n', { mode: 0o755 });
   return { root, packageRoot, installedSha, landedSha, targetSha, pastTargetSha, fakeBinPath };
 }
 
@@ -117,3 +123,20 @@ test('a staged clone update rebuilds at the checkout when sessions moved it past
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });
+
+for (const scenario of [
+  { lockfileChange: 'at-target', name: 'the target changed package-lock.json', expectedInstalledFrom: 'targetSha' },
+  { lockfileChange: 'past-target', name: 'package-lock.json changed after the target', expectedInstalledFrom: 'pastTargetSha' },
+] as const) {
+  test(`a staged clone update moved past the target installs its own dependencies at hand-off when ${scenario.name}`, { skip: !GIT }, async () => {
+    const install = createCloneInstall(scenario.lockfileChange);
+    try {
+      const lane = await withFakeNpmOnPath(install.fakeBinPath, () => stageThenMoveCheckout(install, install.pastTargetSha));
+      assert.equal(lane.getJournal().state, 'succeeded', lane.getJournal().reason ?? '');
+      assert.equal(fs.readFileSync(path.join(install.packageRoot, 'dist', 'built-from'), 'utf8').trim(), install.pastTargetSha);
+      assert.equal(fs.readFileSync(path.join(install.packageRoot, 'node_modules', 'installed-from'), 'utf8').trim(), install[scenario.expectedInstalledFrom]);
+    } finally {
+      fs.rmSync(install.root, { recursive: true, force: true });
+    }
+  });
+}
