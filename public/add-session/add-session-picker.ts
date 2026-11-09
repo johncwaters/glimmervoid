@@ -10,7 +10,7 @@ import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildRepoCheckbox } from '../session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
-import { paintAgentMark } from '../session-card/agent-mark.ts';
+import { paintAgentChoiceMark } from '../session-card/agent-mark.ts';
 import { suggestSessionName } from '../session-card/naming.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
@@ -257,7 +257,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function buildAgentMark(agentId: string) {
     const markEl = el('span', 'agent-mark');
     markEl.setAttribute('aria-hidden', 'true');
-    paintAgentMark(markEl, agentId, agentLabelOf(agentId));
+    paintAgentChoiceMark(markEl, agentId, agentLabelOf(agentId));
     return markEl;
   }
 
@@ -451,7 +451,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function setAgent(agentId: string) {
     selectedAgentId = agentId;
-    paintAgentMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
+    paintAgentChoiceMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
     applyAgentRules();
     renderSentence();
   }

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Agents can run Arena races.** A new arena tool (and `glimmervoid arena`) lets a session start a race in its own project, list Arena races, read one race with its contestants, finishes, diff stats, checks and judge panel, start judging it, and read a contestant's diff. A start is checked exactly as the Arena tab checks it, its contestants keep the starting session's permission settings, and an agent cannot start a race while another still has open contestant sessions and no winner, nor give it a check command or a clean home (choose those in the Arena tab), nor a model or option value with characters outside letters, digits and `. _ : / [ ] -`. Lane sessions and race contestants are refused, a spawned session cannot start a race, and picking the winner stays in the Arena tab.
 
+### Fixed
+
+- **Shell has an icon in Add Session.** The Shell choice now shows a terminal icon and lines up with the agents above it, and the sentence shows it once Shell is picked.
+
 ## [0.54.2] - 2026-11-09
 
 ### Added
