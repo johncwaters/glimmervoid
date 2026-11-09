@@ -16,7 +16,7 @@ Static HTML fragments imported by `dialogs.ts` via Vite's `?raw` suffix and inje
 ## For AI Agents
 
 ### Working In This Directory
-- These are fragments, not documents: no `<html>`/`<head>`. Tailwind utilities plus semantic classes from `style.css`.
+- These are fragments, not documents: no `<html>`/`<head>`. Tailwind utilities plus semantic classes from the `components` layer stylesheets.
 - Element ids/classes here are queried by `dialogs.ts`; change both sides together.
 - No `<button>` markup: leave an empty mount point and create the button in `dialogs.ts`; the ui-primitives gate fails on markup buttons.
 

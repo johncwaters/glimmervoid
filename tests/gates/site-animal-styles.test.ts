@@ -5,9 +5,11 @@ import path from 'node:path';
 
 import { extractAnimalStyles } from '../../site/src/lib/animal-styles.ts';
 import { extractDashboardTokens } from '../../site/src/lib/dashboard-tokens.ts';
+import { joinDashboardStylesheet } from '../../site/src/lib/dashboard-stylesheet.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
-const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8');
+const readPublicStylesheet = (publicPath: string) => fs.readFileSync(path.join(REPO_ROOT, 'public', publicPath), 'utf8');
+const dashboardStylesheet = joinDashboardStylesheet(readPublicStylesheet('tailwind.css'), readPublicStylesheet);
 const bundledSpriteUrlsByFileName = Object.fromEntries(
   fs.readdirSync(path.join(REPO_ROOT, 'public', 'animals')).filter((fileName) => fileName.endsWith('.png')).map((fileName) => [fileName, `/_astro/${fileName}`]),
 );

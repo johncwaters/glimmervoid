@@ -1,0 +1,60 @@
+.debug-overlay {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 10px 14px;
+  font-size: var(--type-meta);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.debug-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 21;
+  display: flex;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+
+.debug-section {
+  margin-bottom: 10px;
+}
+
+.debug-section-title {
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+
+.debug-field {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 1px 0;
+  flex-wrap: wrap;
+}
+
+.debug-label {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.debug-value {
+  color: var(--text-head);
+}
+
+.debug-dim {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}

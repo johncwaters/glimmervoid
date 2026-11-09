@@ -8,11 +8,11 @@ const PHONE_ONLY_RULE = /html\[data-layout="phone"\]\[data-flying-animals="true"
 export function extractAnimalStyles(dashboardStylesheet: string, spriteUrlsByFileName: Readonly<Record<string, string>>): string {
   const lines = dashboardStylesheet.split('\n');
   const firstLineIndex = lines.indexOf(FIRST_ANIMAL_RULE);
-  if (firstLineIndex < 0) throw new Error(`public/style.css no longer has the line: ${FIRST_ANIMAL_RULE}`);
+  if (firstLineIndex < 0) throw new Error(`the dashboard stylesheet no longer has the line: ${FIRST_ANIMAL_RULE}`);
   const endLineIndex = lines.findIndex(
     (line, index) => index > firstLineIndex && line === REDUCED_MOTION_OPENER && lines[index + 1]?.trim() === FIRST_ANIMAL_RULE,
   );
-  if (endLineIndex < 0) throw new Error('public/style.css no longer closes the flying animals block with its reduced-motion rule');
+  if (endLineIndex < 0) throw new Error('the dashboard stylesheet no longer closes the flying animals block with its reduced-motion rule');
   return lines
     .slice(firstLineIndex, endLineIndex)
     .join('\n')
@@ -20,7 +20,7 @@ export function extractAnimalStyles(dashboardStylesheet: string, spriteUrlsByFil
     .replace(PHONE_ONLY_RULE, '')
     .replace(ANIMAL_SPRITE_URL, (_, fileName: string) => {
       const spriteUrl = spriteUrlsByFileName[fileName];
-      if (!spriteUrl) throw new Error(`public/animals/${fileName} is referenced by public/style.css but was not bundled`);
+      if (!spriteUrl) throw new Error(`public/animals/${fileName} is referenced by the dashboard stylesheet but was not bundled`);
       return `url("${spriteUrl}")`;
     });
 }

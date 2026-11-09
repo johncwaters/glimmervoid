@@ -36,8 +36,8 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `session-actions.ts` | Shared session action entry points for dashboard surfaces |
 | `ui/` | Shared UI primitives, one `.ts`/`.css` pair each, CSS in the `primitives` layer. `pressable.ts` is the ONLY creator of a `<button>`; action buttons use `button()` from `button.ts`, other pressables (rows, chips, toggles) `createPressable()`, a rule the ui-primitives gate enforces |
 | `dom-helpers.ts` | `el()` DOM utility, `adoptElement()` / `releaseElement()` (move a live element and put it back), and the chrome the tab panels share: `buildPanelSection()` / `buildStatChip()` (class prefix parameterized, so the per-panel CSS is unchanged), `projectsOf()` and `isPanelHidden()` |
-| `style.css` | Component styles, `[data-state]` rules, animations, `::before` pseudo-elements |
-| `tailwind.css` | Tailwind v4 entry: `@theme` block mapping colors, fonts, radii |
+| `style.css` and the other `components` layer stylesheets | Fonts, root tokens and the header in `style.css`; component styles, `[data-state]` rules, animations and pseudo-elements in the files `tailwind.css` imports after it. Each is one contiguous run of the former single stylesheet, so the import order is the cascade order: moving an import reorders rules |
+| `tailwind.css` | Tailwind v4 entry: `@theme` block mapping colors, fonts, radii, and the ordered import list of the `components` layer |
 | `perf.html` / `perf-harness.ts` / `perf-corpus.ts` | Dev-only manual perf harness (K xterm terminals under dense ANSI load); never bundled into production |
 
 ## Subdirectories
@@ -60,7 +60,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 
 ### Working In This Directory
 - ESM only (this is the Vite side; the server is CJS), and every file under `public/` is `.ts`, checked strict by `tsconfig.public.json`. A `*-core` module is PURE (no DOM) and shared with node:test, so it runs under Node type stripping: keep it erasable, dependency-free, and give every relative import an explicit `.ts` extension.
-- CSS convention: Tailwind utilities in `index.html`; semantic classes in `style.css` for JS-created DOM; state-driven styles via `[data-state]`; keyframes and pseudo-elements in `style.css`; theme tokens in `tailwind.css`.
+- CSS convention: Tailwind utilities in `index.html`; semantic classes in the `components` layer stylesheets for JS-created DOM; state-driven styles via `[data-state]`; keyframes and pseudo-elements there too; theme tokens in `tailwind.css`.
 - TWO first-class layouts, chosen by `form-factor-core.ts` and stamped on `<html data-layout>`. Phone styling keys off `[data-layout="phone"]`, never a `max-width` override of a desktop selector; a bare `max-width` block is only for content that must wrap in a narrow DESKTOP window. Neither layout duplicates the other's DOM: elements owning live state are re-parented (`adoptElement` / `card-host.ts`).
 - All terminal writes go through `render-scheduler.ts`; never call `term.write` with unbounded data outside it.
 - Use `id` (stable UUID) for any session keying; `name` is display only.
@@ -101,6 +101,6 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ## CSS Convention
 
-- Tailwind utility classes for static markup in `index.html`; semantic classes in `style.css` for JS-created DOM.
+- Tailwind utility classes for static markup in `index.html`; semantic classes in the `components` layer stylesheets for JS-created DOM.
 - State-driven styles via `[data-state]` selectors; layout branches via `[data-layout]`.
-- Animations and pseudo-elements live in `style.css`; theme tokens in `public/tailwind.css` via `@theme`, applied by `public/theme.ts`.
+- Animations and pseudo-elements live in the `components` layer stylesheets; theme tokens in `public/tailwind.css` via `@theme`, applied by `public/theme.ts`.

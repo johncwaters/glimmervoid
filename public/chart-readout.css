@@ -1,0 +1,6 @@
+.chart-readout { min-height: 1.5em; margin: 0; font-variant-numeric: tabular-nums; }
+.radar-strip-readout { font-size: var(--type-meta); color: var(--text-muted); }
+.usage-bar-fill[data-selected="true"],
+.usage-heatmap-cell[data-selected="true"],
+.radar-strip-cell[data-selected="true"] { outline: 1px solid var(--text-head); outline-offset: 1px; }
+.usage-bars-plot, .radar-strip-cells { touch-action: pan-y; }

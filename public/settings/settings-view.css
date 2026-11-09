@@ -1,0 +1,190 @@
+.health-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-meta);
+}
+
+.health-table th {
+  text-align: left;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.health-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border-dim) 50%, transparent);
+}
+
+.health-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.settings-view {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.settings-view [data-action="back-to-settings-list"] {
+  display: none;
+}
+
+.settings-view-subsection-title,
+.status-legend-title {
+  margin: 0;
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.settings-view-control-foot {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.settings-view-control-foot[hidden] {
+  display: none;
+}
+
+.settings-view-input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--bg-surface);
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-body);
+}
+
+.settings-view-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-view-toggle,
+.settings-view-project-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+
+.settings-view-checkbox {
+  accent-color: var(--accent);
+}
+
+.settings-view-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-link {
+  color: var(--accent);
+}
+
+@keyframes settings-row-flash {
+  0% { background: color-mix(in oklab, var(--accent) 18%, transparent); }
+  100% { background: transparent; }
+}
+
+[data-layout="phone"] .settings-view [data-action="back-to-settings-list"]:not([hidden]) {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea, a) {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea) {
+  width: 100%;
+}
+
+[data-layout="phone"] .settings-view :is(input, select, textarea) {
+  font-size: var(--type-title);
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, a):active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+[data-layout="phone"] .settings-view :is(.settings-view-toggle-wrap, .settings-update-buttons, .settings-telegram-test, .settings-telemetry-data) {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+[data-layout="phone"] .settings-view .settings-view-control-foot {
+  min-height: 44px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+[data-layout="phone"] .settings-view .settings-view-control-foot[hidden] {
+  display: flex;
+  visibility: hidden;
+}
+
+[data-layout="phone"] .settings-view label {
+  width: 100%;
+  min-height: 44px;
+}
+
+[data-layout="phone"] .settings-view .settings-view-checkbox {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  flex-shrink: 0;
+}
+
+[data-layout="phone"] .settings-view .settings-update-details-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+[data-layout="phone"] .settings-view .settings-view-switch {
+  --switch-track-inset: 7px;
+  --switch-knob-size: 24px;
+  --switch-travel: 26px;
+  width: 56px;
+  min-width: 56px;
+  height: 44px;
+  align-self: flex-end;
+}
+
+[data-layout="phone"] .settings-view a {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+}
+
+[data-layout="phone"] .settings-view .settings-about-link {
+  width: auto;
+  min-width: 0;
+  font-size: var(--type-body);
+}

@@ -1,0 +1,219 @@
+.bench-view { --phone-panel-max-width: none; }
+
+.bench-section,
+.bench-suite {
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: color-mix(in oklab, var(--bg) 60%, transparent);
+}
+
+.bench-section-head,
+.bench-summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.bench-section-title {
+  margin: 0;
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.bench-section-hint,
+.bench-status,
+.bench-run-line {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+}
+
+.bench-stat {
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.bench-stat-label {
+  margin-left: 5px;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em; font-weight: 700;
+}
+
+.bench-stat-value,
+.bench-score,
+.bench-delta {
+  font-variant-numeric: tabular-nums;
+}
+
+
+.issues-view {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 clamp(12px, 2vw, 32px);
+  color: var(--text);
+  --phone-panel-padding: 0 12px;
+  --phone-panel-overflow-x: hidden;
+}
+.issues-view[hidden] { display: none; }
+.issues-content { display: flex; flex: 1; min-width: 0; min-height: 0; font-size: var(--type-meta); }
+.issues-content .pr-queue-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 8px 10px 8px 14px; }
+.issues-content .reviews-refresh-control { display: contents; }
+.issues-content .reviews-refresh-status { flex: 1 1 100%; order: 3; }
+.issues-content .reviews-refresh-status[hidden] { display: none; }
+.issues-content .reviews-retry-notice { order: 4; flex: 1 1 100%; margin: 0; font-size: var(--type-meta); }
+.issues-content .pr-action-status { font-size: var(--type-meta); }
+.issues-content .pr-action-status { overflow-wrap: anywhere; }
+:has(> .action-status-icon):not([hidden]) { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.action-status-icon { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; }
+[data-tone="busy"] > .action-status-icon { color: var(--state-running); }
+[data-tone="ok"] > .action-status-icon { color: var(--state-complete); }
+[data-tone="error"] > .action-status-icon { color: var(--state-failed); }
+.action-status-text { min-width: 0; }
+
+.hooks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hooks-stat {
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.hooks-stat-value {
+  font-size: var(--type-display);
+  font-weight: 700;
+  color: var(--text-head);
+  font-variant-numeric: tabular-nums;
+}
+
+.hooks-stat[data-tone="warn"] .hooks-stat-value { color: var(--state-waiting); }
+
+.hooks-stat-label {
+  color: var(--text-muted);
+  margin-left: 5px;
+  font-size: var(--type-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em; font-weight: 700;
+}
+
+.hooks-filter { max-width: 360px; font-size: var(--type-meta); padding: 6px 10px; }
+
+.hooks-choice { min-height: 24px; }
+
+.hooks-builtin { display: flex; flex-direction: column; gap: 10px; }
+.hooks-form .settings-view-input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.hooks-type-row,
+.hooks-projects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.hooks-view {
+  --phone-panel-max-width: none;
+  --phone-panel-padding: 12px 10px 24px;
+  --phone-panel-overflow-x: hidden;
+}
+
+html[data-layout="phone"] .hooks-section,
+html[data-layout="phone"] .hooks-builtin {
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--bg) 64%, transparent);
+}
+html[data-layout="phone"] .hooks-stat {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--bg-surface) 54%, transparent);
+  white-space: normal;
+}
+html[data-layout="phone"] .hooks-stat-value { display: block; font-size: var(--type-display); line-height: 1.1; }
+html[data-layout="phone"] .hooks-stat-label { display: block; margin: 2px 0 0; font-size: var(--type-meta); }
+
+html[data-layout="phone"] .hooks-choice { min-height: 44px; font-size: var(--type-body); }
+html[data-layout="phone"] .hooks-choice .settings-view-checkbox { width: 20px; height: 20px; }
+html[data-layout="phone"] .hooks-form .settings-view-input { font-size: var(--type-title); min-height: 44px; }
+html[data-layout="phone"] .hooks-type-row,
+html[data-layout="phone"] .hooks-projects { flex-direction: column; gap: 0; }
+
+.trace-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trace-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 4px;
+}
+
+.trace-section-title,
+.trace-leading-title {
+  margin: 0;
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.trace-section-hint {
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+}
+
+.trace-view {
+  --phone-panel-max-width: none;
+  --phone-panel-padding: 12px 10px 24px;
+  --phone-panel-overflow-x: hidden;
+}
+html[data-layout="phone"] .trace-section-head { flex-wrap: wrap; gap: 4px 10px; }
+html[data-layout="phone"] .trace-section-title { font-size: var(--type-body); color: var(--text-head); }
+html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var(--type-meta); line-height: 1.3; }
+
+.usage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.usage-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-dim);
+  padding-bottom: 4px;
+}
+
+.usage-section-title {
+  margin: 0;
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.usage-section-hint {
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+}

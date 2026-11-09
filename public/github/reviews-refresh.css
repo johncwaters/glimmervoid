@@ -1,0 +1,26 @@
+.pr-queue-foot { flex: 0 0 auto; margin-top: auto; border-top: 1px solid var(--border-dim); }
+.pr-queue-foot:empty { display: none; }
+.reviews-refresh-control { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; }
+.reviews-refresh-control > [data-action="refresh-github"] { order: 2; }
+.reviews-refresh-status { order: 1; flex: 1 1 0; min-width: 0; color: var(--text-dim); font-size: var(--type-meta); overflow-wrap: anywhere; }
+.reviews-refresh-status[hidden] { display: block; }
+.reviews-retry-notice { overflow-wrap: anywhere; }
+.pr-content > .reviews-retry-notice { margin: 12px; }
+
+
+html[data-layout="phone"] .issues-view { display: flex; overflow: hidden; }
+html[data-layout="phone"] .issues-view[hidden] { display: none; }
+html[data-layout="phone"] .issues-content .pr-queue-pane { border: 0; }
+html[data-layout="phone"] .issues-content .pr-queue { overflow-y: auto; }
+html[data-layout="phone"] .issues-content .pr-detail-host { overflow-y: auto; }
+html[data-layout="phone"] .issues-content[data-detail-open="true"] .pr-queue-pane { display: none; }
+html[data-layout="phone"] .issues-content:not([data-detail-open="true"]) .pr-detail-host { display: none; }
+html[data-layout="phone"] .issues-content .pr-detail { padding: 16px 0 0; }
+html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
+@media (max-width: 760px) {
+  html:not([data-layout="phone"]) .issues-content .pr-queue-pane { border: 0; }
+  html:not([data-layout="phone"]) .issues-content[data-detail-open="true"] .pr-queue-pane { display: none; }
+  html:not([data-layout="phone"]) .issues-content:not([data-detail-open="true"]) .pr-detail-host { display: none; }
+  html:not([data-layout="phone"]) .issues-content .pr-detail { padding: 16px 0 0; }
+  html:not([data-layout="phone"]) .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
+}

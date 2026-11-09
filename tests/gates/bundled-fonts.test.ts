@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { joinDashboardStylesheet } from '../../site/src/lib/dashboard-stylesheet.ts';
+
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const FONTS_DIRECTORY = path.join(REPO_ROOT, 'public', 'fonts');
 const LICENCE_BY_FONT_PREFIX = [
@@ -10,7 +12,8 @@ const LICENCE_BY_FONT_PREFIX = [
   { prefix: 'ibm-plex-sans-', file: 'IBMPlexSans-OFL.txt', marks: [/Copyright .* 2017 IBM Corp\./, /SIL OPEN FONT LICENSE Version 1\.1/] },
   { prefix: 'comic-mono-', file: 'ComicMono-LICENSE.txt', marks: [/Copyright \(c\) 2018 Shannon Miwa/, /MIT License/] },
 ] as const;
-const dashboardStylesheet = fs.readFileSync(path.join(REPO_ROOT, 'public', 'style.css'), 'utf8');
+const readPublicStylesheet = (publicPath: string) => fs.readFileSync(path.join(REPO_ROOT, 'public', publicPath), 'utf8');
+const dashboardStylesheet = joinDashboardStylesheet(readPublicStylesheet('tailwind.css'), readPublicStylesheet);
 
 test('every bundled font ships with its own licence', () => {
   const fontFiles = fs.readdirSync(FONTS_DIRECTORY).filter((name) => name.endsWith('.woff2'));

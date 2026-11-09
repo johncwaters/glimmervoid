@@ -1,9 +1,10 @@
 ---
 import '../styles/global.css';
-import dashboardStylesheet from '../../../public/style.css?raw';
+import dashboardEntryStylesheet from '../../../public/tailwind.css?raw';
 import { extractAnimalStyles } from '../lib/animal-styles.ts';
 import { extractDemoStyles } from '../lib/demo-styles.ts';
 import { extractDashboardTokens } from '../lib/dashboard-tokens.ts';
+import { joinDashboardStylesheet } from '../lib/dashboard-stylesheet.ts';
 import { sitePath } from '../lib/site-path.ts';
 import { PRODUCT_SUMMARY } from '../lib/product-facts.ts';
 import ConsentBanner from '../components/ConsentBanner.astro';
@@ -33,6 +34,8 @@ const structuredDataJson = structuredData ? JSON.stringify({ '@context': 'https:
 const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
 const socialImageUrl = new URL(sitePath(socialImagePath), Astro.site).href;
 
+const dashboardStylesheetsByPath = import.meta.glob<string>('../../../public/**/*.css', { eager: true, query: '?raw', import: 'default' });
+const dashboardStylesheet = joinDashboardStylesheet(dashboardEntryStylesheet, (publicPath) => dashboardStylesheetsByPath[`../../../public/${publicPath}`]);
 const dashboardTokens = extractDashboardTokens(dashboardStylesheet);
 const animalSpriteUrlsByPath = import.meta.glob<string>('../../../public/animals/*.png', { eager: true, query: '?url', import: 'default' });
 const animalSpriteUrlsByFileName = Object.fromEntries(Object.entries(animalSpriteUrlsByPath).map(([spritePath, spriteUrl]) => [spritePath.split('/').at(-1) ?? spritePath, spriteUrl]));

@@ -49,6 +49,6 @@ function demoRuleOf(block: TopLevelBlock): string | null {
 export function extractDemoStyles(dashboardStylesheet: string): string {
   const rules = demoRulesWithin(dashboardStylesheet);
   const missingMarker = REQUIRED_RULE_MARKERS.find((marker) => !rules.some((rule) => rule.includes(marker)));
-  if (missingMarker) throw new Error(`public/style.css no longer has a ${missingMarker} rule`);
+  if (missingMarker) throw new Error(`the dashboard stylesheet no longer has a ${missingMarker} rule`);
   return rules.join('\n');
 }
