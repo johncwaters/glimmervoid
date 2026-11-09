@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { resolveArgvCommandMatches } from '../session/core/spawn-command.ts';
-import { execFileSync } from './child-process-safe.ts';
+import { resolveArgvCommandMatches, resolveArgvCommandMatchesAsync } from '../session/core/spawn-command.ts';
+import { execFileAsync, execFileSync } from './child-process-safe.ts';
 
 function realpathOrNull(candidate: string): string | null {
   try {
@@ -27,4 +27,12 @@ function stableLauncherPathFor(commandName: string): string {
   return foundPath;
 }
 
-export { stableLauncherPathFor };
+async function firstCommandOnPath(commandName: string): Promise<string | null> {
+  const [firstMatch = null] = await resolveArgvCommandMatchesAsync(commandName, {
+    platform: process.platform,
+    execFileAsync: async (file, args, options) => String((await execFileAsync(file, [...args], options)).stdout),
+  });
+  return firstMatch;
+}
+
+export { firstCommandOnPath, stableLauncherPathFor };

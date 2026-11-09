@@ -9,7 +9,7 @@ import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { computeRuntimePaths } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
-import { stableLauncherPathFor } from './stable-node-path.ts';
+import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
 
 function hasPackageManifest(directory: string): boolean {
   try {
@@ -38,6 +38,11 @@ const SCRIPT_ARGV_PREFIX_LENGTH = 1;
 
 function stableLauncherPath(): string {
   return stableLauncherPathFor(SELF_LAUNCHER_COMMAND);
+}
+
+async function findNodeLauncherPath(): Promise<string | null> {
+  if (mode === 'binary') return firstCommandOnPath('node');
+  return stableLauncherPath();
 }
 
 function hookLauncherPath(): string {
@@ -126,4 +131,4 @@ function extractExecutableFromBinary(snapshotPath: string): string {
   return extractedPath;
 }
 
-export { hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

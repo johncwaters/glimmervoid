@@ -14,7 +14,9 @@ import {
 } from './core/coherence-feed-core.ts';
 import { coherenceHealFailureReason, coherenceInstallFailureReason, isTimedOutCommand, shouldInstallCoherenceHooks } from './core/coherence-session-core.ts';
 import { judgeCoherenceSupport, readCoherenceBinScript } from './core/coherence-support-core.ts';
-import { stableLauncherPathFor } from '../stable-node-path.ts';
+import { findNodeLauncherPath } from '../runtime-paths.ts';
+
+const NO_NODE_ON_PATH = 'needs node on PATH';
 
 type CoherenceHealOutcome = { status: 'not-needed' | 'healed' } | { status: 'failed'; reason: string };
 
@@ -42,8 +44,10 @@ export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs 
   let cliScript: string | null = null;
   let version: string | null = null;
   let unavailable: CoherenceHooksState | null = null;
+  let nodePath: string | null = null;
   async function runScript(script: string, args: string[], timeout = timeoutMs): Promise<string> {
-    return (await execFileAsync(stableLauncherPathFor('node'), [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    if (!nodePath) throw new Error(NO_NODE_ON_PATH);
+    return (await execFileAsync(nodePath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
   async function run(args: string[], timeout = timeoutMs): Promise<string> {
     if (!cliScript) throw new Error('Coherence is not installed');
@@ -87,6 +91,12 @@ export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs 
     if (!script) {
       cliScript = null;
       unavailable = { active: false, reason: COHERENCE_HOOKS_INACTIVE.notInstalled };
+      return;
+    }
+    nodePath = await findNodeLauncherPath();
+    if (!nodePath) {
+      cliScript = null;
+      unavailable = { active: false, reason: NO_NODE_ON_PATH };
       return;
     }
     const judged = await judgeInstallation(script);
