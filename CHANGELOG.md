@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The board line of a split session row drags its board.** Since sessions became draggable to reorder the Focus sidebar, grabbing the board under a session moved the session instead. Dragging that board line now carries the board, so dropping it on another session opens it beside that session.
 - **A downloaded update no longer fails when your checkout already moved past it.** If sessions landed commits that changed `package-lock.json` after an update downloaded, restarting used to show "Update failed. The checkout changed after the update downloaded." even though you were already on newer code. The restart now installs the dependencies for your current checkout, builds it and switches to that build.
 
 ## [0.54.0] - 2026-11-09

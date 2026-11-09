@@ -421,6 +421,11 @@ function memberPaneOf(target: EventTarget | null): Pane {
   return member === 'board' ? 'board' : 'terminal';
 }
 
+function startBoardRowDrag(event: DragEvent, boardId: string) {
+  event.dataTransfer?.setData(BOARD_ROW_MIME, boardId);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'link';
+}
+
 function isBoardRowDrag(event: DragEvent) {
   return event.dataTransfer?.types.includes(BOARD_ROW_MIME) === true;
 }
@@ -477,7 +482,14 @@ function markSessionDrop(targetId: string, side: 'before' | 'after') {
 
 function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: string) {
   pill.draggable = true;
+  let pressedPane: Pane = 'terminal';
+  pill.addEventListener('pointerdown', (event) => { pressedPane = memberPaneOf(event.target); });
   pill.addEventListener('dragstart', (event) => {
+    const splitBoardId = pressedPane === 'board' ? splitBoardIdOf(sessionId) : null;
+    if (splitBoardId) {
+      startBoardRowDrag(event, splitBoardId);
+      return;
+    }
     draggedSessionId = sessionId;
     event.dataTransfer?.setData(SESSION_ROW_MIME, sessionId);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
@@ -687,10 +699,7 @@ function buildBoardRow(boardId: string) {
   boardRow.dataset.boardId = boardId;
   boardRow.draggable = true;
   boardRow.addEventListener('click', () => centerBoard(boardId));
-  boardRow.addEventListener('dragstart', (event) => {
-    event.dataTransfer?.setData(BOARD_ROW_MIME, boardId);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'link';
-  });
+  boardRow.addEventListener('dragstart', (event) => startBoardRowDrag(event, boardId));
   const item = el('div', 'session-row-item');
   item.dataset.boardNode = boardId;
   item.append(boardRow);
