@@ -76,8 +76,12 @@ function dropRetiredUpdateChannel(config: GlimmervoidConfig): string | null {
 function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   const remote = config.remote;
   if (!isRecord(remote) || !Object.hasOwn(remote, 'enabled')) return null;
-  const { enabled: _retiredEnabled, ...remainingRemote } = remote;
-  config.remote = remainingRemote;
+  const { enabled: wasEnabled, port: configuredPort, ...remainingRemote } = remote;
+  if (wasEnabled !== true) {
+    config.remote = remainingRemote;
+    return '[config] Dropped remote.enabled and remote.port: the remote listener is always on, behind pairing, on a port the system picks.';
+  }
+  config.remote = configuredPort === undefined ? remainingRemote : { ...remainingRemote, port: configuredPort };
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 

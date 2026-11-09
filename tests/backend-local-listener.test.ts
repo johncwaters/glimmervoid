@@ -57,6 +57,11 @@ test.after(async () => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+test('the backend binds loopback and leaves the remote listener port to the system by default', () => {
+  assert.equal(ctx().backend.bindHost, '127.0.0.1');
+  assert.equal(ctx().backend.remote.configuredPort, null);
+});
+
 test('the hook route answers on the agent ingress listener (404 unknown-session, not 401)', async () => {
   const res = await fetch(`${await agentIngressBase(ctx().backend)}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
   assert.equal(res.status, 404);

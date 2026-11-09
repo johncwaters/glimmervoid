@@ -705,10 +705,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry,
     hostLinks,
     watcherLink,
+    remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,
   });
   const lifecycleServers: Server[] = [agentIngressServer];
+  const remoteListenerPortFile = remoteListenerPortPath(glimmervoidHomeDir(), port);
+  const remoteListenerPortOwner = `${process.pid}-${crypto.randomUUID()}`;
+  function publishRemoteListenerPort(boundPort: number): void {
+    fs.mkdirSync(path.dirname(remoteListenerPortFile), { recursive: true });
+    fs.writeFileSync(remoteListenerPortFile, `${boundPort}\n${remoteListenerPortOwner}\n`);
+  }
+  function withdrawRemoteListenerPort(): void {
+    const publishedText = fs.existsSync(remoteListenerPortFile) ? fs.readFileSync(remoteListenerPortFile, 'utf8') : '';
+    if (publishedText.split('\n')[1] === remoteListenerPortOwner) fs.rmSync(remoteListenerPortFile, { force: true });
+  }
   watcherLink.registerProbeSource({
     ...laneAssembly.githubStore.probeSource,
     onWatcherProblem: (problem) => {
@@ -819,9 +830,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       publicHost: remote.publicHost,
       markBound(boundPort: number) {
         trust.markRemoteListenerBound(boundPort);
-        const portPath = remoteListenerPortPath(glimmervoidHomeDir(), port);
-        fs.mkdirSync(path.dirname(portPath), { recursive: true });
-        fs.writeFileSync(portPath, `${boundPort}\n`);
+        publishRemoteListenerPort(boundPort);
       },
       attach(remoteHttpServer: Server) {
         remoteHttpServer.on('request', (request, response) => {

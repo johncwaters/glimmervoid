@@ -62,9 +62,9 @@ The HTTP server and its routes, both WebSockets, health and lane wiring: the one
   checklist: canonical-encoding dismissed: the token is compared as an opaque string
   checklist: identity-continuity dismissed: a session keeps its UUID and token for its whole life
   checklist: separation-of-duties dismissed: one role, the session's own agent, calls the route
-- loopback only: With remote mode off the backend binds loopback alone and mounts no pairing route.
-  over: the backend started with remote disabled
-  via: the backend reports remote disabled and a loopback bind host
+- loopback only: With no bind host configured, the dashboard and the remote listener bind loopback alone, and the remote listener takes a port the system picks.
+  over: the backend started with no bind host and no remote port configured
+  via: the backend binds loopback and leaves the remote listener port to the system by default
   because: binding 0.0.0.0 would expose every session's terminal and control socket to the network
   crossing: remote -> host
   entrances: none

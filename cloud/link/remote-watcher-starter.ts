@@ -19,6 +19,7 @@ type WatcherStarter = (options: {
 const STATUS_CHECK_MS = 60_000;
 const STATUS_TIMEOUT_MS = 15_000;
 const UNLINKED_RETRY_BASE_MS = 1_000;
+const UNLINKED_WARNING_CHECK_COUNT = 5;
 
 function originOf(watcherUrl: string): string {
   return URL.parse(watcherUrl)?.origin ?? watcherUrl;
@@ -65,16 +66,12 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
       lastPrepareProblem = problem;
     }
 
-    async function answeringWatcherUrl(): Promise<string | null> {
-      await prepare();
-      const watcherUrl = await resolveWatcherUrl();
-      if (watcherUrl === null) return null;
-      return await isWatcherAnswering(watcherUrl) ? watcherUrl : null;
-    }
-
     async function checkWatcher(): Promise<void> {
-      const watcherUrl = await answeringWatcherUrl();
+      await prepare();
+      const triedUrl = await resolveWatcherUrl();
+      const isAnswering = triedUrl !== null && await isWatcherAnswering(triedUrl);
       if (isStopped) return;
+      const watcherUrl = isAnswering ? triedUrl : null;
       if (watcherUrl !== null) {
         if (answeringUrl === null) {
           answeringSinceMs = now();
@@ -86,7 +83,10 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
         return;
       }
       unansweredCheckCount += 1;
-      if (answeringUrl === null) return;
+      if (answeringUrl === null) {
+        if (unansweredCheckCount === UNLINKED_WARNING_CHECK_COUNT) log.warn(`[watcher] no watcher answers${triedUrl === null ? ' yet' : ` at ${originOf(triedUrl)}`} after ${unansweredCheckCount} checks, lanes keep their own timers until one does`);
+        return;
+      }
       log.warn(`[watcher] the watcher at ${originOf(answeringUrl)} stopped answering or cannot nudge this server, lanes go back to their own timers`);
       answeringUrl = null;
       onEnded({ endKind: 'unreachable', runMs: now() - answeringSinceMs, willRestart: true });
