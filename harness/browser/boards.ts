@@ -544,6 +544,10 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await page.frameLocator('iframe.wb-image-viewer-page').getByLabel('probe field').click();
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached', timeout: 5000 }).catch(() => assert.fail('Esc closes the full size page while focus is inside the page'));
+  await page.mouse.click(idlePageBounds.x + idlePageBounds.width / 2, idlePageBounds.y + idlePageBounds.height / 2);
+  await viewerPage.waitFor({ timeout: 5000 }).catch(() => assert.fail('a second click on the page opens it full size again'));
+  await page.keyboard.press('Escape');
+  await viewer.waitFor({ state: 'detached', timeout: 5000 });
   assert.equal(await panel.locator('.wb-media button').count(), 0, 'a page box carries no overlay buttons');
   await verifyBoxAbovePageCoversIt(open, pageMedia);
   await pageFrame.evaluate((frame) => {

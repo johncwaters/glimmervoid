@@ -11,6 +11,7 @@ import {
   ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
 } from '#shared/whiteboard-svg-core.ts';
+import { firstCodePoints } from '#shared/text.ts';
 import { iconStrokesOf } from './board-gl-icons.ts';
 
 type Rgba = readonly [number, number, number, number];
@@ -439,9 +440,11 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   pushBodyLines(part, context, box.bodyLines, box.x, box.width, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
-    const placeholderText = box.media.alt || box.media.kind;
+    const placeholderStyle: TextStyle = { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' };
+    const placeholderMaxChars = Math.max(0, Math.floor((box.media.width - BOX_TEXT_INSET * 2) / textAdvance(placeholderStyle)));
+    const placeholderText = firstCodePoints(box.media.alt || box.media.kind, placeholderMaxChars);
     pushOutlinedRect(part, box.media, 6, faded(palette.placeholderFill, opacity), faded(palette.inkDim, opacity), 1, { on: 4, off: 4 }, detailMinScale);
-    pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' });
+    pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, placeholderStyle);
   }
   const linkedBoardId = box.step?.linkedBoardId ?? null;
   if (!linkedBoardId) return { part, hitShape: { kind: 'rect', rect: box, linkRect: null, mediaRect: box.media, hasDrawnMedia } };

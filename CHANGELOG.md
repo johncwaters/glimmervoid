@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reviews.** A teammate's comment-only review now shows beside approvals and change requests in a pull request's detail and queue row, and an Older GitHub reviews list in the detail shows up to 30 older reviews, so a teammate's older review no longer disappears once they review again.
 - **Reviews.** Other reviewers' resolved threads show in a pull request's detail, muted and marked Resolved after the open ones, instead of disappearing once resolved. Only open threads mark a finding as already flagged.
 - **Reviews.** The thread judge leaves out files only main changed only when the pull request targets the repository's default branch. On any other base every changed file reaches it, so a base retargeted to a branch holding the author's changes cannot hide them.
+- **A board page opens full size on every click.** Clicking a page on a board, closing the viewer and clicking the page again now opens the viewer again; before, the first click left the page taking clicks in place, so the second never reached the board. Click a page box's title or body to use the page right on the board. The page's name, drawn under it while it loads, no longer spills past the box edges.
 
 ## [0.54.1] - 2026-11-09
 

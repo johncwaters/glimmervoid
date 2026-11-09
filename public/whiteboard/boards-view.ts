@@ -1064,7 +1064,10 @@ export function mountBoardHost(): HTMLElement {
     },
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
-    onOpenImage: openImageViewer,
+    onOpenImage: (pressedImage) => {
+      editor?.clearSelection();
+      openImageViewer(pressedImage);
+    },
     onConnectBoxes: connectBoxes,
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
