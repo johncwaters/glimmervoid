@@ -82,6 +82,7 @@ const REFUSAL_TIPS: Record<SuggestRefusal, string> = {
   nothing: '',
   reserved: 'A note that says only "para" marks a paragraph break, so it cannot be a note. Add a word, or use the para: margin code. Nothing changed.',
 };
+const NOTHING_TO_PREFIX_TIP = 'The selected lines are already a heading, list, quote, table or code, so there is nothing to prefix. Nothing changed.';
 const BACKWARD_DELETES = new Set(['deleteContentBackward', 'deleteByCut']);
 const TYPED_INPUTS = new Set(['insertText', 'insertReplacementText', 'insertFromPaste', 'insertFromYank']);
 const PARAGRAPH_INPUTS = new Set(['insertParagraph', 'insertLineBreak']);
@@ -115,10 +116,10 @@ function buildCheckMark() {
 }
 
 const FORMAT_CONTROLS = [
-  { label: 'Bold', action: 'format-bold', delimiter: '**', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
-  { label: 'Italic', action: 'format-italic', delimiter: '*', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
-  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
-  { label: 'Code', action: 'format-code', delimiter: '`', iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
+  { label: 'Bold', action: 'format-bold', delimiter: '**', inlineStyle: 'strong', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
+  { label: 'Italic', action: 'format-italic', delimiter: '*', inlineStyle: 'emphasis', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
+  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', inlineStyle: null, iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
+  { label: 'Code', action: 'format-code', delimiter: '`', inlineStyle: null, iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
 ];
 
 const BLOCK_CONTROLS = [
@@ -629,7 +630,8 @@ function placeFloat(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | 
 function selectionRect() {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
-  return selection.getRangeAt(0).getBoundingClientRect();
+  const range = selection.getRangeAt(0);
+  return [...range.getClientRects()].find((rowRect) => rowRect.width > 0) ?? range.getBoundingClientRect();
 }
 
 function markAnchorOf(pane: MarkupPane) {
@@ -647,8 +649,18 @@ function paintFloats(editor: MarkupHost) {
   pane.btnReject.hidden = markAnchor === null;
   pane.btnAddNote.hidden = markAnchor !== null;
   const selectedSource = pane.selection === null ? '' : editor.textarea.value.slice(pane.selection.start, pane.selection.end);
-  const canFormatSelection = markAnchor === null && !selectedSource.includes('\n');
-  for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.hidden = !canFormatSelection || selectedSource.includes(FORMAT_CONTROLS[controlIndex].delimiter[0]);
+  const selectionStartElement = currentRange()?.startContainer.parentElement ?? null;
+  const inlineStyleAtStart = selectionStartElement?.closest<HTMLElement>('[data-inline]')?.dataset.inline ?? null;
+  const selectionStart = pane.selection?.start ?? 0;
+  const lineBeforeSelection = editor.textarea.value.slice(editor.textarea.value.lastIndexOf('\n', selectionStart - 1) + 1, selectionStart);
+  const opensBeforeSelection = (delimiter: string) => (lineBeforeSelection.split(delimiter).length - 1) % 2 === 1;
+  const isSelectionInCode = opensBeforeSelection('`') || selectionStartElement?.closest<HTMLElement>('.doc-markup-line')?.dataset.block === 'fence';
+  const canFormatSelection = markAnchor === null && !isSelectionInCode && !selectedSource.includes('\n');
+  for (const [controlIndex, formatButton] of pane.formatButtons.entries()) {
+    const control = FORMAT_CONTROLS[controlIndex];
+    const isAlreadyStyled = (inlineStyleAtStart !== null && control.inlineStyle === inlineStyleAtStart) || (control.delimiter === '~~' && opensBeforeSelection('~~'));
+    formatButton.hidden = !canFormatSelection || isAlreadyStyled || selectedSource.includes(control.delimiter[0]);
+  }
   pane.formatDivider.hidden = pane.formatButtons.every((formatButton) => formatButton.hidden);
   pane.blockDivider.hidden = markAnchor !== null;
   for (const blockButton of pane.blockButtons) blockButton.hidden = markAnchor !== null;
@@ -779,6 +791,9 @@ function readPaperSelection(pane: MarkupPane, range: AbstractRange | null): Pape
   const end = sourcePointAt(pane, range.endContainer, range.endOffset);
   if (!start || !end) return null;
   if (range.collapsed) return { start: start.sourceOffset, end: start.sourceOffset };
+  const endsAtEmptyLine = range.endOffset === 0 && range.endContainer instanceof HTMLElement && range.endContainer.classList.contains('doc-markup-line') && range.endContainer.childElementCount === 0;
+  const holdsMark = pane.marks.some((mark) => mark.start < end.sourceOffset && mark.end > start.sourceOffset);
+  if (start.segmentStart !== undefined && endsAtEmptyLine && !holdsMark) return { start: start.sourceOffset, end: end.sourceOffset };
   if (start.segmentStart === undefined || start.segmentStart !== end.segmentStart) return 'crosses-mark';
   return { start: start.sourceOffset, end: end.sourceOffset };
 }
@@ -852,7 +867,9 @@ function formatSelection(editor: MarkupHost, delimiter: string) {
   const selectedText = editor.textarea.value.slice(selection.start, selection.end);
   if (selectedText.trim() === '') return;
   const wrappedText = selectedText.replace(/^(\s*)(.*?)(\s*)$/s, (_whole, leadingSpace: string, words: string, trailingSpace: string) => `${leadingSpace}${delimiter}${words}${delimiter}${trailingSpace}`);
+  pane.history = { ...pane.history, openGroup: null };
   applySuggestion(editor, { kind: 'type', selection, text: wrappedText });
+  pane.history = { ...pane.history, openGroup: null };
   pane.run = null;
 }
 
@@ -886,7 +903,11 @@ function prefixSelectedLines(editor: MarkupHost, prefixOf: (lineNumber: number) 
     }
     prefixedSource = outcome.source;
   }
-  if (prefixedSource === editor.textarea.value) return;
+  if (prefixedSource === editor.textarea.value) {
+    pane.tip = NOTHING_TO_PREFIX_TIP;
+    paintMarkupTools(editor);
+    return;
+  }
   rememberDocEdit(editor, { kind: 'note', after: prefixedSource, caretBefore: selection.start, caretAfter: lineStarts[0] });
   renderMarkup(editor);
   placeCaret(pane, lineStarts[0]);
