@@ -278,8 +278,9 @@ export function queueItemByKey<Item extends KeyedQueueItem>(groups: readonly Que
   return groups.flatMap((group) => group.items).find((item) => item.key === key) ?? null;
 }
 
-export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item, string>[], selectedKey: string | null): string | null {
+export function chooseQueueSelection<Item extends KeyedQueueItem>(visibleGroups: readonly QueueGroup<Item, string>[], selectedKey: string | null, heldKeys: ReadonlySet<string> = new Set()): string | null {
   if (queueItemByKey(visibleGroups, selectedKey)) return selectedKey;
+  if (selectedKey !== null && heldKeys.has(selectedKey)) return selectedKey;
   return visibleGroups.flatMap((group) => group.items)[0]?.key ?? null;
 }
 

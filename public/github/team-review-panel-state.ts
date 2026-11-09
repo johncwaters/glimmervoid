@@ -13,6 +13,7 @@ interface ActionDetailHandle {
   settle: SettleAction;
   showReceipt?: (text: string, tone?: 'ok' | 'error') => void;
   clearReceipt?: () => void;
+  showSettled?: (text: string | null) => void;
   runKey?: (action: ReviewDetailKeyAction) => boolean;
 }
 
