@@ -30,6 +30,12 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['diagnostics', 'state'], defaultValue: false, takesEffect: 'now', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
   },
   {
+    id: 'file-session-order', path: 'sessionOrder', title: 'Session order', group: 'machine-sessions',
+    description: 'Order of sessions within each project in the sidebar and the phone Board, as session ids; a session not listed goes after the listed ones.',
+    control: 'list', keywords: ['sidebar', 'rail', 'order', 'reorder', 'drag', 'rearrange'], defaultValue: [], takesEffect: 'now',
+    fileOnlyReason: 'Set by dragging sessions in the sidebar.', ...FILE_ONLY,
+  },
+  {
     id: 'file-replay-buffer', path: 'replayBufferKB', title: 'Replay buffer', group: 'machine-terminal',
     description: 'PTY output retained for clients that reconnect or join late.',
     control: 'number', range: REPLAY_BUFFER_KB_RANGE, unit: { label: 'KB', storedPerDisplay: 1 }, keywords: ['history', 'backfill'], defaultValue: 512,

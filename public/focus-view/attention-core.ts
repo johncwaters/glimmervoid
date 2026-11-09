@@ -3,6 +3,7 @@ import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import { UnseenOutcome } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
+import { moveViewId } from '../view-registry-core.ts';
 
 type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
@@ -65,8 +66,42 @@ function placeOwnedAfterOwners<Row extends RosterEntry>(rows: readonly Row[]): R
   return rows.flatMap((row) => (presentOwnerIdOf(row) ? [] : [row, ...(ownedRowsByOwnerId.get(row.id) ?? [])]));
 }
 
-export function orderRoster<Row extends RosterEntry>(list: readonly Row[]): Row[] {
-  return placeOwnedAfterOwners([...list].sort((a, b) => Number(a.isDormant === true) - Number(b.isDormant === true)));
+export function orderRoster<Row extends RosterEntry>(list: readonly Row[], manualOrder: readonly string[] = []): Row[] {
+  const manualRankById = new Map(manualOrder.map((id, index) => [id, index]));
+  const manualRankOf = (row: Row) => manualRankById.get(row.id) ?? manualOrder.length;
+  const dormantRankOf = (row: Row) => Number(row.isDormant === true);
+  return placeOwnedAfterOwners([...list].sort((a, b) => dormantRankOf(a) - dormantRankOf(b) || manualRankOf(a) - manualRankOf(b)));
+}
+
+export function sessionOrderOf(settings: Readonly<Record<string, unknown>>): string[] {
+  const sessionOrder = settings.sessionOrder;
+  if (!Array.isArray(sessionOrder)) return [];
+  return sessionOrder.filter((id): id is string => typeof id === 'string');
+}
+
+export function canDropRow<Row extends RosterEntry>(dragged: Row, target: Row, groupKeyOf: (row: Row) => string, presentIds: ReadonlySet<string>): boolean {
+  if (dragged.id === target.id) return false;
+  if (groupKeyOf(dragged) !== groupKeyOf(target)) return false;
+  if ((dragged.isDormant === true) !== (target.isDormant === true)) return false;
+  const presentOwnerOf = (row: Row) => (row.ownerId && presentIds.has(row.ownerId) ? row.ownerId : null);
+  return presentOwnerOf(dragged) === presentOwnerOf(target);
+}
+
+export function dropAnchorId(railRows: readonly RosterEntry[], targetId: string, side: 'before' | 'after'): string {
+  if (side === 'before') return targetId;
+  const targetIndex = railRows.findIndex(({ id }) => id === targetId);
+  let anchorIndex = targetIndex;
+  while (anchorIndex + 1 < railRows.length && railRows[anchorIndex + 1]?.ownerId === targetId) anchorIndex += 1;
+  return railRows[anchorIndex]?.id ?? targetId;
+}
+
+export function sessionOrderAfterDrop(railRows: readonly RosterEntry[], savedOrder: readonly string[], movedId: string, targetId: string, side: 'before' | 'after'): string[] {
+  const railIds = railRows.map(({ id }) => id);
+  const railIdSet = new Set(railIds);
+  const savedIdsNotInRail = savedOrder.filter((id) => !railIdSet.has(id));
+  const anchorIndex = railIds.filter((id) => id !== movedId).indexOf(dropAnchorId(railRows, targetId, side));
+  if (anchorIndex === -1) return [...savedOrder];
+  return [...moveViewId(railIds, movedId, side === 'before' ? anchorIndex : anchorIndex + 1), ...savedIdsNotInRail];
 }
 
 export function describeOwnership({ ownerName, ownedCount }: { ownerName: string | null; ownedCount: number }): string | null {

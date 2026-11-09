@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
   streamerMode: false,
   linkPreviews: true,
   viewTabOrder: [] as string[],
+  sessionOrder: [] as string[],
   hiddenAgents: [] as string[],
   remoteSessions: false,
   hintCards: false,

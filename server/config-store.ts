@@ -193,6 +193,7 @@ function createConfigStore({
       streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       linkPreviews: config.linkPreviews ?? effectiveDefaults.linkPreviews,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
+      sessionOrder: config.sessionOrder ?? DEFAULT_CONFIG.sessionOrder,
       hiddenAgents: config.hiddenAgents ?? DEFAULT_CONFIG.hiddenAgents,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
       hintCards: config.hintCards ?? effectiveDefaults.hintCards,

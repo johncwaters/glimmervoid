@@ -2949,6 +2949,8 @@ html[data-layout="phone"] .trace-section-hint { flex-basis: 100%; font-size: var
 .focus-board-archive-summary { padding: 6px 4px 6px 32px; cursor: pointer; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--text-dim); }
 .focus-board-archive-list { display: flex; flex-direction: column; }
 .session-row[data-board-id][draggable="true"] { cursor: grab; }
+.session-row-item[data-drop-target="before"] { box-shadow: inset 0 2px 0 var(--accent); }
+.session-row-item[data-drop-target="after"] { box-shadow: inset 0 -2px 0 var(--accent); }
 .session-row-item[data-board-drop] .session-row-elapsed { visibility: hidden; }
 .session-row-item[data-board-drop]::before { content: ''; position: absolute; inset: 0; z-index: 1; border: 1px dashed var(--accent); background: color-mix(in oklab, var(--bg-card) 85%, transparent); pointer-events: none; }
 .session-row-item[data-board-drop]::after { content: 'Split'; position: absolute; top: 50%; right: 32px; transform: translateY(-50%); z-index: 2; padding: 2px 8px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg-card); font-family: var(--font-mono); font-size: var(--type-meta); line-height: 1.4; color: var(--accent); pointer-events: none; }
