@@ -498,17 +498,19 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
   sessionRegistry.initialize();
-  void whiteboards.forgetClosedSessions((sessionId) => getSessionAny(sessionId) === null);
-  void whiteboards.fileUnfiledBoards();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
-  void deleteRetiredGuardrailsFolders(glimmervoidHomeDir());
-  void reconcileOwnedPaths({
-    ledger: laneAssembly.ownedPaths,
-    configuredSessionIds: new Set(config.projects.map((project) => project.id)),
-    git: laneAssembly.gitWorkspace,
-    shareList: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
-  });
+  const bootWork: Promise<unknown>[] = [
+    whiteboards.forgetClosedSessions((sessionId) => getSessionAny(sessionId) === null),
+    whiteboards.fileUnfiledBoards(),
+    deleteRetiredGuardrailsFolders(glimmervoidHomeDir()),
+    reconcileOwnedPaths({
+      ledger: laneAssembly.ownedPaths,
+      configuredSessionIds: new Set(config.projects.map((project) => project.id)),
+      git: laneAssembly.gitWorkspace,
+      shareList: config.worktreeShare || DEFAULT_CONFIG.worktreeShare,
+    }),
+  ];
   laneAssembly.startRuntimeLanes();
 
   function applyCustomAgents(sourceConfig: GlimmervoidConfig): void {
@@ -630,6 +632,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
+    bootWork,
+    ownedPaths: laneAssembly.ownedPaths,
     cancelAutoResume: sessionRegistry.cancelAutoResume,
     cancelPostTurnLeftoverCleanup: () => httpServer.off('listening', startPostTurnLeftoverCleanup),
     healthInterval,

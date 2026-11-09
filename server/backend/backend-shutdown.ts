@@ -48,6 +48,8 @@ interface BackendShutdownDependencies {
   planReview?: Stoppable | null;
   telegramOutbox: { idle: () => unknown };
   configStore?: { idle: () => unknown };
+  bootWork: Promise<unknown>[];
+  ownedPaths: { idle: () => unknown };
   heartbeat: { stop: () => void };
   outcomes?: Stoppable | null;
   telemetry?: Stoppable | null;
@@ -138,6 +140,10 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     dependencies.heartbeat.stop();
     dependencies.controlWss.close();
     dependencies.dataWss.close();
+    stoppers.add('boot-work', async () => {
+      await Promise.allSettled(dependencies.bootWork);
+      return dependencies.ownedPaths.idle();
+    });
     if (dependencies.configStore) stoppers.add('config-store', () => dependencies.configStore?.idle());
     return { reaps: pendingReaps, stoppers: stoppers.entries() };
   };
