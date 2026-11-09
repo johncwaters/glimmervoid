@@ -675,6 +675,10 @@
     {
       "name": "search",
       "definition": "Finding settings by text: the Settings view's search box and glimmervoid settings search rank settings by title first, then keywords, section, key path, option labels and description, and link as #settings?q=; the unbuilt docs/search-builds-the-view.md outline also names a search bar that composes a view from a query"
+    },
+    {
+      "name": "revision",
+      "definition": "One version of something that changes over time: a captured plan's numbered revision on the plan face (0 for an unsubmitted draft), or the hash a probe set carries that changes whenever any probe does"
     }
   ],
   "retired": [

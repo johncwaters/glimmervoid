@@ -1,4 +1,4 @@
-const MARGIN_CODES = ['wc', 'awk', 'frag', 'tense', 'unclear', 'para', 'good', 'must', 'end'] as const;
+const MARGIN_CODES = ['wc', 'awk', 'frag', 'tense', 'unclear', 'para', 'good', 'must', 'end', 'sp', 'rep', 'wordy', 'ro'] as const;
 type MarginCode = (typeof MARGIN_CODES)[number];
 
 type MarkKind = 'deletion' | 'insertion' | 'substitution' | 'highlight' | 'comment';
@@ -34,6 +34,7 @@ export interface SourceSelection {
 
 const NOTE_OPENER = '{>>';
 const NOTE_CLOSER = '<<}';
+const PARAGRAPH_NOTE = 'para';
 const SUBSTITUTION_SEPARATOR = '~>';
 const MARK_OPENERS = [
   { opener: '{--', closer: '--}', markKind: 'deletion' },
@@ -126,6 +127,10 @@ export function parseCriticMarkup(source: string): MarkupSegment[] {
   return segments;
 }
 
+export function isParagraphMark(mark: MarkSegment): boolean {
+  return mark.markKind === 'comment' && mark.note?.code === null && mark.note.body === PARAGRAPH_NOTE;
+}
+
 export function isEndNote(mark: MarkSegment): boolean {
   return mark.markKind === 'comment' && mark.note?.code === 'end';
 }
@@ -162,9 +167,10 @@ export type SuggestEdit =
   | { kind: 'type'; selection: SourceSelection; text: string }
   | { kind: 'delete'; selection: SourceSelection; direction: 'backward' | 'forward' }
   | { kind: 'paragraph'; selection: SourceSelection }
-  | { kind: 'note'; selection: SourceSelection; body: string };
+  | { kind: 'note'; selection: SourceSelection; body: string }
+  | { kind: 'revise'; selection: SourceSelection; mark: MarkSegment; part: RevisablePart; text: string };
 
-export type SuggestRefusal = 'delimiter' | 'swallowed' | 'nested' | 'nothing';
+export type SuggestRefusal = 'delimiter' | 'swallowed' | 'nested' | 'nothing' | 'reserved';
 
 type SuggestOutcome =
   | { kind: 'applied'; source: string; caret: number; run: SuggestRun | null }
@@ -252,10 +258,23 @@ function strike(source: string, range: SourceSelection, direction: 'backward' | 
   return applied(written, direction === 'forward' ? written.markEnd : mergedRange.start, null);
 }
 
+function paragraphMarkEndingAt(source: string, caret: number) {
+  return marksOf(source).find((mark) => isParagraphMark(mark) && mark.end === caret) ?? null;
+}
+
+function removeParagraphMark(source: string, paragraphMark: MarkSegment): SuggestOutcome {
+  const emptyNote = `${NOTE_OPENER}${NOTE_CLOSER}`;
+  const isGuardingNextNote = source.startsWith(NOTE_OPENER, paragraphMark.end);
+  const removalStart = source.endsWith(emptyNote, paragraphMark.start) && !isGuardingNextNote ? paragraphMark.start - emptyNote.length : paragraphMark.start;
+  return { kind: 'applied', source: source.slice(0, removalStart) + source.slice(paragraphMark.end), caret: removalStart, run: null };
+}
+
 function deleteText(source: string, selection: SourceSelection, direction: 'backward' | 'forward', run: SuggestRun | null): SuggestOutcome {
   const runMark = activeRunMark(source, selection, run);
   if (runMark && direction === 'backward') return rewriteRunMark(source, runMark, runMark.newText.slice(0, -1));
   if (!isCollapsed(selection)) return strike(source, selection, direction);
+  const paragraphMark = direction === 'backward' ? paragraphMarkEndingAt(source, selection.start) : null;
+  if (paragraphMark) return removeParagraphMark(source, paragraphMark);
   const struckOffset = direction === 'backward' ? selection.start - 1 : selection.start;
   if (!isPlainCharAt(source, struckOffset)) return refused('nothing');
   return strike(source, { start: struckOffset, end: struckOffset + 1 }, direction);
@@ -277,17 +296,62 @@ function appliedNote(written: WrittenMark | null): SuggestOutcome {
   return applied(written, written.markEnd, null);
 }
 
+export type RevisablePart = 'suggestion' | 'note';
+
+export function canRevisePart(mark: MarkSegment, part: RevisablePart) {
+  if (part === 'suggestion') return mark.markKind === 'insertion' || mark.markKind === 'substitution';
+  return mark.note !== null && !isParagraphMark(mark);
+}
+
+function markHeadOf(rawMark: string, mark: MarkSegment) {
+  switch (mark.markKind) {
+    case 'comment': return rawMark;
+    case 'highlight': return `{==${mark.oldText}==}`;
+    default: return markupFor(mark.markKind, mark.oldText, mark.newText);
+  }
+}
+
+function splitTrailingNote(rawMark: string, mark: MarkSegment) {
+  const head = markHeadOf(rawMark, mark);
+  return { head, noteTail: rawMark.slice(head.length) };
+}
+
+export function revisableTextIn(source: string, mark: MarkSegment, part: RevisablePart): string {
+  if (part === 'suggestion') return mark.newText;
+  const rawMark = source.slice(mark.start, mark.end);
+  if (mark.markKind === 'comment') return rawMark.slice(NOTE_OPENER.length, -NOTE_CLOSER.length);
+  return splitTrailingNote(rawMark, mark).noteTail.slice(NOTE_OPENER.length, -NOTE_CLOSER.length);
+}
+
+function revisedMarkup(rawMark: string, mark: MarkSegment, part: RevisablePart, text: string) {
+  const { head, noteTail } = splitTrailingNote(rawMark, mark);
+  if (part === 'note') return mark.markKind === 'comment' ? `${NOTE_OPENER}${text}${NOTE_CLOSER}` : `${head}${NOTE_OPENER}${text}${NOTE_CLOSER}`;
+  if (mark.markKind === 'insertion') return markupFor('insertion', '', text) + noteTail;
+  return markupFor('substitution', mark.oldText, text) + noteTail;
+}
+
+function reviseMark(source: string, mark: MarkSegment, part: RevisablePart, text: string): SuggestOutcome {
+  const revisedText = part === 'note' ? text.trim() : text;
+  if (!canRevisePart(mark, part) || revisedText === '') return refused('nothing');
+  if (holdsMarkupDelimiter(revisedText)) return refused('delimiter');
+  if (mark.markKind === 'comment' && revisedText === PARAGRAPH_NOTE) return refused('reserved');
+  const isMarkCurrent = marksOf(source).some((candidate) => candidate.start === mark.start && candidate.end === mark.end);
+  if (!isMarkCurrent) return refused('swallowed');
+  return appliedNote(writeMark(source, mark, revisedMarkup(source.slice(mark.start, mark.end), mark, part, revisedText)));
+}
+
 function isInPlainText(source: string, selection: SourceSelection) {
   if (isCollapsed(selection)) return !marksOf(source).some((mark) => mark.start < selection.start && selection.start < mark.end);
   return parseCriticMarkup(source).some((segment) => segment.kind === 'text' && segment.start <= selection.start && selection.end <= segment.start + segment.text.length);
 }
 
 export function suggestEdit(source: string, edit: SuggestEdit, run: SuggestRun | null): SuggestOutcome {
+  if (edit.kind === 'revise') return reviseMark(source, edit.mark, edit.part, edit.text);
   if (!isInPlainText(source, edit.selection)) return refused('nested');
   switch (edit.kind) {
     case 'type': return typeText(source, edit.selection, edit.text, run);
     case 'delete': return deleteText(source, edit.selection, edit.direction, run);
-    case 'paragraph': return insertNote(source, { start: edit.selection.end, end: edit.selection.end }, 'para');
+    case 'paragraph': return insertNote(source, { start: edit.selection.end, end: edit.selection.end }, PARAGRAPH_NOTE);
     case 'note': return isCollapsed(edit.selection) ? refused('nothing') : insertNote(source, edit.selection, edit.body);
   }
 }

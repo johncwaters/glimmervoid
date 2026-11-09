@@ -16,6 +16,7 @@ export function createSvgIcon(width: number, height: number): SVGSVGElement {
 }
 
 export const CLOSE_ICON_PATH = 'M4 4L12 12M12 4L4 12';
+export const CHECK_ICON_PATH = 'M3 8.5L6.5 12L13 4';
 export const PLUS_ICON_PATH = 'M8 3v10M3 8h10';
 export const BACK_ICON_PATH = 'M10 3L5 8L10 13';
 export const HELP_ICON_PATH = 'M5.1 5.3a3 3 0 1 1 4.2 2.9c-0.8 0.3-1.3 1-1.3 1.8v0.6 M8 13.3h0.01';
