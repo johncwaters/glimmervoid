@@ -1,4 +1,4 @@
-import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
+import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgeEvidence, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
 import { teammateThreadItems } from '../core/pr-flows-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
@@ -94,14 +94,14 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
         isDirty = true;
         await persist();
         if (!comparisonOutcome.ok) continue;
-        const evidence = threadJudgePatch(node, comparisonOutcome.comparison);
-        if ('unjudgeableReason' in evidence) {
-          thread.unjudgeable = { head, lastReplyAt: thread.lastReplyAt, reason: evidence.unjudgeableReason };
+        const evidenceRead = threadJudgeEvidence(node, comparisonOutcome.comparison);
+        if ('unjudgeableReason' in evidenceRead) {
+          thread.unjudgeable = { head, lastReplyAt: thread.lastReplyAt, reason: evidenceRead.unjudgeableReason };
           delete thread.judgeAttempt;
           continue;
         }
         emitStatus();
-        const raw = await deps.judgeThread(buildThreadJudgeRequest(node, head, evidence.patch)).catch(() => null);
+        const raw = await deps.judgeThread(buildThreadJudgeRequest(node, head, evidenceRead.evidence)).catch(() => null);
         const judgement = parseThreadJudgeResult(raw);
         if (judgement && runtime.state[candidate.key] === entry && entry.liveHead === head && entry.threads?.includes(thread)) {
           thread.judgement = { ...judgement, head, lastReplyAt: thread.lastReplyAt, judgedAt: now() };

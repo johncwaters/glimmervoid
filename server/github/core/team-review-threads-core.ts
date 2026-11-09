@@ -7,9 +7,10 @@ import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.
 export const THREAD_JUDGE_BACKOFF_MS = 15 * 60 * 1000;
 export const THREAD_PLACEHOLDER_ERROR = 'No local review draft. Review the answered threads below.';
 const THREAD_COMMENTS_MAX_CHARS = 20000;
-const THREAD_PATCH_MAX_CHARS = 24000;
+const THREAD_PATCH_MAX_CHARS = 120000;
+const THREAD_JUDGE_PART_MAX_CHARS = 6000;
 const COMPARE_FILES_MAX = 300;
-export const THREAD_JUDGE_ITEM_MAX_CHARS = Math.max(THREAD_COMMENTS_MAX_CHARS, THREAD_PATCH_MAX_CHARS);
+export const THREAD_JUDGE_ITEM_MAX_CHARS = THREAD_JUDGE_PART_MAX_CHARS;
 
 export interface ThreadJudgeRequest {
   prompt: string;
@@ -81,39 +82,59 @@ export function shouldJudgeThread(thread: TeamReviewThread, head: string, nowMs:
   return !attempt || attempt.head !== head || attempt.lastReplyAt !== thread.lastReplyAt || attempt.retryAt <= nowMs;
 }
 
-function threadJudgeEvidence(node: TeamReviewThreadNode, patch: string | null): { comments: string; patch: string; isComplete: boolean } {
-  const comments = JSON.stringify(node.comments.nodes.map(({ body, author, createdAt }) => ({ body, author: author?.login ?? null, createdAt })));
-  const patchEvidence = JSON.stringify({ path: node.path, originalCommit: node.comments.nodes[0]?.originalCommit?.oid ?? null, patch });
-  const isComplete = patch !== null && comments.length <= THREAD_COMMENTS_MAX_CHARS && patchEvidence.length <= THREAD_PATCH_MAX_CHARS;
-  return { comments: comments.slice(0, THREAD_COMMENTS_MAX_CHARS), patch: patchEvidence.slice(0, THREAD_PATCH_MAX_CHARS), isComplete };
+interface ThreadJudgeEvidence {
+  commentParts: string[];
+  patchParts: { filename: string; text: string }[];
 }
 
-export function threadJudgePatch(node: TeamReviewThreadNode, comparison: TeamReviewCompareFiles | null): { patch: string } | { unjudgeableReason: string } {
+function commentedFileFirst(node: TeamReviewThreadNode, files: TeamReviewCompareFiles['files']): TeamReviewCompareFiles['files'] {
+  const isCommentedFile = (file: TeamReviewCompareFiles['files'][number]) => file.filename === node.path || file.previous_filename === node.path;
+  return [...files.filter(isCommentedFile), ...files.filter((file) => !isCommentedFile(file))];
+}
+
+function textParts(text: string): string[] {
+  const parts: string[] = [];
+  let part = '';
+  for (const character of text) {
+    if (part.length + character.length > THREAD_JUDGE_PART_MAX_CHARS) {
+      parts.push(part);
+      part = '';
+    }
+    part += character;
+  }
+  parts.push(part);
+  return parts;
+}
+
+export function threadJudgeEvidence(node: TeamReviewThreadNode, comparison: TeamReviewCompareFiles | null): { evidence: ThreadJudgeEvidence } | { unjudgeableReason: string } {
   if (!comparison) return { unjudgeableReason: 'History was rewritten since your comment, so the change cannot be compared' };
-  const changedFile = comparison.files.find((file) => file.filename === node.path || file.previous_filename === node.path);
-  if (changedFile && changedFile.patch === undefined) return { unjudgeableReason: 'GitHub omitted the diff for this file' };
-  if (!changedFile && comparison.files.length >= COMPARE_FILES_MAX) return { unjudgeableReason: 'Too many changed files to judge' };
-  const patch = changedFile?.patch ?? '';
-  if (!threadJudgeEvidence(node, patch).isComplete) return { unjudgeableReason: 'Thread or diff too large to judge' };
-  return { patch };
+  if (comparison.files.length >= COMPARE_FILES_MAX) return { unjudgeableReason: 'Too many changed files to judge' };
+  const fileWithoutDiff = comparison.files.find((file) => file.patch === undefined);
+  if (fileWithoutDiff) return { unjudgeableReason: `GitHub sent no text diff for ${fileWithoutDiff.filename}, as for a binary file, a rename or a very large diff` };
+  const comments = JSON.stringify({ path: node.path, line: node.line, comments: node.comments.nodes.map(({ body, author, createdAt }) => ({ body, author: author?.login ?? null, createdAt })) });
+  if (comments.length > THREAD_COMMENTS_MAX_CHARS) return { unjudgeableReason: 'Thread too long to judge' };
+  const files = commentedFileFirst(node, comparison.files);
+  const changeChars = files.reduce((total, file) => total + file.filename.length + (file.patch ?? '').length, 0);
+  if (changeChars > THREAD_PATCH_MAX_CHARS) return { unjudgeableReason: 'Change too large to judge' };
+  return { evidence: { commentParts: textParts(comments), patchParts: files.flatMap((file) => textParts(file.patch ?? '').map((text) => ({ filename: file.filename, text }))) } };
 }
 
-export function buildThreadJudgeRequest(node: TeamReviewThreadNode, head: string, patch: string | null): ThreadJudgeRequest {
-  const evidence = threadJudgeEvidence(node, patch);
+export function buildThreadJudgeRequest(node: TeamReviewThreadNode, head: string, evidence: ThreadJudgeEvidence): ThreadJudgeRequest {
   const prompt = [
     'Judge whether the latest reply and the code changes at the current head address the original review finding.',
-    `The evidence is the thread-comments and patch items in ${UNTRUSTED_PAYLOAD_FILENAME}. Use no tool except reading that file and writing the result file.`,
+    `The evidence is in ${UNTRUSTED_PAYLOAD_FILENAME}: thread-comments items holding the thread, then patch items holding the diff of every file changed since the commented commit, the commented file first. Long text is split across consecutive items of the same kind and ref; join their text in order.`,
+    `${UNTRUSTED_PAYLOAD_FILENAME} can be too large for one Read: read it with offset and limit, 5 lines at a time, until you have read every item. Use no tool except reading that file and writing the result file.`,
     'Write thread-result.json in your cwd with exactly {"addressed": boolean, "reason": "explanation"}.',
-    'Return addressed false when evidence is missing, truncated, or insufficient. A reply claiming a fix is not proof.',
-    `Current head: ${head}. Complete evidence: ${evidence.isComplete}.`,
+    'Return addressed false when the evidence is insufficient. A reply claiming a fix is not proof; a fix in any changed file counts.',
+    `Current head: ${head}.`,
     UNTRUSTED_PREAMBLE,
   ].join('\n');
   const threadUrl = node.comments.nodes[0]?.url ?? node.path;
   return {
     prompt,
     untrustedItems: [
-      { kind: 'thread-comments', ref: threadUrl, text: evidence.comments },
-      { kind: 'patch', ref: node.path, text: evidence.patch },
+      ...evidence.commentParts.map((text) => ({ kind: 'thread-comments', ref: threadUrl, text })),
+      ...evidence.patchParts.map(({ filename, text }) => ({ kind: 'patch', ref: filename, text })),
     ],
   };
 }
