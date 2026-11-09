@@ -1,6 +1,7 @@
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue } from '#shared/contracts/whiteboard.ts';
-import type { BoardLayout, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
+import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
 import type { PageOccluder } from '#shared/whiteboard-svg-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -32,14 +33,17 @@ function identityOf(media: PageMedia): string {
   return JSON.stringify([media.asset, media.mime, media.alt]);
 }
 
-function placeNode(node: HTMLElement, media: PageMedia): void {
+function viewportWidthOf(box: Pick<LaidOutBox, 'device'>, media: PageMedia): number {
+  return box.device ? DEVICE_CATALOG[box.device.name].screen.width : VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
+}
+
+function placeNode(node: HTMLElement, media: PageMedia, viewportWidth: number): void {
   node.style.left = `${media.x}px`;
   node.style.top = `${media.y}px`;
   node.style.width = `${media.width}px`;
   node.style.height = `${media.height}px`;
   const scaledContent = node.querySelector<HTMLElement>('.wb-media-page, .wb-media-doc');
   if (!scaledContent) return;
-  const viewportWidth = VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
   const scale = media.width / viewportWidth;
   scaledContent.style.width = `${viewportWidth}px`;
   scaledContent.style.height = `${media.height / scale}px`;
@@ -145,18 +149,19 @@ function pageFrameOf(media: PageMedia): HTMLIFrameElement {
   return frame;
 }
 
-function placedPageOf(boxId: string, media: PageMedia, identity: string, latestDialValues: () => Readonly<Record<string, DialValue>>): PlacedPage {
+function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<string, DialValue>>): PlacedPage {
+  const { boxId, media, identity, viewportWidth } = page;
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
   if (media.kind === 'doc') {
     node.append(docCardOf(media));
-    placeNode(node, media);
+    placeNode(node, media, viewportWidth);
     return { identity, node, frame: null, postedDialValues: '{}' };
   }
   const frame = pageFrameOf(media);
   node.append(frame);
-  placeNode(node, media);
+  placeNode(node, media, viewportWidth);
   const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues) };
   tunePageOnLoad(frame, node, () => {
     const dialValues = latestDialValues();
@@ -169,6 +174,7 @@ function placedPageOf(boxId: string, media: PageMedia, identity: string, latestD
 interface ShownPage {
   boxId: string;
   media: PageMedia;
+  viewportWidth: number;
   identity: string;
   maskImage: string | null;
 }
@@ -264,12 +270,12 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
       liveBoxIds.add(page.boxId);
       const placed = placedByBoxId.get(page.boxId);
       if (placed?.identity === page.identity) {
-        placeNode(placed.node, page.media);
+        placeNode(placed.node, page.media, page.viewportWidth);
         applyMask(placed.node, page.maskImage);
         postChangedDialValues(page, placed);
         continue;
       }
-      const replacement = placedPageOf(page.boxId, page.media, page.identity, () => latestDialValuesOf(page.boxId));
+      const replacement = placedPageOf(page, () => latestDialValuesOf(page.boxId));
       applyMask(replacement.node, page.maskImage);
       markInteractive(page.boxId, replacement);
       if (placed) placed.node.replaceWith(replacement.node);
@@ -288,7 +294,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
     shownPages = layout.elements.flatMap((element) => {
       if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
-      return [{ boxId: element.id, media: element.media, identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder)) }];
+      return [{ boxId: element.id, media: element.media, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder)) }];
     });
     placeLivePages();
   }

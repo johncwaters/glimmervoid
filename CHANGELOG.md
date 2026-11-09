@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A page on a device box is readable.** A page or document shown on a whiteboard device box now lays out at that device's screen width (393 wide on a phone, 834 on a tablet, 1440 on a laptop or browser, 1920 on a desktop), so a phone shows it as a phone would. It used to lay out 1280 wide on every device and shrink to fit, which left a phone's page a strip of unreadable text at the top of the screen.
 - **Red pen text you can read.** The Add note button that appears under selected text now has a solid background, so the line beneath no longer shows through it. A replacement's suggested text is drawn larger and above its caret on its own row, on any line of a paragraph, where it used to be small and sit on the caret and on the line above.
 
 ## [0.55.0] - 2026-11-09
