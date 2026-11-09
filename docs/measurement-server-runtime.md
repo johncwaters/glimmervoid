@@ -47,11 +47,10 @@ cursors live only in the in-memory `fileStates` map in `usage-scanner.ts`; the w
 daily rollups only. So every restart starts from offset 0 for every file, and `walkDir` applies no
 mtime cutoff even though entries older than `retainDays` (90) are pruned after parsing.
 
-Fix options, not yet specified:
-
-1. Persist `fileStates` (path, size, mtimeMs, offset) beside `usage-warehouse.json` and load it at
-   start, so a restart reads only appended bytes.
-2. Skip files whose mtime predates the retention window during the walk.
+What landed: the scanner store (cursors, entries, activity) persists as `usage-scan-snapshot.json`
+beside `usage-warehouse.json` and is restored on the first pass, so a restart read 1.0 MB instead of
+3437 MB on this host. Codex lines without a usage marker skip the JSON parse. The runtime
+alternatives below were measured and dropped: the cost was the rescan, not the runtime.
 
 ## Runtime alternatives
 
