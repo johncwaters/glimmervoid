@@ -59,4 +59,3 @@ function settingsHomeHooks({ agentId, relayedEvents, saneYoloEvent, saneYoloFlav
 }
 
 export { settingsHomeHooks };
-export type { CommandHook };
