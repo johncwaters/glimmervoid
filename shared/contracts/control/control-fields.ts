@@ -195,7 +195,7 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'close', 'reopen', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],
-  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'start-session', 'open-advanced', 'allow-notifications', 'skip-notifications', 'check-github-again', 'save-github-teams', 'save-github-org', 'save-lane-read-token', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
+  onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'start-session', 'allow-notifications', 'skip-notifications', 'check-github-again', 'save-github-teams', 'save-github-org', 'save-lane-read-token', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'restore', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh', 'pr-flow-dismiss', 'pr-flow-fix-local', 'pr-flow-undo', 'pr-flow-save-rule', 'pr-flow-approve', 'pr-flow-run'],
   hints: ['shown', 'open', 'dismiss'],
   star: ['shown', 'open', 'dismiss'],
