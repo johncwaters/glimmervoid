@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Remote watcher.** Set `watcher.url` to link a watcher running on another machine instead of the local one. It needs the remote listener on, since nudges come back through it, and the watcher machine runs `glimmervoid watch` with `GLIMMERVOID_LINK_SECRET` set to the hex contents of this server's `~/.glimmervoid/watcher-link.key` and `GLIMMERVOID_LINK_SERVER_URL` set to the address that forwards to the remote listener. If the remote watcher stops answering, or its nudges stop reaching the server, lanes go back to their own timers until it recovers.
 
+### Changed
+
+- **Update checks read GitHub releases.** Glimmervoid now learns about new versions from the latest GitHub release instead of the npm registry. When the release notes carry a Security section and you are on an older version, the dashboard shows a security notice.
+
+### Removed
+
+- **The Experimental update channel.** Settings, Updates no longer has a Channel row, and Glimmervoid updates only to published releases. A leftover `updateChannel` key is removed from `config.json` the next time Glimmervoid starts.
+
 ### Fixed
 
 - **Boards no longer load as blank black boxes.** A board that changed while its pane was closed drew every box black with no text, and stayed that way until the page reloaded. It now redraws in the theme colors when the pane opens.

@@ -10,7 +10,6 @@ import { Config, CONFIG_BLOCK_KEYS, ConfigUpdate, HIDDEN_CONFIG_KEYS } from '../
 test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(Config.safeParse(DEFAULT_CONFIG).success, true);
   assert.equal(DEFAULT_CONFIG.integrationBranch, null);
-  assert.equal(DEFAULT_CONFIG.updateChannel, 'release');
   assert.equal(Config.shape.integrationBranch.safeParse(null).success, true);
   assert.equal(DEFAULT_CONFIG.trace.enabled, true);
   assert.equal(DEFAULT_CONFIG.planReview.enabled, true);

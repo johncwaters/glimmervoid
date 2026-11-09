@@ -60,7 +60,6 @@ Which version is running, and updating to the newest.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `updateChannel` | Channel | `"release"` | Stable releases, or Experimental builds from every change to main. |
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
 
 ### Usage

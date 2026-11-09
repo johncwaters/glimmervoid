@@ -42,9 +42,11 @@ import { runCommand as execCommand, runGit } from './git/git-exec.ts';
 import type { CommandResult } from './git/git-exec.ts';
 import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
+import { isRecord } from '../shared/coerce.ts';
 import { probeBranchAndUpstream, standaloneExecutableRealpath } from './update-check.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 
+const RETIRED_UPDATE_CHANNELS = new Set(['experimental', 'main']);
 const FETCH_TIMEOUT_MS = 60_000;
 const HANDOFF_QUEUE_ADMISSION_TIMEOUT_MS = 30_000;
 const MERGE_COMMAND_TIMEOUT_MS = 30_000;
@@ -881,6 +883,10 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   async function readPersistedJournal(): Promise<PersistedJournalRead> {
     try {
       const parsedJson: unknown = JSON.parse(await fsPromises.readFile(dependencies.journalPath, 'utf8'));
+      if (isRecord(parsedJson) && RETIRED_UPDATE_CHANNELS.has(String(parsedJson.channel))) {
+        parsedJson.channel = 'release';
+        await writeJsonAtomic(dependencies.journalPath, parsedJson, { fsPromises });
+      }
       const parsed = UpdateJournalSchema.safeParse(parsedJson);
       if (parsed.success) return { journal: parsed.data, wasPersisted: true };
       return { journal: interruptedDisplayJournal(dependencies.getUpdateChannel(), 'update journal is invalid'), wasPersisted: false };

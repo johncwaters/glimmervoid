@@ -1,6 +1,5 @@
-import { UPDATE_CHANNELS } from '../contracts/update-journal.ts';
 import { USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, USD, capitalizedOptions } from './registry-fields.ts';
+import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, USD } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const MACHINE_TELEGRAM: SettingsSection = {
@@ -174,12 +173,6 @@ export const MACHINE_UPDATES: SettingsSection = {
       description: 'Running and newest versions, with update and restart.',
       control: 'readonly', keywords: ['version', 'available', 'current', 'check', 'restart', 'commit', 'installed', 'release', 'failure'],
       status: 'update-actions', ...READOUT,
-    },
-    {
-      id: 'update-channel', path: 'updateChannel', title: 'Channel',
-      description: 'Stable releases, or Experimental builds from every change to main.',
-      control: 'select', options: capitalizedOptions(UPDATE_CHANNELS),
-      keywords: ['release', 'prerelease', 'next', 'beta', 'early'], defaultValue: 'release', ...MACHINE_NOW,
     },
     {
       id: 'check-updates', path: 'checkForUpdates', title: 'Check for updates automatically',

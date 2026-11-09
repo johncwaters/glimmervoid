@@ -15,12 +15,7 @@ const HOMEBREW_COMMAND = 'brew upgrade glimmervoid';
 const HOMEBREW_CELLAR_DIRECTORY_NAME = 'Cellar';
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+(?:-next\.\d+)?)$/;
-const DEPRECATION_MESSAGE_MAX_CHARS = 500;
-
-interface ReleaseTag {
-  version: string;
-  sha: string | null;
-}
+const SECURITY_NOTICE_MAX_CHARS = 500;
 
 function normalizeSha(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -38,6 +33,12 @@ function parseResolvedSha(resolved: unknown): string | null {
   const fragmentAt = resolved.lastIndexOf('#');
   if (fragmentAt === -1) return null;
   return normalizeSha(resolved.slice(fragmentAt + 1));
+}
+
+function parseRemoteTagSha(lsRemoteOutput: string, version: string): string | null {
+  const tagRef = `refs/tags/v${version}`;
+  const shaByRef = new Map(lsRemoteOutput.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter((fields) => fields.length === 2).map(([sha, ref]) => [ref, sha]));
+  return normalizeSha(shaByRef.get(`${tagRef}^{}`) ?? shaByRef.get(tagRef));
 }
 
 function parseTagVersion(ref: unknown): string | null {
@@ -124,33 +125,21 @@ function compareSemver(a: unknown, b: unknown): number {
   return 0;
 }
 
-function parseRegistryLatest(doc: unknown): ReleaseTag | null {
+const SECURITY_HEADING = /^### Security\b/m;
+
+function parseLatestRelease(doc: unknown): { version: string; hasSecurityFix: boolean } | null {
   if (!doc || typeof doc !== 'object') return null;
-  const registryDocument = doc as { version?: unknown; gitHead?: unknown };
-  const publishedVersion = textOr(registryDocument.version, null);
-  if (!publishedVersion) return null;
-  const version = parseTagVersion(`v${publishedVersion}`);
+  const release = doc as { tag_name?: unknown; body?: unknown };
+  const version = parseTagVersion(release.tag_name);
   if (!version) return null;
-  return { version, sha: normalizeSha(registryDocument.gitHead) };
+  return { version, hasSecurityFix: SECURITY_HEADING.test(textOr(release.body, '')) };
 }
 
-function pickNewestPublished(...publishedVersions: (ReleaseTag | null)[]): ReleaseTag | null {
-  let newest: ReleaseTag | null = null;
-  for (const published of publishedVersions) {
-    if (!published) continue;
-    if (newest && compareReleaseVersions(published.version, newest.version) <= 0) continue;
-    newest = published;
-  }
-  return newest;
-}
-
-function parseRegistryDeprecation(doc: unknown): string | null {
-  if (!doc || typeof doc !== 'object') return null;
-  const deprecated = (doc as { deprecated?: unknown }).deprecated;
-  if (typeof deprecated !== 'string') return null;
-  const message = deprecated.trim();
+function boundedSecurityNotice(notice: unknown): string | null {
+  if (typeof notice !== 'string') return null;
+  const message = notice.trim();
   if (!message) return null;
-  return message.slice(0, DEPRECATION_MESSAGE_MAX_CHARS);
+  return message.slice(0, SECURITY_NOTICE_MAX_CHARS);
 }
 
 function normalizeFlavor(flavor: unknown): InstallFlavor {
@@ -202,7 +191,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     flavor: normalizedFlavor,
     channel: normalizeUpdateChannel(channel),
     reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
-    deprecation: isReleaseAlreadyCheckedOut ? null : parseRegistryDeprecation({ deprecated: deprecation }),
+    deprecation: isReleaseAlreadyCheckedOut ? null : boundedSecurityNotice(deprecation),
   };
 }
 
@@ -216,4 +205,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NATIVE_INSTALL_SCRIPTS_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NATIVE_INSTALL_SCRIPTS_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseRemoteTagSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseLatestRelease, decideUpdateStatus, isCheckFresh };

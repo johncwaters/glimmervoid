@@ -349,16 +349,15 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
     const s = store.getSettings();
     assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
     assert.equal(s.detectBackgroundAgents, DEFAULT_CONFIG.detectBackgroundAgents);
-    assert.equal(s.updateChannel, 'release');
     assert.equal(s.integrationBranch, DEFAULT_CONFIG.integrationBranch);
     assert.deepEqual(s.worktreeShare, DEFAULT_CONFIG.worktreeShare);
   });
 });
 
-test('a config file on the retired main channel loads on the experimental channel', () => {
-  withStore({ projects: [], updateChannel: 'main' }, (store) => {
-    assert.equal(store.config.updateChannel, 'experimental');
-    assert.equal(store.getSettings().updateChannel, 'experimental');
+test('a config file naming the retired experimental update channel loses the key on load', () => {
+  withStore({ projects: [], updateChannel: 'experimental' }, (store, configPath) => {
+    assert.equal(Object.hasOwn(store.config, 'updateChannel'), false);
+    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(configPath, 'utf8')), 'updateChannel'), false);
   });
 });
 

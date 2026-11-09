@@ -10,26 +10,26 @@ import {
   decideUpdateStatus,
   isCheckFresh,
   normalizeSha,
-  parseRegistryDeprecation,
-  parseRegistryLatest,
+  parseLatestRelease,
+  parseRemoteTagSha,
   parseResolvedSha,
-  pickNewestPublished,
 } from './core/update-core.ts';
 import type { InstallFlavor } from './core/update-core.ts';
 import { loadJsonStateFileSync, loadedJsonValue, writeJsonAtomicSync } from './json-file.ts';
 import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
 import { runGit } from './git/git-exec.ts';
+import { REPO_SLUG } from '../shared/repo.ts';
+import { compareReleaseVersions } from '../shared/build-channel.ts';
 
-const NPM_REGISTRY_PACKAGE_URL = 'https://registry.npmjs.org/glimmervoid';
-const NPM_REGISTRY_LATEST_URL = `${NPM_REGISTRY_PACKAGE_URL}/latest`;
-const NPM_REGISTRY_EXPERIMENTAL_URL = `${NPM_REGISTRY_PACKAGE_URL}/next`;
-const REGISTRY_REQUEST_HEADERS = { Accept: 'application/json', 'User-Agent': 'glimmervoid-update-check' };
+const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
+const RELEASE_REQUEST_HEADERS = { Accept: 'application/vnd.github+json', 'User-Agent': 'glimmervoid-update-check' };
 const DEFAULT_TIMEOUT_MS = 8000;
 const GIT_HEAD_TIMEOUT_MS = 3000;
 const RELEASE_ANCESTRY_TIMEOUT_MS = 3000;
+const RELEASE_TAG_LOOKUP_TIMEOUT_MS = 5000;
 const STATE_FILE_NAME = 'update-check.json';
 const STATE_TTL_MS = 6 * 60 * 60 * 1000;
-const RELEASE_SOURCE = 'npm-registry';
+const RELEASE_SOURCE = 'github-latest-release';
 
 type RunCommand = typeof execFileAsync;
 type GitCallResult = { ok: boolean; out: string; err?: string };
@@ -187,9 +187,9 @@ async function resolveInstalledIdentity(
   return { ...decided, installedBranch: null, upstream: null, isTreeClean: null };
 }
 
-async function fetchRegistryDocument(url: string, fetchFn: typeof fetch, signal: AbortSignal): Promise<unknown> {
+async function fetchLatestRelease(fetchFn: typeof fetch, signal: AbortSignal): Promise<unknown> {
   try {
-    const response = await fetchFn(url, { signal, headers: REGISTRY_REQUEST_HEADERS });
+    const response = await fetchFn(LATEST_RELEASE_URL, { signal, headers: RELEASE_REQUEST_HEADERS });
     if (!response?.ok) return null;
     return await response.json();
   } catch {
@@ -197,25 +197,24 @@ async function fetchRegistryDocument(url: string, fetchFn: typeof fetch, signal:
   }
 }
 
-async function resolveInstalledDeprecation(
-  { currentVersion, fetchFn, signal }: { currentVersion: string | undefined; fetchFn: typeof fetch; signal: AbortSignal },
+async function resolveReleaseTagSha(
+  version: string,
+  { packageRoot, runCommand, signal }: { packageRoot: string; runCommand: RunCommand; signal: AbortSignal },
 ): Promise<string | null> {
-  if (!currentVersion) return null;
-  const versionUrl = `${NPM_REGISTRY_PACKAGE_URL}/${encodeURIComponent(currentVersion)}`;
-  return parseRegistryDeprecation(await fetchRegistryDocument(versionUrl, fetchFn, signal));
+  const listing = await runGitProbe(runCommand, ['ls-remote', '--tags', 'origin', `v${version}`, `v${version}^{}`], { cwd: packageRoot, timeout: RELEASE_TAG_LOOKUP_TIMEOUT_MS, signal });
+  if (!listing.ok) return null;
+  return parseRemoteTagSha(listing.out, version);
 }
 
-async function resolveLatestRegistryVersion(
-  { currentVersion, updateChannel, fetchFn, signal }: { currentVersion: string | undefined; updateChannel: UpdateChannel; fetchFn: typeof fetch; signal: AbortSignal },
+async function resolveLatestRelease(
+  { currentVersion, isClone, packageRoot, runCommand, fetchFn, signal }: { currentVersion: string | undefined; isClone: boolean; packageRoot: string; runCommand: RunCommand; fetchFn: typeof fetch; signal: AbortSignal },
 ): Promise<LatestTarget> {
-  const [latestDocument, experimentalDocument, deprecation] = await Promise.all([
-    fetchRegistryDocument(NPM_REGISTRY_LATEST_URL, fetchFn, signal),
-    updateChannel === 'experimental' ? fetchRegistryDocument(NPM_REGISTRY_EXPERIMENTAL_URL, fetchFn, signal) : null,
-    resolveInstalledDeprecation({ currentVersion, fetchFn, signal }),
-  ]);
-  const published = pickNewestPublished(parseRegistryLatest(latestDocument), parseRegistryLatest(experimentalDocument));
-  if (!published) return { version: null, sha: null, reason: 'release-check-failed', deprecation };
-  return { ...published, reason: null, deprecation };
+  const release = parseLatestRelease(await fetchLatestRelease(fetchFn, signal));
+  if (!release) return { version: null, sha: null, reason: 'release-check-failed', deprecation: null };
+  const fixesInstalledVersion = release.hasSecurityFix && compareReleaseVersions(release.version, currentVersion ?? null) > 0;
+  const deprecation = fixesInstalledVersion ? `Glimmervoid ${release.version} fixes a security issue.` : null;
+  const sha = isClone ? await resolveReleaseTagSha(release.version, { packageRoot, runCommand, signal }) : null;
+  return { version: release.version, sha, reason: null, deprecation };
 }
 
 function readCheckState(statePath: string): CheckState | null {
@@ -308,7 +307,7 @@ async function checkForUpdate({
       return finish(installed, targetFromCache(cached, currentVersion), currentVersion, updateChannel, now, packageRoot, runCommand, signal);
     }
     signal.throwIfAborted();
-    const latestTarget = await resolveLatestRegistryVersion({ currentVersion, updateChannel, fetchFn, signal });
+    const latestTarget = await resolveLatestRelease({ currentVersion, isClone: installed.flavor === 'clone', packageRoot, runCommand, fetchFn, signal });
     const hasCacheableTarget = latestTarget.reason === null
       && (latestTarget.version !== null || latestTarget.sha !== null);
     if (hasCacheableTarget) {

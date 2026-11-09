@@ -7,7 +7,6 @@ import { WorkflowsSettings } from './workflows.ts';
 import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
-import { UpdateChannel } from './update-journal.ts';
 import { QuestionManagerSettings } from './question-manager.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
@@ -250,7 +249,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
-  updateChannel: UpdateChannel.optional(),
   autoResume: optionalBoolean('autoResume'),
   telegramNotifications: optionalBoolean('telegramNotifications'),
   integrationBranch: optionalString('integrationBranch').nullable(),
