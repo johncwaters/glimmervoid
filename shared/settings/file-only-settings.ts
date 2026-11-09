@@ -33,7 +33,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-session-order', path: 'sessionOrder', title: 'Session order', group: 'machine-sessions',
     description: 'Order of sessions within each project in the sidebar and the phone Board, as session ids; a session not listed goes after the listed ones.',
     control: 'list', keywords: ['sidebar', 'rail', 'order', 'reorder', 'drag', 'rearrange'], defaultValue: [], takesEffect: 'now',
-    fileOnlyReason: 'Set by dragging sessions in the sidebar.', ...FILE_ONLY,
+    fileOnlyReason: 'Set by dragging sessions in the sidebar, or pressing and holding them on the phone Board.', ...FILE_ONLY,
   },
   {
     id: 'file-replay-buffer', path: 'replayBufferKB', title: 'Replay buffer', group: 'machine-terminal',

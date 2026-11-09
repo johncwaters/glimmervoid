@@ -372,11 +372,11 @@ function savedSessionOrder(): string[] {
   return sessionOrderOf(settingsPayloadSnapshot());
 }
 
-function saveSessionOrder(nextSessionOrder: string[]) {
+export function saveSessionOrder(nextSessionOrder: string[], repaint: () => void) {
   const previousSessionOrder = savedSessionOrder();
   const applySessionOrder = (sessionOrder: string[]) => {
     mergeSettingsPayload({ sessionOrder });
-    refreshFocusRoster();
+    repaint();
   };
   applySessionOrder(nextSessionOrder);
   sendControlRequest('update-settings', { settings: { sessionOrder: nextSessionOrder } })
@@ -493,7 +493,7 @@ function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: str
     clearSessionDropMarker();
     if (!isSessionRowDrag(event) || !canDropSessionOn(sessionId) || !draggedSessionId) return;
     event.preventDefault();
-    saveSessionOrder(sessionOrderAfterDrop(railRowsInRailOrder(), savedSessionOrder(), draggedSessionId, sessionId, dropSideAt(item, event)));
+    saveSessionOrder(sessionOrderAfterDrop(railRowsInRailOrder(), savedSessionOrder(), draggedSessionId, sessionId, dropSideAt(item, event)), refreshFocusRoster);
     draggedSessionId = null;
   });
 }
