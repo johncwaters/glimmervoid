@@ -343,6 +343,7 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .review-board-column[data-slim="true"] { flex: 0 0 60px; min-width: 60px; padding-inline: 4px; }
 .review-board-column[data-slim="true"] > .review-board-column-heading { padding: 0; justify-content: center; writing-mode: vertical-rl; }
 .review-board-tiles { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pr-queue-tiles { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 8px; }
 .pr-queue-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 48px; padding: 6px 0 4px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-card); color: var(--text-muted); font: inherit; font-size: var(--type-meta); cursor: pointer; }
 .pr-queue-tile > .avatar { box-shadow: 0 0 0 2px var(--border-dim); }
 .pr-queue-tile[data-age-tone="aging"] > .avatar { box-shadow: 0 0 0 2px var(--state-waiting); }

@@ -157,7 +157,7 @@ function createTeamReviewOperatorActions(
     const knownEntry = knownKey === undefined ? undefined : runtime.state[knownKey];
     if (knownKey !== undefined && knownEntry) return requestKnownReview(knownKey, knownEntry);
     if (!isTeamCandidate(comparablePrKey(reference)) && askedForSlotsInUse() >= core.MAX_ASKED_FOR_REVIEWS) {
-      return { ok: false, error: `at most ${core.MAX_ASKED_FOR_REVIEWS} pull requests outside your teams can wait for a review at once, and one frees when its review is posted or the operator marks it Not mine in the Reviews tab` };
+      return { ok: false, error: `at most ${core.MAX_ASKED_FOR_REVIEWS} pull requests outside your teams can wait for a review at once, and one frees when its review is posted or the operator parks it in the Reviews tab` };
     }
     const label = core.prKey(reference.repo, reference.number);
     const headRead = await store.requestPrHead(reference.repo, reference.number, 'no-wait');

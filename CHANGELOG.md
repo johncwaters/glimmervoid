@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Parked always shows small tiles.** In the Reviews list, the layout the phone uses too, opening Parked now shows each pull request as a small tile with the author's avatar and its number, the same as the board's Parked column, instead of a full row. Click a tile, or step to it with j or k, to open its detail.
+- **Not mine is now Park.** The review action that sets a teammate's pull request aside reads Park, and a parked pull request says Parked instead of Marked not mine.
+- **Drag a review card to another lane on the board.** Drop a teammate's pull request on Parked to park it, on Queued to re-run its review, or drag a parked tile onto Ready to restore it. Dragging between Ready and Reviewing now works as before. A lane lights up only when the card can move there, and the review's detail opens to show how the move went.
+
 ## [0.54.1] - 2026-11-09
 
 ### Added

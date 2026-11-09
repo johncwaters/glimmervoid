@@ -128,7 +128,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
   }
 
   async function restoreNotMine(timing: ActionTiming, key: string, draft: ReviewDraft): Promise<TeamReviewActionOutcome> {
-    if (draft.status !== 'discarded') return { ok: false, error: 'Only a pull request marked not mine can be restored' };
+    if (draft.status !== 'discarded') return { ok: false, error: 'Only a parked pull request can be restored' };
     if (!await drafts.restore(key, draft.reviewedHead)) return { ok: false, error: REPLACED_DRAFT_ERROR };
     if (!core.isUnreviewedDraft(draft) && !isThreadPlaceholderDraft(draft)) timing.settled = { outcome: 'restored', draft, postedCommentCount: 0 };
     return { ok: true };

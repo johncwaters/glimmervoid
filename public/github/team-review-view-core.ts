@@ -85,7 +85,7 @@ function queueRowExceptionReason(review: ExceptionReviewFields): string | null {
 }
 
 const FIXED_ROW_GLYPHS: Readonly<Partial<Record<QueueRowKind, QueueRowGlyph>>> = {
-  discarded: { tone: 'muted', icon: 'discarded', meaning: 'Not mine' },
+  discarded: { tone: 'muted', icon: 'discarded', meaning: 'Parked' },
 };
 
 function withExceptionReason(stateWord: string, review: Parameters<typeof queueRowExceptionReason>[0]): string {
@@ -251,7 +251,7 @@ const ACTION_OUTCOME_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.f
   'approve-only': 'Approved on GitHub',
   comment: 'Comment posted on GitHub',
   'request-changes': 'Changes requested on GitHub',
-  discard: 'Marked not mine. Not reviewed again until you restore or re-run it.',
+  discard: 'Parked. Not reviewed again until you restore or re-run it.',
   requeue: 'Queued. The review starts as soon as a slot is free.',
   restore: 'Moved back to the queue.',
   'resolve-thread': 'Thread resolved on GitHub',
@@ -262,7 +262,7 @@ const ACTION_PROGRESS_TEXT: Readonly<Record<TeamReviewAction, string>> = Object.
   'approve-only': 'Posting the approval',
   comment: 'Posting the comment',
   'request-changes': 'Requesting changes',
-  discard: 'Marking not mine',
+  discard: 'Parking',
   requeue: 'Queueing the review',
   restore: 'Restoring',
   'resolve-thread': 'Resolving thread',
@@ -657,13 +657,13 @@ export function inFlightProgressText(review: InFlightReview, nowMs: number): str
 
 export function attentionNextStep(draft: Pick<ReviewDraft, 'status'>): string | null {
   if (draft.status !== 'error') return null;
-  return `${actionLabel('requeue')} to try again, or ${actionLabel('discard')} to drop it.`;
+  return `${actionLabel('requeue')} to try again, or ${actionLabel('discard')} to stop reviewing it.`;
 }
 
 export function attentionDetail(draft: ReviewDraft): string {
   if (draft.status === 'stale' && draft.earlierReview) return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now and hands it these findings.';
   if (draft.status === 'stale') return 'Out of date. New commits landed after this review, so its findings may not match the code any more. Automatic review runs after the configured wait; Re-run review starts it now.';
-  if (draft.status === 'discarded') return 'Marked not mine. Not reviewed again until you restore or re-run it.';
+  if (draft.status === 'discarded') return 'Parked. Not reviewed again until you restore or re-run it.';
   return draft.error || draft.summary || 'The review failed.';
 }
 
@@ -756,7 +756,7 @@ const ACTION_LABELS: Readonly<Record<TeamReviewAction, string>> = Object.freeze(
   'approve-only': 'Approve',
   comment: 'Comment',
   'request-changes': 'Request changes',
-  discard: 'Not mine',
+  discard: 'Park',
   requeue: 'Re-run review',
   restore: 'Restore',
   'resolve-thread': 'Resolve',
