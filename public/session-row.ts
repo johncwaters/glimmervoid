@@ -175,6 +175,19 @@ function paintShellRowMark(row: HTMLElement, refs: Pick<SessionRowRefs, 'glyph' 
 
 const BOARD_LABEL = 'BOARD';
 
+const sessionRowNamesByRow = new WeakMap<HTMLElement, { name: string; distinctTaskTitle: string | null }>();
+
+function paintSessionRowNames(row: HTMLElement) {
+  const rowNames = sessionRowNamesByRow.get(row);
+  if (!rowNames) return;
+  const { name, distinctTaskTitle } = rowNames;
+  const namesTerminalByTask = row.hasAttribute('data-split') && distinctTaskTitle !== null;
+  writeTextIfChanged(query(row, '.session-row-name'), namesTerminalByTask ? distinctTaskTitle : name);
+  const taskLine = query(row, '.session-row-task');
+  writeTextIfChanged(taskLine, namesTerminalByTask ? name : distinctTaskTitle ?? '');
+  writeHiddenIfChanged(taskLine, distinctTaskTitle === null);
+}
+
 export function paintSessionRowSplit(row: HTMLElement, splitBoard: { id: string; title: string } | null, activePane: 'terminal' | 'board' | null) {
   const splitBoardTitle = splitBoard?.title ?? null;
   row.toggleAttribute('data-split', splitBoard !== null);
@@ -183,6 +196,7 @@ export function paintSessionRowSplit(row: HTMLElement, splitBoard: { id: string;
     writeDataIfChanged(row, 'splitBoardId', splitBoard?.id ?? '');
     paintSessionRowSignals(row);
   }
+  paintSessionRowNames(row);
   const existingMember = row.querySelector<HTMLElement>(':scope > .session-row-main > .session-row-split-board');
   if (splitBoardTitle === null) {
     existingMember?.remove();
@@ -261,11 +275,10 @@ export function paintSessionRow(
 ) {
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
   paintCloseCountdown(row, state === CLOSING_ROW_STATE && row.dataset.id !== undefined ? pendingCloseStartedAt(row.dataset.id) : null);
-  writeTextIfChanged(refs.name, name);
+  sessionRowNamesByRow.set(row, { name, distinctTaskTitle: ui.taskTitle && ui.taskTitle !== name ? ui.taskTitle : null });
+  paintSessionRowNames(row);
   paintAgentMark(refs.agent, ui.agent ?? null);
   const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
-  writeTextIfChanged(refs.task, ui.taskTitle ?? '');
-  writeHiddenIfChanged(refs.task, !ui.taskTitle || ui.taskTitle === name);
   writeDataIfChanged(row, 'merge', mergeStatus);
   paintSessionRowSignals(row);
   writeDataIfChanged(row, 'activity', ui._activity || '');
