@@ -277,7 +277,6 @@ function paintList(): void {
   if (selectedBoardId && !summaries.some((summary) => summary.id === selectedBoardId)) selectedBoardId = null;
   const fallbackBoard = summaries.find((summary) => pairedSessionId !== null && summary.connectedSessionIds.includes(pairedSessionId)) ?? summaries.find((summary) => !summary.isArchived) ?? summaries[0];
   if (!selectedBoardId && fallbackBoard) selectBoard(fallbackBoard.id);
-  parts.boardMenu.paintBoards(summaries);
   paintHead();
 }
 
@@ -317,48 +316,6 @@ function startTitleRename(): void {
   });
 }
 
-function boardMenuItem(summary: BoardSummary): HTMLButtonElement {
-  const item = buildMenuItem(summary.title, 'visible wb-board-menu-board');
-  item.setAttribute('role', 'menuitemradio');
-  item.setAttribute('aria-checked', String(summary.id === selectedBoardId));
-  const sessionCount = summary.connectedSessionIds.length;
-  if (sessionCount > 0) item.append(el('span', 'wb-board-menu-count', String(sessionCount)));
-  item.addEventListener('click', () => pickBoard(summary.id));
-  return item;
-}
-
-interface BoardMenuGroup {
-  label: string;
-  boards: BoardSummary[];
-}
-
-function projectLabelOf(projectPath: string): string {
-  return projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? projectPath;
-}
-
-function newestFirst(left: BoardSummary, right: BoardSummary): number {
-  return right.updatedAt - left.updatedAt;
-}
-
-function boardMenuGroupsOf(summaries: readonly BoardSummary[]): { projectGroups: BoardMenuGroup[]; archivedBoards: BoardSummary[] } {
-  const boardsByProject = new Map<string | null, BoardSummary[]>();
-  for (const summary of summaries) {
-    if (summary.isArchived) continue;
-    boardsByProject.set(summary.project, [...(boardsByProject.get(summary.project) ?? []), summary]);
-  }
-  const filedGroups = [...boardsByProject].flatMap(([project, boards]) => (project === null ? [] : [{ label: projectLabelOf(project), boards: boards.sort(newestFirst) }]));
-  filedGroups.sort((left, right) => (right.boards[0]?.updatedAt ?? 0) - (left.boards[0]?.updatedAt ?? 0));
-  const unfiledBoards = boardsByProject.get(null)?.sort(newestFirst) ?? [];
-  const projectGroups = unfiledBoards.length > 0 ? [...filedGroups, { label: 'Unfiled', boards: unfiledBoards }] : filedGroups;
-  return { projectGroups, archivedBoards: summaries.filter((summary) => summary.isArchived).sort(newestFirst) };
-}
-
-function boardMenuGroupHeading(group: Pick<BoardMenuGroup, 'label'>): HTMLElement {
-  const heading = el('div', 'wb-board-menu-group', group.label);
-  heading.setAttribute('role', 'presentation');
-  return heading;
-}
-
 function buildBoardMenu(onBoardSettings: () => void) {
   const menuRoot = el('div', 'session-overflow wb-board-menu');
   const menu = el('div', 'popup-menu session-overflow-menu');
@@ -378,11 +335,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
     item.addEventListener('click', onChoose);
     return item;
   };
-  const divider = el('div', 'menu-divider');
-  divider.setAttribute('role', 'separator');
   const boardSettingsItem = actionItem('Board settings', onBoardSettings);
   const actionItems = [
-    divider,
     actionItem('Rename board', startTitleRename),
     actionItem('New board', newBoardFromDialog),
     boardSettingsItem,
@@ -403,24 +357,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
   document.addEventListener('click', (event) => {
     if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
   });
-  let paintedSummaries: readonly BoardSummary[] = [];
-  const archivedToggle = buildMenuItem('Archived boards', 'visible wb-board-menu-archived');
-  archivedToggle.setAttribute('aria-expanded', 'false');
-  archivedToggle.addEventListener('click', (event) => {
-    event.stopPropagation();
-    archivedToggle.setAttribute('aria-expanded', String(archivedToggle.getAttribute('aria-expanded') !== 'true'));
-    paintBoards(paintedSummaries);
-    archivedToggle.focus();
-  });
-  const paintBoards = (summaries: readonly BoardSummary[]) => {
-    paintedSummaries = summaries;
-    const { projectGroups, archivedBoards } = boardMenuGroupsOf(summaries);
-    const isArchivedShown = archivedToggle.getAttribute('aria-expanded') === 'true';
-    const projectItems = projectGroups.flatMap((group) => [boardMenuGroupHeading(group), ...group.boards.map(boardMenuItem)]);
-    const archivedItems = archivedBoards.length === 0 ? [] : [archivedToggle, ...(isArchivedShown ? archivedBoards.map(boardMenuItem) : [])];
-    menu.replaceChildren(...projectItems, ...archivedItems, ...actionItems);
-  };
-  return { menuRoot, trigger, paintBoards };
+  menu.append(...actionItems);
+  return { menuRoot, trigger };
 }
 
 

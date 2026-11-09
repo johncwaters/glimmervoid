@@ -221,40 +221,9 @@
 .wb-board-menu > .session-overflow-menu {
   right: auto;
   left: 0;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.wb-board-menu-board[aria-checked='true'] {
-  color: var(--text-head);
-  font-weight: 700;
-}
-
-.wb-board-menu-count {
-  margin-left: auto;
-  color: var(--text-dim);
 }
 
 .wb-board-menu-danger { color: var(--state-failed); }
-
-.wb-board-menu-group {
-  padding: 6px 12px 2px;
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.wb-board-menu-archived { color: var(--text-dim); }
-
-.wb-board-menu-archived::before {
-  content: '\25B8';
-  margin-right: 6px;
-}
-
-.wb-board-menu-archived[aria-expanded='true']::before { content: '\25BE'; }
 
 .wb-presence {
   display: flex;

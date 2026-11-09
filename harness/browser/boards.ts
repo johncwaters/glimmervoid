@@ -949,8 +949,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
-    await page.getByRole('menuitemradio', { name: boardTitle }).waitFor();
     await page.getByRole('menuitem', { name: 'Delete board', exact: true }).waitFor();
+    assert.equal(await page.getByRole('menuitemradio').count(), 0, 'the board menu holds only board actions, never a board list');
     await page.keyboard.press('Escape');
     await clickElement(open, targetBox.id);
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
@@ -1212,15 +1212,12 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await page.keyboard.press('Alt+KeyB');
   await openBoardTitle(panel, secondTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, secondTitle);
-  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: unrelatedTitle }).click();
+  await page.locator('.focus-rail .session-row[data-board-id]', { hasText: unrelatedTitle }).dragTo(page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first());
   await openBoardTitle(panel, unrelatedTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
   await createBoardOverControl(page, laterTitle);
-  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
-  await page.getByRole('menuitemradio', { name: laterTitle }).waitFor();
-  await page.keyboard.press('Escape');
+  await page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle }).waitFor();
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
   await page.keyboard.press('Alt+KeyB');
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
