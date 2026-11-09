@@ -87,6 +87,19 @@ function answerBody({ values, positionals }: ParsedArguments): Record<string, un
   return { child, answers };
 }
 
+function arenaStartBody(specText: string | undefined): Record<string, unknown> | null {
+  const spec = parseJsonOrNull(specText ?? '');
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) return null;
+  return { sub: 'start', spec };
+}
+
+function arenaBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'start') return arenaStartBody(actionArguments[0]);
+  const [race, contestant] = actionArguments;
+  return { sub, ...(race === undefined ? {} : { race }), ...(contestant === undefined ? {} : { contestant }) };
+}
+
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: ({ positionals }) => {
     const prompt = joinedText(positionals);
@@ -123,7 +136,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   whiteboard: whiteboardBody,
   packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
-  arena: ({ positionals: [sub, race, contestant] }) => (sub ? { sub, ...(race === undefined ? {} : { race }), ...(contestant === undefined ? {} : { contestant }) } : null),
+  arena: arenaBody,
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 

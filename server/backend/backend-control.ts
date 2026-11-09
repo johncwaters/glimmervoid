@@ -7,6 +7,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
+import type { RaceLauncher } from '../race/race-launch.ts';
 import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
@@ -118,7 +119,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void } {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher } {
   const {
     onControlConnection,
     sessions,
@@ -230,7 +231,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
-  return { removeExitedSession: controlHandlers.removeExitedSession };
+  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher };
 }
 
 export { createBackendControl };

@@ -144,7 +144,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   }
 
 
-  return { spawn };
+  return { spawn, describeMemoryShortfall };
 }
 
 type AgentSpawner = ReturnType<typeof createAgentSpawner>;

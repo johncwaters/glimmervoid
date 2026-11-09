@@ -49,6 +49,7 @@ import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/ses
 import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
+import type { RaceLauncher } from '../race/race-launch.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
 import { normalizeUpdateChannel } from '../core/update-core.ts';
 import { detectInstallFlavor } from '../update-check.ts';
@@ -171,6 +172,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   let broadcastControl: ControlBroadcast | null = null;
   let removeExitedSession: ((id: string) => void) | null = null;
+  let raceLauncher: RaceLauncher | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
@@ -452,6 +454,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     settleSessionCoherence: coherenceFeed.settle,
     secrets: secretsBroker,
     races: laneAssembly.races,
+    startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -745,7 +748,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     beforeHandOff: updateApply.handOffStagedUpdate,
   });
 
-  ({ removeExitedSession } = createBackendControl({
+  ({ removeExitedSession, raceLauncher } = createBackendControl({
     onControlConnection,
     sessions,
     agentSessions,

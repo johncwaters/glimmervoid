@@ -263,13 +263,15 @@ function arenaRoute(sub: string, keys: readonly string[], { required = [], hints
 const ARENA_TOOL: GroupedTool = {
   name: 'arena',
   title: 'Glimmervoid Arena',
-  description: 'Follow and judge Arena races, where one prompt runs on 2 to 5 agent setups, each in its own session and worktree from the same commit, and a judge ranks the contestants that changed something. races lists the loaded races newest first; race reads one with its phase (running, judging, judged), contestant sessions, finishes, diff stats, check results and judge panel; judge starts judging a race now instead of waiting for every contestant to settle; diff reads one contestant\'s diff against the start commit. The operator picks the winner in the Arena tab.',
+  description: 'Start, follow and judge Arena races, where one prompt runs on 2 to 5 agent setups, each in its own session and worktree from the same commit, and a judge ranks the contestants that changed something. start races a prompt in this session\'s project and returns the race id; races lists the loaded races newest first; race reads one with its phase (running, judging, judged), contestant sessions, finishes, diff stats, check results and judge panel; judge starts judging a race now instead of waiting for every contestant to settle; diff reads one contestant\'s diff against the start commit. The operator picks the winner in the Arena tab.',
   loadsUpfront: false,
   fields: {
+    spec: z.record(z.string(), z.unknown()).optional().describe('start: the race, as {title, prompt, contestants: [{id, label, setup: {agent, model (null for the default), options: [], instructions: \'\'}, home: operator}] (2 to 5), judges: [{setup}] on claude-code or codex, optional check, timeLimitMinutes and rounds}; the project is this session\'s'),
     race: RaceId.optional().describe('race, judge, diff: the race id'),
     contestant: RaceId.optional().describe('diff: the contestant id, such as c1'),
   },
   actions: {
+    start: arenaRoute('start', ['spec'], { required: ['spec'], hints: WRITES }),
     races: arenaRoute('races', [], { hints: READS }),
     race: arenaRoute('race', ['race'], { required: ['race'], hints: READS }),
     judge: arenaRoute('judge', ['race'], { required: ['race'], hints: WRITES }),

@@ -9,6 +9,10 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
+import type { AgentApiWiringOptions } from '../server/agent-api/agent-api-context.ts';
+import { createRaceLauncher } from '../server/race/race-launch.ts';
+import { RaceRecord } from '../shared/contracts/race.ts';
+import type { RaceSpec } from '../shared/contracts/race.ts';
 import { ensureSessionTempFolder } from '../server/session-temp/session-temp.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
@@ -203,6 +207,7 @@ interface WiringFixtureOptions {
   childGitWorkspace?: SessionOptions['gitWorkspace'];
   teamReviewStatus?: TeamReviewStatus;
   settleSessionCoherence?: (id: string) => Promise<void>;
+  arena?: Pick<AgentApiWiringOptions, 'races' | 'startRace'>;
 }
 
 interface ManualClock {
@@ -239,7 +244,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence,
+  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -315,6 +320,7 @@ function wiringFixture({
         readPacks: async () => ({ text: 'not in this fixture', hasProblem: true }),
       },
     } : {}),
+    ...arena,
     logger: { warn: () => {} },
     ...clock,
   });
@@ -639,6 +645,58 @@ test('limits tells a session which commands answer and its boundary', async () =
     ephemeralLane.destroy();
     remote.destroy();
     contestant.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('arena start races in the caller\'s project with the caller\'s permissions, one race with open contestants and no winner at a time, refusing what the Arena tab refuses, an agent check, clean home or command-line-unsafe model, and any spawned child', async () => {
+  const startedSpecs: RaceSpec[] = [];
+  const contestantPermissions: [boolean | undefined, boolean | undefined][] = [];
+  const loadedRaces: RaceRecord[] = [];
+  const launcher = createRaceLauncher({
+    races: {
+      start: async (spec, launch) => {
+        startedSpecs.push(spec);
+        for (const contestant of spec.contestants) launch(contestant, { raceId: 'race-7', startSha: 'a'.repeat(40) });
+        loadedRaces.push(RaceRecord.parse({ id: 'race-7', spec, startSha: 'a'.repeat(40), baseBranch: 'main', createdAt: 0, sessionIdByContestant: { c1: 'parent' } }));
+        return { ok: true, raceId: 'race-7', error: null };
+      },
+    },
+    sessions: new Map(),
+    config: { ...DEFAULT_CONFIG, skipPermissionsByDefault: true, projects: [] },
+    createProjectSession: ({ dangerouslySkipPermissions, saneYolo }) => {
+      contestantPermissions.push([dangerouslySkipPermissions, saneYolo]);
+      return { ok: false, error: 'not in this fixture' };
+    },
+  });
+  const races = { status: () => ({ type: 'race-status' as const, races: loadedRaces }), judge: async () => ({ ok: true as const }), contestantDiffText: async () => ({ ok: true as const, diff: '' }) };
+  const fixture = wiringFixture({ parentSkipsPermissions: false, arena: { races, startRace: launcher.start } });
+  const setup = (agent: string) => ({ agent, model: null, options: [], instructions: '' });
+  const spec = { title: 'fix it', prompt: 'fix the bug', repoPath: '/elsewhere', contestants: [{ id: 'c1', label: 'one', setup: setup('claude-code') }, { id: 'c2', label: 'two', setup: setup('codex') }] };
+  const start = async (session: Session, raceSpec: Record<string, unknown>) => {
+    const reply = await fixture.wiring.handle(session, 'arena', { sub: 'start', spec: raceSpec });
+    return [reply.status, reply.body.error ?? reply.body];
+  };
+  try {
+    assert.deepEqual(await start(fixture.parent, { ...spec, contestants: [spec.contestants[0], { id: 'c2', label: 'two', setup: setup('shell') }] }), [409, '"shell" cannot race: a contestant must be a coding agent']);
+    assert.deepEqual(await start(fixture.parent, { ...spec, check: { program: 'cat', args: ['secret'] } }), [403, "an agent cannot set a race check, because Glimmervoid runs it outside every session's permission prompts; the operator can add one in the Arena tab"]);
+    assert.deepEqual(await start(fixture.parent, { ...spec, contestants: [spec.contestants[0], { ...spec.contestants[1], home: 'clean' }] }), [403, "an agent cannot race a contestant in a clean home, because a clean home drops the operator's own denied tools and hooks; the operator can choose one in the Arena tab"]);
+    assert.deepEqual(await start(fixture.parent, { ...spec, judge: { setup: { ...setup('codex'), options: [{ id: 'effort', value: 'high&calc.exe' }] } } }), [400, 'an agent cannot race the model or option value "high&calc.exe", because it reaches the agent\'s command line; use letters, digits and . _ : / [ ] -']);
+    assert.deepEqual(await start(fixture.parent, spec), [200, { ok: true, raceId: 'race-7', warning: null }]);
+    assert.deepEqual(startedSpecs.map(({ version, repoPath, judges, check }) => [version, repoPath, judges, check]), [[1, fixture.parent.path, [], null]]);
+    assert.deepEqual(contestantPermissions, [[false, false], [false, false]], 'contestants keep the calling session\'s permissions, not the machine default');
+    const stillOpen = [409, 'race race-7 still has contestant sessions open and no winner, and an agent may start a race only when none is unfinished'];
+    assert.deepEqual(await start(fixture.parent, spec), stillOpen);
+    loadedRaces[0] = { ...loadedRaces[0], phase: 'judged' };
+    assert.deepEqual(await start(fixture.parent, spec), stillOpen, 'judging a race does not close its contestants, so it stays unfinished');
+    await fixture.spawn(fixture.parent, { prompt: 'start a race' });
+    const child = fixture.created.at(-1);
+    assert.ok(child);
+    assert.equal((await start(child, spec))[0], 403);
+    assert.equal(startedSpecs.length, 1, 'a refused start never reaches the race lane');
+    loadedRaces[0] = { ...loadedRaces[0], phase: 'running', winnerContestantId: 'c1' };
+    assert.equal((await start(fixture.parent, spec))[0], 200, 'a race with a picked winner is finished even while its phase stays running');
+  } finally {
     fixture.destroyAll();
   }
 });

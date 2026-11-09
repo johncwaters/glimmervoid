@@ -185,6 +185,7 @@ export const RaceHistory = z.strictObject({
 export type RaceHistory = z.infer<typeof RaceHistory>;
 
 export const AgentArenaRequest = z.discriminatedUnion('sub', [
+  z.strictObject({ sub: z.literal('start'), spec: z.record(z.string(), z.unknown()) }),
   z.strictObject({ sub: z.literal('races') }),
   z.strictObject({ sub: z.literal('race'), race: RaceId }),
   z.strictObject({ sub: z.literal('judge'), race: RaceId }),
@@ -193,6 +194,7 @@ export const AgentArenaRequest = z.discriminatedUnion('sub', [
 export type AgentArenaRequest = z.infer<typeof AgentArenaRequest>;
 
 export const AgentArenaReply = z.union([
+  z.strictObject({ ok: z.literal(true), raceId: RaceId, warning: z.string().nullable() }),
   z.strictObject({ ok: z.literal(true), races: z.array(RaceRecord) }),
   z.strictObject({ ok: z.literal(true), race: RaceRecord }),
   z.strictObject({ ok: z.literal(true), diff: z.string() }),

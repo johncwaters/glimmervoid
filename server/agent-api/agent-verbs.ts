@@ -7,15 +7,19 @@ import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, Age
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
+import { isRecord } from '../../shared/coerce.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
 import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts';
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
+import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
 
-function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
-  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races } = runtime;
+const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
+
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner) {
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -206,8 +210,53 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: added };
   }
 
-  async function arena(request: AgentArenaRequest): Promise<AgentReplyOf<'arena'>> {
+  let isAgentRaceStarting = false;
+
+  function hasContestantOutsideOperatorHome(spec: Record<string, unknown>): boolean {
+    if (!Array.isArray(spec.contestants)) return false;
+    return spec.contestants.some((contestant) => isRecord(contestant) && contestant.home !== undefined && contestant.home !== 'operator');
+  }
+
+  function unsafeLaunchArgumentOf(candidateSpec: Record<string, unknown>): string | null {
+    const parsed = RaceSpec.safeParse(candidateSpec);
+    if (!parsed.success) return null;
+    const setups = [...parsed.data.contestants, ...parsed.data.judges].map((entry) => entry.setup);
+    const launchValues = setups.flatMap((setup) => [...(setup.model === null ? [] : [setup.model]), ...setup.options.map((option) => option.value)]);
+    return launchValues.find((value) => !SAFE_LAUNCH_ARGUMENT_PATTERN.test(value)) ?? null;
+  }
+
+  function refuseUnfinishedRace(): AgentRefusalReply | null {
+    if (isAgentRaceStarting) return refusal(409, 'another agent is starting an Arena race, and an agent may start a race only when none is unfinished');
+    const liveSessionIds = new Set(listAllSessions().map((session) => session.id));
+    const unfinishedRace = races?.status().races.find((race) => race.winnerContestantId === null && Object.values(race.sessionIdByContestant).some((sessionId) => liveSessionIds.has(sessionId)));
+    if (!unfinishedRace) return null;
+    return refusal(409, `race ${unfinishedRace.id} still has contestant sessions open and no winner, and an agent may start a race only when none is unfinished`);
+  }
+
+  async function startArenaRace(session: Session, spec: Record<string, unknown>): Promise<AgentReplyOf<'arena'>> {
+    if (roleFactsOf(session).isSpawnedChild) return refusal(403, 'a spawned session cannot start an Arena race, because every contestant is a new operator session');
+    if (spec.check !== undefined && spec.check !== null) return refusal(403, 'an agent cannot set a race check, because Glimmervoid runs it outside every session\'s permission prompts; the operator can add one in the Arena tab');
+    if (hasContestantOutsideOperatorHome(spec)) return refusal(403, 'an agent cannot race a contestant in a clean home, because a clean home drops the operator\'s own denied tools and hooks; the operator can choose one in the Arena tab');
+    const raceSpec = { ...spec, version: 1, repoPath: session.path };
+    const unsafeLaunchArgument = unsafeLaunchArgumentOf(raceSpec);
+    if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot race the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
+    if (!startRace) return refusal(503, 'Arena is not running in this Glimmervoid');
+    const unfinishedRefusal = refuseUnfinishedRace();
+    if (unfinishedRefusal) return unfinishedRefusal;
+    isAgentRaceStarting = true;
+    try {
+      const memoryShortfall = await describeMemoryShortfall();
+      if (memoryShortfall) return refusal(503, memoryShortfall);
+      const started = await startRace(raceSpec, { dangerouslySkipPermissions: session.dangerouslySkipPermissions, saneYolo: session.saneYolo });
+      return started.ok ? { status: 200, body: { ok: true, raceId: started.raceId, warning: started.error } } : refusal(409, started.error);
+    } finally {
+      isAgentRaceStarting = false;
+    }
+  }
+
+  async function arena(session: Session, request: AgentArenaRequest): Promise<AgentReplyOf<'arena'>> {
     if (!races) return refusal(503, 'Arena is not running in this Glimmervoid');
+    if (request.sub === 'start') return startArenaRace(session, request.spec);
     if (request.sub === 'races') return { status: 200, body: { ok: true, races: races.status().races } };
     if (request.sub === 'race') {
       const race = races.status().races.find((candidate) => candidate.id === request.race);
@@ -245,7 +294,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     checkout,
     packs,
     need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
-    arena: (_session, request) => arena(request),
+    arena,
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
