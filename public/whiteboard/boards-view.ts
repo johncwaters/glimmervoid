@@ -14,7 +14,7 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
-import { createLineIcon } from '../svg-dom.ts';
+import { createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
@@ -47,8 +47,6 @@ const BOARD_DOC_NOT_MARKDOWN_TEXT = 'Not saved: this text starts like a picture 
 const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html']);
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
-const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
-const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
 const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
 const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string; hint: string | null }[] = [
   { tool: 'select', label: 'Select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },

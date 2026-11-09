@@ -258,7 +258,7 @@ export function openDocEditorOn(source: DocSource) {
   const btnClose = button({ variant: 'icon', size: 'small', label: 'Close', icon: createLineIcon(CLOSE_ICON_PATH), action: 'close-doc-editor' });
   const markup = buildMarkupPane();
   const statusLine = el('div', 'doc-editor-status');
-  statusLine.append(markup.hint, status, markup.btnPreviewAll, btnReload);
+  statusLine.append(markup.hint, status, markup.btnUndo, markup.btnRedo, markup.btnPreviewAll, btnReload);
   const header = el('div', 'doc-editor-header');
   header.append(title, select, statusLine, btnClose);
   const textarea = el('textarea');

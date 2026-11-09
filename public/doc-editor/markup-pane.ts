@@ -3,7 +3,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { commonPrefixLength, commonSuffixLength } from '../plan/plan-diff-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
-import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
@@ -36,6 +36,11 @@ interface MarkupPane {
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
   formatButtons: HTMLButtonElement[];
+  blockButtons: HTMLButtonElement[];
+  formatDivider: HTMLElement;
+  blockDivider: HTMLElement;
+  btnUndo: HTMLButtonElement;
+  btnRedo: HTMLButtonElement;
   btnPreviewAll: HTMLButtonElement;
   previewBlocks: PreviewBlock[];
   previewedBlockKeys: Set<string>;
@@ -116,6 +121,13 @@ const FORMAT_CONTROLS = [
   { label: 'Code', action: 'format-code', delimiter: '`', iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
 ];
 
+const BLOCK_CONTROLS = [
+  { label: 'Bullet list', action: 'block-bullet-list', prefixOf: () => '- ', iconPath: 'M3 4.5h0.01M3 8h0.01M3 11.5h0.01 M6 4.5h7.5M6 8h7.5M6 11.5h7.5' },
+  { label: 'Numbered list', action: 'block-numbered-list', prefixOf: (lineNumber: number) => `${lineNumber}. `, iconPath: 'M2.5 3.5l1-0.5v3 M2.5 10h1.5l-1.5 2.5h1.5 M7 4.5h6.5M7 8h6.5M7 11.5h6.5' },
+  { label: 'Checklist', action: 'block-checklist', prefixOf: () => '- [ ] ', iconPath: 'M2 4.5l1 1l2-2 M2 10.5l1 1l2-2 M7.5 4.5h6M7.5 10.5h6' },
+  { label: 'Quote', action: 'block-quote', prefixOf: () => '> ', iconPath: 'M3 4v8 M6.5 5h7M6.5 8h7M6.5 11h5' },
+];
+
 function markCardButton(label: string, action: string, iconPath: string) {
   return button({ variant: 'icon', size: 'small', label, action, icon: createLineIcon(iconPath, '1.75') });
 }
@@ -126,7 +138,12 @@ export function buildMarkupPane(): MarkupPane {
   const markCard = el('div', 'doc-markup-float doc-markup-card');
   const btnAddNote = markCardButton('Add note', 'add-note', COMMUNITY_ICON_PATH);
   const formatButtons = FORMAT_CONTROLS.map((control) => markCardButton(control.label, control.action, control.iconPath));
-  markCard.append(btnAccept, btnReject, ...formatButtons, btnAddNote);
+  const blockButtons = BLOCK_CONTROLS.map((control) => markCardButton(control.label, control.action, control.iconPath));
+  const formatDivider = el('span', 'doc-markup-card-divider');
+  const blockDivider = el('span', 'doc-markup-card-divider');
+  markCard.append(btnAccept, btnReject, ...formatButtons, formatDivider, ...blockButtons, blockDivider, btnAddNote);
+  const btnUndo = markCardButton('Undo', 'undo-doc-edit', UNDO_ICON_PATH);
+  const btnRedo = markCardButton('Redo', 'redo-doc-edit', REDO_ICON_PATH);
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
   const noteInput = el('input', 'plan-control doc-markup-input');
@@ -147,7 +164,7 @@ export function buildMarkupPane(): MarkupPane {
   for (const float of [markCard, noteComposer]) float.hidden = true;
   root.append(buildInkFilter(), paper, endNotes, markCard, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, formatButtons, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, formatButtons, blockButtons, formatDivider, blockDivider, btnUndo, btnRedo, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
     selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
@@ -632,6 +649,9 @@ function paintFloats(editor: MarkupHost) {
   const selectedSource = pane.selection === null ? '' : editor.textarea.value.slice(pane.selection.start, pane.selection.end);
   const canFormatSelection = markAnchor === null && !selectedSource.includes('\n');
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.hidden = !canFormatSelection || selectedSource.includes(FORMAT_CONTROLS[controlIndex].delimiter[0]);
+  pane.formatDivider.hidden = pane.formatButtons.every((formatButton) => formatButton.hidden);
+  pane.blockDivider.hidden = markAnchor !== null;
+  for (const blockButton of pane.blockButtons) blockButton.hidden = markAnchor !== null;
   const noteAnchorRect = showsPin ? selectionRect() : null;
   placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? noteAnchorRect);
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
@@ -686,6 +706,8 @@ export function paintMarkupTools(editor: MarkupHost) {
   pane.btnPreviewAll.hidden = pane.previewBlocks.length === 0;
   pane.btnPreviewAll.setAttribute('aria-pressed', String(isEveryBlockPreviewed(pane)));
   pane.paper.contentEditable = canSuggest(editor) ? 'true' : 'false';
+  pane.btnUndo.disabled = isLocked || pane.history.stacks.undo.length === 0;
+  pane.btnRedo.disabled = isLocked || pane.history.stacks.redo.length === 0;
   pane.btnAccept.disabled = isLocked;
   pane.btnReject.disabled = isLocked;
   pane.hint.textContent = pane.tip || markupHintFor(editor);
@@ -832,6 +854,44 @@ function formatSelection(editor: MarkupHost, delimiter: string) {
   const wrappedText = selectedText.replace(/^(\s*)(.*?)(\s*)$/s, (_whole, leadingSpace: string, words: string, trailingSpace: string) => `${leadingSpace}${delimiter}${words}${delimiter}${trailingSpace}`);
   applySuggestion(editor, { kind: 'type', selection, text: wrappedText });
   pane.run = null;
+}
+
+function prefixableLineStartsOf(source: string, selection: SourceSelection) {
+  const sourceLines = source.split('\n');
+  const acceptedLines = sourceLines.map(acceptEveryMark);
+  const blockStyles = blockStylesOf(acceptedLines.join('\n'));
+  const lineStarts: number[] = [];
+  let lineStart = 0;
+  for (const [lineIndex, line] of sourceLines.entries()) {
+    const lineEnd = lineStart + line.length;
+    const isSelected = lineEnd >= selection.start && lineStart < selection.end;
+    const isPlainProse = blockStyles[lineIndex] === 'plain' && acceptedLines[lineIndex].trim() !== '';
+    if (isSelected && isPlainProse) lineStarts.push(lineStart);
+    lineStart = lineEnd + 1;
+  }
+  return lineStarts;
+}
+
+function prefixSelectedLines(editor: MarkupHost, prefixOf: (lineNumber: number) => string) {
+  const pane = editor.markup;
+  const selection = pane.selection;
+  if (!selection) return;
+  const lineStarts = prefixableLineStartsOf(editor.textarea.value, selection);
+  let prefixedSource = editor.textarea.value;
+  for (const [lineIndex, lineStart] of [...lineStarts.entries()].reverse()) {
+    const outcome = suggestEdit(prefixedSource, { kind: 'type', selection: { start: lineStart, end: lineStart }, text: prefixOf(lineIndex + 1) }, null);
+    if (outcome.kind === 'refused') {
+      showTip(editor, outcome.reason);
+      return;
+    }
+    prefixedSource = outcome.source;
+  }
+  if (prefixedSource === editor.textarea.value) return;
+  rememberDocEdit(editor, { kind: 'note', after: prefixedSource, caretBefore: selection.start, caretAfter: lineStarts[0] });
+  renderMarkup(editor);
+  placeCaret(pane, lineStarts[0]);
+  pane.selection = { start: lineStarts[0], end: lineStarts[0] };
+  paintMarkupTools(editor);
 }
 
 function typedTextOf(event: InputEvent) {
@@ -1217,6 +1277,9 @@ export function wireMarkupPane(editor: MarkupHost) {
   pane.markCard.addEventListener('mousedown', (event) => event.preventDefault());
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.addEventListener('click', () => formatSelection(editor, FORMAT_CONTROLS[controlIndex].delimiter));
+  for (const [controlIndex, blockButton] of pane.blockButtons.entries()) blockButton.addEventListener('click', () => prefixSelectedLines(editor, BLOCK_CONTROLS[controlIndex].prefixOf));
+  pane.btnUndo.addEventListener('click', () => stepDocEdit(editor, 'undo'));
+  pane.btnRedo.addEventListener('click', () => stepDocEdit(editor, 'redo'));
   pane.noteInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.stopPropagation();
