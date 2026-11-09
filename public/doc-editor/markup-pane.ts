@@ -1,5 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
+import { commonPrefixLength, commonSuffixLength } from '../plan/plan-diff-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
@@ -47,6 +48,7 @@ interface MarkupPane {
   listeners: AbortController;
   rowsByElement: Map<Element, MarkupRow>;
   visibleRows: Set<MarkupRow>;
+  paintedRows: MarkupRow[];
   selection: SourceSelection | null;
   noteSelection: SourceSelection | null;
   compositionSelection: SourceSelection | null;
@@ -132,7 +134,7 @@ export function buildMarkupPane(): MarkupPane {
   const pane: MarkupPane = {
     root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
-    rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(),
+    rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
     selection: null, noteSelection: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
     marks: [], elementsByMarkIndex: [], selectedMarkIndex: null,
   };
@@ -364,14 +366,37 @@ function previewedRows(editor: MarkupHost, source: string, rows: PaperRow[]) {
 
 const ROWS_PER_CHUNK = 40;
 
-function chunkRows(rowElements: HTMLElement[]) {
-  const chunks: HTMLElement[] = [];
-  for (let chunkStart = 0; chunkStart < rowElements.length; chunkStart += ROWS_PER_CHUNK) {
-    const chunk = el('div', 'doc-markup-chunk');
-    chunk.append(...rowElements.slice(chunkStart, chunkStart + ROWS_PER_CHUNK));
-    chunks.push(chunk);
-  }
-  return chunks;
+function fillChunks(paper: HTMLElement, rowElements: HTMLElement[]) {
+  const chunkCount = Math.ceil(rowElements.length / ROWS_PER_CHUNK);
+  for (const strayNode of [...paper.childNodes]) if (!(strayNode instanceof HTMLElement && strayNode.classList.contains('doc-markup-chunk'))) strayNode.remove();
+  while (paper.childElementCount > chunkCount) paper.lastElementChild?.remove();
+  while (paper.childElementCount < chunkCount) paper.append(el('div', 'doc-markup-chunk'));
+  [...paper.children].forEach((chunk, chunkIndex) => {
+    const chunkStart = chunkIndex * ROWS_PER_CHUNK;
+    chunk.replaceChildren(...rowElements.slice(chunkStart, chunkStart + ROWS_PER_CHUNK));
+  });
+}
+
+function copyNotePlacement(paintedRow: MarkupRow, row: MarkupRow) {
+  if (row.notesWithAnchors.length === 0) return;
+  row.margin.style.minHeight = paintedRow.margin.style.minHeight;
+  row.notesWithAnchors.forEach(({ note }, noteIndex) => {
+    const paintedNote = paintedRow.notesWithAnchors[noteIndex]?.note;
+    if (paintedNote) note.style.top = paintedNote.style.top;
+  });
+}
+
+function carryNotePlacement(paintedRows: readonly MarkupRow[], rows: readonly MarkupRow[]) {
+  const paintedTexts = paintedRows.map(({ line }) => line.textContent ?? '');
+  const rowTexts = rows.map(({ line }) => line.textContent ?? '');
+  const prefixLength = commonPrefixLength(paintedTexts, rowTexts);
+  const suffixLength = commonSuffixLength(paintedTexts, rowTexts, prefixLength);
+  const rowShift = paintedRows.length - rows.length;
+  rows.forEach((row, rowIndex) => {
+    const isInSuffix = rowIndex >= rows.length - suffixLength;
+    const paintedRow = paintedRows[isInSuffix ? rowIndex + rowShift : rowIndex];
+    if (paintedRow) copyNotePlacement(paintedRow, row);
+  });
 }
 
 function rowObserverFor(pane: MarkupPane) {
@@ -428,7 +453,9 @@ function paintPaper(editor: MarkupHost) {
   }
   pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
   const shownRows = previewedRows(editor, source, rows);
-  pane.paper.replaceChildren(...chunkRows(shownRows.map(({ row }) => row)));
+  carryNotePlacement(pane.paintedRows, rows);
+  pane.paintedRows = rows;
+  fillChunks(pane.paper, shownRows.map(({ row }) => row));
   for (const { paperRow: markupRow } of shownRows) {
     if (!markupRow || markupRow.notesWithAnchors.length === 0) continue;
     pane.rowsByElement.set(markupRow.row, markupRow);
