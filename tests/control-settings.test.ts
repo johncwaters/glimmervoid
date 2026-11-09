@@ -9,6 +9,7 @@ import { createConfigStore } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import type { ControlMessageRecord } from '../server/core/control-replay-core.ts';
 import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/settings-block-core.ts';
+import { configSecretsPath } from '../server/secrets/core/secret-files-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
 import { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
@@ -254,7 +255,7 @@ test('a rejected posthog block blocks the whole save, including unrelated keys',
 function withRealStore(
   seed: Record<string, unknown>,
   storeOpts: { settingsDefaults?: Partial<DefaultConfig> } | undefined,
-  fn: (h: SettingsHarness, store: ConfigStore, readDisk: () => Record<string, unknown>) => void,
+  fn: (h: SettingsHarness, store: ConfigStore, readDisk: () => Record<string, unknown>, configPath: string) => void,
 ): void {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-ctl-settings-'));
   const configPath = path.join(dir, 'config.json');
@@ -263,7 +264,7 @@ function withRealStore(
   process.env.GLIMMERVOID_CONFIG = configPath;
   try {
     const store = createConfigStore(storeOpts);
-    fn(harness(store.config, store), store, () => JSON.parse(fs.readFileSync(configPath, 'utf8')));
+    fn(harness(store.config, store), store, () => JSON.parse(fs.readFileSync(configPath, 'utf8')), configPath);
   } finally {
     if (prev == null) delete process.env.GLIMMERVOID_CONFIG;
     if (prev != null) process.env.GLIMMERVOID_CONFIG = prev;
@@ -295,6 +296,11 @@ test('flipping the checkbox away from the launch default persists it, and it win
   });
 });
 
+function storedSecret(configPath: string, secretKey: string): unknown {
+  const secretsFile = JSON.parse(fs.readFileSync(configSecretsPath(configPath), 'utf8'));
+  return blockOf(secretsFile.secrets, secretKey);
+}
+
 test('the browser round trip never sees a credential and never blanks one', async () => {
   const [{ SETTINGS_REGISTRY }, view] = await Promise.all([
     import('../shared/settings/registry.ts'),
@@ -307,7 +313,7 @@ test('the browser round trip never sees a credential and never blanks one', asyn
     projects: [],
   };
 
-  withRealStore(stored, undefined, (h, store, readDisk) => {
+  withRealStore(stored, undefined, (h, store, readDisk, configPath) => {
     const firstPayload = store.getSettings();
     assert.equal(JSON.stringify(firstPayload).includes('stored-tok'), false, 'the connect snapshot carries no token');
     assert.equal(JSON.stringify(firstPayload).includes('phx_stored'), false, 'nor the api key');
@@ -320,7 +326,7 @@ test('the browser round trip never sees a credential and never blanks one', asyn
 
     h.send({ type: 'update-settings', settings });
 
-    assert.equal(blockOf(readDisk().telegram, 'botToken'), 'stored-tok', 'the stored token survives a chat-id save');
+    assert.equal(storedSecret(configPath, 'telegram.botToken'), 'stored-tok', 'the stored token survives a chat-id save');
     assert.equal(blockOf(readDisk().telegram, 'chatId'), '456');
     assert.equal(blockOf(store.getSettings().telegram, 'botTokenConfigured'), true);
 
@@ -330,7 +336,7 @@ test('the browser round trip never sees a credential and never blanks one', asyn
       type: 'update-settings',
       settings: view.collectDirtyBlocks(telegramSection, original, replaced),
     });
-    assert.equal(blockOf(readDisk().telegram, 'botToken'), 'fresh-tok', 'a pasted token still writes through');
+    assert.equal(storedSecret(configPath, 'telegram.botToken'), 'fresh-tok', 'a pasted token still writes through');
   });
 });
 
