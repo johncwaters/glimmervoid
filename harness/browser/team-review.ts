@@ -93,7 +93,8 @@ async function verifyRows(page: Page): Promise<void> {
     children: button.querySelectorAll(':scope > :not(.pr-queue-unseen)').length,
     removedParts: button.querySelectorAll('.pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
   })));
-  assert.equal(rows.length, 10);
+  assert.equal(rows.length, 9);
+  assert.ok(!rows.some((row) => row.key === 'Acme/app#8'));
   const skillHint = await page.locator('.review-skill-notice-hint').evaluate((hint) => ({ text: hint.textContent, href: hint.querySelector('a')?.getAttribute('href') }));
   assert.equal(skillHint.text, 'The instructions the reviewing agent follows. Reviews run without one. Review skill setting');
   assert.match(skillHint.href ?? '', /#settings\/lanes-team-review\/team-review-skill$/);
@@ -311,7 +312,7 @@ async function verifyQueueRebuildsAfterEmptyStatus(page: Page, status: TeamRevie
   await applyStatus(page, { ...status, drafts: [], inFlight: [], queued: [] });
   assert.equal(await page.locator('.pr-queue-row').count(), 0);
   await applyStatus(page, status);
-  assert.equal(await page.locator('.pr-queue-row').count(), 10);
+  assert.equal(await page.locator('.pr-queue-row').count(), 9);
   const isFirstRowRebuilt = await page.evaluate((row) => !row.isConnected && row !== document.querySelector('.pr-queue-row'), firstRowBefore);
   assert.equal(isFirstRowRebuilt, true);
 }
@@ -321,7 +322,7 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   const review = createDraft(1, {
     viewerThreads: { total: 5, resolved: 2 },
     comments: [{ path: 'src/a.ts', line: 1, side: 'RIGHT', body: 'Drafted finding.' }],
-    githubReviews: [{ login: 'me', state: 'COMMENTED', commit: REVIEWED_HEAD, isViewer: true }],
+    githubReviews: [{ login: 'me', state: 'COMMENTED', commit: 'b'.repeat(40), isViewer: true }],
   });
   const withDraft = (draft: ReviewDraft) => ({ ...snapshot, drafts: [draft], inFlight: [], queued: [] });
   await applyStatus(page, withDraft(review));
@@ -329,20 +330,20 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.doesNotMatch(await row.locator('.pr-queue-bottom').textContent() ?? '', /drafted|resolved/);
   assert.match(await row.getAttribute('aria-label') ?? '', /2 of 5 of your comments resolved/);
   const sectionHeading = () => row.evaluate((element) => element.closest('.pr-queue-section')?.querySelector('.pr-section-heading')?.textContent);
-  assert.match(await sectionHeading() ?? '', /Done/);
+  assert.match(await sectionHeading() ?? '', /Ready/);
   await showQueue(page);
   await row.click();
   assert.equal(await threadsFact().textContent(), '2 of 5 of your comments resolved');
   const resolved = { ...review, viewerThreads: { total: 5, resolved: 5 } };
   await applyStatus(page, withDraft(resolved));
-  assert.doesNotMatch(await sectionHeading() ?? '', /Done/);
+  assert.match(await sectionHeading() ?? '', /Ready/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
   assert.equal(await threadsFact().textContent(), 'All 5 of your comments resolved');
   assert.match(await row.getAttribute('aria-label') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
-  assert.match(await sectionHeading() ?? '', /Done/);
+  assert.equal(await row.count(), 0);
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Ready/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
@@ -703,7 +704,7 @@ async function verifyAgeTones(page: Page): Promise<void> {
     tones: [...column.querySelectorAll('.pr-queue-row')].map((row) => ({ tone: row.getAttribute('data-age-tone'), hasAge: /\d/.test(row.querySelector('.pr-queue-elapsed')?.textContent ?? '') })),
   })));
   for (const { group, tones: rowTones } of tones) {
-    if (group === 'done' || group === 'parked') {
+    if (group === 'merged' || group === 'parked') {
       assert.ok(rowTones.every(({ tone }) => tone === null), `${group} cards carry no age tone`);
       continue;
     }
@@ -981,7 +982,7 @@ async function verifyBoard(page: Page): Promise<void> {
   assert.equal(await root.getAttribute('data-reviews-layout'), 'board');
   assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
   const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
-  assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Done', 'Parked']);
+  assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Merged', 'Parked']);
   assert.equal(await detail.isVisible(), false);
   await verifyBoardReadable(page);
   await verifyParkedToggleControlsColumn(page);
@@ -1094,7 +1095,6 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
     assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
     await verifyPhoneReviewingNowAfterReturn(page);
   }
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Parked', exact: true }).click();
   await page.evaluate(async () => { await document.fonts.ready; });
   await verifyRows(page);

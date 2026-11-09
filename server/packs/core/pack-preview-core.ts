@@ -60,7 +60,7 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
       { id: 'working', title: 'Agent working', items: [] },
       { id: 'queued', title: 'Queued', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
       { id: 'waiting', title: 'Waiting on others', items: [] },
-      { id: 'done', title: 'Done', items: [] },
+      { id: 'merged', title: 'Merged', items: [] },
       { id: 'parked', title: 'Parked', items: [mineItem({ ...draftPr, isDraft: true }, null, null)] },
     ],
   };

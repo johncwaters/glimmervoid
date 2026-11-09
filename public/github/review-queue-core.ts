@@ -49,8 +49,7 @@ const QUEUE_STATE_ORDER = [
   { state: 'mine-needs-approval', group: 'waiting', kind: null, action: null },
   { state: 'mine-unknown', group: 'waiting', kind: null, action: null },
   { state: 'review-queued', group: 'queued', kind: null, action: null },
-  { state: 'mine-merged', group: 'done', kind: null, action: null },
-  { state: 'review-settled', group: 'done', kind: null, action: null },
+  { state: 'mine-merged', group: 'merged', kind: null, action: null },
   { state: 'review-discarded', group: 'parked', kind: null, action: null },
   { state: 'mine-draft', group: 'parked', kind: null, action: null },
 ] as const satisfies readonly QueueStateRow[];
@@ -60,14 +59,14 @@ type QueueState = typeof QUEUE_STATE_ORDER[number]['state'];
 const QUEUE_STATE_ROWS: ReadonlyMap<QueueState, QueueStateRow & { rank: number }> = new Map(QUEUE_STATE_ORDER.map((row, rank) => [row.state, { ...row, rank }]));
 
 const GROUP_TITLES: Readonly<Record<QueueGroupId | CommunityGroupId, string>> = {
-  turn: 'Your turn', working: 'Agent working', queued: 'Queued', waiting: 'Waiting on others', done: 'Done', parked: 'Parked', aside: 'Set aside',
+  turn: 'Your turn', working: 'Agent working', queued: 'Queued', waiting: 'Waiting on others', merged: 'Merged', parked: 'Parked', aside: 'Set aside',
 };
 
-const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'queued', 'waiting', 'done', 'parked'];
+const GROUP_ORDER: readonly QueueGroupId[] = ['turn', 'working', 'queued', 'waiting', 'merged', 'parked'];
 
-export const COLLAPSED_GROUP_IDS: ReadonlySet<string> = new Set<QueueGroupId>(['done', 'parked']);
+export const COLLAPSED_GROUP_IDS: ReadonlySet<string> = new Set<QueueGroupId>(['merged', 'parked']);
 
-const BOARD_COLUMN_ORDER: readonly DisplayGroupId[] = ['queued', 'working', 'turn', 'now', 'waiting', 'done', 'parked'];
+const BOARD_COLUMN_ORDER: readonly DisplayGroupId[] = ['queued', 'working', 'turn', 'now', 'waiting', 'merged', 'parked'];
 
 const DISPLAY_GROUP_TITLES: Readonly<Record<DisplayGroupId, string>> = { ...GROUP_TITLES, turn: 'Ready', now: 'Reviewing now' };
 
@@ -110,7 +109,7 @@ const MINE_STATE_BY_STAGE: Readonly<Record<MyPrStage, QueueState>> = {
 };
 
 const TEAM_STATE_BY_KIND: Readonly<Record<Exclude<QueueRowKind, 'ready' | 'attention'>, QueueState>> = {
-  settled: 'review-settled', inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
+  inReview: 'review-in-flight', queued: 'review-queued', posted: 'review-posted', discarded: 'review-discarded',
 };
 
 interface StatedItem { item: QueueItem; row: QueueStateRow & { rank: number }; priorityBandRank: number; waitStartMs: number }
@@ -178,7 +177,7 @@ export function queueItemWaitStartMs(item: QueueItem): number {
 }
 
 export function ageToneOf(groupId: DisplayGroupId, waitStartMs: number, nowMs: number): AgeTone | null {
-  if (groupId === 'done' || groupId === 'parked' || !Number.isFinite(waitStartMs)) return null;
+  if (groupId === 'merged' || groupId === 'parked' || !Number.isFinite(waitStartMs)) return null;
   const waitedMs = nowMs - waitStartMs;
   if (waitedMs > OLD_AFTER_MS) return 'old';
   if (waitedMs >= AGING_AFTER_MS) return 'aging';
@@ -198,7 +197,7 @@ function statedItem(state: QueueState, priorityBandRank: number, waitStartMs: nu
 function teamItems(sections: TeamReviewSections): StatedItem[] {
   const entries: [QueueRowKind, readonly (ReviewDraft | InFlightReview | QueuedReview)[]][] = [
     ['ready', sections.ready], ['attention', sections.attention], ['inReview', sections.inReview], ['queued', sections.queued],
-    ['settled', sections.noReviewNeeded], ['posted', sections.posted], ['discarded', sections.discarded],
+    ['posted', sections.posted], ['discarded', sections.discarded],
   ];
   return entries.flatMap(([kind, reviews]) => reviews.flatMap((review) => statedItem(teamState(review, kind), teamPriorityBandRank(review, kind), teamWaitStartMs(review, kind), ({ action, kind: attention }) => (
     { source: 'team', key: `team:${review.key}`, prKey: comparablePrKey(review), kind, review, action, attention }

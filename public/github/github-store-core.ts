@@ -196,7 +196,7 @@ export function joinTeamReviews(status: TeamReviewStatus | null, findGithubPr: (
   };
 }
 
-export type QueueRowKind = 'ready' | 'settled' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
+export type QueueRowKind = 'ready' | 'inReview' | 'queued' | 'attention' | 'posted' | 'discarded';
 
 export const PRIORITY_BAND_ORDER = ['blocking-others', 'actionable', 'waiting-on-author', 'not-ready'] as const;
 

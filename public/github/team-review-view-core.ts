@@ -93,13 +93,6 @@ function withExceptionReason(stateWord: string, review: Parameters<typeof queueR
   return exceptionReason ? `${stateWord}, ${exceptionReason}` : stateWord;
 }
 
-function isViewerOutcomeCurrent(draft: ReviewDraft): boolean {
-  if (hasStandingViewerApproval(draft)) return true;
-  const viewerReviews = (draft.githubReviews ?? []).filter((review) => review.isViewer);
-  if (viewerReviews.length === 0) return true;
-  return viewerReviews.some((review) => review.commit === currentHead(draft));
-}
-
 const COMMENTS_RESOLVED_GLYPH: QueueRowGlyph = { tone: 'warn', icon: 'your-turn', meaning: 'Comments resolved' };
 
 export function queueRowGlyph(review: TeamReviewPrView<ReviewDraft | InFlightReview | QueuedReview>, kind: QueueRowKind): QueueRowGlyph {
@@ -108,10 +101,6 @@ export function queueRowGlyph(review: TeamReviewPrView<ReviewDraft | InFlightRev
   if (fixedGlyph) return fixedGlyph;
   if (kind === 'inReview') return { tone: 'wait', icon: 'running', meaning: withExceptionReason('In review', review) };
   if (kind === 'queued') return { tone: 'muted', icon: 'queued', meaning: withExceptionReason('Queued', review) };
-  if (kind === 'settled' && 'reviewedHead' in review) {
-    const outcome = isViewerOutcomeCurrent(review) ? postedOutcome(review) : null;
-    return outcome ? { tone: outcome.tone, icon: outcome.icon, meaning: outcome.label } : { tone: 'ok', icon: 'passed', meaning: 'Others reviewed' };
-  }
   if (kind === 'posted' && 'reviewedHead' in review) {
     const outcome = postedOutcome(review);
     return outcome ? { tone: outcome.tone, icon: outcome.icon, meaning: outcome.label } : { tone: 'muted', icon: 'none', meaning: 'Posted' };
