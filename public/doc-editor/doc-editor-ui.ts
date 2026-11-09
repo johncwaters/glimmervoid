@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, paintMarkupTools, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -288,7 +288,7 @@ export function openDocEditorOn(source: DocSource) {
   });
   modal.dialog.addEventListener('keydown', (event) => {
     const shortcut = editorShortcutOf(event);
-    if (!shortcut || (shortcut !== 'save' && event.target === markup.noteInput)) return;
+    if (!shortcut || (shortcut !== 'save' && isMarkupTextField(markup, event.target))) return;
     event.preventDefault();
     if (shortcut !== 'save') {
       stepDocEdit(currentEditor, shortcut);

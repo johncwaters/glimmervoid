@@ -3,11 +3,12 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { commonPrefixLength, commonSuffixLength } from '../plan/plan-diff-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
+import { CHECK_ICON_PATH, CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
-import { acceptEveryMark, isEndNote, parseCriticMarkup, resolveMark, suggestEdit } from './markup-core.ts';
+import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
 import type { BlockStyle, InlineStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
-import type { MarkDecision, MarkSegment, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
+import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
 import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
@@ -31,7 +32,6 @@ interface MarkupPane {
   paper: HTMLElement;
   endNotes: HTMLElement;
   markCard: HTMLElement;
-  markCardText: HTMLElement;
   btnAccept: HTMLButtonElement;
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
@@ -51,6 +51,7 @@ interface MarkupPane {
   paintedRows: MarkupRow[];
   selection: SourceSelection | null;
   noteSelection: SourceSelection | null;
+  inPlaceEdit: InPlaceEdit | null;
   compositionSelection: SourceSelection | null;
   run: SuggestRun | null;
   history: DocHistory;
@@ -61,8 +62,10 @@ interface MarkupPane {
 }
 
 type PaperSelection = SourceSelection | 'crosses-mark' | null;
+type InPlaceEdit = { mark: MarkSegment; part: RevisablePart; element: HTMLElement };
 
-const MARGIN_CODE_LABELS: Record<string, string> = { unclear: '?', para: String.fromCharCode(0xb6) };
+const PILCROW = String.fromCharCode(0xb6);
+const MARGIN_CODE_LABELS: Record<string, string> = { unclear: '?', para: PILCROW };
 const MARK_KIND_DESCRIPTIONS: Record<MarkSegment['markKind'], string> = {
   deletion: 'Cut', insertion: 'Add', substitution: 'Change', highlight: 'Note', comment: 'Note',
 };
@@ -71,11 +74,14 @@ const REFUSAL_TIPS: Record<SuggestRefusal, string> = {
   swallowed: 'This mark would run into the mark beside it or an unclosed mark earlier in the doc. Nothing changed.',
   nested: 'Marks never nest. Edit text outside a mark, or accept or reject the mark first.',
   nothing: '',
+  reserved: 'A note that says only "para" marks a paragraph break, so it cannot be a note. Add a word, or use the para: margin code. Nothing changed.',
 };
 const BACKWARD_DELETES = new Set(['deleteContentBackward', 'deleteByCut']);
 const TYPED_INPUTS = new Set(['insertText', 'insertReplacementText', 'insertFromPaste', 'insertFromYank']);
 const PARAGRAPH_INPUTS = new Set(['insertParagraph', 'insertLineBreak']);
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const CLOSE_UP_PATH = 'M1 6 Q6 0 11 6 M1 10 Q6 16 11 10';
+const DELETE_LOOP_PATH = 'M1 13 C3 4 12 2 11 7 C10 11 4 10 6 5 L9 1';
 const PREVIEW_BLOCK_NAMES: Record<PreviewBlockKind, string> = { table: 'table', fence: 'code block', image: 'image' };
 const WEB_IMAGE_SOURCE = /^https?:\/\//i;
 
@@ -102,14 +108,15 @@ function buildCheckMark() {
   return svg;
 }
 
+function markCardButton(label: string, action: string, iconPath: string) {
+  return button({ variant: 'icon', size: 'small', label, action, icon: createLineIcon(iconPath, '1.75') });
+}
+
 export function buildMarkupPane(): MarkupPane {
-  const btnAccept = button({ variant: 'primary', size: 'small', label: 'Accept', action: 'accept-mark' });
-  const btnReject = button({ variant: 'danger', size: 'small', label: 'Reject', action: 'reject-mark' });
-  const markCardText = el('p', 'doc-markup-card-text');
-  const markCardActions = el('div', 'doc-markup-card-actions');
-  markCardActions.append(btnAccept, btnReject);
+  const btnAccept = markCardButton('Accept', 'accept-mark', CHECK_ICON_PATH);
+  const btnReject = markCardButton('Reject', 'reject-mark', CLOSE_ICON_PATH);
   const markCard = el('div', 'doc-markup-float doc-markup-card');
-  markCard.append(markCardText, markCardActions);
+  markCard.append(btnAccept, btnReject);
   const btnAddNote = button({ variant: 'secondary', size: 'small', label: 'Add note', action: 'add-note' });
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
@@ -132,10 +139,10 @@ export function buildMarkupPane(): MarkupPane {
   for (const float of [markCard, btnAddNote, noteComposer]) float.hidden = true;
   root.append(buildInkFilter(), paper, endNotes, markCard, btnAddNote, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, markCardText, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
-    selection: null, noteSelection: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
+    selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
     marks: [], elementsByMarkIndex: [], selectedMarkIndex: null,
   };
   pane.marginResizeObserver.observe(paper);
@@ -163,6 +170,70 @@ function describeMark(mark: MarkSegment) {
   return parts.join(' ');
 }
 
+function buildPenGlyph(className: string, viewBox: string, strokePath: string) {
+  const svg = svgElement('svg', { viewBox, class: `doc-markup-glyph ${className}`, 'aria-hidden': 'true' });
+  svg.append(svgElement('path', { d: strokePath }));
+  return svg;
+}
+
+function isCaseOnlyChange(mark: MarkSegment) {
+  const oldLetters = [...mark.oldText];
+  const newLetters = [...mark.newText];
+  if (mark.oldText === mark.newText || oldLetters.length !== newLetters.length) return false;
+  return oldLetters.every((oldLetter, letterIndex) => caseDirectionOf(oldLetter, newLetters[letterIndex]) !== null);
+}
+
+function caseDirectionOf(oldLetter: string, newLetter: string): 'same' | 'upper' | 'lower' | null {
+  if (oldLetter === newLetter) return 'same';
+  if (newLetter === oldLetter.toUpperCase()) return 'upper';
+  return newLetter === oldLetter.toLowerCase() ? 'lower' : null;
+}
+
+function caseLetterElement(oldLetter: string, newLetter: string): Node {
+  const direction = caseDirectionOf(oldLetter, newLetter);
+  if (direction === 'same' || direction === null) return document.createTextNode(oldLetter);
+  const caseMarked = el('span', 'doc-markup-case', oldLetter);
+  caseMarked.dataset.case = direction;
+  return caseMarked;
+}
+
+function revisable(element: HTMLElement, part: RevisablePart) {
+  element.dataset.revise = part;
+  return element;
+}
+
+function buildInsertionContent(mark: MarkSegment): Node[] {
+  if (mark.newText.trim() === '') return [revisable(el('span', 'doc-markup-inserted doc-markup-space', '#'), 'suggestion')];
+  if (mark.newText === '.') return [revisable(el('span', 'doc-markup-inserted doc-markup-period', '.'), 'suggestion')];
+  return [revisable(el('ins', 'doc-markup-inserted', mark.newText), 'suggestion')];
+}
+
+function buildDeletionContent(mark: MarkSegment): Node[] {
+  if (mark.oldText.trim() === '') return [buildPenGlyph('doc-markup-closeup', '0 0 12 16', CLOSE_UP_PATH)];
+  return [el('del', null, mark.oldText), buildPenGlyph('doc-markup-delete-loop', '0 0 14 14', DELETE_LOOP_PATH)];
+}
+
+function buildSubstitutionContent(mark: MarkSegment): Node[] {
+  if (isCaseOnlyChange(mark)) {
+    const newLetters = [...mark.newText];
+    return [...mark.oldText].map((oldLetter, letterIndex) => caseLetterElement(oldLetter, newLetters[letterIndex]));
+  }
+  const caret = el('span', 'doc-markup-caret', '^');
+  caret.append(revisable(el('span', 'doc-markup-caret-label', mark.newText), 'suggestion'));
+  return [el('del', null, mark.oldText), caret];
+}
+
+function buildMarkContent(mark: MarkSegment): Node[] {
+  if (isParagraphMark(mark)) return [el('span', 'doc-markup-pilcrow', PILCROW)];
+  switch (mark.markKind) {
+    case 'insertion': return buildInsertionContent(mark);
+    case 'deletion': return buildDeletionContent(mark);
+    case 'substitution': return buildSubstitutionContent(mark);
+    case 'highlight': return [el('span', 'doc-markup-underline', mark.oldText)];
+    case 'comment': return [el('sup', 'doc-markup-pin', '*')];
+  }
+}
+
 function buildMarkElement(mark: MarkSegment, markIndex: number) {
   const wrapper = el('span', `doc-markup-mark doc-markup-${mark.markKind}`);
   wrapper.dataset.markIndex = String(markIndex);
@@ -170,23 +241,17 @@ function buildMarkElement(mark: MarkSegment, markIndex: number) {
   wrapper.tabIndex = 0;
   wrapper.setAttribute('role', 'button');
   wrapper.setAttribute('aria-label', describeMark(mark));
-  if (mark.oldText && mark.markKind !== 'highlight') wrapper.append(el('del', null, mark.oldText));
-  if (mark.markKind === 'highlight') wrapper.append(el('span', 'doc-markup-underline', mark.oldText));
-  if (mark.newText) {
-    const caret = el('ruby', 'doc-markup-caret', '^');
-    caret.append(el('rt', null, mark.newText));
-    wrapper.append(caret);
-  }
-  if (mark.markKind === 'comment') wrapper.append(el('sup', 'doc-markup-pin', '*'));
+  wrapper.append(...buildMarkContent(mark));
   return wrapper;
 }
 
-function buildMarginNote(mark: MarkSegment) {
-  const note = el('div', 'doc-markup-note');
+function buildMarginNote(mark: MarkSegment, markIndex: number) {
+  const note = revisable(el('div', 'doc-markup-note'), 'note');
   note.dataset.code = mark.note?.code ?? '';
   if (mark.note?.code === 'good') note.append(buildCheckMark());
   if (mark.note?.code && mark.note.code !== 'good') note.append(el('span', 'doc-markup-code', MARGIN_CODE_LABELS[mark.note.code] ?? mark.note.code));
   if (mark.note?.body) note.append(el('span', 'doc-markup-note-body', mark.note.body));
+  note.dataset.markIndex = String(markIndex);
   return note;
 }
 
@@ -196,7 +261,7 @@ function buildEndNote(mark: MarkSegment, markIndex: number) {
   note.tabIndex = 0;
   note.setAttribute('role', 'button');
   note.setAttribute('aria-label', `End note: ${mark.note?.body ?? ''}`);
-  note.append(el('span', 'doc-markup-code', 'End note'), el('p', 'doc-markup-note-body', mark.note?.body ?? ''));
+  note.append(el('span', 'doc-markup-code', 'End note'), revisable(el('p', 'doc-markup-note-body', mark.note?.body ?? ''), 'note'));
   return note;
 }
 
@@ -419,6 +484,7 @@ function rowObserverFor(pane: MarkupPane) {
 
 function paintPaper(editor: MarkupHost) {
   const pane = editor.markup;
+  pane.inPlaceEdit = null;
   const rowObserver = rowObserverFor(pane);
   rowObserver.disconnect();
   const source = editor.textarea.value;
@@ -445,8 +511,14 @@ function paintPaper(editor: MarkupHost) {
     const markElement = buildMarkElement(segment, markIndex);
     currentRow?.line.append(markElement);
     pane.elementsByMarkIndex.push([markElement]);
+    if (isParagraphMark(segment)) {
+      const paragraphRow = buildRow(segment.end, 'plain');
+      paragraphRow.line.dataset.break = 'paragraph';
+      rows.push(paragraphRow);
+      continue;
+    }
     if (!segment.note || !currentRow) continue;
-    const marginNote = buildMarginNote(segment);
+    const marginNote = buildMarginNote(segment, markIndex);
     pane.elementsByMarkIndex[markIndex]?.push(marginNote);
     currentRow.margin.append(marginNote);
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
@@ -513,6 +585,16 @@ function canSuggest(editor: MarkupHost) {
   return !isMarkupLocked(editor) && !isStreamerMode();
 }
 
+function placeFloatAbove(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
+  float.hidden = anchorRect === null;
+  if (!anchorRect) return;
+  const rootRect = pane.root.getBoundingClientRect();
+  const topAbove = anchorRect.top - rootRect.top - float.offsetHeight - 6;
+  const widestLeft = Math.max(0, rootRect.width - float.offsetWidth);
+  float.style.top = `${topAbove >= 0 ? topAbove : anchorRect.bottom - rootRect.top + 4}px`;
+  float.style.left = `${Math.min(Math.max(0, anchorRect.left - rootRect.left), widestLeft)}px`;
+}
+
 function placeFloat(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
   float.hidden = anchorRect === null;
   if (!anchorRect) return;
@@ -525,13 +607,16 @@ function selectionRect() {
   return selection.getRangeAt(0).getBoundingClientRect();
 }
 
+function markAnchorOf(pane: MarkupPane) {
+  return pane.selectedMarkIndex === null ? null : pane.elementsByMarkIndex[pane.selectedMarkIndex]?.[0] ?? null;
+}
+
 function paintFloats(editor: MarkupHost) {
   const pane = editor.markup;
   const selectedMark = selectedMarkOf(pane);
-  const markAnchor = pane.selectedMarkIndex === null ? null : pane.elementsByMarkIndex[pane.selectedMarkIndex]?.[0] ?? null;
-  pane.markCardText.textContent = selectedMark ? describeMark(selectedMark) : '';
-  placeFloat(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? null);
   const isComposing = pane.noteSelection !== null;
+  const markAnchor = isComposing ? null : markAnchorOf(pane);
+  placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? null);
   const hasRangeSelection = pane.selection !== null && pane.selection.end > pane.selection.start;
   const showsPin = !isComposing && !selectedMark && hasRangeSelection && canSuggest(editor);
   placeFloat(pane, pane.btnAddNote, showsPin ? selectionRect() : null);
@@ -566,6 +651,7 @@ function repaintPreviews(editor: MarkupHost) {
 }
 
 function toggleBlockPreview(editor: MarkupHost, previewKey: string) {
+  saveInPlaceEdit(editor);
   const keys = editor.markup.previewedBlockKeys;
   if (!keys.delete(previewKey)) keys.add(previewKey);
   repaintPreviews(editor);
@@ -597,11 +683,11 @@ function markupHintFor(editor: MarkupHost) {
   const openMarkCount = editor.markup.marks.length;
   const markCount = `${openMarkCount} open ${openMarkCount === 1 ? 'mark' : 'marks'}.`;
   if (isStreamerMode()) return `Editing marks is off in streamer mode. Accept and Reject still work. ${markCount}`;
-  return `Suggesting: edits become red pen. ${markCount}`;
+  return `Suggesting: edits become red pen; click red text or a note to change it. ${markCount}`;
 }
 
 function markIndexOf(element: Element | null) {
-  const markElement = element?.closest<HTMLElement>('.doc-markup-mark');
+  const markElement = element?.closest<HTMLElement>('[data-mark-index]');
   return markElement ? Number(markElement.dataset.markIndex) : null;
 }
 
@@ -672,11 +758,11 @@ function caretPointFor(pane: MarkupPane, sourceOffset: number): { node: Node; of
     const textNode = textSpan.firstChild;
     if (textNode && spanStart <= sourceOffset && sourceOffset <= spanStart + (textSpan.textContent?.length ?? 0)) return { node: textNode, offset: sourceOffset - spanStart };
   }
+  const line = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-line')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
+  if (line) return { node: line, offset: 0 };
   const markIndex = pane.marks.findIndex((mark) => mark.end === sourceOffset);
   const markElement = markIndex === -1 ? null : pane.elementsByMarkIndex[markIndex]?.[0];
-  if (markElement && pane.paper.contains(markElement)) return { after: markElement };
-  const line = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-line')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
-  return line ? { node: line, offset: 0 } : null;
+  return markElement && pane.paper.contains(markElement) ? { after: markElement } : null;
 }
 
 function placeCaret(pane: MarkupPane, sourceOffset: number) {
@@ -714,7 +800,7 @@ function applySuggestion(editor: MarkupHost, edit: SuggestEdit) {
     showTip(editor, outcome.reason);
     return;
   }
-  rememberDocEdit(editor, { kind: edit.kind, after: outcome.source, caretBefore: edit.selection.start, caretAfter: outcome.caret });
+  rememberDocEdit(editor, { kind: edit.kind === 'revise' ? 'note' : edit.kind, after: outcome.source, caretBefore: edit.selection.start, caretAfter: outcome.caret });
   pane.tip = '';
   paintPaper(editor);
   placeCaret(pane, outcome.caret);
@@ -740,7 +826,12 @@ function selectionForInput(pane: MarkupPane, event: InputEvent): PaperSelection 
   return readPaperSelection(pane, targetRange ?? currentRange());
 }
 
+function isInsideInPlaceEdit(pane: MarkupPane, target: EventTarget | null) {
+  return pane.inPlaceEdit !== null && target instanceof Node && pane.inPlaceEdit.element.contains(target);
+}
+
 function onBeforeInput(editor: MarkupHost, event: InputEvent) {
+  if (isInsideInPlaceEdit(editor.markup, event.target)) return;
   if (event.inputType === 'insertCompositionText') return;
   event.preventDefault();
   if (!canSuggest(editor)) return;
@@ -768,7 +859,7 @@ function onCompositionEnd(editor: MarkupHost, event: CompositionEvent) {
 function trackPaperSelection(editor: MarkupHost) {
   const pane = editor.markup;
   const range = currentRange();
-  if (!range || !pane.paper.contains(range.startContainer)) return;
+  if (!range || !pane.paper.contains(range.startContainer) || pane.inPlaceEdit) return;
   const selection = readPaperSelection(pane, range);
   pane.selection = selection === 'crosses-mark' ? null : selection;
   const isCaretAtRunEnd = pane.selection !== null && pane.selection.start === pane.run?.markEnd && pane.selection.end === pane.run.markEnd;
@@ -780,14 +871,21 @@ function trackPaperSelection(editor: MarkupHost) {
 }
 
 function decideSelectedMark(editor: MarkupHost, decision: MarkDecision) {
-  const mark = selectedMarkOf(editor.markup);
-  if (!mark || isMarkupLocked(editor)) return;
+  const selectedMark = selectedMarkOf(editor.markup);
+  if (!selectedMark || isMarkupLocked(editor)) return;
+  if (saveInPlaceEdit(editor) === 'refused') return;
+  const mark = editor.markup.marks.find((candidate) => candidate.start === selectedMark.start);
+  if (!mark) return;
   rememberDocEdit(editor, { kind: 'decide', after: resolveMark(editor.textarea.value, mark, decision), caretBefore: mark.start, caretAfter: mark.start });
   renderMarkup(editor);
 }
 
+export function isMarkupTextField(pane: MarkupPane, target: EventTarget | null) {
+  return target === pane.noteInput || isInsideInPlaceEdit(pane, target);
+}
+
 export function stepDocEdit(editor: MarkupHost, direction: UndoDirection) {
-  if (isMarkupLocked(editor)) return;
+  if (isMarkupLocked(editor) || editor.markup.inPlaceEdit) return;
   const stepped = stepDocHistory(editor.markup.history, direction, editor.textarea.value);
   if (!stepped) return;
   editor.markup.history = stepped.history;
@@ -811,6 +909,214 @@ function openNoteComposer(editor: MarkupHost) {
   pane.noteInput.focus();
 }
 
+function inPlaceEditElementOf(pane: MarkupPane, markIndex: number) {
+  const elements = pane.elementsByMarkIndex[markIndex] ?? [];
+  const parts = elements.flatMap((element) => [element, ...element.querySelectorAll<HTMLElement>('[data-revise]')]);
+  return parts.find((part) => part.dataset.revise === 'suggestion') ?? parts.find((part) => part.dataset.revise === 'note') ?? null;
+}
+
+function placeCaretAtPoint(element: HTMLElement, clickPoint: { x: number; y: number } | null) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const pointRange = clickPoint ? document.caretRangeFromPoint?.(clickPoint.x, clickPoint.y) ?? null : null;
+  const range = pointRange && element.contains(pointRange.startContainer) ? pointRange : document.createRange();
+  if (range !== pointRange) {
+    range.selectNodeContents(element);
+    range.collapse(false);
+  }
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function startInPlaceEdit(editor: MarkupHost, element: HTMLElement, clickPoint: { x: number; y: number } | null) {
+  const pane = editor.markup;
+  const markIndex = markIndexOf(element);
+  const mark = markIndex === null ? null : pane.marks[markIndex] ?? null;
+  const part = element.dataset.revise === 'note' ? 'note' : 'suggestion';
+  if (!mark || markIndex === null || !canRevisePart(mark, part) || !canSuggest(editor) || pane.inPlaceEdit) return false;
+  selectMarkIndex(pane, markIndex);
+  pane.selection = null;
+  pane.noteSelection = null;
+  pane.inPlaceEdit = { mark, part, element };
+  const revisableText = revisableTextIn(editor.textarea.value, mark, part);
+  const isShownAsWritten = element.textContent === revisableText;
+  if (!isShownAsWritten) element.textContent = revisableText;
+  element.classList.add('doc-markup-editing');
+  element.contentEditable = 'plaintext-only';
+  element.focus({ preventScroll: true });
+  placeCaretAtPoint(element, isShownAsWritten ? clickPoint : null);
+  paintMarkupTools(editor);
+  return true;
+}
+
+function cancelInPlaceEdit(editor: MarkupHost) {
+  if (!editor.markup.inPlaceEdit) return;
+  editor.markup.inPlaceEdit = null;
+  paintPaper(editor);
+  paintMarkupTools(editor);
+}
+
+function saveInPlaceEdit(editor: MarkupHost): 'kept' | 'refused' {
+  const pane = editor.markup;
+  const inPlaceEdit = pane.inPlaceEdit;
+  if (!inPlaceEdit) return 'kept';
+  const revisedText = inPlaceEdit.element.textContent ?? '';
+  if (revisedText === revisableTextIn(editor.textarea.value, inPlaceEdit.mark, inPlaceEdit.part) || !canSuggest(editor)) {
+    cancelInPlaceEdit(editor);
+    return 'kept';
+  }
+  pane.inPlaceEdit = null;
+  const { mark, part } = inPlaceEdit;
+  const sourceBefore = editor.textarea.value;
+  applySuggestion(editor, { kind: 'revise', selection: { start: mark.start, end: mark.end }, mark, part, text: revisedText });
+  if (editor.textarea.value !== sourceBefore) return 'kept';
+  paintPaper(editor);
+  paintMarkupTools(editor);
+  return 'refused';
+}
+
+function selectInPlaceEditText(element: HTMLElement) {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  window.getSelection()?.removeAllRanges();
+  window.getSelection()?.addRange(range);
+}
+
+const FIELD_EDGE_BY_KEY: Record<string, 'start' | 'end'> = { Home: 'start', ArrowUp: 'start', PageUp: 'start', End: 'end', ArrowDown: 'end', PageDown: 'end' };
+const FIELD_EDGE_BY_CONTROL_KEY: Record<string, 'start' | 'end'> = { p: 'start', e: 'end', n: 'end' };
+const isMacCaretKeymap = navigator.userAgent.includes('Mac');
+const FIELD_EDGE_BY_META_KEY: Record<string, 'start' | 'end'> = { ArrowLeft: 'start', ArrowRight: 'end' };
+
+function fieldEdgeOf(event: KeyboardEvent): 'start' | 'end' | null {
+  if (event.metaKey) return FIELD_EDGE_BY_META_KEY[event.key] ?? FIELD_EDGE_BY_KEY[event.key] ?? null;
+  if (event.ctrlKey && isMacCaretKeymap) return FIELD_EDGE_BY_CONTROL_KEY[event.key.toLowerCase()] ?? FIELD_EDGE_BY_KEY[event.key] ?? null;
+  return FIELD_EDGE_BY_KEY[event.key] ?? null;
+}
+
+function stepDirectionOf(event: KeyboardEvent): 'backward' | 'forward' | null {
+  if (event.key === 'ArrowLeft' || (isMacCaretKeymap && event.ctrlKey && event.key.toLowerCase() === 'b')) return 'backward';
+  if (event.key === 'ArrowRight' || (isMacCaretKeymap && event.ctrlKey && event.key.toLowerCase() === 'f')) return 'forward';
+  return null;
+}
+
+function isStepLeavingField(element: HTMLElement, event: KeyboardEvent) {
+  const stepDirection = stepDirectionOf(event);
+  const selection = window.getSelection();
+  if (!stepDirection || !selection || selection.rangeCount === 0) return false;
+  if (!event.shiftKey && !selection.isCollapsed) return false;
+  const caretOffset = textOffsetInField(element, selection.focusNode ?? element, selection.focusOffset);
+  if (stepDirection === 'backward') return caretOffset === 0;
+  return caretOffset === (element.textContent ?? '').length;
+}
+
+function moveCaretToFieldEdge(element: HTMLElement, edge: 'start' | 'end', isExtending: boolean) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const edgeOffset = edge === 'start' ? 0 : element.childNodes.length;
+  if (isExtending && selection.anchorNode) {
+    selection.setBaseAndExtent(selection.anchorNode, selection.anchorOffset, element, edgeOffset);
+    return;
+  }
+  selection.collapse(element, edgeOffset);
+}
+
+function keepCaretInField(event: KeyboardEvent, element: HTMLElement) {
+  const edge = fieldEdgeOf(event);
+  if (edge) {
+    event.preventDefault();
+    moveCaretToFieldEdge(element, edge, event.shiftKey);
+    return;
+  }
+  if (isWordStep(event)) {
+    event.preventDefault();
+    stepWordInField(element, event);
+    return;
+  }
+  if (isStepLeavingField(element, event)) event.preventDefault();
+}
+
+function isWordStep(event: KeyboardEvent) {
+  return (event.altKey || event.ctrlKey) && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+}
+
+function textOffsetInField(element: HTMLElement, node: Node, offset: number) {
+  const textBeforePoint = document.createRange();
+  textBeforePoint.selectNodeContents(element);
+  textBeforePoint.setEnd(node, offset);
+  return textBeforePoint.toString().length;
+}
+
+function pointAtTextOffset(element: HTMLElement, textOffset: number): { node: Node; offset: number } {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let remainingOffset = textOffset;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    if (remainingOffset <= length) return { node, offset: remainingOffset };
+    remainingOffset -= length;
+  }
+  return { node: element, offset: element.childNodes.length };
+}
+
+function wordStepTarget(text: string, caretOffset: number, direction: 'backward' | 'forward') {
+  const words = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)].filter((segment) => segment.isWordLike);
+  if (direction === 'forward') return words.map((word) => word.index + word.segment.length).find((wordEnd) => wordEnd > caretOffset) ?? text.length;
+  return words.map((word) => word.index).findLast((wordStart) => wordStart < caretOffset) ?? 0;
+}
+
+function stepWordInField(element: HTMLElement, event: KeyboardEvent) {
+  const selection = window.getSelection();
+  if (!selection?.focusNode || !selection.anchorNode) return;
+  const direction = event.key === 'ArrowLeft' ? 'backward' : 'forward';
+  const caretOffset = textOffsetInField(element, selection.focusNode, selection.focusOffset);
+  const target = pointAtTextOffset(element, wordStepTarget(element.textContent ?? '', caretOffset, direction));
+  if (event.shiftKey) {
+    selection.setBaseAndExtent(selection.anchorNode, selection.anchorOffset, target.node, target.offset);
+    return;
+  }
+  selection.collapse(target.node, target.offset);
+}
+
+function onInPlaceEditKeydown(editor: MarkupHost, event: KeyboardEvent, element: HTMLElement) {
+  keepCaretInField(event, element);
+  const isSelectAll = (event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'a' || event.code === 'KeyA');
+  if (isSelectAll) {
+    event.stopPropagation();
+    event.preventDefault();
+    selectInPlaceEditText(element);
+    return;
+  }
+  if (event.key === 'Escape') {
+    event.stopPropagation();
+    event.preventDefault();
+    cancelInPlaceEdit(editor);
+    return;
+  }
+  if (event.key !== 'Enter' || event.isComposing) return;
+  event.preventDefault();
+  saveInPlaceEdit(editor);
+}
+
+function startInPlaceEditFromKeyboard(editor: MarkupHost, event: KeyboardEvent) {
+  const markIndex = markIndexOf(event.target instanceof Element ? event.target : null);
+  const revisableElement = markIndex === null ? null : inPlaceEditElementOf(editor.markup, markIndex);
+  if (revisableElement && startInPlaceEdit(editor, revisableElement, null)) event.preventDefault();
+}
+
+function onSurfaceKeydown(editor: MarkupHost, event: KeyboardEvent) {
+  const inPlaceEdit = editor.markup.inPlaceEdit;
+  if (inPlaceEdit && isInsideInPlaceEdit(editor.markup, event.target)) {
+    onInPlaceEditKeydown(editor, event, inPlaceEdit.element);
+    return;
+  }
+  if (event.key === 'F2') {
+    startInPlaceEditFromKeyboard(editor, event);
+    return;
+  }
+  if (event.key !== 'Enter' || !selectMarkAt(editor, event.target)) return;
+  event.preventDefault();
+  editor.markup.btnAccept.focus();
+}
+
 function closeNoteComposer(editor: MarkupHost) {
   editor.markup.noteSelection = null;
   paintMarkupTools(editor);
@@ -820,7 +1126,7 @@ function submitNote(editor: MarkupHost) {
   const pane = editor.markup;
   const selection = pane.noteSelection;
   pane.noteSelection = null;
-  if (!selection || !canSuggest(editor)) {
+  if (!canSuggest(editor) || !selection) {
     paintMarkupTools(editor);
     return;
   }
@@ -828,6 +1134,7 @@ function submitNote(editor: MarkupHost) {
 }
 
 function selectMarkAt(editor: MarkupHost, target: EventTarget | null) {
+  if (isInsideInPlaceEdit(editor.markup, target)) return true;
   const markIndex = markIndexOf(target instanceof Element ? target : null);
   if (markIndex === null) return false;
   selectMarkIndex(editor.markup, editor.markup.marks[markIndex] ? markIndex : null);
@@ -842,12 +1149,13 @@ export function wireMarkupPane(editor: MarkupHost) {
   const { signal } = pane.listeners;
   for (const surface of [pane.paper, pane.endNotes]) {
     surface.addEventListener('focusin', (event) => { selectMarkAt(editor, event.target); });
-    surface.addEventListener('click', (event) => { selectMarkAt(editor, event.target); });
-    surface.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' || !selectMarkAt(editor, event.target)) return;
-      event.preventDefault();
-      pane.btnAccept.focus();
+    surface.addEventListener('click', (event) => {
+      const revisableElement = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-revise]') : null;
+      if (revisableElement && startInPlaceEdit(editor, revisableElement, { x: event.clientX, y: event.clientY })) return;
+      selectMarkAt(editor, event.target);
     });
+    surface.addEventListener('keydown', (event) => onSurfaceKeydown(editor, event));
+    surface.addEventListener('focusout', (event) => { if (isInsideInPlaceEdit(pane, event.target)) saveInPlaceEdit(editor); });
   }
   pane.paper.addEventListener('mousedown', (event) => {
     if (event.target instanceof Element && event.target.closest('.doc-preview-toggle')) event.preventDefault();
@@ -858,12 +1166,20 @@ export function wireMarkupPane(editor: MarkupHost) {
   });
   pane.btnPreviewAll.addEventListener('click', () => toggleEveryBlockPreview(editor));
   pane.paper.addEventListener('beforeinput', (event) => onBeforeInput(editor, event));
-  pane.paper.addEventListener('compositionstart', () => {
+  pane.paper.addEventListener('compositionstart', (event) => {
+    if (isInsideInPlaceEdit(pane, event.target)) return;
     const selection = readPaperSelection(pane, currentRange());
     pane.compositionSelection = selection === 'crosses-mark' ? null : selection;
   });
-  pane.paper.addEventListener('compositionend', (event) => onCompositionEnd(editor, event));
+  pane.paper.addEventListener('compositionend', (event) => {
+    if (isInsideInPlaceEdit(pane, event.target)) return;
+    onCompositionEnd(editor, event);
+  });
   pane.paper.addEventListener('input', (event) => {
+    if (isInsideInPlaceEdit(pane, event.target)) {
+      paintFloats(editor);
+      return;
+    }
     if (event instanceof InputEvent && event.isComposing) return;
     paintPaper(editor);
     paintMarkupTools(editor);
