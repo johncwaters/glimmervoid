@@ -42,6 +42,7 @@ Commands:
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
   vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
   watch               Run the watcher, which runs the server's probes and nudges it on change
+  doorman             Run the doorman, which forwards each tenant's traffic, wakes its server and hosts its watcher
 
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
@@ -131,6 +132,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   watch: async ({ values }) => {
     const { runWatchCli } = await import('../cloud/watcher/watch-cli.ts');
     return runWatchCli({ rawPort: typeof values.port === 'string' ? values.port : null });
+  },
+  doorman: async ({ values }) => {
+    const { runDoormanCli } = await import('../cloud/doorman/doorman.ts');
+    return runDoormanCli({ tablePath: typeof values.tenants === 'string' ? values.tenants : null, rawPort: typeof values.port === 'string' ? values.port : null });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

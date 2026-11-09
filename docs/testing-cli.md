@@ -56,6 +56,7 @@ Commands:
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
   vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
   watch               Run the watcher, which runs the server's probes and nudges it on change
+  doorman             Run the doorman, which forwards each tenant's traffic, wakes its server and hosts its watcher
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. An option beside an in-process subagent when the work should run in its own supervised session and worktree

@@ -266,6 +266,14 @@ const OWNED_COMMAND_SPECS = {
       { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port the server sends probes to (default: any free port)' },
     ],
   },
+  doorman: {
+    name: 'doorman',
+    summary: "Run the doorman: forward each tenant's traffic to its server, wake a sleeping server first, and run each tenant's watcher",
+    options: [
+      { name: 'tenants', type: 'string', valueName: 'path', summary: 'The tenant table file, reloaded when it changes' },
+      { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port to listen on (default: any free port)' },
+    ],
+  },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 

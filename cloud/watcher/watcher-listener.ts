@@ -61,7 +61,7 @@ function createWatcherListener({ runner, signingKey, now = Date.now, log = conso
     return { status: 404, payload: { error: 'not found' } };
   }
 
-  async function handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+  async function handleSigned(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const method = request.method ?? '';
     const path = new URL(request.url ?? '/', 'http://watcher').pathname;
     if (method === 'GET' && path === HEALTH_PATH) {
@@ -83,12 +83,14 @@ function createWatcherListener({ runner, signingKey, now = Date.now, log = conso
     answer(response, routed.status, routed.payload);
   }
 
-  const server = http.createServer((request, response) => {
-    handle(request, response).catch((handleError: unknown) => {
+  function handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    return handleSigned(request, response).catch((handleError: unknown) => {
       log.warn(`[watcher] request failed: ${(handleError as Error).message}`);
       if (!response.headersSent) answer(response, 500, { error: 'watcher error' });
     });
-  });
+  }
+
+  const server = http.createServer((request, response) => void handle(request, response));
 
   function listen(port: number): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -104,7 +106,7 @@ function createWatcherListener({ runner, signingKey, now = Date.now, log = conso
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
-  return { listen, close };
+  return { handle, listen, close };
 }
 
 export { createWatcherListener };

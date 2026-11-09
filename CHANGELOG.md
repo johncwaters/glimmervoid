@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The npm package.** Glimmervoid is no longer published to npm; 0.54.0 was the last npm release, and the older npm versions are deprecated with a message pointing at the installer. Install the standalone app with the curl or PowerShell installer in the README, or with Homebrew. An npm or npx install of 0.54.0 switches over from Settings, Updates.
 
+### Added
+
+- **Doorman.** `glimmervoid doorman --tenants <file>` forwards each tenant's dashboard pages and WebSockets to its server's remote listener and runs that tenant's watcher. Routing goes by host name, `<slug>.<tenant domain>`, or to the only tenant when the table has no tenant domain, and an unknown host is refused. When a host adapter can wake a sleeping server, requests made while it wakes are held and sent on once it answers. With no adapter, a server that is down gets 502 at once. The doorman reloads its tenant table when the file changes. The watcher's own routes now live under `/link/watcher/`.
+
 ### Fixed
 
 - **A downloaded update no longer fails when your checkout already moved past it.** If sessions landed commits that changed `package-lock.json` after an update downloaded, restarting used to show "Update failed. The checkout changed after the update downloaded." even though you were already on newer code. The restart now installs the dependencies for your current checkout, builds it and switches to that build.

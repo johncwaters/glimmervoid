@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import net from 'node:net';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
+import WebSocket, { WebSocketServer } from 'ws';
+import { createDoorman } from '../cloud/doorman/doorman.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-runner.ts';
@@ -15,7 +18,7 @@ import { createGithubStorePoller } from '../server/github/github-store-poller.ts
 import { githubStoreProbes, watchProbeId } from '../server/github/github-store-probes.ts';
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
-import { githubApiOrigin, HEALTH_PATH, NUDGES_PATH, Probe as ProbeSchema } from '../shared/contracts/watcher-link.ts';
+import { githubApiOrigin, HEALTH_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -457,4 +460,120 @@ test('a GitHub API override moves probes only to a loopback address, and a plain
   ]);
   const probeUrls = ['http://127.0.0.1:4010/notifications', 'http://api.github.com/notifications', 'https://api.github.com/notifications', 'not a url', 'http://'];
   assert.deepEqual(probeUrls.map((url) => ProbeSchema.safeParse({ ...LIGHT_PROBE, url }).success), [true, false, true, false, false]);
+});
+
+async function listenOnLoopback(server: http.Server, port = 0): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address === 'object');
+  return address.port;
+}
+
+function requestThroughDoorman(doormanPort: number, { host, path: requestPath, headers = {} }: { host: string; path: string; headers?: http.OutgoingHttpHeaders }): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port: doormanPort, path: requestPath, headers: { ...headers, host } }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+    }).on('error', reject);
+  });
+}
+
+async function doormanTenant(t: test.TestContext, slug: string, serverUrl: string) {
+  const tenantHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-doorman-'));
+  t.after(() => fsp.rm(tenantHome, { recursive: true, force: true }));
+  const linkSecret = crypto.randomBytes(32);
+  const linkSecretPath = path.join(tenantHome, 'watcher-link.key');
+  await fsp.writeFile(linkSecretPath, `${linkSecret.toString('hex')}\n`, { mode: 0o600 });
+  return { linkSecret, tenant: { slug, serverUrl, linkSecretPath, watcherHome: path.join(tenantHome, 'watcher') } };
+}
+
+test('a self-host doorman forwards pages and WebSockets with its own forwarding headers, serves its tenant watcher under the tenant key only, refuses outside nudges, and answers 502 at once when the server is down', async (t) => {
+  const seenHeaders: http.IncomingHttpHeaders[] = [];
+  const tenantServer = http.createServer((request, response) => {
+    seenHeaders.push(request.headers);
+    response.end('dashboard');
+  });
+  const echoSockets = new WebSocketServer({ server: tenantServer });
+  echoSockets.on('connection', (socket) => socket.on('message', (message) => socket.send(`echo ${String(message)}`)));
+  const serverPort = await listenOnLoopback(tenantServer);
+  const { linkSecret, tenant } = await doormanTenant(t, 'selfhosttenant01', `http://127.0.0.1:${serverPort}`);
+  const linkSecretText = await fsp.readFile(tenant.linkSecretPath, 'utf8');
+  await fsp.rm(tenant.linkSecretPath);
+  const doorman = createDoorman({ table: { tenantDomain: null, tenants: [tenant] }, log: QUIET_LOG });
+  const doormanPort = await doorman.listen(0);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: HEALTH_PATH })).status, 503);
+  await fsp.writeFile(tenant.linkSecretPath, linkSecretText, { mode: 0o600 });
+  t.after(async () => {
+    await doorman.close();
+    echoSockets.close();
+    tenantServer.closeAllConnections();
+    await new Promise((resolve) => tenantServer.close(resolve));
+  });
+
+  const page = await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: '/', headers: { 'x-forwarded-proto': 'https', 'x-forwarded-for': '203.0.113.9', 'tailscale-user-login': 'forged-owner@github' } });
+  assert.deepEqual([page.status, page.body], [200, 'dashboard']);
+  assert.equal(seenHeaders[0]['x-forwarded-proto'], 'http');
+  assert.equal(seenHeaders[0]['x-forwarded-for'], undefined);
+  assert.equal(seenHeaders[0]['tailscale-user-login'], undefined);
+
+  const malformedAnswer = await new Promise<string>((resolve) => {
+    const rawSocket = net.connect(doormanPort, '127.0.0.1', () => rawSocket.write('GET http://[ HTTP/1.1\r\nhost: localhost\r\n\r\n'));
+    rawSocket.on('data', (chunk) => resolve(chunk.toString('utf8').split('\r\n')[0]));
+  });
+  assert.equal(malformedAnswer, 'HTTP/1.1 400 Bad Request');
+
+  const socket = new WebSocket(`ws://127.0.0.1:${doormanPort}/terminals/one`);
+  const echoed = await new Promise<string>((resolve, reject) => {
+    socket.on('open', () => socket.send('hello'));
+    socket.on('message', (message) => resolve(String(message)));
+    socket.on('error', reject);
+  });
+  socket.close();
+  assert.equal(echoed, 'echo hello');
+
+  assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: NUDGES_PATH })).status, 404);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: HEALTH_PATH })).status, 200);
+  const signedStatus = (key: Buffer) => requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: STATUS_PATH, headers: signedHeaders(key, { method: 'GET', path: STATUS_PATH, body: '' }, Date.now()) });
+  assert.equal((await signedStatus(directionKey(linkSecret, 'server-to-watcher'))).status, 200);
+  assert.equal((await signedStatus(directionKey(crypto.randomBytes(32), 'server-to-watcher'))).status, 401);
+
+  echoSockets.close();
+  tenantServer.closeAllConnections();
+  await new Promise((resolve) => tenantServer.close(resolve));
+  assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: '/' })).status, 502);
+});
+
+test('a hosted doorman refuses an unknown tenant host, passes the TLS edge headers, and wakes a sleeping tenant server once for every request held on it', async (t) => {
+  const seenProtosByPath = new Map<string, string | string[] | undefined>();
+  const sleepingServer = http.createServer((request, response) => {
+    seenProtosByPath.set(request.url ?? '', request.headers['x-forwarded-proto']);
+    response.end(`served ${request.url}`);
+  });
+  const sleepingPort = await listenOnLoopback(sleepingServer);
+  await new Promise((resolve) => sleepingServer.close(resolve));
+  const { tenant } = await doormanTenant(t, 'hostedtenant0001', `http://127.0.0.1:${sleepingPort}`);
+  const wakeCalls: string[] = [];
+  const hostAdapter = {
+    wake: async (tenantSlug: string) => {
+      wakeCalls.push(tenantSlug);
+      await listenOnLoopback(sleepingServer, sleepingPort);
+    },
+  };
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [tenant] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20 }, log: QUIET_LOG });
+  const doormanPort = await doorman.listen(0);
+  t.after(async () => {
+    await doorman.close();
+    sleepingServer.closeAllConnections();
+    await new Promise((resolve) => sleepingServer.close(resolve));
+  });
+
+  assert.equal((await requestThroughDoorman(doormanPort, { host: 'someoneelse0001.tenants.example', path: '/' })).status, 421);
+  assert.equal(wakeCalls.length, 0);
+
+  const tenantHost = 'hostedtenant0001.tenants.example';
+  const answers = await Promise.all(['/first', '/second', '/third'].map((requestPath) => requestThroughDoorman(doormanPort, { host: tenantHost, path: requestPath, headers: { 'x-forwarded-proto': 'https' } })));
+  assert.deepEqual(answers.map((answer) => [answer.status, answer.body]), [[200, 'served /first'], [200, 'served /second'], [200, 'served /third']]);
+  assert.deepEqual(wakeCalls, ['hostedtenant0001']);
+  assert.deepEqual(['/first', '/second', '/third'].map((requestPath) => seenProtosByPath.get(requestPath)), ['https', 'https', 'https']);
 });

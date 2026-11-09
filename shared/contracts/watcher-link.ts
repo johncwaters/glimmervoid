@@ -6,10 +6,11 @@ export const LINK_SERVER_URL_ENV = 'GLIMMERVOID_LINK_SERVER_URL';
 export const WATCHER_HOME_ENV = 'GLIMMERVOID_WATCHER_HOME';
 export const WATCHER_LISTENING_MESSAGE = 'watcher-listening';
 export const NUDGES_PATH = '/link/nudges';
-export const PROBE_SET_PATH = '/probe-set';
-export const CREDENTIALS_PATH = '/credentials';
-export const STATUS_PATH = '/status';
-export const HEALTH_PATH = '/healthz';
+export const WATCHER_PATH_PREFIX = '/link/watcher/';
+export const PROBE_SET_PATH = `${WATCHER_PATH_PREFIX}probe-set`;
+export const CREDENTIALS_PATH = `${WATCHER_PATH_PREFIX}credentials`;
+export const STATUS_PATH = `${WATCHER_PATH_PREFIX}status`;
+export const HEALTH_PATH = `${WATCHER_PATH_PREFIX}healthz`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
