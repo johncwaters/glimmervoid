@@ -18,7 +18,30 @@ It is an orchestrator, not a harness. Your coding agents run unmodified, as real
 
 ## Quickstart
 
-**1. Start it.** Windows and macOS:
+**1. Install and start it.** The standalone binary needs no Node. Linux and macOS:
+
+```bash
+curl -LsSf https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid-installer.sh | sh
+glimmervoid
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -c "irm https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid-installer.ps1 | iex"
+glimmervoid
+```
+
+Homebrew:
+
+```bash
+brew install johncwaters/tap/glimmervoid
+glimmervoid
+```
+
+The curl and PowerShell installers put `glimmervoid` and its updater `glimmervoid-update` in `~/.glimmervoid/bin` and add that folder to your PATH; open a new terminal if `glimmervoid` is not found yet. Homebrew keeps it in its own folder and updates it with `brew upgrade glimmervoid`.
+
+With Node 24.15 or newer, npm works too. Windows and macOS:
 
 ```bash
 npx glimmervoid@latest
@@ -57,11 +80,11 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 
 ## Requirements
 
-- **Node.js 24.15 or newer.** Distro-packaged Node is usually older; use nvm, NodeSource or the official installer.
+- **Node.js 24.15 or newer**, only for the npm install or a source build; the standalone binary carries its own. Distro-packaged Node is usually older; use nvm, NodeSource or the official installer. Coherence, when a repository uses it, runs with the `node` on your PATH.
 - **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
 - **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
-- **Linux only:** `build-essential` and `python3` to compile node-pty.
+- **Linux npm installs only:** `build-essential` and `python3` to compile node-pty.
 
 `glimmervoid doctor` checks all of these.
 
