@@ -210,9 +210,7 @@ export const Config = z.object({
     publicHost: z.string().optional(),
     allowedOrigins: z.array(z.string()).optional(),
     ownerLogin: z.string().optional(),
-  }).passthrough().optional(),
-  watcher: z.object({
-    url: z.string().refine(isLinkUrlSafe, { error: 'watcher.url must use https, or http only for this machine' }).optional(),
+    doormanUrl: z.string().refine(isLinkUrlSafe, { error: 'remote.doormanUrl must use https, or http only for this machine' }).optional(),
   }).passthrough().optional(),
   hosts: HostEntries.optional(),
   vault: VaultFileSettings,
@@ -268,7 +266,6 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'shareCommitProvenance',
   'hooks',
   'remote',
-  'watcher',
   'projects',
 ]);
 

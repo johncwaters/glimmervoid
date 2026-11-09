@@ -9,7 +9,7 @@ The watcher, a process that runs the probes the server compiles and nudges the s
 | `link/core/link-signing-core.ts` | Per-direction keys from the link secret, request signing and verification |
 | `link/watcher-link.ts` | Server half: compiles the probe set, delivers it and the credentials, takes nudges, switches each probe source between timers and nudges |
 | `link/link-secret.ts` | The link secret kept 0600 in the Glimmervoid home, so the watcher's sealed credentials survive a server restart |
-| `link/remote-watcher-starter.ts` | Finds the watcher through its doorman by status check, starting the local doorman first when `watcher.url` is unset |
+| `link/remote-watcher-starter.ts` | Finds the watcher through its doorman by status check, starting the local doorman first when `remote.doormanUrl` is unset |
 | `doorman/doorman.ts`, `doorman/ensure-doorman.ts` | `glimmervoid doorman`, which hosts each tenant's watcher, and the server's connect-or-spawn of its own local doorman |
 | `watcher/watcher-listener.ts` | The watcher's signed listener, served under `/link/watcher/` |
 | `watcher/probe-runner.ts`, `watcher/core/probe-core.ts` | Runs each probe on its interval and decides when a result is a nudge |

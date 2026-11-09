@@ -344,6 +344,17 @@ test('loadConfigFile saves corrupt JSON aside and returns the startup error when
   }
 });
 
+test('a stored watcher.url moves to remote.doormanUrl on load, and a doormanUrl already set wins', () => {
+  withStore({ projects: [], watcher: { url: 'https://doorman.example' } }, (_store, configPath) => {
+    const stored = readJson(configPath);
+    assert.equal(Object.hasOwn(stored, 'watcher'), false);
+    assert.equal(block(stored.remote).doormanUrl, 'https://doorman.example');
+  });
+  withStore({ projects: [], remote: { doormanUrl: 'https://kept.example' }, watcher: { url: 'https://dropped.example' } }, (_store, configPath) => {
+    assert.equal(block(readJson(configPath).remote).doormanUrl, 'https://kept.example');
+  });
+});
+
 test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   withStore({ projects: [] }, (store) => {
     const s = store.getSettings();

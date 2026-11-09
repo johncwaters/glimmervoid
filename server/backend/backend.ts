@@ -644,9 +644,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       isRecheckingPostTurnReports = false;
     });
   }
-  const configuredWatcherUrl = config.watcher?.url ?? null;
+  const configuredDoormanUrl = config.remote?.doormanUrl ?? null;
   async function prepareLocalDoorman(): Promise<void> {
-    if (configuredWatcherUrl !== null) return retireLocalDoorman(glimmervoidHomeDir(), port);
+    if (configuredDoormanUrl !== null) return retireLocalDoorman(glimmervoidHomeDir(), port);
     const remoteListenerPort = trust.remoteListenerPort();
     if (remoteListenerPort === null) return;
     await ensureDoorman({ glimmervoidHome: glimmervoidHomeDir(), localPort: port, bindHost: bindDecision.host, remoteListenerPort, version: packageJson.version });
@@ -656,7 +656,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
     telemetry,
     startWatcher: createRemoteWatcherStarter({
-      resolveWatcherUrl: async () => configuredWatcherUrl ?? localDoormanUrl(glimmervoidHomeDir(), port),
+      resolveWatcherUrl: async () => configuredDoormanUrl ?? localDoormanUrl(glimmervoidHomeDir(), port),
       prepareWatcher: prepareLocalDoorman,
     }),
   });

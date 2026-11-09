@@ -73,6 +73,61 @@ function dropRetiredUpdateChannel(config: GlimmervoidConfig): string | null {
   return '[config] Removed updateChannel: Glimmervoid now updates only to published releases.';
 }
 
+interface KeyMove {
+  from: string;
+  to: string;
+}
+
+interface KeyMoveOutcome {
+  movedKeys: KeyMove[];
+  droppedKeys: KeyMove[];
+}
+
+function moveKeysIntoBlock(source: Record<string, unknown>, block: Record<string, unknown>, moves: readonly KeyMove[]): KeyMoveOutcome {
+  const outcome: KeyMoveOutcome = { movedKeys: [], droppedKeys: [] };
+  for (const move of moves) {
+    if (!Object.hasOwn(source, move.from)) continue;
+    const movedValue = source[move.from];
+    delete source[move.from];
+    if (block[move.to] !== undefined) {
+      outcome.droppedKeys.push(move);
+      continue;
+    }
+    block[move.to] = movedValue;
+    outcome.movedKeys.push(move);
+  }
+  return outcome;
+}
+
+function keyMoveMessage(outcome: KeyMoveOutcome, describeKey: (move: KeyMove) => { from: string; to: string }): string | null {
+  const moved = outcome.movedKeys.map(describeKey).map((path) => `${path.from} to ${path.to}`);
+  const dropped = outcome.droppedKeys.map(describeKey).map((path) => `${path.from} (${path.to} is already set and takes its place)`);
+  const parts = [moved.length > 0 ? `Moved ${moved.join(', ')}` : '', dropped.length > 0 ? `Dropped ${dropped.join(', ')}` : ''].filter((part) => part !== '');
+  if (parts.length === 0) return null;
+  return `[config] ${parts.join('. ')}.`;
+}
+
+function blockOf(config: Record<string, unknown>, blockName: string): Record<string, unknown> {
+  const existingBlock = config[blockName];
+  if (isRecord(existingBlock)) return existingBlock;
+  const createdBlock: Record<string, unknown> = {};
+  config[blockName] = createdBlock;
+  return createdBlock;
+}
+
+function moveWatcherUrlToRemote(config: Record<string, unknown>): string | null {
+  if (!Object.hasOwn(config, 'watcher')) return null;
+  const watcher = config.watcher;
+  delete config.watcher;
+  if (!isRecord(watcher) || !Object.hasOwn(watcher, 'url')) return '[config] Removed the empty watcher block: a doorman on another machine is now remote.doormanUrl.';
+  const outcome = moveKeysIntoBlock(watcher, blockOf(config, 'remote'), [{ from: 'url', to: 'doormanUrl' }]);
+  return keyMoveMessage(outcome, (move) => ({ from: `watcher.${move.from}`, to: `remote.${move.to}` }));
+}
+
+function moveRenamedKeys(config: Record<string, unknown>): string[] {
+  return [moveWatcherUrlToRemote(config)].filter((message) => message !== null);
+}
+
 function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   const remote = config.remote;
   if (!isRecord(remote) || !Object.hasOwn(remote, 'enabled')) return null;
@@ -85,4 +140,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled };
+export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

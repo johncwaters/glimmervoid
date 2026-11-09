@@ -59,7 +59,7 @@ function createConfigStore({
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
   if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
-  const configMigrations = [migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
+  const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
   if (configMigrations.length > 0) {
     try {
       writeJsonAtomicSync(configPath, withoutEnvSecrets(config, envSecrets), { mode: CONFIG_FILE_MODE });

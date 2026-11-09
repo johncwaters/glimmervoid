@@ -10,7 +10,7 @@ import { isRecord } from '../../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../../shared/contracts/config-numbers-core.ts';
 import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } from './config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
-import { resolveBranchGc } from './config-migrations.ts';
+import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
 
 const ABORT_CONFIG_SAVE = 'abort-config-save';
 
@@ -80,9 +80,10 @@ function validateConfig(candidate: unknown): ConfigValidation {
   return { ok: true, config: parsedConfig.data as GlimmervoidConfig };
 }
 
-function normalizeConfigFile(candidate: unknown): GlimmervoidConfig {
+function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = []): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
+  renamedKeyMessages.push(...moveRenamedKeys(draft));
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;
     if (!Object.hasOwn(draft, key)) continue;
@@ -107,6 +108,7 @@ function writeBackupContent(backupPath: string, content: string): void {
 interface LoadedConfig {
   config: GlimmervoidConfig;
   loadedContent: string;
+  renamedKeyMessages: string[];
 }
 
 interface FailedConfigLoad {
@@ -125,8 +127,9 @@ function loadConfigFile(
 ): LoadedConfig | FailedConfigLoad {
   const loadedContent = fs.readFileSync(configPath, 'utf8');
   try {
-    const parsed = normalizeConfigFile(JSON.parse(loadedContent));
-    return { config: withEnvSecrets(parsed, envSecrets), loadedContent };
+    const renamedKeyMessages: string[] = [];
+    const parsed = normalizeConfigFile(JSON.parse(loadedContent), renamedKeyMessages);
+    return { config: withEnvSecrets(parsed, envSecrets), loadedContent, renamedKeyMessages };
   } catch (err) {
     const invalidBackupPath = `${configPath}.invalid.bak`;
     try {
