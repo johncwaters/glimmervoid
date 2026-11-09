@@ -87,9 +87,12 @@ interface ThreadJudgeEvidence {
   patchParts: { filename: string; text: string }[];
 }
 
+function isCommentedFile(node: TeamReviewThreadNode, file: TeamReviewCompareFiles['files'][number]): boolean {
+  return file.filename === node.path || file.previous_filename === node.path;
+}
+
 function commentedFileFirst(node: TeamReviewThreadNode, files: TeamReviewCompareFiles['files']): TeamReviewCompareFiles['files'] {
-  const isCommentedFile = (file: TeamReviewCompareFiles['files'][number]) => file.filename === node.path || file.previous_filename === node.path;
-  return [...files.filter(isCommentedFile), ...files.filter((file) => !isCommentedFile(file))];
+  return [...files.filter((file) => isCommentedFile(node, file)), ...files.filter((file) => !isCommentedFile(node, file))];
 }
 
 function textParts(text: string): string[] {
@@ -106,14 +109,30 @@ function textParts(text: string): string[] {
   return parts;
 }
 
-export function threadJudgeEvidence(node: TeamReviewThreadNode, comparison: TeamReviewCompareFiles | null): { evidence: ThreadJudgeEvidence } | { unjudgeableReason: string } {
+type ComparedFile = TeamReviewCompareFiles['files'][number];
+
+function isSameChange(threadFile: ComparedFile, mainFile: ComparedFile | undefined): boolean {
+  if (!mainFile) return false;
+  if (threadFile.patch !== undefined) return mainFile.patch === threadFile.patch;
+  return mainFile.patch === undefined && threadFile.sha !== undefined && mainFile.sha === threadFile.sha && mainFile.previous_filename === threadFile.previous_filename;
+}
+
+function mainOnlyFileNames(threadFiles: TeamReviewCompareFiles['files'], mainSinceComment: TeamReviewCompareFiles | null): ReadonlySet<string> {
+  if (!mainSinceComment) return new Set();
+  const mainFileByFilename = new Map(mainSinceComment.files.map((file) => [file.filename, file] as const));
+  return new Set(threadFiles.flatMap((file) => (isSameChange(file, mainFileByFilename.get(file.filename)) ? [file.filename] : [])));
+}
+
+export function threadJudgeEvidence(node: TeamReviewThreadNode, comparison: TeamReviewCompareFiles | null, mainSinceComment: TeamReviewCompareFiles | null = null): { evidence: ThreadJudgeEvidence } | { unjudgeableReason: string } {
   if (!comparison) return { unjudgeableReason: 'History was rewritten since your comment, so the change cannot be compared' };
   if (comparison.files.length >= COMPARE_FILES_MAX) return { unjudgeableReason: 'Too many changed files to judge' };
-  const fileWithoutDiff = comparison.files.find((file) => file.patch === undefined);
+  const mainOnlyFiles = mainOnlyFileNames(comparison.files, mainSinceComment);
+  const changedFiles = comparison.files.filter((file) => !mainOnlyFiles.has(file.filename) || isCommentedFile(node, file));
+  const fileWithoutDiff = changedFiles.find((file) => file.patch === undefined);
   if (fileWithoutDiff) return { unjudgeableReason: `GitHub sent no text diff for ${fileWithoutDiff.filename}, as for a binary file, a rename or a very large diff` };
   const comments = JSON.stringify({ path: node.path, line: node.line, comments: node.comments.nodes.map(({ body, author, createdAt }) => ({ body, author: author?.login ?? null, createdAt })) });
   if (comments.length > THREAD_COMMENTS_MAX_CHARS) return { unjudgeableReason: 'Thread too long to judge' };
-  const files = commentedFileFirst(node, comparison.files);
+  const files = commentedFileFirst(node, changedFiles);
   const changeChars = files.reduce((total, file) => total + file.filename.length + (file.patch ?? '').length, 0);
   if (changeChars > THREAD_PATCH_MAX_CHARS) return { unjudgeableReason: 'Change too large to judge' };
   return { evidence: { commentParts: textParts(comments), patchParts: files.flatMap((file) => textParts(file.patch ?? '').map((text) => ({ filename: file.filename, text }))) } };

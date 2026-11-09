@@ -1,3 +1,4 @@
+import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
 import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgeEvidence, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
 import { teammateThreadItems } from '../core/pr-flows-core.ts';
@@ -86,6 +87,16 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
         return isDirty;
       }
       const comparisonOutcome = comparisonRead.value;
+      const threadComparison = comparisonOutcome.ok && comparisonOutcome.comparison?.merge_base_commit.sha === base ? comparisonOutcome.comparison : null;
+      const baseBranchHead = store.getSnapshot().prs[comparablePrKey(candidate)]?.baseRefOid;
+      const mainSinceCommentRead = base && baseBranchHead && threadComparison
+        ? await readMainSinceComment(candidate.repo, base, baseBranchHead, head)
+        : { isRateLimited: false as const, value: { ok: true as const, comparison: null } };
+      if (mainSinceCommentRead.isRateLimited) {
+        runtime.tickRateLimitWaitMs = mainSinceCommentRead.waitMs;
+        return isDirty;
+      }
+      const mainSinceCommentOutcome = mainSinceCommentRead.value;
       for (const thread of pending) {
         if (loop.isStopped()) break;
         const node = nodes.find((node) => node.id === thread.id);
@@ -93,8 +104,8 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
         thread.judgeAttempt = { head, lastReplyAt: thread.lastReplyAt, retryAt: now() + THREAD_JUDGE_BACKOFF_MS };
         isDirty = true;
         await persist();
-        if (!comparisonOutcome.ok) continue;
-        const evidenceRead = threadJudgeEvidence(node, comparisonOutcome.comparison);
+        if (!comparisonOutcome.ok || !mainSinceCommentOutcome.ok) continue;
+        const evidenceRead = threadJudgeEvidence(node, threadComparison, mainSinceCommentOutcome.comparison);
         if ('unjudgeableReason' in evidenceRead) {
           thread.unjudgeable = { head, lastReplyAt: thread.lastReplyAt, reason: evidenceRead.unjudgeableReason };
           delete thread.judgeAttempt;
@@ -112,6 +123,12 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       }
     }
     return isDirty;
+  }
+
+  async function readMainSinceComment(repo: string, commentCommit: string, baseBranchHead: string, head: string): ReturnType<typeof store.requestTeamReviewCompare> {
+    const mergedMainRead = await store.requestTeamReviewCompare(repo, baseBranchHead, head, 'no-wait');
+    if (mergedMainRead.isRateLimited || !mergedMainRead.value.ok || !mergedMainRead.value.comparison) return mergedMainRead;
+    return store.requestTeamReviewCompare(repo, commentCommit, mergedMainRead.value.comparison.merge_base_commit.sha, 'no-wait');
   }
 
   function reconcileThreadPlaceholder(entry: TeamReviewStateEntry, candidate: TeamReviewCandidate, head: string): boolean {

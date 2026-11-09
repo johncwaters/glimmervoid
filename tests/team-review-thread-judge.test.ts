@@ -41,7 +41,7 @@ test('the thread judge reads the thread and patch only from untrusted.json, neve
   assert.ok(payload.items[0]?.text.includes(INJECTED_REPLY));
 });
 
-test('the thread judge sees a fix made in another file, and a file GitHub sent no text diff for leaves the thread unjudgeable', () => {
+test('the thread judge sees a fix made in another file, keeps the commented file when main renamed it, and a file GitHub sent no text diff for leaves the thread unjudgeable', () => {
   const fixElsewhere = { filename: 'src/redact.ts', patch: '@@ -1 +1 @@\n-log(token)\n+log(redact(token))' };
   const commentedFile = { filename: 'src/a.ts', patch: '@@ -3 +3 @@\n-x\n+y' };
   const evidenceRead = threadJudgeEvidence(threadNode, { merge_base_commit: { sha: 'a'.repeat(40) }, files: [fixElsewhere, commentedFile] });
@@ -51,6 +51,12 @@ test('the thread judge sees a fix made in another file, and a file GitHub sent n
 
   const renamedBinary = threadJudgeEvidence(threadNode, { merge_base_commit: { sha: 'a'.repeat(40) }, files: [commentedFile, { filename: 'assets/logo.png', previous_filename: 'logo.png' }] });
   assert.deepEqual(renamedBinary, { unjudgeableReason: 'GitHub sent no text diff for assets/logo.png, as for a binary file, a rename or a very large diff' });
+
+  const commentedFileRenamedOnMain = { filename: 'src/b.ts', previous_filename: 'src/a.ts', patch: '@@ -3 +3 @@\n-x\n+y' };
+  const mainSinceComment = { merge_base_commit: { sha: 'f'.repeat(40) }, files: [commentedFileRenamedOnMain, fixElsewhere] };
+  const renamedRead = threadJudgeEvidence(threadNode, { merge_base_commit: { sha: 'a'.repeat(40) }, files: [commentedFileRenamedOnMain, fixElsewhere] }, mainSinceComment);
+  assert.ok('evidence' in renamedRead);
+  assert.deepEqual(renamedRead.evidence.patchParts.map((part) => part.filename), ['src/b.ts']);
 });
 
 test('a large change reaches the thread judge in parts that each fit one paged read of untrusted.json, whatever its script', async () => {

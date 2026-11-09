@@ -1,5 +1,5 @@
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
-import { THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
+import { THREAD_BASE, THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
 import { droppedEarlierFindingIndexes } from '../public/github/team-review-view-core.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import test from 'node:test';
@@ -13,6 +13,7 @@ import { git, hasGit } from './helpers/git-fixture.ts';
 import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT, REVIEW_POSTING_FILENAME, REVIEW_PROMPT_FILENAME, REVIEW_REPORT_FILENAME, readTeamReviewSettings, triagePr, } from '../server/github/core/team-review-core.ts';
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
+import { createPrGh } from '../server/github/pr-gh.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
 import { createTeamReviewDispatcher } from '../server/github/team-review-dispatcher.ts';
 import { createTeamReviewWiring, createTeamReviewStateIo } from '../server/github/team-review-wiring.ts';
@@ -1016,6 +1017,73 @@ test('resolving an answered thread from the dashboard counts it in the resolved 
   } finally {
     await poller.stop();
   }
+});
+
+type GhCompareReply = { mergeBaseSha: string; files: { filename: string; sha?: string; patch?: string }[] } | 'failed';
+
+async function judgedPatchFilenames(threadMergeBaseSha: string, mainSinceComment: GhCompareReply): Promise<string[] | null> {
+  const baseBranchHead = 'e'.repeat(40);
+  const threadComparison: GhCompareReply = { mergeBaseSha: threadMergeBaseSha, files: [
+    { filename: 'src/app.ts', patch: '@@ -2 +2 @@\n-run(input)\n+run(input ?? [])' },
+    { filename: 'vendor/lib.ts', patch: '@@ -1 +1 @@\n-v1\n+v2' },
+    { filename: 'config.json', patch: '@@ -1 +1 @@\n-debug\n+release' },
+    { filename: 'assets/logo.png', sha: 'b'.repeat(40) },
+  ] };
+  const mergedMain = 'a'.repeat(40);
+  const ghCompare = createPrGh(os.tmpdir(), async (_command, args) => {
+    const compareRange = args.find((arg) => arg.includes('/compare/')) ?? '';
+    const mergedMainComparison: GhCompareReply = { mergeBaseSha: mergedMain, files: [] };
+    const replyByRangeEnd: [string, GhCompareReply][] = [[`${baseBranchHead}...${HEAD}`, mergedMainComparison], [`...${mergedMain}`, mainSinceComment]];
+    const reply = replyByRangeEnd.find(([rangeEnd]) => compareRange.endsWith(rangeEnd))?.[1] ?? threadComparison;
+    if (reply === 'failed') return { ok: false, out: '', err: 'HTTP 502' };
+    return { ok: true, out: JSON.stringify({ merge_base_commit: { sha: reply.mergeBaseSha }, files: reply.files }), err: '' };
+  }).teamReviewCompare;
+  const threadStore = emptyGithubStore({
+    viewer: async () => 'me',
+    teamReviewThreads: async () => new Map([[ACTION_KEY, [threadNode('MEDIUM')]]]),
+    teamReviewCompare: ghCompare,
+  });
+  const store = {
+    ...threadStore,
+    getSnapshot: () => {
+      const snapshot = threadStore.getSnapshot();
+      return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY.toLowerCase()]: { ...teammatePrAt(HEAD), baseRefOid: baseBranchHead } } };
+    },
+  };
+  let judgedFilenames: string[] | null = null;
+  const tickCompleted = deferredSignal();
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: { resolveReviewThread: async () => ({ ok: true, err: '' }) }, store,
+    spawnReview: () => new Promise(() => {}),
+    judgeThread: async (request) => {
+      judgedFilenames = request.untrustedItems.flatMap((item) => (item.kind === 'patch' && item.ref ? [item.ref] : []));
+      return { addressed: true, reason: 'guarded' };
+    },
+    readState: async () => ({ [ACTION_KEY]: { draft: actionDraft({ status: 'posted' }), reviewedHead: HEAD, liveHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: Date.now(), viewerThreads: { total: 1, resolved: 0 } } }),
+    writeState: async () => {}, beforeStart: async () => {},
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+    onTickComplete: () => { tickCompleted.resolve(); },
+  });
+  try {
+    await poller.start();
+    await poller.tick();
+    await tickCompleted.promise;
+    return judgedFilenames;
+  } finally {
+    await poller.stop();
+  }
+}
+
+test('the thread judge leaves out a file whose change only came from main, keeps one the author changed, and judges nothing when main cannot be compared, a binary file differs from the one on main, or the comment commit left the branch', async () => {
+  const mainSinceComment: GhCompareReply = { mergeBaseSha: 'f'.repeat(40), files: [
+    { filename: 'vendor/lib.ts', patch: '@@ -1 +1 @@\n-v1\n+v2' },
+    { filename: 'config.json', patch: '@@ -1 +1 @@\n-debug\n+verbose' },
+    { filename: 'assets/logo.png', sha: 'b'.repeat(40) },
+  ] };
+  assert.deepEqual(await judgedPatchFilenames(THREAD_BASE, mainSinceComment), ['src/app.ts', 'config.json']);
+  assert.equal(await judgedPatchFilenames(THREAD_BASE, { ...mainSinceComment, files: [...mainSinceComment.files.slice(0, 2), { filename: 'assets/logo.png', sha: 'c'.repeat(40) }] }), null);
+  assert.equal(await judgedPatchFilenames(THREAD_BASE, 'failed'), null);
+  assert.equal(await judgedPatchFilenames('f'.repeat(40), mainSinceComment), null);
 });
 
 test('a posted review that left the review-request search still picks up a thread resolved on GitHub and the head the author pushed', async () => {

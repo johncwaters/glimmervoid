@@ -224,7 +224,7 @@ export const TeamReviewThread = z.object({
 export type TeamReviewThread = z.infer<typeof TeamReviewThread>;
 export const TeamReviewCompareFiles = z.object({
   merge_base_commit: z.object({ sha: CommitSha }),
-  files: z.array(z.object({ filename: z.string(), previous_filename: z.string().optional(), patch: z.string().optional() })).max(300),
+  files: z.array(z.object({ filename: z.string(), previous_filename: z.string().optional(), sha: z.string().optional(), patch: z.string().optional() })).max(300),
 });
 export type TeamReviewCompareFiles = z.infer<typeof TeamReviewCompareFiles>;
 

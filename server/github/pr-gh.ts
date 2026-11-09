@@ -420,7 +420,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       if (!response.ok) return { ok: false, err: response.err || 'GitHub compare failed' };
       const parsed = TeamReviewCompareFiles.safeParse(parseJsonOrNull(response.out));
       if (!parsed.success) return { ok: false, err: 'GitHub returned an unreadable comparison' };
-      return { ok: true, comparison: parsed.data.merge_base_commit.sha === base ? parsed.data : null };
+      return { ok: true, comparison: parsed.data };
     },
 
     async reviewThreadsBatch(prs) {
