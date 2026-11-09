@@ -42,6 +42,7 @@ type BoardElement = Element;
 const BoardReply = z.object({ board: Board });
 const ReviewReply = z.object({ review: BoardReview });
 const CreatedReply = z.object({ summary: z.object({ id: z.string() }) });
+const AddedSessionReply = z.object({ sessionId: z.string() });
 const CAMERA_TRANSFORM_PATTERN = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\(([\d.e-]+)\)/;
 
 function titled(title: string): (element: BoardElement) => boolean {
@@ -1117,6 +1118,30 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && element.at !== null);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
+}
+
+export async function verifyRailDrag(page: Page, sessionId: string, projectDirectory: string): Promise<string> {
+  const secondSessionName = `rail-drag-second-${sessionId.slice(0, 8)}`;
+  const addedReply = await controlReplyOf(page, 'add-session', { name: secondSessionName, path: projectDirectory, agent: 'claude-code', dangerouslySkipPermissions: true });
+  const secondSessionId = AddedSessionReply.parse(addedReply).sessionId;
+  const firstRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first();
+  const secondRow = page.locator(`.focus-rail .session-row[data-id="${secondSessionId}"]`).first();
+  await secondRow.waitFor();
+  const boardTitle = `Rail drag plan ${sessionId.slice(0, 8)}`;
+  await createBoardOverControl(page, boardTitle);
+  await page.locator('.focus-rail .session-row[data-board-id]', { hasText: boardTitle }).dragTo(firstRow);
+  await waitForSplitBoardTitle(page, sessionId, boardTitle);
+  await firstRow.locator('[data-member="board"]').dragTo(secondRow);
+  await waitForSplitBoardTitle(page, secondSessionId, boardTitle);
+  await waitForSplitBoardTitle(page, sessionId, null);
+  const railOrder = () => page.locator('.focus-rail .session-row[data-id]').evaluateAll((rows, ids) => rows.map((row) => row.getAttribute('data-id')).filter((id) => id !== null && ids.includes(id)), [sessionId, secondSessionId]);
+  assert.deepEqual(await railOrder(), [sessionId, secondSessionId], 'the added session starts below the case session');
+  await secondRow.locator('[data-member="terminal"]').dragTo(firstRow, { targetPosition: { x: 20, y: 2 } });
+  await pollFor('the dragged session moves above the case session', BOARD_TIMEOUT_MS, async () => {
+    const order = await railOrder();
+    return order[0] === secondSessionId ? order : null;
+  });
+  return 'the split board line drags its board to another session, and the session row still reorders';
 }
 
 async function splitBoardTitleOf(page: Page, sessionId: string): Promise<string | null> {

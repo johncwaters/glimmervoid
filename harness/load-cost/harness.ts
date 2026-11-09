@@ -4,7 +4,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Browser, BrowserContext, BrowserContextOptions, BrowserType, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
+import type { Browser, BrowserContext, BrowserContextOptions, Page, Request, WebSocket as PageWebSocket } from 'playwright-core';
 import WebSocket from 'ws';
 
 import { createBackend } from '../../server/backend/backend.ts';
@@ -12,6 +12,8 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { dashboardClient } from '../../tests/helpers/dashboard-ws.ts';
 import { addSession, createProject, listProcessesMentioning, quoteShell, runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
+import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
+import type { BrowserEngine } from '../support/browser-engines.ts';
 import { LoadCostResultSchema, T3_PROFILE_NAME, T3_ROWS, decideShellCheck, renderComparison, renderMarkdown, renderT3Markdown } from './report-core.ts';
 import type { BoardReady, LoadCostResult, ScenarioResult, ShellCheck, StatusBurst, T3ProfileResult, T3Row, T3RowResult } from './report-core.ts';
 import { CHANNELS, THREE_G_PROFILE, UNSHAPED_PROFILE, median, medianRunIndex } from './shaping-core.ts';
@@ -45,9 +47,6 @@ interface FixtureSession {
   name: string;
   fillLines: number;
 }
-
-type BrowserEngine = 'chromium' | 'webkit' | 'firefox';
-const BROWSER_ENGINES: readonly BrowserEngine[] = ['chromium', 'webkit', 'firefox'];
 
 type ProfileName = '3g' | typeof T3_PROFILE_NAME;
 const PROFILE_NAMES: readonly ProfileName[] = ['3g', T3_PROFILE_NAME];
@@ -122,7 +121,7 @@ function parseOptions(argv: readonly string[]): HarnessOptions {
 }
 
 function parseEngine(value: string): BrowserEngine {
-  const engine = BROWSER_ENGINES.find((candidate) => candidate === value);
+  const engine = browserEngineNamed(value);
   if (!engine) throw new Error(`--engine needs one of ${BROWSER_ENGINES.join(', ')}`);
   return engine;
 }
@@ -826,13 +825,12 @@ async function runWakeCases(options: HarnessOptions, fleet: Fleet, browser: Brow
 }
 
 function launchEngine(engine: BrowserEngine, proxyPort: number, executablePath: string | undefined): Promise<Browser> {
-  return import('playwright-core').then((playwright) => {
-    const browserTypeByEngine: Record<BrowserEngine, BrowserType> = { chromium: playwright.chromium, webkit: playwright.webkit, firefox: playwright.firefox };
+  return browserTypeOf(engine).then((browserType) => {
     const proxyServer = `socks5://127.0.0.1:${proxyPort}`;
     if (engine === 'chromium') {
-      return browserTypeByEngine.chromium.launch({ headless: true, executablePath, args: [`--proxy-server=${proxyServer}`, '--proxy-bypass-list=<-loopback>'] });
+      return browserType.launch({ headless: true, executablePath, args: [`--proxy-server=${proxyServer}`, '--proxy-bypass-list=<-loopback>'] });
     }
-    return browserTypeByEngine[engine].launch({ headless: true, proxy: { server: proxyServer, bypass: '<-loopback>' } });
+    return browserType.launch({ headless: true, proxy: { server: proxyServer, bypass: '<-loopback>' } });
   });
 }
 

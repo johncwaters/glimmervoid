@@ -11,6 +11,7 @@ export type Step =
   | { kind: 'assert-undo-close'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
+  | { kind: 'assert-rail-drag'; viewer?: ViewerId }
   | { kind: 'assert-board-scale'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
@@ -236,6 +237,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'board-pane',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-board-pane' }, { kind: 'shot', name: 'board-pane' }],
+  },
+  {
+    name: 'rail-drag',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-rail-drag' }, { kind: 'shot', name: 'rail-drag' }],
   },
   {
     name: 'team-review',

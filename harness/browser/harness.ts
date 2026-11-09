@@ -10,6 +10,7 @@ import type { Browser } from 'playwright-core';
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
+import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
 import { casesFor, needsGitOrigin, needsIssues, needsTeamReview } from './cases-core.ts';
 import type { HarnessCase } from './cases-core.ts';
@@ -247,8 +248,9 @@ async function main(): Promise<number> {
     console.error(`harness flag needs a value: ${options.flagsMissingValues.join(' ')}`);
     return EXIT_HARNESS_ERROR;
   }
-  if (options.browserName !== 'chromium' && options.browserName !== 'webkit') {
-    console.error(`--browser takes chromium or webkit, not ${options.browserName}`);
+  const browserEngine = browserEngineNamed(options.browserName);
+  if (!browserEngine) {
+    console.error(`--browser takes ${BROWSER_ENGINES.join(', ')}, not ${options.browserName}`);
     return EXIT_HARNESS_ERROR;
   }
   const cases = casesFor({
@@ -327,6 +329,7 @@ async function main(): Promise<number> {
 
   const startedAt = Date.now();
   const records: CaseRecord[] = [];
+  let browserVersion = 'unknown';
 
   try {
     const projectDirs = cases.map((_, index) => path.join(tempDirectory, 'projects', `case-${index}`));
@@ -359,12 +362,12 @@ async function main(): Promise<number> {
     vite = devServer;
     const baseUrl = `http://127.0.0.1:${port}/`;
 
-    const playwright = await import('playwright-core');
-    const browserType = options.browserName === 'webkit' ? playwright.webkit : playwright.chromium;
+    const browserType = await browserTypeOf(browserEngine);
     browser = await browserType.launch({
       headless: !options.headed,
       ...(options.executablePath ? { executablePath: options.executablePath } : {}),
     });
+    browserVersion = browser.version();
 
     for (const [index, harnessCase] of cases.entries()) {
       const sessionId = sessionIds[index] ?? '';
@@ -391,6 +394,8 @@ async function main(): Promise<number> {
     repoHead: readRepoHead(),
     node: process.version,
     playwrightCore: readPlaywrightVersion(),
+    browserEngine,
+    browserVersion,
     totals: summarize(records),
     cases: records,
   };

@@ -7,7 +7,7 @@ import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
 import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
-import { verifyBoardPane, verifyBoardScale, verifyBoards } from './boards.ts';
+import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -1242,6 +1242,9 @@ export async function runCase({
     if (step.kind === 'assert-board-pane') {
       await verifyBoardPane(viewer.page, sessionId, projectDirectory);
       return passedOutcome('board-pane', 'connect board from the card menu, board chip opens the Board tab in Focus above the terminal');
+    }
+    if (step.kind === 'assert-rail-drag') {
+      return passedOutcome('rail-drag', await verifyRailDrag(viewer.page, sessionId, projectDirectory));
     }
     if (step.kind === 'assert-team-review') {
       await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);

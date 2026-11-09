@@ -59,6 +59,8 @@ export interface BrowserRunReport {
   repoHead: string;
   node: string;
   playwrightCore: string;
+  browserEngine: string;
+  browserVersion: string;
   totals: RunTotals;
   cases: CaseRecord[];
 }
@@ -219,7 +221,7 @@ export function renderMarkdown(report: BrowserRunReport): string {
     '',
     renderVerdictLine(report),
     ...renderSelfCheckNote(report),
-    `repoHead ${report.repoHead} node ${report.node} playwright-core ${report.playwrightCore}`,
+    `repoHead ${report.repoHead} node ${report.node} playwright-core ${report.playwrightCore} ${report.browserEngine} ${report.browserVersion}`,
     '',
   ];
   const failedCases = report.cases.filter((record) => record.outcome === 'failed');
