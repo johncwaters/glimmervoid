@@ -28,6 +28,7 @@ function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
       const snapshot = core.reviewSnapshotFromGithubPr(pr);
       const head = snapshot.head;
       const githubReviews = core.githubReviewsFrom(snapshot.reviews, runtime.self ?? '');
+      const githubReviewHistory = core.earlierGithubReviews(core.githubReviewsFrom(snapshot.reviewHistory, runtime.self ?? ''), githubReviews);
       const reviewDecision = snapshot.reviewDecision ?? null;
       candidate.reviewDecision = reviewDecision;
       candidate.isDraft = snapshot.isDraft;
@@ -56,6 +57,10 @@ function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
       }
       if (!core.isSameGithubReviews(entry.githubReviews, githubReviews)) {
         entry.githubReviews = githubReviews;
+        isDirty = true;
+      }
+      if (!core.isSameGithubReviews(entry.githubReviewHistory, githubReviewHistory)) {
+        entry.githubReviewHistory = githubReviewHistory;
         isDirty = true;
       }
       if ((entry.reviewDecision ?? null) !== reviewDecision) {

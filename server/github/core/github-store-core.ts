@@ -14,6 +14,10 @@ export function isOrgMemberAssociation(authorAssociation: string | null | undefi
   return authorAssociation === 'MEMBER' || authorAssociation === 'OWNER';
 }
 
+function pullRequestReview(review: GithubPrDetailNode['latestReviews']['nodes'][number]): GithubPr['reviews'][number] {
+  return { reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt, commit: CommitSha.safeParse(review.commit?.oid).data ?? null };
+}
+
 export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | null = null, threadNodes: readonly MyPrThreadNode[] = []): GithubPr {
   const myPr = toMyPr(node, behindBy, threadNodes);
   return {
@@ -29,7 +33,8 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     reviewDecision: node.reviewDecision, checks: myPr.checks, rollupState: node.commits.nodes.at(-1)?.commit.statusCheckRollup?.state ?? null,
     unresolvedThreads: myPr.unresolvedThreads, threads: myPr.threads, reviewItems: myPr.reviewItems, behindBy: myPr.behindBy,
     reviewRequests: myPr.reviewRequests, approvals: myPr.approvals,
-    reviews: node.latestReviews.nodes.map((review) => ({ reviewer: review.author?.login ?? null, state: review.state, submittedAt: review.submittedAt, commit: CommitSha.safeParse(review.commit?.oid).data ?? null })),
+    reviews: node.latestReviews.nodes.map(pullRequestReview),
+    reviewHistory: (node.reviewHistory?.nodes ?? []).map(pullRequestReview),
     opinionatedWriterReviewStates: (node.writerOpinionatedReviews?.nodes ?? []).map((review) => review.state),
   };
 }

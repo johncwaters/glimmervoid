@@ -43,6 +43,7 @@ function githubPrsLightSearchQuery(maxMembers = 50): string {
 const GITHUB_PR_REVIEW_FIELDS = `author { __typename login } authorAssociation
   baseRepository { defaultBranchRef { name } }
   latestReviews(first: 20) { nodes { state submittedAt author { login } commit { oid } } }
+  reviewHistory: reviews(last: 30) { nodes { state submittedAt author { login } commit { oid } } }
   writerOpinionatedReviews: latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } }`;
 
 function githubPrsLightByKeyQuery(prs: readonly PrReference[]): string {

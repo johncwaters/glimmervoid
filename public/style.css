@@ -1266,7 +1266,7 @@ html[data-layout="phone"] .dialog-overlay {
 
 html[data-streamer] :is(.radar-issue-title, .radar-row-headline, .radar-row-progress, .radar-pane-headline, .radar-pane-text, .dialog-report-meta, .dialog-report-frame, .dialog-report-body, .dialog-trail-summary, .dialog-trail-detail) { visibility: hidden; }
 
-html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, .avatar) { visibility: hidden; }
+html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, .avatar, .pr-review-history) { visibility: hidden; }
 
 .celebration-tray {
   position: relative;

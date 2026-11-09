@@ -4,7 +4,7 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, droppedEarlierFindings, earlierReviewPreview, generalFindingsOf, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
+import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, droppedEarlierFindings, earlierReviewPreview, generalFindingsOf, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText, githubReviewHistoryItems } from './team-review-view-core.ts';
 import type { DroppedEarlierFindings, GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -82,6 +82,7 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
   heading.append(title, metadata, el('p', 'pr-detail-tier-reason', reviewTierReason(review)));
+  if ('reviewedHead' in review) heading.append(...createReviewHistory(review));
   if (!hasFactsRail) heading.append(createOpenSessionControl(review));
   if ('reviewedHead' in review && !hasFactsRail) {
     const tallyText = viewerThreadsText(review.viewerThreads);
@@ -98,6 +99,20 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
     heading.append(notice);
   }
   return heading;
+}
+
+function createReviewHistory(draft: ReviewDraft): HTMLElement[] {
+  const items = githubReviewHistoryItems(draft);
+  if (items.length === 0) return [];
+  const section = el('details', 'pr-disclosure pr-review-history');
+  section.append(el('summary', 'pr-disclosure-summary', `Older GitHub reviews (${items.length})`));
+  const list = el('ul', 'pr-review-history-list');
+  for (const item of items) {
+    const age = formatTimestampAge(item.submittedAt);
+    list.append(el('li', 'pr-review-history-item', age ? `${item.text}, ${age}` : item.text));
+  }
+  section.append(list);
+  return [section];
 }
 
 function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft, options: { hasFactsRail?: boolean } = {}): HTMLElement {

@@ -356,6 +356,10 @@ export function githubReviewItems(draft: ReviewDraft, { isViewerShown = true }: 
   return reviews.map((review) => ({ login: review.login, tone: githubReviewTone(review.state), text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
 }
 
+export function githubReviewHistoryItems(draft: ReviewDraft): { text: string; submittedAt?: string | null }[] {
+  return (draft.githubReviewHistory ?? []).map((review) => ({ text: describeGithubReview(review, currentHead(draft)), submittedAt: review.submittedAt }));
+}
+
 export function severityPresentation(severity: FindingSeverity): { filledCount: number; colorToken: string } {
   return SEVERITY_PRESENTATION[severity];
 }
@@ -855,6 +859,6 @@ export function flaggedCommentsSignature(draft: Pick<ReviewDraft, 'comments'>): 
 
 export function detailHeadingSignature(review: ReviewDraft | InFlightReview): string {
   if (!('reviewedHead' in review)) return JSON.stringify([review.prCreatedAt, review.priorReviewedHead, review.isAuthorOrgMember]);
-  return JSON.stringify([review.prCreatedAt, review.isAuthorOrgMember, review.reviewedAt, review.postedAt, review.githubReviews, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
+  return JSON.stringify([review.prCreatedAt, review.isAuthorOrgMember, review.reviewedAt, review.postedAt, review.githubReviews, review.githubReviewHistory, review.liveHead, review.priorReviewedHead, review.viewerThreads]);
 }
 

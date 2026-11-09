@@ -941,7 +941,9 @@ test('an organization with no team starts team review watching only review reque
   }
 });
 
-function teammatePrAt(head: string): GithubPr {
+type TeammateReviewNode = { state: string; submittedAt: string; author: { login: string }; commit: { oid: string } };
+
+function teammatePrAt(head: string, latestReviews: TeammateReviewNode[] = [], reviewHistory: TeammateReviewNode[] = []): GithubPr {
   return GithubPr.parse(normalizeGithubPr(GithubPrDetailNode.parse({
     __typename: 'PullRequest', id: 'PR_7', number: 7, title: 'Fix it', url: candidate.url,
     repository: { nameWithOwner: 'Acme/app', viewerDefaultMergeMethod: 'SQUASH' },
@@ -950,13 +952,15 @@ function teammatePrAt(head: string): GithubPr {
     baseRefName: 'main', baseRefOid: 'b'.repeat(40), headRefName: 'feature', isCrossRepository: false, headRefOid: head,
     isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
-    reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
+    reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: latestReviews }, reviewHistory: { nodes: reviewHistory },
     baseRepository: { defaultBranchRef: { name: 'main' } },
   }), 0, []));
 }
 
-test('a saved draft goes stale when the pull request head moves, is ready again when it returns, and a discarded draft restores or requeues as stale at a moved head', async () => {
+test('a saved draft goes stale when the pull request head moves, is ready again when it returns, shows a teammate comment review with its earlier reviews, and a discarded draft restores or requeues as stale at a moved head', async () => {
   const savedAt = Date.now();
+  const leadComment = { state: 'COMMENTED', submittedAt: '2026-10-02T00:00:00Z', author: { login: 'lead' }, commit: { oid: HEAD } };
+  const leadEarlierChanges = { ...leadComment, state: 'CHANGES_REQUESTED', submittedAt: '2026-10-01T00:00:00Z', commit: { oid: OTHER_HEAD } };
   const tickWaiters: (() => void)[] = [];
   const isPlannedAt = (head: string) => poller._state()[ACTION_KEY]?.liveHead === head;
   let teammatePr = teammatePrAt(OTHER_HEAD);
@@ -979,7 +983,7 @@ test('a saved draft goes stale when the pull request head moves, is ready again 
     onTickComplete: () => { for (const waiter of tickWaiters) waiter(); },
   });
   const headAt = async (head: string) => {
-    teammatePr = teammatePrAt(head);
+    teammatePr = teammatePrAt(head, [leadComment], [leadEarlierChanges, leadComment]);
     const plannedAtHead = new Promise<void>((resolve) => { tickWaiters.push(() => { if (isPlannedAt(head)) resolve(); }); });
     await poller.tick();
     await plannedAtHead;
@@ -991,6 +995,8 @@ test('a saved draft goes stale when the pull request head moves, is ready again 
     assert.equal(draftStatus(), 'stale');
     await headAt(HEAD);
     assert.equal(draftStatus(), 'ready');
+    assert.deepEqual(poller._state()[ACTION_KEY]?.githubReviews?.map((review) => `${review.login} ${review.state}`), ['lead COMMENTED']);
+    assert.deepEqual(poller._state()[ACTION_KEY]?.githubReviewHistory?.map((review) => `${review.login} ${review.state}`), ['lead CHANGES_REQUESTED']);
     await headAt(OTHER_HEAD);
     assert.deepEqual(await poller.markNotMine(ACTION_KEY), { ok: true });
     assert.equal(draftStatus(), 'discarded');

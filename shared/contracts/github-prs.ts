@@ -26,14 +26,17 @@ export const GithubPrLightSearchNode = z.object({
 });
 export type GithubPrLightSearchNode = z.infer<typeof GithubPrLightSearchNode>;
 
+const GithubPrDetailReviews = z.object({ nodes: z.array(MyPrSearchNode.shape.latestReviews.shape.nodes.element.extend({
+  commit: z.object({ oid: z.string() }).nullable().optional(),
+})) });
+
 export const GithubPrDetailNode = MyPrSearchNode.extend({
   author: WorkflowSearchNode.shape.author.unwrap().extend({ __typename: z.string().optional() }).nullable(),
   authorAssociation: z.string().optional(),
   labels: WorkflowSearchNode.shape.labels,
   comments: WorkflowSearchNode.shape.comments,
-  latestReviews: z.object({ nodes: z.array(MyPrSearchNode.shape.latestReviews.shape.nodes.element.extend({
-    commit: z.object({ oid: z.string() }).nullable().optional(),
-  })) }),
+  latestReviews: GithubPrDetailReviews,
+  reviewHistory: GithubPrDetailReviews.optional(),
   writerOpinionatedReviews: MyPrSearchNode.shape.latestOpinionatedReviews.optional(),
   baseRepository: z.object({ defaultBranchRef: z.object({ name: z.string() }).nullable() }).nullable().optional(),
 });
@@ -53,6 +56,7 @@ export const GithubPr = z.strictObject({
   unresolvedThreads: MyPr.shape.unresolvedThreads, threads: z.array(MyPr.shape.threads.element.strict()), reviewItems: MyPr.shape.reviewItems,
   behindBy: MyPr.shape.behindBy, reviewRequests: z.array(MyPr.shape.reviewRequests.element.strict()),
   approvals: MyPr.shape.approvals, reviews: z.array(MyPr.shape.reviews.element.extend({ commit: CommitSha.nullable() }).strict()),
+  reviewHistory: z.array(MyPr.shape.reviews.element.extend({ commit: CommitSha.nullable() }).strict()).optional(),
   opinionatedWriterReviewStates: z.array(z.string()),
 }).refine((pr) => pr.key === comparablePrKey(pr));
 export type GithubPr = z.infer<typeof GithubPr>;
