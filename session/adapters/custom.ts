@@ -1,19 +1,12 @@
-import fs from "node:fs";
-
-import { execFileSync } from "../../server/child-process-safe.ts";
-import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
-import type { ResolvedCommand } from "../core/spawn-command.ts";
-import { buildAgentEnv } from "../core/spawn-env.ts";
-import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
+import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { classifyAgentTitle, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type {
   AgentAdapter,
   AgentArgsOptions,
   AgentCapabilities,
-  AgentCommandOptions,
-  AgentSpawnCommandOptions,
   AgentTitleProfile,
 } from "./index.ts";
+import { pathCommandLaunch } from "./path-command-launch.ts";
 import type { CustomAgentDeclaration } from "../../shared/contracts/index.ts";
 
 const envProfile: AgentEnvProfile = { scrub: [], set: {} };
@@ -48,31 +41,7 @@ function createCustomAdapter(declaration: CustomAgentDeclaration, { initialPromp
     taskTitle: { readsTranscriptTitle: false, genericTitles: [declaration.id], agentSuffix: ` - ${declaration.id}` },
   };
 
-  function resolveCommand(
-    { platform, execFile = execFileSync, pathExists = fs.existsSync }: AgentCommandOptions = {},
-  ): ResolvedCommand {
-    return resolveAgentCommand({
-      name: declaration.command,
-      platform: platform || process.platform,
-      execFile,
-      pathExists,
-    });
-  }
-
-  function buildSpawnCommand(
-    { platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
-  ): { file: string; args: string[] } {
-    return buildAgentSpawnCommand({
-      name: declaration.command,
-      platform,
-      resolved,
-      argGroups: [settingsArgs, agentArgs],
-    });
-  }
-
-  function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
-    return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-  }
+  const { resolveCommand, buildSpawnCommand, buildEnv } = pathCommandLaunch(declaration.command, envProfile);
 
   function buildArgs({ initialPrompt = null }: AgentArgsOptions = {}): string[] {
     if (initialPrompt == null) return [...declaredArgs];

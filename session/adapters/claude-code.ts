@@ -1,12 +1,9 @@
 import fs from "node:fs";
-import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
-import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
-import { buildAgentEnv } from "../core/spawn-env.ts";
-import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
-import { execFileSync } from "../../server/child-process-safe.ts";
+import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
-import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile, AgentSpawnCommandOptions } from "./index.ts";
+import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile } from "./index.ts";
+import { pathCommandLaunch } from "./path-command-launch.ts";
 import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
@@ -131,35 +128,7 @@ const hooks: AgentHookProfile = {
   describeInstalledHooks: describeInstalledClaudeHooks,
 };
 
-function resolveCommand(
-  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
-    platform?: NodeJS.Platform;
-    execFile?: PathLookupExecFile;
-    pathExists?: (candidate: string) => boolean;
-  } = {},
-): ResolvedCommand {
-  return resolveAgentCommand({
-    name: COMMAND_NAME,
-    platform: platform || process.platform,
-    execFile,
-    pathExists,
-  });
-}
-
-function buildSpawnCommand(
-  { platform, resolved, settingsArgs: injectedSettingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
-): { file: string; args: string[] } {
-  return buildAgentSpawnCommand({
-    name: COMMAND_NAME,
-    platform,
-    resolved,
-    argGroups: [injectedSettingsArgs, agentArgs],
-  });
-}
-
-function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
-  return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-}
+const { resolveCommand, buildSpawnCommand, buildEnv } = pathCommandLaunch(COMMAND_NAME, envProfile);
 
 const settingsArgs = (settingsPath: string): string[] => ["--settings", settingsPath];
 

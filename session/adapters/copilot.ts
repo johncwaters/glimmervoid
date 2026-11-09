@@ -1,35 +1,25 @@
-import fs from "node:fs";
 import path from "node:path";
 
-import { execFileSync } from "../../server/child-process-safe.ts";
-import { hookLaunch } from "../../server/runtime-paths.ts";
 import { COPILOT_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { COPILOT_HOME_PROFILE, doesProjectConfigTurnHooksOff } from "../core/agent-home-core.ts";
-import { buildHookCommand } from "../core/hook-command-core.ts";
-import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
-import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
-import { buildAgentEnv } from "../core/spawn-env.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
 import { copilotStateFileToTrust, ensureCopilotFolderTrust } from "../copilot-trust.ts";
-import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
+import type { AgentEnvProfile } from "../core/spawn-env.ts";
+import { pathCommandLaunch } from "./path-command-launch.ts";
+import { settingsHomeHooks } from "./settings-home-hooks.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
   AgentHookProfile,
-  AgentSpawnCommandOptions,
   AgentTitleProfile,
   GeneratedHomeLaunch,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
-import type { InstalledHooks } from "../core/user-hooks-core.ts";
 
 const ID = "copilot";
 const COMMAND_NAME = "copilot";
-const RELAY_LAUNCH = hookLaunch("hook-relay");
-const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const SANE_YOLO_EVENT = "preToolUse";
 const HOOK_EVENTS: readonly string[] = Object.freeze(["sessionStart", "sessionEnd", "userPromptSubmitted", "agentStop", "errorOccurred", "permissionRequest", "postToolUse", "notification"]);
-const HOOKS_REFUSAL = "the hook relay path cannot be written into copilot hooks";
 const PERMISSION_NOTIFICATION = "permission_prompt";
 const IDLE_NOTIFICATION = "agent_idle";
 const QUESTION_NOTIFICATION = "elicitation_dialog";
@@ -89,23 +79,14 @@ const titleProfile: AgentTitleProfile = {
   taskTitle: { readsTranscriptTitle: false, genericTitles: [ID, "GitHub Copilot", "Copilot"], agentSuffix: null },
 };
 
-function expectedHooks(): string | null {
-  const hooksByEvent: Record<string, unknown[]> = {};
-  for (const event of HOOK_EVENTS) {
-    const command = buildHookCommand(RELAY_LAUNCH, event);
-    if (!command) return null;
-    hooksByEvent[event] = [{ type: "command", command }];
-  }
-  const saneYoloCommand = buildHookCommand(HOOK_TOOL_RELAY_LAUNCH, "saneYolo", [COPILOT_SANE_YOLO_FLAVOR]);
-  if (!saneYoloCommand) return null;
-  hooksByEvent[SANE_YOLO_EVENT] = [{ type: "command", command: saneYoloCommand }];
-  return JSON.stringify(hooksByEvent);
-}
-
-function describeInstalledHooks(): InstalledHooks {
-  if (expectedHooks() === null) return { unavailableReason: HOOKS_REFUSAL, isBestEffort: false };
-  return { version: null, isBestEffort: false, hooks: [...HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null })), { event: SANE_YOLO_EVENT, matcher: null, route: "saneYolo" }] };
-}
+const { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath } = settingsHomeHooks({
+  agentId: ID,
+  relayedEvents: HOOK_EVENTS,
+  saneYoloEvent: SANE_YOLO_EVENT,
+  saneYoloFlavor: COPILOT_SANE_YOLO_FLAVOR,
+  homeProfile: COPILOT_HOME_PROFILE,
+  hookEntryFor: (commandHook) => commandHook,
+});
 
 const COPILOT_STATE_NAME = "config.json";
 
@@ -118,7 +99,7 @@ function trustSessionFolder(env: Record<string, string | undefined>, folder: str
 
 function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const managedHooks = expectedHooks();
-  if (managedHooks === null) return { refusal: HOOKS_REFUSAL };
+  if (managedHooks === null) return { refusal: hooksRefusal };
   trustSessionFolder(env, launch.folderTrustRoot);
   return holdPreparedAgentHome(COPILOT_HOME_PROFILE, env, () => managedHooks);
 }
@@ -131,27 +112,7 @@ function releaseHome(envHome: string): void {
   releaseAgentHome(envHome);
 }
 
-function configFilePath(env: Record<string, string | undefined> = process.env, homedir?: string): string {
-  return path.join(realAgentHome(COPILOT_HOME_PROFILE, env, homedir), COPILOT_HOME_PROFILE.config.configName);
-}
-
-function resolveCommand(
-  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
-    platform?: NodeJS.Platform;
-    execFile?: PathLookupExecFile;
-    pathExists?: (candidate: string) => boolean;
-  } = {},
-): ResolvedCommand {
-  return resolveAgentCommand({ name: COMMAND_NAME, platform: platform || process.platform, execFile, pathExists });
-}
-
-function buildSpawnCommand({ platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions): { file: string; args: string[] } {
-  return buildAgentSpawnCommand({ name: COMMAND_NAME, platform, resolved, argGroups: [settingsArgs, agentArgs] });
-}
-
-function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
-  return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-}
+const { resolveCommand, buildSpawnCommand, buildEnv } = pathCommandLaunch(COMMAND_NAME, envProfile);
 
 function buildArgs({ dangerouslySkipPermissions = false, resumeSessionId = null, extraArgs = [] }: AgentArgsOptions = {}): string[] {
   const args = dangerouslySkipPermissions ? ["--yolo"] : [];

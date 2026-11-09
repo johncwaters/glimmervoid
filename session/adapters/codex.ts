@@ -2,17 +2,14 @@ import { HOOK_TOOLS, mergeCodexPreToolUse } from '../core/hook-tools.ts';
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
 import type { InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 
-import fs from "node:fs";
+import type fs from "node:fs";
 import path from "node:path";
 import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
-import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
-import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
-import { buildAgentEnv } from "../core/spawn-env.ts";
-import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
+import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
@@ -30,9 +27,9 @@ import type {
   AgentAdapterShape,
   AgentArgsOptions,
   AgentHookProfile,
-  AgentSpawnCommandOptions,
   AgentTitleProfile,
 } from "./index.ts";
+import { pathCommandLaunch } from "./path-command-launch.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
 const ID = "codex";
@@ -469,35 +466,7 @@ const hooks: AgentHookProfile = {
   },
 };
 
-function resolveCommand(
-  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
-    platform?: NodeJS.Platform;
-    execFile?: PathLookupExecFile;
-    pathExists?: (candidate: string) => boolean;
-  } = {},
-): ResolvedCommand {
-  return resolveAgentCommand({
-    name: COMMAND_NAME,
-    platform: platform || process.platform,
-    execFile,
-    pathExists,
-  });
-}
-
-function buildSpawnCommand(
-  { platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
-): { file: string; args: string[] } {
-  return buildAgentSpawnCommand({
-    name: COMMAND_NAME,
-    platform,
-    resolved,
-    argGroups: [settingsArgs, agentArgs],
-  });
-}
-
-function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
-  return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-}
+const { resolveCommand, buildSpawnCommand, buildEnv } = pathCommandLaunch(COMMAND_NAME, envProfile);
 
 const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 

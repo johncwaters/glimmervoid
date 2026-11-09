@@ -1,26 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { execFileSync } from "../../server/child-process-safe.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
-import { resolveAgentCommand, buildAgentSpawnCommand } from "../core/spawn-command.ts";
-import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
-import { buildAgentEnv } from "../core/spawn-env.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
-import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
+import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
   AgentHookProfile,
-  AgentSpawnCommandOptions,
   AgentTitleProfile,
   GeneratedHomeLaunch,
   ScratchAgentHome,
 } from "./index.ts";
+import { pathCommandLaunch } from "./path-command-launch.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type { InstalledHooks } from "../core/user-hooks-core.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
@@ -199,35 +195,7 @@ function prepareScratchHome(env: Record<string, string | undefined>, scratch: Sc
   return prepareScratchAgentHome(KIMI_HOME_PROFILE, { env, renderBlock: () => hooksBlock, ...scratch });
 }
 
-function resolveCommand(
-  { platform, execFile = execFileSync, pathExists = fs.existsSync }: {
-    platform?: NodeJS.Platform;
-    execFile?: PathLookupExecFile;
-    pathExists?: (candidate: string) => boolean;
-  } = {},
-): ResolvedCommand {
-  return resolveAgentCommand({
-    name: COMMAND_NAME,
-    platform: platform || process.platform,
-    execFile,
-    pathExists,
-  });
-}
-
-function buildSpawnCommand(
-  { platform, resolved, settingsArgs = [], agentArgs = [] }: AgentSpawnCommandOptions,
-): { file: string; args: string[] } {
-  return buildAgentSpawnCommand({
-    name: COMMAND_NAME,
-    platform,
-    resolved,
-    argGroups: [settingsArgs, agentArgs],
-  });
-}
-
-function buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv {
-  return buildAgentEnv(baseEnv, extraEnv, envProfile, options);
-}
+const { resolveCommand, buildSpawnCommand, buildEnv } = pathCommandLaunch(COMMAND_NAME, envProfile);
 
 function buildArgs({
   dangerouslySkipPermissions = false,
