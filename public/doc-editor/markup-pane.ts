@@ -3,7 +3,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { commonPrefixLength, commonSuffixLength } from '../plan/plan-diff-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
-import { CHECK_ICON_PATH, CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
@@ -35,7 +35,6 @@ interface MarkupPane {
   btnAccept: HTMLButtonElement;
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
-  addNoteCard: HTMLElement;
   btnPreviewAll: HTMLButtonElement;
   previewBlocks: PreviewBlock[];
   previewedBlockKeys: Set<string>;
@@ -117,12 +116,10 @@ export function buildMarkupPane(): MarkupPane {
   const btnAccept = markCardButton('Accept', 'accept-mark', CHECK_ICON_PATH);
   const btnReject = markCardButton('Reject', 'reject-mark', CLOSE_ICON_PATH);
   const markCard = el('div', 'doc-markup-float doc-markup-card');
-  markCard.append(btnAccept, btnReject);
-  const btnAddNote = button({ variant: 'quiet', size: 'small', label: 'Add note', action: 'add-note' });
+  const btnAddNote = markCardButton('Add note', 'add-note', COMMUNITY_ICON_PATH);
+  markCard.append(btnAccept, btnReject, btnAddNote);
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
-  const addNoteCard = el('div', 'doc-markup-float doc-markup-card');
-  addNoteCard.append(btnAddNote);
   const noteInput = el('input', 'plan-control doc-markup-input');
   noteInput.type = 'text';
   noteInput.placeholder = 'Note, or a code like wc: or awk:';
@@ -138,10 +135,10 @@ export function buildMarkupPane(): MarkupPane {
   paper.setAttribute('aria-label', 'Doc in red pen; edits become marks');
   const endNotes = el('div', 'doc-markup-end');
   const root = el('div', 'doc-markup');
-  for (const float of [markCard, addNoteCard, noteComposer]) float.hidden = true;
-  root.append(buildInkFilter(), paper, endNotes, markCard, addNoteCard, noteComposer);
+  for (const float of [markCard, noteComposer]) float.hidden = true;
+  root.append(buildInkFilter(), paper, endNotes, markCard, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, addNoteCard, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
     selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
@@ -618,10 +615,13 @@ function paintFloats(editor: MarkupHost) {
   const selectedMark = selectedMarkOf(pane);
   const isComposing = pane.noteSelection !== null;
   const markAnchor = isComposing ? null : markAnchorOf(pane);
-  placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? null);
   const hasRangeSelection = pane.selection !== null && pane.selection.end > pane.selection.start;
   const showsPin = !isComposing && !selectedMark && hasRangeSelection && canSuggest(editor);
-  placeFloat(pane, pane.addNoteCard, showsPin ? selectionRect() : null);
+  pane.btnAccept.hidden = markAnchor === null;
+  pane.btnReject.hidden = markAnchor === null;
+  pane.btnAddNote.hidden = markAnchor !== null;
+  const noteAnchorRect = showsPin ? selectionRect() : null;
+  placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? noteAnchorRect);
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
 }
 
@@ -1191,7 +1191,7 @@ export function wireMarkupPane(editor: MarkupHost) {
     if (pane.compositionSelection) return;
     trackPaperSelection(editor);
   }, { signal });
-  for (const float of [pane.addNoteCard, pane.markCard]) float.addEventListener('mousedown', (event) => event.preventDefault());
+  pane.markCard.addEventListener('mousedown', (event) => event.preventDefault());
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
   pane.noteInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {

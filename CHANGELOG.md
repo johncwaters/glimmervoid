@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Red pen text you can read.** The Add note button that appears under selected text now has a solid background, so the line beneath no longer shows through it. A replacement's suggested text is drawn larger and above its caret on its own row, on any line of a paragraph, where it used to be small and sit on the caret and on the line above.
+- **Red pen text you can read.** Add note is now a speech bubble icon in the same small card as a mark's check and X, right above the text you selected, where it used to be a see-through button at the left edge of the next line. A replacement's suggested text is drawn larger and above its caret on its own row, on any line of a paragraph, where it used to be small and sit on the caret and on the line above.
 
 ## [0.55.0] - 2026-11-09
 
