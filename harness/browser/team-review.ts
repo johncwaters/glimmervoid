@@ -46,7 +46,7 @@ function createStatus(): TeamReviewStatus {
       createDraft(3, {
         verdict: 'REQUEST CHANGES',
         assessment: { goal: 'Fix the header.', change: 'Moves the header.', checked: [], gaps: [], handChecks: [{ text: 'Look at what these changed UI files render', paths: ['public/header.css'], isFallback: true }] },
-        earlierReview: { head: PREVIOUS_HEAD, verdict: 'APPROVE', summary: 'Earlier pass', wasPosted: true, comments: [] },
+        earlierReview: { head: PREVIOUS_HEAD, verdict: 'APPROVE', summary: 'Earlier pass', body: '', wasPosted: true, comments: [] },
       }),
       createDraft(4, { verdict: 'BLOCKED' }),
       createDraft(5, { status: 'error', error: 'Review timed out' }),

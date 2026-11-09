@@ -570,7 +570,7 @@ export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewe
 }
 
 export function earlierReviewPreview(review: EarlierReview, droppedCount = 0): string {
-  const parts = [commentCountText(review.comments.length)];
+  const parts = [commentCountText(review.comments.length + generalFindingsOf(review.body).length)];
   if (droppedCount > 0) parts.push(`${droppedCount} dropped`);
   if (review.wasPosted) parts.push('posted');
   return parts.join(', ');
@@ -578,23 +578,52 @@ export function earlierReviewPreview(review: EarlierReview, droppedCount = 0): s
 
 const KEPT_FINDING_LINE_DISTANCE = 3;
 
-function rerunComments(draft: Pick<ReviewDraft, 'status' | 'comments' | 'drafted'>): readonly DraftComment[] | null {
-  if (draft.status === 'ready') return draft.comments;
-  if (draft.status === 'posted' && draft.drafted) return draft.drafted.comments;
+export interface DroppedEarlierFindings {
+  comments: ReadonlySet<number>;
+  general: ReadonlySet<number>;
+}
+
+interface FindingPlace {
+  path: string;
+  line: number | null;
+  side: DraftComment['side'] | null;
+}
+
+const NO_DROPPED_FINDINGS: DroppedEarlierFindings = { comments: new Set(), general: new Set() };
+
+function generalFindingPlace(finding: GeneralFinding): FindingPlace | null {
+  if (finding.location === null) return null;
+  const lineSuffix = /^(.+):(\d+)$/.exec(finding.location);
+  if (!lineSuffix) return { path: finding.location, line: null, side: null };
+  return { path: lineSuffix[1], line: Number(lineSuffix[2]), side: null };
+}
+
+function rerunOutput(draft: Pick<ReviewDraft, 'status' | 'body' | 'comments' | 'drafted'>): { body: string; comments: readonly DraftComment[] } | null {
+  if (draft.status === 'ready') return { body: draft.body, comments: draft.comments };
+  if (draft.status === 'posted' && draft.drafted) return draft.drafted;
   return null;
 }
 
-export function droppedEarlierFindingIndexes(draft: Pick<ReviewDraft, 'status' | 'reviewedHead' | 'comments' | 'drafted' | 'earlierReview'>): ReadonlySet<number> {
+function isSamePlace(earlier: FindingPlace, rerun: FindingPlace): boolean {
+  if (earlier.side !== null && rerun.side !== null && earlier.side !== rerun.side) return false;
+  if (earlier.line === null || rerun.line === null) return true;
+  return Math.abs(earlier.line - rerun.line) <= KEPT_FINDING_LINE_DISTANCE;
+}
+
+export function droppedEarlierFindings(draft: Pick<ReviewDraft, 'status' | 'reviewedHead' | 'body' | 'comments' | 'drafted' | 'earlierReview'>): DroppedEarlierFindings {
   const earlierReview = draft.earlierReview;
-  const comparedComments = rerunComments(draft);
-  if (!earlierReview || earlierReview.head !== draft.reviewedHead || !comparedComments) return new Set();
-  const newLinesByLocation = new Map<string, number[]>();
-  for (const comment of comparedComments) {
-    const location = `${comment.side}:${comment.path}`;
-    newLinesByLocation.set(location, [...(newLinesByLocation.get(location) ?? []), comment.line]);
-  }
-  const isKept = (comment: DraftComment) => (newLinesByLocation.get(`${comment.side}:${comment.path}`) ?? []).some((line) => Math.abs(line - comment.line) <= KEPT_FINDING_LINE_DISTANCE);
-  return new Set(earlierReview.comments.flatMap((comment, index) => (isKept(comment) ? [] : [index])));
+  const rerun = rerunOutput(draft);
+  if (!earlierReview || earlierReview.head !== draft.reviewedHead || !rerun) return NO_DROPPED_FINDINGS;
+  const rerunPlacesByPath = new Map<string, FindingPlace[]>();
+  const rerunPlaces = [...rerun.comments.map((comment): FindingPlace => ({ path: comment.path, line: comment.line, side: comment.side })), ...generalFindingsOf(rerun.body).flatMap((finding) => generalFindingPlace(finding) ?? [])];
+  for (const place of rerunPlaces) rerunPlacesByPath.set(place.path, [...(rerunPlacesByPath.get(place.path) ?? []), place]);
+  const isKept = (place: FindingPlace) => (rerunPlacesByPath.get(place.path) ?? []).some((rerunPlace) => isSamePlace(place, rerunPlace));
+  const comments = new Set(earlierReview.comments.flatMap((comment, index) => (isKept({ path: comment.path, line: comment.line, side: comment.side }) ? [] : [index])));
+  const general = new Set(generalFindingsOf(earlierReview.body).flatMap((finding, index) => {
+    const place = generalFindingPlace(finding);
+    return place === null || isKept(place) ? [] : [index];
+  }));
+  return { comments, general };
 }
 
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {

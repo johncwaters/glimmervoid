@@ -1,6 +1,6 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import { decisionAsIfApprovalRequired, canApproveAfterComment, DECIDING_REVIEW_STATES, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, type QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, generalFindingsOf, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import { flaggingReviewers } from './pr-flows-core.ts';
 import type {
@@ -565,7 +565,7 @@ function earlierReviewShown(entry: TeamReviewStateEntry, draft: ReviewDraft): Ea
   if (!STATUSES_SHOWING_EARLIER_REVIEW.has(draft.status)) return null;
   const prior = earlierReviewSource(entry, draft);
   if (!prior) return null;
-  if (prior.comments.length === 0 && !prior.summary.trim()) return null;
+  if (prior.comments.length === 0 && !prior.summary.trim() && generalFindingsOf(prior.body).length === 0) return null;
   return EarlierReview.parse(prior);
 }
 

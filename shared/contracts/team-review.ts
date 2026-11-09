@@ -162,7 +162,7 @@ export const PriorReview = z.object({
 });
 export type PriorReview = z.infer<typeof PriorReview>;
 
-export const EarlierReview = PriorReview.pick({ head: true, verdict: true, summary: true, wasPosted: true }).extend({ comments: z.array(DraftComment) });
+export const EarlierReview = PriorReview.pick({ head: true, verdict: true, summary: true, wasPosted: true }).extend({ body: z.string().default(''), comments: z.array(DraftComment) });
 export type EarlierReview = z.infer<typeof EarlierReview>;
 
 export const ReviewThreadId = z.string().min(1).max(256).regex(NODE_ID_RE);

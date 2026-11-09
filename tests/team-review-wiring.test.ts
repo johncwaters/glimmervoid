@@ -1,6 +1,7 @@
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { THREAD_BASE, THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
-import { droppedEarlierFindingIndexes } from '../public/github/team-review-view-core.ts';
+import { droppedEarlierFindings } from '../public/github/team-review-view-core.ts';
+import { generalFindingBullet } from '../shared/team-review-markdown.ts';
 import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -1118,11 +1119,14 @@ test('a posted review that left the review-request search still picks up a threa
   }
 });
 
-test('a review re-run at the same head lists each earlier finding the new draft no longer carries as dropped, before and after posting', async () => {
+test('a review re-run at the same head lists each earlier inline or general finding the new draft no longer carries as dropped, before and after posting', async () => {
   const keptFinding = { path: 'src/a.ts', line: 10, side: 'RIGHT' as const, body: 'Token leaks into the log.' };
   const droppedFinding = { path: 'src/a.ts', line: 40, side: 'RIGHT' as const, body: 'The mcp__posthog allowlist can be bypassed.' };
-  const rerunDraft = actionDraft({ comments: [{ ...keptFinding, line: 12, body: 'The token still reaches the log.' }] });
-  const priorReview = { head: HEAD, verdict: 'REQUEST CHANGES' as const, summary: 'Two problems', body: '', comments: [keptFinding, droppedFinding], wasPosted: false };
+  const generalFinding = (path: string, line: number | null, body: string) => generalFindingBullet({ reviewer: 'code', severity: 'MEDIUM', path, line, body });
+  const keptGeneral = generalFinding('src/b.ts', null, 'The retry loop never backs off.');
+  const droppedGeneral = generalFinding('src/c.ts', 8, 'The cache key ignores the org.');
+  const rerunDraft = actionDraft({ body: generalFinding('src/b.ts', 30, 'Retries still hammer the API.'), comments: [{ ...keptFinding, line: 12, body: 'The token still reaches the log.' }] });
+  const priorReview = { head: HEAD, verdict: 'REQUEST CHANGES' as const, summary: 'Four problems', body: `${keptGeneral}\n${droppedGeneral}`, comments: [keptFinding, droppedFinding], wasPosted: false };
   const statuses: TeamReviewStatus[] = [];
   const poller = createTeamReviewPoller({
     org: 'Acme', teams: [], github: {}, store: emptyGithubStore({ viewer: async () => 'me' }),
@@ -1136,9 +1140,13 @@ test('a review re-run at the same head lists each earlier finding the new draft 
     await poller.start();
     const presentedDraft = statuses[0]?.drafts.find((draft) => draft.key === ACTION_KEY);
     assert.ok(presentedDraft);
-    assert.deepEqual([...droppedEarlierFindingIndexes(presentedDraft)], [1]);
-    assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'error', comments: [] })], []);
-    assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'posted', comments: [] })], []);
+    const droppedIndexes = (draft: typeof presentedDraft) => {
+      const dropped = droppedEarlierFindings(draft);
+      return { comments: [...dropped.comments], general: [...dropped.general] };
+    };
+    assert.deepEqual(droppedIndexes(presentedDraft), { comments: [1], general: [1] });
+    assert.deepEqual(droppedIndexes({ ...presentedDraft, status: 'error', comments: [] }), { comments: [], general: [] });
+    assert.deepEqual(droppedIndexes({ ...presentedDraft, status: 'posted', comments: [] }), { comments: [], general: [] });
 
     const actions = createTeamReviewActions({
       drafts: poller, store: emptyGithubStore({ prHead: async () => HEAD }), log: { warn: () => {} },
@@ -1151,7 +1159,7 @@ test('a review re-run at the same head lists each earlier finding the new draft 
     assert.equal(postedDraft?.status, 'posted');
     assert.deepEqual(postedDraft?.comments, []);
     assert.ok(postedDraft);
-    assert.deepEqual([...droppedEarlierFindingIndexes(postedDraft)], [1]);
+    assert.deepEqual(droppedIndexes(postedDraft), { comments: [1], general: [1] });
   } finally {
     await poller.stop();
   }

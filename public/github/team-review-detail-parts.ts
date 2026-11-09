@@ -4,8 +4,8 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, droppedEarlierFindingIndexes, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
-import type { GeneralFinding } from './team-review-view-core.ts';
+import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, droppedEarlierFindings, earlierReviewPreview, generalFindingsOf, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
+import type { DroppedEarlierFindings, GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
 import { createAgeReadout, createAuthor, createGithubReviewSummary, createQuestionGlyph, createSeverityMeter, createVerdictSeal, formatTimestampAge, pullRequestLink } from './team-review-queue-row.ts';
@@ -288,28 +288,31 @@ function createCommentContent({ body, severity, location: locationText, location
   return content;
 }
 
-function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean, droppedIndexes: ReadonlySet<number> = new Set()): HTMLElement {
+function earlierFindingCard(content: FindingContent, isDropped: boolean): HTMLElement {
+  const card = el('article', 'pr-comment-card pr-comment-card-readonly');
+  card.append(createCommentContent(isDropped ? { ...content, droppedNote: 'dropped in this review' } : content));
+  return card;
+}
+
+function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean, dropped: DroppedEarlierFindings = { comments: new Set(), general: new Set() }): HTMLElement {
+  const droppedCount = dropped.comments.size + dropped.general.size;
   const details = el('details', 'pr-disclosure pr-earlier-review');
   const summary = el('summary', 'pr-disclosure-summary');
-  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review, droppedIndexes.size)));
+  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review, droppedCount)));
   const body = el('div', 'pr-earlier-review-body');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(review));
   body.append(verdictLine);
   if (review.summary.trim()) body.append(appendInlineText(el('p', 'pr-verdict-summary'), review.summary));
-  for (const [index, comment] of review.comments.entries()) {
-    const card = el('article', 'pr-comment-card pr-comment-card-readonly');
-    const content = commentFindingContent(comment);
-    card.append(createCommentContent(droppedIndexes.has(index) ? { ...content, droppedNote: 'dropped in this review' } : content));
-    body.append(card);
-  }
+  for (const [index, comment] of review.comments.entries()) body.append(earlierFindingCard(commentFindingContent(comment), dropped.comments.has(index)));
+  for (const [index, finding] of generalFindingsOf(review.body).entries()) body.append(earlierFindingCard(generalFindingContent(finding), dropped.general.has(index)));
   details.append(summary, body);
-  details.open = isOpen || droppedIndexes.size > 0;
+  details.open = isOpen || droppedCount > 0;
   return details;
 }
 
 function createDraftEarlierReviewDetails(draft: ReviewDraft, earlierReview: EarlierReview, isOpen: boolean): HTMLElement {
-  return createEarlierReviewDetails(earlierReview, isOpen, droppedEarlierFindingIndexes(draft));
+  return createEarlierReviewDetails(earlierReview, isOpen, droppedEarlierFindings(draft));
 }
 
 function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
