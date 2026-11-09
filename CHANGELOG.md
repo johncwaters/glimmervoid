@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **The npm package.** Glimmervoid is no longer published to npm; 0.54.0 was the last npm release, and the older npm versions are deprecated with a message pointing at the installer. Install the standalone app with the curl or PowerShell installer in the README, or with Homebrew. An npm or npx install of 0.54.0 switches over from Settings, Updates.
+- **Watcher restart usage data.** The `watcher_child_ended` event and the `watcher_child_restart_count` field of `app_active` are no longer sent: there is no watcher child process to restart now that the watcher runs inside the doorman.
 
 ### Fixed
 

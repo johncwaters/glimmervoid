@@ -242,7 +242,7 @@
     },
     {
       "name": "watcher",
-      "definition": "The always-on glimmervoid watch process that runs no sessions, dashboard or lane logic: it runs the probes the server sends it and nudges the server when one changes; started by the server on one machine, or run on its own box so the server can sleep",
+      "definition": "The always-on process that runs no sessions, dashboard or lane logic: it runs the probes the server sends it and nudges the server when one changes; it runs inside a doorman, the local one the server starts or one on its own box so the server can sleep",
       "aliases": [
         "watch"
       ]
@@ -439,7 +439,7 @@
     },
     {
       "name": "remote",
-      "definition": "Remote access: the opt-in remote listener (config remote) that lets a paired device reach the dashboard from another machine"
+      "definition": "Remote access: the always-on remote listener (config remote), behind pairing, that lets a paired device or a doorman reach the server from another machine"
     },
     {
       "name": "shown",
@@ -650,7 +650,7 @@
     },
     {
       "name": "link secret",
-      "definition": "The random secret the server hands the watcher it starts, from which each direction of the watcher link derives its own signing key; never shown in settings"
+      "definition": "The random secret in ~/.glimmervoid/watcher-link.key, which the doorman reads through the path its tenant table names, from which each direction of the watcher link derives its own signing key; never shown in settings"
     },
     {
       "name": "answer field",

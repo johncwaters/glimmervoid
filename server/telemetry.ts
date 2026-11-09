@@ -48,7 +48,6 @@ function watcherRollupProperties(watcherRollup: WatcherRollup | undefined): Part
     watcher_probe_count: watcherRollup.probeCount,
     watcher_covered_probe_count: watcherRollup.coveredProbeCount,
     watcher_nudge_count: watcherRollup.nudgeCount,
-    watcher_child_restart_count: watcherRollup.childRestartCount,
   };
 }
 

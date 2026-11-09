@@ -7,7 +7,7 @@ import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
-import type { WatcherEnding, WatcherStarter } from './remote-watcher-starter.ts';
+import type { WatcherStarter } from './remote-watcher-starter.ts';
 
 interface ProbeSource {
   laneId: string;
@@ -96,7 +96,6 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
   const failingSinceMsByProbeId = new Map<string, number>();
   const coveredProbeCountByLaneId = new Map<string, number>();
   let nudgeCountSinceRollup = 0;
-  let childRestartCountSinceRollup = 0;
   let watcherUrl: string | null = null;
   let deliveredProbeSet: ProbeSet | null = null;
   let deliveredCredentialsDigest: string | null = null;
@@ -307,10 +306,8 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
       probeCount: deliveredProbeSet?.probes.length ?? 0,
       coveredProbeCount: [...coveredProbeCountByLaneId.values()].reduce((total, count) => total + count, 0),
       nudgeCount: nudgeCountSinceRollup,
-      childRestartCount: childRestartCountSinceRollup,
     };
     nudgeCountSinceRollup = 0;
-    childRestartCountSinceRollup = 0;
     return rollup;
   }
 
@@ -355,11 +352,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     });
   }
 
-  function watcherEnded(ending: WatcherEnding): void {
-    if (ending.willRestart) {
-      childRestartCountSinceRollup += 1;
-      telemetry?.capture('watcher_child_ended', { end_kind: ending.endKind, run_seconds: Math.max(0, Math.round(ending.runMs / 1000)) });
-    }
+  function watcherEnded(): void {
     watcherUrl = null;
     deliveredProbeSet = null;
     deliveredCredentialsDigest = null;

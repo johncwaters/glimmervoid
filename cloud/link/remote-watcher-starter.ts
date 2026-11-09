@@ -1,18 +1,11 @@
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import type { WatcherChildEndKind } from '../../shared/contracts/telemetry.ts';
 import { directionKey, signedHeaders } from './core/link-signing-core.ts';
-
-interface WatcherEnding {
-  endKind: WatcherChildEndKind;
-  runMs: number;
-  willRestart: boolean;
-}
 
 type WatcherStarter = (options: {
   linkSecret: Buffer;
   onListening: (watcherUrl: string) => void;
-  onEnded: (ending: WatcherEnding) => void;
+  onEnded: () => void;
   log?: Pick<Console, 'log' | 'warn'>;
 }) => { start(): void; stop(): void };
 
@@ -37,7 +30,6 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
     let checkTimer: NodeJS.Timeout | null = null;
     let isStopped = false;
     let answeringUrl: string | null = null;
-    let answeringSinceMs = 0;
     let unansweredCheckCount = 0;
     let lastPrepareProblem: string | null = null;
 
@@ -73,10 +65,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
       if (isStopped) return;
       const watcherUrl = isAnswering ? triedUrl : null;
       if (watcherUrl !== null) {
-        if (answeringUrl === null) {
-          answeringSinceMs = now();
-          log.log(`[watcher] linked the watcher at ${originOf(watcherUrl)}`);
-        }
+        if (answeringUrl === null) log.log(`[watcher] linked the watcher at ${originOf(watcherUrl)}`);
         answeringUrl = watcherUrl;
         unansweredCheckCount = 0;
         onListening(watcherUrl);
@@ -89,7 +78,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
       }
       log.warn(`[watcher] the watcher at ${originOf(answeringUrl)} stopped answering or cannot nudge this server, lanes go back to their own timers`);
       answeringUrl = null;
-      onEnded({ endKind: 'unreachable', runMs: now() - answeringSinceMs, willRestart: true });
+      onEnded();
     }
 
     function nextCheckDelayMs(): number {
@@ -121,4 +110,4 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
 }
 
 export { createRemoteWatcherStarter };
-export type { WatcherEnding, WatcherStarter };
+export type { WatcherStarter };
