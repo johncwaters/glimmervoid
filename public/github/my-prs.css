@@ -284,8 +284,12 @@ html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-h
 .pr-detail-title h2 { color: var(--text-head); font-size: var(--type-body); font-weight: 700; }
 .pr-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-dim); font-size: var(--type-meta); }
 .pr-note .pr-section-heading { padding: 0; }
-.pr-decision-bar > .pr-action-status { flex-basis: 100%; margin-left: 0; }
+.pr-decision-bar > .pr-action-status { order: -1; flex-basis: 100%; margin-left: 0; }
 .pr-decision-bar > .pr-action-status:empty { display: none; }
+@media (max-height: 640px) {
+  html:not([data-layout="phone"]) .pr-decision-bar { position: static; }
+  html:not([data-layout="phone"]) .pr-decision-bar > .pr-action-status { order: 0; }
+}
 .pr-diff-excerpt .review-line[data-cited="true"] { box-shadow: inset 2px 0 0 var(--accent); }
 
 .pr-footer {

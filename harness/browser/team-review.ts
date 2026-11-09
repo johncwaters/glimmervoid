@@ -263,7 +263,7 @@ async function verifyPhoneDetailScreen(page: Page, status: TeamReviewStatus): Pr
   const navBox = await page.locator('.phone-nav').boundingBox();
   assert.ok(barBox && navBox && barBox.y + barBox.height <= navBox.y + 1);
   const buttonRows = await root.locator('.pr-decision-bar > button').evaluateAll((buttons) => new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top))).size);
-  assert.equal(buttonRows, 3);
+  assert.equal(buttonRows, 4);
   await page.goBack();
   await pane.waitFor({ state: 'visible' });
   assert.equal(await root.getAttribute('data-detail-open'), 'false');
@@ -484,7 +484,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
   });
   const reviewRow = (number: number) => page.locator(`.pr-queue-row[data-review-key="Acme/app#${number}"]`);
   const withDrafts = (drafts: ReviewDraft[]) => ({ ...snapshot, drafts, inFlight: [], queued: [] });
-  const barStatus = page.locator('.pr-detail .pr-decision-bar > .pr-action-status');
+  const barStatus = page.locator('.pr-detail .pr-decision-bar > .pr-action-status:not(.pr-session-open-status)');
   const willPostDetail = page.locator('.pr-detail .pr-will-post-detail');
   const postCheckbox = page.locator('.pr-detail').getByRole('checkbox', { name: 'Post', exact: true });
   const caughtUpTitle = page.locator('.pr-detail-host .pr-caught-up-title');
@@ -606,13 +606,25 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
     await applyStatus(page, withDrafts([createDraft(1, { status: 'posted' }), createDraft(2), createDraft(3)]));
     await replyToCapturedAction(page, true, warning);
     assert.equal(await barStatus.textContent(), `Acme/app#1: Approved on GitHub with 1 finding. ${warning}.`);
+    const barButtonTops = await page.locator('.pr-detail .pr-decision-bar').evaluate((bar) => {
+      const status = bar.querySelector(':scope > .pr-action-status');
+      if (!status || document.documentElement.dataset.layout === 'phone') return null;
+      const buttonTops = () => [...bar.querySelectorAll(':scope > button')].map((barButton) => barButton.getBoundingClientRect().top);
+      const topsWithStatus = buttonTops();
+      const statusNodes = [...status.childNodes];
+      status.replaceChildren();
+      const topsWithoutStatus = buttonTops();
+      status.replaceChildren(...statusNodes);
+      return { topsWithStatus, topsWithoutStatus };
+    });
+    if (barButtonTops) assert.deepEqual(barButtonTops.topsWithStatus, barButtonTops.topsWithoutStatus);
     await showQueue(page);
     await reviewRow(1).click();
     assert.equal(await barStatus.textContent(), `Approved on GitHub with 1 finding. ${warning}.`);
     await applyStatus(page, withDrafts([createDraft(1, { verdict: 'BLOCKED', summary: 'Re-reviewed' }), createDraft(2), createDraft(3)]));
     assert.equal(await page.locator('.pr-detail .pr-verdict-recommendation').count(), 0);
     const decisionButtons = await page.locator('.pr-detail .pr-decision-bar > button').evaluateAll((buttons) => buttons.map((button) => [button.getAttribute('data-action'), button.getAttribute('data-variant')]));
-    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['requeue', 'quiet'], ['discard', 'quiet']]);
+    assert.deepEqual(decisionButtons, [['approve', 'secondary'], ['comment', 'secondary'], ['request-changes', 'primary'], ['open-session', 'secondary'], ['requeue', 'quiet'], ['discard', 'quiet']]);
     assert.equal(await page.locator('.pr-detail [data-action="open-session"]').getAttribute('data-variant'), 'secondary');
     assert.equal(await page.locator('.pr-detail button[data-action="approve"]').isDisabled(), false);
     await applyStatus(page, withDrafts([createDraft(4, { status: 'posted', threads: [{
@@ -825,7 +837,7 @@ async function verifyDragToParked(page: Page): Promise<void> {
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'parked'), true);
     const sent = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string; key?: string };
     assert.deepEqual({ action: sent.action, key: sent.key }, { action: 'discard', key: 'Acme/app#1' });
-    assert.equal(await page.locator('.pr-detail .pr-decision-bar > .pr-action-status').textContent(), 'Parking');
+    assert.equal(await page.locator('.pr-detail .pr-decision-bar > .pr-action-status:not(.pr-session-open-status)').textContent(), 'Parking');
     await replyToCapturedAction(page, false);
   } finally {
     await page.evaluate(() => {
@@ -1124,6 +1136,7 @@ async function verifyOpenInSession(page: Page, layout: Layout, snapshot: TeamRev
       assert.equal(await openStatus.textContent(), 'Preparing the branch and session.');
       assert.deepEqual(await replyToSessionOpen(page, { ok: false, error: 'Could not fetch branch feature' }), { key: `Acme/app#${number}`, type: 'open-team-review-session' });
       assert.equal(await openStatus.textContent(), 'Could not fetch branch feature');
+      if (number === 1) assert.equal(await page.locator('.pr-detail .pr-decision-bar > .pr-action-status:not(.pr-session-open-status)').textContent(), '');
       assert.equal(await openButton.isDisabled(), false);
       await openButton.click();
       await replyToSessionOpen(page, { ok: true, sessionId, sessionName: 'pr-app-1' });
@@ -1199,8 +1212,10 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
   assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'About this PR' || label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['About this PR', 'Verdict', 'Check by hand', 'Findings', 'Earlier review']);
-  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > :not([hidden])').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-will-post', 'pr-desk-facts', 'pr-session-open']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > :not([hidden])').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-will-post']);
   assert.equal(await page.locator('.pr-detail .pr-detail-heading .pr-session-open').count(), 0);
+  assert.equal(await page.locator('.pr-detail .pr-detail-heading > .pr-desk-facts').count(), 1);
+  assert.equal(await page.locator('.pr-detail .pr-decision-bar > [data-action="open-session"]').count(), 1);
   await showQueue(page);
   await nitsRow.click();
   const mixed = { ...status, drafts: [...status.drafts, createDraft(11, { key: 'Acme/docs#11', repo: 'Acme/docs' })] };

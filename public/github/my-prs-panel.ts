@@ -86,7 +86,6 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
     notice.textContent = errorNotice ? [errorNotice, ageText].filter(Boolean).join(' ') : '';
     if (notice.hidden !== !currentStatus?.error) notice.hidden = !currentStatus?.error;
     progress.textContent = githubPollingRefreshText(currentStatus, isPending, outcomeText) || (!currentStatus?.error ? ageText : '') || '';
-    if (progress.hidden !== !progress.textContent) progress.hidden = !progress.textContent;
     const shouldTick = notice.isConnected && !isPanelHidden(panel) && !document.hidden && notice.getClientRects().length > 0 && hasGithubPollingCountdown(currentStatus, nowMs);
     if (!shouldTick && countdownTimer !== null) {
       window.clearInterval(countdownTimer);
