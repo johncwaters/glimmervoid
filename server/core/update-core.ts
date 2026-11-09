@@ -1,13 +1,12 @@
-import { InstallFlavor } from '../../shared/contracts/control-messages.ts';
+import { BINARY_SWITCH_FLAVORS, InstallFlavor } from '../../shared/contracts/control-messages.ts';
 import { UpdateChannel } from '../../shared/contracts/update-journal.ts';
 import { compareReleaseVersions, isExperimentalBuild } from '../../shared/build-channel.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
 import { textOr } from '../../shared/coerce.ts';
 import { FULL_SHA_RE, shortSha as abbreviateSha } from '../../shared/git-text.ts';
 
-const NPM_PACKAGE_NAME = 'glimmervoid';
-const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
-const NATIVE_INSTALL_SCRIPTS_FLAG = '--allow-scripts=node-pty,ffmpeg-static';
+const UNIX_INSTALLER_NAME = 'glimmervoid-installer.sh';
+const WINDOWS_INSTALLER_NAME = 'glimmervoid-installer.ps1';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const BINARY_UPDATER_NAME = 'glimmervoid-update';
@@ -77,19 +76,27 @@ function decideInstallFlavor({ standaloneExecutablePath, packageRoot, lockfileSh
   return { flavor: 'unknown', installedSha: null };
 }
 
-function buildNpxCommand(latestVersion: unknown): string {
-  return `npx ${NATIVE_INSTALL_SCRIPTS_FLAG} ${NPM_PACKAGE_NAME}@${textOr(latestVersion, null) ?? 'latest'}`;
+function isBinarySwitchFlavor(flavor: unknown): boolean {
+  return typeof flavor === 'string' && BINARY_SWITCH_FLAVORS.has(flavor);
 }
 
-function buildNpmGlobalCommand(latestVersion: unknown): string {
+function installerFileName(platform: string): string {
+  return platform === 'win32' ? WINDOWS_INSTALLER_NAME : UNIX_INSTALLER_NAME;
+}
+
+function installerUrl(version: string, platform: string): string {
+  return `https://github.com/${REPO_SLUG}/releases/download/v${version}/${installerFileName(platform)}`;
+}
+
+function buildInstallerCommand(latestVersion: unknown, platform: string): string {
   const version = textOr(latestVersion, null);
-  const installCommand = version ? `npm install -g ${NPM_PACKAGE_NAME}@${version}` : NPM_GLOBAL_COMMAND;
-  return `${installCommand} ${NATIVE_INSTALL_SCRIPTS_FLAG}`;
+  const url = version ? installerUrl(version, platform) : `https://github.com/${REPO_SLUG}/releases/latest/download/${installerFileName(platform)}`;
+  if (platform === 'win32') return `powershell -ExecutionPolicy Bypass -c "irm ${url} | iex"`;
+  return `curl --proto '=https' --tlsv1.2 -LsSf ${url} | sh`;
 }
 
-function buildUpdateCommand(flavor: unknown, latestVersion: unknown): string {
-  if (flavor === 'npx') return buildNpxCommand(latestVersion);
-  if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion);
+function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform: string = process.platform): string {
+  if (isBinarySwitchFlavor(flavor)) return buildInstallerCommand(latestVersion, platform);
   if (flavor === 'binary') return BINARY_UPDATER_NAME;
   if (flavor === 'homebrew') return HOMEBREW_COMMAND;
   return CLONE_COMMAND;
@@ -160,7 +167,7 @@ function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   return textOr(reason, null);
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, channel, reason, isLatestReleaseAncestorOfHead, deprecation }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, channel, reason, isLatestReleaseAncestorOfHead, deprecation, platform = process.platform }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
@@ -170,6 +177,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
   deprecation?: unknown;
+  platform?: string;
 } = {}) {
   const currentSha = normalizeSha(installedSha);
   const latestSha = normalizeSha(remoteSha);
@@ -181,13 +189,15 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     && compareReleaseVersions(latest, current) > 0;
   const isReleaseAlreadyCheckedOut = isTargetInCheckout && !isExperimentalBuild(latest);
   return {
-    updateAvailable: !isTargetInCheckout && compareReleaseVersions(latest, current) > 0,
+    updateAvailable: isBinarySwitchFlavor(normalizedFlavor)
+      ? latest !== null && compareReleaseVersions(latest, current) >= 0
+      : !isTargetInCheckout && compareReleaseVersions(latest, current) > 0,
     current,
     latest,
     currentSha,
     latestSha,
     releaseUrl: buildReleaseUrl(latest),
-    command: buildUpdateCommand(flavor, latest),
+    command: buildUpdateCommand(flavor, latest, platform),
     flavor: normalizedFlavor,
     channel: normalizeUpdateChannel(channel),
     reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
@@ -205,4 +215,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NATIVE_INSTALL_SCRIPTS_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseRemoteTagSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseLatestRelease, decideUpdateStatus, isCheckFresh };
+export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, isBinarySwitchFlavor, installerFileName, installerUrl, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseRemoteTagSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseLatestRelease, decideUpdateStatus, isCheckFresh };

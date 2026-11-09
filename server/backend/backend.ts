@@ -579,7 +579,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     checkForUpdate: options.checkForUpdate || undefined,
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
-    getNpmGlobalInstall: () => updateApply.getNpmGlobalInstall(),
+    isSupervised: () => updateApply.isSupervised(),
     getBinaryUpdaterPath: () => updateApply.getBinaryUpdaterPath(),
     getControlClientCount: viewerControlClientCount,
     broadcastControl,
@@ -712,7 +712,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     exit: options.exit,
     spawn,
     beforeHandOff: updateApply.handOffStagedUpdate,
-    superviseSuccessor: updateApply.superviseSuccessor,
   });
 
   ({ removeExitedSession } = createBackendControl({

@@ -24,7 +24,6 @@ interface ClosableServer {
 
 type RespawnedProcess = Pick<ChildProcess, 'unref' | 'once'>;
 type RespawnFn = (file: string, args: string[], options: SpawnOptions) => RespawnedProcess;
-type SuperviseSuccessor = (successor: Pick<ChildProcess, 'once'>) => Promise<boolean>;
 
 interface LifecycleOptions {
   shutdown: () => unknown;
@@ -41,7 +40,6 @@ interface LifecycleOptions {
   closeTimeoutMs?: number;
   beforeHandOff?: () => Promise<void>;
   beforeHandOffCapMs?: number;
-  superviseSuccessor?: SuperviseSuccessor;
 }
 
 interface Lifecycle {
@@ -96,7 +94,6 @@ function createLifecycle({
   closeTimeoutMs = 2000,
   beforeHandOff,
   beforeHandOffCapMs = 300_000,
-  superviseSuccessor,
 }: LifecycleOptions): Lifecycle {
   let requested = false;
   let handOffPrepared = false;
@@ -171,12 +168,6 @@ function createLifecycle({
       }
       const successor = await spawnReplacement();
       if (!successor) return;
-      const shouldStartRolledBackServer = superviseSuccessor ? await superviseSuccessor(successor) : false;
-      if (shouldStartRolledBackServer) {
-        const rolledBackServer = await spawnReplacement();
-        if (!rolledBackServer) return;
-        rolledBackServer.unref();
-      }
       successor.unref();
       exit(0);
     }

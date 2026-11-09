@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { UpdateJournal as UpdateJournalSchema } from '../shared/contracts/update-journal.ts';
@@ -25,7 +26,6 @@ import {
   interruptedDisplayJournal,
   lowPriorityCommand,
   planHandOffRenames,
-  planNpmGlobalHandOffRenames,
   planSteps,
   PREVIOUS_DEPENDENCIES_BACKUP_NAME,
   PREVIOUS_DIST_BACKUP_NAME,
@@ -33,10 +33,11 @@ import {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 } from './core/update-apply-core.ts';
-import type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
-import { BINARY_UPDATER_NAME, NATIVE_INSTALL_SCRIPTS_FLAG } from './core/update-core.ts';
+import { STANDALONE_BINARY_PATH } from '../shared/contracts/control-messages.ts';
+import type { PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
+import { BINARY_UPDATER_NAME, installerFileName, installerUrl, isBinarySwitchFlavor } from './core/update-core.ts';
+import { decideRestartStrategy } from './core/restart-strategy.ts';
 import { compareReleaseVersions } from '../shared/build-channel.ts';
-import { stableLauncherPathFor } from './stable-node-path.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { runCommand as execCommand, runGit } from './git/git-exec.ts';
 import type { CommandResult } from './git/git-exec.ts';
@@ -53,15 +54,13 @@ const MERGE_COMMAND_TIMEOUT_MS = 30_000;
 const INSTALL_TIMEOUT_MS = 15 * 60_000;
 const BUILD_TIMEOUT_MS = 10 * 60_000;
 const VERIFY_TIMEOUT_MS = 60_000;
-const SUCCESSOR_LISTEN_TIMEOUT_MS = 30_000;
-const SUCCESSOR_POLL_INTERVAL_MS = 500;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 const RESTORE_MARKER_NAME = 'restore.json';
 const RELEASE_VERSION_LINE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
 
 type UpdateFileSystem = Pick<
   typeof fs.promises,
-  'access' | 'appendFile' | 'mkdir' | 'readFile' | 'rename' | 'rm' | 'symlink' | 'writeFile'
+  'access' | 'appendFile' | 'mkdir' | 'mkdtemp' | 'readFile' | 'rename' | 'rm' | 'symlink' | 'writeFile'
 >;
 type RunCommand = typeof execFileAsync;
 type UpdateGitWorkspace = Pick<
@@ -81,7 +80,8 @@ interface UpdateApplyDependencies {
   logger: Pick<Console, 'log' | 'warn'>;
   clock?: () => number;
   platform?: NodeJS.Platform;
-  nodePath?: string;
+  fetchFn?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
   standaloneExecutablePath?: string | null;
 }
 
@@ -98,12 +98,6 @@ interface ListeningServer {
   removeListener(event: 'listening', listener: () => void): unknown;
 }
 
-interface NpmGlobalStagedDescriptor {
-  state: 'staged';
-  kind: 'npm-global';
-  layout: NpmGlobalLayout;
-}
-
 interface CloneStagedDescriptor {
   state: 'staged';
   kind: 'clone';
@@ -118,13 +112,7 @@ interface BinaryStagedDescriptor {
   kind: 'binary';
 }
 
-type StagedDescriptor = BinaryStagedDescriptor | CloneStagedDescriptor | NpmGlobalStagedDescriptor;
-
-interface SuccessorProcess {
-  once(event: 'exit', listener: () => void): unknown;
-}
-
-type SuccessorFate = 'exited' | 'listening' | 'still-starting';
+type StagedDescriptor = BinaryStagedDescriptor | CloneStagedDescriptor;
 
 interface CheckoutTargetProbe {
   fastForward: PreflightDecision;
@@ -140,10 +128,9 @@ interface CommandOutcome {
 interface UpdateApplyLane {
   applyUpdate(): Promise<UpdateApplyOutcome>;
   getJournal(): UpdateJournal;
-  getNpmGlobalInstall(): NpmGlobalInstall | null;
+  isSupervised(): boolean;
   getBinaryUpdaterPath(): string | null;
   handOffStagedUpdate(): Promise<void>;
-  superviseSuccessor(successor: SuccessorProcess): Promise<boolean>;
   isRestartRequested(): boolean;
   noteRestartRequested(): void;
   startAfterListening(httpServer: ListeningServer): void;
@@ -182,8 +169,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   const updatePath = path.join(dependencies.packageRoot, '.glimmervoid', 'update');
   const stagingPath = path.join(updatePath, 'next');
   const npmGlobalLayout = decideNpmGlobalLayout(dependencies.packageRoot);
-  const nodePath = dependencies.nodePath || stableLauncherPathFor('node');
-  const npmPath = path.join(path.dirname(nodePath), 'npm');
   const standaloneExecutablePath = dependencies.standaloneExecutablePath === undefined
     ? standaloneExecutableRealpath()
     : dependencies.standaloneExecutablePath;
@@ -203,8 +188,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       return null;
     }
   }
-  let isInstallWritable: boolean | null = null;
-  let hasSwappedNpmGlobalPackage = false;
   let journal = idleJournal(dependencies.getUpdateChannel());
   let stagedDescriptor: StagedDescriptor | null = null;
   let inFlight = false;
@@ -227,20 +210,8 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return structuredClone(journal);
   }
 
-  function getNpmGlobalInstall(): NpmGlobalInstall | null {
-    if (!npmGlobalLayout) return null;
-    return { installFolder: npmGlobalLayout.installFolder, isWritable: isInstallWritable };
-  }
-
-  async function refreshInstallWritability(): Promise<void> {
-    if (!npmGlobalLayout) return;
-    try {
-      await fsPromises.access(npmGlobalLayout.installFolder, fs.constants.W_OK);
-      await fsPromises.access(npmGlobalLayout.livePackagePath, fs.constants.W_OK);
-      isInstallWritable = true;
-    } catch {
-      isInstallWritable = false;
-    }
+  function isSupervised(): boolean {
+    return decideRestartStrategy(dependencies.env ?? process.env) === 'exit-for-supervisor';
   }
 
   async function publish(nextJournal: UpdateJournal, failOnWrite = true): Promise<void> {
@@ -343,7 +314,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       return refusal('already-staged', 'Restart to apply the staged update.');
     }
     if (restartRequested) return refusal('restart-requested', 'Wait for the requested restart to finish.');
-    if (status.flavor === 'npm-global') return stageNpmGlobalUpdate(status, channel);
+    if (isBinarySwitchFlavor(status.flavor)) return installStandaloneBinary(status, channel);
     if (standaloneExecutablePath) return stageBinaryUpdate(status, channel, standaloneExecutablePath);
     const tree = await dependencies.gitWorkspace.probeWorktreeDirty({
       projectPath: dependencies.packageRoot,
@@ -431,11 +402,31 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return run;
   }
 
-  async function stageNpmGlobalUpdate(status: UpdateStatus, channel: UpdateChannel): Promise<UpdateApplyOutcome> {
-    await refreshInstallWritability();
+  async function downloadInstaller(url: string, installerPath: string): Promise<void> {
+    const response = await (dependencies.fetchFn ?? fetch)(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`installer-download-failed: ${url} answered HTTP ${response.status}`);
+    await fsPromises.writeFile(installerPath, await response.text(), { mode: 0o700 });
+  }
+
+  async function runInstaller(targetVersion: string, platform: NodeJS.Platform): Promise<void> {
+    const installerFolder = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-installer-'));
+    try {
+      const installerPath = path.join(installerFolder, installerFileName(platform));
+      await downloadInstaller(installerUrl(targetVersion, platform), installerPath);
+      const installer = platform === 'win32'
+        ? { file: 'powershell', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', installerPath] }
+        : { file: 'sh', args: [installerPath] };
+      await runInstallCommand(installer.file, installer.args, installerFolder, INSTALL_TIMEOUT_MS);
+    } finally {
+      await fsPromises.rm(installerFolder, { recursive: true, force: true });
+    }
+  }
+
+  async function installStandaloneBinary(status: UpdateStatus, channel: UpdateChannel): Promise<UpdateApplyOutcome> {
+    const platform = dependencies.platform || process.platform;
     const decision = decidePreflight({
       flavor: status.flavor,
-      platform: dependencies.platform || process.platform,
+      platform,
       statusChannel: status.channel,
       configuredChannel: channel,
       updateAvailable: status.updateAvailable,
@@ -448,33 +439,29 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       targetSha: null,
       journalState: journal.state,
       restartRequested,
-      npmGlobalInstall: getNpmGlobalInstall(),
+      isSupervised: isSupervised(),
     });
     if (!decision.ok) return refusal(decision.reason, decision.message);
-    if (!npmGlobalLayout || !status.latest) return refusal('missing-target-version', 'The target version is unknown. Check for updates again.');
-    const layout = npmGlobalLayout;
+    if (!status.latest) return refusal('missing-target-version', 'The target version is unknown. Check for updates again.');
     const targetVersion = status.latest;
     try {
       await publish(beginRun(journal, {
         stepIds: ['install'],
         fromSha: status.currentSha,
-        toSha: status.latestSha,
+        toSha: null,
         toVersion: targetVersion,
         channel,
         now: clock(),
       }));
-      await fsPromises.rm(layout.stagePrefix, { recursive: true, force: true });
-      await fsPromises.mkdir(layout.stagePrefix, { recursive: true });
       await publish(beginStep(journal, { stepId: 'install', now: clock() }));
-      await runNpmGlobalInstall(layout, targetVersion);
-      await verifyStagedPackage(layout, targetVersion);
+      await runInstaller(targetVersion, platform);
       await publish(finishStep(journal, { stepId: 'install', now: clock() }));
-      await publish(markStaged(journal, { now: clock() }));
-      stagedDescriptor = { state: 'staged', kind: 'npm-global', layout };
-      dependencies.logger.log(`[update] staged glimmervoid@${targetVersion} in ${layout.stagedPackagePath}`);
-      return { ok: true, reason: null, message: 'Update staged. Restart to apply it.' };
+      await publish(markSucceeded(journal, { now: clock() }));
+      dependencies.logger.log(`[update] installed the standalone ${targetVersion} binary at ${STANDALONE_BINARY_PATH}`);
+      return { ok: true, reason: null, message: `Installed at ${STANDALONE_BINARY_PATH}.` };
     } catch (error) {
-      return failAndCleanNpmGlobal(layout, errorText(error));
+      await publish(failRun(journal, { reason: errorText(error), now: clock() }), false);
+      return refusal(errorText(error), errorText(error));
     }
   }
 
@@ -553,29 +540,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return outcome.output;
   }
 
-  async function runNpmGlobalInstall(layout: NpmGlobalLayout, targetVersion: string): Promise<void> {
-    const platform = dependencies.platform || process.platform;
-    const installArgs = ['install', '--global', '--prefix', layout.stagePrefix, '--no-audit', '--no-fund', '--prefer-online', `glimmervoid@${targetVersion}`, NATIVE_INSTALL_SCRIPTS_FLAG];
-    const throttled = lowPriorityCommand({ file: npmPath, args: installArgs, platform });
-    await runInstallCommand(throttled.file, throttled.args, layout.updatePath, INSTALL_TIMEOUT_MS);
-  }
-
-  async function verifyStagedPackage(layout: NpmGlobalLayout, targetVersion: string): Promise<void> {
-    const stagedBin = path.join(layout.stagedPackagePath, 'dist', 'bin', 'glimmervoid.js');
-    const printedVersion = (await runInstallCommand(nodePath, [stagedBin, '--version'], layout.updatePath, VERIFY_TIMEOUT_MS)).trim();
-    if (printedVersion !== targetVersion) {
-      throw new Error(`staged-version-mismatch: expected ${targetVersion}, the staged build printed ${printedVersion || 'nothing'}`);
-    }
-    await runInstallCommand(nodePath, [stagedBin, 'doctor'], layout.updatePath, VERIFY_TIMEOUT_MS);
-  }
-
-  async function failAndCleanNpmGlobal(layout: NpmGlobalLayout, reason: string): Promise<UpdateApplyOutcome> {
-    stagedDescriptor = null;
-    await fsPromises.rm(layout.stagePrefix, { recursive: true, force: true });
-    await publish(failRun(journal, { reason, now: clock() }), false);
-    return refusal(reason, reason);
-  }
-
   async function writeRestoreMarker(failedReversals: RenameOperation[]): Promise<void> {
     const restore = failedReversals.map((operation) => ({
       from: operation.artifact === 'node_modules' ? PREVIOUS_DEPENDENCIES_BACKUP_NAME : PREVIOUS_DIST_BACKUP_NAME,
@@ -629,105 +593,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       ? ''
       : `; the git queue refused ${refusedCleanupSteps.join(' and ')}`;
     await publish(failRun(journal, { reason: `${reason}${cleanupNote}`, now: clock(), atHandOff: true }), false);
-  }
-
-  async function performNpmGlobalHandOff(descriptor: NpmGlobalStagedDescriptor): Promise<void> {
-    const plan = planNpmGlobalHandOffRenames(descriptor.layout);
-    try {
-      await fsPromises.rm(descriptor.layout.previousPackagePath, { recursive: true, force: true });
-      for (let renameIndex = 0; renameIndex < plan.renames.length; renameIndex += 1) {
-        const rename = plan.renames[renameIndex];
-        try {
-          await fsPromises.rename(rename.from, rename.to);
-        } catch (error) {
-          const failedReversals = await reverseRenames(plan.reversalsByFailureIndex[renameIndex] || []);
-          const reversalNote = failedReversals.length === 0
-            ? ''
-            : `; could not move ${failedReversals.map((reversal) => reversal.from).join(', ')} back`;
-          await publish(failRun(journal, { reason: `handoff-rename-failed: ${errorText(error)}${reversalNote}`, now: clock(), atHandOff: true }), false);
-          return;
-        }
-      }
-      hasSwappedNpmGlobalPackage = true;
-      await publish(markSucceeded(journal, { now: clock() }), false);
-      stagedDescriptor = null;
-    } catch (error) {
-      await publish(failRun(journal, { reason: errorText(error), now: clock(), atHandOff: true }), false);
-    }
-  }
-
-  async function isPathPresent(candidatePath: string): Promise<boolean> {
-    try {
-      await fsPromises.access(candidatePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function awaitSuccessorFate(successor: SuccessorProcess, previousPackagePath: string): Promise<SuccessorFate> {
-    return new Promise((resolve) => {
-      const deadline = clock() + SUCCESSOR_LISTEN_TIMEOUT_MS;
-      let pollTimer: NodeJS.Timeout | null = null;
-      let isSettled = false;
-      const settle = (fate: SuccessorFate) => {
-        if (isSettled) return;
-        isSettled = true;
-        if (pollTimer) clearTimeout(pollTimer);
-        resolve(fate);
-      };
-      successor.once('exit', () => settle('exited'));
-      const poll = async () => {
-        if (isSettled) return;
-        if (!await isPathPresent(previousPackagePath)) {
-          settle('listening');
-          return;
-        }
-        if (clock() >= deadline) {
-          settle('still-starting');
-          return;
-        }
-        pollTimer = setTimeout(() => { void poll(); }, SUCCESSOR_POLL_INTERVAL_MS);
-      };
-      void poll();
-    });
-  }
-
-  async function restorePreviousPackage(layout: NpmGlobalLayout): Promise<string | null> {
-    try {
-      await fsPromises.rm(layout.quarantinedPackagePath, { recursive: true, force: true });
-      await fsPromises.rename(layout.livePackagePath, layout.quarantinedPackagePath);
-    } catch (error) {
-      return errorText(error);
-    }
-    try {
-      await fsPromises.rename(layout.previousPackagePath, layout.livePackagePath);
-      return null;
-    } catch (restoreError) {
-      try {
-        await fsPromises.rename(layout.quarantinedPackagePath, layout.livePackagePath);
-        return errorText(restoreError);
-      } catch (unquarantineError) {
-        return `${errorText(restoreError)}; moving the new version back also failed: ${errorText(unquarantineError)}`;
-      }
-    }
-  }
-
-  async function superviseSuccessor(successor: SuccessorProcess): Promise<boolean> {
-    if (!npmGlobalLayout || !hasSwappedNpmGlobalPackage) return false;
-    const fate = await awaitSuccessorFate(successor, npmGlobalLayout.previousPackagePath);
-    if (fate !== 'exited') return false;
-    if (!await isPathPresent(npmGlobalLayout.previousPackagePath)) return false;
-    const failedVersion = journal.toVersion || 'the new version';
-    const rollbackFailure = await restorePreviousPackage(npmGlobalLayout);
-    if (rollbackFailure) {
-      await publish(failRun(journal, { reason: `${failedVersion} exited before listening and the rollback failed: ${rollbackFailure}`, now: clock(), atHandOff: true }), false);
-      return false;
-    }
-    hasSwappedNpmGlobalPackage = false;
-    dependencies.logger.warn(`[update] ${failedVersion} exited before listening; restored the previous version`);
-    await publish(failRun(journal, { reason: `${failedVersion} exited before listening, so the previous version was restored`, now: clock(), atHandOff: true }), false);
-    return true;
   }
 
   async function rebuildStagingAt(descriptor: CloneStagedDescriptor, headSha: string): Promise<string | null> {
@@ -836,10 +701,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       await handOffBinaryUpdate(descriptor);
       return;
     }
-    if (npmGlobalLayout) {
-      await handOffNpmGlobalUpdate(npmGlobalLayout, descriptor);
-      return;
-    }
+    if (npmGlobalLayout) return;
     if (descriptor?.kind !== 'clone' || inFlight) {
       await dependencies.gitWorkspace.removeWorktreeByPath({
         projectPath: dependencies.packageRoot,
@@ -859,17 +721,6 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (descriptor?.kind !== 'binary' || inFlight) return;
     stagedDescriptor = null;
     await publish(markSucceeded(journal, { now: clock() }), false);
-  }
-
-  async function handOffNpmGlobalUpdate(layout: NpmGlobalLayout, descriptor: StagedDescriptor | null): Promise<void> {
-    if (descriptor?.kind !== 'npm-global' || inFlight) {
-      await fsPromises.rm(layout.stagePrefix, { recursive: true, force: true });
-      return;
-    }
-    inFlight = true;
-    const run = performNpmGlobalHandOff(descriptor).finally(() => { inFlight = false; });
-    activeRun = run;
-    await run;
   }
 
   function isRestartRequested(): boolean {
@@ -979,15 +830,12 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     return whenIdle();
   }
 
-  void refreshInstallWritability();
-
   return {
     applyUpdate,
     getJournal,
-    getNpmGlobalInstall,
+    isSupervised,
     getBinaryUpdaterPath,
     handOffStagedUpdate,
-    superviseSuccessor,
     isRestartRequested,
     noteRestartRequested,
     startAfterListening,

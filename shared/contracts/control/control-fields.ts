@@ -144,6 +144,8 @@ export type UpdateApplyRefusal = z.infer<typeof UpdateApplyRefusal>;
 
 export const InstallFlavor = z.enum(['npm-global', 'npx', 'clone', 'binary', 'homebrew', 'unknown']);
 export type InstallFlavor = z.infer<typeof InstallFlavor>;
+export const BINARY_SWITCH_FLAVORS: ReadonlySet<string> = new Set<InstallFlavor>(['npm-global', 'npx']);
+export const STANDALONE_BINARY_PATH = '~/.glimmervoid/bin/glimmervoid';
 
 export const updateStatusShape = {
   updateAvailable: z.boolean(),
