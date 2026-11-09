@@ -18,7 +18,7 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { getRailWidth, getSplitBoardBySession, isRailStatusKeyOpen, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
-import { countAttentionByKind, orderAttentionLine, orderRoster, pickAdjacent } from './attention-core.ts';
+import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from './attention-core.ts';
 import type { ProjectBoards, RosterGroup, SplitBoardBySession } from './roster-groups-core.ts';
 import { boardsByProject, closeSplit, connectionKeysOf, groupRoster, liveSplits, newestFreeBoardOf, openSplit, splitNewConnections, splitsOfBoards, visibleOrder, withBoardProjects } from './roster-groups-core.ts';
 import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
@@ -27,7 +27,8 @@ import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow, tetherAttentionTile } from '../attention-banner.ts';
 import { buildSessionRow, paintBoardRow, paintSessionRow, paintSessionRowSplit, wrapSessionRow } from '../session-row.ts';
 import { describeFailure } from '../client-error-core.ts';
-import { reportToServerLog } from '../control-ws.ts';
+import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
+import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
 import { boardSummariesOf, boardsConnectedTo, connectSessionToBoard, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
@@ -57,6 +58,7 @@ type BoardRow = ReturnType<typeof buildBoardRow>;
 type ArchivedFold = ReturnType<typeof buildArchivedFold>;
 
 const BOARD_ROW_MIME = 'application/x-glimmervoid-board-row';
+const SESSION_ROW_MIME = 'application/x-glimmervoid-session-row';
 
 type GroupList = HTMLDivElement & { _lastOrderKey?: string };
 
@@ -96,6 +98,9 @@ const groupHeaderById = new Map<string, SessionGroupHeader>();
 let railTabStopId: string | null = null;
 let lastGroupOrderKey = '';
 let lastRailOrder: string[] = [];
+let draggedSessionId: string | null = null;
+let rosterRowById = new Map<string, RosterRow>();
+let rosterGroupKeyBySessionId = new Map<string, string>();
 
 const NO_COLLAPSED = new Set<string>();
 function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), NO_COLLAPSED); }
@@ -360,8 +365,30 @@ function railRowsInOrder() {
 }
 
 function orderedSessions() {
-  return orderRoster(readSessionRows(sessionName));
+  return orderRoster(readSessionRows(sessionName), savedSessionOrder());
 }
+
+function savedSessionOrder(): string[] {
+  return sessionOrderOf(settingsPayloadSnapshot());
+}
+
+function saveSessionOrder(nextSessionOrder: string[]) {
+  const previousSessionOrder = savedSessionOrder();
+  const applySessionOrder = (sessionOrder: string[]) => {
+    mergeSettingsPayload({ sessionOrder });
+    refreshFocusRoster();
+  };
+  applySessionOrder(nextSessionOrder);
+  sendControlRequest('update-settings', { settings: { sessionOrder: nextSessionOrder } })
+    .then((message) => {
+      if (message.type === 'settings-error') applySessionOrder(previousSessionOrder);
+    })
+    .catch(() => applySessionOrder(previousSessionOrder));
+}
+
+subscribeSettings((change) => {
+  if (change.kind === 'broadcast') refreshFocusRoster();
+});
 
 function sessionName(ui: SessionUi): string | null {
   return ui.nameEl ? ui.nameEl.textContent : (ui.card ? (ui.card.dataset.session || ui.card.dataset.id || '') : '');
@@ -379,6 +406,7 @@ function buildPill(id: string) {
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
   wireBoardRowDropTarget(item, id);
+  wireSessionRowDrag(pill, item, id);
   return Object.assign(pill, { _refs: refs, _row: item });
 }
 
@@ -407,6 +435,66 @@ function wireBoardRowDropTarget(item: HTMLElement, sessionId: string) {
     if (!boardId) return;
     event.preventDefault();
     splitSessionWithBoard(sessionId, boardId);
+  });
+}
+
+function isSessionRowDrag(event: DragEvent) {
+  return draggedSessionId !== null && event.dataTransfer?.types.includes(SESSION_ROW_MIME) === true;
+}
+
+function canDropSessionOn(targetId: string) {
+  const draggedRow = draggedSessionId ? rosterRowById.get(draggedSessionId) : undefined;
+  const targetRow = rosterRowById.get(targetId);
+  if (!draggedRow || !targetRow) return false;
+  return canDropRow(draggedRow, targetRow, (row) => rosterGroupKeyBySessionId.get(row.id) ?? '', new Set(rosterRowById.keys()));
+}
+
+function dropSideAt(item: HTMLElement, event: DragEvent): 'before' | 'after' {
+  const rect = item.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+}
+
+function railRowsInRailOrder() {
+  return lastRailOrder.flatMap((id) => rosterRowById.get(id) ?? []);
+}
+
+function clearSessionDropMarker() {
+  for (const marked of railEl?.querySelectorAll<HTMLElement>('.session-row-item[data-drop-target]') ?? []) delete marked.dataset.dropTarget;
+}
+
+function markSessionDrop(targetId: string, side: 'before' | 'after') {
+  const anchorItem = pillById.get(dropAnchorId(railRowsInRailOrder(), targetId, side))?._row;
+  if (anchorItem?.dataset.dropTarget === side) return;
+  clearSessionDropMarker();
+  if (anchorItem) anchorItem.dataset.dropTarget = side;
+}
+
+function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: string) {
+  pill.draggable = true;
+  pill.addEventListener('dragstart', (event) => {
+    draggedSessionId = sessionId;
+    event.dataTransfer?.setData(SESSION_ROW_MIME, sessionId);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  });
+  pill.addEventListener('dragend', () => {
+    draggedSessionId = null;
+    clearSessionDropMarker();
+  });
+  item.addEventListener('dragover', (event) => {
+    if (!isSessionRowDrag(event) || !canDropSessionOn(sessionId)) return;
+    event.preventDefault();
+    markSessionDrop(sessionId, dropSideAt(item, event));
+  });
+  item.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget instanceof Node && railEl?.contains(event.relatedTarget)) return;
+    clearSessionDropMarker();
+  });
+  item.addEventListener('drop', (event) => {
+    clearSessionDropMarker();
+    if (!isSessionRowDrag(event) || !canDropSessionOn(sessionId) || !draggedSessionId) return;
+    event.preventDefault();
+    saveSessionOrder(sessionOrderAfterDrop(railRowsInRailOrder(), savedSessionOrder(), draggedSessionId, sessionId, dropSideAt(item, event)));
+    draggedSessionId = null;
   });
 }
 
@@ -487,6 +575,8 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   if (!mountedRail) return;
   const order = orderedSessions();
   const groups = groupsOf(order);
+  rosterRowById = new Map(order.map((row) => [row.id, row]));
+  rosterGroupKeyBySessionId = new Map(groups.groups.flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
   const boardSummaries = boardSummariesOf();
   if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
   const groupKeyBySessionId = new Map(groups.groups.filter((group) => group.hostId === null).flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));

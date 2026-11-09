@@ -2,7 +2,8 @@ import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
 import type { SessionRow } from '../focus-view/attention-core.ts';
-import { countAttentionByKind, orderAttentionLine, orderRoster } from '../focus-view/attention-core.ts';
+import { countAttentionByKind, orderAttentionLine, orderRoster, sessionOrderOf } from '../focus-view/attention-core.ts';
+import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
@@ -115,7 +116,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   }
 
   function currentOrderedRows() {
-    return orderRoster(readSessionRows());
+    return orderRoster(readSessionRows(), sessionOrderOf(settingsPayloadSnapshot()));
   }
 
   function refresh() {
@@ -196,6 +197,10 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     const row = rowById.get(id);
     const state = row ? rowState.get(row) : undefined;
     if (state) writeTextIfChanged(state.refs.elapsed, sessionElapsedText(ui));
+  });
+
+  subscribeSettings((change) => {
+    if (change.kind === 'broadcast' && screen.isConnected) refresh();
   });
 
   return {
