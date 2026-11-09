@@ -61,7 +61,7 @@ not separate runtimes; CPU ticks do).
 
 | Runtime | Idle RSS | Peak RSS | Idle CPU | CPU ticks, 2000 req | Notes |
 |---|---|---|---|---|---|
-| Node 22.23 | 135 MB | 176 MB | 1.06% | 240 | below `engines` `>=24.15.0` |
+| Node 22.23 | 135 MB | 176 MB | 1.06% | 240 | below the required `>=24.15.0` |
 | Node 24.22 | 198 MB | 239 MB | 0.41% | 204 | about 60 MB more RSS; `node-pty` works |
 | Bun 1.4.2 | 135 MB | 151 MB | 1.20% | 161 | no `node:sea`; needs a shim to boot, watcher child crash-loops |
 | Node 22, `MALLOC_ARENA_MAX=2` | 128 MB | 172 MB | 0.73% | 240 | about equal |
@@ -71,8 +71,8 @@ not separate runtimes; CPU ticks do).
 
 Idle RSS is mostly runtime and code: the JS heap is 30 to 40 MB of the 135 MB. Bun's gains are a
 lower peak and about 33% less CPU per request, against a `node:sea` port (`server/runtime-paths.ts`,
-`server/update-check.ts`) and untested full sessions. Deno was not installed; a Go or Rust rewrite was
-not built, so neither was measured.
+`server/update-check.ts`) and untested full sessions. Deno was not installed; a rewrite in a
+natively compiled language was not built, so neither was measured.
 
 Other processes for scale: `glimmervoid watch` is a second Node process at 76 to 79 MB; each `claude`
 child runs 270 to 410 MB.

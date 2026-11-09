@@ -27,7 +27,7 @@ Root causes of unreliability:
    with many documented race band-aids.
 4. **Unmeasurable.** No ground-truth corpus; tuning was by anecdote.
 
-## The decision
+## What we chose
 
 Delete the content-scraping stack and derive status from **structural, machine-emitted signals**:
 

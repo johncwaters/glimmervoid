@@ -17,7 +17,7 @@ Reference: a 66 s demo by @GabiDev98 (x.com/GabiDev98/status/2119060310384365669
 5. **"my" means the signed-in identity**, shown as a persistent pill in a corner with its key number.
 6. **Pasting an identifier opens that entity** (an address, email, key, or id).
 
-## Engine: json-render + Jev
+## Built on json-render and Jev
 
 [json-render](https://json-render.dev) supplies the component catalog (Zod props, slots, events, actions), the spec format and the React renderer. Jev (`typesafe-ai/jev`, through Vercel AI Gateway) is a decision model: given **candidates** (catalog components with concrete props already filled in), it picks which to include, their order, and their parent and slot. It writes no data or prose and never runs actions. API: `experimental_createEvaluator` plus `experimental_composeSpec` in `@json-render/core` >= 0.21.0, experimental, so pin exact versions.
 
@@ -56,7 +56,7 @@ Implication: the creative work moves out of the model and into **candidate gener
 
 Writes or actions with side effects, saved views, sharing, multi-tenant auth, mobile layout.
 
-## Open decisions for /specifying
+## Still open for /specifying
 
 1. **Where it lives:** a standalone app, a Glimmervoid view, or a library plus a demo app.
 2. **Candidate pool size:** generate all plausible blocks per entity, or prefilter with a cheap classifier. Pool size drives Jev latency and cost.

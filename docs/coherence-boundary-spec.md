@@ -55,7 +55,7 @@ At session start glimmervoid runs `coherence version` once and checks it against
 
 Each call is parsed by a Zod schema in `shared/contracts/coherence.ts`, rewritten for the 1.8 shapes. An unknown journal kind parses as an opaque entry (kind plus id), so a new upstream kind degrades one row, not the feed.
 
-### One decision, one place
+### Coherence resolves in one place
 
 `resolveCoherence({ worktree, host, isSettingOn })` in `server/coherence/` returns either nothing or the facts the UI needs (version, hook status, a journal reader). Operator sessions get it through the session factory. Lanes run without Coherence: team review runs in a throwaway work directory where the repository's hooks never fire, and Radar, benchmarks and issues never had it. The repository's own inline hook commands do the rest; glimmervoid injects no env, shims or hook paths.
 
