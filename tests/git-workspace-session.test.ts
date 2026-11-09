@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { execFileSync } from 'node:child_process';
 import { execFileAsync } from '../server/child-process-safe.ts';
 
@@ -1354,4 +1356,66 @@ test('a checkout in the Glimmervoid home survives a git worktree prune run where
   fs.rmSync(path.dirname(controlCheckout), { recursive: true, force: true });
   assert.equal((await workspace.pruneWorktrees({ projectPath: repo })).ok, true);
   assert.doesNotMatch(git(['worktree', 'list', '--porcelain'], repo), /control/);
+});
+
+async function silentGitDaemon(): Promise<{ url: string; close: () => Promise<void> }> {
+  const heldSockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    heldSockets.add(socket);
+    socket.on('close', () => heldSockets.delete(socket));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  return {
+    url: `git://127.0.0.1:${port}/never-answers.git`,
+    close: () => new Promise<void>((resolve) => {
+      for (const socket of heldSockets) socket.destroy();
+      server.close(() => resolve());
+    }),
+  };
+}
+
+function settledFlag(pending: Promise<unknown>): { readonly isSettled: boolean } {
+  const flag = { isSettled: false };
+  pending.then(() => { flag.isSettled = true; }, () => { flag.isSettled = true; });
+  return flag;
+}
+
+test('a fetch hanging in one repository holds only that repository\'s git queue', { skip: !GIT }, async () => {
+  const quietRepo = initRepoOnDevelop();
+  const fetchingRepo = initRepoOnDevelop();
+  const daemon = await silentGitDaemon();
+  try {
+    const gw = createGitWorkspace();
+    const quietWorkspace = await gw.create({ owner: 'lane:test', projectPath: quietRepo, teamId: 'session', label: 'quiet', baseBranch: 'develop' });
+    const fetchingWorkspace = await gw.create({ owner: 'lane:test', projectPath: fetchingRepo, teamId: 'session', label: 'fetching', baseBranch: 'develop' });
+    git(['remote', 'add', 'origin', daemon.url], fetchingRepo);
+
+    const hangingFetch = gw.fetchOrigin({ projectPath: fetchingRepo, timeoutMs: 30000 });
+    const hangingFetchState = settledFlag(hangingFetch);
+    const sameRepoProbe = gw.hasUnmergedWork({ projectPath: fetchingRepo, workspace: fetchingWorkspace, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' });
+    const sameRepoProbeState = settledFlag(sameRepoProbe);
+    const fetchingHead = git(['rev-parse', 'HEAD'], fetchingRepo).trim();
+    const sameRepoWorktreeCheckout = gw.checkoutDetached({ worktreePath: fetchingWorkspace.cwd, sha: fetchingHead });
+    const sameRepoWorktreeCheckoutState = settledFlag(sameRepoWorktreeCheckout);
+
+    const otherRepoAnswer = await Promise.race([
+      gw.hasUnmergedWork({ projectPath: quietRepo, workspace: quietWorkspace, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' }),
+      delay(10000).then(() => 'still queued'),
+    ]);
+    assert.equal(otherRepoAnswer, false, 'another repository answers while the fetch hangs');
+    assert.equal(hangingFetchState.isSettled, false, 'the fetch was still hanging when the other repository answered');
+    assert.equal(sameRepoProbeState.isSettled, false, 'the fetching repository keeps its work queued behind its fetch');
+    assert.equal(sameRepoWorktreeCheckoutState.isSettled, false, 'a call naming only the worktree path queues with its main checkout');
+
+    await daemon.close();
+    assert.equal((await hangingFetch).ok, false);
+    assert.equal(await sameRepoProbe, false);
+    assert.equal((await sameRepoWorktreeCheckout).ok, true);
+  } finally {
+    await daemon.close();
+    fs.rmSync(quietRepo, { recursive: true, force: true });
+    fs.rmSync(fetchingRepo, { recursive: true, force: true });
+  }
 });

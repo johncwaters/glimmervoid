@@ -6,7 +6,7 @@ import type { GitIsolationOptions } from './core/git-invocation-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../child-process-safe.ts';
-import { createSerialQueue, isQueueAdmissionTimeout } from '../spawn-gate.ts';
+import { createKeyedSerialQueue, isQueueAdmissionTimeout } from '../spawn-gate.ts';
 import { sessionIdFromBranch } from '../core/branch-gc-core.ts';
 import { comparableDirectoryPath, isSameDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
@@ -117,17 +117,36 @@ function createGitWorkspace(opts: {
   const glimmervoidHomes = comparableGlimmervoidHomes(glimmervoidHome);
   const removalGuard = resolveRemovalGuard(opts.removalGuard, glimmervoidHome);
 
-  const engineQueue = createSerialQueue();
+  const queueByRepository = createKeyedSerialQueue();
   const isolatedCall = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs) => (): Promise<TResult> =>
     isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args));
-  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => engineQueue.run(isolatedCall(body, args));
+  const queuedPathOf = (args: unknown): string => {
+    if (typeof args === 'string') return args;
+    if (typeof args !== 'object' || args === null) return '';
+    const queuedPath = ['projectPath', 'cwd', 'worktreePath'].map((field) => Reflect.get(args, field)).find((value) => typeof value === 'string');
+    return typeof queuedPath === 'string' ? queuedPath : '';
+  };
+  const repositoryKeyOf = async (args: unknown): Promise<string> => {
+    const queuedPath = queuedPathOf(args);
+    if (!queuedPath) return queuedPath;
+    const commonDir = await isolatedCall(() => run(['rev-parse', '--path-format=absolute', '--git-common-dir'], queuedPath), args)();
+    return commonDir.ok ? commonDir.out.trim() : path.resolve(queuedPath);
+  };
+  let repositoryKeysInCallOrder: Promise<void> = Promise.resolve();
+  const runInRepositoryQueue = async <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs, admission: { admissionTimeoutMs?: number } = {}): Promise<TResult> => {
+    const repositoryKey = repositoryKeyOf(args);
+    const keyInCallOrder = repositoryKeysInCallOrder.then(() => repositoryKey);
+    repositoryKeysInCallOrder = keyInCallOrder.then(() => undefined, () => undefined);
+    return queueByRepository.run(await keyInCallOrder, isolatedCall(body, args), admission);
+  };
+  const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => runInRepositoryQueue(body, args);
   const admitted = <TArgs extends { admissionTimeoutMs?: number }, TResult>(
     body: (args: TArgs) => Promise<TResult>,
     refuse: (args: TArgs) => TResult,
   ) => async (args: TArgs): Promise<TResult> => {
     const admission = args.admissionTimeoutMs === undefined ? {} : { admissionTimeoutMs: args.admissionTimeoutMs };
     try {
-      return await engineQueue.run(isolatedCall(body, args), admission);
+      return await runInRepositoryQueue(body, args, admission);
     } catch (error) {
       if (!isQueueAdmissionTimeout(error)) throw error;
       return refuse(args);

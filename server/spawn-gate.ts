@@ -17,7 +17,7 @@ interface SerialQueue {
 }
 
 interface KeyedSerialQueue {
-  run<T>(key: string, fn: () => T | Promise<T>): Promise<T>;
+  run<T>(key: string, fn: () => T | Promise<T>, options?: SerialQueueRunOptions): Promise<T>;
 }
 
 function isQueueAdmissionTimeout(error: unknown): boolean {
@@ -68,11 +68,11 @@ function createSerialQueue(): SerialQueue {
 function createKeyedSerialQueue(): KeyedSerialQueue {
   const queuesByKey = new Map<string, { queue: SerialQueue; pendingCount: number }>();
 
-  function run<T>(key: string, fn: () => T | Promise<T>): Promise<T> {
+  function run<T>(key: string, fn: () => T | Promise<T>, options?: SerialQueueRunOptions): Promise<T> {
     const entry = queuesByKey.get(key) ?? { queue: createSerialQueue(), pendingCount: 0 };
     queuesByKey.set(key, entry);
     entry.pendingCount += 1;
-    const result = entry.queue.run(fn);
+    const result = entry.queue.run(fn, options);
     result.then(() => undefined, () => undefined).then(() => {
       entry.pendingCount -= 1;
       if (entry.pendingCount === 0 && queuesByKey.get(key) === entry) queuesByKey.delete(key);
