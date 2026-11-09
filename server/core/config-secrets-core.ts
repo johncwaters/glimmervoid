@@ -22,6 +22,49 @@ const ENV_SECRET_BINDINGS: readonly EnvSecretBinding[] = Object.freeze([
 ]);
 
 const ENVIRONMENT_ONLY_BINDINGS = ENV_SECRET_BINDINGS.filter((binding) => binding.isEnvironmentOnly);
+const STORED_SECRET_BINDINGS = ENV_SECRET_BINDINGS.filter((binding) => !binding.isEnvironmentOnly);
+
+type StoredSecrets = Readonly<Record<string, string>>;
+
+function storedSecretKey(binding: EnvSecretBinding): string {
+  return `${binding.blockName}.${binding.secretKey}`;
+}
+
+function secretsHeldIn(config: ConfigBlocks): StoredSecrets {
+  const heldByKey: Record<string, string> = {};
+  for (const binding of STORED_SECRET_BINDINGS) {
+    const block = config[binding.blockName];
+    if (!isRecord(block)) continue;
+    const value = block[binding.secretKey];
+    if (typeof value !== 'string' || value.length === 0) continue;
+    heldByKey[storedSecretKey(binding)] = value;
+  }
+  return heldByKey;
+}
+
+function heldSecrets(storedSecrets: StoredSecrets, envSecrets: readonly ResolvedEnvSecret[]): ResolvedEnvSecret[] {
+  const envProvidedKeys = new Set(envSecrets.map(storedSecretKey));
+  const fromStore = STORED_SECRET_BINDINGS.flatMap((binding) => {
+    const key = storedSecretKey(binding);
+    const value = storedSecrets[key];
+    if (typeof value !== 'string' || value.length === 0 || envProvidedKeys.has(key)) return [];
+    return [{ ...binding, value }];
+  });
+  return [...fromStore, ...envSecrets];
+}
+
+function nextStoredSecrets(storedSecrets: StoredSecrets, effectiveConfig: ConfigBlocks, envSecrets: readonly ResolvedEnvSecret[]): StoredSecrets {
+  const envProvidedKeys = new Set(envSecrets.map(storedSecretKey));
+  const heldInConfig = secretsHeldIn(effectiveConfig);
+  const nextByKey: Record<string, string> = {};
+  for (const binding of STORED_SECRET_BINDINGS) {
+    const key = storedSecretKey(binding);
+    const value = envProvidedKeys.has(key) ? storedSecrets[key] : heldInConfig[key];
+    if (typeof value !== 'string' || value.length === 0) continue;
+    nextByKey[key] = value;
+  }
+  return nextByKey;
+}
 
 function readEnvSecrets(env: Record<string, string | undefined>): ResolvedEnvSecret[] {
   const resolvedSecrets: ResolvedEnvSecret[] = [];
@@ -77,4 +120,5 @@ function stableConfigKey(value: unknown): string {
   return JSON.stringify(withSortedKeys(value));
 }
 
-export { ENV_SECRET_BINDINGS, readEnvSecrets, stableConfigKey, withEnvSecrets, withoutEnvSecrets };
+export { ENV_SECRET_BINDINGS, heldSecrets, nextStoredSecrets, readEnvSecrets, secretsHeldIn, stableConfigKey, withEnvSecrets, withoutEnvSecrets };
+export type { StoredSecrets };

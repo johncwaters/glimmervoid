@@ -1,18 +1,21 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
+import { z } from 'zod';
 import { decideConfigPath, glimmervoidHomeDir as resolveGlimmervoidHomeDir } from '../core/config-path-core.ts';
-import { readEnvSecrets, withEnvSecrets } from '../core/config-secrets-core.ts';
+import { heldSecrets, readEnvSecrets, secretsHeldIn, withEnvSecrets } from '../core/config-secrets-core.ts';
+import type { StoredSecrets } from '../core/config-secrets-core.ts';
 import { AGENT_ID_SHAPE_MESSAGE, Config } from '../../shared/contracts/index.ts';
 import { writeJsonAtomicSync, writeTextAtomicSync } from '../json-file.ts';
-import { errorLabel, errorMessage } from '../../shared/text.ts';
+import { errorLabel, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { normalizeLegacyConfigNumbers } from '../../shared/contracts/config-numbers-core.ts';
 import { WorktreeFileSettings } from '../../shared/contracts/browser-config.ts';
 import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } from './config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
 import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
-import { configBackupPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
+import { configBackupPath, configSecretsPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
 
 const ABORT_CONFIG_SAVE = 'abort-config-save';
 
@@ -120,6 +123,40 @@ function writeBackupContent(backupPath: string, content: string): void {
   }
 }
 
+const StoredSecretsFile = z.object({ version: z.literal(1), secrets: z.record(z.string(), z.string()) });
+
+function storedSecretsText(secretsPath: string): string | null {
+  try {
+    return fs.readFileSync(secretsPath, 'utf8');
+  } catch (err) {
+    if (isMissingFileError(err)) return null;
+    throw new Error(`${secretsPath} could not be read (${errorLabel(err)})`);
+  }
+}
+
+function parsedJsonOrNull(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function readStoredSecrets(configPath: string): StoredSecrets {
+  const secretsPath = configSecretsPath(configPath);
+  const text = storedSecretsText(secretsPath);
+  if (text === null) return {};
+  const parsed = StoredSecretsFile.safeParse(parsedJsonOrNull(text));
+  if (!parsed.success) throw new Error(`${secretsPath} is not a valid Glimmervoid secrets file`);
+  return parsed.data.secrets;
+}
+
+function writeStoredSecrets(configPath: string, secrets: StoredSecrets): void {
+  const secretsPath = configSecretsPath(configPath);
+  writeJsonAtomicSync(secretsPath, { version: 1, secrets }, { mode: CONFIG_FILE_MODE, mkdir: true, enforceMode: true });
+  restrictMode(path.dirname(secretsPath), CONFIG_DIR_MODE);
+}
+
 function removeRetiredBackups(configPath: string): void {
   for (const retiredBackupPath of retiredConfigBackupPaths(configPath)) {
     try {
@@ -132,6 +169,7 @@ function removeRetiredBackups(configPath: string): void {
 
 interface LoadedConfig {
   config: GlimmervoidConfig;
+  secretsFileKeys: string[];
   loadedContent: string;
   renamedKeyMessages: string[];
 }
@@ -147,13 +185,18 @@ function loadConfigFile(configPath: string, options?: { exitOnError?: true; envS
 function loadConfigFile(configPath: string, options: { exitOnError: false; envSecrets?: EnvSecrets }): LoadedConfig | FailedConfigLoad;
 function loadConfigFile(
   configPath: string,
-  { exitOnError = true, envSecrets = readEnvSecrets(process.env) }: { exitOnError?: boolean; envSecrets?: EnvSecrets } = {},
+  { exitOnError = true, envSecrets }: { exitOnError?: boolean; envSecrets?: EnvSecrets } = {},
 ): LoadedConfig | FailedConfigLoad {
   const loadedContent = fs.readFileSync(configPath, 'utf8');
   try {
     const renamedKeyMessages: string[] = [];
     const parsed = normalizeConfigFile(JSON.parse(loadedContent), renamedKeyMessages);
-    return { config: withEnvSecrets(parsed, envSecrets), loadedContent, renamedKeyMessages };
+    if (envSecrets) return { config: withEnvSecrets(parsed, envSecrets), secretsFileKeys: [], loadedContent, renamedKeyMessages };
+    const storedSecrets = readStoredSecrets(configPath);
+    const secretsInConfigFile = secretsHeldIn(parsed);
+    const secretsFileKeys = Object.keys(storedSecrets).filter((storedKey) => !Object.hasOwn(secretsInConfigFile, storedKey));
+    const overlaidSecrets = heldSecrets({ ...storedSecrets, ...secretsInConfigFile }, readEnvSecrets(process.env));
+    return { config: withEnvSecrets(parsed, overlaidSecrets), secretsFileKeys, loadedContent, renamedKeyMessages };
   } catch (err) {
     const message = `[config] Could not load ${configPath}: ${errorMessage(err)}. The file was left as it is. Fix it, or restore from ${configBackupPath(configPath)}, then restart Glimmervoid.`;
     if (!exitOnError) return { error: err, message };
@@ -217,5 +260,5 @@ function ensureProjectIds(projects: { id?: string }[]): boolean {
   return changed;
 }
 
-export { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds };
+export { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, readStoredSecrets, writeStoredSecrets, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds };
 export type { LoadedConfig, FailedConfigLoad };

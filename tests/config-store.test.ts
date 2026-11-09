@@ -474,12 +474,85 @@ test('a save leaves out every secret the environment provides', () => {
   });
 });
 
-test('a dashboard secret still persists when the environment provides none', () => {
-  withSecretEnv({}, () => {
-    withStore({ projects: [] }, (store, configPath) => {
+function secretsFilePath(configPath: string): string {
+  return path.join(path.dirname(configPath), 'secrets', 'config-secrets.json');
+}
+
+function storedSecretsAt(configPath: string): Record<string, unknown> {
+  return block(readJson(secretsFilePath(configPath)).secrets);
+}
+
+test('secrets move out of config.json into the secrets file beside it and are saved, cleared and reloaded there', () => {
+  withSecretEnv({ GLIMMERVOID_POSTHOG_API_KEY: 'phx-from-env' }, () => {
+    const stored = { projects: [], posthog: { enabled: true, apiKey: 'phx-from-file' }, telegram: { botToken: 'bot-from-file', chatId: '123' } };
+    withStore(stored, (store, configPath) => {
+      assert.equal(fs.readFileSync(configPath, 'utf8').includes('-from-file'), false, 'boot leaves no secret in config.json');
+      assert.deepEqual(storedSecretsAt(configPath), { 'posthog.apiKey': 'phx-from-file', 'telegram.botToken': 'bot-from-file' });
+      if (process.platform !== 'win32') assert.equal(fs.statSync(secretsFilePath(configPath)).mode & 0o777, 0o600);
+      assert.equal(block(store.config.telegram).botToken, 'bot-from-file', 'the moved token still loads');
+      assert.equal(block(store.config.posthog).apiKey, 'phx-from-env', 'the environment still wins');
+
       store.save((config) => { config.telegram = { botToken: 'bot-from-dashboard', chatId: '123' }; });
 
-      assert.equal(block(readJson(configPath).telegram).botToken, 'bot-from-dashboard');
+      assert.equal(fs.readFileSync(configPath, 'utf8').includes('bot-from-dashboard'), false, 'a saved token never reaches config.json');
+      assert.deepEqual(storedSecretsAt(configPath), { 'posthog.apiKey': 'phx-from-file', 'telegram.botToken': 'bot-from-dashboard' }, 'the environment value is never stored');
+      assert.equal(block(createConfigStore().config.telegram).botToken, 'bot-from-dashboard', 'a restart reads it back');
+
+      store.save((config) => { config.telegram = { chatId: '123' }; });
+
+      assert.deepEqual(storedSecretsAt(configPath), { 'posthog.apiKey': 'phx-from-file' }, 'a cleared token leaves the secrets file');
+    });
+  });
+});
+
+test('a secrets file that cannot be written leaves config.json and its tokens as they were', () => {
+  withSecretEnv({}, () => {
+    withStore({ projects: [] }, (store, configPath) => {
+      fs.writeFileSync(path.join(path.dirname(configPath), 'secrets'), 'not a folder');
+      const contentBeforeSave = fs.readFileSync(configPath, 'utf8');
+
+      const saved = store.save((config) => { config.telegram = { botToken: 'bot-from-dashboard', chatId: '123' }; });
+
+      assert.equal(saved, null, 'the save is refused');
+      assert.equal(fs.readFileSync(configPath, 'utf8'), contentBeforeSave);
+
+      fs.writeFileSync(configPath, JSON.stringify({ projects: [], telegram: { botToken: 'bot-from-file', chatId: '123' } }));
+      const restarted = createConfigStore();
+
+      assert.equal(block(restarted.config.telegram).botToken, 'bot-from-file', 'the token still loads from config.json');
+      assert.equal(block(readJson(configPath).telegram).botToken, 'bot-from-file', 'and stays there until it can be moved');
+    });
+  });
+});
+
+test('a token in config.json.bak or hand-written into config.json never survives in the backup', () => {
+  withSecretEnv({}, () => {
+    withStore({ projects: [] }, (store, configPath) => {
+      fs.writeFileSync(`${configPath}.bak`, JSON.stringify({ projects: [], telegram: { botToken: 'bot-stale-in-backup', chatId: '123' } }));
+      createConfigStore();
+
+      assert.equal(fs.readFileSync(`${configPath}.bak`, 'utf8').includes('bot-stale-in-backup'), false, 'boot removes it from the backup');
+      assert.equal(block(readJson(`${configPath}.bak`).telegram).chatId, '123', 'and keeps the rest of the backup');
+
+      fs.writeFileSync(configPath, JSON.stringify({ projects: [], telegram: { botToken: 'bot-hand-written', chatId: '123' } }));
+      store.save((config) => { config.cursorBlink = false; });
+
+      assert.equal(fs.readFileSync(`${configPath}.bak`, 'utf8').includes('bot-hand-written'), false, 'a save backs up the file without it');
+      assert.deepEqual(storedSecretsAt(configPath), { 'telegram.botToken': 'bot-hand-written' });
+    });
+  });
+});
+
+test('two config files in one folder keep their tokens in separate secrets files', () => {
+  withSecretEnv({}, () => {
+    withStore({ projects: [], telegram: { botToken: 'bot-first-config', chatId: '123' } }, (_store, configPath) => {
+      const secondConfigPath = path.join(path.dirname(configPath), 'second.json');
+      fs.writeFileSync(secondConfigPath, JSON.stringify({ projects: [], telegram: { botToken: 'bot-second-config', chatId: '456' } }));
+      process.env.GLIMMERVOID_CONFIG = secondConfigPath;
+      createConfigStore();
+      process.env.GLIMMERVOID_CONFIG = configPath;
+
+      assert.equal(block(createConfigStore().config.telegram).botToken, 'bot-first-config');
     });
   });
 });

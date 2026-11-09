@@ -179,11 +179,11 @@ function homeReadError(homeDir: string): string | null {
   }
 }
 
-function readConfigFile(configPath: string, homeDir: string): Outcome<GlimmervoidConfig> {
+function readConfigFile(configPath: string, homeDir: string): Outcome<{ config: GlimmervoidConfig; secretsFileKeys: string[] }> {
   try {
     const loaded = loadConfigFile(configPath, { exitOnError: false });
     if (!loaded.config) return fail(loaded.message);
-    return succeed(loaded.config);
+    return succeed({ config: loaded.config, secretsFileKeys: loaded.secretsFileKeys });
   } catch (error) {
     if (errorCode(error) === 'EACCES' || errorCode(error) === 'EPERM') return fail(unreadableHomeMessage(homeDir, error));
     return fail(`could not read ${configPath}: ${errorMessage(error)}`);
@@ -200,7 +200,7 @@ function openConfigFile(): Outcome<ConfigFileView> {
   if (!decided.path) return fail(`no config.json at ${decided.homePath}. Start Glimmervoid once to create it; glimmervoid settings schema needs no config file`);
   const loaded = readConfigFile(decided.path, homeDir);
   if (!loaded.ok) return fail(loaded.message);
-  return succeed(configFileViewOf(decided.path, loaded.value, env, IS_EXPERIMENTAL_BUILD));
+  return succeed(configFileViewOf(decided.path, loaded.value.config, env, IS_EXPERIMENTAL_BUILD, loaded.value.secretsFileKeys));
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {

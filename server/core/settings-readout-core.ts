@@ -111,14 +111,16 @@ function describeSetting(setting: SettingsSetting): SettingDescriptor {
   return descriptor;
 }
 
+const SECRETS_FILE_SOURCE = 'secrets file';
+
 function isStoredSecret(value: unknown): boolean {
   return typeof value === 'string' && value.length > 0;
 }
 
 function readSetting(setting: SettingsSetting, view: ConfigFileView): SettingReadout {
   const stored = valueAtPath(view.config, setting.path);
-  const envSource = view.secretSources[setting.path];
-  const source = envSource ?? (stored !== undefined ? 'config.json' : 'default');
+  const heldElsewhereSource = view.secretSources[setting.path];
+  const source = heldElsewhereSource ?? (stored !== undefined ? 'config.json' : 'default');
   const readout: SettingReadout = { ...describeSetting(setting), secret: setting.control === 'password', source };
   if (readout.secret) {
     readout.configured = isStoredSecret(stored);
@@ -179,8 +181,11 @@ function requireConfigFileSetting(argument: string, view: Pick<ConfigFileView, '
   return succeed(setting);
 }
 
-function configFileViewOf(configPath: string, config: Config, env: NodeJS.ProcessEnv, isExperimentalBuild: boolean): ConfigFileView {
-  const secretSources = Object.fromEntries(readEnvSecrets(env).map((secret) => [`${secret.blockName}.${secret.secretKey}`, secret.environmentVariable]));
+function configFileViewOf(configPath: string, config: Config, env: NodeJS.ProcessEnv, isExperimentalBuild: boolean, secretsFileKeys: readonly string[] = []): ConfigFileView {
+  const secretSources = {
+    ...Object.fromEntries(secretsFileKeys.map((secretsFileKey) => [secretsFileKey, SECRETS_FILE_SOURCE])),
+    ...Object.fromEntries(readEnvSecrets(env).map((secret) => [`${secret.blockName}.${secret.secretKey}`, secret.environmentVariable])),
+  };
   return { configPath, config, secretSources, isExperimentalBuild };
 }
 
