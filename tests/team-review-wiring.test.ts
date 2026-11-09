@@ -14,6 +14,7 @@ import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT,
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
+import { createTeamReviewActions } from '../server/github/team-review-actions.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
 import { createTeamReviewDispatcher } from '../server/github/team-review-dispatcher.ts';
 import { createTeamReviewWiring, createTeamReviewStateIo } from '../server/github/team-review-wiring.ts';
@@ -1117,7 +1118,7 @@ test('a posted review that left the review-request search still picks up a threa
   }
 });
 
-test('a review re-run at the same head lists each earlier finding the new draft no longer carries as dropped', async () => {
+test('a review re-run at the same head lists each earlier finding the new draft no longer carries as dropped, before and after posting', async () => {
   const keptFinding = { path: 'src/a.ts', line: 10, side: 'RIGHT' as const, body: 'Token leaks into the log.' };
   const droppedFinding = { path: 'src/a.ts', line: 40, side: 'RIGHT' as const, body: 'The mcp__posthog allowlist can be bypassed.' };
   const rerunDraft = actionDraft({ comments: [{ ...keptFinding, line: 12, body: 'The token still reaches the log.' }] });
@@ -1138,6 +1139,19 @@ test('a review re-run at the same head lists each earlier finding the new draft 
     assert.deepEqual([...droppedEarlierFindingIndexes(presentedDraft)], [1]);
     assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'error', comments: [] })], []);
     assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'posted', comments: [] })], []);
+
+    const actions = createTeamReviewActions({
+      drafts: poller, store: emptyGithubStore({ prHead: async () => HEAD }), log: { warn: () => {} },
+      github: { postReview: async () => ({ ok: true, err: '', reviewId: 1 }), dismissReview: async () => ({ ok: true, err: '' }) },
+    });
+    const outcome = await actions.submitAction({ key: ACTION_KEY, head: HEAD, action: 'comment', body: 'Posting the summary only', comments: [] });
+    assert.deepEqual(outcome, { ok: true });
+    await poller.tick();
+    const postedDraft = statuses.at(-1)?.drafts.find((draft) => draft.key === ACTION_KEY);
+    assert.equal(postedDraft?.status, 'posted');
+    assert.deepEqual(postedDraft?.comments, []);
+    assert.ok(postedDraft);
+    assert.deepEqual([...droppedEarlierFindingIndexes(postedDraft)], [1]);
   } finally {
     await poller.stop();
   }

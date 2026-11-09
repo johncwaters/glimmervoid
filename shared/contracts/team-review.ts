@@ -263,6 +263,7 @@ export const ReviewDraft = z.object({
   priorReviewedHead: CommitSha.optional(),
   requeuedHead: CommitSha.optional(),
   earlierReview: EarlierReview.optional(),
+  drafted: z.object({ body: z.string(), comments: z.array(DraftComment) }).optional(),
 });
 export type ReviewDraft = z.infer<typeof ReviewDraft>;
 

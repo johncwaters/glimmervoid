@@ -578,11 +578,18 @@ export function earlierReviewPreview(review: EarlierReview, droppedCount = 0): s
 
 const KEPT_FINDING_LINE_DISTANCE = 3;
 
-export function droppedEarlierFindingIndexes(draft: Pick<ReviewDraft, 'status' | 'reviewedHead' | 'comments' | 'earlierReview'>): ReadonlySet<number> {
+function rerunComments(draft: Pick<ReviewDraft, 'status' | 'comments' | 'drafted'>): readonly DraftComment[] | null {
+  if (draft.status === 'ready') return draft.comments;
+  if (draft.status === 'posted' && draft.drafted) return draft.drafted.comments;
+  return null;
+}
+
+export function droppedEarlierFindingIndexes(draft: Pick<ReviewDraft, 'status' | 'reviewedHead' | 'comments' | 'drafted' | 'earlierReview'>): ReadonlySet<number> {
   const earlierReview = draft.earlierReview;
-  if (!earlierReview || earlierReview.head !== draft.reviewedHead || draft.status !== 'ready') return new Set();
+  const comparedComments = rerunComments(draft);
+  if (!earlierReview || earlierReview.head !== draft.reviewedHead || !comparedComments) return new Set();
   const newLinesByLocation = new Map<string, number[]>();
-  for (const comment of draft.comments) {
+  for (const comment of comparedComments) {
     const location = `${comment.side}:${comment.path}`;
     newLinesByLocation.set(location, [...(newLinesByLocation.get(location) ?? []), comment.line]);
   }

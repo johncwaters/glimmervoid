@@ -188,7 +188,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     const headAfterPostRead = event === 'APPROVE' ? await readStep(timing, 'head-after-post', () => store.requestPrHead(draft.repo, draft.number, 'priority')) : { isRateLimited: false as const, value: draft.reviewedHead };
     const headAfterPost = headAfterPostRead.isRateLimited ? null : headAfterPostRead.value;
     if (headAfterPost !== null && headAfterPost !== draft.reviewedHead) return retractApproval(timing, key, draft, headAfterPost, posted.reviewId);
-    const postedFields: DraftPatch = isFollowUpApproval ? { postedEvent: event } : { postedEvent: event, body: postedBody, comments };
+    const postedFields: DraftPatch = isFollowUpApproval ? { postedEvent: event } : { postedEvent: event, body: postedBody, comments, drafted: { body: draft.body, comments: draft.comments } };
     const marked = await markDraft(timing, key, draft, 'posted', postedFields);
     const warnings = [
       headAfterPost === null ? 'Could not confirm the pull request head after approving. Check the approval on GitHub' : '',
