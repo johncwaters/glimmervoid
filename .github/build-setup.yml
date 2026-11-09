@@ -4,7 +4,7 @@
     node-version-file: .nvmrc
     cache: npm
 - name: install dependencies
-  run: npm ci
+  run: npm ci ${{ runner.os == 'Windows' && '--force' || '' }}
   env:
     GH_TOKEN: ""
     GITHUB_TOKEN: ""

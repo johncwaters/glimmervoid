@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The standalone binaries and their installers ship.** 0.53.0's binary build stopped on Windows before any binary was published, so the curl and PowerShell installers and the Homebrew formula did not ship with it. This release carries them for all five platforms.
+
 ## [0.53.0] - 2026-11-08
 
 ### Added
