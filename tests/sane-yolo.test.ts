@@ -170,3 +170,40 @@ test('the production Claude settings command denies a Read inside a folder liste
     assert.equal(unlistedStdout.trim(), '');
   }, ['~/private-notes']);
 });
+
+test('the production Claude settings command denies Read and shell reads of every glimmervoid secret file, following GLIMMERVOID_CONFIG', async () => {
+  const previousConfigOverride = process.env.GLIMMERVOID_CONFIG;
+  delete process.env.GLIMMERVOID_CONFIG;
+  try {
+    await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+      const command = saneYoloCommandOf(buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] }));
+      assert.ok(command);
+      const glimmervoidHome = process.env.GLIMMERVOID_HOME ?? '';
+      const configPath = path.join(glimmervoidHome, 'config.json');
+      const secretFiles = [configPath, `${configPath}.bak`, path.join(glimmervoidHome, 'vault-companion.json'), path.join(glimmervoidHome, 'watcher-link.key')];
+      for (const secretFile of secretFiles) {
+        const readInput = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: secretFile }, cwd, session_id: 'sane-yolo-test', permission_mode: 'default' });
+        assert.equal(permissionDecisionOf(execSync(command, { cwd, env, encoding: 'utf8', input: readInput })), 'deny', `Read ${secretFile}`);
+        for (const shellCommand of [`cat ${secretFile}`, `python3 -c "print(open('${secretFile}').read())"`]) {
+          assert.equal(permissionDecisionOf(execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', shellCommand, cwd) })), 'deny', shellCommand);
+        }
+      }
+    });
+    const overrideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-config-override-'));
+    const overrideConfigPath = path.join(overrideDirectory, 'operator.json');
+    process.env.GLIMMERVOID_CONFIG = overrideConfigPath;
+    try {
+      await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+        const command = saneYoloCommandOf(buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] }));
+        assert.ok(command);
+        const readInput = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: overrideConfigPath }, cwd, session_id: 'sane-yolo-test', permission_mode: 'default' });
+        assert.equal(permissionDecisionOf(execSync(command, { cwd, env, encoding: 'utf8', input: readInput })), 'deny');
+      });
+    } finally {
+      fs.rmSync(overrideDirectory, { recursive: true, force: true });
+    }
+  } finally {
+    if (previousConfigOverride === undefined) delete process.env.GLIMMERVOID_CONFIG;
+    if (previousConfigOverride !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigOverride;
+  }
+});

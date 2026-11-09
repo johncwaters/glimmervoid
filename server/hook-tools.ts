@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { saneYoloFiles } from '../session/core/sane-yolo.ts';
-import { glimmervoidHomeDir } from './core/config-path-core.ts';
+import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
+import { glimmervoidSecretPaths } from './secrets/core/secret-files-core.ts';
 import { SESSION_TEMP_FOLDER } from './session-temp/session-temp.ts';
 import { resolvePackageBin, scriptLaunch } from './runtime-paths.ts';
 import { writeTextAtomicSync } from './json-file.ts';
@@ -16,12 +17,18 @@ function currentGlimmervoidHome(): string {
   return glimmervoidHomeDir(os.homedir(), process.env);
 }
 
+function currentConfigPath(glimmervoidHome: string): string {
+  const decided = decideConfigPath({ env: process.env, homeDir: glimmervoidHome }, fs.existsSync);
+  return decided.path ?? decided.envPath ?? decided.homePath;
+}
+
 function saneYoloHomeDir(): string {
   return path.join(currentGlimmervoidHome(), 'sane-yolo');
 }
 
 function writeSaneYoloPolicy(homeDir: string, unreadablePaths: readonly string[], glimmervoidHome = currentGlimmervoidHome()): void {
-  const policyFiles = saneYoloFiles(path.join(glimmervoidHome, SESSION_TEMP_FOLDER), unreadablePaths);
+  const deniedPaths = [...glimmervoidSecretPaths({ glimmervoidHome, configPath: currentConfigPath(glimmervoidHome) }), ...unreadablePaths];
+  const policyFiles = saneYoloFiles(path.join(glimmervoidHome, SESSION_TEMP_FOLDER), deniedPaths);
   const policyKey = JSON.stringify(policyFiles);
   if (writtenPolicyByHome.get(homeDir) === policyKey) return;
   for (const [relativePath, contents] of Object.entries(policyFiles)) {

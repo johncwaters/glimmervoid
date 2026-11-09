@@ -211,12 +211,11 @@ test('a dashboard save returns the validated config, so a contract default reach
   });
 });
 
-test('save writes an invalid.bak copy when the fresh read is corrupt JSON', () => {
+test('save refuses a corrupt fresh read and leaves the file as it is', () => {
   withStore(richConfig(), (store, p) => {
     fs.writeFileSync(p, '{ not json', 'utf8');
     assert.equal(store.save((cfg) => { cfg.port = 4124; }), null);
     assert.equal(fs.readFileSync(p, 'utf8'), '{ not json');
-    assert.equal(fs.readFileSync(`${p}.invalid.bak`, 'utf8'), '{ not json');
   });
 });
 
@@ -257,14 +256,17 @@ test('a config with guardrails.unreadablePaths boots with them moved to saneYolo
   }
 });
 
-test('createConfigStore writes a boot snapshot of the loaded config', () => {
+test('createConfigStore removes the retired boot and invalid config copies, which hold secrets', () => {
   const original = { projects: [{ name: 'proj', path: 'C:/proj' }] };
   const { dir, p } = writeTmpConfig(original);
+  fs.writeFileSync(`${p}.boot.bak`, '{}', 'utf8');
+  fs.writeFileSync(`${p}.invalid.bak`, '{ not json', 'utf8');
   const prev = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = p;
   try {
     createConfigStore();
-    assert.deepEqual(readJson(`${p}.boot.bak`), original);
+    assert.equal(fs.existsSync(`${p}.boot.bak`), false);
+    assert.equal(fs.existsSync(`${p}.invalid.bak`), false);
   } finally {
     if (prev == null) delete process.env.GLIMMERVOID_CONFIG;
     if (prev != null) process.env.GLIMMERVOID_CONFIG = prev;
@@ -325,7 +327,7 @@ test('save writes a rolling backup before replacing changed config content', () 
   });
 });
 
-test('loadConfigFile saves corrupt JSON aside and returns the startup error when requested', () => {
+test('loadConfigFile returns the startup error for corrupt JSON when requested, naming the one backup', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-cfgstore-corrupt-'));
   const p = path.join(dir, 'config.json');
   fs.writeFileSync(p, '{ not json', 'utf8');
@@ -334,9 +336,8 @@ test('loadConfigFile saves corrupt JSON aside and returns the startup error when
     if (!('error' in loaded)) throw new Error('corrupt JSON must report a startup error');
     assert.ok(loaded.error);
     assert.match(loaded.message, /Could not load/);
-    assert.match(loaded.message, /config\.json\.boot\.bak/);
     assert.match(loaded.message, /config\.json\.bak/);
-    assert.equal(fs.readFileSync(`${p}.invalid.bak`, 'utf8'), '{ not json');
+    assert.equal(fs.readFileSync(p, 'utf8'), '{ not json');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -766,7 +767,6 @@ test('a saved config.json, and its backup, are owner-only', { skip: process.plat
 
     assert.equal(fs.statSync(p).mode & 0o777, CONFIG_FILE_MODE, 'the save repairs a world-readable config');
     assert.equal(fs.statSync(`${p}.bak`).mode & 0o777, CONFIG_FILE_MODE, 'the backup carries the same bytes, so the same mode');
-    assert.equal(fs.statSync(`${p}.boot.bak`).mode & 0o777, CONFIG_FILE_MODE, 'and so does the boot backup');
     assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).port, 4999, 'and the content still landed');
   });
 });

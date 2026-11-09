@@ -12,6 +12,7 @@ import { WorktreeFileSettings } from '../../shared/contracts/browser-config.ts';
 import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } from './config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
 import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
+import { configBackupPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
 
 const ABORT_CONFIG_SAVE = 'abort-config-save';
 
@@ -119,6 +120,16 @@ function writeBackupContent(backupPath: string, content: string): void {
   }
 }
 
+function removeRetiredBackups(configPath: string): void {
+  for (const retiredBackupPath of retiredConfigBackupPaths(configPath)) {
+    try {
+      fs.rmSync(retiredBackupPath, { force: true });
+    } catch (err) {
+      console.warn(`[config] Failed to remove retired backup ${retiredBackupPath}, which holds a copy of your secrets; delete it by hand:`, errorLabel(err));
+    }
+  }
+}
+
 interface LoadedConfig {
   config: GlimmervoidConfig;
   loadedContent: string;
@@ -130,7 +141,6 @@ interface FailedConfigLoad {
   loadedContent?: undefined;
   error: unknown;
   message: string;
-  invalidBackupPath: string;
 }
 
 function loadConfigFile(configPath: string, options?: { exitOnError?: true; envSecrets?: EnvSecrets }): LoadedConfig;
@@ -145,14 +155,8 @@ function loadConfigFile(
     const parsed = normalizeConfigFile(JSON.parse(loadedContent), renamedKeyMessages);
     return { config: withEnvSecrets(parsed, envSecrets), loadedContent, renamedKeyMessages };
   } catch (err) {
-    const invalidBackupPath = `${configPath}.invalid.bak`;
-    try {
-      writeTextAtomicSync(invalidBackupPath, loadedContent, { mode: CONFIG_FILE_MODE, enforceMode: true });
-    } catch (backupErr) {
-      console.warn(`[config] Failed to save invalid config copy ${invalidBackupPath}:`, errorLabel(backupErr));
-    }
-    const message = `[config] Could not load ${configPath}: ${errorMessage(err)}. The broken file was copied to ${invalidBackupPath} when possible. Restore from ${configPath}.boot.bak or ${configPath}.bak, then restart Glimmervoid.`;
-    if (!exitOnError) return { error: err, message, invalidBackupPath };
+    const message = `[config] Could not load ${configPath}: ${errorMessage(err)}. The file was left as it is. Fix it, or restore from ${configBackupPath(configPath)}, then restart Glimmervoid.`;
+    if (!exitOnError) return { error: err, message };
     console.error(message);
     process.exit(1);
   }
@@ -165,7 +169,7 @@ function writeMutatedConfigFile(configPath: string, mutatorFn: (config: Glimmerv
   const validation = validateConfig(loaded.config);
   if (!validation.ok) return { ok: false, message: `config.json at ${configPath} was not written; validation failed: ${validation.errors.join('; ')}` };
   const nextContent = JSON.stringify(validation.config, null, 2);
-  if (nextContent !== loaded.loadedContent) writeBackupContent(`${configPath}.bak`, loaded.loadedContent);
+  if (nextContent !== loaded.loadedContent) writeBackupContent(configBackupPath(configPath), loaded.loadedContent);
   writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
   return { ok: true, config: validation.config };
 }
@@ -191,11 +195,11 @@ function isSuspectedExternalWipe(candidate: GlimmervoidConfig, currentConfig: Gl
 }
 
 function invalidConfigWarning(action: string, validation: { errors: string[] }): string {
-  return `[config] Refusing to ${action}; validation failed: ${validation.errors.join('; ')}. Recovery sources: config.json.bak and config.json.boot.bak.`;
+  return `[config] Refusing to ${action}; validation failed: ${validation.errors.join('; ')}. Recovery source: config.json.bak.`;
 }
 
 function suspectedWipeWarning(action: string): string {
-  return `[config] Refusing to ${action}; config.json has fewer than half the top-level keys of the in-memory config. This looks like an external wipe. Recovery sources: config.json.bak and config.json.boot.bak.`;
+  return `[config] Refusing to ${action}; config.json has fewer than half the top-level keys of the in-memory config. This looks like an external wipe. Recovery source: config.json.bak.`;
 }
 
 function warnSuspectedWipe(action: string): void {
@@ -213,5 +217,5 @@ function ensureProjectIds(projects: { id?: string }[]): boolean {
   return changed;
 }
 
-export { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds };
+export { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds };
 export type { LoadedConfig, FailedConfigLoad };

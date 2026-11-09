@@ -18,8 +18,9 @@ import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config/config-defaults.ts';
 import type { DefaultConfig } from './config/config-defaults.ts';
 import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, migrateRemoteEnabled } from './config/config-migrations.ts';
-import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
+import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
 import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
+import { configBackupPath } from './secrets/core/secret-files-core.ts';
 
 const CONFIG_RELOAD_DEBOUNCE_MS = 500;
 
@@ -54,7 +55,7 @@ function createConfigStore({
   const envSecrets = readEnvSecrets(process.env);
   const loadedConfig = loadConfigFile(configPath);
   const config = loadedConfig.config;
-  writeBackupContent(`${configPath}.boot.bak`, loadedConfig.loadedContent);
+  removeRetiredBackups(configPath);
   config.repoRoots = config.repoRoots || [];
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
@@ -111,14 +112,14 @@ function createConfigStore({
     } catch (err) {
       return refuseSave(`[config] Failed to read config.json for save: ${errorLabel(err)}`);
     }
-    if ('error' in loaded) return refuseSave(loaded.message, `${configPath} could not be read as a config file. The broken file was copied to ${loaded.invalidBackupPath} when possible. Fix it, or restore from ${configPath}.bak, then save again.`);
+    if ('error' in loaded) return refuseSave(loaded.message, `${configPath} could not be read as a config file. Fix it, or restore from ${configBackupPath(configPath)}, then save again.`);
     const freshConfig = loaded.config;
     const freshContent = loaded.loadedContent;
     const effectiveConfig = prepareSave(freshConfig, mutatorFn);
     if (!effectiveConfig) return null;
     try {
       const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
-      if (freshContent !== nextContent) writeBackupContent(`${configPath}.bak`, freshContent);
+      if (freshContent !== nextContent) writeBackupContent(configBackupPath(configPath), freshContent);
 
       _lastWrittenContent = nextContent;
 
@@ -145,7 +146,7 @@ function createConfigStore({
           const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
           if (freshContent !== nextContent) {
             try {
-              await writeTextAtomic(`${configPath}.bak`, freshContent, { mode: CONFIG_FILE_MODE, enforceMode: process.platform !== 'win32' });
+              await writeTextAtomic(configBackupPath(configPath), freshContent, { mode: CONFIG_FILE_MODE, enforceMode: process.platform !== 'win32' });
             } catch (error) {
               console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorLabel(error));
             }
