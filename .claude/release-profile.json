@@ -38,7 +38,7 @@
     "trigger": "local_script",
     "detail": {
       "command": "npm run release",
-      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, git push, annotated tag plus push tag, commits and pushes chore(release): open X.Y.(Z+1)-next.0, gh release create from changelog section. It never runs npm publish.",
+      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, npm pack dry-run check, captures HEAD and pushes that SHA to main, dispatches test.yml and waits for it to pass on that SHA, annotated tag on that SHA plus push tag, gh release create --verify-tag --draft from the changelog section with no assets, dispatches release-tarball.yml (CI builds and attaches the npm tarballs from the tag), npm deprecate below the release when it has a ### Security section, commits and pushes chore(release): open X.Y.(Z+1)-next.0. release.yml undrafts the release after the binaries upload. It never runs npm publish.",
       "no_registry": "no local registry publish; npm publishing happens only in .github/workflows/publish.yml, on the tag push for releases and on a green test run on main for -next builds",
       "partial_failure_note": "script is not atomic; on mid-flight failure check what landed (pushed commits vs tag vs release) before any rerun",
       "registry_publish": "the vX.Y.Z tag push triggers .github/workflows/publish.yml, which checks the tag matches package.json, runs npm ci, build and test, then npm publish --provenance --access public via npm trusted publishing (OIDC, no NPM_TOKEN)"

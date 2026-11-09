@@ -1,12 +1,9 @@
 import { execSync } from 'node:child_process';
 import type { ExecSyncOptions } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import pkg from '../package.json' with { type: 'json' };
 import { REPO_SLUG } from '../shared/repo.ts';
-import { LATEST_ALIAS_ASSET_NAME, packReleaseTarballs, versionedAssetName } from './pack-release-tarballs.ts';
 
 function run(cmd: string, opts: ExecSyncOptions = {}): void {
   console.log(`  $ ${cmd}`);
@@ -104,6 +101,7 @@ function openNextPatch(releasedVersion: string): void {
   run(`git push origin HEAD:refs/heads/${RELEASE_BRANCH}`);
 }
 
+const testedCommit = runCapture('git rev-parse HEAD');
 const VERSION = pkg.version;
 const TAG = `v${VERSION}`;
 const RELEASE_BRANCH = 'main';
@@ -172,13 +170,17 @@ if (rawSources.length > 0) {
 }
 console.log(`   ${packedFiles.length} files, all built.`);
 
-console.log('\n==> Pushing to GitHub...');
-run(`git push origin HEAD:refs/heads/${RELEASE_BRANCH}`);
+if (runCapture('git rev-parse HEAD') !== testedCommit) {
+  console.error(`ERROR: the checkout moved off ${testedCommit} while the release checks ran, so nothing was pushed or tagged. Run npm run release again.`);
+  process.exit(1);
+}
+console.log(`\n==> Pushing ${testedCommit} to GitHub...`);
+run(`git push origin ${testedCommit}:refs/heads/${RELEASE_BRANCH}`);
 
-requirePassingTestRun(runCapture('git rev-parse HEAD'));
+requirePassingTestRun(testedCommit);
 
-console.log(`\n==> Tagging ${TAG}...`);
-run(`git tag -a ${TAG} -m "Glimmervoid ${TAG}"`);
+console.log(`\n==> Tagging ${TAG} at ${testedCommit}...`);
+run(`git tag -a ${TAG} ${testedCommit} -m "Glimmervoid ${TAG}"`);
 run(`git push origin ${TAG}`);
 
 console.log('\n==> Creating GitHub release...');
@@ -186,14 +188,10 @@ const notes = releaseSection ?? `Release ${TAG}`;
 
 const tmpFile = 'release-notes.tmp.md';
 fs.writeFileSync(tmpFile, notes);
-const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-release-'));
 try {
-  console.log('\n==> Packing the release tarballs...');
-  const { latestAliasPath, versionedAssetPath } = packReleaseTarballs(packDirectory, VERSION);
-  run(`gh release create ${TAG} "${versionedAssetPath}" "${latestAliasPath}" --title "Glimmervoid ${TAG}" --notes-file ${tmpFile} --draft`);
+  run(`gh release create ${TAG} --verify-tag --title "Glimmervoid ${TAG}" --notes-file ${tmpFile} --draft`);
   run(`gh workflow run release-tarball.yml --ref ${TAG} -f tag=${TAG}`);
 } finally {
-  fs.rmSync(packDirectory, { recursive: true, force: true });
   try { fs.unlinkSync(tmpFile); } catch {  }
 }
 
@@ -202,6 +200,6 @@ if (releaseSection && SECURITY_HEADING.test(releaseSection)) deprecateVersionsBe
 openNextPatch(VERSION);
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}, and ${RELEASE_BRANCH} now carries the next patch as an upcoming prerelease.`);
-console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)} to keep pre-0.29.1 tarball installs updatable.`);
+console.log('   release-tarball.yml builds the npm tarballs from the tag and attaches them to the draft.');
 console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm, and .github/workflows/release.yml, which attaches the standalone binaries and installers and publishes the draft release. Nothing is published locally.`);
 console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);
