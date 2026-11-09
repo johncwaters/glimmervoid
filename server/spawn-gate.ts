@@ -20,6 +20,10 @@ interface KeyedSerialQueue {
   run<T>(key: string, fn: () => T | Promise<T>, options?: SerialQueueRunOptions): Promise<T>;
 }
 
+function queueAdmissionTimeoutError(): Error {
+  return new Error(QUEUE_ADMISSION_TIMED_OUT);
+}
+
 function isQueueAdmissionTimeout(error: unknown): boolean {
   return error instanceof Error && error.message === QUEUE_ADMISSION_TIMED_OUT;
 }
@@ -31,7 +35,7 @@ function createSerialQueue(): SerialQueue {
     let abandoned = false;
     let started = false;
     const result = tail.then(() => {
-      if (abandoned) throw new Error(QUEUE_ADMISSION_TIMED_OUT);
+      if (abandoned) throw queueAdmissionTimeoutError();
       started = true;
       return fn();
     });
@@ -232,5 +236,5 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   return { run, idle: queue.idle };
 }
 
-export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout };
+export { createKeyedSerialQueue, createMemoryAdmission, createSerialQueue, createSpawnGate, isQueueAdmissionTimeout, queueAdmissionTimeoutError };
 export type { MemoryAdmission, MemoryGateStatus };

@@ -6,7 +6,7 @@ import type { GitIsolationOptions } from './core/git-invocation-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, execFileSync } from '../child-process-safe.ts';
-import { createKeyedSerialQueue, isQueueAdmissionTimeout } from '../spawn-gate.ts';
+import { createKeyedSerialQueue, isQueueAdmissionTimeout, queueAdmissionTimeoutError } from '../spawn-gate.ts';
 import { sessionIdFromBranch } from '../core/branch-gc-core.ts';
 import { comparableDirectoryPath, isSameDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
@@ -79,6 +79,38 @@ async function foreignSessionWorktreeReason(worktreePath: string, porcelain: str
   return `refusing to discard ${worktreePath}: glimmervoid did not create this worktree under ${path.join(location.parent, location.prefix)}*`;
 }
 
+async function readGitPointerFile(filePath: string): Promise<string | null> {
+  const stat = await fs.promises.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) return null;
+  return fs.promises.readFile(filePath, 'utf8').catch(() => null);
+}
+
+async function gitCommonDirectoryKey(queuedPath: string): Promise<string> {
+  let directory = await comparableDirectoryPath(queuedPath);
+  for (;;) {
+    const dotGit = path.join(directory, '.git');
+    const dotGitStat = await fs.promises.stat(dotGit).catch(() => null);
+    if (dotGitStat?.isDirectory()) return comparableDirectoryPath(dotGit);
+    const adminDirectory = (await readGitPointerFile(dotGit))?.match(/^gitdir: (.+)$/m)?.[1]?.trim();
+    if (adminDirectory) {
+      const adminPath = path.resolve(directory, adminDirectory);
+      const commonDirectory = (await readGitPointerFile(path.join(adminPath, 'commondir')))?.trim();
+      return comparableDirectoryPath(commonDirectory ? path.resolve(adminPath, commonDirectory) : adminPath);
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) return comparableDirectoryPath(queuedPath);
+    directory = parent;
+  }
+}
+
+function keyReadBefore(keyRead: Promise<string>, admissionTimeoutMs: number | undefined): Promise<string> {
+  let admissionTimer: ReturnType<typeof setTimeout> | undefined;
+  const admissionExpired = admissionTimeoutMs === undefined ? [] : [new Promise<never>((_resolve, reject) => {
+    admissionTimer = setTimeout(() => reject(queueAdmissionTimeoutError()), admissionTimeoutMs);
+  })];
+  return Promise.race([keyRead, ...admissionExpired]).finally(() => clearTimeout(admissionTimer));
+}
+
 function createGitWorkspace(opts: {
   git?: GitRunner;
   mkdtemp?: (prefix: string) => string;
@@ -126,18 +158,22 @@ function createGitWorkspace(opts: {
     const queuedPath = ['projectPath', 'cwd', 'worktreePath'].map((field) => Reflect.get(args, field)).find((value) => typeof value === 'string');
     return typeof queuedPath === 'string' ? queuedPath : '';
   };
-  const repositoryKeyOf = async (args: unknown): Promise<string> => {
+  const repositoryKeyReadByPath = new Map<string, Promise<string>>();
+  const repositoryKeyOf = (args: unknown): Promise<string> => {
     const queuedPath = queuedPathOf(args);
-    if (!queuedPath) return queuedPath;
-    const commonDir = await isolatedCall(() => run(['rev-parse', '--path-format=absolute', '--git-common-dir'], queuedPath), args)();
-    return commonDir.ok ? commonDir.out.trim() : path.resolve(queuedPath);
+    if (!queuedPath) return Promise.resolve('');
+    const resolvedPath = path.resolve(queuedPath);
+    const pendingKeyRead = repositoryKeyReadByPath.get(resolvedPath);
+    if (pendingKeyRead) return pendingKeyRead;
+    const keyRead = gitCommonDirectoryKey(queuedPath).finally(() => repositoryKeyReadByPath.delete(resolvedPath));
+    repositoryKeyReadByPath.set(resolvedPath, keyRead);
+    return keyRead;
   };
-  let repositoryKeysInCallOrder: Promise<void> = Promise.resolve();
   const runInRepositoryQueue = async <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs, admission: { admissionTimeoutMs?: number } = {}): Promise<TResult> => {
-    const repositoryKey = repositoryKeyOf(args);
-    const keyInCallOrder = repositoryKeysInCallOrder.then(() => repositoryKey);
-    repositoryKeysInCallOrder = keyInCallOrder.then(() => undefined, () => undefined);
-    return queueByRepository.run(await keyInCallOrder, isolatedCall(body, args), admission);
+    const admissionDeadlineMs = admission.admissionTimeoutMs === undefined ? undefined : Date.now() + admission.admissionTimeoutMs;
+    const repositoryKey = await keyReadBefore(repositoryKeyOf(args), admission.admissionTimeoutMs);
+    const remainingAdmission = admissionDeadlineMs === undefined ? {} : { admissionTimeoutMs: Math.max(0, admissionDeadlineMs - Date.now()) };
+    return queueByRepository.run(repositoryKey, isolatedCall(body, args), remainingAdmission);
   };
   const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => runInRepositoryQueue(body, args);
   const admitted = <TArgs extends { admissionTimeoutMs?: number }, TResult>(

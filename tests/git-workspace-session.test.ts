@@ -1397,6 +1397,7 @@ test('a fetch hanging in one repository holds only that repository\'s git queue'
     const sameRepoProbe = gw.hasUnmergedWork({ projectPath: fetchingRepo, workspace: fetchingWorkspace, integrationBranch: 'develop', configuredIntegrationBranch: 'develop' });
     const sameRepoProbeState = settledFlag(sameRepoProbe);
     const fetchingHead = git(['rev-parse', 'HEAD'], fetchingRepo).trim();
+    await delay(200);
     const sameRepoWorktreeCheckout = gw.checkoutDetached({ worktreePath: fetchingWorkspace.cwd, sha: fetchingHead });
     const sameRepoWorktreeCheckoutState = settledFlag(sameRepoWorktreeCheckout);
 
@@ -1417,5 +1418,26 @@ test('a fetch hanging in one repository holds only that repository\'s git queue'
     await daemon.close();
     fs.rmSync(quietRepo, { recursive: true, force: true });
     fs.rmSync(fetchingRepo, { recursive: true, force: true });
+  }
+});
+
+test('a repository whose git config read hangs holds no other repository\'s git work', { skip: !GIT || process.platform === 'win32' }, async () => {
+  const quietRepo = initRepoOnDevelop();
+  const stuckRepo = initRepoOnDevelop();
+  const stuckConfigPipe = path.join(stuckRepo, 'config-pipe');
+  try {
+    execFileSync('mkfifo', [stuckConfigPipe]);
+    fs.appendFileSync(path.join(stuckRepo, '.git', 'config'), `[include]\n\tpath = ${stuckConfigPipe}\n`);
+    const gw = createGitWorkspace();
+    const stuckFetch = gw.fetchOrigin({ projectPath: stuckRepo, timeoutMs: 15000 });
+    const quietAnswer = await Promise.race([
+      gw.originUrl({ projectPath: quietRepo }).then(() => 'answered'),
+      delay(10000).then(() => 'still queued'),
+    ]);
+    assert.equal(quietAnswer, 'answered', 'another repository answers while one repository cannot read its config');
+    assert.equal((await stuckFetch).ok, false);
+  } finally {
+    fs.rmSync(quietRepo, { recursive: true, force: true });
+    fs.rmSync(stuckRepo, { recursive: true, force: true });
   }
 });
