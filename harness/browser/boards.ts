@@ -309,7 +309,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const editor = page.locator('.doc-editor');
   const paper = editor.locator('.doc-markup-paper');
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).waitFor();
-  assert.equal(await editor.getByRole('button').count(), 1, 'a document opens on the red pen paper with only its Close button');
+  assert.deepEqual((await editor.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent))).sort(), ['Close', 'Redo', 'Undo'], 'a document opens on the red pen paper with only its Close, Undo and Redo buttons');
   await paper.locator('.doc-markup-line[data-block="h1"] .doc-markup-text[data-inline="syntax"]', { hasText: '#' }).waitFor();
   await paper.locator('.doc-markup-text[data-inline="strong"]', { hasText: /^Bold$/ }).waitFor();
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
