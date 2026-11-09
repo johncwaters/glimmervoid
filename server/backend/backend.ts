@@ -443,7 +443,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       requestReview: (reference) => teamReview.requestReview(reference),
       teamReviewStatus: () => teamReview.getStatus(),
       myPrsStatus: () => myPrs.getStatus(),
-      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild)),
+      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild, configStore.secretsFileKeys())),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
         packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint),

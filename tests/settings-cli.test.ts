@@ -41,7 +41,7 @@ function baseConfig(): Record<string, unknown> {
 }
 
 test('list and get show a secret as configured and never print its value, in text and in JSON', () => {
-  isolatedGlimmervoidHome(baseConfig());
+  const homeDirectory = isolatedGlimmervoidHome(baseConfig());
   const listing = run(['list']);
   assert.equal(listing.exitCode, 0);
   assert.doesNotMatch(listing.stdout, new RegExp(SECRET_VALUE));
@@ -61,6 +61,9 @@ test('list and get show a secret as configured and never print its value, in tex
   assert.equal('value' in (gotJson.parsed as Record<string, unknown>), false);
   const unsetSecret = run(['get', 'telegram.botToken']);
   assert.equal(unsetSecret.stdout, 'telegram.botToken = not configured\n');
+  fs.mkdirSync(path.join(homeDirectory, 'secrets'));
+  fs.writeFileSync(path.join(homeDirectory, 'secrets', 'config-secrets.json'), JSON.stringify({ version: 1, secrets: { 'telegram.botToken': SECRET_VALUE } }));
+  assert.equal(run(['get', 'telegram.botToken']).stdout, 'telegram.botToken = configured (secrets file)\n');
 });
 
 test('set validates the whole file, writes it with a backup, keeps a stored secret the shell environment also supplies, and get reads the new value', () => {

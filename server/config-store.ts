@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { canonicalizePath } from '../shared/canonical-paths.ts';
 import { equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
-import { readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
+import { ENV_SECRET_BINDINGS, heldSecrets, nextStoredSecrets, readEnvSecrets, secretsHeldIn, stableConfigKey, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
+import type { StoredSecrets } from './core/config-secrets-core.ts';
 import { isTelemetryForcedOff } from './core/telemetry-core.ts';
 import { RUNTIME_CONFIG_SCALAR_KEYS } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX, pickSettingsBlock, settingsBlockSpecFor } from './core/settings-block-core.ts';
 import { stageTextAtomic, writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
-import { errorLabel, errorMessage } from '../shared/text.ts';
+import { errorLabel, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
 import { isExperimentalBuild as isExperimentalVersion } from '../shared/build-channel.ts';
@@ -18,9 +19,9 @@ import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config/config-defaults.ts';
 import type { DefaultConfig } from './config/config-defaults.ts';
 import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, migrateRemoteEnabled } from './config/config-migrations.ts';
-import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
+import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, readStoredSecrets, writeStoredSecrets, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
 import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
-import { configBackupPath } from './secrets/core/secret-files-core.ts';
+import { configBackupPath, configSecretsPath } from './secrets/core/secret-files-core.ts';
 
 const CONFIG_RELOAD_DEBOUNCE_MS = 500;
 
@@ -28,6 +29,15 @@ function secretSourcesOf(env: Record<string, string | undefined>): Record<string
   return Object.fromEntries(readEnvSecrets(env).map((secret) => [
     `${secret.blockName}.${secret.secretKey}`, secret.environmentVariable,
   ]));
+}
+
+function storedSecretsAtBoot(configPath: string): StoredSecrets {
+  try {
+    return readStoredSecrets(configPath);
+  } catch (err) {
+    console.error(`[config] ${errorMessage(err)}. Fix it, or delete it and enter the tokens again in Settings, then restart Glimmervoid.`);
+    process.exit(1);
+  }
 }
 
 function readIsExperimentalBuild(): boolean {
@@ -53,9 +63,65 @@ function createConfigStore({
   const launchDefaultKeys = new Set(Object.keys(settingsDefaults || {}));
 
   const envSecrets = readEnvSecrets(process.env);
-  const loadedConfig = loadConfigFile(configPath);
-  const config = loadedConfig.config;
+  let storedSecrets = storedSecretsAtBoot(configPath);
+
+  function withHeldSecrets(fileConfig: GlimmervoidConfig): GlimmervoidConfig {
+    return withEnvSecrets(fileConfig, heldSecrets({ ...storedSecrets, ...secretsHeldIn(fileConfig) }, envSecrets));
+  }
+
+  function storeSecretsOf(effectiveConfig: GlimmervoidConfig, secretsInConfigFile: StoredSecrets): string | null {
+    const nextSecrets = nextStoredSecrets({ ...storedSecrets, ...secretsInConfigFile }, effectiveConfig, envSecrets);
+    if (stableConfigKey(nextSecrets) === stableConfigKey(storedSecrets)) return null;
+    try {
+      writeStoredSecrets(configPath, nextSecrets);
+    } catch (err) {
+      return `${configSecretsPath(configPath)} could not be written (${errorLabel(err)}), so config.json was left as it is`;
+    }
+    storedSecrets = nextSecrets;
+    return null;
+  }
+
+  function fileConfigOf(effectiveConfig: GlimmervoidConfig): GlimmervoidConfig {
+    return withoutEnvSecrets(effectiveConfig, ENV_SECRET_BINDINGS);
+  }
+
+  function backupContentOf(fileContent: string, fileConfig: GlimmervoidConfig): string {
+    if (Object.keys(secretsHeldIn(fileConfig)).length === 0) return fileContent;
+    return JSON.stringify(fileConfigOf(fileConfig), null, 2);
+  }
+
+  function removeSecretsFromBackup(): void {
+    const backupPath = configBackupPath(configPath);
+    try {
+      const backedUp: unknown = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+      if (!isRecord(backedUp) || Object.keys(secretsHeldIn(backedUp)).length === 0) return;
+      writeBackupContent(backupPath, JSON.stringify(withoutEnvSecrets(backedUp, ENV_SECRET_BINDINGS), null, 2));
+    } catch (err) {
+      if (isMissingFileError(err) || err instanceof SyntaxError) return;
+      console.warn(`[config] Could not check ${backupPath} for secrets:`, errorLabel(err));
+    }
+  }
+
+  function writeConfigFileAtBoot(effectiveConfig: GlimmervoidConfig): void {
+    const storeFailure = storeSecretsOf(effectiveConfig, secretsInConfigFileAtBoot);
+    if (storeFailure !== null) throw new Error(storeFailure);
+    writeJsonAtomicSync(configPath, fileConfigOf(effectiveConfig), { mode: CONFIG_FILE_MODE });
+  }
+
+  const loadedConfig = loadConfigFile(configPath, { envSecrets: [] });
+  const secretsInConfigFileAtBoot = secretsHeldIn(loadedConfig.config);
+  const secretKeysInConfigFile = Object.keys(secretsInConfigFileAtBoot);
+  const config = withHeldSecrets(loadedConfig.config);
   removeRetiredBackups(configPath);
+  if (secretKeysInConfigFile.length > 0) {
+    try {
+      writeConfigFileAtBoot(config);
+      console.log(`[config] Moved ${secretKeysInConfigFile.join(', ')} out of config.json into ${configSecretsPath(configPath)}`);
+    } catch (err) {
+      console.warn('[config] Could not move secrets out of config.json:', errorMessage(err));
+    }
+  }
+  removeSecretsFromBackup();
   config.repoRoots = config.repoRoots || [];
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
@@ -63,7 +129,7 @@ function createConfigStore({
   const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
   if (configMigrations.length > 0) {
     try {
-      writeJsonAtomicSync(configPath, withoutEnvSecrets(config, envSecrets), { mode: CONFIG_FILE_MODE });
+      writeConfigFileAtBoot(config);
       for (const migration of configMigrations) console.log(migration);
     } catch (err) {
       console.warn('[config] Failed to persist the config migrations:', errorMessage(err));
@@ -72,7 +138,7 @@ function createConfigStore({
 
   if (Array.isArray(config.projects) && ensureProjectIds(config.projects)) {
     try {
-      writeJsonAtomicSync(configPath, withoutEnvSecrets(config, envSecrets), { mode: CONFIG_FILE_MODE });
+      writeConfigFileAtBoot(config);
       console.log('[config] Auto-assigned IDs to projects missing them');
     } catch (err) {
       console.warn('[config] Failed to persist auto-assigned project IDs:', errorMessage(err));
@@ -108,18 +174,21 @@ function createConfigStore({
     lastSaveFailureReason = null;
     let loaded: LoadedConfig | FailedConfigLoad;
     try {
-      loaded = loadConfigFile(configPath, { exitOnError: false });
+      loaded = loadConfigFile(configPath, { exitOnError: false, envSecrets: [] });
     } catch (err) {
       return refuseSave(`[config] Failed to read config.json for save: ${errorLabel(err)}`);
     }
     if ('error' in loaded) return refuseSave(loaded.message, `${configPath} could not be read as a config file. Fix it, or restore from ${configBackupPath(configPath)}, then save again.`);
-    const freshConfig = loaded.config;
+    const secretsInConfigFile = secretsHeldIn(loaded.config);
+    const freshConfig = withHeldSecrets(loaded.config);
     const freshContent = loaded.loadedContent;
     const effectiveConfig = prepareSave(freshConfig, mutatorFn);
     if (!effectiveConfig) return null;
+    const storeFailure = storeSecretsOf(effectiveConfig, secretsInConfigFile);
+    if (storeFailure !== null) return refuseSave(`[config] ${storeFailure}`);
     try {
-      const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
-      if (freshContent !== nextContent) writeBackupContent(configBackupPath(configPath), freshContent);
+      const nextContent = JSON.stringify(fileConfigOf(effectiveConfig), null, 2);
+      if (freshContent !== nextContent) writeBackupContent(configBackupPath(configPath), backupContentOf(freshContent, loaded.config));
 
       _lastWrittenContent = nextContent;
 
@@ -140,13 +209,17 @@ function createConfigStore({
         try {
           const freshContent = await fs.promises.readFile(configPath, 'utf8');
           if (revision !== synchronousWriteRevision) continue;
-          const freshConfig = withEnvSecrets(normalizeConfigFile(JSON.parse(freshContent)), envSecrets);
+          const fileConfig = normalizeConfigFile(JSON.parse(freshContent));
+          const secretsInConfigFile = secretsHeldIn(fileConfig);
+          const freshConfig = withHeldSecrets(fileConfig);
           const effectiveConfig = prepareSave(freshConfig, mutatorFn);
           if (!effectiveConfig) return null;
-          const nextContent = JSON.stringify(withoutEnvSecrets(effectiveConfig, envSecrets), null, 2);
+          const storeFailure = storeSecretsOf(effectiveConfig, secretsInConfigFile);
+          if (storeFailure !== null) return refuseSave(`[config] ${storeFailure}`);
+          const nextContent = JSON.stringify(fileConfigOf(effectiveConfig), null, 2);
           if (freshContent !== nextContent) {
             try {
-              await writeTextAtomic(configBackupPath(configPath), freshContent, { mode: CONFIG_FILE_MODE, enforceMode: process.platform !== 'win32' });
+              await writeTextAtomic(configBackupPath(configPath), backupContentOf(freshContent, fileConfig), { mode: CONFIG_FILE_MODE, enforceMode: process.platform !== 'win32' });
             } catch (error) {
               console.warn(`[config] Failed to write backup ${configPath}.bak:`, errorLabel(error));
             }
@@ -303,7 +376,7 @@ function createConfigStore({
       if (_lastAppliedContent !== null && data === _lastAppliedContent) return;
       let newConfig: GlimmervoidConfig;
       try {
-        newConfig = withEnvSecrets(normalizeConfigFile(JSON.parse(data)), envSecrets);
+        newConfig = withHeldSecrets(normalizeConfigFile(JSON.parse(data)));
       } catch (parseErr) {
         console.warn('[config] Invalid config.json:', errorMessage(parseErr));
         return;
@@ -348,6 +421,7 @@ function createConfigStore({
   return {
     config,
     configPath,
+    secretsFileKeys: () => Object.keys(storedSecrets),
     save,
     saveAsync,
     lastSaveFailureReason: () => lastSaveFailureReason,
