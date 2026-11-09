@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Update installs the standalone app on npm and npx installs.** Glimmervoid now ships as a standalone app, and this is the last release published to npm. On an npm or npx install, the update banner offers the switch: Update downloads the installer for the latest release and installs the app at `~/.glimmervoid/bin/glimmervoid`. Then stop the running server, start `glimmervoid` from a new shell, and run `npm uninstall -g glimmervoid`. When Glimmervoid runs as a systemd or launchd service, Update installs nothing and the banner shows the install command, the service line to change and the uninstall command instead.
+- **Doctor lists every glimmervoid on your PATH.** `glimmervoid doctor` shows each `glimmervoid` command found on PATH, and when they belong to different installs (say the npm package and the standalone app) it warns and names the one that runs.
 - **Update checks read GitHub releases.** Glimmervoid now learns about new versions from the latest GitHub release instead of the npm registry. When the release notes carry a Security section and you are on an older version, the dashboard shows a security notice.
 
 ### Removed
