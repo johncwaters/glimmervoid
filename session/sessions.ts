@@ -129,7 +129,7 @@ interface SessionPlanReviewPort {
   hasPlan: (sessionId: string) => boolean;
 }
 
-type TimerField = "_titleQuietFallbackTimer";
+type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer";
 
 interface SessionRecorderPort {
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown>): void;
@@ -274,6 +274,7 @@ class Session extends EventEmitter {
   _receivedFirstOutput: boolean;
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
+  _resumeNoteFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
   _ptyAlive: boolean;
@@ -294,6 +295,8 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _pendingPromptSupervisionLine: string | null;
+  _pendingResumeNote: string | null;
+  _resumeNoteAwaitingTurn: string | null;
   _hintedCommands: Set<HintedCommand>;
   _shownHintCommands: Set<HintedCommand>;
   _ranCommands: Set<string>;
@@ -508,6 +511,7 @@ class Session extends EventEmitter {
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
+    this._resumeNoteFallbackTimer = null;
 
     this._hookSeen = false;
     this._lastSignal = null;
@@ -539,6 +543,8 @@ class Session extends EventEmitter {
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
     this._pendingPromptSupervisionLine = null;
+    this._pendingResumeNote = null;
+    this._resumeNoteAwaitingTurn = null;
     this._hintedCommands = new Set();
     this._shownHintCommands = new Set();
     this._ranCommands = new Set();
@@ -912,6 +918,7 @@ class Session extends EventEmitter {
     }
 
     if (hookEvent === "userpromptsubmit") {
+      this._dropResumeNote();
       const prompt = raw.payload?.prompt;
       this._queuePromptHint(prompt);
       if (!this._taskTitleSources.promptTitle) {
@@ -1691,7 +1698,11 @@ class Session extends EventEmitter {
     }
 
     this._suppressResumeCapture = false;
-    const launchPrompt = spawnResumeSessionId && resumePrompt ? resumePrompt : this._initialPrompt;
+    const isResumeNoteLaunch = Boolean(spawnResumeSessionId && resumePrompt);
+    const isResumeNoteByHook = isResumeNoteLaunch && this._can("resumeNoteByHook") && this._hooks.hasInjection();
+    this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
+    this._resumeNoteAwaitingTurn = this._pendingResumeNote;
+    const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
@@ -1772,7 +1783,20 @@ class Session extends EventEmitter {
       this._handleSpawnedPtyExit(exitCode, signal),
     );
     this._deliverPtyInitialPrompt(launchPrompt);
+    this._armResumeNoteFallback();
     this._armPromptSupervisionLine();
+  }
+
+  _armResumeNoteFallback(): void {
+    this._clearTimer("_resumeNoteFallbackTimer");
+    if (this._resumeNoteAwaitingTurn === null) return;
+    this._armTimer("_resumeNoteFallbackTimer", this._titleQuietFallbackMs, () => {
+      const resumeNote = this._resumeNoteAwaitingTurn;
+      if (this._destroyed || !this._ptyAlive || resumeNote === null) return;
+      this._dropResumeNote();
+      console.warn(`[session:${this.name}] no turn started from the resume note within ${Math.round(this._titleQuietFallbackMs / 1000)}s - pasting it into the terminal`);
+      this.pasteTextWhenReady(resumeNote, { submit: true });
+    }, { unref: true });
   }
 
   _armPromptSupervisionLine(): void {
@@ -1813,6 +1837,22 @@ class Session extends EventEmitter {
     if (hint === null) return;
     this._hintedCommands.add(hint.command);
     this._queuedCommandHints.push(hint);
+  }
+
+  _dropResumeNote(): void {
+    this._pendingResumeNote = null;
+    this._resumeNoteAwaitingTurn = null;
+    this._clearTimer("_resumeNoteFallbackTimer");
+  }
+
+  pendingResumeNote(): string | null {
+    return this._resumeNoteAwaitingTurn;
+  }
+
+  takeResumeNote(): string | null {
+    const resumeNote = this._pendingResumeNote;
+    this._pendingResumeNote = null;
+    return resumeNote;
   }
 
   takePromptNotes(keepsHint: (command: HintedCommand) => boolean): string[] {
@@ -1941,6 +1981,7 @@ class Session extends EventEmitter {
     this._hooks.cleanup();
     this._ptyAlive = false;
     this.ptyProcess = null;
+    this._dropResumeNote();
 
     if (pid) {
       this._reaper.exitReap = this._reaper.reapTreeOnce(pid);
@@ -2057,6 +2098,7 @@ class Session extends EventEmitter {
     if (!this.ptyProcess) return;
 
     this._ptyAlive = false;
+    this._dropResumeNote();
     this._reaper.kill(this.ptyProcess.pid);
   }
 
@@ -2191,6 +2233,7 @@ class Session extends EventEmitter {
 
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
+    this._clearTimer("_resumeNoteFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.clearWakeups();

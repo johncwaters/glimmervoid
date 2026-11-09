@@ -40,3 +40,11 @@ export type QuestionToolDenyResponse = z.infer<typeof QuestionToolDenyResponse>;
 export const PromptContextReply = z.enum(['message', 'additional-context']);
 
 export type PromptContextReply = z.infer<typeof PromptContextReply>;
+
+export const RESUME_NOTE_HOOK_EVENT = 'resumenote';
+
+export const REWAKE_RELAY_MODE = 'rewake';
+
+export const ResumeNoteHookResponse = z.object({ resumeNote: z.string().min(1) });
+
+export type ResumeNoteHookResponse = z.infer<typeof ResumeNoteHookResponse>;

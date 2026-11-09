@@ -13,6 +13,7 @@ import type { RegistryConfig } from '../server/session/session-registry.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { Session } from '../session/sessions.ts';
+import { HookRouter } from '../detection/hook-source.ts';
 import { encodeProjectDir } from '../session/core/conversation-history.ts';
 import { AUTO_CONTINUE_PROMPT, resumePromptFor } from '../session/core/auto-resume.ts';
 import { ASK_USER_QUESTION_TOOL_NAME } from '../shared/contracts/session.ts';
@@ -167,13 +168,73 @@ test('runAutoResume spawns a picked session with --resume <id>, even when its tr
     assert.equal(resumeIdOf('picked'), '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5');
     assert.equal(resumeIdOf('working'), '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5');
     assert.equal(resumeIdOf('moved'), movedResumeSessionId, 'a transcript under a former worktree path still resumes');
-    assert.equal(argsOf('working').at(-1), AUTO_CONTINUE_PROMPT, 'the mid-turn session is told to continue');
+    assert.equal(argsOf('working').at(-1), AUTO_CONTINUE_PROMPT, 'a mid-turn session without injected hooks is told to continue in its launch prompt');
+    assert.equal(working.pendingResumeNote(), null, 'no hook will fetch the note, so none is held back');
     assert.ok(!argsOf('picked').includes(AUTO_CONTINUE_PROMPT), 'an idle session resumes without a prompt');
     assert.equal(picked.state, STATES.STARTING);
     assert.equal(dormantNoFlag.state, STATES.DORMANT, 'not-active session never spawned');
     assert.equal(noId.state, STATES.DORMANT, 'no-id session never spawned');
   } finally {
     picked.destroy(); moved.destroy(); working.destroy(); dormantNoFlag.destroy(); noId.destroy();
+  }
+});
+
+function hookedResumeSession(id: string, calls: SpawnCall[]): Session {
+  const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(process.cwd(), resumeSessionId);
+  return new Session({
+    id,
+    name: id,
+    path: process.cwd(),
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: (file: string, args: string[]) => { calls.push({ id, file, args }); return fakePty(); },
+    resumeSessionId,
+    hookRouter: new HookRouter(),
+    getHookPort: () => 9,
+    titleQuietFallbackMs: 50,
+  });
+}
+
+test('a resume note the rewake hook took is still pasted into the terminal when no turn starts before the deadline, as on a Claude Code that ignores asyncRewake', async () => {
+  const calls: SpawnCall[] = [];
+  const session = hookedResumeSession('hookless-resume', calls);
+  try {
+    await session.start({ resumePrompt: AUTO_CONTINUE_PROMPT });
+    assert.ok(!calls[0].args.includes(AUTO_CONTINUE_PROMPT), 'the note is held for the rewake hook');
+    assert.equal(session.takeResumeNote(), AUTO_CONTINUE_PROMPT);
+    assert.equal(session.takeResumeNote(), null, 'the hook gets the note once');
+    await waitFor(() => session.pendingResumeNote() === null);
+    assert.ok(session.hasPendingPaste(), 'the note no turn confirmed is queued as a terminal paste');
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a resume note whose rewake started a turn is never pasted', async () => {
+  const session = hookedResumeSession('rewoken-resume', []);
+  try {
+    await session.start({ resumePrompt: AUTO_CONTINUE_PROMPT });
+    session.takeResumeNote();
+    session._ingestHookSignal({ signal: 'working', source: 'hook', ts: Date.now(), event: 'UserPromptSubmit', payload: { prompt: AUTO_CONTINUE_PROMPT } });
+    assert.equal(session.pendingResumeNote(), null);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.ok(!session.hasPendingPaste());
+  } finally {
+    session.destroy();
+  }
+});
+
+test('a held resume note is dropped when the operator kills the session before the deadline, so a stopped session is never revived to receive it', async () => {
+  const session = hookedResumeSession('exited-resume', []);
+  try {
+    await session.start({ resumePrompt: AUTO_CONTINUE_PROMPT });
+    session.killSession();
+    assert.equal(session.state, STATES.DONE);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(session.pendingResumeNote(), null);
+    assert.ok(!session.hasPendingPaste(), 'no paste is queued to restart the exited session');
+  } finally {
+    session.destroy();
   }
 });
 
@@ -258,7 +319,7 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
   }
 });
 
-test('createBackend defers boot auto-resume until the HTTP listener has a hook port', async () => {
+test('createBackend defers boot auto-resume until the HTTP listener has a hook port, and hands a mid-turn session its continue note once through the resumenote hook instead of its launch prompt', async () => {
   const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-cfg-'));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-proj-'));
   const cfgPath = path.join(cfgDir, 'config.json');
@@ -273,6 +334,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
       name: 'boot-picked',
       path: projectDir,
       wasActive: true,
+      wasWorking: true,
       resumeSessionId,
     }],
     teams: [],
@@ -282,6 +344,7 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   const originalSpawn = pty.spawn;
   const calls: SpawnCall[] = [];
   const live: { backend: ReturnType<typeof createBackend> | null } = { backend: null };
+  const resumeNoteFrom = async (resumeNoteUrl: string) => (await (await fetch(resumeNoteUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()).resumeNote;
   process.env.GLIMMERVOID_CONFIG = cfgPath;
   pty.spawn = (file: string, args: string[] | string) => {
     calls.push({ file, args: Array.isArray(args) ? args : [args] });
@@ -305,6 +368,11 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
     const resumeIndex = calls[0].args.indexOf('--resume');
     assert.notEqual(resumeIndex, -1, 'auto-resume keeps the resume argument');
     assert.equal(calls[0].args[resumeIndex + 1], resumeSessionId);
+    assert.ok(!calls[0].args.includes(AUTO_CONTINUE_PROMPT), 'the continue note is never a typed launch prompt');
+    const resumeNoteUrl = settingsText.match(/http:\/\/127\.0\.0\.1:\d+\/hook\/boot-picked\/resumenote\?t=[0-9a-f]+/)?.[0] ?? '';
+    assert.notEqual(resumeNoteUrl, '', 'settings carry the resumenote rewake hook');
+    assert.equal(await resumeNoteFrom(resumeNoteUrl), AUTO_CONTINUE_PROMPT, 'the rewake hook fetches the continue note');
+    assert.equal(await resumeNoteFrom(resumeNoteUrl), undefined, 'a later SessionStart does not repeat it');
   } finally {
     if (live.backend) await settleBackendShutdown(live.backend);
     if (server.listening) await closeServer(server);

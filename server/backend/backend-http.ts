@@ -14,6 +14,7 @@ import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
 import type { RefocusContext } from '../../session/core/refocus-core.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
+import { RESUME_NOTE_HOOK_EVENT } from '../../shared/contracts/refocus.ts';
 import type { AgentApiPort } from '../agent-api-wiring.ts';
 import type { PrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { PR_ACTION_REPORT_BODY_CAP_BYTES, PR_ACTION_REPORT_ROUTE, PrActionReportBody } from '../../shared/contracts/pr-flows.ts';
@@ -64,6 +65,7 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   PLAN_RESULT_HOOK_EVENT,
   CONVERSATION_PERMISSION_HOOK_EVENT,
   CONVERSATION_TOOL_RESULT_HOOK_EVENT,
+  RESUME_NOTE_HOOK_EVENT,
 ]);
 
 function knownHookEventName(event: string): string {
@@ -404,6 +406,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         payload,
         readContext: () => refocusContextFor(req.params.glimmervoidId),
         takePromptSupervision: () => takePromptSupervision(req.params.glimmervoidId),
+        takeResumeNote: () => getSession(req.params.glimmervoidId)?.takeResumeNote() ?? null,
       });
       const toolHint = output.status === 200 ? toolHookHintReply(req.params.glimmervoidId, req.params.event, payload) : null;
       const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply, ...toolHint };

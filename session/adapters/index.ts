@@ -31,6 +31,7 @@ interface AgentCapabilities {
   subagentTurnStops?: boolean;
   ptyInitialPrompt?: boolean;
   toolHookContext?: boolean;
+  resumeNoteByHook?: boolean;
 }
 
 

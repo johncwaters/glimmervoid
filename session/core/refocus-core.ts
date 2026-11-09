@@ -1,4 +1,4 @@
-import { QuestionToolDenyResponse, RelayedHookContext, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
+import { QuestionToolDenyResponse, RelayedHookContext, RESUME_NOTE_HOOK_EVENT, ResumeNoteHookResponse, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { CommandHint } from './session-routes.ts';
@@ -16,6 +16,7 @@ interface RefocusReplyInput {
   payload: Record<string, unknown>;
   readContext: () => RefocusContext;
   takePromptSupervision?: () => UserPromptSubmitHookResponse | null;
+  takeResumeNote?: () => string | null;
 }
 
 function refocusIntentParts({ taskTitle, latestPlanTitle }: RefocusContext): string[] {
@@ -52,9 +53,15 @@ function promptSupervisionReply(takePromptSupervision: (() => UserPromptSubmitHo
   return takePromptSupervision?.() ?? null;
 }
 
-function refocusReplyFor({ accepted, event, payload, readContext, takePromptSupervision }: RefocusReplyInput): SessionStartHookResponse | UserPromptSubmitHookResponse | null {
+function resumeNoteReply(takeResumeNote: (() => string | null) | undefined): ResumeNoteHookResponse | null {
+  const resumeNote = takeResumeNote?.() ?? null;
+  return resumeNote ? { resumeNote } : null;
+}
+
+function refocusReplyFor({ accepted, event, payload, readContext, takePromptSupervision, takeResumeNote }: RefocusReplyInput): SessionStartHookResponse | UserPromptSubmitHookResponse | ResumeNoteHookResponse | null {
   if (!accepted) return null;
   if (event.toLowerCase() === 'userpromptsubmit') return promptSupervisionReply(takePromptSupervision);
+  if (event.toLowerCase() === RESUME_NOTE_HOOK_EVENT) return resumeNoteReply(takeResumeNote);
   if (event.toLowerCase() !== 'sessionstart') return null;
   if (payload.source !== 'compact') return null;
   const additionalContext = buildRefocusReminder(readContext());
@@ -68,6 +75,16 @@ function sessionStartContextOutput(body: string | null): string | null {
     const parsedResponse = SessionStartHookResponse.safeParse(JSON.parse(body));
     if (!parsedResponse.success) return null;
     return JSON.stringify(parsedResponse.data);
+  } catch {
+    return null;
+  }
+}
+
+function resumeNoteOf(body: string | null): string | null {
+  if (body === null) return null;
+  try {
+    const parsedResponse = ResumeNoteHookResponse.safeParse(JSON.parse(body));
+    return parsedResponse.success ? parsedResponse.data.resumeNote : null;
   } catch {
     return null;
   }
@@ -91,5 +108,5 @@ function toolHookContextReplyOf({ event, text }: CommandHint): ToolHookContextRe
   return { hookSpecificOutput: { hookEventName: TOOL_HOOK_EVENT_NAMES[event], additionalContext: text } };
 }
 
-export { REFOCUS_NOTE, toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, sessionStartContextOutput, relayedHookContextOutput };
+export { REFOCUS_NOTE, toolHookContextReplyOf, promptContextReplyOf, refocusReplyFor, resumeNoteOf, sessionStartContextOutput, relayedHookContextOutput };
 export type { RefocusContext };

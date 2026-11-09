@@ -13,6 +13,7 @@ import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../session/core/user-hooks-core.ts';
 import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
+import { RESUME_NOTE_HOOK_EVENT, REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
 import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
 
@@ -30,6 +31,8 @@ interface SettingsHookHandler {
   url?: string;
   command?: string;
   timeout?: number;
+  async?: boolean;
+  asyncRewake?: boolean;
 }
 
 interface SettingsHookEntry {
@@ -171,16 +174,27 @@ function buildStatuslineCommand(
 }
 
 function buildCommandHookCommand(
-  { relayLaunch = COMMAND_HOOK_RELAY_LAUNCH, postUrl }: { relayLaunch?: readonly string[]; postUrl: string },
+  { relayLaunch, postUrl, relayArguments }: { relayLaunch: readonly string[]; postUrl: string; relayArguments: readonly string[] },
 ): string {
-  return `${shellLaunchText(relayLaunch)} ${shellQuote(postUrl)}`;
+  return [shellLaunchText(relayLaunch), shellQuote(postUrl), ...relayArguments].join(' ');
 }
 
-function buildRemoteCommandHookCommand({ nodePath, postUrl }: { nodePath: string; postUrl: string }): string {
+const REMOTE_RELAY_STDOUT_HANDLER = '(text)=>{if(text)process.stdout.write(text)}';
+const REMOTE_RELAY_REWAKE_HANDLER = '(text)=>{let note=null;try{note=JSON.parse(text).resumeNote}catch{}'
+  + 'if(typeof note==="string"&&note){process.stderr.write(note);process.exitCode=2}}';
+
+function buildRemoteCommandHookCommand({ nodePath, postUrl, replyHandler }: { nodePath: string; postUrl: string; replyHandler: string }): string {
   const inlineRelay = 'let body="";process.stdin.setEncoding("utf8").on("data",(chunk)=>{body+=chunk}).on("end",()=>{'
     + 'fetch(process.argv[1],{method:"POST",headers:{"content-type":"application/json"},body,signal:AbortSignal.timeout(4000)})'
-    + '.then((response)=>response.ok?response.text():"").then((text)=>{if(text)process.stdout.write(text)}).catch(()=>{})})';
+    + `.then((response)=>response.ok?response.text():"").then(${replyHandler}).catch(()=>{})})`;
   return `${shellQuote(nodePath)} -e ${shellQuote(inlineRelay)} ${shellQuote(postUrl)}`;
+}
+
+function buildSessionStartCommand(
+  { remoteNodePath, relayLaunch, postUrl, isRewake }: { remoteNodePath: string | null; relayLaunch: readonly string[]; postUrl: string; isRewake: boolean },
+): string {
+  if (remoteNodePath === null) return buildCommandHookCommand({ relayLaunch, postUrl, relayArguments: isRewake ? [REWAKE_RELAY_MODE] : [] });
+  return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
 function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, carryOperatorGuardrails, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
@@ -192,10 +206,14 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const hooks: Record<string, SettingsHookEntry[]> = {
     SessionStart: [{ hooks: [{
       type: 'command',
-      command: remoteNodePath === null
-        ? buildCommandHookCommand({ relayLaunch: commandHookRelayLaunch, postUrl: hookUrl('SessionStart') })
-        : buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl: hookUrl('SessionStart') }),
+      command: buildSessionStartCommand({ remoteNodePath, relayLaunch: commandHookRelayLaunch, postUrl: hookUrl('SessionStart'), isRewake: false }),
       timeout: timeoutSec,
+    }] }, { hooks: [{
+      type: 'command',
+      command: buildSessionStartCommand({ remoteNodePath, relayLaunch: commandHookRelayLaunch, postUrl: hookUrl(RESUME_NOTE_HOOK_EVENT), isRewake: true }),
+      timeout: timeoutSec,
+      async: true,
+      asyncRewake: true,
     }] }],
   };
   for (const event of HOOK_EVENTS) {
