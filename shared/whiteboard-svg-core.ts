@@ -26,6 +26,8 @@ const DECISION_POINT_INSET = 12;
 const OUTPUT_LABEL_BASELINE_OFFSET = 4;
 const OUTPUT_DOT_RADIUS = 3;
 const MONO_CHAR_WIDTH = 7.2;
+const CUT_TEXT_ENDING = '...';
+const WIDE_CHAR = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}|[\u{20000}-\u{3fffd}]/u;
 const CODE_BAND_RISE = 13;
 const CODE_BAND_HEIGHT = 17;
 const ITEM_DOT_RADIUS = 2.2;
@@ -191,6 +193,27 @@ function boxOutlineMarkup(box: LaidOutBox): string {
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline' });
 }
 
+function charCellsOf(char: string): number {
+  return WIDE_CHAR.test(char) ? 2 : 1;
+}
+
+function charsFitting(chars: readonly string[], maxCells: number): string[] {
+  let usedCells = 0;
+  return chars.filter((char) => {
+    usedCells += charCellsOf(char);
+    return usedCells <= maxCells;
+  });
+}
+
+function textCutToWidth(fullText: string, width: number): string {
+  const chars = Array.from(fullText);
+  const maxCells = Math.max(1, Math.floor(width / MONO_CHAR_WIDTH));
+  const fullCells = chars.reduce((cells, char) => cells + charCellsOf(char), 0);
+  if (fullCells <= maxCells) return fullText;
+  if (maxCells <= CUT_TEXT_ENDING.length) return charsFitting(chars, maxCells).join('');
+  return `${charsFitting(chars, maxCells - CUT_TEXT_ENDING.length).join('')}${CUT_TEXT_ENDING}`;
+}
+
 function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref, clipPathId: string | null = null): string[] {
   const href = assetHref(media);
   const placeholderText = media.alt || media.kind;
@@ -199,7 +222,7 @@ function mediaMarkup(media: LaidOutMedia, assetHref: AssetHref, clipPathId: stri
   if (href) return [tag('image', { href, x: media.x, y: media.y, width: media.width, height: media.height, preserveAspectRatio: PREFERRED_ASPECT_BY_FIT[media.fit], 'clip-path': clipPath, class: 'wb-image' }, label)];
   return [
     tag('rect', { x: media.x, y: media.y, width: media.width, height: media.height, rx: 6, class: 'wb-image-placeholder' }, label),
-    text(placeholderText, media.x + media.width / 2, media.y + media.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
+    text(textCutToWidth(placeholderText, media.width), media.x + media.width / 2, media.y + media.height / 2 + 4, 'wb-image-placeholder-text', { 'text-anchor': 'middle' }),
   ];
 }
 

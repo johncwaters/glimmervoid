@@ -510,6 +510,7 @@ function pickBoard(boardId: string): void {
 
 function selectBoard(boardId: string): void {
   if (selectedBoardId === boardId) return;
+  gatherClickOpenedStacksOfSelectedBoard();
   selectedBoardId = boardId;
   shouldFitOnNextRender = true;
   editor?.clearSelection();
@@ -746,6 +747,14 @@ function openStack(frameId: string): void {
   void sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }]).then((isSent) => {
     if (!isSent) clickOpenedStacksByFrameId.delete(frameId);
   });
+}
+
+function gatherClickOpenedStacksOfSelectedBoard(): void {
+  for (const [frameId, clickOpenedStack] of clickOpenedStacksByFrameId) {
+    if (clickOpenedStack.boardId !== selectedBoardId) continue;
+    clickOpenedStacksByFrameId.delete(frameId);
+    void sendRecordedOps(clickOpenedStack.boardId, [{ op: 'set', id: frameId, fields: { collapsed: true } }]);
+  }
 }
 
 function settledClickOpenedStack(frameId: string, clickOpenedStack: ClickOpenedStack, held: Element | undefined, hasSelectionLeft: boolean): ClickOpenedStack | 'forget' | 'gather' {

@@ -23,7 +23,7 @@ import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
-import { resolveFfmpegPath } from '../server/runtime-paths.ts';
+import { resolveFfmpegPath, stableLauncherPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const PLANNER_ID = 'whiteboard-planner';
@@ -1039,7 +1039,7 @@ test('a video whose ffmpeg crashes or cannot decode it is kept without a first f
   const attachWithFakeFfmpeg = async (name: string, script: string) => {
     const fakeFfmpegPath = path.join(workRoot, `ffmpeg-${name}`);
     fs.writeFileSync(fakeFfmpegPath, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
-    const { stdout } = await execFileAsync(process.execPath, [attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), clipPath], { env: { ...process.env, FFMPEG_BIN: fakeFfmpegPath } });
+    const { stdout } = await execFileAsync(stableLauncherPath(), [attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), clipPath], { env: { ...process.env, FFMPEG_BIN: fakeFfmpegPath } });
     return JSON.parse(stdout) as { ok: boolean; status?: number; media?: { hasPreview: boolean } };
   };
   for (const [name, script] of [['crash', 'kill -SEGV $$'], ['undecodable', 'echo "Invalid data found when processing input" >&2; exit 1']]) {
@@ -1068,7 +1068,7 @@ test('a large picture whose preview write runs out of disk is refused so it can 
     fs.writeFileSync(hooksPath, `export async function resolve(specifier, context, nextResolve) {\n  if (specifier === 'sharp') return { url: ${JSON.stringify(pathToFileURL(failingSharpPath).href)}, shortCircuit: true };\n  return nextResolve(specifier, context);\n}\n`);
     const registerPath = path.join(workRoot, `register-${name}.mjs`);
     fs.writeFileSync(registerPath, `import { register } from 'node:module';\nregister(${JSON.stringify(pathToFileURL(hooksPath).href)});\n`);
-    const { stdout } = await execFileAsync(process.execPath, ['--import', registerPath, attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), picturePath]);
+    const { stdout } = await execFileAsync(stableLauncherPath(), ['--import', registerPath, attachScriptPath, fs.mkdtempSync(path.join(workRoot, 'boards-')), picturePath]);
     return JSON.parse(stdout) as { ok: boolean; status?: number; media?: { hasPreview: boolean } };
   };
   const diskFull = await attachWithPreviewWriteFailing('disk-full', { message: 'write failed', code: 'ENOSPC' });

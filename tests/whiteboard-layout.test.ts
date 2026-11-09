@@ -732,3 +732,17 @@ test('a layout world kept across an edit bounds the board around far ink as a fr
   assert.equal(kept.delta.isRebuilt, false);
   assert.deepEqual(layoutOf(kept.world).bounds, layoutBoard(staged.board).bounds);
 });
+
+test('placeholder text wider than its media is cut to fit in the board picture, wide characters counting double, while its title keeps the whole text', () => {
+  const longAlt = 'The X post as it shows on a phone, with the board video under the text';
+  const wideAlt = String.fromCharCode(0x56fe).repeat(40);
+  const pageMedia = (alt: string) => ({ kind: 'page', asset: 'a'.repeat(64), mime: 'text/html', width: 1280, height: 800, alt });
+  const pictured = boardSvgDocument(layoutBoard(Board.parse({ id: 'b', title: 'b', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
+    phone: { kind: 'box', id: 'phone', title: 'Phone', shape: 'device', device: 'phone', width: 240, media: pageMedia(longAlt), at: { x: 0, y: 0 } },
+    wide: { kind: 'box', id: 'wide', title: 'Wide', shape: 'device', device: 'phone', width: 240, media: pageMedia(wideAlt), at: { x: 400, y: 0 } },
+    roomy: { kind: 'box', id: 'roomy', title: 'Roomy', width: 600, media: pageMedia('short alt'), at: { x: 800, y: 0 } },
+  } })));
+  const drawnTexts = [...pictured.matchAll(/wb-image-placeholder-text"[^>]*>([^<]*)</g)].map((match) => match[1]);
+  assert.deepEqual(drawnTexts, ['The X post as it shows on...', `${wideAlt.slice(0, 12)}...`, 'short alt']);
+  assert.ok(pictured.includes(`<title>${longAlt}</title>`), 'the title keeps the whole text');
+});
