@@ -86,6 +86,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - A per-process page token guards local control and data upgrades, riding the query string since a browser cannot set a WS handshake header. `GET /control-token` refuses a disallowed Origin outright.
 - Trust is the LISTENER PORT, never a header or IP: a reverse proxy makes remote traffic look loopback, so an IP or `X-Forwarded-For` rule would hand every visitor local trust.
 - Sessions reach `/hook` and `/agent` on their OWN loopback listener, never the dashboard port, and that port must not also serve `GET /control-token` or the control WS.
+- `POST /pr-action/:runId/report` stays on the dashboard port: its caller is a server-started PR action command that outlives restarts, and the session listener's port is fresh each boot.
 - A pairing cookie is RCE as the server account, the control WS accepting any project path plus `dangerouslySkipPermissions`. Pairing URLs are single-use, short-TTL, never logged or stored in plaintext; the store fails CLOSED on corruption.
 - The `/pair/*` exemption is judged on the DECODED pathname: `express.static` resolves dot segments, so an un-normalized check served the dashboard bundle under `/pair/%2e%2e/`.
 - Remote config is unreachable from the control WS, and remote-off is fully inert: no route, no middleware, no file. Binding wider needs `GLIMMERVOID_INSECURE_BIND=1`.

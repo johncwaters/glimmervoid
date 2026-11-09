@@ -519,11 +519,16 @@ const PR_ACTION_REPORT_ERRORS: Record<401 | 404 | 409, string> = {
   409: 'this run already has a final outcome',
 };
 
-function mountPrActionReportRoute(app: Express, { getPrActionReports, logger }: {
+function mountPrActionReportRoute(app: Express, { getPrActionReports, remoteListenerPort, logger }: {
   getPrActionReports: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
+  remoteListenerPort: number | null;
   logger: Pick<Console, 'warn'>;
 }): void {
   app.post(PR_ACTION_REPORT_ROUTE, (req, res) => {
+    if (classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }) === 'remote') {
+      refuseAgentRequest(res);
+      return;
+    }
     const overCap = (declaredBytes: string) => {
       logger.warn(`[pr-action] a ${declaredBytes} byte report is over the ${PR_ACTION_REPORT_BODY_CAP_BYTES} byte cap and was refused`);
     };
@@ -615,7 +620,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview });
   });
 
-  mountPrActionReportRoute(app, { getPrActionReports: dependencies.getPrActionReports ?? (() => null), logger });
+  mountPrActionReportRoute(app, { getPrActionReports: dependencies.getPrActionReports ?? (() => null), remoteListenerPort, logger });
 
   const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');
   app.post('/upload/:sessionId', (req, res) => {

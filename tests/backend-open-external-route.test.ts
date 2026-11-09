@@ -8,6 +8,7 @@ import type { Server } from 'node:http';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import type { BackendHttpDependencies } from '../server/backend/backend-http.ts';
 import { MAX_EXTERNAL_URL_LENGTH } from '../server/core/open-external-core.ts';
+import { prActionReportPath } from '../shared/contracts/pr-flows.ts';
 import type { HostOpenOutcome } from '../server/host-url-opener.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
@@ -119,17 +120,24 @@ test('the route refuses non-http schemes, relative, malformed and overlong urls 
 
 test('a request on the remote listener port is refused even though it arrives on loopback', async () => {
   const openedUrls: string[] = [];
+  const acceptedReportRunIds: string[] = [];
   const server = http.createServer();
   await listenOnLoopback(server);
   const port = boundPort(server);
   server.on('request', createBackendHttpApp(appDependencies({
     remoteListenerPort: port,
     openUrlOnHost: async (url) => { openedUrls.push(url); return 'opened'; },
+    getPrActionReports: () => ({ acceptPrActionReport: async (runId) => { acceptedReportRunIds.push(runId); return 200; } }),
   })));
   try {
     const response = await postOpenExternal(`http://127.0.0.1:${port}`, { url: 'https://example.com/' });
     assert.equal(response.status, 403);
     assert.deepEqual(openedUrls, []);
+    const reportResponse = await fetch(`http://127.0.0.1:${port}${prActionReportPath('run-1')}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer run-token' }, body: JSON.stringify({ outcome: 'done' }),
+    });
+    assert.equal(reportResponse.status, 404);
+    assert.deepEqual(acceptedReportRunIds, []);
   } finally {
     await stopApp(server);
   }
