@@ -88,8 +88,6 @@ const DEFAULT_CONFIG = {
   packs: [] as string[],
 
   remote: {
-    enabled: false,
-
     port: null as number | null,
 
     publicHost: '',

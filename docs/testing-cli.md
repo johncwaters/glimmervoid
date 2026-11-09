@@ -163,17 +163,17 @@ node bin/glimmervoid.ts doctor
 
 ## Test 7: `glimmervoid pair`
 
-Enable the remote listener in the scratch config and start the server in one terminal:
+Set the remote listener port in the scratch config and start the server in one terminal:
 
 ```bash
 cat > "$GLIMMERVOID_HOME/config.json" <<'JSON'
-{ "port": 3455, "remote": { "enabled": true, "port": 3456 }, "projects": [] }
+{ "port": 3455, "remote": { "port": 3456 }, "projects": [] }
 JSON
 node bin/glimmervoid.ts
 ```
 
 ```powershell
-'{ "port": 3455, "remote": { "enabled": true, "port": 3456 }, "projects": [] }' | Set-Content -Encoding UTF8 "$env:GLIMMERVOID_HOME\config.json"
+'{ "port": 3455, "remote": { "port": 3456 }, "projects": [] }' | Set-Content -Encoding UTF8 "$env:GLIMMERVOID_HOME\config.json"
 node bin/glimmervoid.ts
 ```
 
@@ -210,13 +210,13 @@ node bin/glimmervoid.ts settings search spike --json
 node bin/glimmervoid.ts settings get posthog.trafficSpikeEnabled
 node bin/glimmervoid.ts settings set posthog.trafficSpikeEnabled false
 node bin/glimmervoid.ts settings set posthog.trafficSpikeEnabled maybe
-node bin/glimmervoid.ts settings set remote.enabled false
+node bin/glimmervoid.ts settings set remote.port 4000
 node bin/glimmervoid.ts settings set telegram.botToken 123456:EXAMPLE
 node bin/glimmervoid.ts settings unset posthog.trafficSpikeEnabled
 node bin/glimmervoid.ts settings list
 ```
 
-**Expected:** `schema` prints a JSON array with one entry per setting carrying `id`, `path`, `type`, `default`, `unit`, `effect` and `section`, and creates nothing under `GLIMMERVOID_HOME` when run without a `config.json`. `search spike` lists the settings with spike in their title first, `posthog-traffic-enabled` among them. `get` prints `posthog.trafficSpikeEnabled = true (default)`. The first `set` prints the new value and `A running Glimmervoid applies it without a restart.`, and `config.json` now carries `"trafficSpikeEnabled": false` next to a `config.json.bak` of the previous content. `set ... maybe` exits 1 with `posthog.trafficSpikeEnabled must be a boolean` and leaves the file untouched. `set remote.enabled` exits 1 with a message that names `config.json`, because the remote listener is not a registry setting. `set telegram.botToken` exits 1 with a message naming Settings > Telegram and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and `config.json` stays without the token, because the command never takes or removes a secret. `unset` removes the key and names the default. `list` prints one table per settings section; a Telegram bot token or PostHog API key shows as `configured` or `not configured`, never as its value. Start the server, run the first `set` again, and the server log prints `[config] Reloaded config.json` without a restart.
+**Expected:** `schema` prints a JSON array with one entry per setting carrying `id`, `path`, `type`, `default`, `unit`, `effect` and `section`, and creates nothing under `GLIMMERVOID_HOME` when run without a `config.json`. `search spike` lists the settings with spike in their title first, `posthog-traffic-enabled` among them. `get` prints `posthog.trafficSpikeEnabled = true (default)`. The first `set` prints the new value and `A running Glimmervoid applies it without a restart.`, and `config.json` now carries `"trafficSpikeEnabled": false` next to a `config.json.bak` of the previous content. `set ... maybe` exits 1 with `posthog.trafficSpikeEnabled must be a boolean` and leaves the file untouched. `set remote.port` exits 1 with a message that names `config.json`, because the remote listener is not a registry setting. `set telegram.botToken` exits 1 with a message naming Settings > Telegram and `GLIMMERVOID_TELEGRAM_BOT_TOKEN`, and `config.json` stays without the token, because the command never takes or removes a secret. `unset` removes the key and names the default. `list` prints one table per settings section; a Telegram bot token or PostHog API key shows as `configured` or `not configured`, never as its value. Start the server, run the first `set` again, and the server log prints `[config] Reloaded config.json` without a restart.
 
 ---
 

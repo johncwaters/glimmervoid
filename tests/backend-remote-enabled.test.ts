@@ -97,7 +97,7 @@ test.before(async () => {
   const cfgPath = path.join(tmpDir, 'config.json');
   fs.writeFileSync(cfgPath, JSON.stringify({
     projects: [], teams: [], repoRoots: [],
-    remote: { enabled: true, port: remotePort, publicHost: 'glimmervoid.test', allowedOrigins: ['https://glimmervoid.test', 'https://*.box.test'] },
+    remote: { port: remotePort, publicHost: 'glimmervoid.test', allowedOrigins: ['https://glimmervoid.test', 'https://*.box.test'] },
   }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = cfgPath;
@@ -133,8 +133,7 @@ test.after(async () => {
 
 test('the backend reports the configured remote listener', () => {
   const { backend, remotePort, remoteServer } = ctx();
-  assert.equal(backend.remote.enabled, true);
-  assert.equal(backend.remote.port, remotePort);
+  assert.equal(backend.remote.configuredPort, remotePort);
   assert.equal(boundPort(remoteServer), remotePort, 'the second listener really took the configured port');
   assert.equal(backend.remote.publicHost, 'glimmervoid.test');
 });

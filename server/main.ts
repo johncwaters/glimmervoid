@@ -3,7 +3,7 @@ import http from 'node:http';
 import type { Server } from 'node:http';
 import { isIPv6 } from 'node:net';
 
-import { createBackend } from './backend/backend.ts';
+import { createBackend, startBackendLinks } from './backend/backend.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
 import { parseCommandLine } from './core/command-line-core.ts';
 import { decideConfigPath } from './core/config-path-core.ts';
@@ -110,33 +110,17 @@ server.listen(port, bind.host, () => {
   });
   telemetry.capture('app_started', { is_first_start: isFirstStart });
   writeTerminalTitle(buildTitleSequence(`glimmervoid :${boundPort}`));
-  backend.watcherLink.start().catch((error: unknown) => {
-    console.warn(`[watcher] link failed to start, lanes keep their own timers: ${error instanceof Error ? error.message : String(error)}`);
+  startBackendLinks(backend).catch((error: unknown) => {
+    if (isPortInUse(error)) {
+      console.error(`Remote listener port ${backend.remote.configuredPort} is already in use. Stop the process holding it, or set a free port in remote.port in config.json.`);
+      process.exit(1);
+    }
+    throw error;
   });
   if (bind.reason === 'insecure-bind') {
     console.warn(`WARNING: bound ${bind.host} with GLIMMERVOID_INSECURE_BIND=1 - this listener has NO authentication.`);
   }
 });
-
-if (backend.remote.enabled) {
-  const remoteServer = http.createServer();
-  backend.remote.attach(remoteServer);
-  remoteServer.on('error', (err) => {
-    if (isPortInUse(err)) {
-      console.error(`Remote listener port ${backend.remote.port} is already in use. Stop the process holding it, or set a free port in remote.port in config.json.`);
-      process.exit(1);
-    }
-    throw err;
-  });
-  if (backend.remote.port === null) {
-    throw Object.assign(new Error('remote.enabled requires remote.port; refusing to bind an ephemeral port'), { glimmervoidBoot: true });
-  }
-  remoteServer.listen(backend.remote.port, bind.host, () => {
-    console.log(`Glimmervoid remote listener on http://${bind.host}:${backend.remote.port} (paired devices only)`);
-    const publicHost = backend.remote.publicHost || '(remote.publicHost not set)';
-    console.log(`  proxy target for ${publicHost}; pair a device with: glimmervoid pair`);
-  });
-}
 
 function listenForVaultCompanion(): void {
   const vaultBind = backend.vault.bind;

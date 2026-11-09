@@ -25,7 +25,8 @@ interface AuthOutcome {
 }
 
 interface RemoteAuthOptions {
-  remote: RemoteConfig | null | undefined;
+  remote: RemoteConfig;
+  remoteListenerPort: () => number | null;
   pairingsStore: PairingsStore;
   seenStore?: SeenStore | null;
   now?: () => number;
@@ -73,15 +74,15 @@ function describeOwnerCheck(ownerLogin: string): string {
 
 function createRemoteAuth({
   remote,
+  remoteListenerPort,
   pairingsStore,
   seenStore = null,
   now = Date.now,
   deviceMaxAgeMs = DEFAULT_DEVICE_MAX_AGE_MS,
   log = console.log,
 }: RemoteAuthOptions): RemoteAuth {
-  const remoteListenerPort = remote?.enabled ? remote.port : null;
-  const ownerLogin = remote?.ownerLogin ?? '';
-  if (remote?.enabled) log(describeOwnerCheck(ownerLogin));
+  const ownerLogin = remote.ownerLogin;
+  log(describeOwnerCheck(ownerLogin));
   let isStopped = false;
   const stopWatch = pairingsStore.watch(() => {
     log('[remote] pairings.json changed - device list reloaded');
@@ -109,7 +110,7 @@ function createRemoteAuth({
   function trustOf(req: IncomingMessage): RequestTrust {
     return classifyRequestOrigin({
       localPort: req.socket ? req.socket.localPort : null,
-      remoteListenerPort,
+      remoteListenerPort: remoteListenerPort(),
     });
   }
 
@@ -120,7 +121,6 @@ function createRemoteAuth({
     const authenticated = trust === 'remote' && ownerOk ? authenticate(req).ok : false;
 
     const decision = decideRequestAccess({
-      remoteEnabled: Boolean(remote?.enabled),
       trust,
       pathname: normalizePathname(req.url).pathname,
       authenticated,

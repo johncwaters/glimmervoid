@@ -14,7 +14,7 @@ import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 
-interface RemoteOffContext {
+interface LocalListenerContext {
   tmpDir: string;
   prevEnv: string | undefined;
   server: Server;
@@ -23,15 +23,15 @@ interface RemoteOffContext {
   boundPort: number;
 }
 
-const booted: { context: RemoteOffContext | null } = { context: null };
+const booted: { context: LocalListenerContext | null } = { context: null };
 
-function ctx(): RemoteOffContext {
+function ctx(): LocalListenerContext {
   if (!booted.context) throw new Error('the backend was never booted');
   return booted.context;
 }
 
 test.before(async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-off-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-local-listener-'));
   const cfgPath = path.join(tmpDir, 'config.json');
   fs.writeFileSync(cfgPath, JSON.stringify({ projects: [], teams: [], repoRoots: [] }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
@@ -55,30 +55,6 @@ test.after(async () => {
   if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
   if (prevEnv != null) process.env.GLIMMERVOID_CONFIG = prevEnv;
   fs.rmSync(tmpDir, { recursive: true, force: true });
-});
-
-test('the backend reports remote disabled and a loopback bind host', () => {
-  const { backend } = ctx();
-  assert.equal(backend.remote.enabled, false);
-  assert.equal(backend.remote.port, null);
-  assert.equal(backend.bindHost, '127.0.0.1');
-  assert.equal(typeof backend.remote.attach, 'function');
-});
-
-test('no pairing files are created next to the config when remote is off', () => {
-  const stray = fs.readdirSync(ctx().tmpDir).filter((f) => f.startsWith('pairings'));
-  assert.deepEqual(stray, [], 'the pairings store is never constructed while remote is disabled');
-});
-
-test('no /pair route is mounted', async () => {
-  const res = await fetch(`${ctx().base}/pair/anything`);
-  assert.equal(res.status, 404);
-  assert.equal(res.headers.get('set-cookie'), null, 'nothing ever mints a cookie');
-});
-
-test('no auth middleware intercepts ordinary requests', async () => {
-  const res = await fetch(`${ctx().base}/definitely-not-a-route`);
-  assert.equal(res.status, 404, 'a 401 here would mean the remote gate ran');
 });
 
 test('the hook route answers on the agent ingress listener (404 unknown-session, not 401)', async () => {
@@ -122,7 +98,7 @@ test('a localhost Origin on the listener port is accepted on the control upgrade
   ws.close();
 });
 
-test('a foreign Origin is refused by a bare socket destroy, with no HTTP status line written', async () => {
+test('a foreign Origin is refused with a 401 status line', async () => {
   const port = ctx().boundPort;
   const received = await new Promise<string>((resolve, reject) => {
     const socket = net.connect(port, '127.0.0.1', () => {
@@ -143,41 +119,7 @@ test('a foreign Origin is refused by a bare socket destroy, with no HTTP status 
     socket.on('error', () => resolve(Buffer.concat(chunks).toString()));
     setTimeout(() => { socket.destroy(); reject(new Error('socket stayed open')); }, 3000).unref();
   });
-  assert.equal(received, '', 'the remote-disabled refusal writes nothing, exactly as before');
-});
-
-test('a disabled remote block with a publicHost grants no extra origin', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-remote-off-host-'));
-  const cfgPath = path.join(dir, 'config.json');
-  fs.writeFileSync(cfgPath, JSON.stringify({
-    projects: [], teams: [], repoRoots: [],
-    remote: { enabled: false, port: null, publicHost: 'glimmervoid.test', allowedOrigins: ['https://glimmervoid.test'] },
-  }, null, 2), 'utf8');
-  const outerConfig = process.env.GLIMMERVOID_CONFIG;
-  process.env.GLIMMERVOID_CONFIG = cfgPath;
-
-  const otherServer = http.createServer();
-  const otherBackend = createBackend(otherServer, { staticDir: null });
-  otherServer.on('request', otherBackend.app);
-  const otherPort = await listenOnLoopback(otherServer);
-
-  try {
-    assert.equal(otherBackend.remote.enabled, false);
-    const ws = new WebSocket(`ws://127.0.0.1:${otherPort}/control`, { origin: 'https://glimmervoid.test' });
-    const outcome = await new Promise<string>((resolve) => {
-      ws.on('open', () => resolve('open'));
-      ws.on('error', () => resolve('refused'));
-    });
-    assert.equal(outcome, 'refused', 'the configured host grants nothing while remote is disabled');
-    ws.close();
-  } finally {
-    await settleBackendShutdown(otherBackend);
-    otherServer.closeAllConnections();
-    await closeServer(otherServer);
-    if (outerConfig == null) delete process.env.GLIMMERVOID_CONFIG;
-    if (outerConfig != null) process.env.GLIMMERVOID_CONFIG = outerConfig;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  assert.match(received, /^HTTP\/1\.1 401 /);
 });
 
 test('a data-terminal upgrade for an unknown session is still refused after the origin check', async () => {

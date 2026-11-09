@@ -73,4 +73,12 @@ function dropRetiredUpdateChannel(config: GlimmervoidConfig): string | null {
   return '[config] Removed updateChannel: Glimmervoid now updates only to published releases.';
 }
 
-export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths };
+function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
+  const remote = config.remote;
+  if (!isRecord(remote) || !Object.hasOwn(remote, 'enabled')) return null;
+  const { enabled: _retiredEnabled, ...remainingRemote } = remote;
+  config.remote = remainingRemote;
+  return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
+}
+
+export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled };

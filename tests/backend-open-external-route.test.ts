@@ -125,7 +125,7 @@ test('a request on the remote listener port is refused even though it arrives on
   await listenOnLoopback(server);
   const port = boundPort(server);
   server.on('request', createBackendHttpApp(appDependencies({
-    remoteListenerPort: port,
+    remoteListenerPort: () => port,
     openUrlOnHost: async (url) => { openedUrls.push(url); return 'opened'; },
     getPrActionReports: () => ({ acceptPrActionReport: async (runId) => { acceptedReportRunIds.push(runId); return 200; } }),
   })));

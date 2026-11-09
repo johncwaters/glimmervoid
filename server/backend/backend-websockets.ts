@@ -38,9 +38,9 @@ interface ViewerSizeRecord {
 }
 
 interface BackendWebSocketDependencies {
-  remote: { enabled: boolean; allowedOrigins: string[] };
-  remoteAuth: { isUpgradeAuthorized: (request: IncomingMessage) => boolean } | null;
-  remoteListenerPort: number | null;
+  remote: { allowedOrigins: string[] };
+  remoteAuth: { isUpgradeAuthorized: (request: IncomingMessage) => boolean };
+  remoteListenerPort: () => number | null;
   allowedHosts: string[];
   listenerPortsFor: (socket: { localPort?: number | null } | null) => number[];
   tokenMatches: (token: string | null) => boolean;
@@ -358,7 +358,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 
   function handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void {
     const route = classifyUpgradePath(request.url);
-    const trust = classifyRequestOrigin({ localPort: socket.localPort, remoteListenerPort });
+    const trust = classifyRequestOrigin({ localPort: socket.localPort, remoteListenerPort: remoteListenerPort() });
     if (route === 'unknown') {
       if (trust === 'remote') socket.destroy();
       return;
@@ -368,10 +368,9 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       return;
     }
 
-    const authenticated = trust === 'remote' && remoteAuth ? remoteAuth.isUpgradeAuthorized(request) : false;
+    const authenticated = trust === 'remote' ? remoteAuth.isUpgradeAuthorized(request) : false;
     const dashboardRoute = route === 'control' || route === 'data' || route === 'host';
     const decision = decideUpgradeAccess({
-      remoteEnabled: remote.enabled,
       trust,
       origin: request.headers.origin,
       allowedOrigins: remote.allowedOrigins,
@@ -381,7 +380,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       tokenOk: dashboardRoute ? tokenMatches(upgradeTokenFromUrl(request.url)) : false,
     });
     if (!decision.allow) {
-      if (remote.enabled) socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }

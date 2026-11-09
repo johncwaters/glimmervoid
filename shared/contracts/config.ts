@@ -206,7 +206,6 @@ export const Config = z.object({
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   hooks: z.unknown().optional(),
   remote: z.object({
-    enabled: z.boolean().optional(),
     port: z.number().int().min(1).max(65535).nullable().optional(),
     publicHost: z.string().optional(),
     allowedOrigins: z.array(z.string()).optional(),

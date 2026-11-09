@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Doorman.** `glimmervoid doorman --tenants <file>` forwards each tenant's dashboard pages and WebSockets to its server's remote listener and runs that tenant's watcher. Routing goes by host name, `<slug>.<tenant domain>`, or to the only tenant when the table has no tenant domain, and an unknown host is refused. When a host adapter can wake a sleeping server, requests made while it wakes are held and sent on once it answers. With no adapter, a server that is down gets 502 at once. The doorman reloads its tenant table when the file changes. The watcher's own routes now live under `/link/watcher/`.
 
+### Changed
+
+- **The remote listener is always on.** It answers paired devices only, binds `127.0.0.1` as before, and takes a free port the system picks unless `remote.port` names one, so a doorman can always reach it and a second Glimmervoid never collides with it. `remote.enabled` is gone, and a stored one is dropped from `config.json` on start. `npm run dev` now opens the remote listener and links the watcher exactly as `glimmervoid` does, and stops on a busy port instead of moving to the next one; pass `--port` to pick another.
+
 ### Fixed
 
 - **A downloaded update no longer fails when your checkout already moved past it.** If sessions landed commits that changed `package-lock.json` after an update downloaded, restarting used to show "Update failed. The checkout changed after the update downloaded." even though you were already on newer code. The restart now installs the dependencies for your current checkout, builds it and switches to that build.

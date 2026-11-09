@@ -17,7 +17,7 @@ import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-
 import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config/config-defaults.ts';
 import type { DefaultConfig } from './config/config-defaults.ts';
-import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel } from './config/config-migrations.ts';
+import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, migrateRemoteEnabled } from './config/config-migrations.ts';
 import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
 import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
 
@@ -59,7 +59,7 @@ function createConfigStore({
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
   if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
-  const configMigrations = [migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config)].filter((migration) => migration !== null);
+  const configMigrations = [migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
   if (configMigrations.length > 0) {
     try {
       writeJsonAtomicSync(configPath, withoutEnvSecrets(config, envSecrets), { mode: CONFIG_FILE_MODE });

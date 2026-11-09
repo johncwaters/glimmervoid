@@ -23,19 +23,31 @@ function glimmervoidBackendPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       const httpServer = server.httpServer;
       if (!(httpServer instanceof http.Server)) throw new Error('The Glimmervoid dev backend needs Vite\'s plain HTTP server; middleware mode and HTTP/2 have none.');
-      const { createBackend } = require('./server/backend/backend.ts') as typeof import('./server/backend/backend.ts');
-      backend = createBackend(httpServer, {
+      const { createBackend, startBackendLinks } = require('./server/backend/backend.ts') as typeof import('./server/backend/backend.ts');
+      const devBackend = createBackend(httpServer, {
         staticDir: null,
+        localPort: server.config.server.port,
         settingsDefaults: { debugMode: true },
         onRestart: () => {
           console.log('Restart requested - restarting Vite server...');
           server.restart();
         },
       });
-      server.middlewares.use(backend.app);
+      backend = devBackend;
+      server.middlewares.use(devBackend.app);
+      let remoteServer: http.Server | null = null;
+      httpServer.once('listening', () => {
+        startBackendLinks(devBackend).then((linkedRemoteServer) => {
+          remoteServer = linkedRemoteServer;
+        }).catch((error: unknown) => {
+          console.error(`Glimmervoid dev backend links did not start: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      });
 
       httpServer.on('close', () => {
-        if (backend) backend.shutdown();
+        remoteServer?.closeAllConnections();
+        remoteServer?.close();
+        devBackend.shutdown();
       });
 
       process.on('SIGINT', () => {
@@ -116,5 +128,6 @@ export default defineConfig({
     },
     host: '127.0.0.1',
     port: 5173,
+    strictPort: true,
   },
 });

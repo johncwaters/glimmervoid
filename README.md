@@ -152,13 +152,13 @@ Every session writes a JSONL recording of hook payloads and state transitions (n
 
 ## Remote access
 
-Off by default. Remote access is a second listener on `127.0.0.1` that you put behind an HTTPS reverse proxy; Glimmervoid never binds a wider address unless `GLIMMERVOID_INSECURE_BIND=1` is set.
+Remote access is a second listener on `127.0.0.1`, always on and answering paired devices only, that you put behind an HTTPS reverse proxy; Glimmervoid never binds a wider address unless `GLIMMERVOID_INSECURE_BIND=1` is set. Without `remote.port` it takes a free port the system picks, so set `remote.port` for a proxy to point at.
 
-1. Add a `remote` block to `~/.glimmervoid/config.json`. `port` must differ from the dashboard port, and `publicHost` is the hostname your proxy serves:
+1. Add a `remote` block to `~/.glimmervoid/config.json`. `publicHost` is the hostname your proxy serves:
 
    ```json
    {
-     "remote": { "enabled": true, "port": 3456, "publicHost": "my-machine.example.ts.net" }
+     "remote": { "port": 3456, "publicHost": "my-machine.example.ts.net" }
    }
    ```
 

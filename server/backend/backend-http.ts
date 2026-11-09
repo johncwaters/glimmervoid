@@ -111,7 +111,7 @@ interface BackendHttpDependencies {
   allowedHosts: string[];
   listenerPortsFor: (socket: { localPort?: number | null } | null) => number[];
   pageToken: string;
-  remoteListenerPort?: number | null;
+  remoteListenerPort?: () => number | null;
   tokenMatches?: (presented: unknown) => boolean;
   openUrlOnHost?: HostUrlOpener;
   isLinkPreviewEnabled?: () => boolean;
@@ -161,7 +161,7 @@ const HOST_OPEN_FAILURE_STATUS = { 'unsupported-platform': 501, 'spawn-failed': 
 function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, openUrlOnHost, logger }: {
   req: Request;
   res: Response;
-  remoteListenerPort: number | null;
+  remoteListenerPort: () => number | null;
   listenerPortsFor: BackendHttpDependencies['listenerPortsFor'];
   tokenMatches: (presented: unknown) => boolean;
   openUrlOnHost: HostUrlOpener;
@@ -171,7 +171,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
     if (body === null) return;
     const verdict = decideOpenExternalRequest({
       isLoopback: isLoopbackRequest(req),
-      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }),
+      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort: remoteListenerPort() }),
       origin: req.headers.origin,
       listenerPorts: listenerPortsFor(req.socket),
       tokenOk: tokenMatches(req.headers['x-glimmervoid-page-token']),
@@ -194,7 +194,7 @@ function answerOpenExternal({ req, res, remoteListenerPort, listenerPortsFor, to
 function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview }: {
   req: Request;
   res: Response;
-  remoteListenerPort: number | null;
+  remoteListenerPort: () => number | null;
   listenerPortsFor: BackendHttpDependencies['listenerPortsFor'];
   tokenMatches: (presented: unknown) => boolean;
   isLinkPreviewEnabled: () => boolean;
@@ -204,7 +204,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
     if (body === null) return;
     const verdict = decideLinkPreviewRequest({
       isLoopback: isLoopbackRequest(req),
-      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }),
+      trust: classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort: remoteListenerPort() }),
       origin: req.headers.origin,
       listenerPorts: listenerPortsFor(req.socket),
       tokenOk: tokenMatches(req.headers['x-glimmervoid-page-token']),
@@ -521,11 +521,11 @@ const PR_ACTION_REPORT_ERRORS: Record<401 | 404 | 409, string> = {
 
 function mountPrActionReportRoute(app: Express, { getPrActionReports, remoteListenerPort, logger }: {
   getPrActionReports: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
-  remoteListenerPort: number | null;
+  remoteListenerPort: () => number | null;
   logger: Pick<Console, 'warn'>;
 }): void {
   app.post(PR_ACTION_REPORT_ROUTE, (req, res) => {
-    if (classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort }) === 'remote') {
+    if (classifyRequestOrigin({ localPort: req.socket.localPort, remoteListenerPort: remoteListenerPort() }) === 'remote') {
       refuseAgentRequest(res);
       return;
     }
@@ -577,7 +577,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     allowedHosts,
     listenerPortsFor,
     pageToken,
-    remoteListenerPort = null,
+    remoteListenerPort = () => null,
     tokenMatches = () => false,
     openUrlOnHost = async () => 'unsupported-platform',
     isLinkPreviewEnabled = () => false,

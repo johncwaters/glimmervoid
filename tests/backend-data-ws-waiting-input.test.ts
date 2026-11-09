@@ -67,9 +67,9 @@ async function bootHarness(session: Session): Promise<WaitingInputHarness> {
   wireSessionEvents(session);
 
   const webSockets = createBackendWebSockets({
-    remote: { enabled: false, allowedOrigins: [] },
-    remoteAuth: null,
-    remoteListenerPort: null,
+    remote: { allowedOrigins: [] },
+    remoteAuth: { isUpgradeAuthorized: () => false },
+    remoteListenerPort: () => null,
     allowedHosts: [],
     listenerPortsFor: () => [],
     tokenMatches: () => true,

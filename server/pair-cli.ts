@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 
-import { resolveConfigPath } from './config-store.ts';
-import { normalizeRemoteConfig } from './core/remote-config.ts';
+import { glimmervoidHomeDir, resolveConfigPath } from './config-store.ts';
+import { normalizeRemoteConfig, remoteListenerPortPath, resolveLocalPort } from './core/remote-config.ts';
+import { DEFAULT_CONFIG } from './config/config-defaults.ts';
 import {
   REVOCATION_PROPAGATION_SECONDS,
   createPairingsStore, createSeenStore, defaultPairingsPath, defaultSeenPath,
@@ -17,16 +18,24 @@ const PASSWORD_WARNING = [
 ].join('\n');
 
 interface RemoteSettings {
-  enabled: boolean;
   port: number | null;
   publicHost: string;
 }
 
-function readConfig(configPath: string): { remote?: unknown } | null {
+function readConfig(configPath: string): { remote?: unknown; port?: unknown } | null {
   try {
     return JSON.parse(fs.readFileSync(configPath, 'utf8'));
   } catch (err) {
     console.error(`Could not read ${configPath}: ${errorMessage(err)}`);
+    return null;
+  }
+}
+
+function readBoundRemotePort(localPort: number): number | null {
+  try {
+    const boundPort = Number.parseInt(fs.readFileSync(remoteListenerPortPath(glimmervoidHomeDir(), localPort), 'utf8').trim(), 10);
+    return Number.isInteger(boundPort) ? boundPort : null;
+  } catch {
     return null;
   }
 }
@@ -37,9 +46,9 @@ function buildPairUrl(remote: RemoteSettings, token: string): string {
 }
 
 function runMint(store: PairingsStore, remote: RemoteSettings, name: string | null): number {
-  if (!remote.publicHost && !remote.port) {
-    console.error('remote.port is not set, so a pairing link cannot be built.');
-    console.error('Set remote.port (and remote.publicHost for a shareable link) in config.json first.');
+  if (!remote.publicHost && remote.port === null) {
+    console.error('The remote listener port is not known yet, so a pairing link cannot be built.');
+    console.error('Start Glimmervoid first, or set remote.port (and remote.publicHost for a shareable link) in config.json.');
     return 1;
   }
   const minted = store.mintPending({ name: name || '' });
@@ -55,10 +64,6 @@ function runMint(store: PairingsStore, remote: RemoteSettings, name: string | nu
     console.log('');
     console.log('remote.publicHost is not set, so the link above points at loopback.');
     console.log('Set it to the hostname your reverse proxy serves to get a shareable link.');
-  }
-  if (!remote.enabled) {
-    console.log('');
-    console.log('Note: remote.enabled is false, so the remote listener is not running yet.');
   }
   return 0;
 }
@@ -108,7 +113,9 @@ function runPairCli({ isListing, revokeDeviceId, deviceName }: PairRequest): num
   const configPath = resolveConfigPath();
   const config = readConfig(configPath);
   if (!config) return 1;
-  const remote = normalizeRemoteConfig(config.remote);
+  const configuredRemote = normalizeRemoteConfig(config.remote);
+  const localPort = resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: config.port, defaultPort: DEFAULT_CONFIG.port });
+  const remote = { ...configuredRemote, port: configuredRemote.port ?? readBoundRemotePort(localPort) };
   const store = createPairingsStore({ filePath: defaultPairingsPath(configPath) });
   const seenStore = createSeenStore({ filePath: defaultSeenPath(configPath) });
 

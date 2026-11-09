@@ -70,7 +70,7 @@ test.before(async () => {
   fs.writeFileSync(configPath, JSON.stringify({
     projects: [], teams: [], repoRoots: [],
     remote: {
-      enabled: true, port: remotePort, publicHost: 'glimmervoid.test',
+      port: remotePort, publicHost: 'glimmervoid.test',
       allowedOrigins: ['https://glimmervoid.test'], ownerLogin: 'Owner@Example.com',
     },
   }, null, 2), 'utf8');

@@ -50,7 +50,7 @@ function richConfig(overrides: ConfigFileContent = {}): ConfigFileContent {
     cursorBlink: false,
     repoRoots: ['/repo'],
     worktreeShare: ['node_modules'],
-    remote: { enabled: false },
+    remote: { port: 4124 },
     projects: [{ id: 'p1', name: 'proj', path: '/repo/proj' }],
     ...overrides,
   };

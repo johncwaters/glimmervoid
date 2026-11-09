@@ -15,10 +15,11 @@ interface BackendTrustDependencies {
 interface BackendTrust {
   remote: RemoteConfig;
   bindDecision: { host: string; allowed: boolean; reason: string | null };
-  remoteListenerPort: number | null;
+  remoteListenerPort: () => number | null;
+  markRemoteListenerBound(boundPort: number): void;
   pageToken: string;
   allowedHosts: string[];
-  remoteAuth: ReturnType<typeof createRemoteAuth> | null;
+  remoteAuth: ReturnType<typeof createRemoteAuth>;
   tokenMatches(presented: unknown): boolean;
   listenerPortsFor(socket: { localPort?: number | null } | null | undefined): number[];
 }
@@ -35,20 +36,18 @@ function createBackendTrust(dependencies: BackendTrustDependencies): BackendTrus
     envHost: dependencies.env.GLIMMERVOID_HOST,
     insecureBind: dependencies.env.GLIMMERVOID_INSECURE_BIND === '1',
   });
-  const remoteListenerPort = remote.enabled ? remote.port : null;
+  let boundRemoteListenerPort = remote.port;
+  const remoteListenerPort = () => boundRemoteListenerPort;
   const pageToken = crypto.randomBytes(32).toString('hex');
   const pageTokenBuffer = Buffer.from(pageToken, 'utf8');
-  const allowedHosts = (remote.enabled
-    ? [remote.publicHost, ...remote.allowedOrigins.map(hostOfOrigin)]
-    : []
-  ).filter((host) => typeof host === 'string' && host !== '');
-  const remoteAuth = remote.enabled
-    ? createRemoteAuth({
-      remote,
-      pairingsStore: createPairingsStore({ filePath: defaultPairingsPath(dependencies.configPath) }),
-      seenStore: createSeenStore({ filePath: defaultSeenPath(dependencies.configPath) }),
-    })
-    : null;
+  const allowedHosts = [remote.publicHost, ...remote.allowedOrigins.map(hostOfOrigin)]
+    .filter((host) => typeof host === 'string' && host !== '');
+  const remoteAuth = createRemoteAuth({
+    remote,
+    remoteListenerPort,
+    pairingsStore: createPairingsStore({ filePath: defaultPairingsPath(dependencies.configPath) }),
+    seenStore: createSeenStore({ filePath: defaultSeenPath(dependencies.configPath) }),
+  });
 
   function tokenMatches(presented: unknown): boolean {
     if (typeof presented !== 'string' || presented.length !== pageToken.length) return false;
@@ -68,6 +67,9 @@ function createBackendTrust(dependencies: BackendTrustDependencies): BackendTrus
     remote,
     bindDecision,
     remoteListenerPort,
+    markRemoteListenerBound(boundPort: number) {
+      boundRemoteListenerPort = boundPort;
+    },
     pageToken,
     allowedHosts,
     remoteAuth,

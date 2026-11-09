@@ -1,7 +1,9 @@
 import { readPosthogReadConnection } from '../community/core/community-core.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import type { Server } from 'node:http';
+import { remoteListenerPortPath, resolveLocalPort } from '../core/remote-config.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { customAgentFingerprint, resolveAdapter, setCustomAgents } from '../../session/adapters/index.ts';
@@ -38,7 +40,6 @@ import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
-import { remoteWatcherUrlOf } from '../core/remote-watcher-core.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
@@ -91,6 +92,7 @@ interface CreateBackendOptions extends BackendLaneOptions {
   configReloadDebounceMs?: number;
   isExperimentalBuild?: boolean;
   spawnHostTunnel?: SpawnHostTunnel;
+  localPort?: number;
 }
 
 const AGENT_INGRESS_HOST = '127.0.0.1';
@@ -109,9 +111,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const configStore = createConfigStore({ settingsDefaults, isExperimentalBuild: options.isExperimentalBuild, readTelemetryInstallId: () => telemetry.currentInstallId() });
   const { config } = configStore;
   applyCustomAgents(config);
-  const port = process.env.GLIMMERVOID_PORT
-    ? Number.parseInt(process.env.GLIMMERVOID_PORT, 10)
-    : (config.port || 3000);
+  const port = options.localPort ?? resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: config.port, defaultPort: DEFAULT_CONFIG.port });
   const boundDashboardPort = (): number => {
     const address = httpServer.address();
     if (address === null || typeof address === 'string') return port;
@@ -643,10 +643,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       isRecheckingPostTurnReports = false;
     });
   }
-  const remoteWatcherUrl = remoteWatcherUrlOf(config.watcher?.url, remote.enabled);
-  if (config.watcher?.url !== undefined && remoteWatcherUrl === null) {
-    console.warn('[watcher] watcher.url is ignored: the remote listener is off, so the doorman has nowhere to forward nudges; keeping the local watcher');
-  }
+  const remoteWatcherUrl = config.watcher?.url ?? null;
   const watcherLink = createWatcherLink({
     watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
@@ -809,9 +806,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getLane: laneAssembly.current,
     bindHost: bindDecision.host,
     remote: {
-      enabled: remote.enabled,
-      port: remote.port,
+      configuredPort: remote.port,
       publicHost: remote.publicHost,
+      markBound(boundPort: number) {
+        trust.markRemoteListenerBound(boundPort);
+        const portPath = remoteListenerPortPath(glimmervoidHomeDir(), port);
+        fs.mkdirSync(path.dirname(portPath), { recursive: true });
+        fs.writeFileSync(portPath, `${boundPort}\n`);
+      },
       attach(remoteHttpServer: Server) {
         remoteHttpServer.on('request', (request, response) => {
           if (remoteWatcherUrl !== null && request.url?.split('?')[0] === NUDGES_PATH) {
@@ -834,7 +836,30 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   };
 }
 
+type Backend = ReturnType<typeof createBackend>;
+
+async function startBackendLinks(backend: Backend): Promise<Server> {
+  const remoteServer = http.createServer();
+  backend.remote.attach(remoteServer);
+  await new Promise<void>((resolve, reject) => {
+    remoteServer.once('error', reject);
+    remoteServer.listen(backend.remote.configuredPort ?? 0, backend.bindHost, () => {
+      remoteServer.off('error', reject);
+      resolve();
+    });
+  });
+  const address = remoteServer.address();
+  const boundPort = typeof address === 'object' && address !== null ? address.port : 0;
+  backend.remote.markBound(boundPort);
+  console.log(`Glimmervoid remote listener on http://${backend.bindHost}:${boundPort} (paired devices only)`);
+  console.log(`  proxy target for ${backend.remote.publicHost || '(remote.publicHost not set)'}; pair a device with: glimmervoid pair`);
+  backend.watcherLink.start().catch((error: unknown) => {
+    console.warn(`[watcher] link failed to start, lanes keep their own timers: ${errorMessage(error)}`);
+  });
+  return remoteServer;
+}
+
 export {
-  createBackend, runAutoResume, persistSessionField, decideWasActiveFlip, carryWorktreeAcrossRecreate,
+  createBackend, startBackendLinks, runAutoResume, persistSessionField, decideWasActiveFlip, carryWorktreeAcrossRecreate,
   reconcileSessionWorktrees, shouldStartAfterModify,
 };

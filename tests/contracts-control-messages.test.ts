@@ -439,9 +439,9 @@ test('the control socket takes the largest plan decision the caps allow, so appr
 test('the control WebSocket server is built with that budget, never a hand-written number', async () => {
   const { createBackendWebSockets } = await import('../server/backend/backend-websockets.ts');
   const sockets = createBackendWebSockets({
-    remote: { enabled: false, allowedOrigins: [] },
-    remoteAuth: null,
-    remoteListenerPort: null,
+    remote: { allowedOrigins: [] },
+    remoteAuth: { isUpgradeAuthorized: () => false },
+    remoteListenerPort: () => null,
     allowedHosts: [],
     listenerPortsFor: () => [],
     tokenMatches: () => true,

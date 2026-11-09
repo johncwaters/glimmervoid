@@ -29,12 +29,10 @@ assert() {
 }
 
 write_config() {
-  local remote_enabled="$1"
   cat > "$CONFIG" <<EOF
 {
   "port": 3000,
   "remote": {
-    "enabled": $remote_enabled,
     "port": 3001,
     "publicHost": "glimmervoid.test",
     "allowedOrigins": ["https://glimmervoid.test"]
@@ -68,8 +66,8 @@ trap stop_server EXIT
 
 status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 
-echo "== remote mode enabled =="
-write_config true
+echo "== remote listener =="
+write_config
 start_server
 grep -q 'remote listener' "$WORK/server.log" || { echo "  FAIL no remote listener line in the boot log"; cat "$WORK/server.log"; exit 1; }
 
@@ -139,19 +137,6 @@ doc.pending[doc.pending.length - 1].expiresAt = 1;
 fs.writeFileSync(p, JSON.stringify(doc, null, 2));
 ' "$GLIMMERVOID_DIR/pairings.json"
 assert 10 403 "$(status "$REMOTE/pair/$FRESH_TOKEN")" "an expired pending token cannot be redeemed"
-
-echo "== remote mode disabled =="
-stop_server
-write_config false
-start_server
-grep -q 'Open http://' "$WORK/server.log" || { echo "  FAIL boot log does not print the Open line"; failures=$((failures + 1)); }
-! grep -q 'remote listener' "$WORK/server.log" || { echo "  FAIL boot log reports a remote listener with remote disabled"; failures=$((failures + 1)); }
-assert 11 200 "$(status "$LOCAL/")" "the local listener still serves the dashboard"
-REMOTE_CURL_EXIT=0
-curl -s -o /dev/null --max-time 5 "$REMOTE/" || REMOTE_CURL_EXIT=$?
-assert 11 7 "$REMOTE_CURL_EXIT" "the remote port refuses connections (curl exit 7)"
-NO_COOKIE_HEADERS="$(curl -s -o /dev/null -D - "$LOCAL/pair/$FRESH_TOKEN" | grep -ci 'set-cookie' || true)"
-assert 11 0 "$NO_COOKIE_HEADERS" "no Set-Cookie is issued anywhere with remote disabled"
 
 echo
 if [ "$failures" -eq 0 ]; then

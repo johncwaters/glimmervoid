@@ -1,6 +1,6 @@
+import path from 'node:path';
 import { isRecord } from '../../shared/coerce.ts';
 export interface RemoteConfig {
-  enabled: boolean;
   port: number | null;
   publicHost: string;
   allowedOrigins: string[];
@@ -13,30 +13,31 @@ function toPort(value: unknown): number | null {
   return null;
 }
 
+function resolveLocalPort({ envPort, configPort, defaultPort }: { envPort: string | undefined; configPort: unknown; defaultPort: number }): number {
+  if (envPort) return Number.parseInt(envPort, 10);
+  return typeof configPort === 'number' && configPort > 0 ? configPort : defaultPort;
+}
+
+function remoteListenerPortPath(glimmervoidHome: string, localPort: number): string {
+  return path.join(glimmervoidHome, 'remote-listener', `${localPort}.port`);
+}
+
 function normalizeRemoteConfig(raw: unknown): RemoteConfig {
   const src: Record<string, unknown> = isRecord(raw) ? raw : {};
-  const enabled = src.enabled === true;
   const port = toPort(src.port);
   const publicHost = typeof src.publicHost === 'string' ? src.publicHost.trim() : '';
   const ownerLogin = typeof src.ownerLogin === 'string' ? src.ownerLogin.trim().toLowerCase() : '';
-  if (!enabled) return { enabled, port, publicHost, allowedOrigins: [], ownerLogin };
   const listed = Array.isArray(src.allowedOrigins)
     ? src.allowedOrigins.filter((o): o is string => typeof o === 'string' && o.trim() !== '').map((o) => o.trim())
     : [];
   if (listed.length === 0 && publicHost !== '') {
-    return { enabled, port, publicHost, allowedOrigins: [`https://${publicHost}`], ownerLogin };
+    return { port, publicHost, allowedOrigins: [`https://${publicHost}`], ownerLogin };
   }
-  return { enabled, port, publicHost, allowedOrigins: listed, ownerLogin };
+  return { port, publicHost, allowedOrigins: listed, ownerLogin };
 }
 
-function validateRemoteConfig(
-  remote: { enabled?: boolean; port?: number | null } | null | undefined,
-  localPort: number,
-): { ok: boolean; error: string | null } {
-  if (!remote || remote.enabled !== true) return { ok: true, error: null };
-  if (remote.port == null) {
-    return { ok: false, error: 'remote.enabled is true but remote.port is not set' };
-  }
+function validateRemoteConfig(remote: { port: number | null }, localPort: number): { ok: boolean; error: string | null } {
+  if (remote.port === null) return { ok: true, error: null };
   if (!Number.isInteger(remote.port) || remote.port < 1 || remote.port > 65535) {
     return { ok: false, error: `remote.port must be an integer 1-65535 (got ${JSON.stringify(remote.port)})` };
   }
@@ -66,4 +67,4 @@ function decideBindHost({ envHost, insecureBind }: { envHost?: unknown; insecure
   return { host, allowed: false, reason: 'non-loopback' };
 }
 
-export { normalizeRemoteConfig, validateRemoteConfig, decideBindHost, isLoopbackHost };
+export { remoteListenerPortPath, resolveLocalPort, normalizeRemoteConfig, validateRemoteConfig, decideBindHost, isLoopbackHost };

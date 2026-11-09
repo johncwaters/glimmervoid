@@ -102,14 +102,12 @@ function decideOwnerAccess({ ownerLogin, presentedLogin }: {
   return decodedLogin.trim().toLowerCase() === ownerLogin;
 }
 
-function decideRequestAccess({ remoteEnabled, trust, pathname, authenticated, ownerOk }: {
-  remoteEnabled?: boolean;
+function decideRequestAccess({ trust, pathname, authenticated, ownerOk }: {
   trust?: string;
   pathname?: unknown;
   authenticated?: unknown;
   ownerOk?: unknown;
 }): { allow: boolean; action: string } {
-  if (!remoteEnabled) return { allow: true, action: 'allow' };
   if (trust !== 'remote') return { allow: true, action: 'allow' };
   if (ownerOk !== true) return { allow: false, action: 'not-owner' };
   if (isPairPath(pathname)) return { allow: true, action: 'pair-page' };
@@ -118,10 +116,9 @@ function decideRequestAccess({ remoteEnabled, trust, pathname, authenticated, ow
 }
 
 function decideUpgradeAccess({
-  remoteEnabled, trust, origin, authenticated, allowedOrigins = [],
+  trust, origin, authenticated, allowedOrigins = [],
   listenerPorts = [], dashboardRoute = false, tokenOk = false,
 }: {
-  remoteEnabled?: boolean;
   trust?: string;
   origin?: string | null;
   allowedOrigins?: unknown[];
@@ -135,7 +132,7 @@ function decideUpgradeAccess({
     requireOrigin: dashboardRoute,
   });
   if (!originOk) return { allow: false, reason: 'origin' };
-  if (remoteEnabled && trust === 'remote') {
+  if (trust === 'remote') {
     if (authenticated !== true) return { allow: false, reason: 'auth' };
     return { allow: true, reason: null };
   }
