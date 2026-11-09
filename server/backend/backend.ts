@@ -349,6 +349,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
   const laneAssembly = createBackendLanes({
     config,
+    appVersion: packageJson.version,
     provenanceWriterId,
     claudeCredentials: sessionRuntime.claudeCredentials,
     configStore,

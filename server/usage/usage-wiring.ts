@@ -124,6 +124,8 @@ interface UsageWiringOptions {
   broadcast?: (message: Record<string, unknown>) => void;
   controlClientCount?: () => number;
   warehousePath?: string | null;
+  snapshotPath?: string | null;
+  appVersion?: string;
   budgetStatePath?: string | null;
   laneMap?: (() => Map<string, string>) | null;
   telemetry?: Pick<Telemetry, 'captureAiGenerations'> | null;
@@ -212,6 +214,8 @@ function createUsageWiring({
   controlClientCount = () => 0,
 
   warehousePath = null,
+  snapshotPath = null,
+  appVersion = '',
 
   budgetStatePath = null,
 
@@ -322,6 +326,8 @@ function createUsageWiring({
         extraProjectsDirs: cfg.extraProjectsDirs,
         vendors: cfg.vendors,
         warehousePath,
+        snapshotPath,
+        appVersion,
         warehouseRetainDays: cfg.warehouseRetainDays,
         budget: cfg.budget,
         laneMap,

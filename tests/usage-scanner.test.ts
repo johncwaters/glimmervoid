@@ -20,15 +20,16 @@ const pricingTable = normalizePricingTable({
   },
 });
 
-test('runPass ingests a fixture tree and append reruns ingest only new entries', async () => {
+test('runPass ingests a fixture tree, append reruns ingest only new entries, and a restart reads only bytes appended since its snapshot, usage-free lines included', async () => {
   const root = await makeTempRoot();
   const projectsDir = await makeProjectsDir(root);
   const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
   await writeLines(transcript, [
     usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10, output: 1, sessionId: 'inline-a' }),
     usageLine({ messageId: 'message-b', requestId: 'request-b', input: 20, output: 1, sessionId: 'inline-a' }),
   ]);
-  const scanner = makeScanner(root);
+  const scanner = makeScanner(root, { snapshotPath, snapshotMinIntervalMs: 0 });
 
   const first = await scanner.runPass();
   assert.equal(first.files, 1);
@@ -43,6 +44,149 @@ test('runPass ingests a fixture tree and append reruns ingest only new entries',
   assert.equal(second.newEntries, 1);
   assert.equal(scanner.sessionTotals().get('inline-a')?.tokens, 63);
   assert.ok((await fs.stat(transcript)).size > firstSize);
+
+  await fs.appendFile(transcript, `${JSON.stringify({ type: 'system', subtype: 'informational', timestamp: '2026-08-19T10:00:00.000Z' })}\n`);
+  const usageFreePass = await scanner.runPass();
+  assert.equal(usageFreePass.newEntries, 0);
+
+  const appendedLine = `${usageLine({ messageId: 'message-d', requestId: 'request-d', input: 40, output: 1, sessionId: 'inline-a' })}\n`;
+  await fs.appendFile(transcript, appendedLine);
+  const countingFs = transcriptReadCountingFs();
+  const doubledPricingTable = normalizePricingTable({
+    'claude-sonnet-4-20250514': {
+      input_cost_per_token: 2,
+      output_cost_per_token: 4,
+      cache_creation_input_token_cost: 6,
+      cache_read_input_token_cost: 8,
+    },
+  });
+  const restarted = makeScanner(root, { snapshotPath, fsPromises: countingFs, pricingTable: doubledPricingTable });
+
+  const resumed = await restarted.runPass();
+  assert.equal(countingFs.bytesRead(), Buffer.byteLength(appendedLine));
+  assert.equal(resumed.entries, 4);
+  assert.equal(resumed.newEntries, 1);
+  assert.deepEqual(restarted.sessionTotals().get('inline-a'), {
+    tokens: 104,
+    costUSD: 216,
+    lastTs: Date.parse('2026-08-19T10:00:00.000Z'),
+  });
+});
+
+test('a snapshot written under another scan config or app version is ignored and the restart rescans from offset 0', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  await writeLines(transcript, [usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10 })]);
+  const configChanges: UsageScannerOptions[] = [
+    { vendors: { codex: false, grok: true, kimi: true } },
+    { retainDays: 365 },
+    { budget: { monthlyUsd: 100 } },
+    { costMode: 'calculate' },
+    { env: { HOME: root, CODEX_HOME: path.join(root, 'elsewhere') } },
+    { appVersion: '0.0.1-next' },
+  ];
+  for (const configChange of configChanges) {
+    await fs.rm(snapshotPath, { force: true });
+    await makeScanner(root, { snapshotPath }).runPass();
+
+    const rescanned = await makeScanner(root, { snapshotPath, ...configChange }).runPass();
+    assert.equal(rescanned.newEntries, 1, JSON.stringify(configChange));
+    assert.equal(rescanned.entries, 1);
+  }
+});
+
+test('bytes a session-scoped pass reads reach the snapshot even when the next full pass reads nothing new', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  await writeLines(transcript, [usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10 })]);
+  const scanner = makeScanner(root, { snapshotPath, snapshotMinIntervalMs: 0 });
+  await scanner.runPass();
+
+  await fs.appendFile(transcript, `${usageLine({ messageId: 'message-b', requestId: 'request-b', input: 20 })}\n`);
+  const scopedPass = await scanner.runPass({ scopeDirs: [path.dirname(transcript)] });
+  assert.equal(scopedPass.newEntries, 1);
+  const fullPass = await scanner.runPass();
+  assert.equal(fullPass.newEntries, 0);
+
+  const countingFs = transcriptReadCountingFs();
+  const resumed = await makeScanner(root, { snapshotPath, fsPromises: countingFs }).runPass();
+  assert.equal(countingFs.bytesRead(), 0);
+  assert.equal(resumed.entries, 2);
+});
+
+test('a snapshot read that fails once at startup keeps the snapshot until a complete pass, then saves one a restart resumes from', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  const firstLine = usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10 });
+  await writeLines(transcript, [firstLine]);
+  await makeScanner(root, { snapshotPath }).runPass();
+  const snapshotBeforeFlakyStart = await fs.readFile(snapshotPath, 'utf8');
+
+  await fs.appendFile(transcript, `${usageLine({ messageId: 'message-b', requestId: 'request-b', input: 20 })}\n`);
+  let failedSnapshotReads = 0;
+  const flakySnapshotFs = {
+    ...fs,
+    readFile: async (...readFileArguments: unknown[]) => {
+      if (readFileArguments[0] === snapshotPath && failedSnapshotReads === 0) {
+        failedSnapshotReads += 1;
+        throw Object.assign(new Error('resource busy'), { code: 'EBUSY' });
+      }
+      return Reflect.apply(fs.readFile, fs, readFileArguments);
+    },
+  };
+  const flakyScanner = makeScanner(root, { snapshotPath, fsPromises: flakySnapshotFs, byteBudget: Buffer.byteLength(firstLine) + 1 });
+  const partialRescan = await flakyScanner.runPass();
+  assert.equal(failedSnapshotReads, 1);
+  assert.equal(partialRescan.partial, true);
+  assert.equal(await fs.readFile(snapshotPath, 'utf8'), snapshotBeforeFlakyStart);
+  const completedRescan = await flakyScanner.runPass();
+  assert.equal(completedRescan.partial, false);
+  assert.equal(completedRescan.entries, 2);
+
+  const appendedLine = `${usageLine({ messageId: 'message-c', requestId: 'request-c', input: 30 })}\n`;
+  await fs.appendFile(transcript, appendedLine);
+  const countingFs = transcriptReadCountingFs();
+  const resumed = await makeScanner(root, { snapshotPath, fsPromises: countingFs }).runPass();
+  assert.equal(countingFs.bytesRead(), Buffer.byteLength(appendedLine));
+  assert.equal(resumed.entries, 3);
+});
+
+test('a snapshot write that keeps failing is retried at most once per snapshot interval', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const transcript = path.join(projectsDir, 'C--repo', 'session-a.jsonl');
+  const blockingFile = path.join(root, 'not-a-directory');
+  await fs.writeFile(blockingFile, '');
+  await writeLines(transcript, [usageLine({ messageId: 'message-a', requestId: 'request-a', input: 10 })]);
+  let nowMs = Date.parse('2026-08-19T12:00:00.000Z');
+  const snapshotFailureWarnings: string[] = [];
+  const scanner = makeScanner(root, {
+    snapshotPath: path.join(blockingFile, 'usage-scan-snapshot.json'),
+    snapshotMinIntervalMs: 60_000,
+    nowFn: () => nowMs,
+    logger: { warn: (...warning: unknown[]) => { if (String(warning[0]).includes('scan snapshot')) snapshotFailureWarnings.push(String(warning[0])); } },
+  });
+
+  await scanner.runPass();
+  assert.equal(snapshotFailureWarnings.length, 1);
+
+  for (const [index, messageId] of ['message-b', 'message-c'].entries()) {
+    nowMs += 10_000;
+    await fs.appendFile(transcript, `${usageLine({ messageId, requestId: `request-${index}`, input: 20 })}\n`);
+    await scanner.runPass();
+  }
+  assert.equal(snapshotFailureWarnings.length, 1);
+
+  nowMs += 60_000;
+  await fs.appendFile(transcript, `${usageLine({ messageId: 'message-d', requestId: 'request-d', input: 30 })}\n`);
+  await scanner.runPass();
+  assert.equal(snapshotFailureWarnings.length, 2);
 });
 
 test('an unreadable transcript directory yields io-failed and leaves an unchanged warehouse byte-identical', async () => {
@@ -387,6 +531,25 @@ test('yourDay recaps yesterday from operator-typed Claude and Codex prompts and 
   assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(insight.text)));
   assert.equal(yourDay?.currentStretchStartedAt, null);
 });
+
+function transcriptReadCountingFs() {
+  let bytesRead = 0;
+  return {
+    ...fs,
+    open: async (filePath: string, flags: string) => {
+      const handle = await fs.open(filePath, flags);
+      return {
+        read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+          const readResult = await handle.read(buffer, offset, length, position);
+          bytesRead += readResult.bytesRead;
+          return readResult;
+        },
+        close: () => handle.close(),
+      };
+    },
+    bytesRead: () => bytesRead,
+  };
+}
 
 function makeScanner(root: string, overrides: UsageScannerOptions = {}): Scanner {
   return createUsageScanner({

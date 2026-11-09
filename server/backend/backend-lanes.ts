@@ -86,6 +86,7 @@ interface BackendLaneOptions {
 
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
+  appVersion: string;
   claudeCredentials: ReturnType<typeof createClaudeCredentials>;
   configStore: ConfigStore;
   sessions: Map<string, Session>;
@@ -453,6 +454,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     broadcast: broadcastControl,
     controlClientCount: viewerControlClientCount,
     warehousePath: configSiblingPath(configStore.configPath, 'usage-warehouse.json'),
+    snapshotPath: configSiblingPath(configStore.configPath, 'usage-scan-snapshot.json'),
+    appVersion: dependencies.appVersion,
     laneMap: () => laneLedger.laneMap(),
     telemetry,
     budgetStatePath: configSiblingPath(configStore.configPath, 'usage-budget-state.json'),

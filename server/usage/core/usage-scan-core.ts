@@ -2,6 +2,7 @@ import path from 'node:path';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { rawTextOr } from '../../../shared/coerce.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
+import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
 
@@ -156,6 +157,62 @@ function shouldPersistWarehouse(
   return !storeReset;
 }
 
+const SCAN_SNAPSHOT_VERSION = 1;
+const SCAN_SNAPSHOT_INGEST_DIGEST = '1e38bedbee814176';
+const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+function scanConfigKey(
+  { appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget, env, homeDir }: {
+    appVersion: string;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
+    extraProjectsDirs: string[];
+    costMode: string;
+    retainDays: number;
+    hasMonthlyBudget: boolean;
+    env: NodeJS.ProcessEnv;
+    homeDir: string;
+  },
+): string {
+  return JSON.stringify({
+    appVersion,
+    ingestDigest: SCAN_SNAPSHOT_INGEST_DIGEST,
+    codex: vendors?.codex !== false,
+    grok: vendors?.grok !== false,
+    kimi: vendors?.kimi !== false,
+    claudeRoots: projectDirCandidates(env, extraProjectsDirs, homeDir),
+    codexHomes: codexHomes(env, homeDir),
+    grokHomes: grokHomes(env, homeDir),
+    kimiHomes: kimiHomes(env, homeDir),
+    costMode,
+    retainDays,
+    hasMonthlyBudget,
+  });
+}
+
+function decodeScanSnapshot(raw: unknown, configKey: string): UsageScanSnapshot | null {
+  const parsed = UsageScanSnapshot.safeParse(raw);
+  if (!parsed.success) return null;
+  if (parsed.data.version !== SCAN_SNAPSHOT_VERSION) return null;
+  if (parsed.data.configKey !== configKey) return null;
+  return parsed.data;
+}
+
+function shouldPersistSnapshot(
+  { bytesReadSinceLastWrite, storeReset, becameCaughtUp, nowMs, lastWrittenMs, minIntervalMs }: {
+    bytesReadSinceLastWrite: number;
+    storeReset: boolean;
+    becameCaughtUp: boolean;
+    nowMs: number;
+    lastWrittenMs: number | null;
+    minIntervalMs: number;
+  },
+): boolean {
+  if (storeReset || becameCaughtUp) return true;
+  if (bytesReadSinceLastWrite === 0) return false;
+  if (lastWrittenMs === null) return true;
+  return nowMs - lastWrittenMs >= minIntervalMs;
+}
+
 function continuationDelayMs(
   { outcome, ioFailureStreak, partialMs }: {
     outcome: PassOutcome;
@@ -250,4 +307,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
