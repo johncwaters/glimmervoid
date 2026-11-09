@@ -21,6 +21,11 @@ export function viewerThreadTally(nodes: readonly TeamReviewThreadNode[]): Viewe
   return { total: viewerThreads.length, resolved: viewerThreads.filter((node) => node.isResolved).length };
 }
 
+export function countViewerThreadResolved(tally: ViewerThreadTally | undefined): ViewerThreadTally | undefined {
+  if (!tally) return undefined;
+  return { ...tally, resolved: Math.min(tally.total, tally.resolved + 1) };
+}
+
 function threadBodyPreview(body: string): { text: string; isTruncated: boolean } {
   const trimmedBody = body.trim();
   const preview = trimmedBody.slice(0, 1500);

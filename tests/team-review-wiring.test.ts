@@ -996,3 +996,21 @@ test('a saved draft goes stale when the pull request head moves, is ready again 
     await poller.stop();
   }
 });
+
+test('resolving an answered thread from the dashboard counts it in the resolved tally at once', async () => {
+  const thread = { id: 'PRRT_acme_7', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true, isNit: false, url: 'https://github.com/Acme/app/pull/7#discussion_r1', lastReplyAuthor: 'teammate', lastReplyAt: '2026-10-01T12:00:00Z' };
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: {}, store: emptyGithubStore({ viewer: async () => 'me' }),
+    spawnReview: () => new Promise(() => {}),
+    readState: async () => ({ [ACTION_KEY]: { draft: actionDraft({ status: 'posted' }), reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: Date.now(), threads: [thread], viewerThreads: { total: 2, resolved: 0 } } }),
+    writeState: async () => {}, beforeStart: async () => {},
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+  });
+  try {
+    await poller.start();
+    assert.equal(await poller.updateThread(ACTION_KEY, thread.id, { isResolved: true }), true);
+    assert.deepEqual(poller.getDraft(ACTION_KEY)?.viewerThreads, { total: 2, resolved: 1 });
+  } finally {
+    await poller.stop();
+  }
+});

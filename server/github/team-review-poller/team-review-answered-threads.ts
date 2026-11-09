@@ -1,4 +1,4 @@
-import { viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
+import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgePatch, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
 import { teammateThreadItems } from '../core/pr-flows-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
@@ -54,8 +54,7 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
         const resolution = await github.resolveReviewThread(thread.id).catch((error: unknown) => ({ ok: false, err: errorMessage(error) }));
         if (resolution.ok) {
           thread.isResolved = true;
-          viewerThreads.resolved += 1;
-          entry.viewerThreads = viewerThreads;
+          entry.viewerThreads = countViewerThreadResolved(entry.viewerThreads);
           entry.autoResolvedThreadIds = [...(entry.autoResolvedThreadIds ?? []), thread.id];
         }
         if (!resolution.ok) thread.resolveError = resolution.err || 'GitHub refused to resolve the thread';

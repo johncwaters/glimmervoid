@@ -1,7 +1,7 @@
 import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
 import { pullRequestKeyFromReference } from '../../../shared/contracts/control-messages.ts';
 import { githubStoreRateLimitedError } from '../github-store-poller.ts';
-import { hasPresentableThreads, isThreadPlaceholderDraft } from '../core/team-review-threads-core.ts';
+import { countViewerThreadResolved, hasPresentableThreads, isThreadPlaceholderDraft } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
 import { ReviewDraft } from '../../../shared/contracts/team-review.ts';
 import type { ReviewDraft as ReviewDraftType, TeamReviewStateEntry } from '../../../shared/contracts/team-review.ts';
@@ -49,6 +49,7 @@ function createTeamReviewOperatorActions(
     const entry = runtime.state[key];
     const thread = entry?.threads?.find((thread) => thread.id === threadId);
     if (!entry || !thread) return false;
+    if (patch.isResolved && !thread.isResolved) entry.viewerThreads = countViewerThreadResolved(entry.viewerThreads);
     Object.assign(thread, patch);
     if (patch.isResolved) delete thread.resolveError;
     if (!hasPresentableThreads(entry.threads ?? []) && isThreadPlaceholderDraft(entry.draft)) entry.draft = null;
