@@ -46,6 +46,7 @@ const LABEL_GAP = 5;
 const LABEL_ASCENT = 10;
 const LABEL_DESCENT = 3;
 const LABEL_CLEARANCE = 2;
+const LABEL_BOX_CLEARANCE = 6;
 const LABEL_SLIDE_FRACTIONS = [0.5, 0.35, 0.65, 0.2, 0.8];
 const LABEL_CELL_SIZE = 256;
 
@@ -453,9 +454,41 @@ function routeCandidatesOf(choice: SideChoice): RouteCandidate[] {
   }));
 }
 
+function facingJogPointsOf(exit: SideTerminal, entry: SideTerminal): Point[] | null {
+  const step = STEP_BY_DIRECTION[exit.direction];
+  if (!step || exit.direction !== entry.direction) return null;
+  const distanceAhead = (entry.point.x - exit.point.x) * step.x + (entry.point.y - exit.point.y) * step.y;
+  if (distanceAhead < CLEARANCE * 2) return null;
+  const middle = { x: Math.round(exit.point.x + step.x * distanceAhead / 2), y: Math.round(exit.point.y + step.y * distanceAhead / 2) };
+  const corners = isHorizontalDirection(exit.direction)
+    ? [{ x: middle.x, y: exit.point.y }, { x: middle.x, y: entry.point.y }]
+    : [{ x: exit.point.x, y: middle.y }, { x: entry.point.x, y: middle.y }];
+  const points = [exit.point, ...corners, entry.point];
+  return withoutBends(points).length === points.length ? points : null;
+}
+
+function keepsClearanceFromOtherBoxes(points: readonly Point[], plan: WirePlan, input: RouteInput): boolean {
+  return segmentsOf([...points]).every((segment) => {
+    const corridor = inflated(pointBoundsOf(segment.from, segment.to), CLEARANCE);
+    const obstacles = input.obstaclesIn?.(corridor);
+    return obstacles !== undefined && !obstacles.hardRects.some((rect) => rect !== plan.from && rect !== plan.to && rectsOverlap(rect, corridor));
+  });
+}
+
+function facingJogOf(choice: SideChoice, input: RouteInput, routedLines: RoutedLines): ShortRoute | null {
+  const exit = choice.exits.find((terminal) => terminal.bias === 0);
+  const entry = choice.entries.find((terminal) => terminal.bias === 0);
+  const points = exit && entry ? facingJogPointsOf(exit, entry) : null;
+  if (!exit || !entry || !points || !keepsClearanceFromOtherBoxes(points, choice.plan, input)) return null;
+  if (!segmentsOf(points).every((segment) => isCorridorClear(segment, choice.plan, input, routedLines))) return null;
+  return { exit, entry, points };
+}
+
 function shortRouteOf(choice: SideChoice, input: RouteInput, routedLines: RoutedLines): ShortRoute | null {
   const clearCandidates = routeCandidatesOf(choice).filter((candidate) => isHardClear(candidate.points, choice.plan, input));
   const fewestBends = Math.min(...clearCandidates.map((candidate) => candidate.bends));
+  const facingJog = fewestBends > 0 ? facingJogOf(choice, input, routedLines) : null;
+  if (facingJog) return facingJog;
   const rivals = clearCandidates.filter((candidate) => candidate.bends === fewestBends);
   const cheapestCost = Math.min(...rivals.map((candidate) => candidate.cost));
   const cheapest = rivals.filter((candidate) => candidate.cost === cheapestCost);
@@ -1124,9 +1157,20 @@ function flushLabelCandidates(segment: Segment, width: number): Point[] {
   return flushXs.flatMap((x) => [{ x, y: y - LABEL_GAP }, { x, y: y + LABEL_GAP + LABEL_ASCENT }]);
 }
 
-function labelCandidates(segments: readonly Segment[], width: number): Point[] {
+function hasRoomForLabel(segment: Segment, width: number): boolean {
+  const labelExtent = isHorizontal(segment) ? width : LABEL_ASCENT + LABEL_DESCENT;
+  return segmentLength(segment) >= labelExtent + LABEL_GAP * 2;
+}
+
+function labelSegmentsInOrder(segments: readonly Segment[], width: number): Segment[] {
   const byLength = [...segments].sort((left, right) => segmentLength(right) - segmentLength(left));
-  return [...segments.slice(0, 1), ...byLength].flatMap((segment) => [...LABEL_SLIDE_FRACTIONS.flatMap((fraction) => {
+  const roomy = byLength.filter((segment) => hasRoomForLabel(segment, width));
+  const cramped = byLength.filter((segment) => !hasRoomForLabel(segment, width));
+  return [...segments.slice(0, 1).filter((segment) => hasRoomForLabel(segment, width)), ...roomy, ...cramped];
+}
+
+function labelCandidates(segments: readonly Segment[], width: number): Point[] {
+  return labelSegmentsInOrder(segments, width).flatMap((segment) => [...LABEL_SLIDE_FRACTIONS.flatMap((fraction) => {
     const x = segment.from.x + (segment.to.x - segment.from.x) * fraction;
     const y = segment.from.y + (segment.to.y - segment.from.y) * fraction;
     if (isHorizontal(segment)) return [{ x, y: y - LABEL_GAP }, { x, y: y + LABEL_GAP + LABEL_ASCENT }];
@@ -1147,15 +1191,16 @@ function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: s
     if (!label) continue;
     const width = labelWidthOf(label);
     const candidates = labelCandidates(wire.segments, width);
-    const isClear = (baseline: Point) => {
+    const isClearBy = (boxClearance: number) => (baseline: Point) => {
       const bounds = labelBoundsAt(baseline, width);
+      const offBoxes = inflated(bounds, boxClearance);
       if (bounds.y < input.contentTop) return false;
       const padded = inflated(bounds, LABEL_CLEARANCE);
       if (hasSlotTouching(segmentGrid, padded, (slot) => { const segment = allSegments[slot]; return segment !== undefined && segmentHitsRect(segment, padded); })) return false;
-      if (hasSlotTouching(solidGrid, bounds, (slot) => { const solid = solids[slot]; return solid !== undefined && rectsOverlap(bounds, solid); })) return false;
+      if (hasSlotTouching(solidGrid, offBoxes, (slot) => { const solid = solids[slot]; return solid !== undefined && rectsOverlap(offBoxes, solid); })) return false;
       return !hasSlotTouching(placedGrid, bounds, (slot) => { const placed = placedBounds[slot]; return placed !== undefined && rectsOverlap(bounds, placed); });
     };
-    const clearSpot = candidates.find(isClear);
+    const clearSpot = candidates.find(isClearBy(LABEL_BOX_CLEARANCE)) ?? candidates.find(isClearBy(0));
     const at = clearSpot ?? candidates[0] ?? centerOf(wire.plan.from);
     if (!clearSpot) warnings.push(`wire ${wire.plan.wire.id} label "${label}" has no clear spot`);
     const placedLabelBounds = labelBoundsAt(at, width);

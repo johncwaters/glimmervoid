@@ -592,6 +592,40 @@ test('a long identifier breaks after a separator, an agent box with no width is 
   assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
 });
 
+test('a wire to a box beside and below leaves through the facing side with a jog, never around the corner from the bottom', () => {
+  const sideBySide = boardWithNearPinned({
+    id: 'jog', title: 'jog', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      check: { kind: 'box', id: 'check', title: 'Check', at: { x: 40, y: 40 } },
+      write: { kind: 'box', id: 'write', title: 'Write', at: { x: 420, y: 40 } },
+      retry: { kind: 'box', id: 'retry', title: 'Retry', at: { x: 420, y: 260 } },
+      passes: { kind: 'wire', id: 'passes', from: 'check', to: 'write', label: 'merges clean' },
+      fails: { kind: 'wire', id: 'fails', from: 'check', to: 'retry', label: 'conflict', tone: 'fail' },
+      tight: { kind: 'box', id: 'tight', title: 'Tight', at: { x: 40, y: 600 } },
+      close: { kind: 'box', id: 'close', title: 'Close', at: { x: 272, y: 700 } },
+      squeezed: { kind: 'wire', id: 'squeezed', from: 'tight', to: 'close' },
+      source: { kind: 'box', id: 'source', title: 'Source', at: { x: 40, y: 1000 } },
+      target: { kind: 'box', id: 'target', title: 'Target', at: { x: 420, y: 1260 } },
+      bystander: { kind: 'box', id: 'bystander', title: 'Bystander', at: { x: 342, y: 1040 } },
+      crowded: { kind: 'wire', id: 'crowded', from: 'source', to: 'target' },
+    },
+  });
+  const layout = layoutBoard(sideBySide);
+  const fails = layout.elements.find((element) => element.id === 'fails');
+  const check = layout.elements.find((element) => element.id === 'check');
+  assert.ok(fails?.kind === 'wire' && check?.kind === 'box');
+  assert.deepEqual([fails.start.x, fails.end.x], [check.x + check.width, 420], layout.warnings.join('\n'));
+  const squeezed = layout.elements.find((element) => element.id === 'squeezed');
+  assert.ok(squeezed?.kind === 'wire');
+  assert.notEqual(squeezed.start.x, 260, 'a gap too narrow for a lead on each side of the jog keeps the route around the corner');
+  const crowded = layout.elements.find((element) => element.id === 'crowded');
+  const bystander = layout.elements.find((element) => element.id === 'bystander');
+  assert.ok(crowded?.kind === 'wire' && bystander?.kind === 'box');
+  const crowdedXs = crowded.path.split(' L ').map((point) => Number(point.replace('M ', '').split(' ')[0]));
+  assert.ok(crowdedXs.every((x) => x <= bystander.x - 14 || x >= bystander.x + bystander.width + 14 || x === crowded.end.x), `a jog keeps the search clearance from a third box: ${crowded.path}`);
+  assert.deepEqual(layout.warnings, []);
+});
+
 function savedThroughJson(world: LayoutWorld) {
   const saved = JSON.parse(JSON.stringify({ laidOut: layoutOf(world).elements, chrome: world.chrome, ...savedWorldOf(world), routeById: [...world.routeMemory.routeById] }));
   return {
