@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../server/config-store.ts';
-import { UPDATE_CHANNELS } from '../../shared/contracts/update-journal.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../../shared/contracts/config.ts';
 import { FLYING_ANIMALS_DEFAULTS } from '../../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../../shared/settings/registry.ts';
@@ -441,17 +440,14 @@ test('the registry never exposes remote keys and rejects a miscased path', () =>
   assert.equal(settableFromDashboard('remote.port'), false);
 });
 
-test('the machine Updates section owns its alias, channel, status rows, actions and moved toggle', () => {
+test('the machine Updates section owns its alias, status rows, actions and moved toggle', () => {
   const updates = sectionById('machine-updates');
   assert.equal(updates.level, 'machine');
   assert.equal(SETTINGS_SECTION_ALIASES.updates, 'machine-updates');
   assert.deepEqual(updates.settings.map((setting) => setting.id), [
     'update-actions',
-    'update-channel',
     'check-updates',
   ]);
-  assert.deepEqual(settingById('update-channel').options,
-    UPDATE_CHANNELS.map((value) => ({ value, label: value === 'release' ? 'Release' : 'Experimental' })));
   const toggleOwners = SECTIONS.filter((section) => section.settings.some((setting) => setting.id === 'check-updates'));
   assert.deepEqual(toggleOwners.map((section) => section.id), ['machine-updates']);
 });

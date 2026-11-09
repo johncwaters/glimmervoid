@@ -173,7 +173,7 @@ function requireConfigFileSetting(argument: string, view: Pick<ConfigFileView, '
   const { configPath } = view;
   const setting = resolveSetting(argument);
   if (!setting) return fail(`${argument} is not a setting in the registry, so this command cannot read or change it; edit config.json at ${configPath} by hand`);
-  if (!isSettingAvailable(setting, view.isExperimentalBuild)) return fail(`${setting.path} is an experimental setting, so it exists only on an experimental build; switch Settings > Updates > Channel to Experimental and update to use it`);
+  if (!isSettingAvailable(setting, view.isExperimentalBuild)) return fail(`${setting.path} is an experimental setting, so it exists only on an experimental build, a source checkout of a -next version`);
   if (setting.scope === 'browser') return fail(`${setting.id} is a browser preference saved in each browser, not in config.json; change it in the dashboard under Settings > ${sectionOf(setting).title}`);
   if (setting.control === 'readonly') return fail(`${setting.id} is a read-only status row under Settings > ${sectionOf(setting).title}; it has no config.json key`);
   return succeed(setting);

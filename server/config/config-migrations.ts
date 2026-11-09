@@ -67,4 +67,10 @@ function migrateGuardrailsUnreadablePaths(config: GlimmervoidConfig): string | n
   return '[config] Moved guardrails.unreadablePaths to saneYoloUnreadablePaths: Sane YOLO now refuses reads of those folders.';
 }
 
-export { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths };
+function dropRetiredUpdateChannel(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'updateChannel')) return null;
+  delete config.updateChannel;
+  return '[config] Removed updateChannel: Glimmervoid now updates only to published releases.';
+}
+
+export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths };

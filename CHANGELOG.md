@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Remote watcher.** Set `watcher.url` to link a watcher running on another machine instead of the local one. It needs the remote listener on, since nudges come back through it, and the watcher machine runs `glimmervoid watch` with `GLIMMERVOID_LINK_SECRET` set to the hex contents of this server's `~/.glimmervoid/watcher-link.key` and `GLIMMERVOID_LINK_SERVER_URL` set to the address that forwards to the remote listener. If the remote watcher stops answering, or its nudges stop reaching the server, lanes go back to their own timers until it recovers.
 - **Drag sessions to reorder the sidebar.** Drag a session in the Focus sidebar onto another session in the same project to move it there; a line shows where it will land. On the phone, press and hold a session on the Focus board, then slide it. The order is saved with your settings, so every open dashboard and the phone shows it, and it survives restarts. A new session joins the end of its project. Dormant sessions still sit below the live ones, and a child session stays under the session that started it.
 
+### Changed
+
+- **Update checks read GitHub releases.** Glimmervoid now learns about new versions from the latest GitHub release instead of the npm registry. When the release notes carry a Security section and you are on an older version, the dashboard shows a security notice.
+
+### Removed
+
+- **The Experimental update channel.** Settings, Updates no longer has a Channel row, and Glimmervoid updates only to published releases. A leftover `updateChannel` key is removed from `config.json` the next time Glimmervoid starts.
+
 ### Fixed
 
 - **Session worktrees build packages that need install scripts.** When a package such as esbuild could not be copied already built from the main checkout, a new session's worktree used to warn you to run `npm rebuild` yourself. Glimmervoid now runs `npm rebuild` for those packages in the worktree, and only warns if that fails.

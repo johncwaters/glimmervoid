@@ -51,7 +51,6 @@ const DEFAULT_CONFIG = {
   },
 
   checkForUpdates: true,
-  updateChannel: 'release' as const,
 
   autoResume: true,
 

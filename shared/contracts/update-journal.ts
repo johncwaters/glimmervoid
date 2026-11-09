@@ -1,11 +1,7 @@
 import { z } from 'zod';
 
-export const UPDATE_CHANNELS = Object.freeze(['release', 'experimental'] as const);
-const RETIRED_MAIN_CHANNEL = 'main';
-export const UpdateChannel = z.preprocess(
-  (channel) => channel === RETIRED_MAIN_CHANNEL ? 'experimental' : channel,
-  z.enum(UPDATE_CHANNELS, { error: `updateChannel must be one of ${UPDATE_CHANNELS.join(', ')}` }),
-);
+const UPDATE_CHANNELS = Object.freeze(['release'] as const);
+export const UpdateChannel = z.enum(UPDATE_CHANNELS, { error: `updateChannel must be one of ${UPDATE_CHANNELS.join(', ')}` });
 export const UpdateRunState = z.enum(['idle', 'running', 'staged', 'succeeded', 'failed', 'discarded', 'interrupted']);
 export const UpdateStepId = z.enum(['fetch', 'stage', 'install', 'link-deps', 'build']);
 export const UpdateStepStatus = z.enum(['pending', 'running', 'succeeded', 'failed']);
