@@ -418,7 +418,7 @@ export function createAddSessionDialog() {
     const isPicked = target.kind === 'project' && target.row.path === row.path;
     const rowEl = buildSlotRow(row.path, row.name, isPicked, () => {
       setProjectTarget(row);
-      advance();
+      advanceFromPick(true);
     });
     const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
     if (meta) rowEl.append(meta);
@@ -427,8 +427,9 @@ export function createAddSessionDialog() {
 
   function buildAgentRow(agentOption: { id: string; label: string }) {
     const rowEl = buildSlotRow(agentOption.id, agentOption.label, agentOption.id === selectedAgentId, () => {
+      const targetBeforePick = target;
       setAgent(agentOption.id);
-      advance();
+      advanceFromPick(target === targetBeforePick);
     });
     rowEl.prepend(buildAgentMark(agentOption.id));
     return rowEl;
@@ -437,8 +438,9 @@ export function createAddSessionDialog() {
   function buildPlaceRows() {
     const buildPlaceRow = (name: string, place: string) => buildSlotRow(place, name, place === chosenPlace, () => {
       if (isAddPending) return;
+      const targetBeforePick = target;
       choosePlace(place);
-      advance();
+      advanceFromPick(target === targetBeforePick);
     });
     const hostRows = hostStatuses().map((status) => {
       const isConnected = status.state === 'connected';
@@ -512,6 +514,27 @@ export function createAddSessionDialog() {
   function advance() {
     if (operatorTouch === 'reopened') operatorTouch = 'acted';
     openSlotList(firstEmptySlot());
+  }
+
+  function isAgentKnownSignedIn() {
+    if (selectedEnvironment === null) return true;
+    const connectableAgent = connectableAgentOf(selectedAgentId);
+    if (connectableAgent === null) return true;
+    return agentLoginOf(connectableAgent)?.state === 'signed-in';
+  }
+
+  function canStartOnPick() {
+    return firstEmptySlot() === null && target.kind === 'project' && selectedAgentId !== NO_AGENT_ID && hasSettingsLoaded && isAgentKnownSignedIn() && !isSpawnBlocked;
+  }
+
+  function advanceFromPick(isTargetChosenByOperator: boolean) {
+    if (!isTargetChosenByOperator || !canStartOnPick()) {
+      advance();
+      return;
+    }
+    if (operatorTouch === 'reopened') operatorTouch = 'acted';
+    renderList();
+    submit();
   }
 
   function settleOpenSlot() {
@@ -795,10 +818,17 @@ export function createAddSessionDialog() {
     setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId === NO_AGENT_ID ? defaultAgentId : selectedAgentId, Date.now()));
   }
 
+  function lockPicking(isLocked: boolean) {
+    const pickingRegions = [pickEl, workspacePanel, folderPanel];
+    if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
+    for (const region of pickingRegions) region.inert = isLocked;
+    for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
+  }
+
   function requestAddSession({ message, rememberedPath }: AddSessionRequest) {
     isAddPending = true;
     btnConfirm.disabled = true;
-    placeWord.disabled = true;
+    lockPicking(true);
     startStatus.show('busy', 'Starting the session');
     const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
     requestOnSelectedHost('add-session', message)
@@ -816,7 +846,8 @@ export function createAddSessionDialog() {
         isAddPending = false;
         startStatus.clear();
         btnConfirm.disabled = isSpawnBlocked;
-        placeWord.disabled = false;
+        lockPicking(false);
+        if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
       });
   }
 
@@ -857,7 +888,8 @@ export function createAddSessionDialog() {
   findInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || target.kind !== 'project') return;
     event.preventDefault();
-    advance();
+    const pickedPath = target.row.path;
+    advanceFromPick(filterRows(recentRows, findInput.value).some((row) => row.path === pickedPath));
   });
 
   advance();
