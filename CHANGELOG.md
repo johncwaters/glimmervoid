@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.2] - 2026-11-09
+
 ### Added
 
 - **Export and apply settings from the command line.** `glimmervoid settings export` prints your config.json as JSON with every secret removed. `glimmervoid settings set --file planned.json` replaces each top-level key the file names in one validated write, and a running Glimmervoid reloads it. Your saved secrets are kept, a file naming a secret or a key config.json does not have is refused, and a file that fails validation writes nothing, so a dotfiles or provisioning script never has to open config.json itself. `set --file` runs only from your own terminal: a session is refused, by Sane YOLO and by the command itself, because it can write keys the single-setting `set` refuses.
