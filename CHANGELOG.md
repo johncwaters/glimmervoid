@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sessions start again on a Mac running the standalone binary.** Every session closed at once with `posix_spawnp failed`, because the terminal library's macOS helper program stayed inside the binary, where it could not be run. The binary now copies the terminal library to `~/.glimmervoid/runtime/<version>/node-pty` on first start and runs sessions from there.
 - **Typing in a doc no longer shakes the page.** Every keystroke on the red pen paper dropped the margin notes for a frame, so the lines under a note jumped up and back, and a long doc lost the sizes of the parts scrolled out of view. Notes and the doc's layout now stay put while you type.
 - **New session and onboarding hold still.** Picking an agent no longer makes the "Start <agent> in <project>" sentence grow, and a refused start or a missing choice now shows its message in a space kept above Start session, so Start no longer jumps down. A message longer than two lines scrolls inside that space. On a phone, onboarding now scrolls, so the bottom bar no longer covers Start session.
 - **Resolving a thread from a review counts it at once.** Resolving an answered thread from the review panel left your thread count reading the old number until the next poll, so the count disagreed with the list beside it. It now counts the thread as resolved straight away.

@@ -120,9 +120,13 @@ function readFfmpegPath(): string | null {
   }
 }
 
-function extractExecutableFromBinary(snapshotPath: string): string {
+function binaryRuntimeDir(): string {
   const { version } = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
-  const extractedPath = path.join(glimmervoidHomeDir(os.homedir(), process.env), 'runtime', version, path.basename(snapshotPath));
+  return path.join(glimmervoidHomeDir(os.homedir(), process.env), 'runtime', version);
+}
+
+function extractExecutableFromBinary(snapshotPath: string): string {
+  const extractedPath = path.join(binaryRuntimeDir(), path.basename(snapshotPath));
   if (fs.existsSync(extractedPath)) return extractedPath;
   fs.mkdirSync(path.dirname(extractedPath), { recursive: true });
   const partialPath = `${extractedPath}.${process.pid}.partial`;
@@ -131,4 +135,37 @@ function extractExecutableFromBinary(snapshotPath: string): string {
   return extractedPath;
 }
 
-export { findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+const NODE_PTY_NATIVE_DIRECTORIES = [path.join('build', 'Release'), path.join('prebuilds', `${process.platform}-${process.arch}`)];
+
+function copySnapshotFiles(sourceDir: string, targetDir: string, shouldCopy: (fileName: string) => boolean): void {
+  if (!fs.existsSync(sourceDir)) return;
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !shouldCopy(entry.name)) continue;
+    fs.writeFileSync(path.join(targetDir, entry.name), fs.readFileSync(path.join(sourceDir, entry.name)), { mode: 0o755 });
+  }
+}
+
+function extractNodePtyFromBinary(): string | null {
+  if (mode !== 'binary' || process.platform !== 'darwin') return null;
+  const extractedDir = path.join(binaryRuntimeDir(), 'node-pty');
+  const extractedEntry = path.join(extractedDir, 'lib', 'index.js');
+  if (fs.existsSync(extractedEntry)) return extractedEntry;
+  const snapshotDir = path.dirname(createRequire(path.join(packageRoot, 'package.json')).resolve('node-pty/package.json'));
+  const partialDir = `${extractedDir}.${process.pid}.partial`;
+  try {
+    copySnapshotFiles(snapshotDir, partialDir, (fileName) => fileName === 'package.json');
+    copySnapshotFiles(path.join(snapshotDir, 'lib'), path.join(partialDir, 'lib'), (fileName) => fileName.endsWith('.js') && !fileName.endsWith('.test.js'));
+    for (const nativeDirectory of NODE_PTY_NATIVE_DIRECTORIES) {
+      copySnapshotFiles(path.join(snapshotDir, nativeDirectory), path.join(partialDir, nativeDirectory), () => true);
+    }
+    fs.renameSync(partialDir, extractedDir);
+    return extractedEntry;
+  } catch (err) {
+    fs.rmSync(partialDir, { recursive: true, force: true });
+    if (fs.existsSync(extractedEntry)) return extractedEntry;
+    throw err;
+  }
+}
+
+export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

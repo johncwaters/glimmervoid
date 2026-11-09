@@ -21,6 +21,34 @@ async function runEntry(entryName: string, entryArguments: readonly string[]): P
   await import(pathToFileURL(entryFile).href);
 }
 
+async function routeNodePtyToExtractedCopy(): Promise<void> {
+  const { extractNodePtyFromBinary } = await import('../server/runtime-paths.ts');
+  const extractedEntry = extractNodePtyFromBinary();
+  if (!extractedEntry) return;
+  const { registerHooks } = await import('node:module');
+  const { pathToFileURL } = await import('node:url');
+  const extractedEntryUrl = pathToFileURL(extractedEntry).href;
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier !== 'node-pty') return nextResolve(specifier, context);
+      return { url: extractedEntryUrl, format: 'commonjs', shortCircuit: true };
+    },
+  });
+}
+
+async function routeNodePtyOrReport(): Promise<void> {
+  try {
+    await routeNodePtyToExtractedCopy();
+  } catch (err) {
+    process.stderr.write(`glimmervoid: node-pty stays inside the binary, terminals may not spawn: ${err instanceof Error ? err.message : String(err)}\n`);
+  }
+}
+
+async function runCli(): Promise<void> {
+  await routeNodePtyOrReport();
+  await import('./glimmervoid.ts');
+}
+
 const [, , subcommand, entryName = '', ...entryArguments] = process.argv;
 if (subcommand === BINARY_RUN_SUBCOMMAND) await runEntry(entryName, entryArguments);
-if (subcommand !== BINARY_RUN_SUBCOMMAND) await import('./glimmervoid.ts');
+if (subcommand !== BINARY_RUN_SUBCOMMAND) await runCli();
