@@ -51,7 +51,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const willPostDetail = el('p', 'pr-will-post-detail');
   willPostDetail.setAttribute('aria-live', 'polite');
   willPost.append(el('h3', 'pr-assessment-title', 'Will post to GitHub'), willPostEvent, willPostDetail, note.section);
-  rail.append(createOpenSessionControl(draft), willPost, createDeskFacts(draft));
+  rail.append(willPost, createDeskFacts(draft), createOpenSessionControl(draft));
   const selection = (): ReviewSelection => ({
     note: note.input.value,
     comments: draft.comments.filter((_comment, index) => includedComments.has(index)),
