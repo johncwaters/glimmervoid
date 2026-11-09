@@ -234,6 +234,22 @@ async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<voi
   await elementWhere(open, 'clicking the stack card fans it out', (element) => element.id === stack.id && element.kind === 'frame' && !element.collapsed);
   await laidOutOf(open, droppedId);
   await page.keyboard.press('Escape');
+  await elementWhere(open, 'clearing the selection gathers the clicked stack again', (element) => element.id === stack.id && element.kind === 'frame' && element.collapsed);
+  await page.mouse.click(cardCenter.x, cardCenter.y);
+  await elementWhere(open, 'a click fans the stack out before the board scrolls away', (element) => element.id === stack.id && element.kind === 'frame' && !element.collapsed);
+  for (let scrollStep = 0; scrollStep < 6; scrollStep += 1) await page.mouse.wheel(3000, 0);
+  await page.keyboard.press('Escape');
+  for (let scrollStep = 0; scrollStep < 6; scrollStep += 1) await page.mouse.wheel(-3000, 0);
+  await elementWhere(open, 'a stack left while scrolled out of view gathers once it is back', (element) => element.id === stack.id && element.kind === 'frame' && element.collapsed);
+  await page.mouse.click(cardCenter.x, cardCenter.y);
+  await elementWhere(open, 'a second click fans the stack out again', (element) => element.id === stack.id && element.kind === 'frame' && !element.collapsed);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: stack.id, fields: { collapsed: true } }] });
+  await elementWhere(open, 'an agent gathers the clicked stack', (element) => element.id === stack.id && element.kind === 'frame' && element.collapsed);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: stack.id, fields: { collapsed: false } }] });
+  await elementWhere(open, 'an agent opens the stack', (element) => element.id === stack.id && element.kind === 'frame' && !element.collapsed);
+  await page.keyboard.press('Escape');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: stack.id, fields: { title: 'agent opened' } }] });
+  await elementWhere(open, 'a stack an agent opened stays open when the selection clears', (element) => element.id === stack.id && element.kind === 'frame' && element.title === 'agent opened' && !element.collapsed);
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [stack.id, wireId, fromId, cardId, droppedId].map((id) => ({ op: 'remove', id })) });
   await boardWithout(open, 'the stack check cleans up', (element) => element.id === cardId);
 }

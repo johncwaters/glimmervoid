@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A stack you clicked open closes when you click away.** Clicking a stack card on a whiteboard still fans its boxes out, and now they gather back into one card as soon as you select something else or click the empty board. It used to stay fanned out until you selected its frame and gathered it from the properties panel. A stack opened from that panel, or by an agent, stays open.
 - **A page on a device box is readable.** A page or document shown on a whiteboard device box now lays out at that device's screen width (393 wide on a phone, 834 on a tablet, 1440 on a laptop or browser, 1920 on a desktop), so a phone shows it as a phone would. It used to lay out 1280 wide on every device and shrink to fit, which left a phone's page a strip of unreadable text at the top of the screen.
 - **Red pen text you can read.** Add note is now a speech bubble icon in the same small card as a mark's check and X, right above the text you selected, where it used to be a see-through button at the left edge of the next line. That card now floats like a toolbar: a neutral border, a raised background, and the line it sits over fades out around it where its letters used to be cut in half. A replacement's suggested text is drawn larger and above its caret on its own row, on any line of a paragraph, where it used to be small and sit on the caret and on the line above.
 

@@ -91,6 +91,12 @@ interface BoardsViewParts {
 }
 
 let selectedBoardId: string | null = null;
+interface ClickOpenedStack {
+  boardId: string;
+  boxIds: readonly string[];
+  phase: 'opening' | 'left while opening' | 'open' | 'left while unseen';
+}
+const clickOpenedStacksByFrameId = new Map<string, ClickOpenedStack>();
 let parts: BoardsViewParts | null = null;
 let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
@@ -734,7 +740,43 @@ function stackSelectedBoxes(): void {
 }
 
 function openStack(frameId: string): void {
-  void sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }]);
+  const frame = selectedBoard()?.elements.get(frameId);
+  if (!selectedBoardId || frame?.kind !== 'frame') return;
+  clickOpenedStacksByFrameId.set(frameId, { boardId: selectedBoardId, boxIds: frame.contains, phase: 'opening' });
+  void sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }]).then((isSent) => {
+    if (!isSent) clickOpenedStacksByFrameId.delete(frameId);
+  });
+}
+
+function settledClickOpenedStack(frameId: string, clickOpenedStack: ClickOpenedStack, held: Element | undefined, hasSelectionLeft: boolean): ClickOpenedStack | 'forget' | 'gather' {
+  const hasShownOpen = clickOpenedStack.phase === 'open' || clickOpenedStack.phase === 'left while unseen';
+  if (!held && !hasSelectionLeft) return clickOpenedStack;
+  if (!held) return { ...clickOpenedStack, phase: hasShownOpen ? 'left while unseen' : 'left while opening' };
+  if (held.kind !== 'frame' || held.id !== frameId) return 'forget';
+  if (held.collapsed && hasShownOpen) return 'forget';
+  if (held.collapsed) return { ...clickOpenedStack, boxIds: held.contains, phase: hasSelectionLeft ? 'left while opening' : 'opening' };
+  if (hasSelectionLeft) return 'gather';
+  return { ...clickOpenedStack, boxIds: held.contains, phase: 'open' };
+}
+
+function settleClickOpenedStacks(hasSelectionChanged: boolean): void {
+  const board = selectedBoard();
+  const selectedIds = editor?.selectedIds() ?? new Set<string>();
+  const gatherOps: Op[] = [];
+  for (const [frameId, clickOpenedStack] of clickOpenedStacksByFrameId) {
+    const held = board?.elements.get(frameId);
+    const boxIds = held?.kind === 'frame' ? held.contains : clickOpenedStack.boxIds;
+    const isSelectionOutside = !selectedIds.has(frameId) && !boxIds.some((boxId) => selectedIds.has(boxId));
+    const hasSelectionLeft = clickOpenedStack.phase.startsWith('left') || (hasSelectionChanged && isSelectionOutside);
+    const settled = clickOpenedStack.boardId === selectedBoardId ? settledClickOpenedStack(frameId, clickOpenedStack, held, hasSelectionLeft) : 'forget';
+    if (settled === 'gather') gatherOps.push({ op: 'set', id: frameId, fields: { collapsed: true } });
+    if (settled === 'gather' || settled === 'forget') {
+      clickOpenedStacksByFrameId.delete(frameId);
+      continue;
+    }
+    clickOpenedStacksByFrameId.set(frameId, settled);
+  }
+  void sendOps(gatherOps);
 }
 
 function addFrame(): void {
@@ -1007,6 +1049,7 @@ export function mountBoardHost(): HTMLElement {
     onSelectionChange: (selectedIds) => {
       paintToolbar();
       mediaLayer.setInteractiveBox(livePageBoxIdOf(selectedIds));
+      settleClickOpenedStacks(true);
     },
     onPhoneTapBox: addNoteOn,
     onOpenLinkedBoard: selectBoard,
@@ -1027,10 +1070,12 @@ export function mountBoardHost(): HTMLElement {
     applyDocsToOpenEditor(boardDocKey(boardId));
     if (boardId !== selectedBoardId) return;
     paintBoard();
+    settleClickOpenedStacks(false);
   });
   onTilesChanged(() => {
     if (selectedBoardId) applyDocsToOpenEditor(boardDocKey(selectedBoardId));
     paintBoard();
+    settleClickOpenedStacks(false);
   });
   paintList();
   return host;
