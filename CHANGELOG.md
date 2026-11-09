@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-11-08
+
 ### Added
 
 - **Glimmervoid without Node.** Each release now ships a standalone `glimmervoid` binary for Linux (x64, arm64), macOS (Intel, Apple silicon) and Windows (x64). Install it with `curl -LsSf https://github.com/johncwaters/glimmervoid/releases/latest/download/glimmervoid-installer.sh | sh` on Linux and macOS, the PowerShell installer on Windows, or `brew install johncwaters/tap/glimmervoid`; the curl and PowerShell installers put it in `~/.glimmervoid/bin` and add that folder to your PATH. Hooks, the watcher, restarts, commit signing and Sane YOLO run through the binary itself. The npm package is unchanged. A repository's Coherence still needs a `node` on PATH: without one its lane shows as inactive with the reason "needs node on PATH".
