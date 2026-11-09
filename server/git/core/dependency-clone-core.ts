@@ -277,6 +277,20 @@ export function lastOutputLineOf(output: string): string {
   return lines.at(-1) ?? '';
 }
 
+type InstallFailureOutput = { stdout: string; stderr: string; execError: string };
+
+const PNPM_ERROR_LINE = /^ERR_PNPM_[A-Z_]+/;
+const UNREADABLE_PNPM_LOCKFILE_CODE = 'ERR_PNPM_LOCKFILE_BREAKING_CHANGE';
+
+export function installFailureReasonOf({ stdout, stderr, execError }: InstallFailureOutput): string {
+  const pnpmErrorLine = stdout.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).findLast((line) => PNPM_ERROR_LINE.test(line));
+  return pnpmErrorLine || lastOutputLineOf(stderr) || lastOutputLineOf(stdout) || lastOutputLineOf(execError);
+}
+
+export function isUnreadablePnpmLockfileFailure(result: InstallResult): boolean {
+  return !result.ok && result.lastOutputLine.includes(UNREADABLE_PNPM_LOCKFILE_CODE);
+}
+
 export function describeInstalledDirs(outcome: DependencyInstallOutcome): string | null {
   const installedDirs = outcome.results.filter((result) => result.ok).map((result) => result.dir);
   if (!installedDirs.length) return null;
@@ -287,14 +301,21 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
   const warnings: string[] = [];
   for (const result of outcome.results) {
     if (result.ok && result.unbuiltPackages.length) warnings.push(describeUnbuiltPackages(result.dir, result.unbuiltPackages));
-    if (result.ok) continue;
-    const failure = result.timedOut ? 'timed out after 10 minutes' : `failed: ${result.lastOutputLine || 'no output'}`;
-    warnings.push(`${result.command} in ${result.dir} ${failure}; install dependencies in the worktree`);
+    if (result.ok || isUnreadablePnpmLockfileFailure(result)) continue;
+    warnings.push(describeInstallFailure(result));
   }
   if (outcome.unsupportedDirs.length) {
     warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because the worktree has no package-lock.json or pnpm-lock.yaml there; install dependencies there`);
   }
   return warnings;
+}
+
+function describeInstallFailure(result: Extract<InstallResult, { ok: false }>): string {
+  const place = result.dir === '.' ? 'the worktree root' : result.dir;
+  const nextStep = result.command ? `To see the full output, run \`${result.command}\` in ${place}.` : `Install dependencies in ${place} yourself.`;
+  if (result.timedOut) return `Installing dependencies in ${place} timed out after 10 minutes. ${nextStep}`;
+  const reason = (result.lastOutputLine || 'the command printed no output').replace(/[.:;]+$/, '');
+  return `Installing dependencies in ${place} failed: ${reason}. ${nextStep}`;
 }
 
 function uniquePackageNamesOf(unbuiltInstallPaths: readonly string[]): string[] {

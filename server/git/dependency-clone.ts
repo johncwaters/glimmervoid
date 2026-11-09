@@ -12,6 +12,8 @@ import {
   mentionsNodeModulesBeyondCoherence,
   KNOWN_LOCKFILES,
   installEnvFrom,
+  installFailureReasonOf,
+  isUnreadablePnpmLockfileFailure,
   isLinkInsideCheckout,
   lastOutputLineOf,
   LOCKFILE_BY_KIND,
@@ -160,7 +162,9 @@ async function runInstall(mainPackageDir: string, worktreeDir: string, install: 
   const run = await runInstallCommand(packageDir, install, signal);
   if (run.ok) return installSucceeded(install, await copyInstallScriptPackages(install, mainPackageDir, packageDir));
   await removeTree(path.join(packageDir, NODE_MODULES));
-  return installRunFailed(install, run);
+  const failure = installRunFailed(install, run);
+  if (isUnreadablePnpmLockfileFailure(failure)) console.log(`[dependency-clone] skipped ${packageDir}: the local pnpm cannot read its pnpm-lock.yaml (ERR_PNPM_LOCKFILE_BREAKING_CHANGE)`);
+  return failure;
 }
 
 async function runStagedRootInstall(mainPackageDir: string, worktreeDir: string, install: PlannedInstall, signal: AbortSignal): Promise<InstallResult> {
@@ -204,6 +208,7 @@ function runInstallCommand(cwd: string, install: PlannedInstall, signal: AbortSi
     timeoutMs: INSTALL_TIMEOUT_MS,
     maxBuffer: INSTALL_OUTPUT_MAX_BYTES,
     replaceEnv: installEnvFrom(process.env),
+    keepStdoutOnFailure: true,
     signal,
   });
 }
@@ -244,7 +249,7 @@ async function replacedWithCopy(source: string, destination: string): Promise<bo
 }
 
 function installRunFailed(install: PlannedInstall, run: CommandResult): InstallResult {
-  return installFailed(install, lastOutputLineOf(run.stderr ?? '') || lastOutputLineOf(run.err), run.timedOut === true);
+  return installFailed(install, installFailureReasonOf({ stdout: run.out, stderr: run.stderr ?? '', execError: run.err }), run.timedOut === true);
 }
 
 function installFailed(install: PlannedInstall, lastOutputLine: string, timedOut: boolean): InstallResult {
@@ -277,7 +282,7 @@ async function dirsWithoutNodeModules(worktreeDir: string, relativeDirs: readonl
 
 function unreadableInstallOutcome(error: unknown): DependencyInstallOutcome {
   return {
-    results: [{ dir: '.', command: 'dependency install', ok: false, lastOutputLine: errorMessage(error), timedOut: false }],
+    results: [{ dir: '.', command: '', ok: false, lastOutputLine: errorMessage(error), timedOut: false }],
     unsupportedDirs: [],
     elapsedMs: 0,
   };

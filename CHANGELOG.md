@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The board line of a split session row drags its board.** Since sessions became draggable to reorder the Focus sidebar, grabbing the board under a session moved the session instead. Dragging that board line now carries the board, so dropping it on another session opens it beside that session.
 - **Split rows in the Focus rail name things the right way round.** A session with its board open beside it now shows the session name on top and its task title on the terminal line beneath, matching the terminal pane's header, instead of the other way round.
 - **A downloaded update no longer fails when your checkout already moved past it.** If sessions landed commits that changed `package-lock.json` after an update downloaded, restarting used to show "Update failed. The checkout changed after the update downloaded." even though you were already on newer code. The restart now installs the dependencies for your current checkout, builds it and switches to that build.
+- **A worktree no longer warns about a pnpm lockfile your pnpm cannot read.** A package folder whose `pnpm-lock.yaml` is older than your pnpm reads, such as a `lockfileVersion: 5.4` file under pnpm 9 or later, is left without `node_modules` as it was before worktree installs existed, instead of showing "pnpm install ... failed: Command failed". The server log notes the skip.
+- **A failed worktree install says why and what to run.** The worktree warning now names the folder, quotes pnpm's own `ERR_PNPM_` error line (pnpm prints it to standard output, which the warning used to miss), and gives the exact install command to run in that folder to see the full output.
 
 ## [0.54.0] - 2026-11-09
 

@@ -13,6 +13,10 @@ import { hasGit, git } from './helpers/git-fixture.ts';
 const CAN_CLONE = process.platform === 'darwin' && hasGit();
 const CAN_INSTALL = process.platform !== 'win32' && hasGit();
 
+function hasPnpm(): boolean {
+  return process.env.PATH?.split(path.delimiter).some((dir) => fs.existsSync(path.join(dir, 'pnpm'))) === true;
+}
+
 async function seedToCompletion(mainCheckout: string, worktreeDir: string): Promise<DependencySeedOutcome> {
   const outcome = await seedWorktreeDependencies({ mainCheckout, worktreeDir, signal: new AbortController().signal, hookConfigRelPaths: [] }).completion;
   assert.ok(outcome);
@@ -241,9 +245,28 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
   assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
   const [failureWarning, unsupportedWarning, ...otherWarnings] = describeInstallWarnings(install);
-  assert.match(failureWarning ?? '', /^npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 in \. failed: .+; install dependencies in the worktree$/);
+  assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
+});
+
+test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-pnpm-');
+  writeJson(path.join(mainCheckout, 'legacy', 'package.json'), { name: 'legacy', version: '1.0.0' });
+  fs.writeFileSync(path.join(mainCheckout, 'legacy', 'pnpm-lock.yaml'), 'lockfileVersion: 5.4\n');
+  writeJson(path.join(mainCheckout, 'outdated', 'package.json'), { name: 'outdated', version: '1.0.0', dependencies: { 'left-pad': '1.3.0' } });
+  fs.writeFileSync(path.join(mainCheckout, 'outdated', 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n");
+  git(['add', '-A'], mainCheckout);
+  git(['commit', '-m', 'init'], mainCheckout);
+  const worktreeDir = path.join(root, 'session-worktree');
+  git(['worktree', 'add', '-b', 'session', worktreeDir], mainCheckout);
+
+  const { install } = await seedToCompletion(mainCheckout, worktreeDir);
+
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'legacy', 'node_modules')), false);
+  assert.deepEqual(describeInstallWarnings(install), [
+    'Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --fetch-timeout=30000 --fetch-retries=1` in outdated.',
+  ]);
 });
 
 test('a seed whose session closes before it starts installs nothing and frees the queue', { skip: !CAN_INSTALL }, async () => {
