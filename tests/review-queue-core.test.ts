@@ -101,7 +101,7 @@ test('Reviewing now holds the pulled Your turn reviews in turn order, up to the 
   assert.equal(turnPositionText(split.groups, 'team:acme/app#2'), '1 of 1 in Reviewing now');
 });
 
-test('queued reviews sit in Queued, merged and settled work in Done, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {
+test('queued reviews sit in Queued, merged pull requests in Merged, settled reviews leave the queue, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {
   const prs = [
     myPr(1, 'merged', '2026-10-01T00:00:00Z', { state: 'MERGED', mergedAt: '2026-10-02T00:00:00Z' }),
     myPr(2, 'draft', '2026-10-01T00:00:00Z', { isDraft: true }),
@@ -121,7 +121,7 @@ test('queued reviews sit in Queued, merged and settled work in Done, drafts and 
     ['working', []],
     ['queued', ['team:acme/app#3']],
     ['waiting', ['team:acme/app#6']],
-    ['done', ['mine:acme/app#1', 'team:acme/app#4']],
+    ['merged', ['mine:acme/app#1']],
     ['parked', ['team:acme/app#5', 'mine:acme/app#2']],
   ]);
 });

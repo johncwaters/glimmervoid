@@ -59,7 +59,7 @@ function groupSection(group) {
   return section;
 }
 
-const FINISHED_GROUP_IDS = new Set(['done', 'parked']);
+const FINISHED_GROUP_IDS = new Set(['merged', 'parked']);
 const showFinishedToggle = document.getElementById('show-finished');
 let latestGroups = [];
 
