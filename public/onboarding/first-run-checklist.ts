@@ -6,9 +6,9 @@ import { currentNotificationChoice, ensureNotificationPermission } from '../noti
 import { setNotificationsEnabled } from '../ui-prefs.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
-import { agentSummaryText, startProjects, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
-import type { FirstRunSteps, NotificationChoice, StartProject } from './first-run-checklist-core.ts';
-import { createStartForm } from './start-form.ts';
+import { agentSummaryText, FIRST_TASK_PROMPT, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-core.ts';
+import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
 import { playMarkLock } from '../boot/loading-unlock.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
@@ -16,7 +16,7 @@ import { button } from '../ui/button.ts';
 
 const AGENT_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 
-type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAgents: string; repoRoots: string[]; notificationChoice: NotificationChoice; agentListing: unknown; startableProjects: StartProject[] };
+type FirstRunState = { steps: FirstRunSteps; agentSummary: string; installableAgents: string; repoRoots: string[]; notificationChoice: NotificationChoice };
 
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
@@ -25,13 +25,13 @@ let lockupEl: HTMLElement | null = null;
 let setupPhase: 'unloaded' | 'in-progress' | 'folding' | 'done' = 'unloaded';
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
-let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], notificationChoice: 'ask', agentListing: null, startableProjects: [] };
+let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], notificationChoice: 'ask' };
 let loadSequence = 0;
 let hasRescanFoundNoAgent = false;
 let hasTriedSavingFoundRoots = false;
 const reportedStepKeys = new Set<string>();
 const loadStatus = createActionStatus('first-run-load-status');
-const startForm = createStartForm({ onAction: reportOnboardingAction });
+let startPicker: ReturnType<typeof mountAddSessionPicker> | null = null;
 
 function reportOnboardingAction(action: OperatorActionOf<'onboarding'>) {
   sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'onboarding', action } });
@@ -115,10 +115,12 @@ function setupDoneRow(): HTMLLIElement {
   return buildSetupStep({ title: 'Setup done', state: 'done', summary, badge: '', body: () => [] });
 }
 
-function showStartForm(startHost: HTMLElement) {
-  startForm.update({ agentListing: currentState.agentListing, startableProjects: currentState.startableProjects });
-  if (!startHost.contains(startForm.element)) startHost.append(startForm.element);
+function showStartPicker(startHost: HTMLElement) {
   startHost.hidden = false;
+  if (startPicker) return;
+  const pickerRoot = el('div', 'first-run-start');
+  startHost.append(pickerRoot);
+  startPicker = mountAddSessionPicker(pickerRoot, { initialTask: FIRST_TASK_PROMPT, onStarted: () => reportOnboardingAction('start-session') });
 }
 
 function renderSteps() {
@@ -129,7 +131,7 @@ function renderSteps() {
     return;
   }
   stepsEl.replaceChildren(setupDoneRow());
-  showStartForm(startHostEl);
+  showStartPicker(startHostEl);
 }
 
 const FADE_MS = 200;
@@ -182,7 +184,6 @@ async function foldIntoSetupDone(steps: HTMLElement, startHost: HTMLElement) {
   renderSteps();
   steps.firstElementChild?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DRAW_MS, easing: EASE_OUT_QUART });
   startHost.animate([{ transform: 'translateY(12px)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: ARRIVE_MS, easing: EASE_OUT_QUART });
-  startForm.focusTask();
 }
 
 function showLoadedSteps() {
@@ -200,6 +201,7 @@ function showLoadedSteps() {
 async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
   loadSequence += 1;
   const sequenceAtStart = loadSequence;
+  startPicker?.refresh();
   if (rescanButton) rescanButton.disabled = true;
   try {
     const [agentListing, rootsScan] = await Promise.all([
@@ -223,7 +225,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     const notificationChoice = currentNotificationChoice();
     const steps = decideFirstRunSteps({ agentListing, repoRoots, notificationChoice });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
-    currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, notificationChoice, agentListing, startableProjects: isRootsScan ? startProjects(rootsScan.directories) : [] };
+    currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, notificationChoice };
     loadStatus.clear();
     showLoadedSteps();
     reportOnboardingStepChanges(currentState.steps);
