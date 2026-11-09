@@ -192,7 +192,7 @@ async function packInstallScriptPackage(mainCheckout: string, name: string): Pro
   return `file:vendor/${name}-1.0.0.tgz`;
 }
 
-test('an install-script package arrives built from a matching main checkout install, one whose own or nested install differs is named, and a banner-only one is not', { skip: !CAN_INSTALL || CAN_CLONE }, async () => {
+test('an install-script package arrives built from a matching main checkout install, one whose own or nested install differs is rebuilt in the worktree, and a banner-only one is not', { skip: !CAN_INSTALL || CAN_CLONE }, async () => {
   const { root, mainCheckout } = makeMainCheckout('gv-dependency-install-script-');
   const dependencies = {
     'built-pkg': await packInstallScriptPackage(mainCheckout, 'built-pkg'),
@@ -223,9 +223,11 @@ test('an install-script package arrives built from a matching main checkout inst
   assert.deepEqual(install.results.map((result) => [result.dir, result.ok]), [['.', true]]);
   assert.equal(fs.readFileSync(path.join(worktreeDir, 'node_modules', 'built-pkg', 'built.node'), 'utf8'), 'native\n');
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'drifted-pkg', 'built.node')), false);
-  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'nested-drift-pkg', 'built.node')), false);
-  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'drifted-pkg', 'install-ran')), false);
-  assert.deepEqual(describeInstallWarnings(install), ['drifted-pkg, nested-drift-pkg in . installed without running install scripts and the main checkout has no matching install to copy; run npm rebuild drifted-pkg nested-drift-pkg there']);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'drifted-pkg', 'install-ran')), true);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'nested-drift-pkg', 'install-ran')), true);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'built-pkg', 'install-ran')), false);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules', 'core-js', 'install-ran')), false);
+  assert.deepEqual(describeInstallWarnings(install), []);
 });
 
 test('a failed install leaves no node_modules and a yarn lockfile dir is named, not installed', { skip: !CAN_INSTALL }, async () => {

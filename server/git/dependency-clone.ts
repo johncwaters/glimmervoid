@@ -19,6 +19,7 @@ import {
   planDependencyClone,
   planDependencyInstall,
   planInstallScriptCopies,
+  rebuildArgsFor,
   skipDependencyClone,
   stagingPathFor,
 } from './core/dependency-clone-core.ts';
@@ -129,7 +130,8 @@ async function installDependencies(mainCheckout: string, worktreeDir: string, si
     if (signal.aborted) break;
     const isStagedRootInstall = isRootSeeded && install.dir === '.' && install.command === 'npm';
     const mainPackageDir = path.join(mainCheckout, install.dir);
-    results.push(await (isStagedRootInstall ? runStagedRootInstall(mainPackageDir, worktreeDir, install, signal) : runInstall(mainPackageDir, worktreeDir, install, signal)));
+    const result = await (isStagedRootInstall ? runStagedRootInstall(mainPackageDir, worktreeDir, install, signal) : runInstall(mainPackageDir, worktreeDir, install, signal));
+    results.push(await withUnbuiltPackagesRebuilt(path.join(worktreeDir, install.dir), install, result, signal));
   }
   return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
 }
@@ -186,6 +188,14 @@ async function swapNodeModules(stagedNodeModules: string, liveNodeModules: strin
   if (await renamed(stagedNodeModules, liveNodeModules)) return true;
   if (hasLiveNodeModules) await renamed(previousNodeModules, liveNodeModules);
   return false;
+}
+
+async function withUnbuiltPackagesRebuilt(packageDir: string, install: PlannedInstall, result: InstallResult, signal: AbortSignal): Promise<InstallResult> {
+  if (!result.ok || result.unbuiltPackages.length === 0) return result;
+  const rebuild = await runInstallCommand(packageDir, { ...install, args: rebuildArgsFor(result.unbuiltPackages) }, signal);
+  if (rebuild.ok) return { ...result, unbuiltPackages: [] };
+  console.log(`[dependency-clone] npm rebuild in ${packageDir} failed: ${lastOutputLineOf(rebuild.stderr ?? '') || lastOutputLineOf(rebuild.err) || 'no output'}`);
+  return result;
 }
 
 function runInstallCommand(cwd: string, install: PlannedInstall, signal: AbortSignal): Promise<CommandResult> {

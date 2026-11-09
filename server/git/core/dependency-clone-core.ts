@@ -297,9 +297,18 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
   return warnings;
 }
 
+function uniquePackageNamesOf(unbuiltInstallPaths: readonly string[]): string[] {
+  return [...new Set(unbuiltInstallPaths.map(packageNameOfInstallPath))];
+}
+
+export function rebuildArgsFor(unbuiltInstallPaths: readonly string[]): string[] {
+  const names = uniquePackageNamesOf(unbuiltInstallPaths);
+  return ['rebuild', ...names, '--ignore-scripts=false', '--dangerously-allow-all-scripts', '--no-audit', '--no-fund'];
+}
+
 function describeUnbuiltPackages(dir: string, unbuiltPackages: readonly string[]): string {
-  const names = unbuiltPackages.map(packageNameOfInstallPath);
-  return `${names.join(', ')} in ${dir} installed without running install scripts and the main checkout has no matching install to copy; run npm rebuild ${names.join(' ')} there`;
+  const names = uniquePackageNamesOf(unbuiltPackages);
+  return `${names.join(', ')} in ${dir} could not be built: npm rebuild ${names.join(' ')} failed; run it there`;
 }
 
 export function describeDependencyCloneSkip(reason: DependencyCloneSkipReason): string {
