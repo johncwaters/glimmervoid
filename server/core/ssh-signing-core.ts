@@ -67,8 +67,8 @@ function posixSingleQuote(text: string): string {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
-function commitSigningShimText({ nodePath, cliPath }: { nodePath: string; cliPath: string }): string {
-  return `#!/bin/sh\nexec ${posixSingleQuote(nodePath)} ${posixSingleQuote(cliPath)} ssh-sign "$@"\n`;
+function commitSigningShimText(cliLaunch: readonly string[]): string {
+  return `#!/bin/sh\nexec ${cliLaunch.map(posixSingleQuote).join(' ')} ssh-sign "$@"\n`;
 }
 
 const NO_AGENT_HOLDS_KEY = 'no reachable ssh agent holds the signing key; connect to this machine with agent forwarding (ssh -A, or ForwardAgent yes from coder config-ssh) and commit again';

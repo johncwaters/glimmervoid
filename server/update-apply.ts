@@ -35,7 +35,7 @@ import {
 } from './core/update-apply-core.ts';
 import type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
 import { NODE_PTY_INSTALL_SCRIPT_FLAG } from './core/update-core.ts';
-import { stableNodePath } from './stable-node-path.ts';
+import { stableLauncherPathFor } from './stable-node-path.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { runCommand as execCommand, runGit } from './git/git-exec.ts';
 import type { CommandResult } from './git/git-exec.ts';
@@ -171,7 +171,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   const updatePath = path.join(dependencies.packageRoot, '.glimmervoid', 'update');
   const stagingPath = path.join(updatePath, 'next');
   const npmGlobalLayout = decideNpmGlobalLayout(dependencies.packageRoot);
-  const nodePath = dependencies.nodePath || stableNodePath;
+  const nodePath = dependencies.nodePath || stableLauncherPathFor('node');
   const npmPath = path.join(path.dirname(nodePath), 'npm');
   let isInstallWritable: boolean | null = null;
   let hasSwappedNpmGlobalPackage = false;

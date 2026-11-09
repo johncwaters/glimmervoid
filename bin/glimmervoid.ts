@@ -315,12 +315,13 @@ async function runDoctor(): Promise<boolean> {
 
   switchSection('Sane YOLO');
   try {
-    const { resolvePackageBin } = await import('../server/runtime-paths.ts');
+    const { resolvePackageBin, scriptLaunch } = await import('../server/runtime-paths.ts');
     const { execFileSync } = await import('../server/child-process-safe.ts');
     const { inspectGrokAgentSetup } = await import('../server/agent-setup-cli.ts');
     const binPath = resolvePackageBin('cc-safety-net', 'cc-safety-net');
     line('Sane YOLO', binPath || 'not installed');
-    if (binPath) line('cc-safety-net version', execFileSync(process.execPath, [binPath, '--version'], { encoding: 'utf8', timeout: 3000 }).trim());
+    const [saneYoloLauncher, ...saneYoloLaunchArguments] = binPath ? scriptLaunch(binPath, 'cc-safety-net', process.execPath) : [];
+    if (saneYoloLauncher) line('cc-safety-net version', execFileSync(saneYoloLauncher, [...saneYoloLaunchArguments, '--version'], { encoding: 'utf8', timeout: 3000 }).trim());
     line('Codex hook trust', 'Sane YOLO is inactive unless Codex trusts the injected hooks.');
     line('Grok Sane YOLO', inspectGrokAgentSetup().saneYoloReady ? 'installed' : 'inactive; run glimmervoid agent setup grok');
   } catch (err) {

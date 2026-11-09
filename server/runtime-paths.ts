@@ -5,9 +5,11 @@ import { createRequire } from 'node:module';
 import { isSea } from 'node:sea';
 import { fileURLToPath } from 'node:url';
 
+import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { computeRuntimePaths } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
+import { stableLauncherPathFor } from './stable-node-path.ts';
 
 function hasPackageManifest(directory: string): boolean {
   try {
@@ -30,15 +32,39 @@ const { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePac
 export { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath };
 
 const BINARY_RUN_SUBCOMMAND = '__run';
-const hookLauncherPath = mode === 'binary' ? process.execPath : 'node';
+const SELF_LAUNCHER_COMMAND = mode === 'binary' ? 'glimmervoid' : 'node';
+const BINARY_ARGV_PREFIX_LENGTH = 2;
+const SCRIPT_ARGV_PREFIX_LENGTH = 1;
 
-function hookLaunch(entry: SelfEntry): string[] {
-  return runtimePaths.selfLaunch(entry, hookLauncherPath);
+function stableLauncherPath(): string {
+  return stableLauncherPathFor(SELF_LAUNCHER_COMMAND);
 }
 
-function scriptLaunch(scriptPath: string, runEntry: string, nodeLauncherPath = hookLauncherPath): string[] {
-  if (mode === 'binary') return [process.execPath, BINARY_RUN_SUBCOMMAND, runEntry];
-  return [nodeLauncherPath, scriptPath];
+function hookLauncherPath(): string {
+  return mode === 'binary' ? stableLauncherPath() : 'node';
+}
+
+function hookLaunch(entry: SelfEntry): string[] {
+  return runtimePaths.selfLaunch(entry, hookLauncherPath());
+}
+
+function selfLaunch(entry: SelfEntry): string[] {
+  return runtimePaths.selfLaunch(entry, stableLauncherPath());
+}
+
+function selfRelaunch(runningArgv: readonly string[]): string[] {
+  const keptArgumentsFrom = mode === 'binary' ? BINARY_ARGV_PREFIX_LENGTH : SCRIPT_ARGV_PREFIX_LENGTH;
+  return [stableLauncherPath(), ...runningArgv.slice(keptArgumentsFrom)];
+}
+
+function scriptLaunch(scriptPath: string, runEntry: string, launcherPath = hookLauncherPath()): string[] {
+  if (mode === 'binary') return [launcherPath, BINARY_RUN_SUBCOMMAND, runEntry];
+  return [launcherPath, scriptPath];
+}
+
+function refuseUnstableSelfLaunches(): void {
+  if (stableLauncherPath() === process.execPath) return;
+  refuseLaunchesOf(process.execPath);
 }
 
 const packageBins = new Map<string, string | null>();
@@ -100,4 +126,4 @@ function extractExecutableFromBinary(snapshotPath: string): string {
   return extractedPath;
 }
 
-export { hookLaunch, scriptLaunch, resolveFfmpegPath, resolvePackageBin };
+export { hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

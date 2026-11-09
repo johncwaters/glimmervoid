@@ -1,7 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from '../../server/child-process-safe.ts';
-import { cliPath } from '../../server/runtime-paths.ts';
-import { stableNodePath } from '../../server/stable-node-path.ts';
+import { selfLaunch } from '../../server/runtime-paths.ts';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import type { WatcherChildEndKind } from '../../shared/contracts/telemetry.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -55,7 +54,8 @@ function createWatcherSupervisor({ linkSecret, serverUrl, watcherHome, onListeni
 
   function spawnWatcherChild(): ChildProcess | Error {
     try {
-      return spawn(stableNodePath, [cliPath, 'watch'], {
+      const [launcher, ...launchArguments] = selfLaunch('cli');
+      return spawn(launcher, [...launchArguments, 'watch'], {
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
         env: { ...inheritedEnvironment(), [LINK_SECRET_ENV]: linkSecret.toString('hex'), [LINK_SERVER_URL_ENV]: serverUrl, [WATCHER_HOME_ENV]: watcherHome },
       });

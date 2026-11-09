@@ -117,16 +117,15 @@ function readTextOrNull(filePath: string): string | null {
   }
 }
 
-function installCommitSigningShim({ binDir, nodePath, cliPath, platform = process.platform, log = console }: {
+function installCommitSigningShim({ binDir, cliLaunch, platform = process.platform, log = console }: {
   binDir: string;
-  nodePath: string;
-  cliPath: string;
+  cliLaunch: readonly string[];
   platform?: NodeJS.Platform;
   log?: Pick<Console, 'warn'>;
 }): string | null {
   if (platform === 'win32') return null;
   const shimPath = path.join(binDir, COMMIT_SIGNING_SHIM_NAME);
-  const shimText = commitSigningShimText({ nodePath, cliPath });
+  const shimText = commitSigningShimText(cliLaunch);
   try {
     if (readTextOrNull(shimPath) !== shimText) writeTextAtomicSync(shimPath, shimText, { mode: 0o755, mkdir: true, enforceMode: true });
     return shimPath;

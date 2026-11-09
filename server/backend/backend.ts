@@ -12,7 +12,6 @@ import { reconcileOwnedPaths } from '../owned-paths-ledger.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
-import { refuseRunningNodeLaunches } from '../stable-node-path.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
 import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
@@ -59,7 +58,7 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, cliPath, examplePacksDir, packageRoot } from '../runtime-paths.ts';
+import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, selfLaunch } from '../runtime-paths.ts';
 import { shellQuote } from '../../session/core/hook-command-core.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
@@ -97,7 +96,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   if (isOperatorHomeUnderTest(os.homedir(), process.env)) {
     throw new Error('createBackend refused to boot on the operator\'s Glimmervoid home under node:test; run tests through npm test or npm run test:files, which isolate GLIMMERVOID_HOME');
   }
-  refuseRunningNodeLaunches();
+  refuseUnstableSelfLaunches();
   const { staticDir = 'auto', settingsDefaults } = options;
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
     version: string;
@@ -443,7 +442,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordLane,
     setupRootDir: path.join(glimmervoidHomeDir(), 'remote-setup'),
     skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
-    hubCliCommand: `${shellQuote(process.execPath)} ${shellQuote(cliPath)} --config ${shellQuote(configStore.configPath)}`,
+    hubCliCommand: `${selfLaunch('cli').map(shellQuote).join(' ')} --config ${shellQuote(configStore.configPath)}`,
   });
 
   const wireSessionEvents = createSessionEventWiring({

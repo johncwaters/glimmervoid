@@ -38,7 +38,7 @@ function refuseLaunchesOf(nodePath: string): void {
 
 function assertLaunchable(file: string): void {
   if (file !== refusedNodePath) return;
-  throw new Error(`[launch] refused ${file}: launch Node through stableNodePath from server/stable-node-path.ts, because a Node upgrade deletes this path under the running server`);
+  throw new Error(`[launch] refused ${file}: launch through selfLaunch from server/runtime-paths.ts, because an upgrade deletes this path under the running server`);
 }
 
 function hide(options: unknown): Record<string, unknown> {

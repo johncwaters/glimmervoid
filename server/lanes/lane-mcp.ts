@@ -8,7 +8,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-config-paths-core.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
-import { relayPath, scriptLaunch } from '../runtime-paths.ts';
+import { relayPath, scriptLaunch, stableLauncherPath } from '../runtime-paths.ts';
 import codex from '../../session/adapters/codex.ts';
 import type { ScratchAgentHome } from '../../session/adapters/index.ts';
 import { realAgentHome } from '../../session/agent-home.ts';
@@ -78,7 +78,7 @@ async function prepareCodexLaneMcp(listCodexServers: () => Promise<unknown>, gat
   const server = findPosthogServer(servers);
   if (!server) return null;
   const otherServerNames = Object.keys(servers).filter((name) => name !== server.name);
-  const posture = codexLaneMcpPosture({ server, otherServerNames, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', process.execPath) });
+  const posture = codexLaneMcpPosture({ server, otherServerNames, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', stableLauncherPath()) });
   if (!posture || !(await gateRefusesWrites(posture.hookTool, warn))) return null;
   return { posture, cleanup: async () => {} };
 }
@@ -87,7 +87,7 @@ async function prepareKimiLaneMcp(kimiHome: string, gatePath: string, warn: (mes
   const kimiMcpConfig = await fsPromises.readFile(path.join(kimiHome, 'mcp.json'), 'utf8').then(JSON.parse, () => null);
   const server = findPosthogServer(isRecord(kimiMcpConfig) ? kimiMcpConfig.mcpServers : null);
   if (!server) return null;
-  const posture = kimiLaneMcpPosture({ server, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', process.execPath) });
+  const posture = kimiLaneMcpPosture({ server, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', stableLauncherPath()) });
   if (!posture?.laneHome || !(await gateRefusesWrites(posture.hookTool, warn))) return null;
   const homeParent = await makeHostScratchDirectory(LANE_MCP_DIR_PREFIX);
   return {
@@ -116,7 +116,7 @@ async function prepareLaneMcp(
     await removeConfigDirectory();
     return null;
   }
-  const posture = laneMcpPosture({ server, mcpConfigPath, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', process.execPath), laneArgs });
+  const posture = laneMcpPosture({ server, mcpConfigPath, gatePath, gateLaunch: scriptLaunch(gatePath, 'posthog-read-gate', stableLauncherPath()), laneArgs });
   if (!posture || !(await gateRefusesWrites(posture.hookTool, warn))) {
     await removeConfigDirectory();
     return null;

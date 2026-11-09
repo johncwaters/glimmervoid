@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { resolveArgvCommandMatches } from '../session/core/spawn-command.ts';
-import { execFileSync, refuseLaunchesOf } from './child-process-safe.ts';
+import { execFileSync } from './child-process-safe.ts';
 
 function realpathOrNull(candidate: string): string | null {
   try {
@@ -10,18 +10,21 @@ function realpathOrNull(candidate: string): string | null {
   }
 }
 
-function findStableNodePath(): string {
-  const runningNodeRealpath = realpathOrNull(process.execPath);
-  if (runningNodeRealpath === null) return process.execPath;
-  const nodesOnPath = resolveArgvCommandMatches('node', { platform: process.platform, execFile: execFileSync });
-  return nodesOnPath.find((candidate) => realpathOrNull(candidate) === runningNodeRealpath) ?? process.execPath;
+function findStableLauncherPath(commandName: string): string {
+  const runningExecutableRealpath = realpathOrNull(process.execPath);
+  if (runningExecutableRealpath === null) return process.execPath;
+  const commandsOnPath = resolveArgvCommandMatches(commandName, { platform: process.platform, execFile: execFileSync });
+  return commandsOnPath.find((candidate) => realpathOrNull(candidate) === runningExecutableRealpath) ?? process.execPath;
 }
 
-const stableNodePath = findStableNodePath();
+const stableLauncherPathByCommand = new Map<string, string>();
 
-function refuseRunningNodeLaunches(): void {
-  if (stableNodePath === process.execPath) return;
-  refuseLaunchesOf(process.execPath);
+function stableLauncherPathFor(commandName: string): string {
+  const knownPath = stableLauncherPathByCommand.get(commandName);
+  if (knownPath !== undefined) return knownPath;
+  const foundPath = findStableLauncherPath(commandName);
+  stableLauncherPathByCommand.set(commandName, foundPath);
+  return foundPath;
 }
 
-export { refuseRunningNodeLaunches, stableNodePath };
+export { stableLauncherPathFor };

@@ -14,7 +14,7 @@ import {
 } from './core/coherence-feed-core.ts';
 import { coherenceHealFailureReason, coherenceInstallFailureReason, isTimedOutCommand, shouldInstallCoherenceHooks } from './core/coherence-session-core.ts';
 import { judgeCoherenceSupport, readCoherenceBinScript } from './core/coherence-support-core.ts';
-import { stableNodePath } from '../stable-node-path.ts';
+import { stableLauncherPathFor } from '../stable-node-path.ts';
 
 type CoherenceHealOutcome = { status: 'not-needed' | 'healed' } | { status: 'failed'; reason: string };
 
@@ -43,7 +43,7 @@ export async function resolveCoherence({ worktree, host, isSettingOn, timeoutMs 
   let version: string | null = null;
   let unavailable: CoherenceHooksState | null = null;
   async function runScript(script: string, args: string[], timeout = timeoutMs): Promise<string> {
-    return (await execFileAsync(stableNodePath, [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
+    return (await execFileAsync(stableLauncherPathFor('node'), [script, ...args], { cwd: worktree, env, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
   }
   async function run(args: string[], timeout = timeoutMs): Promise<string> {
     if (!cliScript) throw new Error('Coherence is not installed');

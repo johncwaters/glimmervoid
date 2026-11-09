@@ -11,7 +11,7 @@ import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { resolveHookTools } from '../hook-tools.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
-import { cliPath } from '../runtime-paths.ts';
+import { selfLaunch } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
@@ -20,7 +20,6 @@ import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex
 import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
 import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
-import { stableNodePath } from '../stable-node-path.ts';
 import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
@@ -55,8 +54,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
 
   const commitSigningProgram = installCommitSigningShim({
     binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
-    nodePath: stableNodePath,
-    cliPath,
+    cliLaunch: selfLaunch('cli'),
     log: dependencies.logger,
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;

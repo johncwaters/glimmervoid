@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 import { execFile } from '../server/child-process-safe.ts';
 import { prepareLaneMcp } from '../server/lanes/lane-mcp.ts';
-import { relayPath } from '../server/runtime-paths.ts';
+import { relayPath, stableLauncherPath } from '../server/runtime-paths.ts';
 import codex from '../session/adapters/codex.ts';
 import kimi from '../session/adapters/kimi.ts';
 import { codexHookPlanFor } from '../session/core/codex-version-core.ts';
@@ -67,7 +67,7 @@ test('a lane gets the operator PostHog server unchanged only when the gate self-
   assert.deepEqual(JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8')), { mcpServers: { posthog: operatorPosthogEntry } });
   assert.equal(fs.statSync(mcpConfigPath).mode & 0o777, 0o600);
   assert.deepEqual(prepared.posture.allowRules, ['mcp__posthog__exec']);
-  assert.deepEqual(prepared.posture.hookTool, { id: 'posthogReadGate', binPath: gatePath, launch: [process.execPath, gatePath], serverName: 'posthog' });
+  assert.deepEqual(prepared.posture.hookTool, { id: 'posthogReadGate', binPath: gatePath, launch: [stableLauncherPath(), gatePath], serverName: 'posthog' });
   await prepared.cleanup();
   assert.equal(fs.existsSync(path.dirname(mcpConfigPath)), false);
 

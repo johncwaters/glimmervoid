@@ -5,7 +5,7 @@ import {
 } from './core/shutdown-core.ts';
 import type { StopperEntry } from './core/shutdown-core.ts';
 import { unrefTimer } from '../shared/timer-deps.ts';
-import { stableNodePath } from './stable-node-path.ts';
+import { selfRelaunch } from './runtime-paths.ts';
 
 interface BoundedWaitOptions {
   capMs?: number;
@@ -182,7 +182,8 @@ function createLifecycle({
     }
 
     async function spawnReplacement(): Promise<RespawnedProcess | null> {
-      const replacement = spawn(stableNodePath, getArgv().slice(1), {
+      const [launcher, ...relaunchArguments] = selfRelaunch(getArgv());
+      const replacement = spawn(launcher, relaunchArguments, {
         cwd: cwd(),
         stdio: 'ignore',
         detached: true,
@@ -193,7 +194,7 @@ function createLifecycle({
         replacement.once('error', resolve);
       });
       if (!spawnError) return replacement;
-      log(`[lifecycle] could not start the replacement server with ${stableNodePath}: ${stopFailureText(spawnError)}`);
+      log(`[lifecycle] could not start the replacement server with ${launcher}: ${stopFailureText(spawnError)}`);
       exit(1);
       return null;
     }
