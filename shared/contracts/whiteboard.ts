@@ -146,6 +146,8 @@ const boxContentFields = {
   params: DialParams,
 };
 
+const Borderless = z.boolean().default(false).describe('draws the box with no card fill or outline, so its lines, media or device stand alone');
+
 const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 outputs' });
 
 const OnlyDecisionOutputs = z.array(Output).max(0, { error: 'only a decision has outputs, so set shape to decision' }).optional()
@@ -154,7 +156,7 @@ const OnlyDecisionOutputs = z.array(Output).max(0, { error: 'only a decision has
 const NoIconBoxContent = z.never({ error: 'an icon box holds no lines or media, so set shape to box first' }).optional()
   .describe('refused: an icon box holds no lines or media');
 
-const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields };
+const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields, borderless: Borderless };
 const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
 const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
 const stickyBoxFields = {
@@ -174,6 +176,7 @@ const deviceBoxFields = {
   shape: z.literal('device').describe('draws a device with its media on the screen, or an empty screen without media'),
   device: DeviceName,
   fit: DeviceFit,
+  borderless: Borderless,
   media: BoxMedia.nullable().default(null).describe('media drawn on the device screen, from whiteboard attach'),
   params: DialParams,
 };
@@ -215,6 +218,10 @@ export function fieldNamesOfShape(shape: Box['shape']): ReadonlySet<string> {
 
 export function linesOfBox(box: Box): readonly BoxLine[] {
   return box.shape === 'icon' || box.shape === 'device' ? [] : box.lines;
+}
+
+export function isBorderlessBox(box: Box): boolean {
+  return (box.shape === 'box' || box.shape === 'device') && box.borderless;
 }
 
 export function mediaOfBox(box: Box): BoxMedia | null {
@@ -525,13 +532,13 @@ function filledBoxBase(box: SparseBox) {
 function filledBox(box: SparseBox): Box {
   switch (box.shape) {
     case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon' };
-    case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', media: filledMedia(box.media) };
+    case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', borderless: box.borderless ?? false, media: filledMedia(box.media) };
     case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
     case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'text': return { ...filledBoxBase(box), shape: 'text', lines: (box.lines ?? []).map(filledLine), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'note': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'note', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
     case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', borderless: box.borderless ?? false, lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
   }
 }
 

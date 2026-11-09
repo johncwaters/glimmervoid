@@ -1,4 +1,4 @@
-import { BOX_CHANGES, dialValuesOfBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, dialValuesOfBox, isBorderlessBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
 import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Stroke, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
@@ -276,7 +276,7 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, posit
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, tone: box.shape === 'sticky' ? box.tone : null, headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.shape === 'sticky' ? box.tone : null, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
     outputs: shape.outputs.map((output, index) => ({
       id: output.id, label: output.label,
       port: { x: position.x + width, y: position.y + shape.headerHeight + index * outputRowHeight + outputRowHeight / 2 },

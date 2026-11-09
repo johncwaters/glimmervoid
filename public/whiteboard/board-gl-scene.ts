@@ -314,7 +314,7 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   });
 }
 
-type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone'> & { step: unknown };
+type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone' | 'isBorderless'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
   const isPanel = box.shape === 'panel';
@@ -330,14 +330,14 @@ function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba
 function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
   if (box.tone) return palette.stickyFillByTone[box.tone];
   if (box.shape === 'note') return palette.noteCard;
-  if (box.shape === 'text') return TRANSPARENT;
+  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
   return box.shape === 'panel' ? palette.panelFill : palette.board;
 }
 
 function restingStrokeOf(box: OutlinedBox, palette: BoardPalette): Rgba {
   if (box.tone) return palette.stickyEdgeByTone[box.tone];
   if (box.shape === 'note') return palette.noteStroke;
-  if (box.shape === 'text') return TRANSPARENT;
+  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
   return box.shape === 'panel' ? palette.line : palette.inkDim;
 }
 
@@ -581,7 +581,7 @@ function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], p
   }
   if (swatch.kind === 'change') {
     const sample = { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14 };
-    const colors = boxOutlineColors({ change: swatch.change, shape: 'box', tone: null, step: null }, palette);
+    const colors = boxOutlineColors({ change: swatch.change, shape: 'box', tone: null, isBorderless: false, step: null }, palette);
     const opacity = swatch.change === 'removed' ? 0.6 : 1;
     pushOutlinedRect(part, sample, 3, faded(colors.fill, opacity), faded(colors.stroke, opacity), colors.width, colors.dash, ALWAYS);
     return;

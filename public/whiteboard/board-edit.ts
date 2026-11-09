@@ -104,11 +104,11 @@ function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: 
   const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
   switch (shape) {
     case 'icon': return { ...placed, shape, icon: PLACED_ICON };
-    case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', media, params: {} };
+    case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', borderless: false, media, params: {} };
     case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }], params: {} };
     case 'sticky': return { ...placed, shape, tone: 'yellow', lines: [], media, params: {} };
     case 'text': return { ...placed, shape, lines: [] };
-    case 'box':
+    case 'box': return { ...placed, shape, borderless: false, lines: [], media, params: {} };
     case 'panel': return { ...placed, shape, lines: [], media, params: {} };
   }
 }
