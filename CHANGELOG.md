@@ -7,27 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-11-09
+
 ### Added
 
 - **Agents can run Arena races.** A new arena tool (and `glimmervoid arena`) lets a session start a race in its own project, list Arena races, read one race with its contestants, finishes, diff stats, checks and judge panel, start judging it, and read a contestant's diff. A start is checked exactly as the Arena tab checks it, its contestants keep the starting session's permission settings, and an agent cannot start a race while another still has open contestant sessions and no winner, nor give it a check command or a clean home (choose those in the Arena tab), nor a model or option value with characters outside letters, digits and `. _ : / [ ] -`. Lane sessions and race contestants are refused, a spawned session cannot start a race, and picking the winner stays in the Arena tab.
+- **Export and apply settings from the command line.** `glimmervoid settings export` prints your config.json as JSON with every secret removed. `glimmervoid settings set --file planned.json` replaces each top-level key the file names in one validated write, and a running Glimmervoid reloads it. Your saved secrets are kept, a file naming a secret or a key config.json does not have is refused, and a file that fails validation writes nothing, so a dotfiles or provisioning script never has to open config.json itself. `set --file` runs only from your own terminal: a session is refused, by Sane YOLO and by the command itself, because it can write keys the single-setting `set` refuses.
 
 ### Changed
 
 - **Glimmervoid's own tokens leave `config.json`.** The PostHog keys, the Telegram bot token and the GitHub read token now live in `secrets/config-secrets.json` beside the config, readable by the owner only. The server moves them there at start, out of `config.json` and `config.json.bak`, with nothing for you to do; dashboard saves write there, an environment variable still wins and is never stored, and `glimmervoid settings get` names the source as the secrets file. Sessions and lanes are refused reads and writes of the `secrets` folder. If the secrets file cannot be written, the tokens stay where they were and the server log says why.
 - **`vault-companion.json` and `watcher-link.key` moved into `~/.glimmervoid/secrets/`.** The server moves the link key there at start and keeps its value, so a linked watcher stays linked, and a doorman whose tenant table still names the old path finds the key in the new place. If you copy the key by hand for a remote watcher (`GLIMMERVOID_LINK_SECRET`), read it from `~/.glimmervoid/secrets/watcher-link.key`. Restart a running `glimmervoid vault` after upgrading so it reads the new companion file.
-
-### Fixed
-
-- **Shell has an icon in Add Session.** The Shell choice now shows a terminal icon and lines up with the agents above it, and the sentence shows it once Shell is picked.
-
-## [0.54.2] - 2026-11-09
-
-### Added
-
-- **Export and apply settings from the command line.** `glimmervoid settings export` prints your config.json as JSON with every secret removed. `glimmervoid settings set --file planned.json` replaces each top-level key the file names in one validated write, and a running Glimmervoid reloads it. Your saved secrets are kept, a file naming a secret or a key config.json does not have is refused, and a file that fails validation writes nothing, so a dotfiles or provisioning script never has to open config.json itself. `set --file` runs only from your own terminal: a session is refused, by Sane YOLO and by the command itself, because it can write keys the single-setting `set` refuses.
-
-### Changed
-
 - **Parked always shows small tiles.** In the Reviews list, the layout the phone uses too, opening Parked now shows each pull request as a small tile with the author's avatar and its number, the same as the board's Parked column, instead of a full row. Click a tile, or step to it with j or k, to open its detail.
 - **Not mine is now Park.** The review action that sets a teammate's pull request aside reads Park, and a parked pull request says Parked instead of Marked not mine.
 - **The board menu holds only board actions.** Board actions no longer lists every board grouped by project, since the Focus rail already lists them: it now holds only the actions on the open board and New board. To open another board beside a session, drag its rail row onto the session.
@@ -35,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Shell has an icon in Add Session.** The Shell choice now shows a terminal icon and lines up with the agents above it, and the sentence shows it once Shell is picked.
 - **Sessions can no longer read Glimmervoid's secret files.** With Sane YOLO on, every session and lane is refused when it reads config.json, its config.json.bak backup, vault-companion.json or watcher-link.key, whether through a file tool or a shell command naming the file. A config file set by GLIMMERVOID_CONFIG is covered too. `glimmervoid settings get` still reads settings with secrets masked.
 - **One config backup.** Glimmervoid now keeps a single backup, config.json.bak, written before each save. It no longer writes config.json.boot.bak or config.json.invalid.bak, and deletes both on startup because they held copies of your secrets. A config file that fails to load is left in place for you to fix or restore from config.json.bak.
 - **A board says why a box is worth a look.** The orange ! on a box now reads worth a look beside it, and selecting the box shows the reason under the file in its In review list, in the Reviews tab's words, such as another session also changing it or a file it usually changes with that is missing. Agents reading the board review get each file's reason too.
