@@ -279,7 +279,7 @@ export function groupDrafts(status: TeamReviewStatus | null | undefined): TeamRe
   return sections;
 }
 
-function settlesReview(review: GithubReview, head: string): boolean {
+export function settlesReview(review: GithubReview, head: string): boolean {
   if (review.commit !== head) return false;
   return review.isViewer || DECIDING_REVIEW_STATES.has(review.state);
 }

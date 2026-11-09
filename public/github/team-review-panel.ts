@@ -4,7 +4,7 @@ import type { TeamReviewChange } from './team-review-store.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el } from '../dom-helpers.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
-import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, answeredNonNitThreads, actionOutcomeText, emptyStateText, laneNotice, groupDrafts, hasRequeueFooter, readyRowSignature, planActionReply, isPostedAwaitingViewer } from './team-review-view-core.ts';
+import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, answeredNonNitThreads, actionOutcomeText, emptyStateText, laneNotice, groupDrafts, hasRequeueFooter, readyRowSignature, planActionReply, settledLineText, isPostedAwaitingViewer } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
 import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 import { _ageTicker, _detailProgressTicker, _otherDetails, _pendingActions, _postedReceipt, _progressTicker, _queueHooks, _readyDetails, _root, _sessionOpenByKey, _view, setPostedReceipt, setQueueHooks, setRoot, setView } from './team-review-panel-state.ts';
@@ -50,6 +50,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
   if (ready) {
     const signature = `ready:${readyRowSignature(ready)}`;
     const readyDetail = readyDetailFor(ready);
+    readyDetail.showSettled?.(sections.noReviewNeeded.includes(ready) ? settledLineText(ready) : null);
     if (_postedReceipt) readyDetail.showReceipt?.(_postedReceipt);
     setPostedReceipt(null);
     if (_renderedDetailSignature === signature) return;

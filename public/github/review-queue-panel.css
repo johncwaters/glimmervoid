@@ -93,6 +93,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-will-post-event { color: var(--text-head); font-size: var(--type-body); }
 .pr-will-post-detail { color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; }
 .pr-will-post > .pr-note { margin-top: 4px; }
+.pr-settled-line { margin: 0; padding: 10px 16px; border: 1px solid var(--border-dim); border-radius: var(--radius); color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; }
 .pr-fact-list { display: flex; flex-direction: column; gap: 6px; margin: 0; font-size: var(--type-meta); }
 .pr-fact { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 8px; }
 .pr-fact > dt { color: var(--text-muted); }

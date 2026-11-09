@@ -7,7 +7,7 @@ import { shortSha } from '#shared/git-text.ts';
 import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalFindingsOf, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import type { GeneralFinding } from '#shared/team-review-markdown.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
-import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
+import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, settlesReview, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
 import type { QueueRowKind, ReviewPriorityReason } from './github-store-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 import type { StateTone } from '../state-tone-core.ts';
@@ -303,6 +303,16 @@ function describeGithubReview(review: GithubReview, head: string): string {
   if (!review.isViewer) return `${verb} by ${review.login}`;
   if (review.commit === head) return `you ${verb}`;
   return `you ${verb} (older commit)`;
+}
+
+export function settledLineText(draft: ReviewDraft): string | null {
+  const head = currentHead(draft);
+  const settlingReviews = (draft.githubReviews ?? []).filter((review) => settlesReview(review, head));
+  const standingApproval = hasStandingViewerApproval(draft) ? (draft.githubReviews ?? []).find((review) => review.isViewer && review.state === 'APPROVED') : undefined;
+  const settlingReview = settlingReviews.find((review) => review.isViewer) ?? settlingReviews[0] ?? standingApproval;
+  if (!settlingReview) return null;
+  const description = describeGithubReview(settlingReview, head);
+  return `${description.charAt(0).toUpperCase()}${description.slice(1)} at ${shortSha(settlingReview.commit)}. Your review is optional.`;
 }
 
 interface ViewerApprovalContext {
@@ -783,7 +793,7 @@ export function laneNotice(status: TeamReviewStatus | null | undefined): string 
 }
 
 export function readyRowSignature(draft: ReviewDraft): string {
-  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}:${githubReviewItems(draft).map((review) => review.text).join(', ')}`;
+  return `${draft.key}@${draft.reviewedHead}:${draft.status}:${draft.summary}`;
 }
 
 export function flaggedCommentsSignature(draft: Pick<ReviewDraft, 'comments'>): string {

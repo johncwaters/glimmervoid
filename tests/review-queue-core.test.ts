@@ -5,7 +5,8 @@ import { MyPr } from '../shared/contracts/my-prs.ts';
 import type { MyPrStage } from '../shared/contracts/my-prs.ts';
 import { TeamReviewStatus, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { groupDrafts, stackBadgeOf } from '../public/github/github-store-core.ts';
-import { ageToneOf, attentionTilesOf, buildReviewQueue, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
+import { settledLineText } from '../public/github/team-review-view-core.ts';
+import { ageToneOf, attentionTilesOf, buildReviewQueue, chooseQueueSelection, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
 
 const NO_TEAM_REVIEWS = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
 
@@ -101,7 +102,7 @@ test('Reviewing now holds the pulled Your turn reviews in turn order, up to the 
   assert.equal(turnPositionText(split.groups, 'team:acme/app#2'), '1 of 1 in Reviewing now');
 });
 
-test('queued reviews sit in Queued, merged pull requests in Merged, settled reviews leave the queue, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {
+test('queued reviews sit in Queued, merged pull requests in Merged, settled reviews leave the queue but stay open when held and name who settled them, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {
   const prs = [
     myPr(1, 'merged', '2026-10-01T00:00:00Z', { state: 'MERGED', mergedAt: '2026-10-02T00:00:00Z' }),
     myPr(2, 'draft', '2026-10-01T00:00:00Z', { isDraft: true }),
@@ -124,6 +125,12 @@ test('queued reviews sit in Queued, merged pull requests in Merged, settled revi
     ['merged', ['mine:acme/app#1']],
     ['parked', ['team:acme/app#5', 'mine:acme/app#2']],
   ]);
+  const settledKeys = new Set(sections.noReviewNeeded.map((draft) => `team:${draft.key}`));
+  assert.equal(chooseQueueSelection(groups, 'team:acme/app#4', settledKeys), 'team:acme/app#4');
+  assert.equal(chooseQueueSelection(groups, 'team:acme/app#4'), 'team:acme/app#3');
+  assert.equal(settledLineText(sections.noReviewNeeded[0]), `Approved by lead at ${'c'.repeat(7)}. Your review is optional.`);
+  const keptApproval = readyDraft(7, '2026-10-01T00:00:00Z', { reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: 'a'.repeat(40), isViewer: true }] });
+  assert.equal(settledLineText(keptApproval), `You approved (older commit) at ${'a'.repeat(7)}. Your review is optional.`);
 });
 
 test('a posted review waits on others from when it was posted, not from when the agent reviewed it', () => {

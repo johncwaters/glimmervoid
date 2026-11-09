@@ -51,7 +51,13 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   const willPostDetail = el('p', 'pr-will-post-detail');
   willPostDetail.setAttribute('aria-live', 'polite');
   willPost.append(el('h3', 'pr-assessment-title', 'Will post to GitHub'), willPostEvent, willPostDetail, note.section);
-  rail.append(createOpenSessionControl(draft), willPost, createDeskFacts(draft));
+  const settledLine = el('p', 'pr-settled-line');
+  settledLine.hidden = true;
+  const showSettled = (text: string | null): void => {
+    settledLine.hidden = text === null;
+    settledLine.textContent = text ?? '';
+  };
+  rail.append(createOpenSessionControl(draft), settledLine, willPost, createDeskFacts(draft));
   const selection = (): ReviewSelection => ({
     note: note.input.value,
     comments: draft.comments.filter((_comment, index) => includedComments.has(index)),
@@ -183,7 +189,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   refreshThreadDetails(detail, draft);
   paintDecision();
   paintPick();
-  return { signature: readyRowSignature(draft), flaggedSignature: flaggedCommentsSignature(draft), isTouched: () => isTouched, element: detail, settle, showReceipt, clearReceipt, runKey };
+  return { signature: readyRowSignature(draft), flaggedSignature: flaggedCommentsSignature(draft), isTouched: () => isTouched, element: detail, settle, showReceipt, clearReceipt, showSettled, runKey };
 }
 
 function readyDetailFor(draft: ReviewDraft): ActionDetailHandle {

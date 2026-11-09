@@ -35,7 +35,7 @@ import {
   mountTeamReviewDetail, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, runTeamReviewKey, showTeamReview, takePostedReceipt, teamReviewEmptyState,
   teamReviewLaneNotices,
 } from './team-review-panel.ts';
-import { teamReviewStatusView } from './team-review-store.ts';
+import { teamReviewSections, teamReviewStatusView } from './team-review-store.ts';
 
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
@@ -113,8 +113,24 @@ function caughtUpElement(receipt: string | null): HTMLElement {
   return createCaughtUpBanner({ title: 'All caught up', detail: `${receiptLead}${caughtUpText(currentGroups)}` });
 }
 
+function settledTeamKeys(): Set<string> {
+  return new Set(teamReviewSections().noReviewNeeded.map((draft) => `team:${draft.key}`));
+}
+
+function heldTeamReviewKey(): string | null {
+  if (selectedKey === null || !settledTeamKeys().has(selectedKey)) return null;
+  return selectedKey.slice('team:'.length);
+}
+
 function showSelectedDetail(receiptMode: 'keep' | 'clear'): void {
   const item = queueItemByKey(currentGroups, selectedKey);
+  const heldReviewKey = item ? null : heldTeamReviewKey();
+  if (heldReviewKey !== null && teamDetail) {
+    shownKey = selectedKey;
+    showTeamReview(heldReviewKey, receiptMode);
+    swapDetail(teamDetail);
+    return;
+  }
   const isSwitchingReview = shownKey !== null && item !== null && item.key !== shownKey;
   shownKey = item?.key ?? null;
   if (isSwitchingReview) fadeInDetail();
@@ -570,7 +586,7 @@ function render(): void {
   currentGroups = rebuildReviewQueue();
   splitDisplayGroups();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
-  if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey);
+  if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey, settledTeamKeys());
   paintTurnPosition();
   const signature = rowsSignature(displayGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {

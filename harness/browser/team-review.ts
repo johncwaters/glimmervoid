@@ -342,8 +342,12 @@ async function verifyViewerThreadCounts(page: Page, snapshot: TeamReviewStatus):
   assert.match(await row.getAttribute('aria-label') ?? '', /All 5 of your comments resolved/);
   await applyStatus(page, withDraft({ ...resolved, viewerThreads: { total: 5, resolved: 3 } }));
   assert.equal(await threadsFact().textContent(), '3 of 5 of your comments resolved');
+  const noteInput = page.locator('.pr-detail .pr-note-input');
+  await noteInput.fill('Kept across the settle');
   await applyStatus(page, withDraft({ ...resolved, reviewDecision: 'APPROVED', githubReviews: [{ login: 'me', state: 'APPROVED', commit: REVIEWED_HEAD, isViewer: true }] }));
   assert.equal(await row.count(), 0);
+  assert.equal(await page.locator('.pr-detail .pr-settled-line').textContent(), `You approved at ${REVIEWED_HEAD.slice(0, 7)}. Your review is optional.`);
+  assert.equal(await noteInput.inputValue(), 'Kept across the settle');
   await applyStatus(page, withDraft({ ...resolved, status: 'posted', postedEvent: 'COMMENT', postedAt: Date.now() }));
   assert.match(await sectionHeading() ?? '', /Ready/);
   assert.equal(await readRowMeaning(row), 'Comments resolved');
@@ -1141,7 +1145,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   const handChecks = page.locator('.pr-detail .pr-hand-checks');
   assert.equal(await handChecks.locator('li').textContent(), 'Look at what these changed UI files render: public/header.css');
   assert.deepEqual(await page.locator('.pr-detail .pr-desk-column > :is(section, .pr-earlier-review)').evaluateAll((blocks) => blocks.map((block) => block.classList.contains('pr-earlier-review') ? 'Earlier review' : block.getAttribute('aria-label')).filter((label) => label === 'About this PR' || label === 'Verdict' || label === 'Check by hand' || label === 'Findings' || label === 'Earlier review')), ['About this PR', 'Verdict', 'Check by hand', 'Findings', 'Earlier review']);
-  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > *').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-session-open', 'pr-will-post', 'pr-desk-facts']);
+  assert.deepEqual(await page.locator('.pr-detail .pr-desk-rail > :not([hidden])').evaluateAll((blocks) => blocks.map((block) => block.className)), ['pr-session-open', 'pr-will-post', 'pr-desk-facts']);
   assert.equal(await page.locator('.pr-detail .pr-detail-heading .pr-session-open').count(), 0);
   await showQueue(page);
   await nitsRow.click();
