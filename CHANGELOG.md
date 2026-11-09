@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The browser tab icon shows when a session needs you again.** The whole mark in the tab icon now turns amber when a session needs input and red when one failed, instead of only its small center diamond, which was too small to notice at tab size.
 - **Reviews.** A review re-run at a head Glimmervoid already reviewed now hands the reviewer that earlier review to recheck, as untrusted data, instead of starting from nothing. It stays a full review: every severity can be reported and the verdict choices are unchanged.
 - **Reviews.** Opening a pull request's detail fetches other reviewers' threads again, at most once a minute per pull request, so a thread a teammate opened or resolved since the last poll shows without waiting up to 15 minutes.
 - **Reviews.** A teammate's comment-only review now shows beside approvals and change requests in a pull request's detail and queue row, and an Older GitHub reviews list in the detail shows up to 30 older reviews, so a teammate's older review no longer disappears once they review again.
