@@ -46,20 +46,20 @@ const GITHUB_PR_REVIEW_FIELDS = `author { __typename login } authorAssociation
   reviewHistory: reviews(last: 30) { nodes { state submittedAt author { login } commit { oid } } }
   writerOpinionatedReviews: latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state } }`;
 
-function githubPrsLightByKeyQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ${GITHUB_PR_LIGHT_FIELDS} } }`;
+function aliasedRepositoriesQuery<Reference extends PrReference>(references: readonly Reference[], selectionOf: (reference: Reference) => string): string {
+  const fields = references.map((reference, index) => {
+    const [owner, name] = repoParts(reference.repo) ?? ['', ''];
+    return `pr${index}: repository(owner: "${owner}", name: "${name}") { ${selectionOf(reference)} }`;
   });
   return `query { ${fields.join(' ')} }`;
 }
 
+function githubPrsLightByKeyQuery(prs: readonly PrReference[]): string {
+  return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) { ${GITHUB_PR_LIGHT_FIELDS} }`);
+}
+
 function githubPrDetailsQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields ${GITHUB_PR_REVIEW_FIELDS} } }`;
-  });
-  return `query { ${fields.join(' ')} }\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
+  return `${aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) { ...myPrFields ...workflowPrFields ${GITHUB_PR_REVIEW_FIELDS} }`)}\n${MY_PR_FIELDS_FRAGMENT}\n${WORKFLOW_PR_FIELDS_FRAGMENT}`;
 }
 
 const REBASE_PR_MUTATION = `mutation($id: ID!, $head: GitObjectID!) {
@@ -97,11 +97,7 @@ const MY_PR_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int
 }`;
 
 function reviewThreadsBatchQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { ${REVIEW_THREAD_FIELDS} } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
+  return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { ${REVIEW_THREAD_FIELDS} } } }`);
 }
 
 const MERGED_PRS_QUERY = `query($searchQuery: String!, $first: Int!, $cursor: String) {
@@ -111,36 +107,24 @@ const MERGED_PRS_QUERY = `query($searchQuery: String!, $first: Int!, $cursor: St
 }`;
 
 function benchmarkReviewDataQuery(prs: readonly PrReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
+  return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) {
       author { __typename login } baseRefOid
       reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { path line originalLine
         comments(first: 1) { nodes { databaseId author { __typename login } body createdAt originalCommit { oid } } } } }
       reviews(first: 100) { pageInfo { hasNextPage } nodes { databaseId author { __typename login } body submittedAt commit { oid } } }
       timelineItems(first: 100, itemTypes: [BASE_REF_CHANGED_EVENT, BASE_REF_FORCE_PUSHED_EVENT]) { pageInfo { hasNextPage } nodes {
         __typename ... on BaseRefChangedEvent { createdAt } ... on BaseRefForcePushedEvent { createdAt beforeCommit { oid } } } }
-    } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
+    }`);
 }
 
 const TEAM_PROFILE_QUERY = 'query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { name avatarUrl } } }';
 
 function issueLinkedPullRequestsQuery(issues: readonly PrReference[]): string {
-  const fields = issues.map((issue, index) => {
-    const [owner, name] = repoParts(issue.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { issue(number: ${issue.number}) { closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number url title state isDraft } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
+  return aliasedRepositoriesQuery(issues, (issue) => `issue(number: ${issue.number}) { closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number url title state isDraft } } }`);
 }
 
 function behindCountsQuery(prs: readonly PrHeadReference[]): string {
-  const fields = prs.map((pr, index) => {
-    const [owner, name] = repoParts(pr.repo) ?? ['', ''];
-    return `pr${index}: repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } } }`;
-  });
-  return `query { ${fields.join(' ')} }`;
+  return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } }`);
 }
 
 export { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery };

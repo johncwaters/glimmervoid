@@ -116,6 +116,10 @@ function aliasedBatchFailure(response: CommandResult, errorCount: number, hasDat
   return null;
 }
 
+interface PrRepositorySchema<PrNode> {
+  safeParse(repository: unknown): { success: true; data: { pullRequest: PrNode | null } | null } | { success: false };
+}
+
 function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
     try {
@@ -160,6 +164,20 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       }
     }
     return gonePrs;
+  }
+
+  async function collectPrNodes<PrNode>(prs: readonly PrReference[], buildQuery: (batch: readonly PrReference[]) => string, repositorySchema: PrRepositorySchema<PrNode>, batchSize: number): Promise<{ byKey: Map<string, PrNode>; goneKeys: Set<string> }> {
+    const nodesByKey = new Map<string, PrNode>();
+    const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
+    const gonePrs = await forEachAliasedPr([...referencesByKey.values()], buildQuery, (pr, repository) => {
+      const parsed = repositorySchema.safeParse(repository);
+      if (!parsed.success) return 'unreadable';
+      const node = parsed.data?.pullRequest;
+      if (!node) return 'gone';
+      nodesByKey.set(comparablePrKey(pr), node);
+      return 'found';
+    }, batchSize, true, 'throw-on-batch-failure');
+    return { byKey: nodesByKey, goneKeys: new Set(gonePrs.map(comparablePrKey)) };
   }
 
   async function pagedReviewThreads(repo: string, number: number): Promise<MyPrThreadNodeType[] | null> {
@@ -277,32 +295,13 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
     },
 
     async prsLightByKey(prs) {
-      const lightByKey = new Map<string, GithubPrLightSearchNodeType>();
-      const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
-      const gonePrs = await forEachAliasedPr([...referencesByKey.values()], githubPrsLightByKeyQuery, (pr, repository) => {
-        const parsed = GITHUB_PR_LIGHT_REPOSITORY.safeParse(repository);
-        if (!parsed.success) return 'unreadable';
-        const node = parsed.data?.pullRequest;
-        if (!node) return 'gone';
-        lightByKey.set(comparablePrKey(pr), node);
-        return 'found';
-      }, 50, true, 'throw-on-batch-failure');
-      return { byKey: lightByKey, goneKeys: new Set(gonePrs.map(comparablePrKey)) };
+      return collectPrNodes(prs, githubPrsLightByKeyQuery, GITHUB_PR_LIGHT_REPOSITORY, 50);
     },
 
     async prDetails(prs) {
-      const detailsByKey = new Map<string, GithubPrDetailNodeType>();
-      const referencesByKey = new Map(uniqueValidPrs(prs).map((pr) => [comparablePrKey(pr), pr]));
-      const gonePrs = await forEachAliasedPr([...referencesByKey.values()], githubPrDetailsQuery, (pr, repository) => {
-        const parsed = GITHUB_PR_DETAIL_REPOSITORY.safeParse(repository);
-        if (!parsed.success) return 'unreadable';
-        const node = parsed.data?.pullRequest;
-        if (!node) return 'gone';
-        detailsByKey.set(comparablePrKey(pr), node);
-        return 'found';
-      }, REVIEW_SNAPSHOT_BATCH_SIZE, true, 'throw-on-batch-failure');
-      for (const node of detailsByKey.values()) await completeCheckContexts(node);
-      return { byKey: detailsByKey, goneKeys: new Set(gonePrs.map(comparablePrKey)) };
+      const details = await collectPrNodes(prs, githubPrDetailsQuery, GITHUB_PR_DETAIL_REPOSITORY, REVIEW_SNAPSHOT_BATCH_SIZE);
+      for (const node of details.byKey.values()) await completeCheckContexts(node);
+      return details;
     },
 
     async notificationsSince(lastModified) {
