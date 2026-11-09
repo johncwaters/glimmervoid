@@ -112,6 +112,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const port = process.env.GLIMMERVOID_PORT
     ? Number.parseInt(process.env.GLIMMERVOID_PORT, 10)
     : (config.port || 3000);
+  const boundDashboardPort = (): number => {
+    const address = httpServer.address();
+    if (address === null || typeof address === 'string') return port;
+    return address.port;
+  };
 
   const trust = createBackendTrust({
     localPort: port,
@@ -341,7 +346,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     closeSessionDataClients,
     hookRouter,
     getHookPort,
-    dashboardPort: port,
+    dashboardPort: boundDashboardPort,
     broadcastControl,
     onControlConnection,
     viewerControlClientCount,

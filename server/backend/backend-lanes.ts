@@ -95,7 +95,7 @@ interface BackendLaneDependencies {
   closeSessionDataClients: (id: string) => void;
   hookRouter: HookRouter;
   getHookPort: () => number | null;
-  dashboardPort: number;
+  dashboardPort: () => number;
   broadcastControl: ControlBroadcast;
   onControlConnection: (handleConnection: ControlConnectionHandler) => void;
   viewerControlClientCount: () => number;
@@ -311,7 +311,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return undefined;
     })),
     github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
-    reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort}${prActionReportPath(runId)}`,
+    reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort()}${prActionReportPath(runId)}`,
     loadPacks: async (configFile) => {
       packStore.setListedPaths(packPathsOf(configFile));
       const approvedPacks = await packStore.approvedPacks();
