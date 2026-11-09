@@ -126,6 +126,7 @@ function createTeamReviewRuns(
       isDirty = true;
       const priorReview = core.priorReviewFor(entry, detail.headRefOid) ?? undefined;
       const earlierReviewKept = core.earlierReviewToKeep(entry, detail.headRefOid);
+      const sameHeadReview = !priorReview && earlierReviewKept?.head === detail.headRefOid ? earlierReviewKept : undefined;
       delete entry.priorReview;
       if (earlierReviewKept) entry.priorReview = earlierReviewKept;
       entry.inFlight = true;
@@ -136,7 +137,7 @@ function createTeamReviewRuns(
         candidate, tier: triage.tier, reasons: triage.reasons, head: detail.headRefOid, at: now(), priorReviewedHead: priorReview?.head,
       }));
       const args: SpawnReviewArgs = {
-        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, priorReview, reportProgress: progressReporter(candidate.key), signal: reviewCanceller.signal,
+        candidate, detail, tier: triage.tier, reasons: triage.reasons, resume, priorReview, sameHeadReview, reportProgress: progressReporter(candidate.key), signal: reviewCanceller.signal,
       };
       loop.track(runReview(args).catch((error: unknown) => {
         log.warn(`[${core.TEAM_REVIEW_LANE_ID}] review crashed for ${candidate.key}: ${errorMessage(error)}`);

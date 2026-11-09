@@ -804,6 +804,20 @@ test('a re-review isolates the new work since the earlier review from the base b
   }
 });
 
+test('a review re-run at the same head hands the reviewer its earlier review as untrusted data without turning it into a re-review', async () => {
+  const { review, spawns, cleanup } = setup();
+  try {
+    await review({ ...reviewArgs('full'), sameHeadReview: { ...PRIOR_REVIEW, head: HEAD } });
+    const payload = UntrustedPayload.parse(JSON.parse(spawns[0].untrustedPayloadText ?? 'null'));
+    assert.deepEqual(payload.items.map((item) => item.kind), ['pr-title', 'pr-body', 'same-head-review']);
+    assert.match(spawns[0].prompt, /same-head-review item/);
+    assert.doesNotMatch(spawns[0].prompt, /This is a re-review:/);
+    assert.ok(!spawns[0].prompt.includes(PRIOR_REVIEW.summary));
+  } finally {
+    cleanup();
+  }
+});
+
 test('a re-review whose new work cannot be isolated, or whose earlier review stored no base, reviews the whole range', async () => {
   const unisolable = setup({ isNewWorkIsolable: false });
   try {

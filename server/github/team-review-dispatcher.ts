@@ -319,11 +319,11 @@ function createTeamReviewDispatcher({
       const reviewSetup = readReviewSetup();
       const prompt = core.buildReviewPrompt({
         candidate, detail, tier, reasons, checkoutPath: worktreePath, reportPath, postingPath, reviewSkill: reviewSetup.skill,
-        priorReview, newWork,
+        priorReview, newWork, sameHeadReview: args.sameHeadReview ?? null,
       });
       await fs.writeFile(path.join(workDir, core.REVIEW_PROMPT_FILENAME), prompt, 'utf8');
       await writeUntrustedPayload(workDir, {
-        trust: 'untrusted', source: core.TEAM_REVIEW_LANE_ID, fetchedAt: new Date(now()).toISOString(), items: core.reviewUntrustedItems(detail, priorReview),
+        trust: 'untrusted', source: core.TEAM_REVIEW_LANE_ID, fetchedAt: new Date(now()).toISOString(), items: core.reviewUntrustedItems(detail, priorReview, args.sameHeadReview ?? null),
       }, core.REVIEW_UNTRUSTED_ITEM_MAX_CHARS);
       reportProgress({ kind: 'phase', phase: 'reviewing', tier, reasons, timeoutSeconds });
       resources.awakeStopwatch = startAwakeStopwatch({ now });

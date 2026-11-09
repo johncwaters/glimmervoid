@@ -18,6 +18,7 @@ interface SpawnReviewArgs {
   reasons: string[];
   resume?: ResumableReview;
   priorReview?: PriorReview;
+  sameHeadReview?: PriorReview;
   reportProgress?: (event: ReviewProgressEvent) => void;
   signal?: AbortSignal;
 }
