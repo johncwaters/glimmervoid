@@ -663,6 +663,10 @@
     {
       "name": "session name",
       "definition": "A session's display name for its area of work, stable across its steps, shown in the rail; never part of the task title or a board title"
+    },
+    {
+      "name": "security",
+      "definition": "Protection of the operator's machine, secrets and sessions; a release whose notes carry a Security section fixes a vulnerability, which the update check surfaces as a security notice"
     }
   ],
   "retired": [
