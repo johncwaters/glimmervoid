@@ -29,6 +29,12 @@ interface CodexLine {
   } | null;
 }
 
+const CODEX_USAGE_MARKERS = ['"token_count"', '"turn_context"', '"thread_settings_applied"'];
+
+function carriesCodexUsageMarker(line: unknown): line is string {
+  return typeof line === 'string' && CODEX_USAGE_MARKERS.some((marker) => line.includes(marker));
+}
+
 function createCodexUsageState(): CodexUsageState {
   return { model: null, totalTokenUsage: null };
 }
@@ -38,6 +44,7 @@ function parseCodexUsageLine(
   state: CodexUsageState = createCodexUsageState(),
   { sessionId = null }: { sessionId?: string | null } = {},
 ): UsageEntry | null {
+  if (!carriesCodexUsageMarker(line)) return null;
   const raw = parseJsonLine(line);
   if (!raw) return null;
   const parsed = raw as CodexLine;
