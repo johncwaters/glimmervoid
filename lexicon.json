@@ -667,6 +667,10 @@
     {
       "name": "security",
       "definition": "Protection of the operator's machine, secrets and sessions; a release whose notes carry a Security section fixes a vulnerability, which the update check surfaces as a security notice"
+    },
+    {
+      "name": "jev",
+      "definition": "Jev (typesafe-ai/jev), a decision model reached through Vercel AI Gateway that picks, orders and places prebuilt json-render component candidates; named only in the docs/search-builds-the-view.md product outline"
     }
   ],
   "retired": [
