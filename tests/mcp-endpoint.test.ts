@@ -18,9 +18,9 @@ import { MCP_CREDENTIAL_ENV } from '../mcp/core/agent-config.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
-import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
 
@@ -55,7 +55,7 @@ async function boot(): Promise<BootedBackend> {
   assert.ok(session, 'the boot loop created the configured session');
   session._hooks.inject();
   assert.ok(session.agentToken, 'the session was minted an agent token');
-  return { tmpDir, server, backend, projectDir, mcpUrl: `http://127.0.0.1:${boundPort(server)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
+  return { tmpDir, server, backend, projectDir, mcpUrl: `${await agentIngressBase(backend)}/mcp`, credential: mcpCredentialFor(SESSION_ID, session.agentToken) };
 }
 
 function firstTextOf(content: unknown): string {
