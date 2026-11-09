@@ -11,10 +11,10 @@ interface ReviewBoardOptions {
   dropHintOf(group: DisplayGroup): string | null;
   isParkedOpen: boolean;
   onToggleParked(): void;
+  dropLaneIdsOf(item: QueueItem, group: DisplayGroup): readonly DisplayGroupId[];
   onDropCard(queueKey: string, groupId: DisplayGroupId): void;
 }
 
-const DRAG_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['turn', 'now']);
 const TILE_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['queued', 'working', 'parked']);
 const QUEUE_KEY_MIME = 'application/x-glimmervoid-queue-key';
 
@@ -40,16 +40,25 @@ function createColumnHeading(group: DisplayGroup, options: ReviewBoardOptions, i
   return heading;
 }
 
-function makeDraggable(card: HTMLElement, queueKey: string): HTMLElement {
+let draggedCardDropLaneIds: ReadonlySet<DisplayGroupId> = new Set();
+
+function makeDraggable(card: HTMLElement, queueKey: string, dropLaneIds: readonly DisplayGroupId[]): HTMLElement {
+  if (dropLaneIds.length === 0) return card;
   card.draggable = true;
-  card.addEventListener('dragstart', (event) => event.dataTransfer?.setData(QUEUE_KEY_MIME, queueKey));
+  card.addEventListener('dragstart', (event) => {
+    draggedCardDropLaneIds = new Set(dropLaneIds);
+    event.dataTransfer?.setData(QUEUE_KEY_MIME, queueKey);
+  });
+  card.addEventListener('dragend', () => {
+    draggedCardDropLaneIds = new Set();
+  });
   return card;
 }
 
 function acceptDrops(column: HTMLElement, groupId: DisplayGroupId, onDropCard: ReviewBoardOptions['onDropCard']): void {
   const isQueueKeyDrag = (event: DragEvent) => event.dataTransfer?.types.includes(QUEUE_KEY_MIME) === true;
   column.addEventListener('dragover', (event) => {
-    if (!isQueueKeyDrag(event)) return;
+    if (!isQueueKeyDrag(event) || !draggedCardDropLaneIds.has(groupId)) return;
     event.preventDefault();
     column.dataset.dropTarget = 'true';
   });
@@ -60,7 +69,9 @@ function acceptDrops(column: HTMLElement, groupId: DisplayGroupId, onDropCard: R
   column.addEventListener('drop', (event) => {
     delete column.dataset.dropTarget;
     const queueKey = event.dataTransfer?.getData(QUEUE_KEY_MIME);
-    if (!queueKey) return;
+    const isLegalDrop = draggedCardDropLaneIds.has(groupId);
+    draggedCardDropLaneIds = new Set();
+    if (!queueKey || !isLegalDrop) return;
     event.preventDefault();
     onDropCard(queueKey, groupId);
   });
@@ -70,8 +81,7 @@ function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLEle
   const column = el('section', 'review-board-column');
   column.dataset.group = group.id;
   if (group.id === 'parked') column.id = PARKED_COLUMN_ID;
-  const isDragGroup = DRAG_GROUP_IDS.has(group.id);
-  if (isDragGroup) acceptDrops(column, group.id, options.onDropCard);
+  acceptDrops(column, group.id, options.onDropCard);
   const dropHint = options.dropHintOf(group);
   const isCollapsed = (group.items.length === 0 && dropHint === null) || (group.id === 'parked' && !options.isParkedOpen);
   column.append(createColumnHeading(group, options, isCollapsed));
@@ -82,15 +92,12 @@ function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLEle
   if (TILE_GROUP_IDS.has(group.id)) {
     column.dataset.slim = 'true';
     const tiles = el('div', 'review-board-tiles');
-    tiles.append(...group.items.map((item) => options.createTile(item, group)));
+    tiles.append(...group.items.map((item) => makeDraggable(options.createTile(item, group), item.key, options.dropLaneIdsOf(item, group))));
     column.append(tiles);
     return column;
   }
   const cards = el('div', 'review-board-cards');
-  for (const item of group.items) {
-    const card = options.createCard(item, group);
-    cards.append(isDragGroup ? makeDraggable(card, item.key) : card);
-  }
+  for (const item of group.items) cards.append(makeDraggable(options.createCard(item, group), item.key, options.dropLaneIdsOf(item, group)));
   if (group.items.length === 0 && dropHint) cards.append(el('p', 'review-board-drop-hint', dropHint));
   column.append(cards);
   return column;

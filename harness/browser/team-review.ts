@@ -93,21 +93,21 @@ async function verifyRows(page: Page): Promise<void> {
     children: button.querySelectorAll(':scope > :not(.pr-queue-unseen)').length,
     removedParts: button.querySelectorAll('.pr-verdict-seal, .pr-severity-meter, .pr-rereview-tag').length,
   })));
-  assert.equal(rows.length, 9);
-  assert.ok(!rows.some((row) => row.key === 'Acme/app#8'));
+  assert.equal(rows.length, 8);
+  assert.ok(!rows.some((row) => row.key === 'Acme/app#8' || row.key === 'Acme/app#6'));
+  assert.equal(await page.locator('.pr-queue-section[data-group="parked"] .pr-queue-tiles > .pr-queue-tile[data-queue-key="team:Acme/app#6"]').count(), 1);
   const skillHint = await page.locator('.review-skill-notice-hint').evaluate((hint) => ({ text: hint.textContent, href: hint.querySelector('a')?.getAttribute('href') }));
   assert.equal(skillHint.text, 'The instructions the reviewing agent follows. Reviews run without one. Review skill setting');
   assert.match(skillHint.href ?? '', /#settings\/lanes-team-review\/team-review-skill$/);
   for (const row of rows) {
     assert.equal(row.removedParts, 0);
     assert.equal(row.actionWords, 0);
-    const isDiscardedRow = row.key === 'Acme/app#6';
-    assert.equal(row.children, isDiscardedRow ? 1 : 3);
-    assert.equal(row.authorAvatars, isDiscardedRow ? 0 : 1);
+    assert.equal(row.children, 3);
+    assert.equal(row.authorAvatars, 1);
     assert.equal(row.title, null);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
     assert.equal(row.stateTone, row.glyphTone);
-    assert.equal(Boolean(row.stateWord), !isDiscardedRow);
+    assert.ok(row.stateWord);
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
@@ -217,6 +217,11 @@ async function verifyCanonicalTeamPrFields(page: Page, layout: Layout, snapshot:
     await emitTeamReviewFrames(page, [frameFor({ ...pr, commentCount: pr.commentCount + 1 })]);
     assert.equal(await unchangedTeamRow.evaluate((row) => row.isConnected), true);
     await showQueue(page);
+    if (pr.isDraft) {
+      assert.equal(await mineRow.count(), 0);
+      assert.equal(await root.locator('.pr-queue-section[data-group="parked"] .pr-queue-tile[data-queue-key="mine:Acme/app#1"]').count(), 1);
+      continue;
+    }
     assert.equal(await mineRow.locator('.my-pr-stage').first().textContent(), stage);
     assert.equal(await mineRow.locator('.pr-queue-glyph').innerHTML(), teamGlyph);
     if (layout === 'phone') await page.getByRole('button', { name: 'Focus', exact: true }).click();
@@ -312,7 +317,7 @@ async function verifyQueueRebuildsAfterEmptyStatus(page: Page, status: TeamRevie
   await applyStatus(page, { ...status, drafts: [], inFlight: [], queued: [] });
   assert.equal(await page.locator('.pr-queue-row').count(), 0);
   await applyStatus(page, status);
-  assert.equal(await page.locator('.pr-queue-row').count(), 9);
+  assert.equal(await page.locator('.pr-queue-row').count(), 8);
   const isFirstRowRebuilt = await page.evaluate((row) => !row.isConnected && row !== document.querySelector('.pr-queue-row'), firstRowBefore);
   assert.equal(isFirstRowRebuilt, true);
 }
@@ -534,7 +539,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await applyStatus(page, { ...withDrafts([createDraft(1), createDraft(2)]), inFlight: snapshot.inFlight, queued: snapshot.queued });
       await showQueue(page);
       await reviewRow(unreviewed).click();
-      assert.equal(await page.locator('.pr-detail button[data-action="discard"]').textContent(), 'Not mine');
+      assert.equal(await page.locator('.pr-detail button[data-action="discard"]').textContent(), 'Park');
       await clickReviewAction(page, 'discard');
       const sentRequest = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { key?: string; action?: string; head?: string };
       assert.deepEqual([sentRequest.key, sentRequest.action, sentRequest.head], [`Acme/app#${unreviewed}`, 'discard', undefined]);
@@ -542,7 +547,7 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
       assert.equal(await barStatus.textContent(), '');
-      assert.match(await page.locator('.pr-queue-section', { has: reviewRow(unreviewed) }).locator('.pr-section-heading').textContent() ?? '', /Parked/);
+      assert.match(await page.locator('.pr-queue-section', { has: page.locator(`.pr-queue-tile[data-queue-key="team:Acme/app#${unreviewed}"]`) }).locator('.pr-section-heading').textContent() ?? '', /Parked/);
     }
     const postReceipts: Partial<Record<TeamReviewAction, string>> = { approve: 'Posted to Acme/app#1: Approved on GitHub with 1 finding.', comment: 'Posted to Acme/app#1: Commented on GitHub with 1 finding.', 'request-changes': 'Posted to Acme/app#1: Requested changes on GitHub with 1 finding.' };
     for (const action of ['approve', 'comment', 'request-changes', 'discard', 'requeue'] as const) {
@@ -553,12 +558,13 @@ async function verifyActionAdvancement(page: Page, snapshot: TeamReviewStatus): 
       const sentAction = (JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string }).action;
       assert.equal(sentAction, action);
       await applyStatus(page, { ...withDrafts([createDraft(3, { requestSource: 'direct', reviewDecision: 'REVIEW_REQUIRED' }), createDraft(2), createDraft(1, { status: action === 'discard' ? 'discarded' : 'posted' })]), queued: action === 'requeue' ? [createDraft(1)] : [] });
-      assert.equal(await reviewRow(1).getAttribute('aria-current'), 'true');
+      const actedEntry = page.locator('[data-queue-key="team:Acme/app#1"]');
+      assert.equal(await actedEntry.getAttribute('aria-current'), 'true');
       await replyToCapturedAction(page, true);
       assert.equal(await reviewRow(2).getAttribute('aria-current'), 'true');
       assert.equal(await page.locator('.pr-detail-host .pr-action-notice').count(), 0);
       assert.equal(await barStatus.textContent(), postReceipts[action] ?? '');
-      assert.equal(await reviewRow(1).getAttribute('data-just-acted'), 'true');
+      assert.equal(await actedEntry.getAttribute('data-just-acted'), 'true');
     }
     await applyStatus(page, withDrafts([createDraft(1), createDraft(2), createDraft(3)]));
     await showQueue(page);
@@ -769,17 +775,64 @@ async function verifyPhoneReviewingNowAfterReturn(page: Page): Promise<void> {
   await waitForText(page, REVIEWING_NOW_COUNT, null);
 }
 
-async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroupId: string): Promise<void> {
-  await page.evaluate(({ cardKey, groupId }) => {
+async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroupId: string): Promise<boolean> {
+  return page.evaluate(({ cardKey, groupId }) => {
     const card = document.querySelector(`.review-board .pr-queue-row[data-review-key="${cardKey}"]`);
     const column = document.querySelector(`.review-board-column[data-group="${groupId}"]`);
     if (!card || !column) throw new Error('Missing drag card or target column');
     const dataTransfer = new DataTransfer();
     const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
     fire(card, 'dragstart');
-    if (fire(column, 'dragover')) throw new Error('Target column refused the drag');
+    const isRefused = fire(column, 'dragover');
+    if (isRefused) {
+      fire(card, 'dragend');
+      return false;
+    }
     fire(column, 'drop');
+    return true;
   }, { cardKey: reviewKey, groupId: targetGroupId });
+}
+
+async function verifyDragToParked(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const captureWindow = window as ActionCaptureWindow;
+    const originalSend = WebSocket.prototype.send;
+    captureWindow.teamReviewOriginalSend = originalSend;
+    WebSocket.prototype.send = function(message) {
+      if (typeof message === 'string' && (JSON.parse(message) as { type?: string }).type === 'team-review-action') {
+        document.documentElement.dataset.teamReviewAction = message;
+        return;
+      }
+      originalSend.call(this, message);
+    };
+  });
+  try {
+    assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'waiting'), false);
+    assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'merged'), false);
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
+    const highlightedLanes = await page.evaluate(() => {
+      const card = document.querySelector('.review-board .pr-queue-row[data-review-key="Acme/app#1"]');
+      const dataTransfer = new DataTransfer();
+      card?.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
+      const columns = [...document.querySelectorAll<HTMLElement>('.review-board-column')];
+      for (const column of columns) column.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
+      const lanes = columns.filter((column) => column.dataset.dropTarget === 'true').map((column) => column.dataset.group);
+      for (const column of columns) column.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer }));
+      card?.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
+      return lanes;
+    });
+    assert.deepEqual(highlightedLanes, ['queued', 'now', 'parked']);
+    assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'parked'), true);
+    const sent = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string; key?: string };
+    assert.deepEqual({ action: sent.action, key: sent.key }, { action: 'discard', key: 'Acme/app#1' });
+    assert.equal(await page.locator('.pr-detail .pr-decision-bar > .pr-action-status').textContent(), 'Parking');
+    await replyToCapturedAction(page, false);
+  } finally {
+    await page.evaluate(() => {
+      const captureWindow = window as ActionCaptureWindow;
+      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
+    });
+  }
 }
 
 async function selectedBoardKey(page: Page): Promise<string | null> {
@@ -812,7 +865,7 @@ async function verifyColumnSteps(page: Page): Promise<void> {
 async function verifyReviewingNowPull(page: Page): Promise<void> {
   const nowColumn = page.locator('.review-board-column[data-group="now"]');
   assert.equal((await nowColumn.locator('.review-board-drop-hint').textContent())?.trim(), 'Drag a Ready card here, or select one and press M.');
-  await dragCardBetweenColumns(page, 'Acme/app#1', 'now');
+  assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'now'), true);
   await nowColumn.locator('.pr-queue-row[data-review-key="Acme/app#1"]').waitFor({ state: 'visible' });
   assert.equal((await nowColumn.locator('.review-group-count').textContent())?.trim(), '1 / 5');
   assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsPulledKeys?: unknown }).reviewsPulledKeys), ['team:Acme/app#1']);
@@ -1015,6 +1068,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await verifyAgeTones(page);
   await verifyBoardCardBottomRowsFit(page);
   await verifyColumnSteps(page);
+  await verifyDragToParked(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
   assert.equal(await storedReviewsLayout(page), 'list');
@@ -1105,7 +1159,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   await verifyLayout(page);
   if (layout === 'desktop') {
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#5"]').getAttribute('aria-current'), 'true');
-    assert.equal(await page.locator('.pr-detail .pr-attention-next').textContent(), 'Re-run review to try again, or Not mine to drop it.');
+    assert.equal(await page.locator('.pr-detail .pr-attention-next').textContent(), 'Re-run review to try again, or Park to stop reviewing it.');
     const dashboardModifier = shortcutPlatformFor(await page.evaluate(() => navigator.userAgent)) === 'mac' ? 'Meta' : 'Alt';
     await page.keyboard.press(`${dashboardModifier}+KeyJ`);
     assert.equal(await page.locator('.pr-queue-row[data-review-key="Acme/app#1"]').getAttribute('aria-current'), 'true');

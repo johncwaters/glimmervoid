@@ -2,13 +2,14 @@ import type { z } from 'zod';
 import type { ReviewQueueAction, ReviewQueueGroupId, ReviewQueueItem } from '#shared/contracts/reviews.ts';
 import type { CommunityStateEntry } from '#shared/contracts/community.ts';
 import type { MyPr, MyPrStage } from '#shared/contracts/my-prs.ts';
-import type { InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
+import type { InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction } from '#shared/contracts/team-review.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
+import { detailActionLayout } from './team-review-view-core.ts';
 
 type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
 export type DisplayGroupId = QueueGroupId | 'now';
@@ -390,4 +391,28 @@ export function steppedRowKey(rowKeys: readonly string[], selectedKey: string | 
   const index = selectedKey === null ? -1 : rowKeys.indexOf(selectedKey);
   if (index === -1) return step === 1 ? rowKeys[0] : rowKeys[rowKeys.length - 1];
   return rowKeys[Math.min(rowKeys.length - 1, Math.max(0, index + step))];
+}
+
+export type BoardDrop = { kind: 'pull'; shouldBePulled: boolean } | { kind: 'team-action'; action: TeamReviewAction };
+
+const TEAM_ACTION_BY_DROP_LANE: Readonly<Partial<Record<DisplayGroupId, TeamReviewAction>>> = { parked: 'discard', queued: 'requeue', turn: 'restore' };
+
+const PULL_LANE_IDS: ReadonlySet<DisplayGroupId> = new Set(['turn', 'now']);
+
+function offeredTeamActions(item: Extract<QueueItem, { source: 'team' }>): readonly TeamReviewAction[] {
+  if (item.kind === 'queued' || item.kind === 'inReview') return ['discard'];
+  const layout = detailActionLayout(item.review as ReviewDraft);
+  return [...layout.leading, ...layout.trailing];
+}
+
+export function boardDropOf(item: QueueItem, sourceGroupId: DisplayGroupId, targetGroupId: DisplayGroupId): BoardDrop | null {
+  if (sourceGroupId === targetGroupId) return null;
+  if (PULL_LANE_IDS.has(sourceGroupId) && PULL_LANE_IDS.has(targetGroupId)) return { kind: 'pull', shouldBePulled: targetGroupId === 'now' };
+  const action = TEAM_ACTION_BY_DROP_LANE[targetGroupId];
+  if (item.source !== 'team' || !action || !offeredTeamActions(item).includes(action)) return null;
+  return { kind: 'team-action', action };
+}
+
+export function boardDropLaneIds(item: QueueItem, sourceGroupId: DisplayGroupId): DisplayGroupId[] {
+  return BOARD_COLUMN_ORDER.filter((targetGroupId) => boardDropOf(item, sourceGroupId, targetGroupId) !== null);
 }

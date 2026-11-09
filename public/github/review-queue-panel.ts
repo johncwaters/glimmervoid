@@ -20,7 +20,7 @@ import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
-  COLLAPSED_GROUP_IDS, ageToneOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
+  COLLAPSED_GROUP_IDS, ageToneOf, boardDropLaneIds, boardDropOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
   isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
   togglePulledKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
@@ -215,6 +215,20 @@ function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
   return true;
 }
 
+function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId): void {
+  const sourceGroup = displayGroups.find((group) => group.items.some((item) => item.key === queueKey));
+  const item = sourceGroup?.items.find((groupItem) => groupItem.key === queueKey);
+  if (!sourceGroup || !item) return;
+  const drop = boardDropOf(item, sourceGroup.id, targetGroupId);
+  if (!drop) return;
+  if (drop.kind === 'pull') {
+    movePulled(queueKey, drop.shouldBePulled);
+    return;
+  }
+  selectItem(queueKey, { isFromQueue: true });
+  detailHost?.querySelector<HTMLButtonElement>(`button[data-action="${drop.action}"]:not(:disabled)`)?.click();
+}
+
 function toggleSelectedPulled(): boolean {
   if (!selectedKey) return false;
   return movePulled(selectedKey, !getReviewsPulledKeys().includes(selectedKey));
@@ -318,6 +332,7 @@ function createItemTile(item: QueueItem, groupId: DisplayGroupId): HTMLElement {
   if (ageTone) tile.dataset.ageTone = ageTone;
   tile.dataset.queueKey = item.key;
   tile.setAttribute('aria-current', String(item.key === selectedKey));
+  if (item.key === justActedKey) tile.dataset.justActed = 'true';
   tile.addEventListener('click', () => selectItem(item.key, { isFromQueue: true }));
   rowsByKey.set(item.key, tile);
   return tile;
@@ -490,6 +505,12 @@ function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sess
   section.dataset.group = group.id;
   section.append(createGroupHeading(group));
   if (COLLAPSED_GROUP_IDS.has(group.id) && !openCollapsedGroupIds.has(group.id)) return section;
+  if (group.id === 'parked') {
+    const tiles = el('div', 'pr-queue-tiles');
+    tiles.append(...group.items.map((item) => createItemTile(item, group.id)));
+    section.append(tiles);
+    return section;
+  }
   for (const item of group.items) section.append(createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey));
   return section;
 }
@@ -522,7 +543,8 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
       renderedSignature = null;
       render();
     },
-    onDropCard: (queueKey, groupId) => movePulled(queueKey, groupId === 'now'),
+    dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id),
+    onDropCard: dropCardOnLane,
   });
 }
 
