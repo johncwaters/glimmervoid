@@ -15,6 +15,7 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by the cli-docs gate |
 | `coherence-boundary-spec.md` | Operator-approved optional Coherence boundary; executable acceptance in the coherence-boundary gate |
 | `configuration.md` | GENERATED config and environment reference (`npm run docs:config`, `scripts/generate-config-docs.ts`); never edit by hand, the config-docs gate fails on drift |
+| `measurement-server-runtime.md` | 2026-11 profile of the live server and Node/Bun/allocator comparison; the cost is the usage scanner's full transcript rescan on every start, not the runtime |
 | `troubleshooting.md` | Install and startup failures: PATH, node-pty under npm 12's install-script policy, port and bind refusals, the legacy `github:` install |
 
 ## For AI Agents
