@@ -7,6 +7,7 @@ import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
 import { BoardRegion, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
+import { RaceId } from '../../shared/contracts/race.ts';
 
 type ToolArguments = Record<string, unknown>;
 
@@ -255,7 +256,28 @@ const WHY_TOOL: GroupedTool = {
   actions: { why: routeTo('why', ['target'], { required: ['target'], hints: READS }) },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL]);
+function arenaRoute(sub: string, keys: readonly string[], { required = [], hints }: RouteShape): ActionRoute {
+  return { verb: 'arena', required, accepts: keys, hints, toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
+}
+
+const ARENA_TOOL: GroupedTool = {
+  name: 'arena',
+  title: 'Glimmervoid Arena',
+  description: 'Follow and judge Arena races, where one prompt runs on 2 to 5 agent setups, each in its own session and worktree from the same commit, and a judge ranks the contestants that changed something. races lists the loaded races newest first; race reads one with its phase (running, judging, judged), contestant sessions, finishes, diff stats, check results and judge panel; judge starts judging a race now instead of waiting for every contestant to settle; diff reads one contestant\'s diff against the start commit. The operator picks the winner in the Arena tab.',
+  loadsUpfront: false,
+  fields: {
+    race: RaceId.optional().describe('race, judge, diff: the race id'),
+    contestant: RaceId.optional().describe('diff: the contestant id, such as c1'),
+  },
+  actions: {
+    races: arenaRoute('races', [], { hints: READS }),
+    race: arenaRoute('race', ['race'], { required: ['race'], hints: READS }),
+    judge: arenaRoute('judge', ['race'], { required: ['race'], hints: WRITES }),
+    diff: arenaRoute('diff', ['race', 'contestant'], { required: ['race', 'contestant'], hints: READS }),
+  },
+};
+
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

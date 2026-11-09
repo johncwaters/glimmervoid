@@ -588,6 +588,8 @@ test('limits tells a session which commands answer and its boundary', async () =
   const ephemeralLane = new Session({ id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
   const remote = new Session({ id: 'remote', name: 'remote', path: process.cwd(), ptySpawn: () => fakePty() });
   fixture.config.projects.push({ id: 'remote', name: 'remote', path: process.cwd(), environment: { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'main' } });
+  const contestant = new Session({ id: 'contestant', name: 'race c1', path: process.cwd(), ptySpawn: () => fakePty() });
+  fixture.config.projects.push({ id: 'contestant', name: 'race c1', path: process.cwd(), raceId: 'race-1' });
   const limitsOf = async (session: Session) => {
     const reply = await fixture.wiring.handle(session, 'limits', {});
     assert.equal(reply.status, 200);
@@ -597,13 +599,13 @@ test('limits tells a session which commands answer and its boundary', async () =
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'show'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -619,7 +621,13 @@ test('limits tells a session which commands answer and its boundary', async () =
       [ephemeralLane, laneLimits, 'link-pr', { pr: 'acme/app#12' }],
       [ephemeralLane, laneLimits, 'settings', { command: 'list' }],
       [ephemeralLane, laneLimits, 'checkout', { repo: 'dotfiles' }],
+      [ephemeralLane, laneLimits, 'arena', { sub: 'races' }],
+      [contestant, await limitsOf(contestant), 'arena', { sub: 'diff', race: 'race-1', contestant: 'c2' }],
     ];
+    await fixture.spawn(contestant, { prompt: 'read the other diffs' });
+    const contestantChild = fixture.created.at(-1);
+    assert.ok(contestantChild);
+    refusedCalls.push([contestantChild, await limitsOf(contestantChild), 'arena', { sub: 'judge', race: 'race-1' }]);
     for (const [session, limits, command, payload] of refusedCalls) {
       const refusal = await fixture.wiring.handle(session, command, payload);
       assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
@@ -630,6 +638,7 @@ test('limits tells a session which commands answer and its boundary', async () =
   } finally {
     ephemeralLane.destroy();
     remote.destroy();
+    contestant.destroy();
     fixture.destroyAll();
   }
 });

@@ -9,6 +9,7 @@ import {
 import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
+import { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -70,6 +71,7 @@ interface AgentRequestByVerb {
   checkout: AgentCheckoutRequest;
   packs: AgentPacksRequest;
   need: AgentNeedRequest;
+  arena: AgentArenaRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -212,6 +214,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   checkout: bodyParser(AgentCheckoutRequest),
   packs: bodyParser(AgentPacksRequest),
   need: bodyParser(AgentNeedRequest),
+  arena: bodyParser(AgentArenaRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -521,6 +524,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     options: [{ name: 'wait', type: 'boolean', summary: 'Wait a few minutes for the operator to approve instead of returning at once' }],
     summary: "Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 companion offline, 1 failed",
     missingArgumentHint: 'this command needs secret names, for example "glimmervoid need OPENAI_API_KEY"',
+  },
+  arena: {
+    usage: 'arena races|race|judge|diff',
+    whenToUse: 'Use it to follow an Arena race the operator or this session started, judge it, or read a contestant\'s diff',
+    summary: 'List Arena races, read one race, start judging it, or read one contestant\'s diff (arena race <race>, arena judge <race>, arena diff <race> <contestant>)',
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid arena races"',
+    isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },
 });

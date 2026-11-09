@@ -15,6 +15,7 @@ interface SessionRoleFacts {
   isEphemeral: boolean;
   isSpawnedChild: boolean;
   hasOwnWorktree: boolean;
+  isRaceContestant: boolean;
 }
 
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
@@ -121,6 +122,12 @@ function needRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot ask for secrets, because a lane runs on input the operator has not vetted' };
 }
 
+function arenaRoute(caller: SessionKindFacts): RouteVerdict {
+  if (!hasOperatorCard(caller)) return { answers: false, reason: 'a lane session cannot use Arena, because a lane runs on input the operator has not vetted' };
+  if (caller.isRaceContestant) return { answers: false, reason: "a race contestant cannot use Arena, because it could read its rivals' diffs or have its race judged early" };
+  return ANSWERS;
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -143,6 +150,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   packs: operatorStateRoute,
   need: needRoute,
   limits: () => ANSWERS,
+  arena: arenaRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';

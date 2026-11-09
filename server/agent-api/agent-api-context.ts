@@ -12,6 +12,7 @@ import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { MemoryAdmission } from '../spawn-gate.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
+import type { RaceWiring } from '../race/race-wiring.ts';
 import type { WhyLookup } from '../why-lookup.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
@@ -52,6 +53,7 @@ interface AgentApiWiringOptions {
   coderWorkspaceStatus?: (workspace: string) => string | null;
   settleSessionCoherence?: (id: string) => Promise<void>;
   secrets?: Pick<SecretsBroker, 'need'> | null;
+  races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;

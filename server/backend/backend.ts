@@ -451,6 +451,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     settleSessionCoherence: coherenceFeed.settle,
     secrets: secretsBroker,
+    races: laneAssembly.races,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

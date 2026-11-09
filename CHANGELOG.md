@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can follow Arena races.** A new arena tool (and `glimmervoid arena`) lets a session list Arena races, read one race with its contestants, finishes, diff stats, checks and judge panel, start judging it, and read a contestant's diff. Lane sessions are refused, and picking the winner stays in the Arena tab.
+
 ## [0.54.2] - 2026-11-09
 
 ### Added

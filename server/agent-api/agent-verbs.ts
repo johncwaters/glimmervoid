@@ -12,9 +12,10 @@ import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts'
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
+import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn }: AgentSpawner) {
-  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets } = runtime;
+  const { config, agentSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -22,6 +23,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       isEphemeral: session.ephemeral,
       isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
       hasOwnWorktree: session.hasOwnWorktree,
+      isRaceContestant: config.projects.some((project) => (project.id === session.id || project.id === session.ownerId) && project.raceId !== undefined),
     };
   }
 
@@ -204,6 +206,21 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: added };
   }
 
+  async function arena(request: AgentArenaRequest): Promise<AgentReplyOf<'arena'>> {
+    if (!races) return refusal(503, 'Arena is not running in this Glimmervoid');
+    if (request.sub === 'races') return { status: 200, body: { ok: true, races: races.status().races } };
+    if (request.sub === 'race') {
+      const race = races.status().races.find((candidate) => candidate.id === request.race);
+      return race ? { status: 200, body: { ok: true, race } } : refusal(404, `no loaded race is named ${request.race}`);
+    }
+    if (request.sub === 'judge') {
+      const judged = await races.judge(request.race);
+      return judged.ok ? { status: 200, body: { ok: true } } : refusal(409, judged.error);
+    }
+    const diff = await races.contestantDiffText(request.race, request.contestant);
+    return diff.ok ? { status: 200, body: { ok: true, diff: diff.diff } } : refusal(404, diff.error);
+  }
+
   function githubLanesUnavailable(): AgentRefusalReply {
     return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
   }
@@ -228,6 +245,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     checkout,
     packs,
     need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    arena: (_session, request) => arena(request),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 

@@ -123,6 +123,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   whiteboard: whiteboardBody,
   packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
+  arena: ({ positionals: [sub, race, contestant] }) => (sub ? { sub, ...(race === undefined ? {} : { race }), ...(contestant === undefined ? {} : { contestant }) } : null),
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 

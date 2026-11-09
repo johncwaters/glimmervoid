@@ -183,3 +183,19 @@ export const RaceHistory = z.strictObject({
   past: z.array(RaceRecord).max(RACE_HISTORY_PAST_LIMIT),
 });
 export type RaceHistory = z.infer<typeof RaceHistory>;
+
+export const AgentArenaRequest = z.discriminatedUnion('sub', [
+  z.strictObject({ sub: z.literal('races') }),
+  z.strictObject({ sub: z.literal('race'), race: RaceId }),
+  z.strictObject({ sub: z.literal('judge'), race: RaceId }),
+  z.strictObject({ sub: z.literal('diff'), race: RaceId, contestant: RaceId }),
+]);
+export type AgentArenaRequest = z.infer<typeof AgentArenaRequest>;
+
+export const AgentArenaReply = z.union([
+  z.strictObject({ ok: z.literal(true), races: z.array(RaceRecord) }),
+  z.strictObject({ ok: z.literal(true), race: RaceRecord }),
+  z.strictObject({ ok: z.literal(true), diff: z.string() }),
+  z.strictObject({ ok: z.literal(true) }),
+]);
+export type AgentArenaReply = z.infer<typeof AgentArenaReply>;
