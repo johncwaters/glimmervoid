@@ -185,7 +185,8 @@ const OWNED_COMMAND_SPECS = {
     subcommands: [
       { name: 'list', summary: 'Every config.json setting with its value and where the value comes from', options: [JSON_OPTION] },
       { name: 'get', summary: 'One setting; a secret shows as configured or not configured, never its value', positionals: SETTING_PATH, options: [JSON_OPTION] },
-      { name: 'set', summary: 'Validate the whole file and write it; a running Glimmervoid reloads it', positionals: { usage: '<path> <value>', min: 2, max: 2 }, options: [JSON_OPTION] },
+      { name: 'set', summary: 'Validate the whole file and write it; a running Glimmervoid reloads it. --file replaces each top-level key the file names in one write', positionals: { usage: '<path> <value> | --file <file>', min: 0, max: 2 }, options: [{ name: 'file', type: 'string', valueName: 'file', summary: 'JSON object of top-level keys to replace; secrets are kept and never taken' }, JSON_OPTION] },
+      { name: 'export', summary: 'config.json as JSON with every secret removed, in the shape set --file takes' },
       { name: 'unset', summary: 'Remove the key from config.json so the default applies', positionals: SETTING_PATH, options: [JSON_OPTION] },
       { name: 'describe', summary: 'One setting: what it does, its default and, for a structured value, its JSON Schema and an example (needs no config file)', positionals: SETTING_PATH, options: [JSON_OPTION] },
       { name: 'search', summary: 'Find settings by title, keyword, key path or section', positionals: { usage: '<text>', min: 1, max: null }, options: [JSON_OPTION] },

@@ -77,7 +77,7 @@ function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly st
   };
 }
 
-const SANE_YOLO_RULES = { version: 1, rules: ['infra', 'git'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
+const SANE_YOLO_RULES = { version: 1, rules: ['infra', 'git', 'glimmervoid'], overrides: {}, transparent_wrappers: ['rtk', 'npx'] };
 const INFRA_REASON = 'Sane YOLO blocks infrastructure teardown; run this command by hand.';
 const TERRAFORM_DESTROY_FLAGS = ['-destroy', '--destroy', '-destroy=true', '--destroy=true'];
 const SANE_YOLO_INFRA_RULEBOOK = {
@@ -105,12 +105,22 @@ const SANE_YOLO_GIT_RULEBOOK = {
   rules: [{ name: 'stash', command: 'git', block_args: ['stash'], reason: STASH_REASON }],
 };
 
+const SETTINGS_FILE_REASON = 'Sane YOLO blocks glimmervoid settings set --file in a session: it writes config keys the single-setting set refuses. Use glimmervoid settings set <path> <value>, or ask the operator to run it.';
+const SANE_YOLO_GLIMMERVOID_RULEBOOK = {
+  rulebook_version: 1,
+  name: 'glimmervoid',
+  version: '1.0.0',
+  allowed_commands: ['glimmervoid'],
+  rules: [{ name: 'settings-set-file', command: 'glimmervoid', subcommand: 'settings', block_args: ['--file'], reason: SETTINGS_FILE_REASON }],
+};
+
 function saneYoloFiles(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
   return {
     'policy.json': saneYoloPolicy(guardrailsTempRoot, unreadablePaths),
     'rules/rule.json': SANE_YOLO_RULES,
     'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
     'rules/git/rulebook.json': SANE_YOLO_GIT_RULEBOOK,
+    'rules/glimmervoid/rulebook.json': SANE_YOLO_GLIMMERVOID_RULEBOOK,
   };
 }
 

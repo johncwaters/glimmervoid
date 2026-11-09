@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 import { isRecord } from '../shared/coerce.ts';
-import { BrowserConfig } from '../shared/contracts/config.ts';
+import { BrowserConfig, Config } from '../shared/contracts/config.ts';
 import { AGENT_URL_ENV, AgentSettingsReply } from '../shared/contracts/session.ts';
 import {
   cloneValue, deleteValueAtPath, parsePosthogProjectSelection, scoreSettingsSearch, setValueAtPath, valueAtPath,
@@ -10,14 +11,16 @@ import {
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSetting } from '../shared/settings/registry.ts';
 import { errorCode, errorMessage } from '../shared/text.ts';
-import { IS_EXPERIMENTAL_BUILD, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
+import { DEFAULT_CONFIG, IS_EXPERIMENTAL_BUILD, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
 import type { GlimmervoidConfig } from './config-store.ts';
 import { renderTable } from './core/ascii-figure-core.ts';
 import { OWNED_COMMAND_SPECS, parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { isSettingAvailable } from './core/experimental-gate-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
-import { ENV_SECRET_BINDINGS, readEnvSecrets, withEnvSecrets } from './core/config-secrets-core.ts';
+import { glimmervoidSecretPaths } from './secrets/core/secret-files-core.ts';
+import { normalizeRemoteConfig, resolveLocalPort, validateRemoteConfig } from './core/remote-config.ts';
+import { ENV_SECRET_BINDINGS, readEnvSecrets, withEnvSecrets, withoutEnvSecrets } from './core/config-secrets-core.ts';
 import {
   availableSettings, configFileViewOf, defaultText, describeSetting, fail, fitColumn, getSetting, listSettings, readSetting,
   renderSectionTables, requireConfigFileSetting, sectionOf, settingsRequestForServer, succeed, valueText,
@@ -46,6 +49,7 @@ type CandidateCheck = (candidate: Record<string, unknown>) => string | null;
 type CommandContext = {
   positionals: string[];
   isJson: boolean;
+  filePath: string | null;
   writeOutput: (text: string) => void;
 };
 
@@ -236,6 +240,86 @@ function requireWritableSetting(context: CommandContext, view: ConfigFileView): 
   return setting;
 }
 
+function realPathOrSelf(candidatePath: string): string {
+  try {
+    return fs.realpathSync(candidatePath);
+  } catch {
+    return path.resolve(candidatePath);
+  }
+}
+
+function readPlannedKeys(filePath: string, view: ConfigFileView): Record<string, unknown> {
+  const secretPaths = new Set(glimmervoidSecretPaths({ glimmervoidHome: glimmervoidHomeDir(os.homedir(), process.env), configPath: view.configPath }).map(realPathOrSelf));
+  if (secretPaths.has(realPathOrSelf(filePath))) throw new Error(`${filePath} is one of Glimmervoid's own secret files, so set --file never reads it`);
+  let planned: unknown;
+  try {
+    planned = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    if (errorCode(error)) throw new Error(`could not read ${filePath} (${errorCode(error)})`);
+    throw new Error(`${filePath} is not valid JSON`);
+  }
+  if (!isRecord(planned)) throw new Error(`${filePath} must hold a JSON object of top-level config keys`);
+  if (Object.keys(planned).length === 0) throw new Error(`${filePath} names no config keys`);
+  return planned;
+}
+
+function plannedKeysRefusal(planned: Record<string, unknown>, view: ConfigFileView): string | null {
+  const unknownKeys = Object.keys(planned).filter((key) => !Object.hasOwn(Config.shape, key));
+  if (unknownKeys.length > 0) return `${unknownKeys.join(', ')} ${unknownKeys.length === 1 ? 'is not a config key' : 'are not config keys'}; set --file takes only top-level config.json keys`;
+  for (const binding of ENV_SECRET_BINDINGS) {
+    const block = planned[binding.blockName];
+    if (isRecord(block) && Object.hasOwn(block, binding.secretKey)) return `${binding.blockName}.${binding.secretKey} is a secret, so set --file never takes it; remove it from the file and change it in the dashboard or through ${binding.environmentVariable}`;
+    const savedBlock = view.config[binding.blockName as keyof GlimmervoidConfig];
+    const hasSavedSecret = isRecord(savedBlock) && Object.hasOwn(savedBlock, binding.secretKey);
+    if (Object.hasOwn(planned, binding.blockName) && !isRecord(block) && hasSavedSecret) return `${binding.blockName} holds a saved secret, so set --file only takes it as an object; the secret stays as it is`;
+  }
+  for (const [key, reason] of HAND_EDITED_SETTING_REASONS) {
+    if (!Object.hasOwn(planned, key)) continue;
+    if (JSON.stringify(planned[key]) === JSON.stringify(view.config[key as keyof GlimmervoidConfig])) continue;
+    return `${key} cannot be changed from this command, because ${reason}; edit config.json at ${view.configPath} by hand`;
+  }
+  return null;
+}
+
+function replaceKeepingSecrets(config: Record<string, unknown>, planned: Record<string, unknown>): void {
+  const keptSecrets = ENV_SECRET_BINDINGS.flatMap((binding) => {
+    const block = config[binding.blockName];
+    if (!Object.hasOwn(planned, binding.blockName) || !isRecord(block) || !Object.hasOwn(block, binding.secretKey)) return [];
+    return [{ binding, value: block[binding.secretKey] }];
+  });
+  for (const [key, value] of Object.entries(planned)) config[key] = cloneValue(value);
+  for (const { binding, value } of keptSecrets) {
+    const block = config[binding.blockName];
+    if (isRecord(block)) block[binding.secretKey] = value;
+  }
+}
+
+function remotePortClash(candidate: Record<string, unknown>): string | null {
+  const localPort = resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: candidate.port, defaultPort: DEFAULT_CONFIG.port });
+  return validateRemoteConfig(normalizeRemoteConfig(candidate.remote), localPort).error;
+}
+
+function registryChecksFor(planned: Record<string, unknown>): CandidateCheck[] {
+  const settingChecks = availableSettings(IS_EXPERIMENTAL_BUILD).flatMap((setting) => {
+    const value = valueAtPath(planned, setting.path);
+    if (value === undefined) return [];
+    return [() => registryValueError(setting, value), dashboardSchemaCheck(setting)];
+  });
+  return [...settingChecks, remotePortClash];
+}
+
+function setFromFile(context: CommandContext, filePath: string): number {
+  if (process.env[AGENT_URL_ENV]) throw new Error('set --file is for the operator\'s own terminal, so a session cannot run it; use glimmervoid settings set <path> <value>');
+  if (context.positionals.length > 1) throw new Error('set takes either <path> <value> or --file <file>, not both');
+  const view = requireView();
+  const planned = readPlannedKeys(filePath, view);
+  const refusal = plannedKeysRefusal(planned, view);
+  if (refusal) throw new Error(refusal);
+  const plannedKeys = Object.keys(planned);
+  saveValidatedConfig(view, plannedKeys.join(', '), (config) => replaceKeepingSecrets(config, planned), registryChecksFor(planned));
+  return print(context, { configPath: view.configPath, keys: plannedKeys }, `Replaced ${plannedKeys.join(', ')} in ${view.configPath}\nA running Glimmervoid reloads it; a setting that needs a restart applies after one.`);
+}
+
 const commands: Record<string, (context: CommandContext) => number> = {
   list: (context) => {
     const report = listSettings(requireView());
@@ -246,7 +330,13 @@ const commands: Record<string, (context: CommandContext) => number> = {
     const report = getSetting(view, requireSetting(context, view));
     return print(context, report.readout, report.text);
   },
+  export: (context) => {
+    const view = requireView();
+    context.writeOutput(`${JSON.stringify(withoutEnvSecrets(view.config, ENV_SECRET_BINDINGS), null, 2)}\n`);
+    return 0;
+  },
   set: (context) => {
+    if (context.filePath !== null) return setFromFile(context, context.filePath);
     const view = requireView();
     const setting = requireWritableSetting(context, view);
     const parsed = parseSettingValue(setting, requirePositional(context.positionals, 2, 'value'));
@@ -332,7 +422,8 @@ function runParsedSettingsCommand(parsed: ParsedSettingsRun, io: SettingsCliIo):
     return 1;
   }
   try {
-    return command({ positionals: [commandName, ...parsed.positionals], isJson: parsed.values.json === true, writeOutput: io.writeOutput });
+    const filePath = typeof parsed.values.file === 'string' ? parsed.values.file : null;
+    return command({ positionals: [commandName, ...parsed.positionals], isJson: parsed.values.json === true, filePath, writeOutput: io.writeOutput });
   } catch (error) {
     io.writeError(`settings: ${errorMessage(error)}\n`);
     return 1;

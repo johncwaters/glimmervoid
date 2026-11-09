@@ -102,3 +102,53 @@ test('a running server reloads a value the CLI wrote through its file watch, wit
     stopWatching();
   }
 });
+
+test('settings export prints config without secrets, and set --file applies it back in one validated write that keeps secrets and refuses one', () => {
+  const homeDirectory = isolatedGlimmervoidHome({ ...baseConfig(), github: { readToken: SECRET_VALUE, teams: [] } });
+  const exported = run(['export']);
+  assert.equal(exported.exitCode, 0, exported.stderr);
+  assert.doesNotMatch(exported.stdout, new RegExp(SECRET_VALUE));
+  const exportedConfig = JSON.parse(exported.stdout) as Record<string, unknown>;
+  assert.deepEqual(exportedConfig.posthog, { enabled: true, trafficSpikeEnabled: true });
+  const plannedPath = path.join(homeDirectory, 'planned.json');
+  fs.writeFileSync(plannedPath, JSON.stringify({ posthog: { enabled: true, trafficSpikeEnabled: false }, repoRoots: ['/repos'] }));
+  const applied = run(['set', '--file', plannedPath]);
+  assert.equal(applied.exitCode, 0, applied.stderr);
+  const written = readConfig(homeDirectory);
+  assert.deepEqual(written.posthog, { enabled: true, trafficSpikeEnabled: false, apiKey: SECRET_VALUE });
+  assert.deepEqual(written.repoRoots, ['/repos']);
+  assert.deepEqual(written.github, { readToken: SECRET_VALUE, teams: [] });
+  const before = fs.readFileSync(path.join(homeDirectory, 'config.json'), 'utf8');
+  fs.writeFileSync(plannedPath, JSON.stringify({ github: { readToken: 'replacement' } }));
+  const secretRefused = run(['set', '--file', plannedPath]);
+  assert.equal(secretRefused.exitCode, 1);
+  assert.match(secretRefused.stderr, /github\.readToken is a secret/);
+  fs.writeFileSync(plannedPath, JSON.stringify({ repoRoots: 'not a list' }));
+  const schemaRefused = run(['set', '--file', plannedPath]);
+  assert.equal(schemaRefused.exitCode, 1);
+  assert.match(schemaRefused.stderr, /repoRoots/);
+  const refusals: [Record<string, unknown> | string, RegExp][] = [
+    [{ posthog: null }, /posthog holds a saved secret/],
+    [{ url: 'x', token: 'y' }, /url, token are not config keys/],
+    [{ usage: { scanIntervalMinutes: 0 } }, /usage\.scanIntervalMinutes must be/],
+    [{ remote: { port: 3000 } }, /remote\.port \(3000\) must differ from the local port/],
+    ['WLK_not_json', /is not valid JSON$/m],
+  ];
+  for (const [plannedContent, expectedError] of refusals) {
+    fs.writeFileSync(plannedPath, typeof plannedContent === 'string' ? plannedContent : JSON.stringify(plannedContent));
+    const refused = run(['set', '--file', plannedPath]);
+    assert.equal(refused.exitCode, 1, JSON.stringify(plannedContent));
+    assert.match(refused.stderr, expectedError);
+    assert.doesNotMatch(refused.stderr, /WLK_/);
+  }
+  const companionPath = path.join(homeDirectory, 'vault-companion.json');
+  fs.writeFileSync(companionPath, JSON.stringify({ repoRoots: [] }));
+  assert.match(run(['set', '--file', companionPath]).stderr, /one of Glimmervoid's own secret files/);
+  process.env[AGENT_URL_ENV] = 'http://127.0.0.1:1/agent';
+  try {
+    assert.match(run(['set', '--file', plannedPath]).stderr, /a session cannot run it/);
+  } finally {
+    delete process.env[AGENT_URL_ENV];
+  }
+  assert.equal(fs.readFileSync(path.join(homeDirectory, 'config.json'), 'utf8'), before);
+});

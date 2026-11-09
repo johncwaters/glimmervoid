@@ -207,3 +207,14 @@ test('the production Claude settings command denies Read and shell reads of ever
     if (previousConfigOverride !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigOverride;
   }
 });
+
+test('the production Claude settings command denies glimmervoid settings set --file in a session and allows settings export', async () => {
+  await withProductionHookFixture(async ({ cwd, env, saneYoloTool }) => {
+    const command = saneYoloCommandOf(buildHookSettings({ port: 1, glimmervoidId: 'sane-yolo-e2e', token: 'token', hookTools: [saneYoloTool] }));
+    assert.ok(command);
+    for (const shellCommand of ['glimmervoid settings set --file plan.json', 'npx glimmervoid settings set --json --file plan.json']) {
+      assert.equal(permissionDecisionOf(execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', shellCommand, cwd) })), 'deny', shellCommand);
+    }
+    assert.equal(execSync(command, { cwd, env, encoding: 'utf8', input: hookPayload('--coding-cli', 'glimmervoid settings export', cwd) }).trim(), '');
+  });
+});
