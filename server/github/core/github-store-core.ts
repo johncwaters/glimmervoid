@@ -22,7 +22,7 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     author: node.author?.login ?? null, isAuthorBot: isBotAuthor(node.author), isAuthorOrgMember: isOrgMemberAssociation(node.authorAssociation), labels: node.labels.nodes.map((label) => label.name), commentCount: node.comments.totalCount,
     isDraft: myPr.isDraft, state: myPr.state,
     createdAt: myPr.createdAt, mergedAt: myPr.mergedAt, updatedAt: myPr.updatedAt,
-    baseRefName: myPr.baseRefName, baseRefOid: myPr.baseRefOid,
+    baseRefName: myPr.baseRefName, baseRefOid: myPr.baseRefOid, defaultBranch: node.baseRepository?.defaultBranchRef?.name ?? null,
     headRefName: myPr.headRefName, headRefOid: myPr.headRefOid,
     isCrossRepository: myPr.isCrossRepository, isInMergeQueue: myPr.isInMergeQueue,
     mergeMethod: myPr.mergeMethod, mergeable: myPr.mergeable, mergeStateStatus: myPr.mergeStateStatus,

@@ -951,6 +951,7 @@ function teammatePrAt(head: string): GithubPr {
     isInMergeQueue: false, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
     commits: { nodes: [] }, reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
     reviewRequests: { nodes: [] }, latestOpinionatedReviews: { nodes: [] }, latestReviews: { nodes: [] },
+    baseRepository: { defaultBranchRef: { name: 'main' } },
   }), 0, []));
 }
 
@@ -1023,7 +1024,7 @@ test('resolving an answered thread from the dashboard counts it in the resolved 
 
 type GhCompareReply = { mergeBaseSha: string; files: { filename: string; sha?: string; patch?: string }[] } | 'failed';
 
-async function judgedPatchFilenames(threadMergeBaseSha: string, mainSinceComment: GhCompareReply): Promise<string[] | null> {
+async function judgedPatchFilenames(threadMergeBaseSha: string, mainSinceComment: GhCompareReply, baseRefName = 'main'): Promise<string[] | null> {
   const baseBranchHead = 'e'.repeat(40);
   const threadComparison: GhCompareReply = { mergeBaseSha: threadMergeBaseSha, files: [
     { filename: 'src/app.ts', patch: '@@ -2 +2 @@\n-run(input)\n+run(input ?? [])' },
@@ -1049,7 +1050,7 @@ async function judgedPatchFilenames(threadMergeBaseSha: string, mainSinceComment
     ...threadStore,
     getSnapshot: () => {
       const snapshot = threadStore.getSnapshot();
-      return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY.toLowerCase()]: { ...teammatePrAt(HEAD), baseRefOid: baseBranchHead } } };
+      return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY.toLowerCase()]: { ...teammatePrAt(HEAD), baseRefName, baseRefOid: baseBranchHead } } };
     },
   };
   let judgedFilenames: string[] | null = null;
@@ -1076,7 +1077,7 @@ async function judgedPatchFilenames(threadMergeBaseSha: string, mainSinceComment
   }
 }
 
-test('the thread judge leaves out a file whose change only came from main, keeps one the author changed, and judges nothing when main cannot be compared, a binary file differs from the one on main, or the comment commit left the branch', async () => {
+test('the thread judge leaves out a file whose change only came from main, keeps one the author changed, and judges nothing when main cannot be compared, a binary file differs from the one on main, the comment commit left the branch, or the base is not the default branch', async () => {
   const mainSinceComment: GhCompareReply = { mergeBaseSha: 'f'.repeat(40), files: [
     { filename: 'vendor/lib.ts', patch: '@@ -1 +1 @@\n-v1\n+v2' },
     { filename: 'config.json', patch: '@@ -1 +1 @@\n-debug\n+verbose' },
@@ -1086,6 +1087,7 @@ test('the thread judge leaves out a file whose change only came from main, keeps
   assert.equal(await judgedPatchFilenames(THREAD_BASE, { ...mainSinceComment, files: [...mainSinceComment.files.slice(0, 2), { filename: 'assets/logo.png', sha: 'c'.repeat(40) }] }), null);
   assert.equal(await judgedPatchFilenames(THREAD_BASE, 'failed'), null);
   assert.equal(await judgedPatchFilenames('f'.repeat(40), mainSinceComment), null);
+  assert.equal(await judgedPatchFilenames(THREAD_BASE, mainSinceComment, 'release'), null);
 });
 
 test('a posted review that left the review-request search still picks up a thread resolved on GitHub and the head the author pushed', async () => {

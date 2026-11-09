@@ -88,7 +88,8 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       }
       const comparisonOutcome = comparisonRead.value;
       const threadComparison = comparisonOutcome.ok && comparisonOutcome.comparison?.merge_base_commit.sha === base ? comparisonOutcome.comparison : null;
-      const baseBranchHead = store.getSnapshot().prs[comparablePrKey(candidate)]?.baseRefOid;
+      const pullRequest = store.getSnapshot().prs[comparablePrKey(candidate)];
+      const baseBranchHead = pullRequest && pullRequest.baseRefName === pullRequest.defaultBranch ? pullRequest.baseRefOid : undefined;
       const mainSinceCommentRead = base && baseBranchHead && threadComparison
         ? await readMainSinceComment(candidate.repo, base, baseBranchHead, head)
         : { isRateLimited: false as const, value: { ok: true as const, comparison: null } };

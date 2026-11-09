@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reviews.** The thread judge leaves out files only main changed only when the pull request targets the repository's default branch. On any other base every changed file reaches it, so a base retargeted to a branch holding the author's changes cannot hide them.
+
 ## [0.54.1] - 2026-11-09
 
 ### Added

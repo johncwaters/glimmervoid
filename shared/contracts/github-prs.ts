@@ -35,6 +35,7 @@ export const GithubPrDetailNode = MyPrSearchNode.extend({
     commit: z.object({ oid: z.string() }).nullable().optional(),
   })) }),
   writerOpinionatedReviews: MyPrSearchNode.shape.latestOpinionatedReviews.optional(),
+  baseRepository: z.object({ defaultBranchRef: z.object({ name: z.string() }).nullable() }).nullable().optional(),
 });
 export type GithubPrDetailNode = z.infer<typeof GithubPrDetailNode>;
 
@@ -44,7 +45,7 @@ export const GithubPr = z.strictObject({
   author: WorkflowPr.shape.author, isAuthorBot: z.boolean(), isAuthorOrgMember: z.boolean().nullable(), labels: WorkflowPr.shape.labels, commentCount: WorkflowPr.shape.commentCount,
   isDraft: MyPr.shape.isDraft, state: MyPr.shape.state,
   createdAt: MyPr.shape.createdAt, mergedAt: MyPr.shape.mergedAt, updatedAt: MyPr.shape.updatedAt,
-  baseRefName: MyPr.shape.baseRefName, baseRefOid: MyPr.shape.baseRefOid,
+  baseRefName: MyPr.shape.baseRefName, baseRefOid: MyPr.shape.baseRefOid, defaultBranch: z.string().nullable().optional(),
   headRefName: MyPr.shape.headRefName, headRefOid: MyPr.shape.headRefOid,
   isCrossRepository: MyPr.shape.isCrossRepository, isInMergeQueue: MyPr.shape.isInMergeQueue,
   mergeMethod: MyPr.shape.mergeMethod, mergeable: MyPr.shape.mergeable, mergeStateStatus: MyPr.shape.mergeStateStatus,
