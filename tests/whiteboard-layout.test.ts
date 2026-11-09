@@ -191,7 +191,7 @@ test('a step status that disagrees with the code session changes warns, changed 
       { path: 'src/index.ts', isCommitted: false },
       { path: 'src/stray.ts', isCommitted: true },
     ],
-    worthALookPaths: ['src/parse.ts', 'src/stray.ts'],
+    worthALook: [{ path: 'src/parse.ts', reason: 'Also being changed in "planner"' }, { path: 'src/stray.ts', reason: 'Usually changes with src/save.ts, which is not in this change' }],
     error: null,
   };
 
@@ -204,7 +204,7 @@ test('a step status that disagrees with the code session changes warns, changed 
       'step quiet is landed but src/later.ts is unchanged',
     ],
     uncoveredPaths: ['src/stray.ts'],
-    worthALookPaths: ['src/parse.ts'],
+    worthALook: [{ path: 'src/parse.ts', reason: 'Also being changed in "planner"' }],
     flaggedStepIds: ['early', 'shipped', 'quiet'],
     notChecked: null,
   });

@@ -1,5 +1,5 @@
 import './whiteboard.css';
-import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op, WorthALookPath } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
@@ -422,10 +422,19 @@ function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string
   return (summary.queuedBySessionId[sessionId] ?? 0) > 0;
 }
 
-function worthALookIdsOf(board: Board, worthALookPaths: readonly string[]): Set<string> {
-  const worthALook = new Set(worthALookPaths);
+function shownReviewOf(board: Board | null): BoardReview | null {
+  return board && shownReview?.boardId === board.id ? shownReview.review : null;
+}
+
+function worthALookReasonOf(ref: string): string | null {
+  const refPath = refPathOf(ref);
+  return shownReviewOf(selectedBoard())?.worthALook.find((worth) => worth.path === refPath)?.reason ?? null;
+}
+
+function worthALookIdsOf(board: Board, worthALook: readonly WorthALookPath[]): Set<string> {
+  const worthALookPaths = new Set(worthALook.map((worth) => worth.path));
   return new Set([...board.elements.values()]
-    .filter((element) => refsOfElement(element).some((ref) => worthALook.has(refPathOf(ref) ?? '')))
+    .filter((element) => refsOfElement(element).some((ref) => worthALookPaths.has(refPathOf(ref) ?? '')))
     .map((element) => element.id));
 }
 
@@ -439,9 +448,9 @@ function openRefInReview(ref: string): void {
 function paintReview(): void {
   if (!parts || !renderer) return;
   const board = selectedBoard();
-  const review = board && shownReview?.boardId === board.id ? shownReview.review : null;
+  const review = shownReviewOf(board);
   renderer.setReviewMarks({
-    worthALookIds: board && review ? worthALookIdsOf(board, review.worthALookPaths) : new Set(),
+    worthALookIds: board && review ? worthALookIdsOf(board, review.worthALook) : new Set(),
     flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
   });
 }
@@ -458,6 +467,7 @@ function requestReviewOf(board: Board): void {
     }
     shownReview = { boardId: board.id, review: outcome.review };
     paintReview();
+    inspector?.paint(editor?.selectedIds() ?? new Set());
   });
 }
 
@@ -986,7 +996,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,

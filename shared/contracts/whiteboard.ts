@@ -392,12 +392,14 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   }).strict(),
 ], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach or show' });
 
+export const WorthALookPath = z.object({ path: z.string(), reason: z.string() }).strict();
+
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
   anchorWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   stepWarnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
   uncoveredPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
-  worthALookPaths: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings),
+  worthALook: z.array(WorthALookPath).max(WHITEBOARD_LIMITS.layoutWarnings),
   flaggedStepIds: z.array(ElementId).max(WHITEBOARD_LIMITS.elements),
   notChecked: z.string().nullable(),
 }).strict();
@@ -576,6 +578,7 @@ export type Board = z.infer<typeof Board>;
 export type Op = z.infer<typeof Op>;
 export type BoardChange = z.infer<typeof BoardChange>;
 export type BoardReview = z.infer<typeof BoardReview>;
+export type WorthALookPath = z.infer<typeof WorthALookPath>;
 export type BoardHead = z.infer<typeof BoardHead>;
 export type BoardSummary = z.infer<typeof BoardSummary>;
 export type BoardOutline = z.infer<typeof BoardOutline>;

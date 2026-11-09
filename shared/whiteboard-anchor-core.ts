@@ -1,5 +1,5 @@
 import { linesOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, BoardReview, BoxLine, Element } from './contracts/whiteboard.ts';
+import type { Board, BoardReview, BoxLine, Element, WorthALookPath } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 import { stepBoxesOf } from './whiteboard-plan-core.ts';
@@ -28,7 +28,7 @@ interface ChangedPath {
 
 interface ChangeFacts {
   changedPaths: readonly ChangedPath[];
-  worthALookPaths: readonly string[];
+  worthALook: readonly WorthALookPath[];
   error: string | null;
 }
 
@@ -37,9 +37,9 @@ interface AnchorFacts {
   changes: ChangeFacts | null;
 }
 
-type ChangeReview = Pick<BoardReview, 'stepWarnings' | 'uncoveredPaths' | 'worthALookPaths' | 'flaggedStepIds' | 'notChecked'>;
+type ChangeReview = Pick<BoardReview, 'stepWarnings' | 'uncoveredPaths' | 'worthALook' | 'flaggedStepIds' | 'notChecked'>;
 
-const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ stepWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedStepIds: [], notChecked: null });
+const NO_CHANGE_REVIEW: ChangeReview = Object.freeze({ stepWarnings: [], uncoveredPaths: [], worthALook: [], flaggedStepIds: [], notChecked: null });
 
 const REF_PATTERN = /^([^#\s]+)(?:#L([1-9]\d*)(?:-L([1-9]\d*))?)?$/;
 
@@ -165,8 +165,8 @@ function changeReviewOf(board: Board, sites: readonly AnchorSite[], changes: Cha
   const stepWarnings = [...warningsByStepId.values()].flat();
   const flaggedStepIds = [...warningsByStepId].flatMap(([stepId, warnings]) => (warnings.length > 0 ? [stepId] : []));
   const uncoveredPaths = [...changedByPath.keys()].filter((changedPath) => !refPaths.has(changedPath)).sort();
-  const worthALookPaths = [...new Set(changes.worthALookPaths)].filter((worthPath) => refPaths.has(worthPath));
-  return { stepWarnings: cappedWarnings(stepWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALookPaths: worthALookPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedStepIds, notChecked: null };
+  const worthALook = changes.worthALook.filter((worth) => refPaths.has(worth.path));
+  return { stepWarnings: cappedWarnings(stepWarnings), uncoveredPaths: uncoveredPaths.slice(0, WHITEBOARD_LIMITS.layoutWarnings), worthALook: worthALook.slice(0, WHITEBOARD_LIMITS.layoutWarnings), flaggedStepIds, notChecked: null };
 }
 
 function reviewBoard(board: Board, facts: AnchorFacts | null, elementIds: ReadonlySet<string> | null = null): BoardReview {

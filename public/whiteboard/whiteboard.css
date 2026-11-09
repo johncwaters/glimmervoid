@@ -608,6 +608,8 @@
 
 .wb-inspect-hint { margin: 0; color: var(--text-muted); }
 
+.wb-inspect-worth-a-look { margin: 0; color: var(--state-waiting); font-size: var(--type-meta); }
+
 [data-layout='phone'] .boards-view {
   padding: 8px;
 }

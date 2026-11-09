@@ -697,7 +697,7 @@ test('refs are checked in the code session worktree: a missing file, a line past
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);
   const { review } = JSON.parse(laidOut.printed) as { review: unknown };
-  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALookPaths: [], flaggedStepIds: [], notChecked: null });
+  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALook: [], flaggedStepIds: [], notChecked: null });
 });
 
 test('a board with no code session takes the first session of its project that connects, a session of another project leaves it, and the other sessions hear of it', async () => {

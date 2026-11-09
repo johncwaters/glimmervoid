@@ -4,6 +4,7 @@ import { openContainedFile } from '../contained-file.ts';
 import type { ContainmentRefusal } from '../core/trace-tail-core.ts';
 import { buildChangeMapView } from '../../shared/change-map-view-core.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
+import type { WorthALookPath } from '../../shared/contracts/whiteboard.ts';
 import type { ChangeFacts, FileFact } from '../../shared/whiteboard-anchor-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
@@ -47,18 +48,27 @@ async function readFileFacts(root: string, refPaths: readonly string[]): Promise
   return fileFactByPath;
 }
 
+function worthALookOf(map: ChangeMap): WorthALookPath[] {
+  const reasonsByPath = new Map<string, string[]>();
+  for (const line of buildChangeMapView(map).worthALook.flatMap((group) => group.lines)) {
+    const reasons = reasonsByPath.get(line.openPath) ?? [];
+    if (!reasons.includes(line.heading)) reasons.push(line.heading);
+    reasonsByPath.set(line.openPath, reasons);
+  }
+  return [...reasonsByPath].map(([openPath, reasons]) => ({ path: openPath, reason: reasons.join('; ') }));
+}
+
 function changeFactsOf(map: ChangeMap): ChangeFacts | null {
   if (map.repos.length === 0 && !map.error) return null;
   const changedPaths = map.repos.flatMap((repo) => repo.files.map((file) => ({ path: `${repo.sessionPathPrefix}${file.path}`, isCommitted: file.isCommitted })));
-  const worthALookPaths = buildChangeMapView(map).worthALook.flatMap((group) => group.lines.map((line) => line.openPath));
-  return { changedPaths, worthALookPaths, error: map.error ?? null };
+  return { changedPaths, worthALook: worthALookOf(map), error: map.error ?? null };
 }
 
 async function readChangeFacts(buildChangeMap: () => Promise<ChangeMap>): Promise<ChangeFacts | null> {
   try {
     return changeFactsOf(await buildChangeMap());
   } catch (error) {
-    return { changedPaths: [], worthALookPaths: [], error: errorMessage(error) };
+    return { changedPaths: [], worthALook: [], error: errorMessage(error) };
   }
 }
 
