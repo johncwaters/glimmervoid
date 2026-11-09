@@ -6,8 +6,9 @@ import type {
   UpdateStepId,
 } from '../../shared/contracts/update-journal.ts';
 import { parseRemoteFromUpstream } from './branch-sync-core.ts';
-import { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, normalizeSha } from './update-core.ts';
+import { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, isBinarySwitchFlavor, normalizeSha } from './update-core.ts';
 import { isExperimentalBuild } from '../../shared/build-channel.ts';
+import { STANDALONE_BINARY_PATH } from '../../shared/contracts/control-messages.ts';
 
 const OUTPUT_TAIL_LINE_CAP = 200;
 const PREVIOUS_DIST_BACKUP_NAME = 'prev-dist';
@@ -18,15 +19,15 @@ const SUPPORTED_UPDATE_REMOTE = 'origin';
 const LOWEST_SCHEDULING_PRIORITY = '19';
 const NPM_PACKAGE_FOLDER_NAME = 'glimmervoid';
 const NPM_GLOBAL_UPDATE_FOLDER_NAME = '.glimmervoid-update';
-const DASHBOARD_UPDATABLE_FLAVORS = new Set(['clone', 'npm-global', 'binary']);
+const DASHBOARD_UPDATABLE_FLAVORS = new Set(['clone', 'binary']);
 
-type UpdateArtifact = 'dist' | 'node_modules' | 'package';
+type UpdateArtifact = 'dist' | 'node_modules';
 
 type PreflightRefusalReason =
   | 'unsupported-flavor'
   | 'unsupported-channel'
   | 'unsupported-platform'
-  | 'install-not-writable'
+  | 'supervised-install'
   | 'channel-mismatch'
   | 'no-update-available'
   | 'dirty-tree'
@@ -57,14 +58,9 @@ interface PreflightFacts {
   targetSha: string | null;
   journalState: UpdateRunState;
   restartRequested: boolean;
-  npmGlobalInstall?: NpmGlobalInstall | null;
+  isSupervised?: boolean;
   binaryUpdaterPath?: string | null;
   targetVersion?: string | null;
-}
-
-interface NpmGlobalInstall {
-  installFolder: string;
-  isWritable: boolean | null;
 }
 
 type PreflightDecision =
@@ -94,7 +90,7 @@ type UpdateTransitionName =
 
 const TRANSITIONS_ALLOWED_BY_STATE: Readonly<Record<UpdateRunState, readonly UpdateTransitionName[]>> = Object.freeze({
   idle: Object.freeze<UpdateTransitionName[]>(['begin-run']),
-  running: Object.freeze<UpdateTransitionName[]>(['begin-step', 'finish-step', 'fail-run', 'mark-staged', 'mark-interrupted']),
+  running: Object.freeze<UpdateTransitionName[]>(['begin-step', 'finish-step', 'fail-run', 'mark-staged', 'mark-succeeded', 'mark-interrupted']),
   staged: Object.freeze<UpdateTransitionName[]>(['fail-run', 'mark-succeeded', 'mark-discarded']),
   succeeded: Object.freeze<UpdateTransitionName[]>(['begin-run', 'fail-run']),
   failed: Object.freeze<UpdateTransitionName[]>(['begin-run']),
@@ -158,9 +154,7 @@ function retireAtBoot(journal: UpdateJournal, { wasPersisted }: { wasPersisted: 
 }
 
 function decidePreflight(facts: PreflightFacts): PreflightDecision {
-  if (facts.flavor === 'npx') {
-    return { ok: false, reason: 'unsupported-flavor', message: 'Glimmervoid runs from the npx cache. Stop Glimmervoid and run the command shown.' };
-  }
+  if (isBinarySwitchFlavor(facts.flavor)) return decideBinarySwitchPreflight(facts);
   if (facts.flavor === 'homebrew') {
     return { ok: false, reason: 'unsupported-flavor', message: `Glimmervoid was installed with Homebrew. Run ${HOMEBREW_COMMAND}, then restart Glimmervoid.` };
   }
@@ -176,7 +170,6 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
   if (!facts.updateAvailable) {
     return { ok: false, reason: 'no-update-available', message: 'No update is available.' };
   }
-  if (facts.flavor === 'npm-global') return decideNpmGlobalPreflight(facts);
   if (facts.flavor === 'binary') return decideBinaryPreflight(facts);
   return decideClonePreflight(facts);
 }
@@ -204,17 +197,19 @@ function decideRunPreflight(facts: PreflightFacts): PreflightDecision {
   return { ok: true, lockfileCheckNeeded: true };
 }
 
-function decideNpmGlobalPreflight(facts: PreflightFacts): PreflightDecision {
-  const install = facts.npmGlobalInstall;
-  if (!install) {
-    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because this install is not in an npm global folder.' };
-  }
-  if (install.isWritable === false) {
+function decideBinarySwitchPreflight(facts: PreflightFacts): PreflightDecision {
+  if (facts.isSupervised) {
     return {
       ok: false,
-      reason: 'install-not-writable',
-      message: `Use the install command because Glimmervoid cannot write to ${install.installFolder}.`,
+      reason: 'supervised-install',
+      message: `Glimmervoid runs as a systemd or launchd service, so Update cannot switch it. Run the install command, point the service's ExecStart (systemd) or ProgramArguments (launchd) at ${STANDALONE_BINARY_PATH}, restart the service, then run npm uninstall -g glimmervoid.`,
     };
+  }
+  if (facts.statusChannel !== facts.configuredChannel) {
+    return { ok: false, reason: 'channel-mismatch', message: 'The update status is for another channel. Check for updates again.' };
+  }
+  if (!facts.updateAvailable) {
+    return { ok: false, reason: 'no-update-available', message: 'No release is available to install. Check for updates again.' };
   }
   return decideRunPreflight(facts);
 }
@@ -298,11 +293,7 @@ function planHandOffRenames({
 }
 
 interface NpmGlobalLayout {
-  installFolder: string;
-  livePackagePath: string;
-  updatePath: string;
   stagePrefix: string;
-  stagedPackagePath: string;
   previousPackagePath: string;
   quarantinedPackagePath: string;
 }
@@ -311,26 +302,12 @@ function decideNpmGlobalLayout(packageRoot: string): NpmGlobalLayout | null {
   const segments = packageRoot.replace(/\/+$/, '').split('/');
   const [libName, nodeModulesName, packageName] = segments.slice(-3);
   if (packageName !== NPM_PACKAGE_FOLDER_NAME || nodeModulesName !== 'node_modules' || libName !== 'lib') return null;
-  const installFolder = segments.slice(0, -1).join('/');
-  const updatePath = `${installFolder}/${NPM_GLOBAL_UPDATE_FOLDER_NAME}`;
-  const stagePrefix = `${updatePath}/stage`;
+  const updatePath = `${segments.slice(0, -1).join('/')}/${NPM_GLOBAL_UPDATE_FOLDER_NAME}`;
   return {
-    installFolder,
-    livePackagePath: segments.join('/'),
-    updatePath,
-    stagePrefix,
-    stagedPackagePath: `${stagePrefix}/lib/node_modules/${NPM_PACKAGE_FOLDER_NAME}`,
+    stagePrefix: `${updatePath}/stage`,
     previousPackagePath: `${updatePath}/previous`,
     quarantinedPackagePath: `${updatePath}/broken`,
   };
-}
-
-function planNpmGlobalHandOffRenames(layout: NpmGlobalLayout): HandOffRenamePlan {
-  const renames: RenameOperation[] = [
-    { from: layout.livePackagePath, to: layout.previousPackagePath, artifact: 'package' },
-    { from: layout.stagedPackagePath, to: layout.livePackagePath, artifact: 'package' },
-  ];
-  return { renames, reversalsByFailureIndex: reversalsFor(renames) };
 }
 
 function reversalsFor(renames: RenameOperation[]): RenameOperation[][] {
@@ -480,7 +457,6 @@ export {
   markStaged,
   markSucceeded,
   planHandOffRenames,
-  planNpmGlobalHandOffRenames,
   planSteps,
   PREVIOUS_DEPENDENCIES_BACKUP_NAME,
   PREVIOUS_DIST_BACKUP_NAME,
@@ -488,4 +464,4 @@ export {
   QUARANTINED_DIST_NAME,
   retireAtBoot,
 };
-export type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation };
+export type { PreflightDecision, RenameOperation };

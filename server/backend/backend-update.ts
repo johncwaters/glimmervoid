@@ -3,8 +3,7 @@ import type { UpdateChannel, UpdateJournal, UpdateJournalSummary } from '../../s
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts';
-import type { NpmGlobalInstall } from '../core/update-apply-core.ts';
-import { decideUpdateStatus, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
+import { decideUpdateStatus, isBinarySwitchFlavor, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
 import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
 import type { UpdateCheckStatus } from '../update-check.ts';
 
@@ -24,7 +23,7 @@ interface BackendUpdateDependencies {
   checkForUpdate: CheckForUpdate | undefined;
   getUpdateJournal?: () => UpdateJournal | null;
   isRestartRequested?: () => boolean;
-  getNpmGlobalInstall?: () => NpmGlobalInstall | null;
+  isSupervised?: () => boolean;
   getBinaryUpdaterPath?: () => string | null;
   getControlClientCount: () => number;
   broadcastControl: ControlBroadcast;
@@ -96,7 +95,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       targetSha: recorded.latestSha,
       journalState: journal?.state || 'idle',
       restartRequested: dependencies.isRestartRequested?.() === true,
-      npmGlobalInstall: dependencies.getNpmGlobalInstall?.() ?? null,
+      isSupervised: dependencies.isSupervised?.() === true,
       binaryUpdaterPath: dependencies.getBinaryUpdaterPath?.() ?? null,
       targetVersion: recorded.latest,
     });
@@ -179,7 +178,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   function downloadInBackground(status: UpdateStatus): void {
     const downloadUpdate = dependencies.downloadUpdate;
     if (!downloadUpdate || dependencies.config.checkForUpdates === false) return;
-    if (!status.updateAvailable || status.applyRefusal) return;
+    if (!status.updateAvailable || status.applyRefusal || isBinarySwitchFlavor(status.flavor)) return;
     const identity = status.latestSha || status.latest;
     if (!identity || identity === lastDownloadedIdentity) return;
     lastDownloadedIdentity = identity;

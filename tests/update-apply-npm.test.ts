@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +10,7 @@ import type { UpdateStatus } from '../shared/contracts/control-messages.ts';
 const TARGET_VERSION = '2.0.0';
 
 async function refuseGit(): Promise<never> {
-  throw new Error('an npm global update must not run git');
+  throw new Error('a binary install or switch must not run git');
 }
 
 const GIT_WORKSPACE_FORBIDDEN = {
@@ -23,37 +22,6 @@ const GIT_WORKSPACE_FORBIDDEN = {
   stageDetachedWorktree: refuseGit,
 };
 
-function writePackage(packagePath: string, version: string): void {
-  fs.mkdirSync(path.join(packagePath, 'dist', 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(packagePath, 'package.json'), JSON.stringify({ name: 'glimmervoid', version }));
-  fs.writeFileSync(
-    path.join(packagePath, 'dist', 'bin', 'glimmervoid.js'),
-    `if (process.argv[2] === '--version') console.log(${JSON.stringify(version)});\n`,
-  );
-}
-
-function makeInstall({ npmExitCode = 0 } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-npm-update-'));
-  const installFolder = path.join(root, 'prefix', 'lib', 'node_modules');
-  const packageRoot = path.join(installFolder, 'glimmervoid');
-  writePackage(packageRoot, '1.0.0');
-  const publishedPackage = path.join(root, 'published');
-  writePackage(publishedPackage, TARGET_VERSION);
-  const nodeBin = path.join(root, 'node-bin');
-  fs.mkdirSync(nodeBin);
-  fs.symlinkSync(process.execPath, path.join(nodeBin, 'node'));
-  fs.writeFileSync(path.join(nodeBin, 'npm'), [
-    '#!/bin/sh',
-    `[ ${npmExitCode} -ne 0 ] && { echo "npm ERR! registry unreachable" >&2; exit ${npmExitCode}; }`,
-    `printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'npm-argv.txt'))}`,
-    'while [ "$1" != "--prefix" ]; do shift; done',
-    'mkdir -p "$2/lib/node_modules"',
-    `cp -R ${JSON.stringify(publishedPackage)} "$2/lib/node_modules/glimmervoid"`,
-    '',
-  ].join('\n'), { mode: 0o755 });
-  return { root, installFolder, packageRoot, nodePath: path.join(nodeBin, 'node') };
-}
-
 function availableUpdate(): UpdateStatus {
   return {
     updateAvailable: true,
@@ -62,7 +30,7 @@ function availableUpdate(): UpdateStatus {
     currentSha: null,
     latestSha: null,
     releaseUrl: null,
-    command: `npm install -g glimmervoid@${TARGET_VERSION}`,
+    command: 'glimmervoid-installer.sh',
     flavor: 'npm-global',
     platform: 'darwin',
     installedBranch: null,
@@ -77,7 +45,26 @@ function availableUpdate(): UpdateStatus {
   };
 }
 
-function startLane(install: ReturnType<typeof makeInstall>) {
+function makeNpmInstall({ installerExitCode = 0 } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-binary-switch-'));
+  const packageRoot = path.join(root, 'prefix', 'lib', 'node_modules', 'glimmervoid');
+  fs.mkdirSync(packageRoot, { recursive: true });
+  const installedMarker = path.join(root, 'installed.txt');
+  const installerScript = [
+    'echo "downloading glimmervoid"',
+    `[ ${installerExitCode} -ne 0 ] && { echo "installer could not reach github.com" >&2; exit ${installerExitCode}; }`,
+    `printf '%s' ${JSON.stringify(TARGET_VERSION)} > ${JSON.stringify(installedMarker)}`,
+    '',
+  ].join('\n');
+  const requestedUrls: string[] = [];
+  const fetchFn = (async (url: string | URL | Request) => {
+    requestedUrls.push(String(url));
+    return new Response(installerScript);
+  }) as typeof fetch;
+  return { root, packageRoot, installedMarker, requestedUrls, fetchFn };
+}
+
+function startSwitchLane(install: ReturnType<typeof makeNpmInstall>, env: NodeJS.ProcessEnv = {}) {
   const lane = createUpdateApplyLane({
     gitWorkspace: GIT_WORKSPACE_FORBIDDEN,
     packageRoot: install.packageRoot,
@@ -87,111 +74,59 @@ function startLane(install: ReturnType<typeof makeInstall>) {
     broadcastControl: () => {},
     logger: { log: () => {}, warn: () => {} },
     platform: 'darwin',
-    nodePath: install.nodePath,
+    standaloneExecutablePath: null,
+    fetchFn: install.fetchFn,
+    env,
   });
   lane.startAfterListening({ listening: true, once: () => {}, removeListener: () => {} });
   return lane;
 }
 
-function installedVersion(packagePath: string): string {
-  return (JSON.parse(fs.readFileSync(path.join(packagePath, 'package.json'), 'utf8')) as { version: string }).version;
-}
-
-test('an npm global install stages the channel version, swaps it in at hand-off, and drops the old copy once the new server listens', async () => {
-  const install = makeInstall();
+test('an npm install in a read-only global prefix switches by running the target release installer without a restart', async () => {
+  const install = makeNpmInstall();
+  fs.chmodSync(install.packageRoot, 0o555);
   try {
-    const lane = startLane(install);
-    const staged = await lane.applyUpdate();
-    assert.equal(staged.ok, true, staged.message);
-    const npmArguments = fs.readFileSync(path.join(install.root, 'npm-argv.txt'), 'utf8').split('\n');
-    assert.ok(npmArguments.includes('--prefer-online'), 'a stale cached package list must not hide a just-published version');
-    assert.equal(lane.getJournal().state, 'staged');
-    assert.equal(installedVersion(install.packageRoot), '1.0.0');
-
-    await lane.handOffStagedUpdate();
+    const lane = startSwitchLane(install);
+    const outcome = await lane.applyUpdate();
     await lane.stop();
+    assert.equal(outcome.ok, true, outcome.message);
+    assert.deepEqual(install.requestedUrls, [`https://github.com/johncwaters/glimmervoid/releases/download/v${TARGET_VERSION}/glimmervoid-installer.sh`]);
+    assert.equal(fs.readFileSync(install.installedMarker, 'utf8'), TARGET_VERSION);
     assert.equal(lane.getJournal().state, 'succeeded');
-    assert.equal(installedVersion(install.packageRoot), TARGET_VERSION);
-    const previousPackagePath = path.join(install.installFolder, '.glimmervoid-update', 'previous');
-    assert.equal(installedVersion(previousPackagePath), '1.0.0');
-
-    const successor = startLane(install);
-    await successor.whenIdle();
-    assert.equal(fs.existsSync(previousPackagePath), false);
   } finally {
+    fs.chmodSync(install.packageRoot, 0o755);
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });
 
-test('a restarted npm global update whose new server exits before listening is rolled back to the previous version', async () => {
-  const install = makeInstall();
+test('an npm install under systemd refuses the switch and downloads nothing', async () => {
+  const install = makeNpmInstall();
   try {
-    const lane = startLane(install);
-    await lane.applyUpdate();
-    await lane.handOffStagedUpdate();
-    assert.equal(installedVersion(install.packageRoot), TARGET_VERSION);
-
-    const successor = new EventEmitter();
-    const supervision = lane.superviseSuccessor(successor);
-    successor.emit('exit');
-    assert.equal(await supervision, true);
-    await lane.stop();
-
-    assert.equal(installedVersion(install.packageRoot), '1.0.0');
-    const journal = lane.getJournal();
-    assert.equal(journal.state, 'failed');
-    assert.equal(journal.failedAtHandOff, true);
-    assert.match(journal.reason || '', /exited before listening/);
-  } finally {
-    fs.rmSync(install.root, { recursive: true, force: true });
-  }
-});
-
-test('a failed npm install fails the run with npm output and leaves the live install untouched', async () => {
-  const install = makeInstall({ npmExitCode: 1 });
-  try {
-    const lane = startLane(install);
+    const lane = startSwitchLane(install, { INVOCATION_ID: 'unit' });
     const outcome = await lane.applyUpdate();
     await lane.stop();
     assert.equal(outcome.ok, false);
-    const journal = lane.getJournal();
-    assert.equal(journal.state, 'failed');
-    assert.match(journal.steps.flatMap((step) => step.outputTail).join('\n'), /registry unreachable/);
-    assert.equal(installedVersion(install.packageRoot), '1.0.0');
-    assert.equal(fs.existsSync(path.join(install.installFolder, '.glimmervoid-update', 'stage')), false);
+    assert.equal(outcome.reason, 'supervised-install');
+    assert.match(outcome.message, /npm uninstall -g glimmervoid/);
+    assert.deepEqual(install.requestedUrls, []);
   } finally {
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });
 
-test('an npm global install whose folder is not writable refuses before downloading', async () => {
-  const install = makeInstall();
-  fs.chmodSync(install.installFolder, 0o555);
+test('a failed installer fails the run with its output and the switch can be retried', async () => {
+  const install = makeNpmInstall({ installerExitCode: 1 });
   try {
-    const lane = startLane(install);
+    const lane = startSwitchLane(install);
     const outcome = await lane.applyUpdate();
+    assert.equal(outcome.ok, false);
+    assert.equal(lane.getJournal().state, 'failed');
+    assert.match(lane.getJournal().steps[0].outputTail.join('\n'), /could not reach github.com/);
+    const retried = await lane.applyUpdate();
     await lane.stop();
-    assert.equal(outcome.reason, 'install-not-writable');
-    assert.match(outcome.message, new RegExp(install.installFolder));
-    assert.equal(lane.getNpmGlobalInstall()?.isWritable, false);
-    assert.equal(lane.getJournal().state, 'idle');
+    assert.equal(retried.ok, false);
+    assert.equal(install.requestedUrls.length, 2);
   } finally {
-    fs.chmodSync(install.installFolder, 0o755);
-    fs.rmSync(install.root, { recursive: true, force: true });
-  }
-});
-
-test('an npm global install whose package folder is not writable refuses before downloading', async () => {
-  const install = makeInstall();
-  fs.chmodSync(install.packageRoot, 0o555);
-  try {
-    const lane = startLane(install);
-    const outcome = await lane.applyUpdate();
-    await lane.stop();
-    assert.equal(outcome.reason, 'install-not-writable');
-    assert.equal(fs.existsSync(path.join(install.installFolder, '.glimmervoid-update', 'stage')), false);
-  } finally {
-    fs.chmodSync(install.packageRoot, 0o755);
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });

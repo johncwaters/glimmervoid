@@ -55,7 +55,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['server/spawn-gate.ts', 4],
   ['server/trace-wiring.ts', 3],
   ['server/trace/trace-transcript-drain.ts', 6],
-  ['server/update-apply.ts', 7],
+  ['server/update-apply.ts', 5],
   ['server/usage/usage-scanner.ts', 6],
   ['server/usage/usage-wiring.ts', 5],
   ['server/ws-sender.ts', 4],

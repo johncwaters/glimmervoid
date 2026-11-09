@@ -1,3 +1,4 @@
+import { BINARY_SWITCH_FLAVORS, STANDALONE_BINARY_PATH } from '#shared/contracts/control-messages.ts';
 import type { UpdateStatus } from '#shared/contracts/control-messages.ts';
 import type { UpdateJournal, UpdateRunState, UpdateStepStatus } from '#shared/contracts/update-journal.ts';
 import { textOr } from '#shared/coerce.ts';
@@ -66,7 +67,7 @@ const CHECK_FAILURE_TEXT: Readonly<Record<string, string>> = Object.freeze({
   'update-check-failed': 'The last update check failed.',
 });
 
-const INSTALL_SHAPE_REFUSALS: readonly string[] = Object.freeze(['unsupported-flavor', 'unsupported-platform', 'install-not-writable']);
+const INSTALL_SHAPE_REFUSALS: readonly string[] = Object.freeze(['unsupported-flavor', 'unsupported-platform', 'supervised-install']);
 export const NOT_CONNECTED_TEXT = 'Not connected to the server. Reconnecting.';
 export const REQUEST_TIMED_OUT_TEXT = 'Request timed out';
 
@@ -118,8 +119,18 @@ export function updateControls({
   return { ...decided, note: request.failure };
 }
 
+function isBinarySwitch(status: UpdateStatusView | null | undefined): boolean {
+  return BINARY_SWITCH_FLAVORS.has(status?.flavor ?? '');
+}
+
+function switchedToBinaryText(status: UpdateStatusView | null | undefined): string {
+  const leftover = status?.flavor === 'npx' ? 'stop starting it with npx.' : 'run npm uninstall -g glimmervoid.';
+  return `Installed at ${STANDALONE_BINARY_PATH}. Stop this server, start glimmervoid from a new shell, then ${leftover}`;
+}
+
 function statusControls(runState: unknown, status: UpdateStatusView | null | undefined, isRequestInFlight: boolean): UpdateControls {
   if (runState === 'running' || isRequestInFlight) return controls([]);
+  if (runState === 'succeeded' && isBinarySwitch(status)) return controls([], switchedToBinaryText(status));
   if (runState === 'staged') return controls(['restart']);
   if (isTargetCheckedOut(status)) return controls(['restart']);
   if (!status?.updateAvailable) return controls(['check']);
@@ -148,7 +159,17 @@ function securityNoticeText(status: UpdateStatusView | null | undefined): string
   return `Security notice: ${current} is marked unsafe. ${deprecation}`;
 }
 
+function binarySwitchBanner(status: UpdateStatusView): Omit<UpdateBanner, 'tone'> {
+  const runState = status.journalSummary?.state;
+  if (runState === 'succeeded') return { mode: 'link', text: switchedToBinaryText(status) };
+  if (runState === 'running') return { mode: 'link', text: 'Installing the standalone app.' };
+  const refusal = status.applyRefusal;
+  if (refusal?.reason === 'supervised-install') return { mode: 'command', text: `Glimmervoid now ships as a standalone app. ${refusal.message}` };
+  return { mode: 'link', text: 'Glimmervoid now ships as a standalone app. Open Updates and press Update to install it.' };
+}
+
 function plainUpdateBanner(status: UpdateStatusView | null | undefined): Omit<UpdateBanner, 'tone'> {
+  if (status && isBinarySwitch(status)) return binarySwitchBanner(status);
   const latest = versionLabel(status?.latest, status?.latestSha) || 'A new version';
   if (isUpdateReady(status)) return { mode: 'restart', text: `${latest} is ready. Restart to update, or it installs on the next start.` };
   if (status?.journalSummary?.state === 'running') return { mode: 'link', text: `Downloading ${latest} in the background.` };
