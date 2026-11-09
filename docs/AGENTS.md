@@ -11,7 +11,7 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | File | Description |
 |------|-------------|
 | `postmortem-terminal-detection.md` | Postmortem of the content-scraping detection era; rationale for the structural-signal rewrite and the signal x state matrix |
-| `distribution.md` | How Glimmervoid ships: npm registry package published by `publish.yml` from a release tag via trusted publishing, the release steps, the update check, and which test or workflow enforces each claim |
+| `distribution.md` | How Glimmervoid ships: standalone binaries built by `release.yml` from a release tag, the end of the npm package, the release steps, the update check, and which test or workflow enforces each claim |
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by the cli-docs gate |
 | `coherence-boundary-spec.md` | Operator-approved optional Coherence boundary; executable acceptance in the coherence-boundary gate |
 | `configuration.md` | GENERATED config and environment reference (`npm run docs:config`, `scripts/generate-config-docs.ts`); never edit by hand, the config-docs gate fails on drift |

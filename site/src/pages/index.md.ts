@@ -2,8 +2,8 @@ import type { APIRoute } from 'astro';
 import { AGENT_COMMAND_HELP } from '../../../server/core/agent-api-core.ts';
 import { agentMarkdownPage, markdownResponse } from '../lib/agent-markdown.ts';
 import { FAQ_ENTRIES } from '../lib/faq.ts';
-import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
-import { AGENT_CARDS, DEFAULT_PORT, MINIMUM_NODE_VERSION, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
+import { AGENT_CARDS, DEFAULT_PORT, SANE_YOLO_AGENT_LABELS, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 export const GET: APIRoute = ({ site }) => {
@@ -12,9 +12,9 @@ export const GET: APIRoute = ({ site }) => {
     `Glimmervoid is an open-source agentic development environment (ADE): a local orchestrator for coding agents. A small Node.js process on your own machine starts each agent as a real process in a real terminal, with your own login, subscription, skills, hooks and settings, gives each session its own git worktree, and serves a browser dashboard that shows which session needs you. It never sits between an agent and its model. It binds to localhost, needs no account, and is open source under MIT. Current version: ${PRODUCT_VERSION}.`,
     '## Install',
     [
-      `- Windows and macOS: \`${INSTALL_COMMAND}\``,
-      `- Linux: \`${LINUX_INSTALL_COMMAND}\``,
-      `- Needs Node ${MINIMUM_NODE_VERSION}. The dashboard opens at http://localhost:${DEFAULT_PORT}. Ctrl+C stops the server. The same command updates.`,
+      `- macOS and Linux: \`${INSTALL_COMMAND}\``,
+      `- Windows: \`${WINDOWS_INSTALL_COMMAND}\``,
+      `- The standalone app needs no Node. The dashboard opens at http://localhost:${DEFAULT_PORT}. Ctrl+C stops the server. \`glimmervoid-update\` updates it.`,
       '- `glimmervoid doctor` checks PATH, agent CLIs and node-pty. `glimmervoid pair` links a phone.',
     ].join('\n'),
     '## Supported agents',
@@ -45,7 +45,6 @@ export const GET: APIRoute = ({ site }) => {
     '## Links',
     [
       `- Source: ${REPOSITORY_URL}`,
-      '- npm: https://www.npmjs.com/package/glimmervoid',
       `- Changelog: ${REPOSITORY_URL}/blob/main/CHANGELOG.md`,
       `- Blog: ${urlOf('blog/')}`,
     ].join('\n'),

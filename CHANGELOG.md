@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The npm package.** Glimmervoid is no longer published to npm; 0.54.0 was the last npm release, and the older npm versions are deprecated with a message pointing at the installer. Install the standalone app with the curl or PowerShell installer in the README, or with Homebrew. An npm or npx install of 0.54.0 switches over from Settings, Updates.
+
 ## [0.54.0] - 2026-11-09
 
 ### Added

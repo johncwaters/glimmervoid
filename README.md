@@ -1,7 +1,6 @@
 # Glimmervoid
 
 [![CI](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml/badge.svg)](https://github.com/johncwaters/glimmervoid/actions/workflows/test.yml)
-[![npm](https://img.shields.io/npm/v/glimmervoid.svg)](https://www.npmjs.com/package/glimmervoid)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24.15-brightgreen.svg)](https://nodejs.org)
 [![Platform: Windows | Linux | macOS](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-0078d4)](https://github.com/johncwaters/glimmervoid)
@@ -41,21 +40,13 @@ glimmervoid
 
 The curl and PowerShell installers put `glimmervoid` and its updater `glimmervoid-update` in `~/.glimmervoid/bin` and add that folder to your PATH; open a new terminal if `glimmervoid` is not found yet. Homebrew keeps it in its own folder and updates it with `brew upgrade glimmervoid`.
 
-With Node 24.15 or newer, npm works too. The flag lets node-pty and ffmpeg-static run their install scripts, which npm 12 blocks by default:
-
-```bash
-npx --allow-scripts=node-pty,ffmpeg-static glimmervoid@latest
-```
-
-On Linux, node-pty compiles at install time, so install the build tools first: `sudo apt install build-essential python3 git`.
+Glimmervoid is no longer published to npm; 0.54.0 was the last npm release. An npm or npx install switches over from the dashboard: open Settings, Updates and press Update.
 
 **2. Open http://localhost:3000.** The first start from a terminal opens it in your browser for you; pass `--no-open` to skip that.
 
 **3. Follow the checklist.** The empty dashboard walks you through three steps: an agent CLI it can find, the folder that holds your git checkouts, and your first session. It suggests folders such as `~/Projects` that already hold git repos, or you can type a path. Each subfolder becomes a project. For a folder outside your repository roots, open **Run in a folder outside your repository roots** in the **+ Session** dialog.
 
 That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background, unless Streamer mode is on.
-
-Keep `@latest` so npx picks up new releases. To install globally instead, run `npm install -g glimmervoid --allow-scripts=node-pty,ffmpeg-static`, then `glimmervoid`. Never use `sudo npm`; see [EACCES on a global install](docs/troubleshooting.md#eacces-on-a-global-install).
 
 If something fails, run `glimmervoid doctor` and see [troubleshooting](docs/troubleshooting.md).
 
@@ -69,17 +60,16 @@ npm run build
 npm start
 ```
 
-`npm ci` does not run on Windows, because a dev dependency supports only macOS and Linux: on Windows, install the package or build from source in WSL.
+`npm ci` does not run on Windows, because a dev dependency supports only macOS and Linux: on Windows, use the standalone binary or build from source in WSL.
 
 To update, run `git pull --ff-only && npm ci && npm run build` and restart. The dashboard's update banner shows the right command for however you installed.
 
 ## Requirements
 
-- **Node.js 24.15 or newer**, only for the npm install or a source build; the standalone binary carries its own. Distro-packaged Node is usually older; use nvm, NodeSource or the official installer. Coherence, when a repository uses it, runs with the `node` on your PATH.
+- **Node.js 24.15 or newer**, only for a source build; the standalone binary carries its own. Distro-packaged Node is usually older; use nvm, NodeSource or the official installer. Coherence, when a repository uses it, runs with the `node` on your PATH.
 - **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
 - **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
-- **Linux npm installs only:** `build-essential` and `python3` to compile node-pty.
 
 `glimmervoid doctor` checks all of these.
 

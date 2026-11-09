@@ -1,9 +1,9 @@
 ---
 import InstallCommand from './InstallCommand.astro';
 import PhoneNextStep from './PhoneNextStep.astro';
-import { INSTALL_COMMAND, LINUX_INSTALL_COMMAND } from '../lib/install-command.ts';
+import { WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
-import { DEFAULT_PORT, MINIMUM_NODE_VERSION, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { DEFAULT_PORT, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
 const BOOT_LINES = [
   { text: `GLIMMERVOID ${PRODUCT_VERSION}`, isBanner: true },
@@ -11,15 +11,15 @@ const BOOT_LINES = [
   { text: 'Ctrl+C stops the server.', isBanner: false },
 ];
 const NEXT_COMMANDS = [
-  { command: 'glimmervoid doctor', linuxCommand: null, line: 'Checks PATH, agent CLIs and node-pty' },
-  { command: 'glimmervoid pair', linuxCommand: null, line: 'Links your phone' },
-  { command: INSTALL_COMMAND, linuxCommand: null, line: 'Updates. Same command.' },
+  { command: 'glimmervoid doctor', line: 'Checks PATH, agent CLIs and node-pty' },
+  { command: 'glimmervoid pair', line: 'Links your phone' },
+  { command: 'glimmervoid-update', line: 'Updates to the latest release' },
 ];
 ---
 <section id="install">
   <div class="section-head reveal">
     <h2>Shipping in a minute.</h2>
-    <p>One command. Needs Node {MINIMUM_NODE_VERSION}.</p>
+    <p>One command. No Node needed.</p>
     <p>No account needed. Bring your own subscription. <a href={REPOSITORY_URL}>Open source</a>, MIT.</p>
   </div>
   <div class="install-console reveal" id="install-console">
@@ -27,18 +27,18 @@ const NEXT_COMMANDS = [
       <fieldset class="platform-switch" data-platform-switch aria-label="Your operating system" hidden>
         {INSTALL_PLATFORMS.map((platform) => <button type="button" data-platform={platform} aria-pressed="false">{INSTALL_PLATFORM_LABELS[platform]}</button>)}
       </fieldset>
-      <p class="console-platforms" data-install-platform-note>Windows and macOS, then Linux</p>
+      <p class="console-platforms" data-install-platform-note>macOS and Linux, then Windows</p>
       <span class="console-copy">
         <span class="copy-status" data-copy-status role="status"></span>
         <button class="btn" type="button" data-copy-install>Copy</button>
       </span>
     </div>
-    <pre class="console-screen"><code class="console-command" data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="linux"><InstallCommand command={LINUX_INSTALL_COMMAND} /></span></code><span class="boot-output">{BOOT_LINES.map(({ text, isBanner }, lineIndex) => <span class={`boot-line${isBanner ? ' is-banner' : ''}`} data-boot-step={lineIndex + 1}>{text}</span>)}</span></pre>
+    <pre class="console-screen"><code class="console-command" data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="windows"><InstallCommand command={WINDOWS_INSTALL_COMMAND} /></span></code><span class="boot-output">{BOOT_LINES.map(({ text, isBanner }, lineIndex) => <span class={`boot-line${isBanner ? ' is-banner' : ''}`} data-boot-step={lineIndex + 1}>{text}</span>)}</span></pre>
   </div>
   <ul class="next-commands reveal" aria-label="After install">
-    {NEXT_COMMANDS.map(({ command, linuxCommand, line }) => (
+    {NEXT_COMMANDS.map(({ command, line }) => (
       <li data-next-command>
-        {linuxCommand === null ? <code title="Click to copy">{command}</code> : <code title="Click to copy"><span data-install-for="default">{command}</span><span data-install-for="linux" hidden>{linuxCommand}</span></code>}
+        <code title="Click to copy">{command}</code>
         <span class="next-line">{line}</span>
         <span class="next-copy">
           <span class="copy-status" data-copy-status role="status"></span>
@@ -69,7 +69,7 @@ const NEXT_COMMANDS = [
     const command = nextCommand.querySelector<HTMLElement>('code');
     const copyControl = nextCommand.querySelector<HTMLElement>('[data-copy-control]');
     const copyStatus = nextCommand.querySelector<HTMLElement>('[data-copy-status]');
-    if (command && copyControl && copyStatus) wireCopyControl(copyControl, command, copyStatus, () => command.querySelector<HTMLElement>('[data-install-for]:not([hidden])') ?? command);
+    if (command && copyControl && copyStatus) wireCopyControl(copyControl, command, copyStatus, () => command);
   }
 </script>
 

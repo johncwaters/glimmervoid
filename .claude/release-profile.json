@@ -4,7 +4,7 @@
     "scheme": "semver",
     "version_file": "package.json",
     "tag_format": "vX.Y.Z",
-    "notes": "main always carries the upcoming release as X.Y.Z-next.0; the chore(release): vX.Y.Z commit sets package.json and the lockfile to X.Y.Z (dropping -next.0, or raising minor or major by hand), and npm run release then reopens main at X.Y.(Z+1)-next.0. Every green push to main publishes X.Y.Z-next.<run> to npm dist-tag next. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists."
+    "notes": "main always carries the upcoming release as X.Y.Z-next.0; the chore(release): vX.Y.Z commit sets package.json and the lockfile to X.Y.Z (dropping -next.0, or raising minor or major by hand), and npm run release then reopens main at X.Y.(Z+1)-next.0. npm publishing ended at 0.54.0. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists."
   },
   "changelog": {
     "path": "CHANGELOG.md",
@@ -24,24 +24,22 @@
     "post_release": [
       "git ls-remote --tags origin vX.Y.Z",
       "gh release view vX.Y.Z",
-      "git ls-remote --tags origin vX.Y.Z^{}",
-      "npm view glimmervoid@X.Y.Z version"
+      "git ls-remote --tags origin vX.Y.Z^{}"
     ],
     "evidence": [
       "git_tag",
       "github_release_url",
-      "remote_release_tag",
-      "npm_registry_version"
+      "remote_release_tag"
     ]
   },
   "publish": {
     "trigger": "local_script",
     "detail": {
       "command": "npm run release",
-      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, npm pack dry-run check, captures HEAD and pushes that SHA to main, dispatches test.yml and waits for it to pass on that SHA, annotated tag on that SHA plus push tag, gh release create --verify-tag --draft from the changelog section with no assets, dispatches release-tarball.yml (CI builds and attaches the npm tarballs from the tag), npm deprecate below the release when it has a ### Security section, commits and pushes chore(release): open X.Y.(Z+1)-next.0. release.yml undrafts the release after the binaries upload. It never runs npm publish.",
-      "no_registry": "no local registry publish; npm publishing happens only in .github/workflows/publish.yml, on the tag push for releases and on a green test run on main for -next builds",
+      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, npm pack dry-run check, captures HEAD and pushes that SHA to main, dispatches test.yml and waits for it to pass on that SHA, annotated tag on that SHA plus push tag, gh release create --verify-tag --draft from the changelog section with no assets, dispatches release-tarball.yml (CI builds and attaches the npm tarballs from the tag), npm deprecate below the release, pointing at the installer, when it has a ### Security section, commits and pushes chore(release): open X.Y.(Z+1)-next.0. release.yml undrafts the release after the binaries upload. It never runs npm publish.",
+      "no_registry": "nothing is published to npm: the package stopped at 0.54.0 and .github/workflows/publish.yml was deleted",
       "partial_failure_note": "script is not atomic; on mid-flight failure check what landed (pushed commits vs tag vs release) before any rerun",
-      "registry_publish": "the vX.Y.Z tag push triggers .github/workflows/publish.yml, which checks the tag matches package.json, runs npm ci, build and test, then npm publish --provenance --access public via npm trusted publishing (OIDC, no NPM_TOKEN)"
+      "registry_publish": "none; the vX.Y.Z tag push triggers .github/workflows/release.yml, which builds the standalone binaries and installers, attaches them to the draft release, publishes it and pushes the Homebrew formula"
     },
     "auth": "gh_cli_local"
   },
@@ -49,8 +47,7 @@
     "steps": [
       "git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z",
       "gh release delete vX.Y.Z",
-      "Revert the release commit on main, or forward-fix with a new patch version",
-      "npm cannot reuse a published version: deprecate it with npm deprecate glimmervoid@X.Y.Z and forward-fix with a new patch version"
+      "Revert the release commit on main, or forward-fix with a new patch version"
     ],
     "never": [
       "reuse_version",

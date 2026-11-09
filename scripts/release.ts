@@ -44,7 +44,7 @@ function isNpmLoggedIn(): boolean {
 
 function deprecateVersionsBelowRelease(): void {
   console.log(`\n==> ${TAG} carries a Security section; deprecating the versions below it on npm...`);
-  const deprecationMessage = `Security: versions below ${VERSION} have a known vulnerability. Update to ${VERSION} or later. https://github.com/${REPO_SLUG}/releases/tag/${TAG}`;
+  const deprecationMessage = `Security: versions below ${VERSION} have a known vulnerability. Glimmervoid is no longer on npm; install the standalone app from https://github.com/${REPO_SLUG}#quickstart`;
   const deprecateCommand = `npm deprecate "glimmervoid@<${VERSION}" "${deprecationMessage}"`;
   if (!isNpmLoggedIn()) {
     console.log('   npm is not logged in here, so nothing was deprecated. Log in as a package owner and run:');
@@ -201,5 +201,5 @@ openNextPatch(VERSION);
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}, and ${RELEASE_BRANCH} now carries the next patch as an upcoming prerelease.`);
 console.log('   release-tarball.yml builds the npm tarballs from the tag and attaches them to the draft.');
-console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm, and .github/workflows/release.yml, which attaches the standalone binaries and installers and publishes the draft release. Nothing is published locally.`);
-console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);
+console.log('   The tag push triggers .github/workflows/release.yml, which attaches the standalone binaries and installers and publishes the draft release. Nothing is published to npm.');
+console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/release.yml, then confirm with: gh release view ${TAG}`);

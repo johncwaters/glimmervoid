@@ -40,12 +40,6 @@ function settingNamed(settingPath: string) {
   return setting;
 }
 
-function minimumNodeVersionOf(enginesRange: string): string {
-  const match = /^>=(\d+)\.(\d+)\.\d+$/.exec(enginesRange);
-  if (!match) throw new Error(`package.json engines.node ${enginesRange} is not a >=major.minor.patch range`);
-  return `${match[1]}.${match[2]}+`;
-}
-
 export const AGENT_CARDS: readonly AgentCard[] = builtInAdapters.map((adapter) => ({ monogram: monogramOf(adapter), label: adapter.label, support: supportLevelOf(adapter) }));
 
 export const SANE_YOLO_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.capabilities.saneYolo);
@@ -57,8 +51,6 @@ export const DEFAULT_PORT = settingNamed('port').defaultValue;
 export const PRODUCT_VERSION = rootPackage.version;
 
 export const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
-
-export const MINIMUM_NODE_VERSION = minimumNodeVersionOf(rootPackage.engines.node);
 
 export const CODING_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.id !== 'shell');
 
