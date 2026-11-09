@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Borderless boxes on a whiteboard.** A box or a device box can now drop its card: tick Borderless in the properties panel, or have an agent set `"borderless":true`, and the box draws no fill and no outline, so a device mockup or a picture stands alone under its title instead of sitting in a box inside a box. Its size and wires stay where they were, and a diff mark or a plan step still draws its outline.
+- **Format from the red pen toolbar.** Select text on one line of the red pen paper and the floating toolbar offers bold, italic, strikethrough and code beside Add note. Each one lands as a red pen replacement you can keep or throw away like any other.
 
 ### Fixed
 

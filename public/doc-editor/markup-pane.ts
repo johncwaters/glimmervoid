@@ -35,6 +35,7 @@ interface MarkupPane {
   btnAccept: HTMLButtonElement;
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
+  formatButtons: HTMLButtonElement[];
   btnPreviewAll: HTMLButtonElement;
   previewBlocks: PreviewBlock[];
   previewedBlockKeys: Set<string>;
@@ -108,6 +109,13 @@ function buildCheckMark() {
   return svg;
 }
 
+const FORMAT_CONTROLS = [
+  { label: 'Bold', action: 'format-bold', delimiter: '**', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
+  { label: 'Italic', action: 'format-italic', delimiter: '*', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
+  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
+  { label: 'Code', action: 'format-code', delimiter: '`', iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
+];
+
 function markCardButton(label: string, action: string, iconPath: string) {
   return button({ variant: 'icon', size: 'small', label, action, icon: createLineIcon(iconPath, '1.75') });
 }
@@ -117,7 +125,8 @@ export function buildMarkupPane(): MarkupPane {
   const btnReject = markCardButton('Reject', 'reject-mark', CLOSE_ICON_PATH);
   const markCard = el('div', 'doc-markup-float doc-markup-card');
   const btnAddNote = markCardButton('Add note', 'add-note', COMMUNITY_ICON_PATH);
-  markCard.append(btnAccept, btnReject, btnAddNote);
+  const formatButtons = FORMAT_CONTROLS.map((control) => markCardButton(control.label, control.action, control.iconPath));
+  markCard.append(btnAccept, btnReject, ...formatButtons, btnAddNote);
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
   const noteInput = el('input', 'plan-control doc-markup-input');
@@ -138,7 +147,7 @@ export function buildMarkupPane(): MarkupPane {
   for (const float of [markCard, noteComposer]) float.hidden = true;
   root.append(buildInkFilter(), paper, endNotes, markCard, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, formatButtons, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
     selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
@@ -620,6 +629,9 @@ function paintFloats(editor: MarkupHost) {
   pane.btnAccept.hidden = markAnchor === null;
   pane.btnReject.hidden = markAnchor === null;
   pane.btnAddNote.hidden = markAnchor !== null;
+  const selectedSource = pane.selection === null ? '' : editor.textarea.value.slice(pane.selection.start, pane.selection.end);
+  const canFormatSelection = markAnchor === null && !selectedSource.includes('\n');
+  for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.hidden = !canFormatSelection || selectedSource.includes(FORMAT_CONTROLS[controlIndex].delimiter[0]);
   const noteAnchorRect = showsPin ? selectionRect() : null;
   placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? noteAnchorRect);
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
@@ -809,6 +821,17 @@ function applySuggestion(editor: MarkupHost, edit: SuggestEdit) {
   pane.run = outcome.run;
   pane.selection = { start: outcome.caret, end: outcome.caret };
   paintMarkupTools(editor);
+}
+
+function formatSelection(editor: MarkupHost, delimiter: string) {
+  const pane = editor.markup;
+  const selection = pane.selection;
+  if (!selection) return;
+  const selectedText = editor.textarea.value.slice(selection.start, selection.end);
+  if (selectedText.trim() === '') return;
+  const wrappedText = selectedText.replace(/^(\s*)(.*?)(\s*)$/s, (_whole, leadingSpace: string, words: string, trailingSpace: string) => `${leadingSpace}${delimiter}${words}${delimiter}${trailingSpace}`);
+  applySuggestion(editor, { kind: 'type', selection, text: wrappedText });
+  pane.run = null;
 }
 
 function typedTextOf(event: InputEvent) {
@@ -1193,6 +1216,7 @@ export function wireMarkupPane(editor: MarkupHost) {
   }, { signal });
   pane.markCard.addEventListener('mousedown', (event) => event.preventDefault());
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
+  for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.addEventListener('click', () => formatSelection(editor, FORMAT_CONTROLS[controlIndex].delimiter));
   pane.noteInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.stopPropagation();
