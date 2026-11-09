@@ -4,7 +4,6 @@ import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import type { TestContext } from 'node:test';
 import path from 'node:path';
-import { reserveFreePort } from '../../helpers/http-server.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 const SERVER_ENTRY = path.join(REPO_ROOT, 'server', 'index.ts');
@@ -98,7 +97,7 @@ function countLogLines(logText: string, pattern: RegExp): number {
   return linesOf(logText).filter((line) => pattern.test(line)).length;
 }
 
-function childEnvironment(options: ServerStartOptions, home: string, port: number): NodeJS.ProcessEnv {
+function childEnvironment(options: ServerStartOptions, home: string): NodeJS.ProcessEnv {
   const inheritedEnvironment = Object.fromEntries(Object.entries(process.env)
     .filter(([name]) => !name.startsWith('GLIMMERVOID_') || INHERITED_GLIMMERVOID_NAMES.has(name)));
   const environment: NodeJS.ProcessEnv = {
@@ -106,7 +105,7 @@ function childEnvironment(options: ServerStartOptions, home: string, port: numbe
     [SERVER_MARK_VARIABLE]: home,
     GLIMMERVOID_HOME: home,
     CLAUDE_CONFIG_DIR: path.join(home, 'claude-config'),
-    GLIMMERVOID_PORT: String(port),
+    GLIMMERVOID_PORT: '0',
     ...options.extraEnvironment,
   };
   delete environment.NODE_TEST_CONTEXT;
@@ -121,11 +120,19 @@ function startedPidOf(startedProcess: ChildProcess): number {
   return startedProcess.pid;
 }
 
-async function waitForDashboard(port: number, exited: () => boolean): Promise<void> {
+const BANNER_PORT_PATTERN = /Open http:\/\/\S+:(\d+)/;
+
+async function waitForDashboard(output: () => string, exited: () => boolean): Promise<number> {
   const deadline = Date.now() + BOOT_DEADLINE_MS;
   while (Date.now() < deadline && !exited()) {
+    const bannerPort = output().match(BANNER_PORT_PATTERN)?.[1];
+    if (bannerPort === undefined) {
+      await sleep(POLL_INTERVAL_MS * 4);
+      continue;
+    }
+    const port = Number(bannerPort);
     const response = await fetch(`http://127.0.0.1:${port}/control-token`).catch(() => null);
-    if (response?.ok) return;
+    if (response?.ok) return port;
     await sleep(POLL_INTERVAL_MS * 4);
   }
   if (exited()) throw new Error('the server exited before it answered /control-token');
@@ -137,11 +144,10 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
   fs.mkdirSync(scenarioHomes, { recursive: true });
   const home = fs.mkdtempSync(path.join(scenarioHomes, `${options.scenarioName}-`));
   if (options.seedConfig !== undefined) fs.writeFileSync(path.join(home, 'config.json'), `${JSON.stringify(options.seedConfig, null, 2)}\n`);
-  const port = await reserveFreePort();
   const startedAt = Date.now();
   const server = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: REPO_ROOT,
-    env: childEnvironment(options, home, port),
+    env: childEnvironment(options, home),
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
@@ -175,7 +181,7 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
     process.removeListener('SIGTERM', killEverythingLeftAndExit);
   });
 
-  await waitForDashboard(port, () => hasExited).catch((error: unknown) => {
+  const port = await waitForDashboard(() => capturedOutput, () => hasExited).catch((error: unknown) => {
     killEverythingLeft();
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n${capturedOutput}`);
   });
