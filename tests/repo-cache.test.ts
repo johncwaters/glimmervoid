@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { createRepoCache } from '../server/git/repo-cache.ts';
+import { probeGitVersion } from '../server/git/git-version.ts';
 import type { CommandRunner } from '../server/git/repo-cache.ts';
 
 async function git(args: string[], cwd: string, env?: Record<string, string>, timeoutMs?: number): Promise<string> {
@@ -212,8 +213,14 @@ test('repo cache isolates only the author new work after the base branch is merg
       }
     };
     const cache = createRepoCache({ rootDir: tempDir, commandRunner });
+    const { isTooOldToIsolateNewWork } = probeGitVersion();
     for (const head of [mergedHead, rebasedHead]) {
       const isolation = await cache.isolateNewWork('Acme/repo', { number: 7, priorHead, priorBase, head });
+      if (isTooOldToIsolateNewWork) {
+        assert.ok(!isolation.ok);
+        assert.match(isolation.reason, /^range-diff failed/);
+        continue;
+      }
       assert.ok(isolation.ok);
       const range = isolation.range;
       const rangeDiff = await git(['range-diff', '--no-patch', '--diff-merges=remerge', `${range.priorMergeBase}..${priorHead}`, `${range.currentMergeBase}..${head}`], repoDir);
