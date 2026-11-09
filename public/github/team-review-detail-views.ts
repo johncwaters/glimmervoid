@@ -12,7 +12,7 @@ import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 import { _detailProgressTicker, _otherDetails, _pendingActions, _readyDetails } from './team-review-panel-state.ts';
 import type { ActionDetailHandle, SettleAction } from './team-review-panel-state.ts';
 import { createAgeReadout, createAuthor, pullRequestLink } from './team-review-queue-row.ts';
-import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
+import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
 
 const READY_DESK_SHORTCUTS: Partial<Readonly<Record<TeamReviewAction, string>>> = Object.freeze({
   approve: 'A', 'request-changes': 'R', comment: 'C',
@@ -184,7 +184,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   for (const [index, finding] of generalFindings.entries()) findingCards.push(createTickableFinding(generalFindingContent(finding), includedGeneral, index, onEdit));
   findings.append(...findingCards);
   if (findingCount > 0) column.append(findings);
-  if (draft.earlierReview) column.append(createEarlierReviewDetails(draft.earlierReview, false));
+  if (draft.earlierReview) column.append(createDraftEarlierReviewDetails(draft, draft.earlierReview, false));
   detail.append(column, rail, bar.footer);
   refreshThreadDetails(detail, draft);
   paintDecision();
@@ -343,7 +343,7 @@ function createOtherReviewItems(draft: ReviewDraft, isOpen: boolean): HTMLElemen
 function createOtherDetail(draft: ReviewDraft): HTMLElement {
   const detail = el('article', 'pr-detail');
   detail.append(createDetailHeading(draft), ...createAboutPr(draft));
-  if (draft.earlierReview) detail.append(createEarlierReviewDetails(draft.earlierReview, draft.status === 'stale'));
+  if (draft.earlierReview) detail.append(createDraftEarlierReviewDetails(draft, draft.earlierReview, draft.status === 'stale'));
   detail.append(...createThreadDetails(draft));
   if (draft.status === 'posted') detail.append(createVerdictBlock(draft));
   if (draft.status !== 'posted') detail.append(el('p', 'pr-attention-detail', attentionDetail(draft)));

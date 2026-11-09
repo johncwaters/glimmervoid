@@ -569,10 +569,25 @@ export function changedSinceReviewUrl(draft: Pick<ReviewDraft, 'repo' | 'reviewe
   return liveHead ? `https://github.com/${draft.repo}/compare/${draft.reviewedHead}...${liveHead}` : null;
 }
 
-export function earlierReviewPreview(review: EarlierReview): string {
+export function earlierReviewPreview(review: EarlierReview, droppedCount = 0): string {
   const parts = [commentCountText(review.comments.length)];
+  if (droppedCount > 0) parts.push(`${droppedCount} dropped`);
   if (review.wasPosted) parts.push('posted');
   return parts.join(', ');
+}
+
+const KEPT_FINDING_LINE_DISTANCE = 3;
+
+export function droppedEarlierFindingIndexes(draft: Pick<ReviewDraft, 'status' | 'reviewedHead' | 'comments' | 'earlierReview'>): ReadonlySet<number> {
+  const earlierReview = draft.earlierReview;
+  if (!earlierReview || earlierReview.head !== draft.reviewedHead || draft.status !== 'ready') return new Set();
+  const newLinesByLocation = new Map<string, number[]>();
+  for (const comment of draft.comments) {
+    const location = `${comment.side}:${comment.path}`;
+    newLinesByLocation.set(location, [...(newLinesByLocation.get(location) ?? []), comment.line]);
+  }
+  const isKept = (comment: DraftComment) => (newLinesByLocation.get(`${comment.side}:${comment.path}`) ?? []).some((line) => Math.abs(line - comment.line) <= KEPT_FINDING_LINE_DISTANCE);
+  return new Set(earlierReview.comments.flatMap((comment, index) => (isKept(comment) ? [] : [index])));
 }
 
 export function verdictHeading(verdict: ReviewDraft['verdict']): string {

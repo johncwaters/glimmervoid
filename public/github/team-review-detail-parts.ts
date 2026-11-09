@@ -4,7 +4,7 @@ import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, Han
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el, externalLink } from '../dom-helpers.ts';
-import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
+import { changedSinceReviewText, reviewTierReason, changedSinceReviewUrl, droppedEarlierFindingIndexes, earlierReviewPreview, aboutPrParagraphs, actionLabel, actionOutcomeText, actionProgressText, buildNotMineRequest, checksText, commentLocation, detailActionLayout, groupHandCheckPaths, HAND_CHECK_INLINE_PATH_LIMIT, handCheckPathSummary, parseInlineSegments, LEGACY_SUMMARY_HINT, parseReviewComment, reviewCommentPreview, shortCommentLocation, pullRequestLabel, detailHeadingSignature, commentSeverity, detailMetaText, viewerThreadsText, hasAllViewerThreadsResolved, viewerApprovalContext, viewerApprovalNotice, alreadyFlaggedText } from './team-review-view-core.ts';
 import type { GeneralFinding } from './team-review-view-core.ts';
 import { _pendingActions, _queueHooks, _sessionOpenByKey, _view, setPostedReceipt } from './team-review-panel-state.ts';
 import type { DetailOrigin, SettleAction } from './team-review-panel-state.ts';
@@ -236,6 +236,7 @@ interface FindingContent {
   excerpt?: readonly DiffExcerptLine[];
   citedLine?: number;
   alreadyFlagged?: string;
+  droppedNote?: string;
 }
 
 function withAlreadyFlagged(alreadyFlagged: string | null): Pick<FindingContent, 'alreadyFlagged'> {
@@ -268,7 +269,7 @@ function generalFindingContent(finding: GeneralFinding): FindingContent {
   return { body: finding.body, severity: finding.severity, location: finding.location?.split('/').at(-1) ?? 'general', locationTitle };
 }
 
-function createCommentContent({ body, severity, location: locationText, locationTitle, excerpt, citedLine, alreadyFlagged }: FindingContent): HTMLDetailsElement {
+function createCommentContent({ body, severity, location: locationText, locationTitle, excerpt, citedLine, alreadyFlagged, droppedNote }: FindingContent): HTMLDetailsElement {
   const content = el('details', 'pr-comment-content');
   const header = el('summary', 'pr-comment-header');
   const parsed = parseReviewComment(body);
@@ -276,6 +277,7 @@ function createCommentContent({ body, severity, location: locationText, location
   const location = el('span', 'pr-comment-location', locationText);
   header.append(location);
   if (alreadyFlagged) header.append(el('span', 'pr-comment-flagged', alreadyFlagged));
+  if (droppedNote) header.append(el('span', 'pr-comment-flagged', droppedNote));
   header.append(el('span', 'pr-comment-preview', reviewCommentPreview(parsed.paragraphs)));
   content.append(header, el('p', 'pr-comment-where', locationTitle));
   const paragraphs = el('div', 'pr-comment-paragraphs');
@@ -286,23 +288,28 @@ function createCommentContent({ body, severity, location: locationText, location
   return content;
 }
 
-function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean): HTMLElement {
+function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean, droppedIndexes: ReadonlySet<number> = new Set()): HTMLElement {
   const details = el('details', 'pr-disclosure pr-earlier-review');
   const summary = el('summary', 'pr-disclosure-summary');
-  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review)));
+  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review, droppedIndexes.size)));
   const body = el('div', 'pr-earlier-review-body');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(review));
   body.append(verdictLine);
   if (review.summary.trim()) body.append(appendInlineText(el('p', 'pr-verdict-summary'), review.summary));
-  for (const comment of review.comments) {
+  for (const [index, comment] of review.comments.entries()) {
     const card = el('article', 'pr-comment-card pr-comment-card-readonly');
-    card.append(createCommentContent(commentFindingContent(comment)));
+    const content = commentFindingContent(comment);
+    card.append(createCommentContent(droppedIndexes.has(index) ? { ...content, droppedNote: 'dropped in this review' } : content));
     body.append(card);
   }
   details.append(summary, body);
-  details.open = isOpen;
+  details.open = isOpen || droppedIndexes.size > 0;
   return details;
+}
+
+function createDraftEarlierReviewDetails(draft: ReviewDraft, earlierReview: EarlierReview, isOpen: boolean): HTMLElement {
+  return createEarlierReviewDetails(earlierReview, isOpen, droppedEarlierFindingIndexes(draft));
 }
 
 function createChangedSinceReview(draft: ReviewDraft): HTMLElement[] {
@@ -480,4 +487,4 @@ function refreshDeskFacts(detail: HTMLElement, draft: ReviewDraft): void {
   facts.replaceWith(createDeskFacts(draft));
 }
 
-export { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction, settleSessionOpen, showSettledSessionOpen };
+export { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction, settleSessionOpen, showSettledSessionOpen };

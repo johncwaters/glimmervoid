@@ -1,5 +1,7 @@
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
+import { droppedEarlierFindingIndexes } from '../public/github/team-review-view-core.ts';
+import type { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -1042,6 +1044,32 @@ test('a posted review that left the review-request search still picks up a threa
     assert.deepEqual(poller.getDraft(ACTION_KEY)?.viewerThreads, { total: 1, resolved: 1 });
     assert.deepEqual(poller.getDraft(ACTION_KEY)?.threads, []);
     assert.equal(poller.getDraft(ACTION_KEY)?.liveHead, OTHER_HEAD);
+  } finally {
+    await poller.stop();
+  }
+});
+
+test('a review re-run at the same head lists each earlier finding the new draft no longer carries as dropped', async () => {
+  const keptFinding = { path: 'src/a.ts', line: 10, side: 'RIGHT' as const, body: 'Token leaks into the log.' };
+  const droppedFinding = { path: 'src/a.ts', line: 40, side: 'RIGHT' as const, body: 'The mcp__posthog allowlist can be bypassed.' };
+  const rerunDraft = actionDraft({ comments: [{ ...keptFinding, line: 12, body: 'The token still reaches the log.' }] });
+  const priorReview = { head: HEAD, verdict: 'REQUEST CHANGES' as const, summary: 'Two problems', body: '', comments: [keptFinding, droppedFinding], wasPosted: false };
+  const statuses: TeamReviewStatus[] = [];
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: {}, store: emptyGithubStore({ viewer: async () => 'me' }),
+    spawnReview: () => new Promise(() => {}),
+    readState: async () => ({ [ACTION_KEY]: { draft: rerunDraft, priorReview, reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: Date.now() } }),
+    writeState: async () => {}, beforeStart: async () => {},
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+    onTickComplete: (status) => { statuses.push(status); },
+  });
+  try {
+    await poller.start();
+    const presentedDraft = statuses[0]?.drafts.find((draft) => draft.key === ACTION_KEY);
+    assert.ok(presentedDraft);
+    assert.deepEqual([...droppedEarlierFindingIndexes(presentedDraft)], [1]);
+    assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'error', comments: [] })], []);
+    assert.deepEqual([...droppedEarlierFindingIndexes({ ...presentedDraft, status: 'posted', comments: [] })], []);
   } finally {
     await poller.stop();
   }
