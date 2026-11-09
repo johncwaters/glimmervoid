@@ -146,3 +146,22 @@ test('a posted review waits on others from when it was posted, not from when the
   assert.equal(queueItemWaitStartMs(postedItem), postedAtMs);
   assert.equal(ageToneOf('waiting', queueItemWaitStartMs(postedItem), nowMs), 'aging');
 });
+
+test('an own pull request whose unresolved threads all wait on reviewers waits on others, and one with a thread waiting on the viewer, with unread threads, or that needs no further review stays in your turn', () => {
+  const thread = (id: string, lastAuthor: string) => ({ id, path: 'a.ts', line: 1, isOutdated: false, url: 'https://github.com/acme/app/pull/1#r1', author: 'reviewer', excerpt: 'why', commentCount: 2, lastAuthor, lastActivityAt: '2026-10-02T00:00:00Z' });
+  const prs = [
+    myPr(1, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 2, threads: [thread('t1', 'me'), thread('t2', 'me')], reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' }),
+    myPr(2, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 2, threads: [thread('t3', 'me'), thread('t4', 'reviewer')], reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' }),
+    myPr(3, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 3, threads: [thread('t5', 'me')], reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' }),
+    myPr(4, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 1, threads: [thread('t6', 'me')], reviewDecision: 'APPROVED' }),
+    myPr(5, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 1, threads: [thread('t7', 'me')] }),
+    myPr(6, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 1, threads: [thread('t8', 'me')], reviewDecision: 'APPROVED', mergeStateStatus: 'BLOCKED' }),
+    myPr(7, 'unresolved-threads', '2026-10-01T00:00:00Z', { unresolvedThreads: 1, threads: [thread('t9', 'me')], mergeStateStatus: 'BLOCKED' }),
+  ];
+  const keysIn = (groups: ReturnType<typeof buildReviewQueue>, id: string) => groups.find((group) => group.id === id)?.items.map((item) => item.key);
+  const groups = buildReviewQueue(NO_TEAM_REVIEWS, prs, new Set(), true, 'me');
+  assert.deepEqual(keysIn(groups, 'waiting'), ['mine:acme/app#1']);
+  assert.deepEqual(keysIn(groups, 'turn'), ['mine:acme/app#2', 'mine:acme/app#3', 'mine:acme/app#4', 'mine:acme/app#5', 'mine:acme/app#6', 'mine:acme/app#7']);
+  assert.deepEqual(attentionTilesOf(groups).map((tile) => tile.id), ['mine:acme/app#2', 'mine:acme/app#3', 'mine:acme/app#4', 'mine:acme/app#5', 'mine:acme/app#6', 'mine:acme/app#7']);
+  assert.deepEqual(keysIn(buildReviewQueue(NO_TEAM_REVIEWS, prs, new Set(), true, null), 'waiting'), []);
+});

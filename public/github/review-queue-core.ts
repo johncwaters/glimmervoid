@@ -9,6 +9,7 @@ import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
+import { areAllThreadsWithReviewers } from './my-prs-view-core.ts';
 import { detailActionLayout } from './team-review-view-core.ts';
 
 type QueueGroupId = z.infer<typeof ReviewQueueGroupId>;
@@ -46,6 +47,7 @@ const QUEUE_STATE_ORDER = [
   { state: 'mine-agent-fixing', group: 'working', kind: null, action: null },
   { state: 'review-in-flight', group: 'working', kind: null, action: null },
   { state: 'review-posted', group: 'waiting', kind: null, action: null },
+  { state: 'mine-threads-with-reviewers', group: 'waiting', kind: null, action: null },
   { state: 'mine-checks-pending', group: 'waiting', kind: null, action: null },
   { state: 'mine-needs-approval', group: 'waiting', kind: null, action: null },
   { state: 'mine-unknown', group: 'waiting', kind: null, action: null },
@@ -129,10 +131,12 @@ function teamState(review: ReviewDraft | InFlightReview | QueuedReview, kind: Qu
   return TEAM_STATE_BY_KIND[kind];
 }
 
-function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueState {
+function mineState(pr: MyPr, sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean, viewer: string | null): QueueState {
   const isOpen = pr.state === 'OPEN';
   if (isOpen && hasFailedKeepMergeableRepair(pr, isKeepMergeableEnabled)) return 'mine-repair-failed';
   if (isOpen && isKeepMergeableEnabled && pr.keepMergeable && pr.isKeepMergeableFixInFlight) return 'mine-repairing';
+  const isReviewStillRequired = pr.reviewDecision === 'REVIEW_REQUIRED';
+  if (pr.stage === 'unresolved-threads' && isReviewStillRequired && areAllThreadsWithReviewers(pr, viewer)) return 'mine-threads-with-reviewers';
   const stageState = MINE_STATE_BY_STAGE[pr.stage];
   const isSessionFixing = QUEUE_STATE_ROWS.get(stageState)?.group === 'turn' && pr.stage !== 'ready' && sessionPrKeys.has(comparablePrKey(pr));
   return isSessionFixing ? 'mine-agent-fixing' : stageState;
@@ -205,8 +209,8 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
   ))));
 }
 
-function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): StatedItem[] {
-  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled), 0, mineWaitStartMs(stackRow.pr), ({ action, kind: attention }) => (
+function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean, viewer: string | null): StatedItem[] {
+  return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled, viewer), 0, mineWaitStartMs(stackRow.pr), ({ action, kind: attention }) => (
     { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
   )));
 }
@@ -224,9 +228,9 @@ function compareStatedItems(first: StatedItem, second: StatedItem): number {
   return first.row.rank - second.row.rank || first.priorityBandRank - second.priorityBandRank || waitOrder;
 }
 
-export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean): QueueGroup[] {
+export function buildReviewQueue(sections: TeamReviewSections, myPrs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean, viewer: string | null = null): QueueGroup[] {
   const itemsByGroup = new Map<QueueGroupId, StatedItem[]>(GROUP_ORDER.map((id) => [id, []]));
-  for (const stated of [...teamItems(sections), ...mineItems(myPrs, sessionPrKeys, isKeepMergeableEnabled)]) itemsByGroup.get(stated.row.group)?.push(stated);
+  for (const stated of [...teamItems(sections), ...mineItems(myPrs, sessionPrKeys, isKeepMergeableEnabled, viewer)]) itemsByGroup.get(stated.row.group)?.push(stated);
   return GROUP_ORDER.map((id) => ({ id, title: GROUP_TITLES[id], items: (itemsByGroup.get(id) ?? []).toSorted(compareStatedItems).map((stated) => stated.item) }));
 }
 

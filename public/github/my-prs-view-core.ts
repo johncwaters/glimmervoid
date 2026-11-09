@@ -107,6 +107,11 @@ function isWaitingOnViewer(thread: MyPrThread, viewer: string | null): boolean |
   return thread.lastAuthor !== viewer;
 }
 
+export function areAllThreadsWithReviewers(pr: Pick<MyPr, 'threads' | 'unresolvedThreads'>, viewer: string | null): boolean {
+  if (!viewer || pr.threads.length === 0 || pr.threads.length < pr.unresolvedThreads) return false;
+  return pr.threads.every((thread) => isWaitingOnViewer(thread, viewer) === false);
+}
+
 function replySummary(thread: MyPrThread): string {
   const replyCount = thread.commentCount - 1;
   if (replyCount === 0) return 'No replies';

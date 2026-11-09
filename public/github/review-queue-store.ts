@@ -76,7 +76,7 @@ export function attachReviewQueueView(view: AttachedReviewQueueView): void {
 
 export function rebuildReviewQueue(): QueueGroup[] {
   const { prs, sessionsByPrKey, status } = myPrsSnapshot();
-  groups = buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()), isKeepMergeableFeatureEnabled(status));
+  groups = buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()), isKeepMergeableFeatureEnabled(status), status?.viewer ?? null);
   refreshActivity();
   return groups;
 }
