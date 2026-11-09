@@ -180,7 +180,7 @@ test('the production Claude settings command denies Read and shell reads of ever
       assert.ok(command);
       const glimmervoidHome = process.env.GLIMMERVOID_HOME ?? '';
       const configPath = path.join(glimmervoidHome, 'config.json');
-      const secretFiles = [configPath, `${configPath}.bak`, path.join(glimmervoidHome, 'vault-companion.json'), path.join(glimmervoidHome, 'watcher-link.key'), path.join(glimmervoidHome, 'secrets', 'config-secrets.json')];
+      const secretFiles = [configPath, `${configPath}.bak`, path.join(glimmervoidHome, 'vault-companion.json'), path.join(glimmervoidHome, 'watcher-link.key'), path.join(glimmervoidHome, 'secrets', 'config-secrets.json'), path.join(glimmervoidHome, 'secrets', 'vault-companion.json'), path.join(glimmervoidHome, 'secrets', 'watcher-link.key')];
       for (const secretFile of secretFiles) {
         const readInput = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: secretFile }, cwd, session_id: 'sane-yolo-test', permission_mode: 'default' });
         assert.equal(permissionDecisionOf(execSync(command, { cwd, env, encoding: 'utf8', input: readInput })), 'deny', `Read ${secretFile}`);

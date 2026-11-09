@@ -10,6 +10,7 @@ import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/c
 import WebSocket, { WebSocketServer } from 'ws';
 import { createDoorman } from '../cloud/doorman/doorman.ts';
 import { ensureDoorman, localDoormanUrl } from '../cloud/doorman/ensure-doorman.ts';
+import { loadOrCreateLinkSecret } from '../cloud/link/link-secret.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-runner.ts';
@@ -511,6 +512,9 @@ test('a self-host doorman forwards pages and WebSockets with its own forwarding 
   const doormanPort = await doorman.listen(0);
   assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: HEALTH_PATH })).status, 503);
   await fsp.writeFile(tenant.linkSecretPath, linkSecretText, { mode: 0o600 });
+  const movedLinkSecret = loadOrCreateLinkSecret(path.join(path.dirname(tenant.linkSecretPath), 'secrets', 'watcher-link.key'), tenant.linkSecretPath);
+  assert.deepEqual(movedLinkSecret, linkSecret, 'the server keeps its key when it moves it into the secrets folder');
+  await fsp.writeFile(tenant.linkSecretPath, `${crypto.randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
   t.after(async () => {
     await doorman.close();
     echoSockets.close();

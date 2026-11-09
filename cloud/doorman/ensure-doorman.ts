@@ -8,7 +8,7 @@ import { selfLaunch } from '../../server/runtime-paths.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { GITHUB_API_BASE_ENV } from '../../shared/contracts/watcher-link.ts';
-import { WATCHER_LINK_KEY_FILENAME } from '../../server/secrets/core/secret-files-core.ts';
+import { watcherLinkKeyPath } from '../../server/secrets/core/secret-files-core.ts';
 
 const INHERITED_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy', GITHUB_API_BASE_ENV];
 const DOORMAN_FOLDER_NAME = 'doorman';
@@ -59,7 +59,7 @@ function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListener
     tenants: [{
       slug: `local${String(localPort).padStart(7, '0')}`,
       serverUrl: remoteListenerUrl(bindHost, remoteListenerPort),
-      linkSecretPath: path.join(glimmervoidHome, WATCHER_LINK_KEY_FILENAME),
+      linkSecretPath: watcherLinkKeyPath(glimmervoidHome),
       watcherHome: localWatcherHome(glimmervoidHome, localPort),
     }],
   };

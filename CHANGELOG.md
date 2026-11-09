@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Glimmervoid's own tokens leave `config.json`.** The PostHog keys, the Telegram bot token and the GitHub read token now live in `secrets/config-secrets.json` beside the config, readable by the owner only. The server moves them there at start, out of `config.json` and `config.json.bak`, with nothing for you to do; dashboard saves write there, an environment variable still wins and is never stored, and `glimmervoid settings get` names the source as the secrets file. Sessions and lanes are refused reads and writes of the `secrets` folder. If the secrets file cannot be written, the tokens stay where they were and the server log says why.
+- **`vault-companion.json` and `watcher-link.key` moved into `~/.glimmervoid/secrets/`.** The server moves the link key there at start and keeps its value, so a linked watcher stays linked, and a doorman whose tenant table still names the old path finds the key in the new place. If you copy the key by hand for a remote watcher (`GLIMMERVOID_LINK_SECRET`), read it from `~/.glimmervoid/secrets/watcher-link.key`. Restart a running `glimmervoid vault` after upgrading so it reads the new companion file.
 
 ### Fixed
 

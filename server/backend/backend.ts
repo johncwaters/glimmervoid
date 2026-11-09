@@ -83,7 +83,7 @@ import { writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
-import { VAULT_COMPANION_FILENAME, WATCHER_LINK_KEY_FILENAME } from '../secrets/core/secret-files-core.ts';
+import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
   staticDir?: string | null;
@@ -401,7 +401,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const vaultBind = decideVaultBind({ host: config.vault?.host ?? null, port: config.vault?.port ?? null, envToken: vaultEnvToken });
   const vaultSocket = createVaultSocket({
     envToken: vaultEnvToken,
-    companionFile: path.join(glimmervoidHomeDir(), VAULT_COMPANION_FILENAME),
+    companionFile: vaultCompanionPath(glimmervoidHomeDir()),
+    legacyCompanionFile: legacyVaultCompanionPath(glimmervoidHomeDir()),
     onCompanionChanged: () => secretsBroker.refreshCards(),
     telemetry,
   });
@@ -658,7 +659,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     await ensureDoorman({ glimmervoidHome: glimmervoidHomeDir(), localPort: port, bindHost: bindDecision.host, remoteListenerPort, version: packageJson.version });
   }
   const watcherLink = createWatcherLink({
-    linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), WATCHER_LINK_KEY_FILENAME)),
+    linkSecret: loadOrCreateLinkSecret(watcherLinkKeyPath(glimmervoidHomeDir()), legacyWatcherLinkKeyPath(glimmervoidHomeDir())),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
     telemetry,
     startWatcher: createRemoteWatcherStarter({

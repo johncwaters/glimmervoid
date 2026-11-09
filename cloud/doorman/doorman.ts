@@ -14,6 +14,7 @@ import { createWatcherListener } from '../watcher/watcher-listener.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { isMissingFileError } from '../../shared/text.ts';
+import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import type { DoormanTenant } from '../../shared/contracts/doorman.ts';
 import { headersAtEdge, isConnectFailure, isWakeAllowed, nextForwardState, routeRequest } from './doorman-core.ts';
@@ -34,9 +35,13 @@ const LOOPBACK_HOST = '127.0.0.1';
 const LINK_SECRET_PATTERN = /^[0-9a-f]{64}$/;
 const TABLE_RELOAD_SETTLE_MS = 200;
 
-async function readLinkSecretHex(linkSecretPath: string): Promise<string | null> {
+async function linkSecretHexAt(linkSecretPath: string): Promise<string | null> {
   const secretHex = await fsp.readFile(linkSecretPath, 'utf8').then((text) => text.trim(), () => '');
   return LINK_SECRET_PATTERN.test(secretHex) ? secretHex : null;
+}
+
+async function readLinkSecretHex(linkSecretPath: string): Promise<string | null> {
+  return await linkSecretHexAt(movedSecretPath(linkSecretPath)) ?? linkSecretHexAt(linkSecretPath);
 }
 
 async function readTenantTable(tablePath: string): Promise<DoormanTenantTable> {

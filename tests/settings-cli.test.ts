@@ -147,6 +147,10 @@ test('settings export prints config without secrets, and set --file applies it b
   const companionPath = path.join(homeDirectory, 'vault-companion.json');
   fs.writeFileSync(companionPath, JSON.stringify({ repoRoots: [] }));
   assert.match(run(['set', '--file', companionPath]).stderr, /one of Glimmervoid's own secret files/);
+  const movedCompanionPath = path.join(homeDirectory, 'secrets', 'vault-companion.json');
+  fs.mkdirSync(path.dirname(movedCompanionPath), { recursive: true });
+  fs.writeFileSync(movedCompanionPath, JSON.stringify({ repoRoots: [] }));
+  assert.match(run(['set', '--file', movedCompanionPath]).stderr, /one of Glimmervoid's own secret files/);
   process.env[AGENT_URL_ENV] = 'http://127.0.0.1:1/agent';
   try {
     assert.match(run(['set', '--file', plannedPath]).stderr, /a session cannot run it/);
