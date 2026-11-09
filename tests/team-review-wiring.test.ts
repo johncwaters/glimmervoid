@@ -1,4 +1,5 @@
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
+import { THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -1010,6 +1011,37 @@ test('resolving an answered thread from the dashboard counts it in the resolved 
     await poller.start();
     assert.equal(await poller.updateThread(ACTION_KEY, thread.id, { isResolved: true }), true);
     assert.deepEqual(poller.getDraft(ACTION_KEY)?.viewerThreads, { total: 2, resolved: 1 });
+  } finally {
+    await poller.stop();
+  }
+});
+
+test('a posted review that left the review-request search still picks up a thread resolved on GitHub and the head the author pushed', async () => {
+  const answeredThread = { id: 'PRRT_acme_1', path: 'src/app.ts', line: 2, isResolved: false, viewerCanResolve: true, isNit: false, url: 'https://github.com/Acme/app/pull/1#discussion_r1', lastReplyAuthor: 'teammate', lastReplyAt: THREAD_REPLY_AT };
+  const threadStore = emptyGithubStore({ viewer: async () => 'me', teamReviewThreads: async () => new Map([[ACTION_KEY, [threadNode('MEDIUM', { isResolved: true })]]]) });
+  const store = {
+    ...threadStore,
+    getSnapshot: () => {
+      const snapshot = threadStore.getSnapshot();
+      return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY.toLowerCase()]: teammatePrAt(OTHER_HEAD) } };
+    },
+  };
+  const tickCompleted = deferredSignal();
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: { resolveReviewThread: async () => ({ ok: true, err: '' }) }, store,
+    spawnReview: () => new Promise(() => {}),
+    readState: async () => ({ [ACTION_KEY]: { draft: actionDraft({ status: 'posted' }), reviewedHead: HEAD, liveHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: Date.now(), threads: [answeredThread], viewerThreads: { total: 1, resolved: 0 } } }),
+    writeState: async () => {}, beforeStart: async () => {},
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+    onTickComplete: () => { tickCompleted.resolve(); },
+  });
+  try {
+    await poller.start();
+    await poller.tick();
+    await tickCompleted.promise;
+    assert.deepEqual(poller.getDraft(ACTION_KEY)?.viewerThreads, { total: 1, resolved: 1 });
+    assert.deepEqual(poller.getDraft(ACTION_KEY)?.threads, []);
+    assert.equal(poller.getDraft(ACTION_KEY)?.liveHead, OTHER_HEAD);
   } finally {
     await poller.stop();
   }

@@ -16,15 +16,30 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       const entry = runtime.state[key];
       return Boolean(github.resolveReviewThread) && (entry?.githubReviews?.some((review) => review.isViewer) || entry?.draft?.status === 'posted');
     };
-    const eligible = candidates.filter((candidate) => isViewerThreadEligible(candidate) || runtime.state[candidate.key]?.draft?.status === 'ready');
-    if (eligible.length === 0) return false;
+    const candidateKeys = new Set(candidates.map(({ key }) => key));
+    const reviewedOutsideSearch = Object.entries(runtime.state).flatMap(([key, entry]) => (entry.draft && !candidateKeys.has(key) ? [{ ...entry.draft, key }] : []));
+    const keysWithoutLiveHead = new Set<string>();
+    let isDirty = false;
+    for (const { key } of reviewedOutsideSearch) {
+      const entry = runtime.state[key];
+      const watchedPr = store.getSnapshot().prs[key.toLowerCase()];
+      const watchedHead = watchedPr ? core.reviewSnapshotFromGithubPr(watchedPr).head : null;
+      if (!entry || !watchedHead) {
+        keysWithoutLiveHead.add(key);
+        continue;
+      }
+      if (entry.liveHead === watchedHead) continue;
+      entry.liveHead = watchedHead;
+      isDirty = true;
+    }
+    const eligible = [...candidates, ...reviewedOutsideSearch].filter((candidate) => isViewerThreadEligible(candidate) || runtime.state[candidate.key]?.draft?.status === 'ready');
+    if (eligible.length === 0) return isDirty;
     const fetchedRead = await store.requestTeamReviewThreads(eligible, 'no-wait');
     if (fetchedRead.isRateLimited) {
       runtime.tickRateLimitWaitMs = fetchedRead.waitMs;
-      return false;
+      return isDirty;
     }
     const fetched = fetchedRead.value;
-    let isDirty = false;
     for (const candidate of eligible) {
       if (loop.isStopped()) break;
       const entry = runtime.state[candidate.key];
@@ -60,7 +75,7 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
         if (!resolution.ok) thread.resolveError = resolution.err || 'GitHub refused to resolve the thread';
       }
       if (reconcileThreadPlaceholder(entry, candidate, head)) isDirty = true;
-      if (!deps.judgeThread) continue;
+      if (!deps.judgeThread || keysWithoutLiveHead.has(candidate.key)) continue;
       const pending = threads.filter((thread) => shouldJudgeThread(thread, head, now()))
         .sort((left, right) => (left.judgeAttempt?.retryAt ?? 0) - (right.judgeAttempt?.retryAt ?? 0));
       if (pending.length === 0) continue;
