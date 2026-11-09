@@ -14,6 +14,12 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   because: a nudge makes the server spend GitHub calls, so an unsigned or replayed one would let anything that reaches the port drive the server's rate limit
   crossing: remote -> host
   kinds: none
+- a silent remote watcher hands lanes back: A remote watcher that stops answering its status check, or whose nudges cannot reach the server, unlinks, so every lane returns to its own timers until it recovers.
+  over: a remote watcher reached by URL, across answering, silent, nudges refused on the way back, and recovered
+  via: a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers
+  because: a remote watcher has no child exit event and its nudges cross the doorman, so without the check a dead watcher or a broken doorman would leave lanes covered and their timers off
+  crossing: remote -> host
+  kinds: none
 - the watcher stands alone: The watcher's code, and everything it imports, reaches only the link contract, the signing core and its own files.
   over: every code file under cloud/watcher and every file it is allowed to import
   via: the watcher imports only the link contract, the link signing core and its own code, so it can run on a box with no server

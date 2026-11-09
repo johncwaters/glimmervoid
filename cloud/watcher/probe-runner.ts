@@ -90,6 +90,7 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
   const nudgesUrl = new URL(NUDGES_PATH, serverUrl);
   const pendingNudges: Nudge[] = [];
   let failedAttempts = 0;
+  let failingSinceMs: number | null = null;
   let retryTimer: NodeJS.Timeout | null = null;
   let isSending = false;
 
@@ -119,6 +120,7 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
     while (pendingNudges.length > 0) {
       const isDelivered = await postNudge(pendingNudges[0]);
       if (!isDelivered) {
+        failingSinceMs ??= now();
         failedAttempts += 1;
         const delayMs = Math.min(NUDGE_RETRY_MAX_MS, NUDGE_RETRY_BASE_MS * 2 ** Math.min(failedAttempts, 20));
         retryTimer = setTimeout(() => void drain(), delayMs);
@@ -126,6 +128,7 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
         return;
       }
       failedAttempts = 0;
+      failingSinceMs = null;
       pendingNudges.shift();
     }
     isSending = false;
@@ -142,14 +145,18 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
     if (retryTimer !== null) clearTimeout(retryTimer);
   }
 
-  return { send, stop };
+  function failingForMs(): number | null {
+    return failingSinceMs === null ? null : Math.max(0, now() - failingSinceMs);
+  }
+
+  return { send, stop, failingForMs };
 }
 
 type NudgeSender = ReturnType<typeof createNudgeSender>;
 
 function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log = console }: {
   home: WatcherHome;
-  nudges: Pick<NudgeSender, 'send'>;
+  nudges: Pick<NudgeSender, 'send' | 'failingForMs'>;
   fetchFn?: FetchFn;
   now?: () => number;
   log?: Pick<Console, 'log' | 'warn'>;
@@ -258,6 +265,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
   function status(): WatcherStatus {
     return {
       probeSetRevision: probeSet?.revision ?? null,
+      nudgesFailingForMs: nudges.failingForMs(),
       hasCredentials: { github: credentials.github !== null, posthog: credentials.posthog !== null },
       probes: (probeSet?.probes ?? []).map((probe) => {
         const memory = memoryOf(probe);

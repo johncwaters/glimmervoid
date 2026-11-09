@@ -1,8 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { credentialStoreKey, directionKey } from '../link/core/link-signing-core.ts';
-import { isLoopbackHostname } from '../../shared/loopback-hosts.ts';
-import { LINK_SECRET_ENV, LINK_SERVER_URL_ENV, WATCHER_HOME_ENV, WATCHER_LISTENING_MESSAGE } from '../../shared/contracts/watcher-link.ts';
+import { isLinkUrlSafe, LINK_SECRET_ENV, LINK_SERVER_URL_ENV, WATCHER_HOME_ENV, WATCHER_LISTENING_MESSAGE } from '../../shared/contracts/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from './probe-runner.ts';
 import { createWatcherHome } from './watcher-home.ts';
 import { createWatcherListener } from './watcher-listener.ts';
@@ -20,10 +19,8 @@ function linkSecretFromEnvironment(): Buffer | { refusal: string } {
 function serverUrlFromEnvironment(): URL | { refusal: string } {
   const rawServerUrl = process.env[LINK_SERVER_URL_ENV] ?? '';
   if (!URL.canParse(rawServerUrl)) return { refusal: `${LINK_SERVER_URL_ENV} must be the server's URL` };
-  const serverUrl = new URL(rawServerUrl);
-  if (serverUrl.protocol === 'https:') return serverUrl;
-  if (serverUrl.protocol === 'http:' && isLoopbackHostname(serverUrl.hostname)) return serverUrl;
-  return { refusal: `${LINK_SERVER_URL_ENV} must use https for a host other than this machine` };
+  if (!isLinkUrlSafe(rawServerUrl)) return { refusal: `${LINK_SERVER_URL_ENV} must use https for a host other than this machine` };
+  return new URL(rawServerUrl);
 }
 
 function portFromOption(rawPort: string | null): number | null {

@@ -13,6 +13,13 @@ export const HEALTH_PATH = '/healthz';
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
+export function isLinkUrlSafe(rawUrl: string): boolean {
+  const linkUrl = URL.parse(rawUrl);
+  if (linkUrl === null) return false;
+  if (linkUrl.protocol === 'https:') return true;
+  return linkUrl.protocol === 'http:' && isLoopbackHostname(linkUrl.hostname);
+}
+
 export const WATCHER_LANE_IDS = Object.freeze(['github-store', 'issues', 'radar', 'community'] as const);
 export const PROBE_CREDENTIALS = Object.freeze(['github', 'posthog'] as const);
 const ProbeCredential = z.enum(PROBE_CREDENTIALS);
@@ -57,6 +64,7 @@ export type ProbeStatus = z.infer<typeof ProbeStatus>;
 
 export const WatcherStatus = z.strictObject({
   probeSetRevision: z.string().nullable(),
+  nudgesFailingForMs: z.number().int().nonnegative().nullable(),
   hasCredentials: z.strictObject({ github: z.boolean(), posthog: z.boolean() }),
   probes: z.array(z.strictObject({
     probeId: z.string(),

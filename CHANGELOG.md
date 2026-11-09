@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Remote watcher.** Set `watcher.url` to link a watcher running on another machine instead of the local one. It needs the remote listener on, since nudges come back through it, and the watcher machine runs `glimmervoid watch` with `GLIMMERVOID_LINK_SECRET` set to the hex contents of this server's `~/.glimmervoid/watcher-link.key` and `GLIMMERVOID_LINK_SERVER_URL` set to the address that forwards to the remote listener. If the remote watcher stops answering, or its nudges stop reaching the server, lanes go back to their own timers until it recovers.
+
 ## [0.53.1] - 2026-11-08
 
 ### Fixed

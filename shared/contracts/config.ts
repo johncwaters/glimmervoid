@@ -7,6 +7,7 @@ import { BranchGcControlSettings, GithubSettings,
   PlanReviewSettings, TelemetryFileSettings, TraceSettings, VaultFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
+import { isLinkUrlSafe } from './watcher-link.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
 import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
@@ -211,6 +212,9 @@ export const Config = z.object({
     allowedOrigins: z.array(z.string()).optional(),
     ownerLogin: z.string().optional(),
   }).passthrough().optional(),
+  watcher: z.object({
+    url: z.string().refine(isLinkUrlSafe, { error: 'watcher.url must use https, or http only for this machine' }).optional(),
+  }).passthrough().optional(),
   hosts: HostEntries.optional(),
   vault: VaultFileSettings,
   projects: z.array(ProjectConfig),
@@ -265,6 +269,7 @@ export const HIDDEN_CONFIG_KEYS = Object.freeze([
   'shareCommitProvenance',
   'hooks',
   'remote',
+  'watcher',
   'projects',
 ]);
 

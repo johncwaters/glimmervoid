@@ -36,6 +36,9 @@ import {
 } from '../session/session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
+import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
+import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
+import { remoteWatcherUrlOf } from '../core/remote-watcher-core.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
@@ -623,11 +626,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       isRecheckingPostTurnReports = false;
     });
   }
+  const remoteWatcherUrl = remoteWatcherUrlOf(config.watcher?.url, remote.enabled);
+  if (config.watcher?.url !== undefined && remoteWatcherUrl === null) {
+    console.warn('[watcher] watcher.url is ignored: the remote listener is off, so the doorman has nowhere to forward nudges; keeping the local watcher');
+  }
   const watcherLink = createWatcherLink({
     watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
     telemetry,
+    ...(remoteWatcherUrl === null ? {} : { startWatcher: createRemoteWatcherStarter(remoteWatcherUrl) }),
   });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
@@ -789,7 +797,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       port: remote.port,
       publicHost: remote.publicHost,
       attach(remoteHttpServer: Server) {
-        remoteHttpServer.on('request', app);
+        remoteHttpServer.on('request', (request, response) => {
+          if (remoteWatcherUrl !== null && request.url?.split('?')[0] === NUDGES_PATH) {
+            watcherLink.answerNudgeRequest(request, response);
+            return;
+          }
+          app(request, response);
+        });
         remoteHttpServer.on('upgrade', handleUpgrade);
         lifecycleServers.push(remoteHttpServer);
       },

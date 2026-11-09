@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import http from 'node:http';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
+import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-runner.ts';
 import { createWatcherHome } from '../cloud/watcher/watcher-home.ts';
@@ -179,7 +181,7 @@ test('a GraphQL rate limit answered with 200 waits for its reset even when the s
   };
   const runner = createProbeRunner({
     home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
-    nudges: { send: () => {} },
+    nudges: { send: () => {}, failingForMs: () => null },
     fetchFn,
     now: () => clock.nowMs,
     log: QUIET_LOG,
@@ -211,7 +213,7 @@ test('an answer to a request sent with the old token is dropped once a new token
   const nudgeKinds: string[] = [];
   const runner = createProbeRunner({
     home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
-    nudges: { send: (kind) => { nudgeKinds.push(kind); } },
+    nudges: { send: (kind) => { nudgeKinds.push(kind); }, failingForMs: () => null },
     fetchFn,
     now: () => clock.nowMs,
     log: QUIET_LOG,
@@ -275,6 +277,81 @@ test('the server refuses a nudge that is forged, stale, replayed or signed with 
 
   const health = await fetch(new URL(HEALTH_PATH, watcher.url ?? ''));
   assert.equal(health.status, 200);
+});
+
+test('a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers', async (t) => {
+  const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-remote-watcher-'));
+  const linkSecret = crypto.randomBytes(32);
+  const clock = { nowMs: Date.now() };
+  const now = () => clock.nowMs;
+  const github = { body: '{"data":{"viewer":{"login":"first"}}}', requestCount: 0 };
+  const githubFetch: typeof fetch = async () => {
+    github.requestCount += 1;
+    return new Response(github.body, { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const nudges: Nudge[] = [];
+  const coveredProbeCounts: number[] = [];
+  const network = { isWatcherReachable: true, isDoormanForwarding: true, refusedNudgeCount: 0 };
+  const partitionableFetch: typeof fetch = (input, init) => network.isWatcherReachable ? fetch(input, init) : Promise.reject(new TypeError('fetch failed'));
+
+  let link: ReturnType<typeof createWatcherLink> | null = null;
+  const serverListener = http.createServer((request, response) => {
+    if (network.isDoormanForwarding) return link?.answerNudgeRequest(request, response);
+    network.refusedNudgeCount += 1;
+    response.writeHead(502).end();
+  });
+  await new Promise<void>((resolve) => serverListener.listen(0, '127.0.0.1', resolve));
+  const serverAddress = serverListener.address();
+  assert.ok(serverAddress !== null && typeof serverAddress === 'object');
+
+  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const sender = createNudgeSender({ serverUrl: `http://127.0.0.1:${serverAddress.port}`, signingKey: directionKey(linkSecret, 'watcher-to-server'), now, log: QUIET_LOG });
+  const runner = createProbeRunner({ home, nudges: sender, fetchFn: githubFetch, now, log: QUIET_LOG });
+  const watcherListener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), now, log: QUIET_LOG });
+  await runner.start();
+  const watcherPort = await watcherListener.listen(0);
+
+  link = createWatcherLink({
+    watcherHome,
+    linkSecret,
+    now,
+    log: QUIET_LOG,
+    credentials: () => ({ github: 'read-token', posthog: null }),
+    startWatcher: createRemoteWatcherStarter(`http://127.0.0.1:${watcherPort}`, { statusCheckMs: 50, fetchFn: partitionableFetch, now }),
+  });
+  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [LIGHT_PROBE], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: () => {} });
+  t.after(async () => {
+    link?.stop();
+    runner.stop();
+    sender.stop();
+    await watcherListener.close();
+    await new Promise((resolve) => serverListener.close(resolve));
+    await fsp.rm(watcherHome, { recursive: true, force: true });
+  });
+  await link.start();
+
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+  await eventually(() => github.requestCount >= 1 ? true : undefined);
+  github.body = '{"data":{"viewer":{"login":"second"}}}';
+  clock.nowMs += 61_000;
+  await runner.applyCredentials({ github: 'read-token', posthog: null });
+  const nudge = await eventually(() => nudges[0]);
+  assert.equal(nudge.probeId, LIGHT_PROBE.id);
+
+  network.isWatcherReachable = false;
+  await eventually(() => coveredProbeCounts.at(-1) === 0 ? true : undefined);
+  network.isWatcherReachable = true;
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+
+  network.isDoormanForwarding = false;
+  github.body = '{"data":{"viewer":{"login":"third"}}}';
+  clock.nowMs += 61_000;
+  await runner.applyCredentials({ github: 'read-token', posthog: null });
+  await eventually(() => network.refusedNudgeCount >= 1 ? true : undefined);
+  clock.nowMs += 1_000;
+  await eventually(() => coveredProbeCounts.at(-1) === 0 ? true : undefined);
+  network.isDoormanForwarding = true;
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined, 20_000);
 });
 
 test('a timer tick still searches a watch the watcher does not cover yet, and leaves a covered, loaded watch to nudges', async () => {

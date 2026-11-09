@@ -219,7 +219,15 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   async function adoptWatcherStatus(): Promise<boolean> {
     const status = await readWatcherStatus();
     if (status === null) return false;
-    if (deliveredProbeSet === null || status.probeSetRevision !== deliveredProbeSet.revision) return true;
+    if (deliveredProbeSet === null) return true;
+    if (status.probeSetRevision !== deliveredProbeSet.revision) {
+      log.warn('[watcher] the watcher holds a different probe set, delivering again');
+      deliveredProbeSet = null;
+      deliveredCredentialsDigest = null;
+      updateCoverage();
+      probesMayHaveChanged();
+      return true;
+    }
     for (const probeStatus of status.probes) {
       if (probeStatus.status !== 'failing' || probeStatus.failure === null) continue;
       const failingProbe = deliveredProbeSet.probes.find((probe) => probe.id === probeStatus.probeId);
@@ -324,7 +332,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     if (nudge.kind !== 'failing') sourcesByLaneId.get(probe.laneId)?.onNudge(nudge);
   }
 
-  async function answerNudgeRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+  async function replyToNudge(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const path = new URL(request.url ?? '/', 'http://server').pathname;
     const reply = (status: number) => {
       response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -344,13 +352,15 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     return reply(200);
   }
 
-  function listenForNudges(): Promise<number> {
-    const server = http.createServer((request, response) => {
-      answerNudgeRequest(request, response).catch((answerError: unknown) => {
-        log.warn(`[watcher] nudge request failed: ${(answerError as Error).message}`);
-        if (!response.headersSent) response.writeHead(500).end();
-      });
+  function answerNudgeRequest(request: http.IncomingMessage, response: http.ServerResponse): void {
+    replyToNudge(request, response).catch((answerError: unknown) => {
+      log.warn(`[watcher] nudge request failed: ${(answerError as Error).message}`);
+      if (!response.headersSent) response.writeHead(500).end();
     });
+  }
+
+  function listenForNudges(): Promise<number> {
+    const server = http.createServer(answerNudgeRequest);
     nudgeServer = server;
     return new Promise((resolve, reject) => {
       server.once('error', reject);
@@ -405,7 +415,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;
