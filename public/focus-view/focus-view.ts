@@ -483,7 +483,7 @@ function markSessionDrop(targetId: string, side: 'before' | 'after') {
 function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: string) {
   pill.draggable = true;
   let pressedPane: Pane = 'terminal';
-  pill.addEventListener('pointerdown', (event) => { pressedPane = memberPaneOf(event.target); });
+  pill.addEventListener('mousedown', (event) => { pressedPane = memberPaneOf(event.target); });
   pill.addEventListener('dragstart', (event) => {
     const splitBoardId = pressedPane === 'board' ? splitBoardIdOf(sessionId) : null;
     if (splitBoardId) {
