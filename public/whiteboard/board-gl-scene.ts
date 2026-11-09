@@ -5,9 +5,9 @@ import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
-  BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
   LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, decisionOutlinePoints,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, codeBandRectOf, decisionOutlinePoints,
   ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
 } from '#shared/whiteboard-svg-core.ts';
@@ -299,7 +299,7 @@ function lineTextColor(line: LaidOutLine, palette: BoardPalette): Rgba {
   return line.muted ? palette.inkDim : palette.ink;
 }
 
-function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly LaidOutLine[], left: number, width: number, top: number, opacity: number, detailMinScale: number): void {
+function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly LaidOutLine[], left: number, top: number, opacity: number, detailMinScale: number): void {
   const { palette, glyphs } = context;
   const meta = palette.metaSize;
   lines.forEach((line, index) => {
@@ -307,7 +307,7 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
     const iconLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
     const rowLeft = line.icon ? iconLeft + LINE_ICON_CHARS * MONO_CHAR_WIDTH : iconLeft;
     if (line.icon && line.isFirstRow) pushIcon(part, line.icon, iconLeft, baseline - LINE_ICON_RISE, LINE_ICON_SIZE, faded(palette.inkDim, opacity), detailMinScale);
-    if (line.style === 'code') pushRect(part, { x: rowLeft - 4, y: baseline - CODE_BAND_RISE, width: left + width - BOX_TEXT_INSET + 8 - rowLeft, height: CODE_BAND_HEIGHT }, 3, faded(palette.codeBand, opacity), faded(palette.codeBand, opacity), 0, detailMinScale);
+    if (line.style === 'code') pushRect(part, codeBandRectOf(line, rowLeft, baseline), 3, faded(palette.codeBand, opacity), faded(palette.codeBand, opacity), 0, detailMinScale);
     if (line.style === 'item' && line.isFirstRow) pushCircle(part, { x: rowLeft + 4, y: baseline - 4 }, ITEM_DOT_RADIUS, faded(palette.inkDim, opacity), faded(palette.inkDim, opacity), 0, detailMinScale);
     if (line.marker !== null) pushText(part, glyphs, line.marker, rowLeft, baseline, { size: meta, color: faded(palette.inkDim, opacity), isBold: line.style === 'kv' });
     if (line.text) pushText(part, glyphs, line.text, rowLeft + line.indentChars * MONO_CHAR_WIDTH, baseline, { size: meta, color: faded(lineTextColor(line, palette), opacity) });
@@ -437,7 +437,7 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   if (box.shape === 'panel' && box.bodyLines.length > 0) pushPolyline(part, [{ x: box.x + BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }, { x: box.x + box.width - BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }], 1, faded(palette.line, opacity), SOLID, detailMinScale);
-  pushBodyLines(part, context, box.bodyLines, box.x, box.width, bodyTop, opacity, detailMinScale);
+  pushBodyLines(part, context, box.bodyLines, box.x, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
     const placeholderStyle: TextStyle = { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' };

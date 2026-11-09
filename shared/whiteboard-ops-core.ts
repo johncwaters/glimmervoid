@@ -1,7 +1,7 @@
 import { BOX_SHAPES, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
 import type { Board, BoardChange, Box, BoxLine, Element, ElementInput, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
-import { isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
+import { fittedBoxWidthOf, isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
@@ -211,12 +211,17 @@ function withoutAtUnlessGiven(element: ElementInput, isAtGiven: boolean): Elemen
   return { ...element, at: null };
 }
 
+function withFittedWidth(element: ElementInput): ElementInput {
+  if (element.kind !== 'box' || element.width !== null) return element;
+  return { ...element, width: fittedBoxWidthOf(element) };
+}
+
 function addElement(draft: Draft, element: ElementInput, author: Author): OpOutcome {
   if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
-  const placed = placedAtNear(draft, element);
+  const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
   const signed = signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author);
   if (!signed.ok) return signed;

@@ -4,7 +4,7 @@ import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
-  placeBoardWithMemory, legendEntriesFrom, stepBandOf, wireCeilingOf,
+  placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
@@ -558,6 +558,9 @@ function updatePlacementWarnings(world: LayoutWorld, board: Board, solids: Solid
       if (other.id !== boxId && !checkedBoxIds.has(other.id) && rectsOverlap(box, other)) addWarning(book, boxOverlapWarning(boxId, other.id));
     }
     forEachIdTouching(world.frameGrid, box, (frameId) => solids.dirtyFrameIds.add(frameId));
+    const stored = board.elements.get(boxId);
+    const titleCutWarning = stored?.kind === 'box' ? titleCutWarningOf(stored) : null;
+    if (titleCutWarning) addWarning(book, titleCutWarning);
   }
   for (const frameId of solids.dirtyFrameIds) {
     const frame = world.laidOutById.get(frameId);

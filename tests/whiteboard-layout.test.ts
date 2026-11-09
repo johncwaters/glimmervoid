@@ -554,6 +554,44 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
   assert.equal(tooTall.ok ? '' : tooTall.error, 'op 1: narrow: a box height is 1 to 2400');
 });
 
+test('a long identifier breaks after a separator, an agent box with no width is stored wide enough for its title, and a title still cut mid-word warns with the width that fits', () => {
+  const identifierBoard = boardWithNearPinned({
+    id: 'identifiers', title: 'identifiers', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      separated: { kind: 'box', id: 'separated', title: 'run_merge_check_against_repository', at: { x: 40, y: 40 } },
+      unbroken: { kind: 'box', id: 'unbroken', title: 'abcdefghijklmnopqrstuvwxyzabcd', at: { x: 400, y: 40 } },
+    },
+  });
+  const layout = layoutBoard(identifierBoard);
+  const separated = layout.elements.find((element) => element.id === 'separated');
+  assert.ok(separated?.kind === 'box');
+  assert.deepEqual(separated.titleLines, ['run_merge_check_', 'against_repository']);
+  assert.deepEqual(layout.warnings.filter((warning) => warning.includes('cut mid-word')), ['box unbroken title is cut mid-word at width 220; set width 320']);
+
+  const author = { id: 'agent', name: 'agent' };
+  const added = applyOps(identifierBoard, [{ op: 'add', element: ElementInput.parse({ kind: 'box', id: 'fitted', title: 'landed_change(repository, row)', at: { x: 40, y: 400 } }) }], author, 0);
+  assert.ok(added.ok);
+  const fitted = layoutBoard(added.board).elements.find((element) => element.id === 'fitted');
+  assert.ok(fitted?.kind === 'box');
+  assert.deepEqual([fitted.width, fitted.titleLines], [320, ['landed_change(repository, row)']]);
+  const unfittable = applyOps(identifierBoard, [
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'hashed', title: 'Key', at: { x: 40, y: 700 }, lines: [{ style: 'code', text: 'A'.repeat(100) }] }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'endless', title: 'A'.repeat(60), at: { x: 40, y: 1000 } }) },
+  ], author, 0);
+  assert.ok(unfittable.ok);
+  const unfittableWidths = ['hashed', 'endless'].map((id) => { const stored = unfittable.board.elements.get(id); return stored?.kind === 'box' ? stored.width : undefined; });
+  assert.deepEqual(unfittableWidths, [null, null], 'a body or title word no width up to 480 fits does not widen the box');
+
+  const world = createLayoutWorld(identifierBoard, null, 0);
+  const widened = stageOps(identifierBoard, [Op.parse({ op: 'set', id: 'unbroken', fields: { width: 320 } })], author, 0, null);
+  assert.ok(widened.ok);
+  const changes = new Map(Object.entries(widened.diff.elements).map(([id, change]) => [id, { before: identifierBoard.elements.get(id), after: widened.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  widened.commit();
+  const applied = applyLayoutDelta(world, widened.board, changes);
+  assert.equal(applied.delta.isRebuilt, false);
+  assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
+});
+
 function savedThroughJson(world: LayoutWorld) {
   const saved = JSON.parse(JSON.stringify({ laidOut: layoutOf(world).elements, chrome: world.chrome, ...savedWorldOf(world), routeById: [...world.routeMemory.routeById] }));
   return {

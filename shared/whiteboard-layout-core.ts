@@ -1,4 +1,4 @@
-import { BOX_CHANGES, dialValuesOfBox, isBorderlessBox, mediaOfBox, STEP_STATUSES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, dialValuesOfBox, isBorderlessBox, mediaOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Stroke, Wire } from './contracts/whiteboard.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
@@ -37,6 +37,10 @@ const MEDIA_GAP = 8;
 const MEDIA_MAX_HEIGHT = 320;
 const OVERLAP_CELL_SIZE = 256;
 const ICON_BOX_WIDTH = 160;
+const SOFT_BREAK_CHARS = '_./:,-';
+const FITTED_BOX_WIDTH_MAX = 480;
+const FITTED_BOX_WIDTH_STEP = 20;
+const FITTED_BOX_SHAPES: ReadonlySet<Box['shape']> = new Set(['box', 'decision', 'sticky', 'note', 'text']);
 
 
 interface Rect {
@@ -60,15 +64,42 @@ interface BoardLayout extends Omit<PlacedLayout, 'elements'> {
   elements: LaidOutElement[];
 }
 
-function wrapText(text: string, charsPerLine: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
+interface WrappedText {
+  lines: string[];
+  isCutMidWord: boolean;
+}
+
+function softBreakLengthOf(word: string, charsPerLine: number): number | null {
+  for (let length = charsPerLine; length >= Math.ceil(charsPerLine / 2); length -= 1) {
+    if (SOFT_BREAK_CHARS.includes(word.charAt(length - 1))) return length;
+  }
+  return null;
+}
+
+function piecesOfWord(word: string, charsPerLine: number): WrappedText {
   const lines: string[] = [];
+  let isCutMidWord = false;
+  let rest = word;
+  while (rest.length > charsPerLine) {
+    const softLength = softBreakLengthOf(rest, charsPerLine);
+    isCutMidWord ||= softLength === null;
+    lines.push(rest.slice(0, softLength ?? charsPerLine));
+    rest = rest.slice(softLength ?? charsPerLine);
+  }
+  return { lines: [...lines, rest], isCutMidWord };
+}
+
+function wrappedText(text: string, charsPerLine: number): WrappedText {
+  const columns = Math.max(1, charsPerLine);
+  const lines: string[] = [];
+  let isCutMidWord = false;
   let current = '';
-  for (const word of words) {
-    const pieces = word.match(new RegExp(`.{1,${charsPerLine}}`, 'g')) ?? [word];
-    for (const piece of pieces) {
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const pieces = piecesOfWord(word, columns);
+    isCutMidWord ||= pieces.isCutMidWord;
+    for (const piece of pieces.lines) {
       const candidate = current ? `${current} ${piece}` : piece;
-      if (candidate.length <= charsPerLine) {
+      if (candidate.length <= columns) {
         current = candidate;
         continue;
       }
@@ -77,10 +108,19 @@ function wrapText(text: string, charsPerLine: number): string[] {
     }
   }
   if (current) lines.push(current);
-  return lines.length > 0 ? lines : [''];
+  return { lines: lines.length > 0 ? lines : [''], isCutMidWord };
 }
 
-function rowsOfLine(line: BoxLine, numberInRun: number, lineCharsPerLine: number): LaidOutLine[] {
+function wrapText(text: string, charsPerLine: number): string[] {
+  return wrappedText(text, charsPerLine).lines;
+}
+
+interface MeasuredRows {
+  rows: LaidOutLine[];
+  isCutMidWord: boolean;
+}
+
+function measuredRowsOfLine(line: BoxLine, numberInRun: number, lineCharsPerLine: number): MeasuredRows {
   const bodyCharsPerLine = line.icon ? lineCharsPerLine - LINE_ICON_CHARS : lineCharsPerLine;
   const mutedIndentChars = line.muted ? 2 : 0;
   const marker = line.style === 'numbered' ? `${numberInRun}.` : line.style === 'kv' ? line.key : null;
@@ -88,19 +128,25 @@ function rowsOfLine(line: BoxLine, numberInRun: number, lineCharsPerLine: number
     text, muted: line.muted, style: line.style, marker: index === 0 ? rowMarker : null, indentChars, isFirstRow: index === 0, icon: line.icon,
   });
   if (marker && marker.length + 1 > MAX_KEY_INDENT_CHARS) {
-    const valueRows = wrapText(line.text, bodyCharsPerLine - mutedIndentChars - ITEM_INDENT_CHARS).map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null));
-    return [rowOf('', 0, 0, marker), ...valueRows];
+    const value = wrappedText(line.text, bodyCharsPerLine - mutedIndentChars - ITEM_INDENT_CHARS);
+    return { rows: [rowOf('', 0, 0, marker), ...value.lines.map((text) => rowOf(text, 1, ITEM_INDENT_CHARS, null))], isCutMidWord: value.isCutMidWord };
   }
   const indentChars = line.style === 'item' ? ITEM_INDENT_CHARS : marker ? marker.length + 1 : 0;
-  return wrapText(line.text, bodyCharsPerLine - mutedIndentChars - indentChars - (line.style === 'code' ? 1 : 0)).map((text, index) => rowOf(text, index, indentChars, marker));
+  const wrapped = wrappedText(line.text, bodyCharsPerLine - mutedIndentChars - indentChars - (line.style === 'code' ? 1 : 0));
+  return { rows: wrapped.lines.map((text, index) => rowOf(text, index, indentChars, marker)), isCutMidWord: wrapped.isCutMidWord };
+}
+
+function measuredLines(lines: readonly BoxLine[], bodyCharsPerLine: number): MeasuredRows {
+  let numberInRun = 0;
+  const measured = lines.map((line) => {
+    numberInRun = line.style === 'numbered' ? numberInRun + 1 : 0;
+    return measuredRowsOfLine(line, numberInRun, bodyCharsPerLine);
+  });
+  return { rows: measured.flatMap((line) => line.rows), isCutMidWord: measured.some((line) => line.isCutMidWord) };
 }
 
 function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_PER_LINE): LaidOutLine[] {
-  let numberInRun = 0;
-  return lines.flatMap((line) => {
-    numberInRun = line.style === 'numbered' ? numberInRun + 1 : 0;
-    return rowsOfLine(line, numberInRun, bodyCharsPerLine);
-  });
+  return measuredLines(lines, bodyCharsPerLine).rows;
 }
 
 function defaultBoxWidthOf(box: Box): number {
@@ -214,6 +260,50 @@ function boxTextOf(box: Box, boxWidth: number): BoxText {
     wasLines: box.change === 'relabeled' && box.was ? wrapText(box.was, titleCharsPerLine) : [],
     bodyLines: laidOutLines(content.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth)),
   };
+}
+
+interface TextFit {
+  isTitleOnOneLine: boolean;
+  isTitleCutMidWord: boolean;
+  isBodyCutMidWord: boolean;
+}
+
+function textFitAt(box: Box, boxWidth: number): TextFit {
+  const content = boxContentOf(box);
+  const title = wrappedText(box.title, charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth) - content.titleIconChars);
+  return {
+    isTitleOnOneLine: title.lines.length === 1,
+    isTitleCutMidWord: title.isCutMidWord,
+    isBodyCutMidWord: measuredLines(content.lines, charsPerLineAt(BODY_CHARS_PER_LINE, boxWidth)).isCutMidWord,
+  };
+}
+
+function firstWidthWhere(fromWidth: number, toWidth: number, accepts: (fit: TextFit) => boolean, box: Box): number | null {
+  for (let width = fromWidth; width <= toWidth; width += FITTED_BOX_WIDTH_STEP) {
+    if (accepts(textFitAt(box, width))) return width;
+  }
+  return null;
+}
+
+function fittedBoxWidthOf(box: Box): number | null {
+  if (!FITTED_BOX_SHAPES.has(box.shape) || mediaOfBox(box)) return null;
+  const preferences: ((fit: TextFit) => boolean)[] = [
+    (fit) => fit.isTitleOnOneLine && !fit.isBodyCutMidWord,
+    (fit) => fit.isTitleOnOneLine,
+    (fit) => !fit.isTitleCutMidWord && !fit.isBodyCutMidWord,
+    (fit) => !fit.isTitleCutMidWord,
+  ];
+  const fittedWidths = preferences.flatMap((accepts) => firstWidthWhere(DEFAULT_BOX_WIDTH, FITTED_BOX_WIDTH_MAX, accepts, box) ?? []);
+  const fitted = fittedWidths[0] ?? DEFAULT_BOX_WIDTH;
+  return fitted === DEFAULT_BOX_WIDTH ? null : fitted;
+}
+
+function titleCutWarningOf(box: Box): string | null {
+  const boxWidth = boxWidthOf(box);
+  if (box.shape === 'icon' || box.shape === 'device' || !textFitAt(box, boxWidth).isTitleCutMidWord) return null;
+  const fittingWidth = firstWidthWhere(boxWidth + FITTED_BOX_WIDTH_STEP, WHITEBOARD_LIMITS.boxWidthMax, (fit) => !fit.isTitleCutMidWord, box);
+  const cutText = `box ${box.id} title is cut mid-word at width ${boxWidth}`;
+  return fittingWidth === null ? cutText : `${cutText}; set width ${fittingWidth}`;
 }
 
 function measuredBoxShape(box: Box) {
@@ -474,7 +564,7 @@ function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute:
   }, previousRoute);
   return {
     boxesById, frames, routing,
-    collectPlacementWarnings: () => overlapWarnings(boxesById, frames, board),
+    collectPlacementWarnings: () => [...overlapWarnings(boxesById, frames, board), ...elementsOfKind(board, 'box').flatMap((box) => (boxesById.has(box.id) ? titleCutWarningOf(box) ?? [] : []))],
   };
 }
 
@@ -708,6 +798,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
-  dressedElement, dressedLayout, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
+  dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };

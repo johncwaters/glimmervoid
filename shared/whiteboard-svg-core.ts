@@ -30,6 +30,7 @@ const CUT_TEXT_ENDING = '...';
 const WIDE_CHAR = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}|[\u{20000}-\u{3fffd}]/u;
 const CODE_BAND_RISE = 13;
 const CODE_BAND_HEIGHT = 17;
+const CODE_BAND_PAD = 4;
 const ITEM_DOT_RADIUS = 2.2;
 const TITLE_RULE_RISE = 12;
 const LEGEND_SAMPLE_WIDTH = 28;
@@ -172,20 +173,25 @@ function iconMarkup(name: IconName, x: number, y: number, size: number, classNam
   return tag('use', { href: `#${iconSymbolId(name)}`, x, y, width: size, height: size, class: className, 'data-icon': name });
 }
 
-function lineRowMarkup(line: LaidOutLine, left: number, width: number, baseline: number): string[] {
+function codeBandRectOf(line: LaidOutLine, rowLeft: number, baseline: number): Rect {
+  const textLeft = rowLeft + line.indentChars * MONO_CHAR_WIDTH;
+  return { x: textLeft - CODE_BAND_PAD, y: baseline - CODE_BAND_RISE, width: line.text.length * MONO_CHAR_WIDTH + CODE_BAND_PAD * 2, height: CODE_BAND_HEIGHT };
+}
+
+function lineRowMarkup(line: LaidOutLine, left: number, baseline: number): string[] {
   const iconLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
   const rowLeft = line.icon ? iconLeft + LINE_ICON_CHARS * MONO_CHAR_WIDTH : iconLeft;
   const parts: string[] = [];
   if (line.icon && line.isFirstRow) parts.push(iconMarkup(line.icon, iconLeft, baseline - LINE_ICON_RISE, LINE_ICON_SIZE, 'wb-line-icon'));
-  if (line.style === 'code') parts.push(tag('rect', { x: rowLeft - 4, y: baseline - CODE_BAND_RISE, width: left + width - BOX_TEXT_INSET + 4 - rowLeft + 4, height: CODE_BAND_HEIGHT, rx: 3, class: 'wb-code-band' }));
+  if (line.style === 'code') parts.push(tag('rect', { ...codeBandRectOf(line, rowLeft, baseline), rx: 3, class: 'wb-code-band' }));
   if (line.style === 'item' && line.isFirstRow) parts.push(tag('circle', { cx: rowLeft + 4, cy: baseline - 4, r: ITEM_DOT_RADIUS, class: 'wb-item-dot' }));
   if (line.marker !== null) parts.push(text(line.marker, rowLeft, baseline, line.style === 'kv' ? 'wb-line-key' : 'wb-line-marker'));
   if (line.text) parts.push(text(line.text, rowLeft + line.indentChars * MONO_CHAR_WIDTH, baseline, lineClassOf(line)));
   return parts;
 }
 
-function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, width: number, top: number): string[] {
-  return lines.flatMap((line, index) => lineRowMarkup(line, left, width, top + index * BODY_LINE_HEIGHT));
+function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, top: number): string[] {
+  return lines.flatMap((line, index) => lineRowMarkup(line, left, top + index * BODY_LINE_HEIGHT));
 }
 
 function boxOutlineMarkup(box: LaidOutBox): string {
@@ -310,7 +316,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
-  parts.push(...bodyLinesMarkup(box.bodyLines, box.x, box.width, bodyTop));
+  parts.push(...bodyLinesMarkup(box.bodyLines, box.x, bodyTop));
   if (box.step?.linkedBoardId) {
     parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
   }
@@ -448,10 +454,10 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 
 export type { AssetHref, PageOccluder };
 export {
-  BODY_LINE_HEIGHT, BOX_TEXT_INSET, CODE_BAND_HEIGHT, CODE_BAND_RISE, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
   LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
   ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
-  boardSvgDocument, decisionOutlinePoints, pageMaskImage,
+  boardSvgDocument, codeBandRectOf, decisionOutlinePoints, pageMaskImage,
 };
