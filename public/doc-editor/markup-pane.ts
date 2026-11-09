@@ -35,6 +35,7 @@ interface MarkupPane {
   btnAccept: HTMLButtonElement;
   btnReject: HTMLButtonElement;
   btnAddNote: HTMLButtonElement;
+  addNoteCard: HTMLElement;
   btnPreviewAll: HTMLButtonElement;
   previewBlocks: PreviewBlock[];
   previewedBlockKeys: Set<string>;
@@ -117,10 +118,11 @@ export function buildMarkupPane(): MarkupPane {
   const btnReject = markCardButton('Reject', 'reject-mark', CLOSE_ICON_PATH);
   const markCard = el('div', 'doc-markup-float doc-markup-card');
   markCard.append(btnAccept, btnReject);
-  const btnAddNote = button({ variant: 'secondary', size: 'small', label: 'Add note', action: 'add-note' });
+  const btnAddNote = button({ variant: 'quiet', size: 'small', label: 'Add note', action: 'add-note' });
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
-  btnAddNote.classList.add('doc-markup-float');
+  const addNoteCard = el('div', 'doc-markup-float doc-markup-card');
+  addNoteCard.append(btnAddNote);
   const noteInput = el('input', 'plan-control doc-markup-input');
   noteInput.type = 'text';
   noteInput.placeholder = 'Note, or a code like wc: or awk:';
@@ -136,10 +138,10 @@ export function buildMarkupPane(): MarkupPane {
   paper.setAttribute('aria-label', 'Doc in red pen; edits become marks');
   const endNotes = el('div', 'doc-markup-end');
   const root = el('div', 'doc-markup');
-  for (const float of [markCard, btnAddNote, noteComposer]) float.hidden = true;
-  root.append(buildInkFilter(), paper, endNotes, markCard, btnAddNote, noteComposer);
+  for (const float of [markCard, addNoteCard, noteComposer]) float.hidden = true;
+  root.append(buildInkFilter(), paper, endNotes, markCard, addNoteCard, noteComposer);
   const pane: MarkupPane = {
-    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
+    root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, addNoteCard, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
     selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
@@ -619,7 +621,7 @@ function paintFloats(editor: MarkupHost) {
   placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? null);
   const hasRangeSelection = pane.selection !== null && pane.selection.end > pane.selection.start;
   const showsPin = !isComposing && !selectedMark && hasRangeSelection && canSuggest(editor);
-  placeFloat(pane, pane.btnAddNote, showsPin ? selectionRect() : null);
+  placeFloat(pane, pane.addNoteCard, showsPin ? selectionRect() : null);
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
 }
 
@@ -1189,7 +1191,7 @@ export function wireMarkupPane(editor: MarkupHost) {
     if (pane.compositionSelection) return;
     trackPaperSelection(editor);
   }, { signal });
-  for (const float of [pane.btnAddNote, pane.markCard]) float.addEventListener('mousedown', (event) => event.preventDefault());
+  for (const float of [pane.addNoteCard, pane.markCard]) float.addEventListener('mousedown', (event) => event.preventDefault());
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
   pane.noteInput.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {

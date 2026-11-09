@@ -28,7 +28,6 @@
 .doc-markup-paper:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border-hover); }
 .doc-markup-paper[contenteditable="true"] { caret-color: var(--pen-ink); }
 .doc-markup-float { position: absolute; left: max(0px, calc((100% - 60rem) / 2 + 32px)); z-index: 3; }
-.doc-markup-float.ui-button { background: var(--pen-paper); border-color: var(--border-hover); color: var(--pen-text); }
 .doc-markup-composer { box-sizing: border-box; width: 32ch; }
 .doc-markup-float[hidden] { display: none; }
 .doc-markup-composer { padding: 8px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); }
