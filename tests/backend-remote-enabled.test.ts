@@ -13,7 +13,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
 import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 
 interface RemoteOnContext {
   tmpDir: string;
@@ -175,12 +175,12 @@ test('the remote listener refuses an unpaired device', async () => {
 });
 
 test('the hook ingress is refused on the remote listener before the route runs', async () => {
-  const { localPort, remotePort } = ctx();
+  const { backend, remotePort } = ctx();
   const res = await fetch(`http://127.0.0.1:${remotePort}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
   assert.equal(res.status, 401, 'a 404 would mean the hook route was reached');
 
-  const local = await fetch(`http://127.0.0.1:${localPort}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
-  assert.equal(local.status, 404, 'and the local ingress still behaves exactly as before');
+  const local = await fetch(`${await agentIngressBase(backend)}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
+  assert.equal(local.status, 404, 'and the agent ingress listener still answers');
 });
 
 test('an unknown pairing token is refused without echoing the token back', async () => {

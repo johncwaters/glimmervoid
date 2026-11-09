@@ -14,9 +14,9 @@ import type { VaultAdapter } from '../cloud/vault/adapters/index.ts';
 import { mcpCredentialFor } from '../mcp/core/credentials.ts';
 import { maskSecrets } from '../shared/secret-patterns.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
-import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const SESSION_ID = 'secrets-canary-session';
@@ -63,7 +63,7 @@ async function bootCanaryBackend(): Promise<CanaryBackend> {
   const vaultServer = http.createServer();
   backend.vault.attach(vaultServer);
   await listenOnLoopback(vaultServer);
-  return { tmpDir, projectDir, server, vaultServer, backend, base: `http://127.0.0.1:${boundPort(server)}` };
+  return { tmpDir, projectDir, server, vaultServer, backend, base: await agentIngressBase(backend) };
 }
 
 async function runNeedCli(context: CanaryBackend, names: readonly string[]): Promise<{ exitCode: number; output: string }> {

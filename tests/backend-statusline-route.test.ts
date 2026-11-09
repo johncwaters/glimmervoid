@@ -8,8 +8,8 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
-import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
-import { settleBackendShutdown, usageLane } from './helpers/lanes.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { agentIngressBase, settleBackendShutdown, usageLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
 
 const SESSION_ID = 'statusline-session';
@@ -91,7 +91,7 @@ test.before(async () => {
   const token = session._hooks.token();
   assert.ok(token, 'hook injection produced a token');
 
-  booted.context = { tmpDir, prevEnv, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, session, token };
+  booted.context = { tmpDir, prevEnv, server, backend, base: await agentIngressBase(backend), session, token };
 });
 
 test.after(async () => {

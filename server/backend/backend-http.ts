@@ -615,7 +615,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tokenMatches, isLinkPreviewEnabled, fetchLinkPreview });
   });
 
-  mountAgentIngressRoutes(app, dependencies);
   mountPrActionReportRoute(app, { getPrActionReports: dependencies.getPrActionReports ?? (() => null), logger });
 
   const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');

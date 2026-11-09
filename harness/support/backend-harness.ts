@@ -122,12 +122,21 @@ async function callWhiteboard(baseUrl: string, session: WhiteboardProbeSession, 
     headers: { 'content-type': 'application/json', authorization: `Bearer ${session.agentToken}` },
     body: JSON.stringify(body),
   });
+  if (!response.ok) throw new Error(`whiteboard ${String(body.sub)} answered ${response.status}`);
   const reply: Record<string, unknown> = await response.json();
   if (reply.ok !== true) throw new Error(`whiteboard ${String(body.sub)} was refused: ${String(reply.error)}`);
   return reply;
 }
 
-async function queueWhiteboardEditFor(baseUrl: string, reader: WhiteboardProbeSession, writer: WhiteboardProbeSession): Promise<void> {
+async function agentIngressBaseOf(backend: { hookPort: () => number | null }): Promise<string> {
+  for (let attempt = 0; attempt < 100 && backend.hookPort() === null; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const hookPort = backend.hookPort();
+  if (hookPort === null) throw new Error('the agent ingress listener never bound');
+  return `http://127.0.0.1:${hookPort}`;
+}
+
+async function queueWhiteboardEditFor(backend: { hookPort: () => number | null }, reader: WhiteboardProbeSession, writer: WhiteboardProbeSession): Promise<void> {
+  const baseUrl = await agentIngressBaseOf(backend);
   const created = await callWhiteboard(baseUrl, writer, { sub: 'new', title: WHITEBOARD_PROBE_BOARD_TITLE });
   const boardId = typeof created.board === 'object' && created.board !== null && 'id' in created.board ? created.board.id : null;
   if (typeof boardId !== 'string') throw new Error('whiteboard new answered without a board id');
@@ -288,6 +297,7 @@ function removeHarnessTempDirectory(tempDirectory: string): void {
 }
 
 export {
+  agentIngressBaseOf,
   BACKGROUND_SELF_WAKE_PROBE_PROMPT,
   BACKGROUND_SELF_WAKE_SETTLE_MS,
   closeServer,

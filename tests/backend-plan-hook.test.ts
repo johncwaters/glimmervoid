@@ -7,12 +7,12 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
-import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { PLAN_BODY_CAP_BYTES } from '../shared/contracts/plan-review.ts';
 import type { Session } from '../session/sessions.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 
 const SESSION_ID = 'plan-hook-session';
 
@@ -110,7 +110,7 @@ test.before(async () => {
   const token = session._hooks.token();
   assert.ok(token, 'hook injection produced a token');
 
-  booted.context = { tmpDir, prevEnv, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, session, token };
+  booted.context = { tmpDir, prevEnv, server, backend, base: await agentIngressBase(backend), session, token };
 });
 
 test.after(async () => {
@@ -237,14 +237,8 @@ test('the shared PostToolUse route keeps the 64 KB cap the plan segment raises',
 });
 
 test('a disabled plan lane leaves the 64 KB cap on the permission request route', async () => {
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),

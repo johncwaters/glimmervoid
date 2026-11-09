@@ -12,7 +12,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { dashboardClient } from './helpers/dashboard-ws.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 
 interface RemoteOffContext {
   tmpDir: string;
@@ -81,11 +81,19 @@ test('no auth middleware intercepts ordinary requests', async () => {
   assert.equal(res.status, 404, 'a 401 here would mean the remote gate ran');
 });
 
-test('the hook route still answers exactly as before (404 unknown-session, not 401)', async () => {
-  const res = await fetch(`${ctx().base}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
+test('the hook route answers on the agent ingress listener (404 unknown-session, not 401)', async () => {
+  const res = await fetch(`${await agentIngressBase(ctx().backend)}/hook/no-such-session/Stop`, { method: 'POST', body: '{}' });
   assert.equal(res.status, 404);
   const body = await res.json();
   assert.deepEqual({ ok: body.ok, reason: body.reason }, { ok: false, reason: 'unknown-session' });
+});
+
+test('the dashboard port serves no agent ingress route', async () => {
+  for (const ingressPath of ['/hook/no-such-session/Stop', '/agent/no-such-session/sessions', '/sign/no-such-session']) {
+    const res = await fetch(`${ctx().base}${ingressPath}`, { method: 'POST', body: '{}' });
+    assert.equal(res.status, 404, ingressPath);
+    assert.equal((await res.text()).includes('unknown-session'), false, `${ingressPath} reached an ingress handler`);
+  }
 });
 
 test('a control upgrade with no cookie connects and receives a snapshot', async () => {

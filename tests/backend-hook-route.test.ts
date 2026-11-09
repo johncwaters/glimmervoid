@@ -7,14 +7,14 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
-import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
 import { Readable } from 'node:stream';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import type { UserPromptSubmitHookResponse } from '../shared/contracts/refocus.ts';
 
 const SESSION_ID = 'hook-route-session';
@@ -68,7 +68,7 @@ test.before(async () => {
   const token = session._hooks.token();
   assert.ok(token, 'hook injection produced a token');
 
-  booted.context = { tmpDir, prevEnv, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, session, token };
+  booted.context = { tmpDir, prevEnv, server, backend, base: await agentIngressBase(backend), session, token };
 });
 
 test.after(async () => {
@@ -130,14 +130,8 @@ test('a rejected hook call logs nothing carrying its token, session id or body',
 
 test('a hook call arriving off loopback is refused under its own outcome name', async () => {
   const recorded: OutcomeName[] = [];
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),
@@ -238,14 +232,8 @@ test('compact SessionStart never injects a refined task title into the agent con
 
 test('refocus lookups run only for accepted compact SessionStart and preserve plan decisions', async () => {
   const lookedUpSessionIds: string[] = [];
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),
@@ -291,14 +279,8 @@ test('an accepted UserPromptSubmit prints the pending prompt context in the shap
     { message: 'You run under Glimmervoid.' },
     { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Board "Plan" changed since your last read:' } },
   ];
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: path.join(ctx().tmpDir, 'config.json') },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),

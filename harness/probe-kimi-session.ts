@@ -76,8 +76,6 @@ async function runProbe(tempDirectory: string): Promise<void> {
   const backend = createBackend(server, { staticDir: null });
   server.on("request", backend.app);
   await new Promise<void>((resolve) => { server.listen(0, "127.0.0.1", () => resolve()); });
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
   const registeredSession: Session | null = backend.getSession(SESSION_ID);
   if (!registeredSession) throw new Error(`the probe config did not produce a session named ${SESSION_ID}`);
   const session: Session = registeredSession;
@@ -236,7 +234,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
 
     const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
     if (!writer) throw new Error("the probe config did not produce the board writer session");
-    await queueWhiteboardEditFor(baseUrl, session, writer);
+    await queueWhiteboardEditFor(backend, session, writer);
     const whiteboardOutputOffset = session.getOutputOffset();
     const whiteboardHooks = await runScenario("whiteboard-prompt-context", WHITEBOARD_PROBE_PROMPT, approveOnce);
     check("UserPromptSubmit reached the hooks", hookEventsOf(whiteboardHooks).includes("userpromptsubmit"));

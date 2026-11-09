@@ -16,7 +16,7 @@ import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAG
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
@@ -34,6 +34,7 @@ interface BootedBackend {
   server: Server;
   backend: Backend;
   base: string;
+  agentBase: string;
 }
 
 const fixture: { tmpDir: string; configPath: string; prevEnv: string | undefined; booted: BootedBackend | null } = {
@@ -46,7 +47,7 @@ async function boot(): Promise<BootedBackend> {
   const backend = createBackend(server, { staticDir: null });
   server.on('request', backend.app);
   await listenOnLoopback(server);
-  return { server, backend, base: `http://127.0.0.1:${boundPort(server)}` };
+  return { server, backend, base: `http://127.0.0.1:${boundPort(server)}`, agentBase: await agentIngressBase(backend) };
 }
 
 async function shutDown(booted: BootedBackend | null): Promise<void> {
@@ -62,10 +63,10 @@ function running(): BootedBackend {
 }
 
 async function whiteboard(sessionId: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
-  const { base, backend } = running();
+  const { agentBase, backend } = running();
   const token = backend.getSession(sessionId)?.agentToken;
   assert.ok(token, `${sessionId} was minted an agent token`);
-  const response = await fetch(`${base}/agent/${sessionId}/whiteboard`, {
+  const response = await fetch(`${agentBase}/agent/${sessionId}/whiteboard`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
@@ -365,11 +366,11 @@ test('a session deletes a board of its project and is refused a board of another
 });
 
 async function runPlannerCli(context: test.TestContext, args: string[]): Promise<{ exitCode: number; printed: string }> {
-  const { base, backend } = running();
+  const { agentBase, backend } = running();
   const printedLines: string[] = [];
   context.mock.method(console, 'log', (line: string) => { printedLines.push(line); });
   const previousAgentUrl = process.env[AGENT_URL_ENV];
-  process.env[AGENT_URL_ENV] = `${base}/agent/${PLANNER_ID}?t=${backend.getSession(PLANNER_ID)?.agentToken ?? ''}`;
+  process.env[AGENT_URL_ENV] = `${agentBase}/agent/${PLANNER_ID}?t=${backend.getSession(PLANNER_ID)?.agentToken ?? ''}`;
   try {
     const exitCode = await runAgentApiCli(args);
     return { exitCode, printed: printedLines.join('\n') };

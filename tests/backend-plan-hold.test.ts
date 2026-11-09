@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
 
-import { createBackendHttpApp } from '../server/backend/backend-http.ts';
+import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { createPlanReviewWiring } from '../server/plan-review-wiring.ts';
 import type { PlanReview } from '../shared/contracts/plan-review.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -159,14 +159,8 @@ async function startHoldServer(name: string): Promise<HoldServer> {
     logger: { warn: (message: string) => { warnings.push(message); } },
     nowFn: () => 7,
   });
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: path.join(configDirectory, 'config.json') },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),
@@ -278,14 +272,8 @@ test('a PostToolUse carrying the plan twice clears the cap, so a terminal answer
 
 test('an over-cap body logs a known event name only, so a local process cannot forge a journal line', async () => {
   const warnings: string[] = [];
-  const app = createBackendHttpApp({
-    staticDir: null,
-    configStore: { configPath: '/nowhere/config.json' },
-    remote: { allowedOrigins: [] },
-    remoteAuth: null,
+  const app = createAgentIngressApp({
     allowedHosts: [],
-    listenerPortsFor: () => [],
-    pageToken: 'page-token',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),

@@ -32,9 +32,9 @@ import { fakePty } from './helpers/fake-pty.ts';
 import { plainSession } from './helpers/fake-session.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
-import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
-import { settleBackendShutdown } from './helpers/lanes.ts';
+import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
 const SESSION_ID = 'agent-api-session';
@@ -81,7 +81,7 @@ async function boot(prefix: string): Promise<BootedBackend> {
   const token = session.agentToken;
   assert.ok(token, 'the session was minted an agent token');
 
-  return { tmpDir, server, backend, base: `http://127.0.0.1:${boundPort(server)}`, token };
+  return { tmpDir, server, backend, base: await agentIngressBase(backend), token };
 }
 
 async function teardown(context: BootedBackend | null): Promise<void> {

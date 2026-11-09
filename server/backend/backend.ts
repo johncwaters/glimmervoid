@@ -773,6 +773,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     requestRestart,
     handOffStagedUpdate: updateApply.handOffStagedUpdate,
     port,
+    hookPort: getHookPort,
     app,
     telemetry,
     version: packageJson.version,

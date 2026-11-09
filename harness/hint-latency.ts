@@ -9,7 +9,7 @@ import { performance } from 'node:perf_hooks';
 import { createBackend } from '../server/backend/backend.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
 import type { Session } from '../session/sessions.ts';
-import { closeServer, listen, prepareIsolatedEnvironment, removeHarnessTempDirectory } from './support/backend-harness.ts';
+import { agentIngressBaseOf, closeServer, listen, prepareIsolatedEnvironment, removeHarnessTempDirectory } from './support/backend-harness.ts';
 
 const MAX_ADDED_P50_MS = 5;
 const WARMUP_CALLS = 50;
@@ -69,6 +69,7 @@ function claudeHookPath(base: string, session: Session, token: string, payload: 
       headers: { 'content-type': 'application/json' },
     });
     await response.arrayBuffer();
+    if (!response.ok) throw new Error(`the PostToolUse hook answered ${response.status}`);
   };
 }
 
@@ -104,7 +105,7 @@ async function main(): Promise<number> {
     backend = createBackend(server, { staticDir: null });
     server.on('request', backend.app);
     await listen(server, port);
-    const base = `http://127.0.0.1:${port}`;
+    const base = await agentIngressBaseOf(backend);
     const claudeSession = backend.getSession(CLAUDE_PROJECT_ID);
     const codexSession = backend.getSession(CODEX_PROJECT_ID);
     if (!claudeSession || !codexSession) throw new Error('the isolated config did not create both sessions');
