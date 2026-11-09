@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
   createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, runModelSetupProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, runModelSetupProbe, runResumeContinueProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -291,6 +291,12 @@ async function main(): Promise<void> {
         await waitForState(session, ['RUNNING', 'COMPLETE'], `${label} to resume after approval`);
       }
     };
+
+    if (SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE) {
+      await delay(6000);
+      await runResumeContinueProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: async () => { await delay(1500); session.write('y'); }, submitFirstTurn: async () => { session.write(PROMPT); await delay(1500); session.write('\r'); } });
+      return;
+    }
 
     if (SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE) {
       console.log('\nBackground self-wake:');

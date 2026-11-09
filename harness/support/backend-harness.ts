@@ -12,6 +12,7 @@ import { launchArgs } from '../../shared/agent-models-core.ts';
 import { EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
 import type { AgentSetup, CatalogAgentId } from '../../shared/contracts/agent-models.ts';
 import { currentAgentModelCatalog } from '../../server/agent-models/agent-models.ts';
+import { AUTO_CONTINUE_PROMPT } from '../../session/core/auto-resume.ts';
 
 import WebSocket from 'ws';
 
@@ -153,6 +154,7 @@ function screenShowsWhiteboardAnswer(screenText: string): boolean {
 const SHOULD_RUN_ONLY_HINT_PROBE = process.argv.includes('--only-hints');
 const SHOULD_RUN_ONLY_MODEL_SETUP_PROBE = process.argv.includes('--only-model-setup');
 const SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE = process.argv.includes('--only-background-self-wake');
+const SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE = process.argv.includes('--only-resume-continue');
 const BACKGROUND_SELF_WAKE_SETTLE_MS = 20000;
 const BACKGROUND_SELF_WAKE_PROBE_PROMPT = 'Start the shell command `sleep 4; echo bg-done` as a background task and do not wait for it: use your shell tool\'s background option (run_in_background) or leave it running in a background terminal. Run no other tool. Then, as your final reply, write a 300-word paragraph about lighthouses and end your turn without checking on the background task. When you are later told the background task finished, reply with the single word finished.';
 const MODEL_SETUP_PROBE_PROMPT = 'Reply with the single word copperheron and nothing else.';
@@ -204,6 +206,42 @@ async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, 
   check('the setup produced model flags', expectedFlags.length > 0);
   check('the launch carried the model setup flags', launchedArgs.some((spawnArgs) => expectedFlags.every((flag) => spawnArgs.includes(flag))));
   check('the first prompt reached the agent', scenarioHooks.some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
+}
+interface ResumeContinueProbe {
+  session: Session;
+  hookRecords: ProbeHookRecord[];
+  fixtureTarget: ProbeFixtureTarget;
+  check: (label: string, condition: boolean) => void;
+  answerWaiting: () => Promise<void>;
+  submitFirstTurn: (() => Promise<void>) | null;
+  afterStart?: () => Promise<void>;
+}
+
+async function runTurnToCompletion(session: Session, answerWaiting: () => Promise<void>, label: string): Promise<void> {
+  await waitForState(session, ['RUNNING', 'WAITING', 'COMPLETE'], `${label} to start`);
+  while ((await waitForState(session, ['COMPLETE', 'WAITING'], `${label} to finish`)) === 'WAITING') await answerWaiting();
+}
+
+async function runResumeContinueProbe({ session, hookRecords, fixtureTarget, check, answerWaiting, submitFirstTurn, afterStart = async () => {} }: ResumeContinueProbe): Promise<void> {
+  console.log('\nresume-continue:');
+  if (submitFirstTurn !== null) {
+    await submitFirstTurn();
+    await runTurnToCompletion(session, answerWaiting, 'the turn before the restart');
+  }
+  const capturedId = session._resumeSessionId;
+  check('the first turn captured a resume id', typeof capturedId === 'string' && capturedId.length > 0);
+  const scenarioStart = hookRecords.length;
+  check('the respawn with the resume note was accepted', session.forceRestart({ resumePrompt: AUTO_CONTINUE_PROMPT }));
+  await waitForState(session, ['DONE', 'FAILED'], 'the killed PTY to be reaped');
+  await waitForState(session, ['INITIALIZING', 'STARTING', 'RUNNING', 'IDLE', 'WAITING', 'COMPLETE'], 'the resumed spawn');
+  await afterStart();
+  await runTurnToCompletion(session, answerWaiting, 'the resumed turn');
+  await delay(3000);
+  const scenarioHooks = hookRecords.slice(scenarioStart);
+  console.log(`  [fixture] ${writeHookFixture('resume-continue', scenarioHooks, fixtureTarget)}`);
+  console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
+  check('the resume kept the conversation id', session._resumeSessionId === capturedId);
+  check('the resumed turn ended on Stop', hookEventsOf(scenarioHooks).includes('stop'));
 }
 const HINT_PROBE_PROMPT = "Run the shell command: echo hint-probe.png . Then quote verbatim every sentence beginning with 'Glimmervoid' that reached you with this message or with that tool result, or reply none.";
 const SPAWN_HINT_PROBE_PROMPT = "Use the Agent tool to start one subagent that replies with the single word ok. Wait for it, then reply with the single word done.";
@@ -319,9 +357,11 @@ export {
   screenShowsStartLine,
   screenShowsWhiteboardAnswer,
   runModelSetupProbe,
+  runResumeContinueProbe,
   SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_MODEL_SETUP_PROBE,
+  SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,
   whiteboardWriterIdFor,

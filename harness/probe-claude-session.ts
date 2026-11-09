@@ -10,7 +10,7 @@ import type { HookPayload } from '../shared/contracts/index.ts';
 import {
   BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  runModelSetupProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  runModelSetupProbe, runResumeContinueProbe, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -138,6 +138,11 @@ async function runProbe(tempDirectory: string): Promise<void> {
       check('the Bash PostToolUse reached the hooks', hookEventsOf(hintHooks).includes('posttooluse'));
       check('the show hint reached the model with the tool result', screenShowsShowHint(session.getBufferSince(hintOutputOffset).data));
       check('the start line reached the model with the first prompt', screenShowsStartLine(session.getBufferSince(hintOutputOffset).data));
+      return;
+    }
+
+    if (SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE) {
+      await runResumeContinueProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: pressEnter, submitFirstTurn: () => submit('Reply with the single word copperheron and nothing else.'), afterStart: dismissStartupPrompt });
       return;
     }
 
