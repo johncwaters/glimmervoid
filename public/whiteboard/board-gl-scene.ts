@@ -637,6 +637,10 @@ function resizeHandleRect(box: Rect): Rect {
   return { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE };
 }
 
+const LOOK_BADGE_RADIUS = 9;
+const LOOK_LABEL_GAP = 4;
+const LOOK_BADGE_LABEL = 'worth a look';
+
 function decorationPart(decorations: readonly Decoration[], context: SceneContext): GeometryPart {
   const { palette, glyphs } = context;
   const part = createPart();
@@ -655,8 +659,9 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       continue;
     }
     const center = { x: decoration.element.x + decoration.element.width, y: decoration.element.y };
-    pushCircle(part, center, 9, palette.waiting, palette.cardBackground, 2, ALWAYS);
+    pushCircle(part, center, LOOK_BADGE_RADIUS, palette.waiting, palette.cardBackground, 2, ALWAYS);
     pushText(part, glyphs, '!', center.x, center.y + 4, { size: palette.metaSize, color: palette.cardBackground, isBold: true, anchor: 'middle', minPixels: 0 });
+    pushText(part, glyphs, LOOK_BADGE_LABEL, center.x - LOOK_BADGE_RADIUS - LOOK_LABEL_GAP, center.y - LOOK_LABEL_GAP, { size: palette.metaSize, color: palette.waiting, isBold: true, anchor: 'end', minPixels: 0 });
   }
   return sealPart(part);
 }
