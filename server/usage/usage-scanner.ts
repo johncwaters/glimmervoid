@@ -33,6 +33,7 @@ import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
 import type { ActivityEvent, ParsedActivity } from './core/usage-your-day-core.ts';
 import type { YourDay } from '../../shared/contracts/your-day.ts';
+import type { UsageScanSnapshot, UsageScanSnapshotEntry } from '../../shared/contracts/usage-scan-snapshot.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import {
   codexFallbackRoots,
@@ -40,6 +41,7 @@ import {
   codexRootCandidates,
   codexSessionIdFromPath,
   decideFileRead,
+  decodeScanSnapshot,
   dedupeCodexFiles,
   grokHomes,
   kimiHomes,
@@ -48,7 +50,11 @@ import {
   passOutcome,
   projectDirCandidates,
   resolveProjectsDirs,
+  scanConfigKey,
   scopedClaudeRoots,
+  SCAN_SNAPSHOT_MIN_INTERVAL_MS,
+  SCAN_SNAPSHOT_VERSION,
+  shouldPersistSnapshot,
   shouldPersistWarehouse,
   splitLines,
 } from './core/usage-scan-core.ts';
@@ -70,6 +76,7 @@ const DEFAULT_CHUNK_SIZE = 1024 * 1024;
 const LINE_YIELD_INTERVAL = 5000;
 const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
+const REPORTED_COST = Symbol('reportedCost');
 const ANOMALY_BASELINE_DAYS = 30;
 
 const noopLogger = Object.freeze({ warn: () => {} });
@@ -96,6 +103,7 @@ type ScannerFileSystem =
 type StoredEntry = UsageEntry & {
   inlineSessionId?: string | null;
   [SYNTHETIC_PRIMARY]?: string;
+  [REPORTED_COST]?: number;
 };
 
 interface EntryKeys {
@@ -148,6 +156,9 @@ interface UsageScannerOptions {
   vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
+  snapshotPath?: string | null;
+  snapshotMinIntervalMs?: number;
+  appVersion?: string;
   budget?: { dailyUsd?: unknown; monthlyUsd?: unknown } | null;
   laneMap?: (() => Map<string, string>) | null;
   logger?: Pick<Console, 'warn'>;
@@ -427,6 +438,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     vendors = { codex: true, grok: true, kimi: true },
     warehousePath = null,
     warehouseRetainDays = 365,
+    snapshotPath = null,
+    snapshotMinIntervalMs = SCAN_SNAPSHOT_MIN_INTERVAL_MS,
+    appVersion = '',
     budget: budgetDep = null,
     laneMap = null,
     logger = noopLogger,
@@ -477,6 +491,25 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       warehouseRecords = loadedRecords
         ? pruneWarehouse(loadedRecords, { retainDays: warehouseRetainDays, todayKey: todayDayKey() })
         : [];
+    },
+  });
+
+  const snapshotConfigKey = scanConfigKey({ appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget: budget.monthlyUsd !== null, env, homeDir });
+  let loadedSnapshot: UsageScanSnapshot | null | undefined;
+  let snapshotLoad: Promise<void> | null = null;
+  let startupSnapshotRead: 'pending' | 'read' | 'unreadable' = 'pending';
+  let lastSnapshotAttemptMs: number | null = null;
+  let snapshotWriteCount = 0;
+  let bytesReadSinceSnapshot = 0;
+  const snapshotStore = createJsonStateStore<{ raw: unknown }>({
+    name: 'scan snapshot',
+    filePath: snapshotPath,
+    fsPromises,
+    nowMs: nowFn,
+    warn: laneLog.warn,
+    parse: (raw) => ({ raw }),
+    adopt: (loaded) => {
+      loadedSnapshot = loaded ? decodeScanSnapshot(loaded.raw, snapshotConfigKey) : null;
     },
   });
 
@@ -549,7 +582,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const resolved = lookupModelPrice(pricingTable, entry.model, { aliases });
     const priced = costForEntry(entry, resolved?.price || null, { costMode });
     if (shouldTrackMissingModel({ entry, resolved, priced, costMode }) && entry.model) missingModels.add(entry.model);
-    return { ...entry, costUSD: priced.costUSD };
+    const pricedEntry: StoredEntry = { ...entry, costUSD: priced.costUSD };
+    if (typeof entry.costUSD === 'number') pricedEntry[REPORTED_COST] = entry.costUSD;
+    return pricedEntry;
   }
 
   function pricedModelKeyOf(entry: StoredEntry): string | null {
@@ -744,6 +779,76 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       if (handle) await handle.close().catch(() => {});
     }
     return { bytesRead, partial, failed: false, skipped: false };
+  }
+
+  function restoreSnapshot(snapshot: UsageScanSnapshot): void {
+    for (const [file, cursor] of Object.entries(snapshot.files)) {
+      fileStates.set(file, { ...cursor, vendorState: cursor.vendorState ? { ...cursor.vendorState } : null });
+    }
+    for (const { syntheticPrimary, ...snapshotEntry } of snapshot.entries) {
+      const storedEntry: StoredEntry = priceEntry(snapshotEntry);
+      if (syntheticPrimary) storedEntry[SYNTHETIC_PRIMARY] = syntheticPrimary;
+      entries.push(storedEntry);
+    }
+    for (const event of snapshot.activity) activityByKey.set(activityKey(event), event);
+    noteCodexRateLimits(snapshot.codexRateLimits);
+    rebuildIndexes();
+    rebuildMissingModels();
+    markDirty();
+    const savedAtMs = Date.parse(snapshot.savedAt);
+    lastSnapshotAttemptMs = Number.isFinite(savedAtMs) ? savedAtMs : null;
+  }
+
+  function loadSnapshotOnce(force: boolean): Promise<void> {
+    if (!snapshotPath) return Promise.resolve();
+    snapshotLoad ??= (async () => {
+      await snapshotStore.load();
+      const snapshot = loadedSnapshot;
+      loadedSnapshot = null;
+      startupSnapshotRead = snapshot === undefined ? 'unreadable' : 'read';
+      if (snapshot && !force) restoreSnapshot(snapshot);
+    })();
+    return snapshotLoad;
+  }
+
+  function snapshotEntryOf(entry: StoredEntry): UsageScanSnapshotEntry {
+    const { [SYNTHETIC_PRIMARY]: syntheticPrimary, [REPORTED_COST]: reportedCost, iterations, ...pricedEntry } = entry;
+    const snapshotEntry = { ...pricedEntry, costUSD: entry.vendor === 'grok' ? entry.costUSD : reportedCost ?? null };
+    if (!syntheticPrimary) return snapshotEntry;
+    return { ...snapshotEntry, syntheticPrimary };
+  }
+
+  function buildSnapshot(): UsageScanSnapshot {
+    const files: UsageScanSnapshot['files'] = {};
+    for (const [file, cursor] of fileStates) {
+      if (cursor) files[file] = cursor;
+    }
+    return {
+      version: SCAN_SNAPSHOT_VERSION,
+      configKey: snapshotConfigKey,
+      savedAt: new Date(nowFn()).toISOString(),
+      files,
+      entries: entries.map(snapshotEntryOf),
+      activity: [...activityByKey.values()],
+      codexRateLimits: latestCodexRateLimitSnapshot,
+    };
+  }
+
+  async function persistSnapshot(): Promise<void> {
+    lastSnapshotAttemptMs = nowFn();
+    await snapshotStore.load();
+    loadedSnapshot = null;
+    snapshotWriteCount += 1;
+    const bytesCoveredByWrite = bytesReadSinceSnapshot;
+    const isWritten = await snapshotStore.write(snapshotWriteCount, () => `${JSON.stringify(buildSnapshot())}\n`);
+    if (isWritten) bytesReadSinceSnapshot -= bytesCoveredByWrite;
+  }
+
+  function forgetVanishedFiles(walkedFiles: readonly SourceFile[]): void {
+    const walkedPaths = new Set(walkedFiles.map((source) => source.file));
+    for (const file of fileStates.keys()) {
+      if (!walkedPaths.has(file)) fileStates.delete(file);
+    }
   }
 
   function pruneStoredEntries(): void {
@@ -993,6 +1098,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     let bytesReadThisPass = 0;
     let skippedFileCount = 0;
     let didRollBackAnyFile = false;
+    await loadSnapshotOnce(force);
+    const wasHistoryCaughtUp = isHistoryCaughtUp;
     const shouldCollectGenerations = isHistoryCaughtUp && !force;
     const passGenerationRollup = new Map<string, UsageGenerationRollupRow>();
     if (force) {
@@ -1065,6 +1172,18 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     if (outcome === 'complete') isHistoryCaughtUp = true;
     lastIoFailures = ioFailures;
     if (shouldPersistWarehouse({ outcome, storeReset: force })) await persistWarehouse();
+    if (!scopedRoots && outcome === 'complete') forgetVanishedFiles(files);
+    bytesReadSinceSnapshot += bytesReadThisPass;
+    const canOverwriteSnapshot = startupSnapshotRead !== 'unreadable' || isHistoryCaughtUp;
+    const shouldWriteSnapshot = snapshotPath !== null && canOverwriteSnapshot && shouldPersistSnapshot({
+      bytesReadSinceLastWrite: bytesReadSinceSnapshot,
+      storeReset: force,
+      becameCaughtUp: isHistoryCaughtUp && !wasHistoryCaughtUp,
+      nowMs: nowFn(),
+      lastWrittenMs: lastSnapshotAttemptMs,
+      minIntervalMs: snapshotMinIntervalMs,
+    });
+    if (shouldWriteSnapshot) await persistSnapshot();
     return {
       files: lastFileCount,
       entries: entries.length,
