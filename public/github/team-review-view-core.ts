@@ -388,10 +388,12 @@ export function alreadyFlaggedText(comment: Pick<DraftComment, 'flaggedBy'>): st
   return reviewers.length === 0 ? null : `already flagged by ${reviewers.join(', ')}`;
 }
 
-export function otherReviewRows(draft: Pick<ReviewDraft, 'otherReviewItems' | 'url'>): { key: string; location: string; url: string; reviewers: string; excerpt: string }[] {
-  return (draft.otherReviewItems ?? []).map((item) => {
+export function otherReviewRows(draft: Pick<ReviewDraft, 'otherReviewItems' | 'resolvedOtherReviewItems' | 'url'>): { key: string; location: string; url: string; reviewers: string; excerpt: string; isResolved: boolean }[] {
+  const openItems = (draft.otherReviewItems ?? []).map((item) => ({ item, isResolved: false }));
+  const resolvedItems = (draft.resolvedOtherReviewItems ?? []).map((item) => ({ item, isResolved: true }));
+  return [...openItems, ...resolvedItems].map(({ item, isResolved }) => {
     const lines = item.lineStart === null ? '' : item.lineEnd !== null && item.lineEnd !== item.lineStart ? `:${item.lineStart}-${item.lineEnd}` : `:${item.lineStart}`;
-    return { key: item.key, location: `${item.path}${lines}`, url: item.url ?? draft.url, reviewers: [...new Set(item.sources.map((source) => source.name))].join(', '), excerpt: item.excerpt };
+    return { key: item.key, location: `${item.path}${lines}`, url: item.url ?? draft.url, reviewers: [...new Set(item.sources.map((source) => source.name))].join(', '), excerpt: item.excerpt, isResolved };
   });
 }
 

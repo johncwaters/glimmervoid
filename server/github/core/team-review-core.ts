@@ -571,12 +571,14 @@ function earlierReviewShown(entry: TeamReviewStateEntry, draft: ReviewDraft): Ea
 
 function withOtherReviewItems(entry: TeamReviewStateEntry, draft: ReviewDraft): Partial<ReviewDraft> {
   const otherReviewItems = entry.otherReviewItems ?? [];
-  if (otherReviewItems.length === 0) return {};
+  const resolvedOtherReviewItems = entry.resolvedOtherReviewItems ?? [];
+  const resolvedFields = resolvedOtherReviewItems.length === 0 ? {} : { resolvedOtherReviewItems };
+  if (otherReviewItems.length === 0) return resolvedFields;
   const comments = draft.comments.map((comment) => {
     const flaggedBy = comment.side === 'LEFT' ? [] : flaggingReviewers(comment, otherReviewItems);
     return flaggedBy.length === 0 ? comment : { ...comment, flaggedBy };
   });
-  return { otherReviewItems, comments };
+  return { otherReviewItems, ...resolvedFields, comments };
 }
 
 function presentedDraft(entry: TeamReviewStateEntry, draft: ReviewDraft): ReviewDraft {

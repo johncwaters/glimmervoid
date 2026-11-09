@@ -47,9 +47,11 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       const nodes = fetched.get(candidate.key);
       const head = entry?.liveHead;
       if (!entry || !nodes || !head) continue;
-      const otherReviewItems = teammateThreadItems(nodes);
-      if (JSON.stringify(otherReviewItems) !== JSON.stringify(entry.otherReviewItems ?? [])) {
+      const otherReviewItems = teammateThreadItems(nodes, 'open');
+      const resolvedOtherReviewItems = teammateThreadItems(nodes, 'resolved');
+      if (JSON.stringify([otherReviewItems, resolvedOtherReviewItems]) !== JSON.stringify([entry.otherReviewItems ?? [], entry.resolvedOtherReviewItems ?? []])) {
         entry.otherReviewItems = otherReviewItems;
+        entry.resolvedOtherReviewItems = resolvedOtherReviewItems;
         isDirty = true;
       }
       if (!isViewerThreadEligible(candidate) || !github.resolveReviewThread) continue;

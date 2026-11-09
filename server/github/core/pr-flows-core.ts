@@ -106,10 +106,10 @@ export function mergeItems(candidates: readonly PrFlowCandidate[]): PrFlowItem[]
   ]).sort((left, right) => PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority] || left.path.localeCompare(right.path) || (left.lineStart ?? 0) - (right.lineStart ?? 0));
 }
 
-export function teammateThreadItems(nodes: readonly TeamReviewThreadNode[]): PrFlowItem[] {
+export function teammateThreadItems(nodes: readonly TeamReviewThreadNode[], threadState: 'open' | 'resolved'): PrFlowItem[] {
   return mergeItems(nodes.flatMap((node) => {
     const first = node.comments.nodes.at(0);
-    if (node.isResolved || !first || first.viewerDidAuthor) return [];
+    if (node.isResolved !== (threadState === 'resolved') || !first || first.viewerDidAuthor) return [];
     const line = node.diffSide === 'RIGHT' ? node.line : null;
     const body = [...first.body].slice(0, TEAMMATE_THREAD_BODY_MAX_CHARACTERS).join('');
     return [{

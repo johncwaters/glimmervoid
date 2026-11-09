@@ -253,7 +253,7 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
 function refreshThreadDetails(detail: HTMLElement, draft: ReviewDraft): void {
   if (_pendingActions.has(draft.key)) return;
   const threads = detail.querySelector<HTMLElement>('[data-review-threads]');
-  const signature = JSON.stringify([draft.liveHead, draft.threads, draft.otherReviewItems]);
+  const signature = JSON.stringify([draft.liveHead, draft.threads, draft.otherReviewItems, draft.resolvedOtherReviewItems]);
   if (!threads || threads.dataset.reviewThreads === signature) return;
   const isOtherReviewersOpen = threads.querySelector<HTMLDetailsElement>('.pr-other-reviewers')?.open === true;
   threads.replaceChildren(...createThreadDetails(draft), ...createOtherReviewItems(draft, isOtherReviewersOpen));
@@ -324,15 +324,18 @@ function createOtherReviewItems(draft: ReviewDraft, isOpen: boolean): HTMLElemen
   if (rows.length === 0) return [];
   const section = el('details', 'pr-disclosure pr-other-reviewers');
   const summary = el('summary', 'pr-disclosure-summary');
-  const reviewerNames = [...new Set((draft.otherReviewItems ?? []).flatMap((item) => item.sources.map((source) => source.name)))];
-  summary.append(el('span', 'pr-disclosure-label', `Other reviewers (${rows.length})`), el('span', 'pr-disclosure-preview', reviewerNames.join(', ')));
+  const reviewerNames = [...new Set([...(draft.otherReviewItems ?? []), ...(draft.resolvedOtherReviewItems ?? [])].flatMap((item) => item.sources.map((source) => source.name)))];
+  const resolvedCount = rows.filter((row) => row.isResolved).length;
+  const countText = resolvedCount === 0 ? `${rows.length}` : `${rows.length - resolvedCount} open, ${resolvedCount} resolved`;
+  summary.append(el('span', 'pr-disclosure-label', `Other reviewers (${countText})`), el('span', 'pr-disclosure-preview', reviewerNames.join(', ')));
   section.append(summary);
   section.open = isOpen;
   const list = el('div', 'my-pr-threads');
   for (const row of rows) {
-    const card = el('div', 'my-pr-thread pr-thread-card');
+    const card = el('div', row.isResolved ? 'my-pr-thread pr-thread-card is-resolved' : 'my-pr-thread pr-thread-card');
     const heading = el('div', 'my-pr-thread-heading pr-thread-heading');
     heading.append(externalLink('pr-link my-pr-thread-location', row.location, row.url), el('span', 'pr-author-login', row.reviewers));
+    if (row.isResolved) heading.append(el('span', 'pr-thread-resolved', 'Resolved'));
     card.append(heading, createThreadBody(row.excerpt, false, false, row.url));
     list.append(card);
   }

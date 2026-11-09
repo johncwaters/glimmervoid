@@ -180,13 +180,15 @@ function teammateThread(id: string, line: number, login: string, extra: { isReso
   });
 }
 
-test('on a teammate PR an own finding near a bot thread is marked already flagged and left out of the posting plan', () => {
-  const otherReviewItems = teammateThreadItems([
+test('on a teammate PR an own finding near a bot thread is marked already flagged and left out of the posting plan, and a resolved thread shows after the open ones without flagging', () => {
+  const teammateThreads = [
     teammateThread('PRRT_bot', 10, 'greptile[bot]'),
     teammateThread('PRRT_mine', 30, 'operator', { viewerDidAuthor: true }),
-    teammateThread('PRRT_done', 50, 'copilot[bot]', { isResolved: true }),
+    teammateThread('PRRT_done', 31, 'copilot[bot]', { isResolved: true }),
     teammateThread('PRRT_deleted', 29, 'coderabbitai[bot]', { diffSide: 'LEFT' }),
-  ]);
+  ];
+  const otherReviewItems = teammateThreadItems(teammateThreads, 'open');
+  const resolvedOtherReviewItems = teammateThreadItems(teammateThreads, 'resolved');
   const draft = ReviewDraft.parse({
     key: 'acme/app#7', repo: 'acme/app', number: 7, title: 'PR 7', url: 'https://github.com/acme/app/pull/7', author: 'teammate', tier: 'full', reasons: [],
     reviewedHead: 'c'.repeat(40), verdict: 'COMMENT', summary: '', body: '', status: 'ready',
@@ -196,10 +198,10 @@ test('on a teammate PR an own finding near a bot thread is marked already flagge
     ],
   });
 
-  const [presented] = draftsNewestFirst({ 'acme/app#7': { draft, reviewedHead: draft.reviewedHead, inFlight: false, reviewAttempts: 1, updatedAt: 1, otherReviewItems } });
+  const [presented] = draftsNewestFirst({ 'acme/app#7': { draft, reviewedHead: draft.reviewedHead, inFlight: false, reviewAttempts: 1, updatedAt: 1, otherReviewItems, resolvedOtherReviewItems } });
   assert.ok(presented);
 
-  assert.deepEqual(otherReviewRows(presented).map((row) => `${row.location} ${row.reviewers}`), ['src/a.ts coderabbitai[bot]', 'src/a.ts:10 greptile[bot]']);
+  assert.deepEqual(otherReviewRows(presented).map((row) => `${row.location} ${row.reviewers} ${row.isResolved}`), ['src/a.ts coderabbitai[bot] false', 'src/a.ts:10 greptile[bot] false', 'src/a.ts:31 copilot[bot] true']);
   assert.deepEqual(presented.comments.map((comment) => comment.flaggedBy ?? []), [['greptile[bot]'], []]);
   assert.deepEqual(presented.comments.map(isIncludedByDefault), [false, true]);
 });
