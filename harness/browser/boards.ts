@@ -183,17 +183,19 @@ async function selectBoxes(open: OpenBoard, boxIds: readonly string[]): Promise<
   }
 }
 
+const DROP_OFFSET = { x: -40, y: 300 };
+
 async function verifyBoxStaysWhereDropped(open: OpenBoard, boxId: string, boxName: string): Promise<void> {
   const startRect = await screenRectOf(open, boxId);
   const versionBeforeDrop = (await boardOf(open)).version;
   const start = centerOf(startRect);
   await open.page.mouse.move(start.x, start.y);
   await open.page.mouse.down();
-  await open.page.mouse.move(start.x + 120, start.y + 220, { steps: 8 });
+  await open.page.mouse.move(start.x + DROP_OFFSET.x, start.y + DROP_OFFSET.y, { steps: 8 });
   await open.page.mouse.up();
   await pollFor(`dropping ${boxName} saves its place`, BOARD_TIMEOUT_MS, async () => ((await boardOf(open)).version !== versionBeforeDrop ? true : null));
   const restingRect = await screenRectOf(open, boxId);
-  assert.ok(Math.abs(restingRect.x - startRect.x - 120) < 2 && Math.abs(restingRect.y - startRect.y - 220) < 2, `${boxName} stays where it was dropped, landed ${restingRect.x - startRect.x}, ${restingRect.y - startRect.y} from where it sat`);
+  assert.ok(Math.abs(restingRect.x - startRect.x - DROP_OFFSET.x) < 2 && Math.abs(restingRect.y - startRect.y - DROP_OFFSET.y) < 2, `${boxName} stays where it was dropped, landed ${restingRect.x - startRect.x}, ${restingRect.y - startRect.y} from where it sat`);
 }
 
 async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<void> {
@@ -270,6 +272,9 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await page.keyboard.press('Escape');
 }
 
+const BOARD_SPLIT_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Alt+KeyB';
+const LINE_END_KEY = process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End';
+
 async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, docText }) => {
@@ -279,7 +284,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
   const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
   assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 640, y: 40 }, media: firstDraftMedia } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 40, y: 160 }, media: firstDraftMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
   await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
@@ -292,7 +297,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   await paper.locator('.doc-markup-line[data-block="h1"] .doc-markup-text[data-inline="syntax"]', { hasText: '#' }).waitFor();
   await paper.locator('.doc-markup-text[data-inline="strong"]', { hasText: /^Bold$/ }).waitFor();
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
-  await page.keyboard.press('End');
+  await page.keyboard.press(LINE_END_KEY);
   await page.keyboard.type(' Again.');
   await paper.locator('.doc-markup-insertion').waitFor();
   assert.equal(await paper.locator('.doc-markup-line > .doc-markup-insertion:last-child').count(), 1, 'typing at the end of a styled line marks the end of its source');
@@ -411,7 +416,7 @@ async function panTowardTopOfCanvas(panel: Locator, target: Locator): Promise<vo
   const canvasBounds = await panel.locator('.wb-canvas').boundingBox();
   const targetBounds = await target.boundingBox();
   assert.ok(canvasBounds && targetBounds);
-  await page.mouse.move(canvasBounds.x + canvasBounds.width / 2, canvasBounds.y + canvasBounds.height - 20);
+  await page.mouse.move(canvasBounds.x + canvasBounds.width / 2, canvasBounds.y + canvasBounds.height / 2);
   await page.mouse.wheel(targetBounds.x - (canvasBounds.x + canvasBounds.width / 3), targetBounds.y - (canvasBounds.y + 60));
 }
 
@@ -498,7 +503,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
       if (readings && typeof readings === 'object') document.documentElement.dataset.boardPageProbe = JSON.stringify(readings);
     });
   });
-  await dropFileOnCanvas(panel, { name: 'clip.webm', type: 'video/webm', base64: await webmClipBase64() }, { x: 420, y: 80 });
+  await dropFileOnCanvas(panel, { name: 'clip.webm', type: 'video/webm', base64: await webmClipBase64() }, { x: 40, y: 260 });
   const isClip = (element: BoardElement) => element.kind === 'box' && element.media?.kind === 'video' && element.media.alt === 'clip.webm';
   const clip = await elementWhere(open, 'the dropped video box', isClip);
   assert.equal(await panel.locator('.wb-media[data-media-kind="video"], video').count(), 0, 'a video box draws only its first frame on the board');
@@ -521,9 +526,10 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await page.mouse.wheel(0, 40);
   assert.notEqual(await worldTransform(), transformBeforePan, 'a wheel over a video box pans the board');
 
-  await dropFileOnCanvas(panel, { name: 'probe.html', type: 'text/html', base64: Buffer.from(PROBE_PAGE_HTML).toString('base64') }, { x: 420, y: 300 });
+  await dropFileOnCanvas(panel, { name: 'probe.html', type: 'text/html', base64: Buffer.from(PROBE_PAGE_HTML).toString('base64') }, { x: 40, y: 480 });
   const pageMedia = panel.locator('.wb-media[data-media-kind="page"]');
   await pageMedia.waitFor();
+  await deselectAll(open);
   await panTowardTopOfCanvas(panel, pageMedia);
   const pageFrame = pageMedia.locator('iframe.wb-media-page');
   assert.equal(await pageFrame.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a page box renders in a sandbox without same-origin');
@@ -892,8 +898,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.ok(canvasBox);
     assert.ok(boxOutline.x >= canvasBox.x && boxOutline.y >= canvasBox.y, 'the box starts inside the canvas');
     assert.ok(boxOutline.x + boxOutline.width <= canvasBox.x + canvasBox.width && boxOutline.y + boxOutline.height <= canvasBox.y + canvasBox.height, 'the box ends inside the canvas');
-    const outlineCenter = centerOf(boxOutline);
-    await page.mouse.dblclick(outlineCenter.x, outlineCenter.y);
+    await page.mouse.dblclick(boxOutline.x + 40, boxOutline.y + boxOutline.height / 2);
     await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Parse and store');
     await page.keyboard.press('Enter');
     const sourceBox = await elementWhere(open, 'the renamed box', titled('Parse and store'));
@@ -902,7 +907,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('p');
-    const priorArt = await placeBoxWithTool(open, { x: 520, y: 30 }, 'Prior art', 'Panel title');
+    const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art', 'Panel title');
     await verifyBoxStaysWhereDropped(open, priorArt.id, 'a panel');
     await selectBoxes(open, [sourceBox.id, targetBox.id]);
     await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);
@@ -1186,15 +1191,15 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await laterRow.waitFor({ state: 'detached' });
   assert.equal(await sessionRow.locator(`.session-board-chip[aria-label="Open board ${laterTitle}"]`).count(), 1, 'the board dropped back shows once, as a link under the session it stays connected to, with no board row of its own');
-  await page.keyboard.press('Alt+KeyB');
+  await page.keyboard.press(BOARD_SPLIT_KEY);
   await pollFor('Alt B opens a connected board beside the session', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   await sessionRow.locator('.session-row-split-board').click();
   await page.waitForFunction((id) => document.querySelector(`.focus-rail .session-row[data-id="${id}"]`)?.getAttribute('data-active-pane') === 'board', sessionId);
-  await page.keyboard.press('Alt+KeyB');
+  await page.keyboard.press(BOARD_SPLIT_KEY);
   await page.waitForFunction(() => document.activeElement?.closest('#focus-pane-terminal') != null);
   await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press('Alt+KeyB');
+  await page.keyboard.press(BOARD_SPLIT_KEY);
   await pollFor('Alt B from the terminal reopens the board', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
 }
 
@@ -1209,7 +1214,7 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press('Alt+KeyB');
+  await page.keyboard.press(BOARD_SPLIT_KEY);
   await openBoardTitle(panel, secondTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, secondTitle);
   await page.locator('.focus-rail .session-row[data-board-id]', { hasText: unrelatedTitle }).dragTo(page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first());
@@ -1219,12 +1224,12 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await createBoardOverControl(page, laterTitle);
   await page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle }).waitFor();
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
-  await page.keyboard.press('Alt+KeyB');
+  await page.keyboard.press(BOARD_SPLIT_KEY);
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press('Alt+KeyB');
-  await openBoardTitle(panel, secondTitle).waitFor();
-  await waitForSplitBoardTitle(page, sessionId, secondTitle);
+  await page.keyboard.press(BOARD_SPLIT_KEY);
+  await openBoardTitle(panel, unrelatedTitle).waitFor();
+  await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
 }
 
 async function verifyMergeShortcutIgnoredWhileBoardCentered(page: Page, projectDirectory: string): Promise<void> {

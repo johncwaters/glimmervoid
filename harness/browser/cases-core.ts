@@ -221,6 +221,7 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   {
     name: 'boards',
+    viewports: ['phone-393', 'desktop-1920'],
     steps: [{ kind: 'assert-boards' }, { kind: 'shot', name: 'boards' }],
   },
   {
