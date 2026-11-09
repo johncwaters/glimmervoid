@@ -98,4 +98,4 @@ npm uninstall -g glimmervoid
 npm install -g glimmervoid
 ```
 
-(add `--allow-scripts=node-pty` on Linux). If you must stay on the git spec, it needs npm 12: npm 11 global installs from git specs land as a link into a temporary clone that npm then deletes ([npm/cli#9406](https://github.com/npm/cli/issues/9406)). Your `~/.npmrc` must carry no `allow-scripts` line during that install, because npm passes the setting to the child install that prepares the git dependency, which rejects it with `EALLOWSCRIPTS`. Compile node-pty afterwards with the rebuild command above.
+(add `--allow-scripts=node-pty,ffmpeg-static`). If you must stay on the git spec, it needs npm 12: npm 11 global installs from git specs land as a link into a temporary clone that npm then deletes ([npm/cli#9406](https://github.com/npm/cli/issues/9406)). Your `~/.npmrc` must carry no `allow-scripts` line during that install, because npm passes the setting to the child install that prepares the git dependency, which rejects it with `EALLOWSCRIPTS`. Compile node-pty afterwards with the rebuild command above.

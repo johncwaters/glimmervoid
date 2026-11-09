@@ -8,7 +8,7 @@ Include your Glimmervoid version (`glimmervoid --version`), your OS, and the ste
 
 ## Supported versions
 
-Only the latest release gets security fixes. Update with the command the dashboard's update banner shows, or `npm install -g glimmervoid@latest`.
+Only the latest release gets security fixes. Update with the command the dashboard's update banner shows, or `npm install -g glimmervoid@latest --allow-scripts=node-pty,ffmpeg-static`.
 
 ## Trust model
 

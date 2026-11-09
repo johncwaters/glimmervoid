@@ -34,7 +34,7 @@ import {
   retireAtBoot,
 } from './core/update-apply-core.ts';
 import type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
-import { BINARY_UPDATER_NAME, NODE_PTY_INSTALL_SCRIPT_FLAG } from './core/update-core.ts';
+import { BINARY_UPDATER_NAME, NATIVE_INSTALL_SCRIPTS_FLAG } from './core/update-core.ts';
 import { compareReleaseVersions } from '../shared/build-channel.ts';
 import { stableLauncherPathFor } from './stable-node-path.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
@@ -553,8 +553,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
 
   async function runNpmGlobalInstall(layout: NpmGlobalLayout, targetVersion: string): Promise<void> {
     const platform = dependencies.platform || process.platform;
-    const installArgs = ['install', '--global', '--prefix', layout.stagePrefix, '--no-audit', '--no-fund', '--prefer-online', `glimmervoid@${targetVersion}`];
-    if (platform === 'linux') installArgs.push(NODE_PTY_INSTALL_SCRIPT_FLAG);
+    const installArgs = ['install', '--global', '--prefix', layout.stagePrefix, '--no-audit', '--no-fund', '--prefer-online', `glimmervoid@${targetVersion}`, NATIVE_INSTALL_SCRIPTS_FLAG];
     const throttled = lowPriorityCommand({ file: npmPath, args: installArgs, platform });
     await runInstallCommand(throttled.file, throttled.args, layout.updatePath, INSTALL_TIMEOUT_MS);
   }

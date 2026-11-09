@@ -15,9 +15,12 @@ import { errorText } from '../shared/text.ts';
 type NativeProbeRow = [label: string, outcome: string];
 
 const LOADS_OK = 'loads OK';
+const FFMPEG_LABEL = 'ffmpeg';
+const FFMPEG_MISSING = 'missing: board videos get no poster. Reinstall with npm install -g glimmervoid --allow-scripts=node-pty,ffmpeg-static';
+const OPTIONAL_PROBE_LABELS = new Set([FFMPEG_LABEL]);
 
 function isEveryProbeLoading(rows: readonly NativeProbeRow[]): boolean {
-  return rows.every(([, outcome]) => outcome === LOADS_OK);
+  return rows.every(([label, outcome]) => outcome === LOADS_OK || OPTIONAL_PROBE_LABELS.has(label));
 }
 const FFMPEG_PROBE_TIMEOUT_MS = 10_000;
 
@@ -55,10 +58,10 @@ async function layOutBoardInLayoutWorker(): Promise<void> {
   await layoutClient.refresh(createBoard({ id: 'doctor-probe', title: 'Doctor probe', nowMs: Date.now() }), []);
 }
 
-async function runFfmpeg(): Promise<void> {
+async function probeFfmpeg(): Promise<string> {
   const ffmpegPath = resolveFfmpegPath();
-  if (!ffmpegPath) throw new Error('no ffmpeg binary found');
-  await execFileAsync(ffmpegPath, ['-version'], { timeout: FFMPEG_PROBE_TIMEOUT_MS });
+  if (!ffmpegPath) return FFMPEG_MISSING;
+  return outcomeOf(() => execFileAsync(ffmpegPath, ['-version'], { timeout: FFMPEG_PROBE_TIMEOUT_MS }));
 }
 
 async function probeNativeModules(): Promise<NativeProbeRow[]> {
@@ -69,7 +72,7 @@ async function probeNativeModules(): Promise<NativeProbeRow[]> {
       ['fs-native-extensions', await outcomeOf(() => lockFileWithNativeExtensions(scratchDir))],
       ['node:sqlite worker', await outcomeOf(openSqliteInBoardStoreWorker)],
       ['layout worker', await outcomeOf(layOutBoardInLayoutWorker)],
-      ['ffmpeg', await outcomeOf(runFfmpeg)],
+      [FFMPEG_LABEL, await probeFfmpeg()],
     ];
   } finally {
     fs.rmSync(scratchDir, { recursive: true, force: true });

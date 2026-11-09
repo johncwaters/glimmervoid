@@ -71,7 +71,6 @@ interface CheckForUpdateOptions {
   statePath?: string;
   ttlMs?: number;
   now?: number;
-  platform?: NodeJS.Platform;
 }
 
 type CoreUpdateStatus = ReturnType<typeof decideUpdateStatus>;
@@ -235,7 +234,6 @@ async function finish(
   latestTarget: LatestTarget,
   currentVersion: string | undefined,
   channel: UpdateChannel,
-  platform: NodeJS.Platform,
   lastCheckAt: number,
   packageRoot: string,
   runCommand: RunCommand,
@@ -258,7 +256,6 @@ async function finish(
       currentVersion,
       latestVersion: latestTarget.version,
       flavor: installed.flavor,
-      platform,
       channel,
       reason: latestTarget.reason,
       isLatestReleaseAncestorOfHead,
@@ -291,7 +288,6 @@ async function checkForUpdate({
   statePath = defaultStatePath(),
   ttlMs = STATE_TTL_MS,
   now = Date.now(),
-  platform = process.platform,
 }: CheckForUpdateOptions = {}): Promise<UpdateCheckStatus> {
   const timer = setTimeout(() => abortController.abort(), timeoutMs);
   const signal = abortController.signal;
@@ -309,7 +305,7 @@ async function checkForUpdate({
       && normalizeSha(cached?.latestSha) === installed.installedSha;
     const isCacheFromSameSource = cached?.releaseSource === RELEASE_SOURCE;
     if (cached?.channel === updateChannel && isCacheFromSameSource && !cacheOutrunByInstall && isCheckFresh(cached.lastCheckAt, now, ttlMs)) {
-      return finish(installed, targetFromCache(cached, currentVersion), currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
+      return finish(installed, targetFromCache(cached, currentVersion), currentVersion, updateChannel, now, packageRoot, runCommand, signal);
     }
     signal.throwIfAborted();
     const latestTarget = await resolveLatestRegistryVersion({ currentVersion, updateChannel, fetchFn, signal });
@@ -327,14 +323,13 @@ async function checkForUpdate({
         deprecation: latestTarget.deprecation,
       });
     }
-    return finish(installed, latestTarget, currentVersion, updateChannel, platform, now, packageRoot, runCommand, signal);
+    return finish(installed, latestTarget, currentVersion, updateChannel, now, packageRoot, runCommand, signal);
   } catch {
     return finish(
       installed,
       { version: null, sha: null, reason: 'update-check-failed', deprecation: null },
       currentVersion,
       updateChannel,
-      platform,
       now,
       packageRoot,
       runCommand,

@@ -233,7 +233,7 @@ npm pack --dry-run
 
 ```bash
 npm pack
-npm install -g ./glimmervoid-<version>.tgz --allow-scripts=node-pty
+npm install -g ./glimmervoid-<version>.tgz --allow-scripts=node-pty,ffmpeg-static
 glimmervoid --version
 glimmervoid doctor
 npm uninstall -g glimmervoid

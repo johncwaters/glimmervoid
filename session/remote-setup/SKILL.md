@@ -39,7 +39,7 @@ The end state:
 ## 3. Install Glimmervoid
 
 ```bash
-npm install -g glimmervoid
+npm install -g glimmervoid --allow-scripts=node-pty,ffmpeg-static
 glimmervoid doctor
 ```
 

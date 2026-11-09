@@ -41,18 +41,13 @@ glimmervoid
 
 The curl and PowerShell installers put `glimmervoid` and its updater `glimmervoid-update` in `~/.glimmervoid/bin` and add that folder to your PATH; open a new terminal if `glimmervoid` is not found yet. Homebrew keeps it in its own folder and updates it with `brew upgrade glimmervoid`.
 
-With Node 24.15 or newer, npm works too. Windows and macOS:
+With Node 24.15 or newer, npm works too. The flag lets node-pty and ffmpeg-static run their install scripts, which npm 12 blocks by default:
 
 ```bash
-npx glimmervoid@latest
+npx --allow-scripts=node-pty,ffmpeg-static glimmervoid@latest
 ```
 
-Linux, where node-pty compiles at install time:
-
-```bash
-sudo apt install build-essential python3 git
-npx --allow-scripts=node-pty glimmervoid@latest
-```
+On Linux, node-pty compiles at install time, so install the build tools first: `sudo apt install build-essential python3 git`.
 
 **2. Open http://localhost:3000.** The first start from a terminal opens it in your browser for you; pass `--no-open` to skip that.
 
@@ -60,7 +55,7 @@ npx --allow-scripts=node-pty glimmervoid@latest
 
 That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background, unless Streamer mode is on.
 
-Keep `@latest` so npx picks up new releases. To install globally instead, run `npm install -g glimmervoid` (add `--allow-scripts=node-pty` on Linux), then `glimmervoid`. Never use `sudo npm`; see [EACCES on a global install](docs/troubleshooting.md#eacces-on-a-global-install).
+Keep `@latest` so npx picks up new releases. To install globally instead, run `npm install -g glimmervoid --allow-scripts=node-pty,ffmpeg-static`, then `glimmervoid`. Never use `sudo npm`; see [EACCES on a global install](docs/troubleshooting.md#eacces-on-a-global-install).
 
 If something fails, run `glimmervoid doctor` and see [troubleshooting](docs/troubleshooting.md).
 

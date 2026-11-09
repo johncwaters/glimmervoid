@@ -27,11 +27,9 @@ jobs:
         shell: bash
         run: |
           TARBALL=$(npm pack | tail -1)
-          npx --yes npm@12 install -g "./$TARBALL" --allow-scripts=node-pty
-          glimmervoid doctor > doctor.log
-          cat doctor.log
-          # doctor reports a broken native module and still exits 0, so this line is the real gate.
-          grep -q "loads OK" doctor.log
+          npx --yes npm@12 install -g "./$TARBALL" --allow-scripts=node-pty,ffmpeg-static
+          glimmervoid doctor | tee doctor.log
+          grep -Eq "ffmpeg +loads OK" doctor.log
 
   pack:
     timeout-minutes: 15
@@ -68,10 +66,9 @@ jobs:
       - name: packaged global install
         shell: bash
         run: |
-          npx --yes npm@12 install -g ./tarball/*.tgz --allow-scripts=node-pty
-          glimmervoid doctor > doctor.log
-          cat doctor.log
-          grep -q "loads OK" doctor.log
+          npx --yes npm@12 install -g ./tarball/*.tgz --allow-scripts=node-pty,ffmpeg-static
+          glimmervoid doctor | tee doctor.log
+          grep -Eq "ffmpeg +loads OK" doctor.log
       - name: smoke start
         shell: pwsh
         run: |

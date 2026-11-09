@@ -7,7 +7,7 @@ import { FULL_SHA_RE, shortSha as abbreviateSha } from '../../shared/git-text.ts
 
 const NPM_PACKAGE_NAME = 'glimmervoid';
 const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
-const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
+const NATIVE_INSTALL_SCRIPTS_FLAG = '--allow-scripts=node-pty,ffmpeg-static';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
 const BINARY_UPDATER_NAME = 'glimmervoid-update';
@@ -76,22 +76,19 @@ function decideInstallFlavor({ standaloneExecutablePath, packageRoot, lockfileSh
   return { flavor: 'unknown', installedSha: null };
 }
 
-function buildNpxCommand(latestVersion: unknown, platform: unknown): string {
-  const packageSpec = `${NPM_PACKAGE_NAME}@${textOr(latestVersion, null) ?? 'latest'}`;
-  if (platform === 'linux') return `npx ${NODE_PTY_INSTALL_SCRIPT_FLAG} ${packageSpec}`;
-  return `npx ${packageSpec}`;
+function buildNpxCommand(latestVersion: unknown): string {
+  return `npx ${NATIVE_INSTALL_SCRIPTS_FLAG} ${NPM_PACKAGE_NAME}@${textOr(latestVersion, null) ?? 'latest'}`;
 }
 
-function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): string {
+function buildNpmGlobalCommand(latestVersion: unknown): string {
   const version = textOr(latestVersion, null);
   const installCommand = version ? `npm install -g ${NPM_PACKAGE_NAME}@${version}` : NPM_GLOBAL_COMMAND;
-  if (platform === 'linux') return `${installCommand} ${NODE_PTY_INSTALL_SCRIPT_FLAG}`;
-  return installCommand;
+  return `${installCommand} ${NATIVE_INSTALL_SCRIPTS_FLAG}`;
 }
 
-function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
-  if (flavor === 'npx') return buildNpxCommand(latestVersion, platform);
-  if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion, platform);
+function buildUpdateCommand(flavor: unknown, latestVersion: unknown): string {
+  if (flavor === 'npx') return buildNpxCommand(latestVersion);
+  if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion);
   if (flavor === 'binary') return BINARY_UPDATER_NAME;
   if (flavor === 'homebrew') return HOMEBREW_COMMAND;
   return CLONE_COMMAND;
@@ -174,13 +171,12 @@ function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   return textOr(reason, null);
 }
 
-function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, platform, channel, reason, isLatestReleaseAncestorOfHead, deprecation }: {
+function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion, latestVersion, flavor, channel, reason, isLatestReleaseAncestorOfHead, deprecation }: {
   installedSha?: unknown;
   latestSha?: unknown;
   currentVersion?: unknown;
   latestVersion?: unknown;
   flavor?: unknown;
-  platform?: unknown;
   channel?: unknown;
   reason?: unknown;
   isLatestReleaseAncestorOfHead?: unknown;
@@ -202,7 +198,7 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     currentSha,
     latestSha,
     releaseUrl: buildReleaseUrl(latest),
-    command: buildUpdateCommand(flavor, latest, platform),
+    command: buildUpdateCommand(flavor, latest),
     flavor: normalizedFlavor,
     channel: normalizeUpdateChannel(channel),
     reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
@@ -220,4 +216,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NODE_PTY_INSTALL_SCRIPT_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NATIVE_INSTALL_SCRIPTS_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };

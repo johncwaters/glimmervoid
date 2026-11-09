@@ -24,7 +24,7 @@ dist builds through the npm `dist` script, which writes the binary to the packag
 
 ## Updates
 
-Global npm installs and npx launches check npm because their update commands resolve there; clones check release tags so unreleased commits do not trigger the release banner. The npx banner pins `npx glimmervoid@<version>` to avoid reusing an older cached spec, with `--allow-scripts=node-pty` before the package spec on Linux because node-pty needs compilation. `tests/update-core.test.ts` and `tests/update-check.test.ts` pin the commands, sources and legacy-cache refresh.
+Global npm installs and npx launches check npm because their update commands resolve there; clones check release tags so unreleased commits do not trigger the release banner. The npx banner pins `npx glimmervoid@<version>` to avoid reusing an older cached spec, with `--allow-scripts=node-pty,ffmpeg-static` before the package spec on every platform, because npm 12 blocks the install scripts that compile node-pty and download ffmpeg.
 
 ## What is enforced, and where
 
