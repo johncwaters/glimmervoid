@@ -1172,3 +1172,31 @@ test('a review re-run at the same head lists each earlier inline or general find
     await poller.stop();
   }
 });
+
+test('opening a review detail refetches its teammate threads at most once a minute, without waiting for the next poll', async () => {
+  const teammateThread = threadNode('MEDIUM', { comments: { pageInfo: { hasNextPage: false }, nodes: [
+    { body: 'Should this retry?', author: { login: 'reviewer' }, viewerDidAuthor: false, createdAt: THREAD_REPLY_AT, url: 'https://github.com/Acme/app/pull/7#discussion_r9', originalCommit: { oid: HEAD } },
+  ] } });
+  let threadFetches = 0;
+  let clockMs = Date.now();
+  const poller = createTeamReviewPoller({
+    org: 'Acme', teams: [], github: {},
+    store: emptyGithubStore({ viewer: async () => 'me', teamReviewThreads: async () => { threadFetches += 1; return new Map([[ACTION_KEY, [teammateThread]]]); } }),
+    spawnReview: () => new Promise(() => {}),
+    readState: async () => ({ [ACTION_KEY]: { draft: actionDraft(), reviewedHead: HEAD, liveHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: clockMs } }),
+    writeState: async () => {}, beforeStart: async () => {}, now: () => clockMs,
+    firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+  });
+  try {
+    await poller.start();
+    await poller.refreshThreads(ACTION_KEY);
+    assert.deepEqual(poller._state()[ACTION_KEY]?.otherReviewItems?.map((item) => item.excerpt), ["Should this retry?"]);
+    await poller.refreshThreads(ACTION_KEY);
+    assert.equal(threadFetches, 1);
+    clockMs += 61_000;
+    await poller.refreshThreads(ACTION_KEY);
+    assert.equal(threadFetches, 2);
+  } finally {
+    await poller.stop();
+  }
+});

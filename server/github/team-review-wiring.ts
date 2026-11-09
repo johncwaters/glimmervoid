@@ -236,6 +236,10 @@ function createTeamReviewWiring({
     return poller.requestReview(reference);
   }
 
+  async function refreshThreads(key: string): Promise<void> {
+    await runner.getPoller()?.refreshThreads(key);
+  }
+
   async function markNotMineForPoller(key: string): Promise<NotMineOutcome> {
     return (await runner.getPoller()?.markNotMine(key)) ?? { ok: false, error: 'Team review is not running' };
   }
@@ -309,6 +313,7 @@ function createTeamReviewWiring({
     isRunning,
     requestReview,
     submitAction: actions.submitAction,
+    refreshThreads,
     preparePrSession,
   };
 }

@@ -5,6 +5,7 @@ import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
 export const THREAD_JUDGE_BACKOFF_MS = 15 * 60 * 1000;
+export const THREAD_REFRESH_MIN_INTERVAL_MS = 60 * 1000;
 export const THREAD_PLACEHOLDER_ERROR = 'No local review draft. Review the answered threads below.';
 const THREAD_COMMENTS_MAX_CHARS = 20000;
 const THREAD_PATCH_MAX_CHARS = 120000;

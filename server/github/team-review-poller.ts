@@ -75,7 +75,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const statusReporter = createTeamReviewStatusReporter(context);
   const candidateSearch = createTeamReviewCandidateSearch(context);
   const headPlanning = createTeamReviewHeadPlanning(context);
-  const { handleAnsweredThreads } = createTeamReviewAnsweredThreads(context, statusReporter);
+  const { handleAnsweredThreads, refreshThreads: refreshThreadItems } = createTeamReviewAnsweredThreads(context, statusReporter);
   const reviewRuns = createTeamReviewRuns(context, statusReporter, headPlanning, candidateSearch);
   const { getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine } = createTeamReviewOperatorActions(context, statusReporter, headPlanning, candidateSearch, reviewRuns);
   const { inFlightKeys, cancelPendingProgressEmit, emitStatus } = statusReporter;
@@ -189,6 +189,17 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     });
   }
 
+  async function refreshThreads(key: string): Promise<void> {
+    if (!runtime.hasLoadedState) return;
+    const isChanged = await refreshThreadItems(key).catch((error: unknown) => {
+      log.warn(`[${core.TEAM_REVIEW_LANE_ID}] thread refresh for ${key} failed: ${errorMessage(error)}`);
+      return false;
+    });
+    if (!isChanged) return;
+    await persist();
+    emitStatus();
+  }
+
   async function stop(): Promise<void> {
     runtime.hasLoadedState = false;
     unregisterWatches();
@@ -197,7 +208,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh, rebuild, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
+  return { start, stop, tick: loop.tick, refresh, refreshThreads, rebuild, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

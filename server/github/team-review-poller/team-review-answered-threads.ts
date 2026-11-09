@@ -1,6 +1,7 @@
 import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
-import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgeEvidence, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR } from '../core/team-review-threads-core.ts';
+import { countViewerThreadResolved, viewerThreadTally, hasPresentableThreads, isThreadPlaceholderDraft, answeredViewerThreads, shouldAutoResolveThread, shouldJudgeThread, buildThreadJudgeRequest, parseThreadJudgeResult, threadJudgeEvidence, THREAD_JUDGE_BACKOFF_MS, THREAD_PLACEHOLDER_ERROR, THREAD_REFRESH_MIN_INTERVAL_MS } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
+import { githubStorePrReference } from '../core/github-store-core.ts';
 import { teammateThreadItems } from '../core/pr-flows-core.ts';
 import type { TeamReviewCandidate } from '../core/team-review-core.ts';
 import type { TeamReviewStateEntry } from '../../../shared/contracts/team-review.ts';
@@ -11,6 +12,7 @@ import type { TeamReviewStatusReporter } from './team-review-status-reporter.ts'
 function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statusReporter: TeamReviewStatusReporter) {
   const { deps, github, store, now, runtime, loop, persist } = context;
   const { emitStatus } = statusReporter;
+  const lastThreadRefreshAtByKey = new Map<string, number>();
 
   async function handleAnsweredThreads(candidates: TeamReviewCandidate[]): Promise<boolean> {
     const isViewerThreadEligible = ({ key }: TeamReviewCandidate) => {
@@ -47,13 +49,7 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
       const nodes = fetched.get(candidate.key);
       const head = entry?.liveHead;
       if (!entry || !nodes || !head) continue;
-      const otherReviewItems = teammateThreadItems(nodes, 'open');
-      const resolvedOtherReviewItems = teammateThreadItems(nodes, 'resolved');
-      if (JSON.stringify([otherReviewItems, resolvedOtherReviewItems]) !== JSON.stringify([entry.otherReviewItems ?? [], entry.resolvedOtherReviewItems ?? []])) {
-        entry.otherReviewItems = otherReviewItems;
-        entry.resolvedOtherReviewItems = resolvedOtherReviewItems;
-        isDirty = true;
-      }
+      if (applyTeammateThreadItems(entry, nodes)) isDirty = true;
       if (!isViewerThreadEligible(candidate) || !github.resolveReviewThread) continue;
       const viewerThreads = viewerThreadTally(nodes);
       if (viewerThreads.total !== entry.viewerThreads?.total || viewerThreads.resolved !== entry.viewerThreads?.resolved) {
@@ -128,6 +124,31 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
     return isDirty;
   }
 
+  async function refreshThreads(key: string): Promise<boolean> {
+    for (const refreshedKey of lastThreadRefreshAtByKey.keys()) {
+      if (!runtime.state[refreshedKey]) lastThreadRefreshAtByKey.delete(refreshedKey);
+    }
+    const entry = runtime.state[key];
+    const reference = githubStorePrReference(key);
+    if (!entry || !reference || loop.isStopped()) return false;
+    const lastRefreshAt = lastThreadRefreshAtByKey.get(key);
+    if (lastRefreshAt !== undefined && now() - lastRefreshAt < THREAD_REFRESH_MIN_INTERVAL_MS) return false;
+    lastThreadRefreshAtByKey.set(key, now());
+    const fetchedRead = await store.requestTeamReviewThreads([reference], 'no-wait');
+    if (fetchedRead.isRateLimited || runtime.state[key] !== entry) return false;
+    const nodes = [...fetchedRead.value].find(([fetchedKey]) => fetchedKey.toLowerCase() === key.toLowerCase())?.[1];
+    return nodes ? applyTeammateThreadItems(entry, nodes) : false;
+  }
+
+  function applyTeammateThreadItems(entry: TeamReviewStateEntry, nodes: Parameters<typeof teammateThreadItems>[0]): boolean {
+    const otherReviewItems = teammateThreadItems(nodes, 'open');
+    const resolvedOtherReviewItems = teammateThreadItems(nodes, 'resolved');
+    if (JSON.stringify([otherReviewItems, resolvedOtherReviewItems]) === JSON.stringify([entry.otherReviewItems ?? [], entry.resolvedOtherReviewItems ?? []])) return false;
+    entry.otherReviewItems = otherReviewItems;
+    entry.resolvedOtherReviewItems = resolvedOtherReviewItems;
+    return true;
+  }
+
   async function readMainSinceComment(repo: string, commentCommit: string, baseBranchHead: string, head: string): ReturnType<typeof store.requestTeamReviewCompare> {
     const mergedMainRead = await store.requestTeamReviewCompare(repo, baseBranchHead, head, 'no-wait');
     if (mergedMainRead.isRateLimited || !mergedMainRead.value.ok || !mergedMainRead.value.comparison) return mergedMainRead;
@@ -147,7 +168,7 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
     return false;
   }
 
-  return { handleAnsweredThreads };
+  return { handleAnsweredThreads, refreshThreads };
 }
 
 export { createTeamReviewAnsweredThreads };

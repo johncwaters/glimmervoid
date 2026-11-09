@@ -79,6 +79,7 @@ interface TeamReviewActionControl {
   refresh?: () => Promise<GithubPollingRefreshResult>;
   isRunning(): boolean;
   submitAction(request: TeamReviewActionRequest): Promise<TeamReviewActionOutcome>;
+  refreshThreads?(key: string): Promise<void>;
   preparePrSession?(key: string): Promise<PrSessionCheckout>;
 }
 

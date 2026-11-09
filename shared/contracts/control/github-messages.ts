@@ -14,6 +14,7 @@ export const githubClientVariants = [
   loose('set-issue-state', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive(), state: z.enum(['closed', 'open']) }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
+  loose('team-review-refresh-threads', { requestId, key: PullRequestKey }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),
   loose('my-pr-keep-mergeable', { ...MyPrKeepMergeableRequest.shape, requestId }),
   loose('my-pr-merge-when-ready', { ...MyPrMergeWhenReadyRequest.shape, requestId }),

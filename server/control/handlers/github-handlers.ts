@@ -195,6 +195,10 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     reply(await teamReview.submitAction(parsed.data));
   }
 
+  async function handleTeamReviewRefreshThreads(msg: ClientMessageOf<'team-review-refresh-threads'>): Promise<void> {
+    await teamReview?.refreshThreads?.(msg.key);
+  }
+
   async function handleGithubPollingRefresh(msg: ClientMessageOf<'github-polling-refresh'>, ws: ControlSocket): Promise<void> {
     captureOperatorAction(msg.lane === 'issues' ? 'issues' : 'reviews', 'refresh');
     const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
@@ -306,6 +310,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'open-team-review-session': (msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket) => prSessionOpenQueue.run(msg.key.toLowerCase(), () => handleOpenTeamReviewSession(msg, ws)),
     'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'team-review-action': handleTeamReviewAction,
+    'team-review-refresh-threads': handleTeamReviewRefreshThreads,
     'my-pr-merge': handleMyPrMerge,
     'my-pr-keep-mergeable': handleMyPrKeepMergeable,
     'my-pr-merge-when-ready': handleMyPrMergeWhenReady,

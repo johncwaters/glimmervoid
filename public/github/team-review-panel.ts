@@ -3,6 +3,7 @@ import { subscribeTeamReview, teamReviewStatusView } from './team-review-store.t
 import type { TeamReviewChange } from './team-review-store.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { el } from '../dom-helpers.ts';
+import { sendControlMsg } from '../control-ws.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, answeredNonNitThreads, actionOutcomeText, emptyStateText, laneNotice, groupDrafts, hasRequeueFooter, readyRowSignature, planActionReply, settledLineText, isPostedAwaitingViewer } from './team-review-view-core.ts';
 import type { TeamReviewSections } from './team-review-view-core.ts';
@@ -143,6 +144,7 @@ function releaseTeamReviewSelection(): void {
 
 function showTeamReview(reviewKey: string, receiptMode: 'keep' | 'clear'): void {
   if (receiptMode === 'clear') clearReceipts(reviewKey);
+  if (_selectedKey !== reviewKey) sendControlMsg({ type: 'team-review-refresh-threads', key: reviewKey });
   _selectedKey = reviewKey;
   renderSelectedDetail(groupDrafts(_view));
   refreshTeamReviewAges();
