@@ -87,7 +87,7 @@ test('the vault takes a companion, refuses a wrong token, delivers an approved s
     },
   });
 
-  const companionFilePath = path.join(server.home, 'vault-companion.json');
+  const companionFilePath = path.join(server.home, 'secrets', 'vault-companion.json');
   await waitFor(() => fs.existsSync(companionFilePath), 'the vault companion file');
   const companionFile: CompanionFile = JSON.parse(fs.readFileSync(companionFilePath, 'utf8'));
   const companionUrl = new URL('/vault', companionFile.url).toString();

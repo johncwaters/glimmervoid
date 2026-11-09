@@ -650,7 +650,7 @@
     },
     {
       "name": "link secret",
-      "definition": "The random secret in ~/.glimmervoid/watcher-link.key, which the doorman reads through the path its tenant table names, from which each direction of the watcher link derives its own signing key; never shown in settings"
+      "definition": "The random secret in ~/.glimmervoid/secrets/watcher-link.key, which the doorman reads through the path its tenant table names, from which each direction of the watcher link derives its own signing key; never shown in settings"
     },
     {
       "name": "answer field",

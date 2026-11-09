@@ -249,8 +249,9 @@ function realPathOrSelf(candidatePath: string): string {
 }
 
 function readPlannedKeys(filePath: string, view: ConfigFileView): Record<string, unknown> {
-  const secretPaths = new Set(glimmervoidSecretPaths({ glimmervoidHome: glimmervoidHomeDir(os.homedir(), process.env), configPath: view.configPath }).map(realPathOrSelf));
-  if (secretPaths.has(realPathOrSelf(filePath))) throw new Error(`${filePath} is one of Glimmervoid's own secret files, so set --file never reads it`);
+  const secretPaths = glimmervoidSecretPaths({ glimmervoidHome: glimmervoidHomeDir(os.homedir(), process.env), configPath: view.configPath }).map(realPathOrSelf);
+  const plannedRealPath = realPathOrSelf(filePath);
+  if (secretPaths.some((secretPath) => plannedRealPath === secretPath || plannedRealPath.startsWith(`${secretPath}${path.sep}`))) throw new Error(`${filePath} is one of Glimmervoid's own secret files, so set --file never reads it`);
   let planned: unknown;
   try {
     planned = JSON.parse(fs.readFileSync(filePath, 'utf8'));

@@ -1,6 +1,5 @@
 import fsp from 'node:fs/promises';
 import os from 'node:os';
-import path from 'node:path';
 import { WebSocket } from 'ws';
 
 import { vaultAdapterFor } from './adapters/index.ts';
@@ -11,7 +10,7 @@ import { isLoopbackHostname } from '../../shared/loopback-hosts.ts';
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionFile, VaultJob } from '../../shared/contracts/secrets.ts';
 import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult, VaultCompanionMessage } from '../../shared/contracts/secrets.ts';
 import { glimmervoidHomeDir } from '../../server/core/config-path-core.ts';
-import { VAULT_COMPANION_FILENAME } from '../../server/secrets/core/secret-files-core.ts';
+import { vaultCompanionPath } from '../../server/secrets/core/secret-files-core.ts';
 
 const VAULT_TOKEN_ENV = 'GLIMMERVOID_VAULT_TOKEN';
 const RECONNECT_BASE_MS = 1000;
@@ -160,7 +159,7 @@ async function runVaultCli({ serverUrl, accountName, newItemsVault, adapter = va
     console.error('vault: this Glimmervoid has no 1Password support');
     return 1;
   }
-  const companionFile = path.join(glimmervoidHomeDir(os.homedir(), process.env), VAULT_COMPANION_FILENAME);
+  const companionFile = vaultCompanionPath(glimmervoidHomeDir(os.homedir(), process.env));
   const envToken = process.env[VAULT_TOKEN_ENV] ?? '';
   const connect = () => (serverUrl === null ? localConnection(companionFile, envToken) : Promise.resolve(serverConnection(serverUrl, envToken)));
   const firstConnection = await connect();

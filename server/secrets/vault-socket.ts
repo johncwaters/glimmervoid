@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import type { IncomingMessage, Server } from 'node:http';
+import path from 'node:path';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 
@@ -14,6 +15,7 @@ const JOB_TIMEOUT_MS = 120_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 const COMPANION_FILE_MODE = 0o600;
+const COMPANION_FOLDER_MODE = 0o700;
 
 type JobResult = ResolvedResult | CreatedResult;
 type CreateMiss = 'offline' | 'outdated' | 'invalid' | 'no-answer';
@@ -38,9 +40,10 @@ function parsedMessageOrNull(rawMessage: unknown): VaultCompanionMessage | null 
   }
 }
 
-function createVaultSocket({ envToken, companionFile, onCompanionChanged = () => {}, log = console, telemetry = null }: {
+function createVaultSocket({ envToken, companionFile, legacyCompanionFile = null, onCompanionChanged = () => {}, log = console, telemetry = null }: {
   envToken: string | null;
   companionFile: string;
+  legacyCompanionFile?: string | null;
   onCompanionChanged?: () => void;
   log?: Pick<Console, 'log' | 'warn'>;
   telemetry?: Pick<Telemetry, 'capture'> | null;
@@ -180,8 +183,10 @@ function createVaultSocket({ envToken, companionFile, onCompanionChanged = () =>
     const url = localCompanionSocketUrl(boundHost, boundPort);
     if (url === null) return;
     const text = `${JSON.stringify(isPerBootToken ? { url, token } : { url })}\n`;
+    await fsp.mkdir(path.dirname(companionFile), { recursive: true, mode: COMPANION_FOLDER_MODE });
     await fsp.writeFile(companionFile, text, { mode: COMPANION_FILE_MODE });
     await fsp.chmod(companionFile, COMPANION_FILE_MODE);
+    if (legacyCompanionFile !== null) await fsp.rm(legacyCompanionFile, { force: true });
     publishedText = text;
     process.once('exit', forgetLocalAddress);
   }
