@@ -24,12 +24,15 @@ interface BoardInspectorOptions {
   sendOps: (ops: Op[]) => Promise<boolean>;
   codeSessionChoices: () => readonly Choice[];
   openRef: (ref: string) => void;
+  worthALookReasonOf: (ref: string) => string | null;
   linkedBoardChoices: () => readonly Choice[];
   addNoteOn: (boxId: string) => void;
   frameSelectedBoxes: () => void;
   stackSelectedBoxes: () => void;
   removeSelected: () => void;
 }
+
+type ReviewRowOptions = Pick<BoardInspectorOptions, 'openRef' | 'worthALookReasonOf'>;
 
 interface SelectionActions {
   addNoteOn: (boxId: string) => void;
@@ -464,24 +467,29 @@ function elementSections(board: Board, element: BoardElement, latestBoard: () =>
   }
 }
 
-function openInReviewRows(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement[] {
+function worthALookRows(ref: string, worthALookReasonOf: (ref: string) => string | null): HTMLElement[] {
+  const reason = worthALookReasonOf(ref);
+  return reason ? [el('p', 'wb-inspect-worth-a-look', `Worth a look: ${reason}`)] : [];
+}
+
+function openInReviewRows(board: Board, element: BoardElement, options: ReviewRowOptions): HTMLElement[] {
   const refs = refsOfElement(element);
   if (refs.length === 0) return [];
   const hasCodeSession = board.codeSessionId !== null;
-  const rows = refs.map((ref, index) => {
+  const rows = refs.flatMap((ref, index) => {
     const row = el('div', 'wb-inspect-row wb-inspect-review-row');
-    const openButton = actionButton(`review-${index}`, 'Open in review', () => openRef(ref), `Open ${ref} in review`);
+    const openButton = actionButton(`review-${index}`, 'Open in review', () => options.openRef(ref), `Open ${ref} in review`);
     openButton.disabled = !hasCodeSession;
     row.append(el('code', 'wb-inspect-ref', ref), openButton);
-    return row;
+    return [row, ...worthALookRows(ref, options.worthALookReasonOf)];
   });
   const hint = hasCodeSession ? [] : [el('p', 'wb-inspect-hint', 'Set the board code session to open refs in review.')];
   return [heading('In review'), ...rows, ...hint];
 }
 
-function openInReviewSection(board: Board, element: BoardElement, openRef: (ref: string) => void): HTMLElement {
+function openInReviewSection(board: Board, element: BoardElement, options: ReviewRowOptions): HTMLElement {
   const section = el('div', 'wb-inspect-review');
-  section.append(...openInReviewRows(board, element, openRef));
+  section.append(...openInReviewRows(board, element, options));
   return section;
 }
 
@@ -510,7 +518,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     const element = soleSelectedElement(board, selectedIds);
     const reviewSection = container.querySelector<HTMLElement>('.wb-inspect-review');
     if (!element || !reviewSection) return;
-    reviewSection.replaceChildren(...openInReviewRows(board, element, options.openRef));
+    reviewSection.replaceChildren(...openInReviewRows(board, element, options));
   }
 
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
@@ -518,7 +526,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), send), openInReviewSection(board, element, options.openRef), selectionActionsRow(selected, options)];
+    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {

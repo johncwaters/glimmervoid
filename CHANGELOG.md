@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A board says why a box is worth a look.** Select a box marked with the orange ! and its In review list shows the reason under the file, in the Reviews tab's words, such as another session also changing it or a file it usually changes with that is missing. Agents reading the board review get each file's reason too.
 - **The browser tab icon shows when a session needs you again.** The whole mark in the tab icon now turns amber when a session needs input and red when one failed, instead of only its small center diamond, which was too small to notice at tab size.
 - **Reviews.** A review re-run at a head Glimmervoid already reviewed now hands the reviewer that earlier review to recheck, as untrusted data, instead of starting from nothing. It stays a full review: every severity can be reported and the verdict choices are unchanged.
 - **Reviews.** Opening a pull request's detail fetches other reviewers' threads again, at most once a minute per pull request, so a thread a teammate opened or resolved since the last poll shows without waiting up to 15 minutes.
