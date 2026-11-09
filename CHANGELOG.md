@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.1] - 2026-11-09
+
 ### Added
 
 - **Doorman.** `glimmervoid doorman --tenants <file>` forwards each tenant's dashboard pages and WebSockets to its server's remote listener and runs that tenant's watcher. Routing goes by host name, `<slug>.<tenant domain>`, or to the only tenant when the table has no tenant domain, and an unknown host is refused. When a host adapter can wake a sleeping server, requests made while it wakes are held and sent on once it answers. With no adapter, a server that is down gets 502 at once. The doorman reloads its tenant table when the file changes. The watcher's own routes now live under `/link/watcher/`. The doorman stops when its tenant table file is deleted.
