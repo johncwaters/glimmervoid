@@ -73,7 +73,8 @@
     "prepare": "node scripts/prepare-build.js",
     "release": "node scripts/release.ts",
     "docs:config": "node scripts/generate-config-docs.ts",
-    "animals:build": "node scripts/generate-animal-sprites.ts"
+    "animals:build": "node scripts/generate-animal-sprites.ts",
+    "dist": "node scripts/build.mjs --binary --binary-out ."
   },
   "dependencies": {
     "@1password/sdk": "0.5.0",

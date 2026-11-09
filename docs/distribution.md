@@ -1,6 +1,6 @@
 # Distributing Glimmervoid
 
-Glimmervoid ships as the `glimmervoid` package on the npm registry, built and published by CI from a release tag. The GitHub repo stays the source of truth; the registry only carries the built `dist/`, because Node refuses type stripping inside `node_modules`, so an installed package can only run compiled `.js`.
+Glimmervoid ships two ways from one release tag: standalone binaries for five targets, and the `glimmervoid` package on the npm registry. The GitHub repo stays the source of truth; the registry only carries the built `dist/`, because Node refuses type stripping inside `node_modules`, so an installed package can only run compiled `.js`.
 
 Install and update commands are in the [README Quickstart](../README.md#quickstart); the node-pty and npm 12 install-script traps are in [troubleshooting.md](troubleshooting.md).
 
@@ -16,6 +16,12 @@ The `POSTHOG_CLI_API_KEY` repository secret (a PostHog personal API key with err
 
 Release tarball assets stay only to migrate pre-0.29.1 tarball installs: their cached update banners still point to a versioned asset. Drop `scripts/pack-release-tarballs.ts`, `.github/workflows/release-tarball.yml` and the asset upload in `scripts/release.ts` one release after 0.29.1's successor ships.
 
+## Standalone binaries
+
+The binaries are Node single executable applications built by `@yao-pkg/pkg --sea`, so an install needs no Node. Installers, the Homebrew formula and the updater come from axodotdev dist, configured in `dist-workspace.toml`; `.github/workflows/release.yml` is generated from it by `dist generate` and must never be edited by hand, because `dist plan` refuses a workflow that drifted from the config. Each target builds on its own native runner, since pkg cannot cross-compile native modules (node-pty, sharp). macOS binaries carry only the ad-hoc signature pkg applies, so no paid signing identity is involved; the curl and PowerShell installers download with tools that set no quarantine or Mark of the Web flag.
+
+dist builds through the npm `dist` script, which writes the binary to the package root where dist collects it. `npm run release` creates the GitHub release as a draft; the tag push runs `release.yml`, which uploads the archives, installers and checksums to that draft and publishes it, then pushes the formula to `johncwaters/homebrew-tap` with the `HOMEBREW_TAP_TOKEN` secret.
+
 ## Updates
 
 Global npm installs and npx launches check npm because their update commands resolve there; clones check release tags so unreleased commits do not trigger the release banner. The npx banner pins `npx glimmervoid@<version>` to avoid reusing an older cached spec, with `--allow-scripts=node-pty` before the package spec on Linux because node-pty needs compilation. `tests/update-core.test.ts` and `tests/update-check.test.ts` pin the commands, sources and legacy-cache refresh.
@@ -26,4 +32,5 @@ Global npm installs and npx launches check npm because their update commands res
 - Dashboard-driven update staging, guarded handoff, startup recovery and lifecycle coordination: `tests/update-apply.test.ts`, `tests/update-apply-core.test.ts`, `tests/recover-handoff.test.ts`, `tests/server-lifecycle.test.ts` and `tests/git-workspace-session.test.ts`.
 - The `files` whitelist covering every module the entry points need: the packaged global install step in `.github/workflows/test.yml` installs the real tarball with npm 12 and fails unless `glimmervoid doctor` reports node-pty loading.
 - The tag matching `package.json`, its commit being on `main`, and a successful `test.yml` run on that commit before anything is published: `.github/workflows/publish.yml`.
-- CI and publishing on the same Node as development: both workflows read `.nvmrc`.
+- CI and publishing on the same Node as development: every workflow reads `.nvmrc`.
+- `release.yml` matching `dist-workspace.toml`: `dist plan` fails on any drift.

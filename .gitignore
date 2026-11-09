@@ -29,3 +29,6 @@ marketing/social/out/
 .compiled-commit-tmp/
 
 dist-binary/
+/glimmervoid
+/glimmervoid.exe
+/target/

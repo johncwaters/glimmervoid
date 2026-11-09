@@ -34,6 +34,14 @@ function fail(message) {
 const PKG_PLATFORM_BY_NODE_PLATFORM = { linux: 'linux', darwin: 'macos', win32: 'win' };
 const BINARY_NODE_MAJOR = 24;
 
+function optionValue(optionName) {
+  const optionIndex = process.argv.indexOf(optionName);
+  if (optionIndex === -1) return null;
+  const value = process.argv[optionIndex + 1];
+  if (!value || value.startsWith('--')) fail(`${optionName} needs a directory`);
+  return value;
+}
+
 async function buildBinary() {
   const pkgPlatform = PKG_PLATFORM_BY_NODE_PLATFORM[process.platform];
   if (!pkgPlatform) fail(`no standalone binary target for platform ${process.platform}`);
@@ -42,8 +50,9 @@ async function buildBinary() {
     build: { rolldownOptions: { output: { entryFileNames: '[name].mjs', chunkFileNames: 'chunks/[name]-[hash].mjs' } } },
   });
   const binaryName = process.platform === 'win32' ? 'glimmervoid.exe' : 'glimmervoid';
-  const binaryPath = path.join(repoRoot, 'dist-binary', binaryName);
-  fs.rmSync(path.dirname(binaryPath), { recursive: true, force: true });
+  const binaryOutputDirectory = path.resolve(repoRoot, optionValue('--binary-out') ?? 'dist-binary');
+  const binaryPath = path.join(binaryOutputDirectory, binaryName);
+  fs.rmSync(binaryPath, { force: true });
   const { exec: packageExecutable } = await import('@yao-pkg/pkg');
   await packageExecutable([
     path.join(distDir, 'bin', 'binary-main.mjs'),

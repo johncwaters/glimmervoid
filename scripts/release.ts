@@ -190,7 +190,8 @@ const packDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-release
 try {
   console.log('\n==> Packing the release tarballs...');
   const { latestAliasPath, versionedAssetPath } = packReleaseTarballs(packDirectory, VERSION);
-  run(`gh release create ${TAG} "${versionedAssetPath}" "${latestAliasPath}" --title "Glimmervoid ${TAG}" --notes-file ${tmpFile}`);
+  run(`gh release create ${TAG} "${versionedAssetPath}" "${latestAliasPath}" --title "Glimmervoid ${TAG}" --notes-file ${tmpFile} --draft`);
+  run(`gh workflow run release-tarball.yml --ref ${TAG} -f tag=${TAG}`);
 } finally {
   fs.rmSync(packDirectory, { recursive: true, force: true });
   try { fs.unlinkSync(tmpFile); } catch {  }
@@ -202,5 +203,5 @@ openNextPatch(VERSION);
 
 console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}, and ${RELEASE_BRANCH} now carries the next patch as an upcoming prerelease.`);
 console.log(`   The release carries ${LATEST_ALIAS_ASSET_NAME} and ${versionedAssetName(VERSION)} to keep pre-0.29.1 tarball installs updatable.`);
-console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm. Nothing is published locally.`);
+console.log(`   The tag push triggers .github/workflows/publish.yml, which publishes glimmervoid@${VERSION} to npm, and .github/workflows/release.yml, which attaches the standalone binaries and installers and publishes the draft release. Nothing is published locally.`);
 console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/publish.yml, then confirm with: npm view glimmervoid@${VERSION} version`);
