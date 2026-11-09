@@ -259,9 +259,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hubControlClientCount,
     sendToHubControlSockets,
   } = webSockets;
+  function forgetSessionInSavedOrder(sessionId: string) {
+    if (!config.sessionOrder?.includes(sessionId)) return;
+    configStore.saveAsync((savedConfig) => {
+      if (!savedConfig.sessionOrder?.includes(sessionId)) return ABORT_CONFIG_SAVE;
+      savedConfig.sessionOrder = savedConfig.sessionOrder.filter((id) => id !== sessionId);
+      return undefined;
+    })
+      .then((saved) => { if (saved) config.sessionOrder = saved.sessionOrder; })
+      .catch((error: unknown) => console.warn(`[config] Failed to drop a removed session from sessionOrder: ${errorMessage(error)}`));
+  }
   broadcastControl = (message) => {
     broadcastControlFromWebSockets(message);
-    if (message.type === 'session-removed' && typeof message.id === 'string') void whiteboards.forgetSession(message.id);
+    if (message.type !== 'session-removed' || typeof message.id !== 'string') return;
+    void whiteboards.forgetSession(message.id);
+    forgetSessionInSavedOrder(message.id);
   };
   const hostLinks = createHostLinksWiring({
     hosts: config.hosts ?? [],

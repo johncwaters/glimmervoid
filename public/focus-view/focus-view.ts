@@ -372,6 +372,12 @@ function savedSessionOrder(): string[] {
   return sessionOrderOf(settingsPayloadSnapshot());
 }
 
+export function forgetSessionInSavedOrder(sessionId: string) {
+  const sessionOrder = savedSessionOrder();
+  if (!sessionOrder.includes(sessionId)) return;
+  mergeSettingsPayload({ sessionOrder: sessionOrder.filter((id) => id !== sessionId) });
+}
+
 export function saveSessionOrder(nextSessionOrder: string[], repaint: () => void) {
   const previousSessionOrder = savedSessionOrder();
   const applySessionOrder = (sessionOrder: string[]) => {
