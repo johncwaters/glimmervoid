@@ -20,7 +20,7 @@ import { probeNodePty } from '../server/node-pty-preflight.ts';
 import { gitDoctorRows } from '../server/git/core/git-version-core.ts';
 import { probeGitVersion } from '../server/git/git-version.ts';
 import { packageRoot } from '../server/runtime-paths.ts';
-import { formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
+import { findGlimmervoidCommands, formatDuplicateInstallWarning, formatPathNotice, npmGlobalBinDir, onPath, pnpmGlobalBinDir } from './path-doctor.ts';
 
 const args = process.argv.slice(2);
 const pkg = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
@@ -290,6 +290,11 @@ async function runDoctor(): Promise<boolean> {
     line('pnpm global bin', pnpmBin);
     line('on PATH', onPath(pnpmBin, { pathEnv, platform }) ? 'yes' : 'NO');
   }
+  const glimmervoidCommands = findGlimmervoidCommands({ pathEnv, platform, resolveCommand: resolveInstalledCommand });
+  for (const command of glimmervoidCommands) {
+    const target = command.installPath === command.commandPath ? '' : ` -> ${command.installPath}`;
+    line('glimmervoid on PATH', `${command.commandPath}${target}`);
+  }
 
   switchSection('Agents');
 
@@ -350,7 +355,18 @@ async function runDoctor(): Promise<boolean> {
   if (npmBin && !npmOn) {
     console.log(`\n${formatPathNotice({ installedBinDir: npmBin, onPathFlag: false, platform })}`);
   }
+  const duplicateInstallWarning = formatDuplicateInstallWarning(glimmervoidCommands);
+  if (duplicateInstallWarning) console.log(`\n${duplicateInstallWarning}`);
   return nodePty.ok && isEveryProbeLoading(nativeProbeRows);
+}
+
+function resolveInstalledCommand(commandPath: string): string | null {
+  try {
+    if (!fs.statSync(commandPath).isFile()) return null;
+    return fs.realpathSync(commandPath);
+  } catch {
+    return null;
+  }
 }
 
 function resolveNpmGlobalPrefix(exec: typeof execSync): string | null {

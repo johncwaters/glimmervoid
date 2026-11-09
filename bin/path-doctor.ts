@@ -12,6 +12,15 @@ interface GlobalBinScope {
   resolvedPrefix?: string | null;
 }
 
+interface CommandScope extends PlatformScope {
+  resolveCommand: (candidatePath: string) => string | null;
+}
+
+interface GlimmervoidOnPath {
+  commandPath: string;
+  installPath: string;
+}
+
 interface PathNoticeScope {
   installedBinDir?: string | null;
   onPathFlag?: boolean;
@@ -61,6 +70,43 @@ function pnpmGlobalBinDir({ env = {}, platform, homedir }: GlobalBinScope = {}):
   return path.join(homedir, '.local', 'share', 'pnpm');
 }
 
+function glimmervoidCommandNames(platform: NodeJS.Platform | undefined): readonly string[] {
+  if (isWin(platform)) return ['glimmervoid.exe', 'glimmervoid.cmd'];
+  return ['glimmervoid'];
+}
+
+function isPackageManagerInjected(directory: string): boolean {
+  return directory.split(/[\\/]/).includes('node_modules');
+}
+
+function findGlimmervoidCommands({ pathEnv, platform, resolveCommand }: CommandScope): GlimmervoidOnPath[] {
+  const pathApi = isWin(platform) ? path.win32 : path.posix;
+  const seenDirectories = new Set<string>();
+  const commands: GlimmervoidOnPath[] = [];
+  for (const entry of String(pathEnv || '').split(isWin(platform) ? ';' : ':')) {
+    const directory = normalizeDir(entry, platform);
+    if (!directory || seenDirectories.has(directory) || isPackageManagerInjected(directory)) continue;
+    seenDirectories.add(directory);
+    const found = glimmervoidCommandNames(platform)
+      .map((name) => pathApi.join(directory, name))
+      .map((commandPath) => ({ commandPath, installPath: resolveCommand(commandPath) }))
+      .find((candidate) => candidate.installPath !== null);
+    if (found?.installPath) commands.push({ commandPath: found.commandPath, installPath: found.installPath });
+  }
+  return commands;
+}
+
+function formatDuplicateInstallWarning(commands: readonly GlimmervoidOnPath[]): string | null {
+  const installCount = new Set(commands.map((command) => command.installPath)).size;
+  if (installCount < 2) return null;
+  return [
+    `glimmervoid on your PATH resolves to ${installCount} different installs:`,
+    ...commands.map((command) => `  ${command.commandPath}`),
+    `Typing "glimmervoid" runs the first: ${commands[0].commandPath}`,
+    'Remove the ones you do not use; npm uninstall -g glimmervoid removes the npm install.',
+  ].join('\n');
+}
+
 function formatPathNotice({ installedBinDir, onPathFlag, platform }: PathNoticeScope = {}): string {
   const dir = installedBinDir || '(unknown)';
   if (onPathFlag) {
@@ -89,4 +135,4 @@ function formatPathNotice({ installedBinDir, onPathFlag, platform }: PathNoticeS
   return lines.join('\n');
 }
 
-export { onPath, npmGlobalBinDir, pnpmGlobalBinDir, formatPathNotice };
+export { onPath, npmGlobalBinDir, pnpmGlobalBinDir, findGlimmervoidCommands, formatDuplicateInstallWarning, formatPathNotice };
