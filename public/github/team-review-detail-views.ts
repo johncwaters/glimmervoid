@@ -12,7 +12,7 @@ import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 import { _detailProgressTicker, _otherDetails, _pendingActions, _readyDetails } from './team-review-panel-state.ts';
 import type { ActionDetailHandle, SettleAction } from './team-review-panel-state.ts';
 import { createAgeReadout, createAuthor, pullRequestLink } from './team-review-queue-row.ts';
-import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
+import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionButton, createOpenSessionControl, createOpenSessionStatus, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
 
 const READY_DESK_SHORTCUTS: Partial<Readonly<Record<TeamReviewAction, string>>> = Object.freeze({
   approve: 'A', 'request-changes': 'R', comment: 'C',
@@ -29,7 +29,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
   rail.setAttribute('aria-label', 'Decision');
   const threads = el('div');
   threads.dataset.reviewThreads = '';
-  column.append(createDetailHeading(draft, { hasFactsRail: true }), ...createAboutPr(draft));
+  column.append(createDetailHeading(draft, { hasDeskFacts: true }), ...createAboutPr(draft));
   column.append(threads, createVerdictBlock(draft), ...createHandChecks(draft));
 
   let isTouched = false;
@@ -57,7 +57,7 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     settledLine.hidden = text === null;
     settledLine.textContent = text ?? '';
   };
-  rail.append(settledLine, willPost, createDeskFacts(draft), createOpenSessionControl(draft));
+  rail.append(settledLine, willPost);
   const selection = (): ReviewSelection => ({
     note: note.input.value,
     comments: draft.comments.filter((_comment, index) => includedComments.has(index)),
@@ -81,6 +81,9 @@ function createReadyDetail(draft: ReviewDraft): ActionDetailHandle {
     settle(false, NOT_CONNECTED_TEXT);
   };
   const bar = createDecisionBar(draft, runAction, '', READY_DESK_SHORTCUTS);
+  const sessionOpenStatus = createOpenSessionStatus();
+  bar.spacer.before(createOpenSessionButton(draft, sessionOpenStatus));
+  bar.footer.append(sessionOpenStatus);
   const decisionButtons = bar.buttons.filter((barButton) => ['approve', 'comment', 'request-changes'].includes(barButton.dataset.action ?? ''));
   function paintControls(): void {
     const isCommentReady = hasSelection(selection());
@@ -198,7 +201,7 @@ function readyDetailFor(draft: ReviewDraft): ActionDetailHandle {
   if (cached && (_pendingActions.has(draft.key) || (cached.signature === readyRowSignature(draft) && isFlaggingCurrent))) {
     refreshThreadDetails(cached.element, draft);
     refreshDeskFacts(cached.element, draft);
-    refreshDetailHeading(cached.element, draft, { hasFactsRail: true });
+    refreshDetailHeading(cached.element, draft, { hasDeskFacts: true });
     return cached;
   }
   const handle = createReadyDetail(draft);

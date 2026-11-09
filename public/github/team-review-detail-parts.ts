@@ -49,21 +49,31 @@ function openReviewSession(key: string, button: HTMLButtonElement, status: HTMLE
   paintActionStatus(status, 'busy', SESSION_OPEN_BUSY_TEXT);
 }
 
-function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
-  const row = el('div', 'pr-session-open');
+function createOpenSessionButton(review: Pick<ReviewDraft, 'key'>, status: HTMLElement): HTMLButtonElement {
   const opening = _sessionOpenByKey.get(review.key);
   const openButton = button({ variant: 'secondary', label: OPEN_SESSION_LABEL, action: 'open-session', shortcutKey: 'O', disabled: Boolean(opening?.requestId) });
-  const status = el('span', 'pr-action-status pr-session-open-status', opening?.text ?? '');
+  status.classList.add('pr-session-open-status');
   status.dataset.reviewKey = review.key;
   if (opening) paintActionStatus(status, opening.tone, opening.text);
+  openButton.addEventListener('click', () => openReviewSession(review.key, openButton, status));
+  return openButton;
+}
+
+function createOpenSessionStatus(): HTMLElement {
+  const status = el('span', 'pr-action-status');
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
-  openButton.addEventListener('click', () => openReviewSession(review.key, openButton, status));
-  row.append(openButton, status);
+  return status;
+}
+
+function createOpenSessionControl(review: Pick<ReviewDraft, 'key'>): HTMLElement {
+  const row = el('div', 'pr-session-open');
+  const status = createOpenSessionStatus();
+  row.append(createOpenSessionButton(review, status), status);
   return row;
 }
 
-function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRail = false }: { hasFactsRail?: boolean } = {}): HTMLElement {
+function createDetailHeading(review: ReviewDraft | InFlightReview, { hasDeskFacts = false }: { hasDeskFacts?: boolean } = {}): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
   heading.dataset.signature = detailHeadingSignature(review);
   const title = el('div', 'pr-detail-title');
@@ -82,9 +92,10 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasFactsRai
   const githubSummary = 'reviewedHead' in review ? createGithubReviewSummary(review, 'pr-detail-github', 20) : null;
   if (githubSummary) metadata.append(githubSummary);
   heading.append(title, metadata, el('p', 'pr-detail-tier-reason', reviewTierReason(review)));
+  if ('reviewedHead' in review && hasDeskFacts) heading.append(createDeskFacts(review));
   if ('reviewedHead' in review) heading.append(...createReviewHistory(review));
-  if (!hasFactsRail) heading.append(createOpenSessionControl(review));
-  if ('reviewedHead' in review && !hasFactsRail) {
+  if (!hasDeskFacts) heading.append(createOpenSessionControl(review));
+  if ('reviewedHead' in review && !hasDeskFacts) {
     const tallyText = viewerThreadsText(review.viewerThreads);
     if (tallyText) {
       const tally = el('p', 'pr-viewer-threads', tallyText);
@@ -115,7 +126,7 @@ function createReviewHistory(draft: ReviewDraft): HTMLElement[] {
   return [section];
 }
 
-function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft, options: { hasFactsRail?: boolean } = {}): HTMLElement {
+function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft, options: { hasDeskFacts?: boolean } = {}): HTMLElement {
   const heading = detail.querySelector<HTMLElement>('.pr-detail-heading');
   if (!heading || heading.dataset.signature === detailHeadingSignature(draft)) return detail;
   heading.replaceWith(createDetailHeading(draft, options));
@@ -417,6 +428,7 @@ function createFooterButton(action: TeamReviewAction, runAction: (action: TeamRe
 
 interface DecisionBar {
   footer: HTMLElement;
+  spacer: HTMLElement;
   status: HTMLElement;
   buttons: HTMLButtonElement[];
 }
@@ -429,8 +441,9 @@ function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | '
   status.setAttribute('aria-live', 'polite');
   const leading = layout.leading.map((action) => createFooterButton(action, runAction, action === layout.recommended ? 'primary' : 'secondary', shortcutByAction[action]));
   const trailing = layout.trailing.map((action) => createFooterButton(action, runAction, 'quiet', shortcutByAction[action]));
-  footer.append(...leading, el('span', 'pr-decision-spacer'), ...trailing, status);
-  return { footer, status, buttons: [...leading, ...trailing] };
+  const spacer = el('span', 'pr-decision-spacer');
+  footer.append(...leading, spacer, ...trailing, status);
+  return { footer, spacer, status, buttons: [...leading, ...trailing] };
 }
 
 function createFindingKeysHint(): HTMLElement {
@@ -495,7 +508,7 @@ function createDeskFacts(draft: ReviewDraft): HTMLElement {
     createFactRow('Threads', viewerThreadsText(draft.viewerThreads) ?? 'None of yours'),
     createFactRow('Since review', ...sinceReview),
   );
-  facts.append(el('h3', 'pr-assessment-title', 'This PR'), list);
+  facts.append(list);
   return facts;
 }
 
@@ -505,4 +518,4 @@ function refreshDeskFacts(detail: HTMLElement, draft: ReviewDraft): void {
   facts.replaceWith(createDeskFacts(draft));
 }
 
-export { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDeskFacts, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionControl, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction, settleSessionOpen, showSettledSessionOpen };
+export { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionButton, createOpenSessionControl, createOpenSessionStatus, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction, settleSessionOpen, showSettledSessionOpen };

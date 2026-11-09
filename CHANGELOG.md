@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Red pen text you can read.** Add note is now a speech bubble icon in the same small card as a mark's check and X, right above the text you selected, where it used to be a see-through button at the left edge of the next line. A replacement's suggested text is drawn larger and above its caret on its own row, on any line of a paragraph, where it used to be small and sit on the caret and on the line above.
+- **Review buttons stay put.** Status text in Reviews and My PRs, such as a posted receipt, now shows on a line above the Approve, Comment and Request changes buttons, which stay where they are, where it used to add a line under them and make them jump. Open in session moved into that bottom row, right after the decision buttons, and the Checks, Threads and Since review facts moved from their own This PR card to the top of the pull request, under its title. The Refresh button under the queue no longer moves when its status text appears: the text has its own line above the button. In a window shorter than 640 pixels the button row scrolls with the page, so it no longer covers most of the pull request.
 
 ## [0.55.0] - 2026-11-09
 

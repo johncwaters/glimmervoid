@@ -83,9 +83,15 @@ async function verifyRefreshStatusKeepsLayout(page: Page, status: MyPrsStatus): 
   assert.equal(await panel.locator('.pr-queue-foot [data-action="refresh-github"]').count(), 1);
   const queueTop = () => panel.locator('.pr-queue-row').first().evaluate((element) => element.getBoundingClientRect().top);
   const idleQueueTop = await queueTop();
+  const refreshButtonPlace = () => panel.locator('.pr-queue-foot [data-action="refresh-github"]').evaluate((element) => {
+    const { left, top } = element.getBoundingClientRect();
+    return { left, top };
+  });
+  const idleRefreshButtonPlace = await refreshButtonPlace();
   await applyStatus(page, { ...status, isRefreshing: true, refreshNotice: 'Refreshing your pull requests and their review threads from GitHub' });
   assert.match(await refreshStatus.textContent() ?? '', /Refreshing/);
   assert.equal(await queueTop(), idleQueueTop);
+  assert.deepEqual(await refreshButtonPlace(), idleRefreshButtonPlace);
   assert.ok(await refreshStatus.evaluate((element) => element.scrollWidth >= element.clientWidth));
   await applyStatus(page, status);
 }
