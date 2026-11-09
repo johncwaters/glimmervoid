@@ -13,3 +13,6 @@ export const DoormanTenantTable = z.strictObject({
   tenants: z.array(DoormanTenant).min(1).refine((tenants) => new Set(tenants.map((tenant) => tenant.slug)).size === tenants.length, 'tenant slugs must be unique'),
 }).refine((table) => table.tenantDomain !== null || table.tenants.length === 1, 'a table with no tenant domain holds exactly one tenant');
 export type DoormanTenantTable = z.infer<typeof DoormanTenantTable>;
+
+export const DOORMAN_LOCK_FILE_NAME = 'doorman.lock';
+export const DOORMAN_PORT_FILE_NAME = 'port';

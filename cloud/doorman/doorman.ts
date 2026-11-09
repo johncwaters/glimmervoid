@@ -12,7 +12,9 @@ import { createNudgeSender, createProbeRunner } from '../watcher/probe-runner.ts
 import { createWatcherHome } from '../watcher/watcher-home.ts';
 import { createWatcherListener } from '../watcher/watcher-listener.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
-import { DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import { isMissingFileError } from '../../shared/text.ts';
+import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import type { DoormanTenant } from '../../shared/contracts/doorman.ts';
 import { headersAtEdge, isConnectFailure, isWakeAllowed, nextForwardState, routeRequest } from './doorman-core.ts';
 import type { DoormanRoute, ForwardState } from './doorman-core.ts';
@@ -342,17 +344,39 @@ function watchTenantTable(tablePath: string, onChange: () => void): () => void {
     if (settleTimer !== null) clearTimeout(settleTimer);
     settleTimer = setTimeout(onChange, TABLE_RELOAD_SETTLE_MS);
   });
+  watcher.on('error', onChange);
   return () => {
     if (settleTimer !== null) clearTimeout(settleTimer);
     watcher.close();
   };
 }
 
-function untilStopped(): Promise<void> {
-  return new Promise((resolve) => {
+function untilStopped(tableGone: Promise<void>): Promise<void> {
+  return Promise.race([tableGone, new Promise<void>((resolve) => {
     process.once('SIGTERM', () => resolve());
     process.once('SIGINT', () => resolve());
-  });
+  })]);
+}
+
+function holdStateLock(stateDir: string): number | 'held-elsewhere' | 'unlockable' {
+  const locks = loadFileLocks();
+  if (locks === null) return 'unlockable';
+  const lockDescriptor = fs.openSync(path.join(stateDir, DOORMAN_LOCK_FILE_NAME), 'a');
+  if (locks.tryLock(lockDescriptor)) return lockDescriptor;
+  fs.closeSync(lockDescriptor);
+  return 'held-elsewhere';
+}
+
+async function publishBoundPort(portPath: string, boundPort: number): Promise<void> {
+  const stagingPath = `${portPath}.${process.pid}`;
+  await fsp.writeFile(stagingPath, `${boundPort}\n`);
+  await fsp.rename(stagingPath, portPath);
+}
+
+async function withdrawBoundPort(portPath: string, boundPort: number): Promise<void> {
+  const publishedText = await fsp.readFile(portPath, 'utf8').catch(() => '');
+  if (publishedText.trim() !== String(boundPort)) return;
+  await fsp.rm(portPath, { force: true });
 }
 
 async function runDoormanCli({ tablePath, rawPort }: { tablePath: string | null; rawPort: string | null }): Promise<number> {
@@ -361,20 +385,39 @@ async function runDoormanCli({ tablePath, rawPort }: { tablePath: string | null;
   if (port === null) return refuse('--port must be a port from 0 to 65535');
   const table = await readTenantTable(tablePath).catch((readError: unknown) => new Error(errorMessage(readError)));
   if (table instanceof Error) return refuse(`${tablePath} is not a tenant table: ${table.message}`);
+  const stateDir = path.dirname(path.resolve(tablePath));
+  const stateLock = holdStateLock(stateDir);
+  if (stateLock === 'held-elsewhere') {
+    console.log(`[doorman] another doorman already serves ${tablePath}`);
+    return 0;
+  }
+  if (stateLock === 'unlockable') console.warn('[doorman] file locks are unavailable, so a second doorman for this table is not refused');
   const doorman = createDoorman({ table });
   const boundPort = await doorman.listen(port);
+  const portPath = path.join(stateDir, DOORMAN_PORT_FILE_NAME);
+  await publishBoundPort(portPath, boundPort);
   console.log(`[doorman] listening on ${LOOPBACK_HOST}:${boundPort} for ${table.tenants.length} tenant(s)`);
+  let markTableGone: () => void = () => {};
+  const tableGone = new Promise<void>((resolve) => {
+    markTableGone = resolve;
+  });
   const reload = () => {
     readTenantTable(tablePath).then(doorman.applyTable, (reloadError: unknown) => {
+      if (isMissingFileError(reloadError)) {
+        console.log(`[doorman] ${tablePath} is gone, stopping`);
+        markTableGone();
+        return;
+      }
       console.warn(`[doorman] kept the previous tenant table: ${errorMessage(reloadError)}`);
     });
   };
   const stopWatching = watchTenantTable(tablePath, reload);
   process.on('SIGHUP', reload);
-  await untilStopped();
+  await untilStopped(tableGone);
   stopWatching();
   process.off('SIGHUP', reload);
   await doorman.close();
+  await withdrawBoundPort(portPath, boundPort);
   return 0;
 }
 

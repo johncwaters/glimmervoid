@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import { isLoopbackHostname, loopbackOverrideOrigin } from '../loopback-hosts.ts';
 
-export const LINK_SECRET_ENV = 'GLIMMERVOID_LINK_SECRET';
-export const LINK_SERVER_URL_ENV = 'GLIMMERVOID_LINK_SERVER_URL';
-export const WATCHER_HOME_ENV = 'GLIMMERVOID_WATCHER_HOME';
-export const WATCHER_LISTENING_MESSAGE = 'watcher-listening';
 export const NUDGES_PATH = '/link/nudges';
 export const WATCHER_PATH_PREFIX = '/link/watcher/';
 export const PROBE_SET_PATH = `${WATCHER_PATH_PREFIX}probe-set`;

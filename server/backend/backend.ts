@@ -39,6 +39,7 @@ import {
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
+import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
@@ -643,13 +644,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       isRecheckingPostTurnReports = false;
     });
   }
-  const remoteWatcherUrl = config.watcher?.url ?? null;
+  const configuredWatcherUrl = config.watcher?.url ?? null;
+  async function prepareLocalDoorman(): Promise<void> {
+    if (configuredWatcherUrl !== null) return retireLocalDoorman(glimmervoidHomeDir(), port);
+    const remoteListenerPort = trust.remoteListenerPort();
+    if (remoteListenerPort === null) return;
+    await ensureDoorman({ glimmervoidHome: glimmervoidHomeDir(), localPort: port, bindHost: bindDecision.host, remoteListenerPort, version: packageJson.version });
+  }
   const watcherLink = createWatcherLink({
-    watcherHome: path.join(glimmervoidHomeDir(), 'watcher'),
     linkSecret: loadOrCreateLinkSecret(path.join(glimmervoidHomeDir(), 'watcher-link.key')),
     credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
     telemetry,
-    ...(remoteWatcherUrl === null ? {} : { startWatcher: createRemoteWatcherStarter(remoteWatcherUrl) }),
+    startWatcher: createRemoteWatcherStarter({
+      resolveWatcherUrl: async () => configuredWatcherUrl ?? localDoormanUrl(glimmervoidHomeDir(), port),
+      prepareWatcher: prepareLocalDoorman,
+    }),
   });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
@@ -816,7 +825,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       },
       attach(remoteHttpServer: Server) {
         remoteHttpServer.on('request', (request, response) => {
-          if (remoteWatcherUrl !== null && request.url?.split('?')[0] === NUDGES_PATH) {
+          if (request.url?.split('?')[0] === NUDGES_PATH) {
             watcherLink.answerNudgeRequest(request, response);
             return;
           }

@@ -7,7 +7,7 @@ import { installGhShim } from './support/gh-shim.ts';
 import { startRecordingFake } from './support/recording-fake.ts';
 import { assertCleanLog, startServer } from './support/server-process.ts';
 
-const SCENARIO_SEEDS = ['cloud/link/watcher-link.ts', 'cloud/watcher/watch-cli.ts', 'server/github/github-store-wiring.ts'];
+const SCENARIO_SEEDS = ['cloud/link/watcher-link.ts', 'cloud/doorman/ensure-doorman.ts', 'server/github/github-store-wiring.ts'];
 
 const REFUSED_TOKEN = 'e2e-refused-token';
 const ACCEPTED_TOKEN = 'e2e-accepted-token';

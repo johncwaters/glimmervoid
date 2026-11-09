@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import http from 'node:http';
+import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { CREDENTIALS_PATH, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
@@ -7,8 +7,7 @@ import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
-import { createWatcherSupervisor } from './watcher-supervisor.ts';
-import type { WatcherChildEnding } from './watcher-supervisor.ts';
+import type { WatcherEnding, WatcherStarter } from './remote-watcher-starter.ts';
 
 interface ProbeSource {
   laneId: string;
@@ -32,7 +31,6 @@ function laneTimerSentence(laneIds: readonly string[]): string {
   return `${laneIds.join(', ')} poll on their own timers`;
 }
 
-const LOOPBACK_HOST = '127.0.0.1';
 const RECOMPILE_DEBOUNCE_MS = 2_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
 const DELIVERY_RETRY_BASE_MS = 1_000;
@@ -78,13 +76,12 @@ function jsonOrNull(text: string): unknown {
   }
 }
 
-function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher = createWatcherSupervisor, log = console, telemetry = null }: {
-  watcherHome: string;
+function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher, log = console, telemetry = null }: {
   credentials: () => WatcherCredentials;
   linkSecret: Buffer;
   fetchFn?: FetchFn;
   now?: () => number;
-  startWatcher?: typeof createWatcherSupervisor;
+  startWatcher: WatcherStarter;
   log?: Pick<Console, 'log' | 'warn'>;
   telemetry?: Pick<Telemetry, 'capture'> | null;
 }) {
@@ -109,8 +106,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   let isDelivering = false;
   let watcherStartCount = 0;
   let statusReadCount = 0;
-  let supervisor: ReturnType<typeof createWatcherSupervisor> | null = null;
-  let nudgeServer: http.Server | null = null;
+  let supervisor: ReturnType<WatcherStarter> | null = null;
 
   function updateCoverage(): void {
     const isLinked = watcherUrl !== null && deliveredProbeSet !== null && deliveredCredentialsDigest !== null;
@@ -359,19 +355,7 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
     });
   }
 
-  function listenForNudges(): Promise<number> {
-    const server = http.createServer(answerNudgeRequest);
-    nudgeServer = server;
-    return new Promise((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(0, LOOPBACK_HOST, () => {
-        const address = server.address();
-        resolve(typeof address === 'object' && address !== null ? address.port : 0);
-      });
-    });
-  }
-
-  function watcherEnded(ending: WatcherChildEnding): void {
+  function watcherEnded(ending: WatcherEnding): void {
     if (ending.willRestart) {
       childRestartCountSinceRollup += 1;
       telemetry?.capture('watcher_child_ended', { end_kind: ending.endKind, run_seconds: Math.max(0, Math.round(ending.runMs / 1000)) });
@@ -384,11 +368,8 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
   }
 
   async function start(): Promise<void> {
-    const nudgePort = await listenForNudges();
     supervisor = startWatcher({
       linkSecret,
-      serverUrl: `http://${LOOPBACK_HOST}:${nudgePort}`,
-      watcherHome,
       onListening: (listeningUrl) => {
         watcherUrl = listeningUrl;
         watcherStartCount += 1;
@@ -402,7 +383,6 @@ function createWatcherLink({ watcherHome, credentials, linkSecret, fetchFn = fet
 
   function stop(): void {
     supervisor?.stop();
-    nudgeServer?.close();
     if (deliveryTimer !== null) clearTimeout(deliveryTimer);
     if (recompileTimer !== null) clearTimeout(recompileTimer);
   }

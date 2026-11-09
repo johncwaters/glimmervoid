@@ -1,26 +1,48 @@
+import { nextBackoffMs } from '../../shared/backoff.ts';
 import { STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { WatcherChildEndKind } from '../../shared/contracts/telemetry.ts';
 import { directionKey, signedHeaders } from './core/link-signing-core.ts';
-import type { createWatcherSupervisor } from './watcher-supervisor.ts';
 
-type WatcherStarter = typeof createWatcherSupervisor;
+interface WatcherEnding {
+  endKind: WatcherChildEndKind;
+  runMs: number;
+  willRestart: boolean;
+}
+
+type WatcherStarter = (options: {
+  linkSecret: Buffer;
+  onListening: (watcherUrl: string) => void;
+  onEnded: (ending: WatcherEnding) => void;
+  log?: Pick<Console, 'log' | 'warn'>;
+}) => { start(): void; stop(): void };
 
 const STATUS_CHECK_MS = 60_000;
 const STATUS_TIMEOUT_MS = 15_000;
+const UNLINKED_RETRY_BASE_MS = 1_000;
 
-function createRemoteWatcherStarter(remoteWatcherUrl: string, { statusCheckMs = STATUS_CHECK_MS, fetchFn = fetch, now = Date.now }: {
+function originOf(watcherUrl: string): string {
+  return URL.parse(watcherUrl)?.origin ?? watcherUrl;
+}
+
+function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, fetchFn = fetch, now = Date.now }: {
+  resolveWatcherUrl: () => Promise<string | null>;
+  prepareWatcher?: () => Promise<void>;
   statusCheckMs?: number;
   fetchFn?: typeof fetch;
   now?: () => number;
-} = {}): WatcherStarter {
+}): WatcherStarter {
   return ({ linkSecret, onListening, onEnded, log = console }) => {
     const commandKey = directionKey(linkSecret, 'server-to-watcher');
     let checkTimer: NodeJS.Timeout | null = null;
-    let isAnswering = false;
+    let isStopped = false;
+    let answeringUrl: string | null = null;
     let answeringSinceMs = 0;
+    let unansweredCheckCount = 0;
+    let lastPrepareProblem: string | null = null;
 
-    async function isWatcherAnswering(): Promise<boolean> {
+    async function isWatcherAnswering(watcherUrl: string): Promise<boolean> {
       try {
-        const response = await fetchFn(new URL(STATUS_PATH, remoteWatcherUrl), {
+        const response = await fetchFn(new URL(STATUS_PATH, watcherUrl), {
           method: 'GET',
           headers: signedHeaders(commandKey, { method: 'GET', path: STATUS_PATH, body: '' }, now()),
           signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
@@ -37,39 +59,59 @@ function createRemoteWatcherStarter(remoteWatcherUrl: string, { statusCheckMs = 
       }
     }
 
+    async function prepare(): Promise<void> {
+      const problem = await prepareWatcher().then(() => null, (prepareError: unknown) => prepareError instanceof Error ? prepareError.message : String(prepareError));
+      if (problem !== null && problem !== lastPrepareProblem) log.warn(`[watcher] could not start the local doorman: ${problem}`);
+      lastPrepareProblem = problem;
+    }
+
+    async function answeringWatcherUrl(): Promise<string | null> {
+      await prepare();
+      const watcherUrl = await resolveWatcherUrl();
+      if (watcherUrl === null) return null;
+      return await isWatcherAnswering(watcherUrl) ? watcherUrl : null;
+    }
+
     async function checkWatcher(): Promise<void> {
-      const answers = await isWatcherAnswering();
-      if (checkTimer === null) return;
-      if (answers) {
-        if (!isAnswering) answeringSinceMs = now();
-        isAnswering = true;
-        onListening(remoteWatcherUrl);
+      const watcherUrl = await answeringWatcherUrl();
+      if (isStopped) return;
+      if (watcherUrl !== null) {
+        if (answeringUrl === null) {
+          answeringSinceMs = now();
+          log.log(`[watcher] linked the watcher at ${originOf(watcherUrl)}`);
+        }
+        answeringUrl = watcherUrl;
+        unansweredCheckCount = 0;
+        onListening(watcherUrl);
         return;
       }
-      if (!isAnswering) return;
-      isAnswering = false;
-      log.warn(`[watcher] the remote watcher at ${new URL(remoteWatcherUrl).origin} stopped answering or cannot nudge this server, lanes go back to their own timers`);
+      unansweredCheckCount += 1;
+      if (answeringUrl === null) return;
+      log.warn(`[watcher] the watcher at ${originOf(answeringUrl)} stopped answering or cannot nudge this server, lanes go back to their own timers`);
+      answeringUrl = null;
       onEnded({ endKind: 'unreachable', runMs: now() - answeringSinceMs, willRestart: true });
     }
 
-    function scheduleCheck(): void {
+    function nextCheckDelayMs(): number {
+      if (unansweredCheckCount === 0) return statusCheckMs;
+      return nextBackoffMs({ attempt: unansweredCheckCount, baseMs: UNLINKED_RETRY_BASE_MS, maxMs: statusCheckMs, jitter: 'none' });
+    }
+
+    function scheduleCheck(delayMs: number): void {
       checkTimer = setTimeout(() => {
         void checkWatcher().finally(() => {
-          if (checkTimer !== null) scheduleCheck();
+          if (!isStopped) scheduleCheck(nextCheckDelayMs());
         });
-      }, statusCheckMs);
+      }, delayMs);
       checkTimer.unref();
     }
 
     function start(): void {
-      log.log(`[watcher] linking the remote watcher at ${new URL(remoteWatcherUrl).origin}`);
-      isAnswering = true;
-      answeringSinceMs = now();
-      onListening(remoteWatcherUrl);
-      scheduleCheck();
+      scheduleCheck(0);
     }
 
     function stop(): void {
+      isStopped = true;
       if (checkTimer !== null) clearTimeout(checkTimer);
       checkTimer = null;
     }
@@ -79,3 +121,4 @@ function createRemoteWatcherStarter(remoteWatcherUrl: string, { statusCheckMs = 
 }
 
 export { createRemoteWatcherStarter };
+export type { WatcherEnding, WatcherStarter };

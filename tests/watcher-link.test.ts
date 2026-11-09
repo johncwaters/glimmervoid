@@ -9,6 +9,7 @@ import path from 'node:path';
 import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createDoorman } from '../cloud/doorman/doorman.ts';
+import { ensureDoorman, localDoormanUrl } from '../cloud/doorman/ensure-doorman.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-runner.ts';
@@ -24,10 +25,10 @@ import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 const QUIET_LOG = { log: () => {}, warn: () => {} };
 const LIGHT_PROBE: Probe = { id: 'github:light:0', laneId: 'test-lane', everyMs: 60_000, method: 'POST', url: 'https://api.github.com/graphql', body: '{"query":"query { viewer { login } }"}', credential: 'github' };
 
-async function eventually<Value>(read: () => Value | undefined, timeoutMs = 10_000): Promise<Value> {
+async function eventually<Value>(read: () => Value | undefined | Promise<Value | undefined>, timeoutMs = 10_000): Promise<Value> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const value = read();
+    const value = await read();
     if (value !== undefined) return value;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -50,14 +51,19 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
   const watcherProblems: (string | null)[] = [];
   const linkCredentials: { github: string | null } = { github: githubToken };
   const watcher: { runner: ReturnType<typeof createProbeRunner> | null; url: string | null; nudgeUrl: string | null } = { runner: null, url: null, nudgeUrl: null };
+  let answerNudge: http.RequestListener = (_request, response) => response.writeHead(503).end();
+  const nudgeListener = http.createServer((request, response) => answerNudge(request, response));
+  await new Promise<void>((resolve) => nudgeListener.listen(0, '127.0.0.1', resolve));
+  const nudgeAddress = nudgeListener.address();
+  assert.ok(nudgeAddress !== null && typeof nudgeAddress === 'object');
+  const serverUrl = `http://127.0.0.1:${nudgeAddress.port}`;
   const link = createWatcherLink({
-    watcherHome,
     linkSecret,
     now,
     log,
     telemetry: { capture: (event, properties) => capturedEvents.push({ event, properties }) },
     credentials: () => ({ github: linkCredentials.github, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
-    startWatcher: ({ serverUrl, onListening }) => {
+    startWatcher: ({ onListening }) => {
       const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
       const sender = createNudgeSender({ serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), now, log: QUIET_LOG });
       const runner = createProbeRunner({ home, nudges: sender, fetchFn: githubFetch, now, log: QUIET_LOG });
@@ -80,9 +86,11 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
       };
     },
   });
+  answerNudge = link.answerNudgeRequest;
   link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [probe], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: (problem) => watcherProblems.push(problem) });
   t.after(async () => {
     link.stop();
+    await new Promise((resolve) => nudgeListener.close(resolve));
     await fsp.rm(watcherHome, { recursive: true, force: true });
   });
   await link.start();
@@ -315,12 +323,11 @@ test('a remote watcher links by URL and nudges its lane, and a watcher that stop
   const watcherPort = await watcherListener.listen(0);
 
   link = createWatcherLink({
-    watcherHome,
     linkSecret,
     now,
     log: QUIET_LOG,
     credentials: () => ({ github: 'read-token', posthog: null }),
-    startWatcher: createRemoteWatcherStarter(`http://127.0.0.1:${watcherPort}`, { statusCheckMs: 50, fetchFn: partitionableFetch, now }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, statusCheckMs: 50, fetchFn: partitionableFetch, now }),
   });
   link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [LIGHT_PROBE], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: () => {} });
   t.after(async () => {
@@ -576,4 +583,39 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
   assert.deepEqual(answers.map((answer) => [answer.status, answer.body]), [[200, 'served /first'], [200, 'served /second'], [200, 'served /third']]);
   assert.deepEqual(wakeCalls, ['hostedtenant0001']);
   assert.deepEqual(['/first', '/second', '/third'].map((requestPath) => seenProtosByPath.get(requestPath)), ['https', 'https', 'https']);
+});
+
+test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its tenant table is deleted', async (t) => {
+  const glimmervoidHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-local-doorman-'));
+  const stateDir = path.join(glimmervoidHome, 'doorman', '4999');
+  const tablePath = path.join(stateDir, 'tenants.json');
+  t.after(async () => {
+    await fsp.rm(tablePath, { force: true });
+    await eventually(async () => await localDoormanUrl(glimmervoidHome, 4999) === null ? true : undefined, 20_000).catch(() => {});
+    await fsp.rm(glimmervoidHome, { recursive: true, force: true });
+  });
+  await fsp.mkdir(path.join(glimmervoidHome, 'watcher'));
+  await fsp.writeFile(path.join(glimmervoidHome, 'watcher', 'probe-set.json'), '{}');
+  const ensureAt = (version: string) => ensureDoorman({ glimmervoidHome, localPort: 4999, bindHost: '127.0.0.1', remoteListenerPort: 4998, version });
+  const answeringUrl = async () => {
+    const doormanUrl = await localDoormanUrl(glimmervoidHome, 4999);
+    if (doormanUrl === null) return undefined;
+    return fetch(new URL(HEALTH_PATH, doormanUrl)).then(() => doormanUrl, () => undefined);
+  };
+  const listeningLineCount = async () => (await fsp.readFile(path.join(stateDir, 'doorman.log'), 'utf8').catch(() => '')).split('\n').filter((line) => line.includes('[doorman] listening on')).length;
+
+  await ensureAt('1.0.0');
+  const firstUrl = await eventually(answeringUrl, 20_000);
+  assert.equal(await fsp.readFile(path.join(stateDir, 'watcher', 'probe-set.json'), 'utf8'), '{}');
+  assert.equal(JSON.parse(await fsp.readFile(tablePath, 'utf8')).tenants[0].serverUrl, 'http://127.0.0.1:4998');
+  await ensureAt('1.0.0');
+  assert.equal(await answeringUrl(), firstUrl);
+  assert.equal(await listeningLineCount(), 1);
+
+  await ensureAt('1.0.1');
+  await eventually(async () => await listeningLineCount() === 2 && await answeringUrl() !== undefined ? true : undefined, 20_000);
+  assert.match(await fsp.readFile(path.join(stateDir, 'doorman.log'), 'utf8'), /tenants\.json is gone, stopping/);
+
+  await fsp.rm(tablePath);
+  await eventually(async () => await localDoormanUrl(glimmervoidHome, 4999) === null ? true : undefined, 20_000);
 });

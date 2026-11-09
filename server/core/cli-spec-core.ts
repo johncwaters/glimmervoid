@@ -259,18 +259,11 @@ const OWNED_COMMAND_SPECS = {
       { name: 'new-items-vault', type: 'string', valueName: 'name', summary: 'The 1Password vault that values pasted on a secret request card go into (the card can name another)' },
     ],
   },
-  watch: {
-    name: 'watch',
-    summary: 'Run the watcher: run the probes the server sends and nudge the server when one changes, reading the link secret and server URL from the environment',
-    options: [
-      { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port the server sends probes to (default: any free port)' },
-    ],
-  },
   doorman: {
     name: 'doorman',
     summary: "Run the doorman: forward each tenant's traffic to its server, wake a sleeping server first, and run each tenant's watcher",
     options: [
-      { name: 'tenants', type: 'string', valueName: 'path', summary: 'The tenant table file, reloaded when it changes' },
+      { name: 'tenants', type: 'string', valueName: 'path', summary: 'The tenant table file, reloaded when it changes; the doorman stops when it is deleted' },
       { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port to listen on (default: any free port)' },
     ],
   },

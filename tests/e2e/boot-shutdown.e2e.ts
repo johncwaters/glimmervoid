@@ -15,7 +15,7 @@ test('the server boots, serves the control socket, and stops everything it start
   const control = await openRecordingSocket<ControlFrame>(client, '/control');
   await waitForMessage(control.received, (frame) => frame.type === 'snapshot', 'the control snapshot');
   await server.waitForLogLine(/\[watcher\] delivered probe set/, 'the watcher taking its probe set');
-  assert.ok(server.descendantPids().length > 0, 'the server should be running the watcher child before the stop');
+  assert.equal(server.doormanPids().length, 1, 'the server should have started one local doorman before the stop');
   await closeSocket(control.ws);
 
   const stopped = await server.stopProcessGroup('SIGTERM');
@@ -24,7 +24,7 @@ test('the server boots, serves the control socket, and stops everything it start
   assert.equal(stopped.hasMissedShutdownDeadline, false, `the server did not exit after SIGTERM:\n${server.logText()}`);
   assert.equal(stopped.exitCode, 0, `the server exited with ${stopped.exitCode} (${stopped.exitSignal}):\n${server.logText()}`);
   assert.deepEqual(stopped.descendantPidsStillRunning, [], 'processes the server started outlived it');
-  assert.equal(countLogLines(server.logText(), /\[watcher\] started child pid/), 1, 'the watcher started again during shutdown');
+  assert.equal(countLogLines(server.logText(), /\[watcher\] linked the watcher at/), 1, 'the watcher was linked again during shutdown');
   assertCleanLog(server.logText());
 });
 

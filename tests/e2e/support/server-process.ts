@@ -43,6 +43,7 @@ interface RunningServer {
   logText: () => string;
   waitForLogLine: (pattern: RegExp, label: string, deadlineMs?: number) => Promise<string>;
   descendantPids: () => number[];
+  doormanPids: () => number[];
   stopProcessGroup: (signal?: NodeJS.Signals) => Promise<StoppedServer>;
 }
 
@@ -71,6 +72,20 @@ function markedPidsOf(serverMark: string): number[] {
   return listing.stdout.split('\n')
     .filter((line) => line.split(/\s+/).includes(markText))
     .map((line) => Number.parseInt(line.trim(), 10));
+}
+
+function doormanPidsOf(home: string): number[] {
+  const listing = spawnSync('ps', ['axww', '-o', 'pid=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const doormenFolder = `${path.join(home, 'doorman')}${path.sep}`;
+  return listing.stdout.split('\n')
+    .filter((line) => line.includes(' doorman --tenants ') && line.includes(doormenFolder))
+    .map((line) => Number.parseInt(line.trim(), 10));
+}
+
+function retireDoormenOf(home: string): void {
+  const doormenFolder = path.join(home, 'doorman');
+  const localPortFolders = fs.existsSync(doormenFolder) ? fs.readdirSync(doormenFolder) : [];
+  for (const localPortFolder of localPortFolders) fs.rmSync(path.join(doormenFolder, localPortFolder, 'tenants.json'), { force: true });
 }
 
 function signalProcessGroup(groupLeaderPid: number, signal: NodeJS.Signals): void {
@@ -165,7 +180,8 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
 
   function killEverythingLeft(): void {
     signalProcessGroup(serverPid, 'SIGKILL');
-    for (const pid of [...descendantPidsOf(serverPid), ...markedPidsOf(home)]) spawnSync('kill', ['-KILL', String(pid)]);
+    retireDoormenOf(home);
+    for (const pid of [...descendantPidsOf(serverPid), ...markedPidsOf(home), ...doormanPidsOf(home)]) spawnSync('kill', ['-KILL', String(pid)]);
   }
   function killEverythingLeftAndExit(signal: NodeJS.Signals): void {
     killEverythingLeft();
@@ -207,7 +223,8 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
     clearTimeout(shutdownDeadlineTimer);
     const shutdownMs = Date.now() - stopRequestedAt;
     await sleep(POLL_INTERVAL_MS * 8);
-    const descendantPidsStillRunning = [...descendantsAtStop.filter(isProcessRunning), ...markedPidsOf(home)];
+    const doormanPids = new Set(doormanPidsOf(home));
+    const descendantPidsStillRunning = [...descendantsAtStop.filter(isProcessRunning), ...markedPidsOf(home)].filter((pid) => !doormanPids.has(pid));
     killEverythingLeft();
     return {
       exitCode: exit?.exitCode ?? null,
@@ -225,6 +242,7 @@ async function startServer(options: ServerStartOptions): Promise<RunningServer> 
     logText: () => capturedOutput,
     waitForLogLine,
     descendantPids: () => descendantPidsOf(serverPid),
+    doormanPids: () => doormanPidsOf(home),
     stopProcessGroup,
   };
 }

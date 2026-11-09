@@ -9,8 +9,9 @@ The watcher, a process that runs the probes the server compiles and nudges the s
 | `link/core/link-signing-core.ts` | Per-direction keys from the link secret, request signing and verification |
 | `link/watcher-link.ts` | Server half: compiles the probe set, delivers it and the credentials, takes nudges, switches each probe source between timers and nudges |
 | `link/link-secret.ts` | The link secret kept 0600 in the Glimmervoid home, so the watcher's sealed credentials survive a server restart |
-| `link/watcher-supervisor.ts` | Runs `glimmervoid watch` as an IPC child of the server, restarting it with backoff |
-| `watcher/watch-cli.ts`, `watcher/watcher-listener.ts` | `glimmervoid watch` and its signed loopback listener |
+| `link/remote-watcher-starter.ts` | Finds the watcher through its doorman by status check, starting the local doorman first when `watcher.url` is unset |
+| `doorman/doorman.ts`, `doorman/ensure-doorman.ts` | `glimmervoid doorman`, which hosts each tenant's watcher, and the server's connect-or-spawn of its own local doorman |
+| `watcher/watcher-listener.ts` | The watcher's signed listener, served under `/link/watcher/` |
 | `watcher/probe-runner.ts`, `watcher/core/probe-core.ts` | Runs each probe on its interval and decides when a result is a nudge |
 | `watcher/watcher-home.ts` | The probe set and the encrypted credentials the watcher keeps across restarts |
 | `shared/contracts/watcher-link.ts` | Probe, probe set, nudge and credential shapes |
@@ -24,4 +25,5 @@ The watcher, a process that runs the probes the server compiles and nudges the s
 - Each direction signs with its own key derived from the link secret, so a captured nudge can never be replayed as a probe set.
 - A GitHub credential only reaches `api.github.com` and a PostHog key only its own host, whatever URL a probe names. `GLIMMERVOID_GITHUB_API_BASE` may move GitHub probes, but only to a loopback address (the end-to-end runs' fake GitHub), so a token never leaves the machine in plain http (`githubApiOrigin`).
 - A lane skips a timed read only while the watcher runs that exact request healthily and the lane already holds its first answer, because the watcher never nudges on a probe's first answer; anything else stays on the lane's timers, so the watcher only ever makes polling cheaper.
-- A remote watcher's (`watcher.url`) nudges enter the remote listener ahead of remote-auth, guarded by the link signature alone, because the doorman forwards them from outside (`cloud/link/remote-watcher-starter.ts`).
+- The doorman is the only way a watcher runs, self-host included: the server never spawns a watcher, so one nudge path is tested for every install. Its nudges enter the remote listener ahead of remote-auth, guarded by the link signature alone.
+- A local doorman outlives server restarts and is found by its lock and port file, never by pid, and stops when its tenant table is deleted, so a removed Glimmervoid home leaves no daemon behind. Its port file is trusted only while its lock is held, because the server sends credentials there; without kernel locks there is no local doorman.

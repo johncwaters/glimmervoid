@@ -7,17 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
-
-- **The npm package.** Glimmervoid is no longer published to npm; 0.54.0 was the last npm release, and the older npm versions are deprecated with a message pointing at the installer. Install the standalone app with the curl or PowerShell installer in the README, or with Homebrew. An npm or npx install of 0.54.0 switches over from Settings, Updates.
-
 ### Added
 
-- **Doorman.** `glimmervoid doorman --tenants <file>` forwards each tenant's dashboard pages and WebSockets to its server's remote listener and runs that tenant's watcher. Routing goes by host name, `<slug>.<tenant domain>`, or to the only tenant when the table has no tenant domain, and an unknown host is refused. When a host adapter can wake a sleeping server, requests made while it wakes are held and sent on once it answers. With no adapter, a server that is down gets 502 at once. The doorman reloads its tenant table when the file changes. The watcher's own routes now live under `/link/watcher/`.
+- **Doorman.** `glimmervoid doorman --tenants <file>` forwards each tenant's dashboard pages and WebSockets to its server's remote listener and runs that tenant's watcher. Routing goes by host name, `<slug>.<tenant domain>`, or to the only tenant when the table has no tenant domain, and an unknown host is refused. When a host adapter can wake a sleeping server, requests made while it wakes are held and sent on once it answers. With no adapter, a server that is down gets 502 at once. The doorman reloads its tenant table when the file changes. The watcher's own routes now live under `/link/watcher/`. The doorman stops when its tenant table file is deleted.
 
 ### Changed
 
 - **The remote listener is always on.** It answers paired devices only, binds `127.0.0.1` as before, and takes a free port the system picks unless `remote.port` names one, so a doorman can always reach it and a second Glimmervoid never collides with it. `remote.enabled` is gone, and a stored one is dropped from `config.json` on start. `npm run dev` now opens the remote listener and links the watcher exactly as `glimmervoid` does, and stops on a busy port instead of moving to the next one; pass `--port` to pick another.
+- **The watcher runs inside a local doorman.** Glimmervoid no longer starts `glimmervoid watch` as a child process: with `watcher.url` unset, the server starts a `glimmervoid doorman` on this machine that hosts its watcher, finds it again after a restart, replaces it when Glimmervoid updates or its proxy settings change, starts it again if it stops, and stops the doorman of a server that is gone or now uses `watcher.url`. Its files, log and watcher state live in `~/.glimmervoid/doorman/<dashboard port>/`, and the old `~/.glimmervoid/watcher` folder moves there once. `glimmervoid watch`, `GLIMMERVOID_LINK_SECRET` and `GLIMMERVOID_LINK_SERVER_URL` are gone.
+- **`watcher.url` names a doorman.** A remote watcher now runs inside `glimmervoid doorman` on the other machine, which reads this server's link key from its tenant table, instead of `glimmervoid watch` with environment variables.
+
+### Removed
+
+- **The npm package.** Glimmervoid is no longer published to npm; 0.54.0 was the last npm release, and the older npm versions are deprecated with a message pointing at the installer. Install the standalone app with the curl or PowerShell installer in the README, or with Homebrew. An npm or npx install of 0.54.0 switches over from Settings, Updates.
 
 ### Fixed
 

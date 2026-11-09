@@ -1,6 +1,6 @@
 import { WATCHER_LANE_IDS } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeFailure } from '../../shared/contracts/watcher-link.ts';
-import type { WatcherChildEndKind, WatcherFailureKind, WatcherTelemetryLane } from '../../shared/contracts/telemetry.ts';
+import type { WatcherFailureKind, WatcherTelemetryLane } from '../../shared/contracts/telemetry.ts';
 
 const FAILURE_KIND_BY_STATUS: Readonly<Record<number, WatcherFailureKind>> = { 401: 'unauthorized', 403: 'forbidden', 404: 'not_found', 429: 'rate_limited' };
 const KNOWN_LANE_IDS: ReadonlySet<string> = new Set(WATCHER_LANE_IDS);
@@ -27,9 +27,4 @@ function failureKindOf(failure: ProbeFailure): WatcherFailureKind {
   return failure.status >= 500 ? 'server_error' : 'other';
 }
 
-function endKindOf(ending: { exitCode: number | null; didFailToStart: boolean }): WatcherChildEndKind {
-  if (ending.didFailToStart) return 'failed_to_start';
-  return ending.exitCode === 0 ? 'exited' : 'crashed';
-}
-
-export { endKindOf, failureKindOf, telemetryLaneOf };
+export { failureKindOf, telemetryLaneOf };
