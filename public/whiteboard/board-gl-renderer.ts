@@ -515,7 +515,7 @@ function resolvePalette(host: HTMLElement): BoardPalette {
 
 function paletteKey(host: HTMLElement): string {
   const root = document.documentElement;
-  return [root.className, root.dataset.theme ?? '', root.getAttribute('style') ?? '', host.className].join('|');
+  return [root.className, root.dataset.theme ?? '', root.getAttribute('style') ?? '', host.className, host.isConnected].join('|');
 }
 
 function glyphMinScaleOf(part: GeometryPart): number {
