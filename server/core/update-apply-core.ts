@@ -6,7 +6,8 @@ import type {
   UpdateStepId,
 } from '../../shared/contracts/update-journal.ts';
 import { parseRemoteFromUpstream } from './branch-sync-core.ts';
-import { normalizeSha } from './update-core.ts';
+import { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, normalizeSha } from './update-core.ts';
+import { isExperimentalBuild } from '../../shared/build-channel.ts';
 
 const OUTPUT_TAIL_LINE_CAP = 200;
 const PREVIOUS_DIST_BACKUP_NAME = 'prev-dist';
@@ -17,11 +18,13 @@ const SUPPORTED_UPDATE_REMOTE = 'origin';
 const LOWEST_SCHEDULING_PRIORITY = '19';
 const NPM_PACKAGE_FOLDER_NAME = 'glimmervoid';
 const NPM_GLOBAL_UPDATE_FOLDER_NAME = '.glimmervoid-update';
+const DASHBOARD_UPDATABLE_FLAVORS = new Set(['clone', 'npm-global', 'binary']);
 
 type UpdateArtifact = 'dist' | 'node_modules' | 'package';
 
 type PreflightRefusalReason =
   | 'unsupported-flavor'
+  | 'unsupported-channel'
   | 'unsupported-platform'
   | 'install-not-writable'
   | 'channel-mismatch'
@@ -55,6 +58,8 @@ interface PreflightFacts {
   journalState: UpdateRunState;
   restartRequested: boolean;
   npmGlobalInstall?: NpmGlobalInstall | null;
+  binaryUpdaterPath?: string | null;
+  targetVersion?: string | null;
 }
 
 interface NpmGlobalInstall {
@@ -156,8 +161,11 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
   if (facts.flavor === 'npx') {
     return { ok: false, reason: 'unsupported-flavor', message: 'Glimmervoid runs from the npx cache. Stop Glimmervoid and run the command shown.' };
   }
-  if (facts.flavor !== 'clone' && facts.flavor !== 'npm-global') {
-    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates need a clone or an npm global install.' };
+  if (facts.flavor === 'homebrew') {
+    return { ok: false, reason: 'unsupported-flavor', message: `Glimmervoid was installed with Homebrew. Run ${HOMEBREW_COMMAND}, then restart Glimmervoid.` };
+  }
+  if (!DASHBOARD_UPDATABLE_FLAVORS.has(facts.flavor)) {
+    return { ok: false, reason: 'unsupported-flavor', message: 'Use the install command because dashboard updates need a clone, an npm global install or a standalone binary.' };
   }
   if (facts.platform === 'win32') {
     return { ok: false, reason: 'unsupported-platform', message: 'Use the install command because dashboard updates are unavailable on Windows.' };
@@ -169,7 +177,18 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
     return { ok: false, reason: 'no-update-available', message: 'No update is available.' };
   }
   if (facts.flavor === 'npm-global') return decideNpmGlobalPreflight(facts);
+  if (facts.flavor === 'binary') return decideBinaryPreflight(facts);
   return decideClonePreflight(facts);
+}
+
+function decideBinaryPreflight(facts: PreflightFacts): PreflightDecision {
+  if (!facts.binaryUpdaterPath) {
+    return { ok: false, reason: 'unsupported-flavor', message: `Use the install command because no ${BINARY_UPDATER_NAME} sits beside this binary.` };
+  }
+  if (isExperimentalBuild(facts.targetVersion)) {
+    return { ok: false, reason: 'unsupported-channel', message: 'Standalone binaries ship only for releases. Switch the update channel to release to update this binary.' };
+  }
+  return decideRunPreflight(facts);
 }
 
 function decideRunPreflight(facts: PreflightFacts): PreflightDecision {

@@ -25,6 +25,7 @@ interface BackendUpdateDependencies {
   getUpdateJournal?: () => UpdateJournal | null;
   isRestartRequested?: () => boolean;
   getNpmGlobalInstall?: () => NpmGlobalInstall | null;
+  getBinaryUpdaterPath?: () => string | null;
   getControlClientCount: () => number;
   broadcastControl: ControlBroadcast;
   logger: Pick<Console, 'log'>;
@@ -96,6 +97,8 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       journalState: journal?.state || 'idle',
       restartRequested: dependencies.isRestartRequested?.() === true,
       npmGlobalInstall: dependencies.getNpmGlobalInstall?.() ?? null,
+      binaryUpdaterPath: dependencies.getBinaryUpdaterPath?.() ?? null,
+      targetVersion: recorded.latest,
     });
     if (!decision.ok) return { reason: decision.reason, message: decision.message };
     return null;

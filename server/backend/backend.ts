@@ -572,6 +572,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
     getNpmGlobalInstall: () => updateApply.getNpmGlobalInstall(),
+    getBinaryUpdaterPath: () => updateApply.getBinaryUpdaterPath(),
     getControlClientCount: viewerControlClientCount,
     broadcastControl,
     logger: console,

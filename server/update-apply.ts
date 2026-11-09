@@ -34,14 +34,15 @@ import {
   retireAtBoot,
 } from './core/update-apply-core.ts';
 import type { NpmGlobalInstall, NpmGlobalLayout, PreflightDecision, RenameOperation } from './core/update-apply-core.ts';
-import { NODE_PTY_INSTALL_SCRIPT_FLAG } from './core/update-core.ts';
+import { BINARY_UPDATER_NAME, NODE_PTY_INSTALL_SCRIPT_FLAG } from './core/update-core.ts';
+import { compareReleaseVersions } from '../shared/build-channel.ts';
 import { stableLauncherPathFor } from './stable-node-path.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { runCommand as execCommand, runGit } from './git/git-exec.ts';
 import type { CommandResult } from './git/git-exec.ts';
 import { createJsonStateWriter, writeJsonAtomic } from './json-file.ts';
 import { isMissingFileError } from '../shared/text.ts';
-import { probeBranchAndUpstream } from './update-check.ts';
+import { probeBranchAndUpstream, standaloneExecutableRealpath } from './update-check.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 
 const FETCH_TIMEOUT_MS = 60_000;
@@ -54,6 +55,7 @@ const SUCCESSOR_LISTEN_TIMEOUT_MS = 30_000;
 const SUCCESSOR_POLL_INTERVAL_MS = 500;
 const COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 const RESTORE_MARKER_NAME = 'restore.json';
+const RELEASE_VERSION_LINE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/;
 
 type UpdateFileSystem = Pick<
   typeof fs.promises,
@@ -78,6 +80,7 @@ interface UpdateApplyDependencies {
   clock?: () => number;
   platform?: NodeJS.Platform;
   nodePath?: string;
+  standaloneExecutablePath?: string | null;
 }
 
 
@@ -108,7 +111,12 @@ interface CloneStagedDescriptor {
   stagingPath: string;
 }
 
-type StagedDescriptor = CloneStagedDescriptor | NpmGlobalStagedDescriptor;
+interface BinaryStagedDescriptor {
+  state: 'staged';
+  kind: 'binary';
+}
+
+type StagedDescriptor = BinaryStagedDescriptor | CloneStagedDescriptor | NpmGlobalStagedDescriptor;
 
 interface SuccessorProcess {
   once(event: 'exit', listener: () => void): unknown;
@@ -131,6 +139,7 @@ interface UpdateApplyLane {
   applyUpdate(): Promise<UpdateApplyOutcome>;
   getJournal(): UpdateJournal;
   getNpmGlobalInstall(): NpmGlobalInstall | null;
+  getBinaryUpdaterPath(): string | null;
   handOffStagedUpdate(): Promise<void>;
   superviseSuccessor(successor: SuccessorProcess): Promise<boolean>;
   isRestartRequested(): boolean;
@@ -173,6 +182,25 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   const npmGlobalLayout = decideNpmGlobalLayout(dependencies.packageRoot);
   const nodePath = dependencies.nodePath || stableLauncherPathFor('node');
   const npmPath = path.join(path.dirname(nodePath), 'npm');
+  const standaloneExecutablePath = dependencies.standaloneExecutablePath === undefined
+    ? standaloneExecutableRealpath()
+    : dependencies.standaloneExecutablePath;
+  let knownBinaryUpdaterPath = standaloneExecutablePath ? executableUpdaterOrNull(standaloneExecutablePath) : null;
+
+  function binaryUpdaterPathBeside(executablePath: string): string {
+    const updaterFileName = (dependencies.platform || process.platform) === 'win32' ? `${BINARY_UPDATER_NAME}.exe` : BINARY_UPDATER_NAME;
+    return path.join(path.dirname(executablePath), updaterFileName);
+  }
+
+  function executableUpdaterOrNull(executablePath: string): string | null {
+    const updaterPath = binaryUpdaterPathBeside(executablePath);
+    try {
+      fs.accessSync(updaterPath, fs.constants.X_OK);
+      return updaterPath;
+    } catch {
+      return null;
+    }
+  }
   let isInstallWritable: boolean | null = null;
   let hasSwappedNpmGlobalPackage = false;
   let journal = idleJournal(dependencies.getUpdateChannel());
@@ -314,6 +342,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     }
     if (restartRequested) return refusal('restart-requested', 'Wait for the requested restart to finish.');
     if (status.flavor === 'npm-global') return stageNpmGlobalUpdate(status, channel);
+    if (standaloneExecutablePath) return stageBinaryUpdate(status, channel, standaloneExecutablePath);
     const tree = await dependencies.gitWorkspace.probeWorktreeDirty({
       projectPath: dependencies.packageRoot,
       cwd: dependencies.packageRoot,
@@ -444,6 +473,74 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       return { ok: true, reason: null, message: 'Update staged. Restart to apply it.' };
     } catch (error) {
       return failAndCleanNpmGlobal(layout, errorText(error));
+    }
+  }
+
+  async function findBinaryUpdater(executablePath: string): Promise<string | null> {
+    const updaterPath = binaryUpdaterPathBeside(executablePath);
+    try {
+      await fsPromises.access(updaterPath, fs.constants.X_OK);
+      knownBinaryUpdaterPath = updaterPath;
+      return updaterPath;
+    } catch {
+      knownBinaryUpdaterPath = null;
+      return null;
+    }
+  }
+
+  function getBinaryUpdaterPath(): string | null {
+    return knownBinaryUpdaterPath;
+  }
+
+  async function stageBinaryUpdate(status: UpdateStatus, channel: UpdateChannel, executablePath: string): Promise<UpdateApplyOutcome> {
+    const updaterPath = await findBinaryUpdater(executablePath);
+    const decision = decidePreflight({
+      flavor: status.flavor,
+      platform: dependencies.platform || process.platform,
+      statusChannel: status.channel,
+      configuredChannel: channel,
+      updateAvailable: status.updateAvailable,
+      isTreeClean: false,
+      branch: null,
+      upstream: null,
+      statusBranch: null,
+      statusUpstream: null,
+      headSha: null,
+      targetSha: null,
+      journalState: journal.state,
+      restartRequested,
+      binaryUpdaterPath: updaterPath,
+      targetVersion: status.latest,
+    });
+    if (!decision.ok) return refusal(decision.reason, decision.message);
+    if (!updaterPath || !status.latest) return refusal('missing-target-version', 'The target version is unknown. Check for updates again.');
+    const targetVersion = status.latest;
+    const executableDirectory = path.dirname(executablePath);
+    try {
+      await publish(beginRun(journal, {
+        stepIds: ['install'],
+        fromSha: status.currentSha,
+        toSha: status.latestSha,
+        toVersion: targetVersion,
+        channel,
+        now: clock(),
+      }));
+      await publish(beginStep(journal, { stepId: 'install', now: clock() }));
+      await runInstallCommand(updaterPath, [], executableDirectory, INSTALL_TIMEOUT_MS);
+      const versionOutput = await runInstallCommand(executablePath, ['--version'], executableDirectory, VERIFY_TIMEOUT_MS);
+      const installedVersion = versionOutput.split(/\r?\n/).map((line) => line.trim()).find((line) => RELEASE_VERSION_LINE.test(line)) ?? '';
+      if (!installedVersion || compareReleaseVersions(installedVersion, targetVersion) < 0) {
+        throw new Error(`release-binaries-pending: ${BINARY_UPDATER_NAME} left ${installedVersion || 'an unknown version'} in place because the ${targetVersion} binaries are not published yet; try again in a few minutes`);
+      }
+      await publish(finishStep(journal, { stepId: 'install', now: clock() }));
+      await publish(markStaged(journal, { now: clock() }));
+      stagedDescriptor = { state: 'staged', kind: 'binary' };
+      dependencies.logger.log(`[update] ${BINARY_UPDATER_NAME} installed ${installedVersion} at ${executablePath}`);
+      return { ok: true, reason: null, message: 'Update installed. Restart to apply it.' };
+    } catch (error) {
+      stagedDescriptor = null;
+      await publish(failRun(journal, { reason: errorText(error), now: clock() }), false);
+      return refusal(errorText(error), errorText(error));
     }
   }
 
@@ -734,6 +831,10 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   async function handOffStagedUpdate(): Promise<void> {
     await bootRun;
     const descriptor = stagedDescriptor;
+    if (standaloneExecutablePath) {
+      await handOffBinaryUpdate(descriptor);
+      return;
+    }
     if (npmGlobalLayout) {
       await handOffNpmGlobalUpdate(npmGlobalLayout, descriptor);
       return;
@@ -751,6 +852,12 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     const run = performHandOff(descriptor).finally(() => { inFlight = false; });
     activeRun = run;
     await run;
+  }
+
+  async function handOffBinaryUpdate(descriptor: StagedDescriptor | null): Promise<void> {
+    if (descriptor?.kind !== 'binary' || inFlight) return;
+    stagedDescriptor = null;
+    await publish(markSucceeded(journal, { now: clock() }), false);
   }
 
   async function handOffNpmGlobalUpdate(layout: NpmGlobalLayout, descriptor: StagedDescriptor | null): Promise<void> {
@@ -814,6 +921,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     if (journal.state === 'running') {
       await publish(markInterrupted(journal, { reason: 'interrupted', now: clock() }), false);
     }
+    if (standaloneExecutablePath) return;
     if (npmGlobalLayout) {
       await fsPromises.rm(npmGlobalLayout.stagePrefix, { recursive: true, force: true });
       await fsPromises.rm(npmGlobalLayout.previousPackagePath, { recursive: true, force: true });
@@ -872,6 +980,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     applyUpdate,
     getJournal,
     getNpmGlobalInstall,
+    getBinaryUpdaterPath,
     handOffStagedUpdate,
     superviseSuccessor,
     isRestartRequested,

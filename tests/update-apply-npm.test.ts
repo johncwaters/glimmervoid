@@ -195,3 +195,90 @@ test('an npm global install whose package folder is not writable refuses before 
     fs.rmSync(install.root, { recursive: true, force: true });
   }
 });
+
+function makeBinaryInstall({ updaterPublishes = true, installDirectoryName = 'bin', versionScript = '' } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-binary-update-'));
+  const installDirectory = path.join(root, installDirectoryName);
+  fs.mkdirSync(installDirectory, { recursive: true });
+  const versionFile = path.join(root, 'installed-version.txt');
+  fs.writeFileSync(versionFile, '1.0.0');
+  const executablePath = path.join(installDirectory, 'glimmervoid');
+  fs.writeFileSync(executablePath, versionScript || `#!/bin/sh\ncat ${JSON.stringify(versionFile)}\n`, { mode: 0o755 });
+  const publishedVersion = updaterPublishes ? TARGET_VERSION : '1.0.0';
+  fs.writeFileSync(path.join(installDirectory, 'glimmervoid-update'), `#!/bin/sh\nprintf '%s' ${JSON.stringify(publishedVersion)} > ${JSON.stringify(versionFile)}\n`, { mode: 0o755 });
+  return { root, executablePath, versionFile };
+}
+
+function startBinaryLane(install: ReturnType<typeof makeBinaryInstall>, flavor: UpdateStatus['flavor'] = 'binary') {
+  const lane = createUpdateApplyLane({
+    gitWorkspace: GIT_WORKSPACE_FORBIDDEN,
+    packageRoot: path.join(install.root, 'snapshot'),
+    journalPath: path.join(install.root, 'update-journal.json'),
+    getUpdateStatus: () => ({ ...availableUpdate(), flavor, command: 'glimmervoid-update' }),
+    getUpdateChannel: () => 'experimental',
+    broadcastControl: () => {},
+    logger: { log: () => {}, warn: () => {} },
+    platform: 'darwin',
+    standaloneExecutablePath: install.executablePath,
+  });
+  lane.startAfterListening({ listening: true, once: () => {}, removeListener: () => {} });
+  return lane;
+}
+
+test('a standalone binary install runs the updater beside it and succeeds at hand-off without touching git', async () => {
+  const install = makeBinaryInstall();
+  try {
+    const lane = startBinaryLane(install);
+    const staged = await lane.applyUpdate();
+    assert.equal(staged.ok, true, staged.message);
+    assert.equal(lane.getJournal().state, 'staged');
+    assert.equal(fs.readFileSync(install.versionFile, 'utf8'), TARGET_VERSION);
+
+    await lane.handOffStagedUpdate();
+    await lane.stop();
+    assert.equal(lane.getJournal().state, 'succeeded');
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
+
+test('a standalone binary update fails while the target release has no binaries yet', async () => {
+  const install = makeBinaryInstall({ updaterPublishes: false });
+  try {
+    const lane = startBinaryLane(install);
+    const outcome = await lane.applyUpdate();
+    await lane.stop();
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.message, /not published yet/);
+    assert.equal(lane.getJournal().state, 'failed');
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
+
+test('a Homebrew install refuses the dashboard update and names brew upgrade', async () => {
+  const install = makeBinaryInstall({ installDirectoryName: path.join('Cellar', 'glimmervoid', '1.0.0', 'bin') });
+  try {
+    const lane = startBinaryLane(install, 'homebrew');
+    const outcome = await lane.applyUpdate();
+    await lane.stop();
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.message, /brew upgrade glimmervoid/);
+    assert.equal(fs.readFileSync(install.versionFile, 'utf8'), '1.0.0');
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
+
+test('a standalone binary update whose binary prints no version fails instead of claiming success', async () => {
+  const install = makeBinaryInstall({ updaterPublishes: false, versionScript: '#!/bin/sh\necho warning >&2\n' });
+  try {
+    const lane = startBinaryLane(install);
+    const outcome = await lane.applyUpdate();
+    await lane.stop();
+    assert.equal(outcome.ok, false);
+    assert.equal(lane.getJournal().state, 'failed');
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});

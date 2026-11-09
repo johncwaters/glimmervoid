@@ -10,6 +10,9 @@ const NPM_GLOBAL_COMMAND = `npm install -g ${NPM_PACKAGE_NAME}@latest`;
 const NODE_PTY_INSTALL_SCRIPT_FLAG = '--allow-scripts=node-pty';
 const NPX_CACHE_DIRECTORY_NAME = '_npx';
 const CLONE_COMMAND = 'git pull --ff-only && npm ci && npm run build';
+const BINARY_UPDATER_NAME = 'glimmervoid-update';
+const HOMEBREW_COMMAND = 'brew upgrade glimmervoid';
+const HOMEBREW_CELLAR_DIRECTORY_NAME = 'Cellar';
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
 const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+(?:-next\.\d+)?)$/;
 const DEPRECATION_MESSAGE_MAX_CHARS = 500;
@@ -50,13 +53,19 @@ function isNpxCachePath(packageRoot: unknown): boolean {
   return packageRoot.split(/[\\/]/).includes(NPX_CACHE_DIRECTORY_NAME);
 }
 
-function decideInstallFlavor({ packageRoot, lockfileSha, gitHeadSha, hasGitDir, isInsideNodeModules }: {
+function isHomebrewCellarPath(executablePath: string): boolean {
+  return executablePath.split(/[\\/]/).includes(HOMEBREW_CELLAR_DIRECTORY_NAME);
+}
+
+function decideInstallFlavor({ standaloneExecutablePath, packageRoot, lockfileSha, gitHeadSha, hasGitDir, isInsideNodeModules }: {
+  standaloneExecutablePath?: string | null;
   packageRoot?: unknown;
   lockfileSha?: unknown;
   gitHeadSha?: unknown;
   hasGitDir?: boolean;
   isInsideNodeModules?: boolean;
 } = {}): { flavor: InstallFlavor; installedSha: string | null } {
+  if (standaloneExecutablePath) return { flavor: isHomebrewCellarPath(standaloneExecutablePath) ? 'homebrew' : 'binary', installedSha: null };
   const fromLockfile = normalizeSha(lockfileSha);
   if (isNpxCachePath(packageRoot)) return { flavor: 'npx', installedSha: fromLockfile ?? normalizeSha(gitHeadSha) };
   if (fromLockfile) return { flavor: 'npm-global', installedSha: fromLockfile };
@@ -83,6 +92,8 @@ function buildNpmGlobalCommand(latestVersion: unknown, platform: unknown): strin
 function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform?: unknown): string {
   if (flavor === 'npx') return buildNpxCommand(latestVersion, platform);
   if (flavor === 'npm-global') return buildNpmGlobalCommand(latestVersion, platform);
+  if (flavor === 'binary') return BINARY_UPDATER_NAME;
+  if (flavor === 'homebrew') return HOMEBREW_COMMAND;
   return CLONE_COMMAND;
 }
 
@@ -209,4 +220,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { NODE_PTY_INSTALL_SCRIPT_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };
+export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, NODE_PTY_INSTALL_SCRIPT_FLAG, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseRegistryLatest, pickNewestPublished, parseRegistryDeprecation, decideUpdateStatus, isCheckFresh };

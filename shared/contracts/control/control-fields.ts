@@ -142,7 +142,7 @@ export const CONTROL_FRAME_MAX_BYTES = CONTROL_FRAME_ENVELOPE_BYTES
 export const UpdateApplyRefusal = z.object({ reason: z.string(), message: z.string() });
 export type UpdateApplyRefusal = z.infer<typeof UpdateApplyRefusal>;
 
-export const InstallFlavor = z.enum(['npm-global', 'npx', 'clone', 'unknown']);
+export const InstallFlavor = z.enum(['npm-global', 'npx', 'clone', 'binary', 'homebrew', 'unknown']);
 export type InstallFlavor = z.infer<typeof InstallFlavor>;
 
 export const updateStatusShape = {

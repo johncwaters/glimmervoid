@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isSea } from 'node:sea';
 
 import type { UpdateChannel } from '../shared/contracts/update-journal.ts';
 import { execFileAsync } from './child-process-safe.ts';
@@ -159,8 +160,18 @@ async function cloneIdentity(
   };
 }
 
-function detectInstallFlavor(packageRoot: string): ReturnType<typeof decideInstallFlavor> {
+function standaloneExecutableRealpath(): string | null {
+  if (!isSea()) return null;
+  try {
+    return fs.realpathSync(process.execPath);
+  } catch {
+    return process.execPath;
+  }
+}
+
+function detectInstallFlavor(packageRoot: string, standaloneExecutablePath = standaloneExecutableRealpath()): ReturnType<typeof decideInstallFlavor> {
   return decideInstallFlavor({
+    standaloneExecutablePath,
     packageRoot,
     lockfileSha: readLockfileSha(packageRoot),
     gitHeadSha: readPackageGitHead(packageRoot),
@@ -334,5 +345,5 @@ async function checkForUpdate({
   }
 }
 
-export { checkForUpdate, detectInstallFlavor, probeBranchAndUpstream };
+export { checkForUpdate, detectInstallFlavor, probeBranchAndUpstream, standaloneExecutableRealpath };
 export type { UpdateCheckStatus };
