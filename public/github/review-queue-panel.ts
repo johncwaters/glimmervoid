@@ -14,14 +14,14 @@ import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotice
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
-import { getReviewsBoardDetailWidth, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
+import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
 import { subscribeSettings } from '../settings/settings-store.ts';
 import {
   COLLAPSED_GROUP_IDS, ageToneOf, boardDropLaneIds, boardDropOf, caughtUpText, chooseQueueSelection, combinedPollingStatus, nextTurnKey,
-  isOverTurnLimit, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
+  isOverTurnLimit, orderDisplayGroups, placeCardBefore, shownTurnKeys, queueItemActivityEntry, queueItemByKey, queueItemWaitStartMs, reviewKeyActionOf, reviewingNowCountText, spansMultipleRepos, splitReviewingNow, steppedColumnKey, steppedRowKey,
   togglePulledKey, turnItems, turnPositionText,
 } from './review-queue-core.ts';
 import type { DisplayGroup, DisplayGroupId, QueueGroup, QueueItem, ReviewKeyAction } from './review-queue-core.ts';
@@ -227,6 +227,14 @@ function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId): void {
   }
   selectItem(queueKey, { isFromQueue: true });
   detailHost?.querySelector<HTMLButtonElement>(`button[data-action="${drop.action}"]:not(:disabled)`)?.click();
+}
+
+function reorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null): void {
+  const columnKeys = displayGroups.find((group) => group.id === groupId)?.items.map((item) => item.key) ?? [];
+  setReviewsCardOrder(placeCardBefore({ cardOrder: getReviewsCardOrder(), columnKeys, key: queueKey, beforeKey: beforeQueueKey }));
+  renderedSignature = null;
+  render();
+  rowsByKey.get(queueKey)?.focus({ preventScroll: true });
 }
 
 function toggleSelectedPulled(): boolean {
@@ -545,6 +553,7 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
     },
     dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id),
     onDropCard: dropCardOnLane,
+    onReorderCard: reorderCard,
   });
 }
 
@@ -595,8 +604,12 @@ function syncSetupCard(): boolean {
 function splitDisplayGroups(): void {
   const storedPulledKeys = getReviewsPulledKeys();
   const split = splitReviewingNow(currentGroups, storedPulledKeys);
-  displayGroups = split.groups;
-  if (hasBothLanes() && split.pulledKeys.length !== storedPulledKeys.length) setReviewsPulledKeys(split.pulledKeys);
+  const storedCardOrder = getReviewsCardOrder();
+  const ordered = orderDisplayGroups(split.groups, storedCardOrder);
+  displayGroups = ordered.groups;
+  if (!hasBothLanes()) return;
+  if (split.pulledKeys.length !== storedPulledKeys.length) setReviewsPulledKeys(split.pulledKeys);
+  if (ordered.cardOrder.length !== storedCardOrder.length) setReviewsCardOrder(ordered.cardOrder);
 }
 
 function render(): void {
@@ -608,7 +621,7 @@ function render(): void {
   currentGroups = rebuildReviewQueue();
   splitDisplayGroups();
   pollingControls?.update(combinedPollingStatus([teamReviewStatusView(), myPrsStatus]));
-  if (!isCaughtUp) selectedKey = chooseQueueSelection(currentGroups, selectedKey, settledTeamKeys());
+  if (!isCaughtUp) selectedKey = chooseQueueSelection(displayGroups, selectedKey, settledTeamKeys());
   paintTurnPosition();
   const signature = rowsSignature(displayGroups, sessionsByPrKey);
   if (signature !== renderedSignature) {
@@ -686,7 +699,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   root.dataset.detailOpen = 'false';
   teamDetail = mountTeamReviewDetail(root, {
     onChange: queueRender,
-    captureTurnOrder: () => turnItems(currentGroups).map((item) => item.key),
+    captureTurnOrder: () => shownTurnKeys(displayGroups),
     onAdvance: advanceAfterAction,
   }, queueNavigation);
   mineDetail = mountMyPrsDetail({ onChange: queueRender }, queueNavigation);

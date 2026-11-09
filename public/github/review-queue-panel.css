@@ -368,5 +368,6 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .pr-queue-row[data-age-tone="old"] .pr-queue-elapsed { color: var(--state-failed); }
 .review-group-count[data-over="true"] { color: var(--state-failed); }
 .review-board-column[data-drop-target="true"] { border-color: var(--accent); }
+.review-board-cards > [data-drop-before="true"] { box-shadow: 0 -3px 0 var(--accent); }
 .review-board-drop-hint { margin: 0; padding: 12px 8px; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--text-muted); text-align: center; }
 }

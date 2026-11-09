@@ -6,7 +6,7 @@ import type { MyPrStage } from '../shared/contracts/my-prs.ts';
 import { TeamReviewStatus, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { groupDrafts, stackBadgeOf } from '../public/github/github-store-core.ts';
 import { settledLineText } from '../public/github/team-review-view-core.ts';
-import { ageToneOf, attentionTilesOf, buildReviewQueue, chooseQueueSelection, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
+import { ageToneOf, attentionTilesOf, buildReviewQueue, chooseQueueSelection, orderDisplayGroups, placeCardBefore, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
 
 const NO_TEAM_REVIEWS = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
 
@@ -164,4 +164,24 @@ test('an own pull request whose unresolved threads all wait on reviewers waits o
   assert.deepEqual(keysIn(groups, 'turn'), ['mine:acme/app#2', 'mine:acme/app#3', 'mine:acme/app#4', 'mine:acme/app#5', 'mine:acme/app#6', 'mine:acme/app#7']);
   assert.deepEqual(attentionTilesOf(groups).map((tile) => tile.id), ['mine:acme/app#2', 'mine:acme/app#3', 'mine:acme/app#4', 'mine:acme/app#5', 'mine:acme/app#6', 'mine:acme/app#7']);
   assert.deepEqual(keysIn(buildReviewQueue(NO_TEAM_REVIEWS, prs, new Set(), true, null), 'waiting'), []);
+});
+
+test('a hand-ordered column keeps its order, shows a never-placed card above it, and forgets keys that left every column', () => {
+  const sections = groupDrafts({ ...TeamReviewStatus.parse({ type: 'team-review-status', ts: 1, configured: true, reason: null, drafts: [], inFlight: [], queued: [] }), drafts: [
+    readyDraft(1, '2026-10-01T00:00:00Z', { reviewedAt: Date.parse('2026-10-01T00:00:00Z') }),
+    readyDraft(2, '2026-10-02T00:00:00Z', { reviewedAt: Date.parse('2026-10-02T00:00:00Z') }),
+    readyDraft(3, '2026-10-03T00:00:00Z', { reviewedAt: Date.parse('2026-10-03T00:00:00Z') }),
+  ] });
+  const split = splitReviewingNow(buildReviewQueue(sections, [], new Set(), true), []);
+  const turnKeysOf = (cardOrder: readonly string[]) => orderDisplayGroups(split.groups, cardOrder).groups.find((group) => group.id === 'turn')?.items.map((item) => item.key) ?? [];
+  const computedKeys = turnKeysOf([]);
+  assert.equal(computedKeys.length, 3);
+  const [firstKey, secondKey, thirdKey] = computedKeys;
+  const movedUp = placeCardBefore({ cardOrder: ['team:acme/app#99'], columnKeys: computedKeys, key: thirdKey, beforeKey: firstKey });
+  assert.deepEqual(turnKeysOf(movedUp), [thirdKey, firstKey, secondKey]);
+  assert.deepEqual(orderDisplayGroups(split.groups, movedUp).cardOrder, [thirdKey, firstKey, secondKey]);
+  const movedLast = placeCardBefore({ cardOrder: movedUp, columnKeys: turnKeysOf(movedUp), key: thirdKey, beforeKey: null });
+  assert.deepEqual(turnKeysOf(movedLast), [firstKey, secondKey, thirdKey]);
+  assert.deepEqual(turnKeysOf([secondKey, firstKey]), [thirdKey, secondKey, firstKey]);
+  assert.deepEqual(orderDisplayGroups(split.groups, ['mine:acme/app#7', secondKey]).cardOrder, ['mine:acme/app#7', secondKey]);
 });

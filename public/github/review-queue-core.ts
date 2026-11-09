@@ -93,6 +93,41 @@ export function splitReviewingNow(groups: readonly QueueGroup[], pulledKeys: rea
   return { groups: displayGroups, pulledKeys: keptPulledKeys };
 }
 
+export const SLIM_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['queued', 'working', 'parked']);
+
+function queueKeySource(key: string): string {
+  return key.slice(0, key.indexOf(':') + 1);
+}
+
+export function orderDisplayGroups(groups: readonly DisplayGroup[], cardOrder: readonly string[]): { groups: DisplayGroup[]; cardOrder: string[] } {
+  const positionByKey = new Map(cardOrder.map((key, position) => [key, position]));
+  const liveKeys = new Set(groups.flatMap((group) => group.items.map((item) => item.key)));
+  const liveSources = new Set([...liveKeys].map(queueKeySource));
+  const orderedGroups = groups.map((group) => {
+    if (SLIM_GROUP_IDS.has(group.id)) return group;
+    const neverPlacedItems = group.items.filter((item) => !positionByKey.has(item.key));
+    const placedItems = group.items
+      .filter((item) => positionByKey.has(item.key))
+      .sort((first, second) => (positionByKey.get(first.key) ?? 0) - (positionByKey.get(second.key) ?? 0));
+    return { ...group, items: [...neverPlacedItems, ...placedItems] };
+  });
+  return { groups: orderedGroups, cardOrder: cardOrder.filter((key) => liveKeys.has(key) || !liveSources.has(queueKeySource(key))) };
+}
+
+export function placeCardBefore({ cardOrder, columnKeys, key, beforeKey }: { cardOrder: readonly string[]; columnKeys: readonly string[]; key: string; beforeKey: string | null }): string[] {
+  if (key === beforeKey || !columnKeys.includes(key)) return [...cardOrder];
+  const otherColumnKeys = columnKeys.filter((columnKey) => columnKey !== key);
+  const insertAt = beforeKey === null ? otherColumnKeys.length : otherColumnKeys.indexOf(beforeKey);
+  if (insertAt < 0) return [...cardOrder];
+  const columnKeySet = new Set(columnKeys);
+  return [
+    ...cardOrder.filter((orderedKey) => !columnKeySet.has(orderedKey)),
+    ...otherColumnKeys.slice(0, insertAt),
+    key,
+    ...otherColumnKeys.slice(insertAt),
+  ];
+}
+
 export function togglePulledKey({ pulledKeys, key, turnKeys, limit }: { pulledKeys: readonly string[]; key: string; turnKeys: readonly string[]; limit: number }): string[] {
   if (pulledKeys.includes(key)) return pulledKeys.filter((pulledKey) => pulledKey !== key);
   const isFull = limit > 0 && pulledKeys.length >= limit;
@@ -314,6 +349,10 @@ export function nextTurnKey<Item extends KeyedQueueItem>({ capturedOrder, actedK
 }
 
 const POSITION_GROUP_IDS: ReadonlySet<string> = new Set<DisplayGroupId>(['turn', 'now']);
+
+export function shownTurnKeys(groups: readonly DisplayGroup[]): string[] {
+  return groups.filter((group) => POSITION_GROUP_IDS.has(group.id)).flatMap((group) => group.items.map((item) => item.key));
+}
 
 export function turnPositionText(groups: readonly DisplayGroup[], key: string | null): string {
   const shownGroup = groups.find((group) => POSITION_GROUP_IDS.has(group.id) && group.items.some((item) => item.key === key));

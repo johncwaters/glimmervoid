@@ -805,6 +805,35 @@ async function dragCardBetweenColumns(page: Page, reviewKey: string, targetGroup
   }, { cardKey: reviewKey, groupId: targetGroupId });
 }
 
+async function dragCardWithinColumn(page: Page, queueKey: string, beforeQueueKey: string | null): Promise<void> {
+  await page.evaluate(({ cardKey, beforeKey }) => {
+    const card = document.querySelector(`.review-board [data-queue-key="${cardKey}"]`);
+    const column = card?.closest('.review-board-column');
+    const dropTarget = beforeKey ? column?.querySelector(`[data-queue-key="${beforeKey}"]`) : column;
+    if (!card || !dropTarget) throw new Error('Missing drag card or drop target');
+    const dataTransfer = new DataTransfer();
+    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    fire(card, 'dragstart');
+    if (fire(dropTarget, 'dragover')) throw new Error('Column refused the reorder drag');
+    fire(dropTarget, 'drop');
+  }, { cardKey: queueKey, beforeKey: beforeQueueKey });
+}
+
+async function verifyDragReorder(page: Page): Promise<void> {
+  const readyKeys = () => page.locator('.review-board-column[data-group="turn"] [data-queue-key]').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-queue-key') ?? ''));
+  const computedKeys = await readyKeys();
+  assert.ok(computedKeys.length > 1);
+  const lastKey = computedKeys[computedKeys.length - 1];
+  const otherKeys = computedKeys.slice(0, -1);
+  await dragCardWithinColumn(page, lastKey, computedKeys[0]);
+  assert.deepEqual(await readyKeys(), [lastKey, ...otherKeys]);
+  assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsCardOrder?: unknown }).reviewsCardOrder), [lastKey, ...otherKeys]);
+  assert.equal(await page.locator('.review-board [data-drop-before], .review-board [data-drop-target]').count(), 0);
+  await dragCardWithinColumn(page, lastKey, null);
+  assert.deepEqual(await readyKeys(), computedKeys);
+  await writeUiPrefs(page, { reviewsCardOrder: [] });
+}
+
 async function verifyDragToParked(page: Page): Promise<void> {
   await page.evaluate(() => {
     const captureWindow = window as ActionCaptureWindow;
@@ -833,7 +862,7 @@ async function verifyDragToParked(page: Page): Promise<void> {
       card?.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
       return lanes;
     });
-    assert.deepEqual(highlightedLanes, ['queued', 'now', 'parked']);
+    assert.deepEqual(highlightedLanes, ['queued', 'turn', 'now', 'parked']);
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'parked'), true);
     const sent = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string; key?: string };
     assert.deepEqual({ action: sent.action, key: sent.key }, { action: 'discard', key: 'Acme/app#1' });
@@ -1080,6 +1109,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await verifyAgeTones(page);
   await verifyBoardCardBottomRowsFit(page);
   await verifyColumnSteps(page);
+  await verifyDragReorder(page);
   await verifyDragToParked(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');
