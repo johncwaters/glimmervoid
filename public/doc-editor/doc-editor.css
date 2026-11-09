@@ -28,6 +28,7 @@
 .doc-markup-paper:focus { outline: none; box-shadow: inset 0 0 0 1px var(--border-hover); }
 .doc-markup-paper[contenteditable="true"] { caret-color: var(--pen-ink); }
 .doc-markup-float { position: absolute; left: max(0px, calc((100% - 60rem) / 2 + 32px)); z-index: 3; }
+.doc-markup-float.ui-button { background: var(--pen-paper); border-color: var(--border-hover); color: var(--pen-text); }
 .doc-markup-composer { box-sizing: border-box; width: 32ch; }
 .doc-markup-float[hidden] { display: none; }
 .doc-markup-composer { padding: 8px; border: 1px solid var(--pen-ink); border-radius: var(--radius-lg); background: var(--pen-paper); }
@@ -62,9 +63,8 @@
 .doc-markup-caret-label.doc-markup-editing { overflow: visible; max-width: none; text-overflow: clip; }
 .doc-markup-mark:focus-visible, .doc-markup-mark.is-selected { outline: 2px dashed var(--pen-ink); outline-offset: 2px; }
 .doc-markup-mark del { color: inherit; text-decoration: line-through 2px var(--pen-ink); }
-.doc-markup-line:has(.doc-markup-caret-label) { padding-block-start: calc(var(--type-meta) * 1.3); }
-.doc-markup-caret { position: relative; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; }
-.doc-markup-caret-label { position: absolute; bottom: 70%; left: 0; max-width: min(40ch, 60vw); overflow: hidden; font-size: var(--type-meta); font-weight: 400; line-height: 1.3; text-overflow: ellipsis; white-space: pre; filter: url(#doc-markup-ink); }
+.doc-markup-caret { position: relative; display: inline-block; padding-block-start: calc(var(--type-body) * 1.3 + 2px); line-height: 1; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; }
+.doc-markup-caret-label { position: absolute; top: 0; left: 0; max-width: min(40ch, 60vw); overflow: hidden; font-size: var(--type-body); font-weight: 400; line-height: 1.3; text-overflow: ellipsis; white-space: pre; filter: url(#doc-markup-ink); }
 .doc-markup-inserted { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); text-decoration: none; filter: url(#doc-markup-ink); }
 .doc-markup-glyph { width: 0.6em; height: 0.8em; fill: none; stroke: var(--pen-ink); stroke-width: 1.6; stroke-linecap: round; filter: url(#doc-markup-ink); }
 .doc-markup-delete-loop { margin-inline-start: -0.15em; vertical-align: 0.35em; }
