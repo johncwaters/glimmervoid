@@ -45,6 +45,7 @@ function optionValue(optionName) {
 async function buildBinary() {
   const pkgPlatform = PKG_PLATFORM_BY_NODE_PLATFORM[process.platform];
   if (!pkgPlatform) fail(`no standalone binary target for platform ${process.platform}`);
+  const npmShapeModuleFiles = new Set(nodeOutputFiles(distDir, '.mjs'));
   await build({
     configFile: path.join(repoRoot, 'vite.server.config.ts'),
     build: { rolldownOptions: { output: { entryFileNames: '[name].mjs', chunkFileNames: 'chunks/[name]-[hash].mjs' } } },
@@ -62,17 +63,20 @@ async function buildBinary() {
     '--output', binaryPath,
   ]);
   if (!fs.existsSync(binaryPath)) fail(`pkg wrote no binary at ${binaryPath}`);
+  for (const moduleFile of nodeOutputFiles(distDir, '.mjs')) {
+    if (!npmShapeModuleFiles.has(moduleFile)) fs.rmSync(moduleFile);
+  }
   console.log(`build: standalone binary at ${path.relative(repoRoot, binaryPath)}`);
 }
 
-function nodeOutputFiles(directory, found = []) {
+function nodeOutputFiles(directory, extension = '.js', found = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== 'client') nodeOutputFiles(absolutePath, found);
+      if (entry.name !== 'client') nodeOutputFiles(absolutePath, extension, found);
       continue;
     }
-    if (entry.name.endsWith('.js')) found.push(absolutePath);
+    if (entry.name.endsWith(extension)) found.push(absolutePath);
   }
   return found;
 }
