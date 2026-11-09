@@ -472,6 +472,10 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
   await page.keyboard.press('Escape');
   await page.waitForFunction((boxId) => !document.querySelector(`.wb-media[data-box-id="${boxId}"]`)?.classList.contains('is-interactive'), dialsBox.id, { timeout: BOARD_TIMEOUT_MS });
   assert.equal(await dialsMedia.locator('iframe').evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'Esc inside the page hands the pointer back to the board');
+  assert.equal(await dialsMedia.locator('iframe').evaluate((frame) => frame instanceof HTMLElement ? frame.style.width : ''), '1280px', 'a page on a plain box lays out 1280 wide');
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'set', id: dialsBox.id, fields: { shape: 'device', device: 'phone' } }] });
+  await page.waitForFunction((boxId) => document.querySelector<HTMLElement>(`.wb-media[data-box-id="${boxId}"] iframe`)?.style.width === '393px', dialsBox.id, { timeout: BOARD_TIMEOUT_MS })
+    .catch(() => assert.fail('a page on a phone device box lays out at the phone screen width'));
   await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: dialsBox.id }] });
   await boardWithout(open, 'the dials page is removed', isDialsPage);
 }
