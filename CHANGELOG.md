@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Borderless boxes on a whiteboard.** A box or a device box can now drop its card: tick Borderless in the properties panel, or have an agent set `"borderless":true`, and the box draws no fill and no outline, so a device mockup or a picture stands alone under its title instead of sitting in a box inside a box. Its size and wires stay where they were, and a diff mark or a plan step still draws its outline.
+
 ### Fixed
 
 - **A page on a device box is readable.** A page or document shown on a whiteboard device box now lays out at that device's screen width (393 wide on a phone, 834 on a tablet, 1440 on a laptop or browser, 1920 on a desktop), so a phone shows it as a phone would. It used to lay out 1280 wide on every device and shrink to fit, which left a phone's page a strip of unreadable text at the top of the screen.

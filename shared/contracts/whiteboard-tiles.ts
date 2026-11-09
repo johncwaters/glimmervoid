@@ -47,6 +47,7 @@ export const LaidOutBox = z.object({
   wasLines: z.array(z.string()),
   shape: z.enum(BOX_SHAPES),
   tone: z.enum(STICKY_TONES).nullable().default(null),
+  isBorderless: z.boolean().default(false),
   headerHeight: z.number(),
   outputs: z.array(LaidOutOutput),
   media: LaidOutMedia.nullable(),

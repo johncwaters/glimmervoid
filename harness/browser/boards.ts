@@ -964,6 +964,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await clickElement(open, targetBox.id);
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     const isTargetWith = (isMatch: (box: Extract<BoardElement, { kind: 'box' }>) => boolean) => (element: BoardElement) => element.id === targetBox.id && element.kind === 'box' && isMatch(element);
+    await inspect.getByRole('checkbox', { name: 'Borderless', exact: true }).check();
+    await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless));
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
     await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision' && box.outputs.length > 0));
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();

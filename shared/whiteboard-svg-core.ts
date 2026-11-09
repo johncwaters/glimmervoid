@@ -52,7 +52,7 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-plan-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
-.wb-text .wb-box-outline { fill: transparent; stroke: transparent; }
+.wb-text .wb-box-outline, .wb-borderless .wb-box-outline { fill: transparent; stroke: transparent; }
 .wb-note .wb-box-outline { fill: #2a2213; stroke: #f5c26b; stroke-width: 1.2; }
 ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_TONE_HEX[tone]}; fill-opacity: 0.3; stroke: ${STICKY_TONE_HEX[tone]}; }`).join('\n')}
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
@@ -298,7 +298,8 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
   const toneClass = box.tone ? ` wb-tone-${box.tone}` : '';
-  return elementGroup(box, `wb-box${shapeClass}${toneClass}${stepClass}${changeClass}`, parts);
+  const borderlessClass = box.isBorderless ? ' wb-borderless' : '';
+  return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${stepClass}${changeClass}`, parts);
 }
 
 function loopBadgeMarkup(frame: LaidOutFrame): string {
