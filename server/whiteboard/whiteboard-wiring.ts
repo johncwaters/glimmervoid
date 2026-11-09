@@ -59,7 +59,7 @@ const PUT_GUIDE = [
   'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
   `A box with shape sticky is a sticky note in its tone ${STICKY_TONES.join('|')}, yellow by default; a box with shape note is a pinned note card, signed from its author when added: wire it dashed to the box it is about and remove it once settled; a box with shape text draws its title and lines with no border and holds no media. A box height is a least height the content can still exceed. A box you add with no width is stored at the smallest width, 220 to 480, that fits its title on one line and cuts no word of its lines; a word no width up to 480 fits does not widen the box. A frame with collapsed true draws as one stack card of its first box. A stroke is ink the operator drew: a read gives its bounds, and you may remove one but never add or set one.`,
   'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
-  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; near only places the box once, so it is stored as the at it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from at positions, frames and text boxes.',
+  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; near only places the box once, so it is stored as the at it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from at positions, frames and text boxes. An align op lines placed boxes up in one step, as in {"op":"align","ids":["parse","check","save"],"as":"row"}: row gives every box the top of the highest and the height of the tallest, column the left of the leftmost and the width of the widest; it is stored as a set of each box, so add the boxes in an earlier op of the same put or before.',
   'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
   'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line takes one ref. A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
@@ -181,6 +181,7 @@ function elementIdsNamedBy(op: Op): string[] {
   switch (op.op) {
     case 'add': return [op.element.id];
     case 'board': return [];
+    case 'align': return op.ids;
     default: return [op.id];
   }
 }

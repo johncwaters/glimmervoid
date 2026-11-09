@@ -18,6 +18,8 @@ type StagedOps = {
   afterById: ReadonlyMap<string, Element | null>;
   commit: () => void;
 } | { ok: false; error: string; opIndex: number };
+type AlignOp = Extract<Op, { op: 'align' }>;
+type ElementOp = Exclude<Op, AlignOp>;
 type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxOf: (id: string) => PlacedBox | undefined; pinnedOffsetY: number };
 type ElementLookup = (id: string) => Element | undefined;
@@ -297,7 +299,25 @@ function removeDependent(draft: Draft, element: Element, removedBoxId: string): 
   writeElement(draft, { ...element, contains });
 }
 
-function applyOne(draft: Draft, op: Op, author: Author): OpOutcome {
+function alignedSetOpsOf(draft: Draft, align: AlignOp): { ok: true; ops: ElementOp[] } | { ok: false; error: string } {
+  const rects: PlacedBox[] = [];
+  for (const id of align.ids) {
+    const element = elementOf(draft, id);
+    const rect = element?.kind === 'box' && element.at !== null ? drawnRectOf(draft, id) : null;
+    if (!rect) return { ok: false, error: `align names ${id}, which is not a placed box` };
+    rects.push(rect);
+  }
+  if (align.as === 'row') {
+    const top = Math.min(...rects.map((rect) => rect.y));
+    const height = Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.ceil(Math.max(...rects.map((rect) => rect.height))));
+    return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { at: { x: rect.x, y: top }, height } })) };
+  }
+  const left = Math.min(...rects.map((rect) => rect.x));
+  const width = Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, Math.ceil(Math.max(...rects.map((rect) => rect.width)))));
+  return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { at: { x: left, y: rect.y }, width } })) };
+}
+
+function applyOne(draft: Draft, op: ElementOp, author: Author): OpOutcome {
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
     case 'set': return setFields(draft, op.id, op.fields, author);
@@ -320,11 +340,16 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   const version = board.version + 1;
   const changes: BoardChange[] = [];
   for (const [opIndex, op] of ops.entries()) {
-    const elementId = changedElementId(op);
-    const previous = elementId === null ? undefined : elementOf(draft, elementId);
-    const outcome = applyOne(draft, op, author);
-    if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
-    changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(op, previous, lookup)}` });
+    const expanded = op.op === 'align' ? alignedSetOpsOf(draft, op) : { ok: true as const, ops: [op] };
+    if (!expanded.ok) return { ok: false, error: `op ${opIndex + 1}: ${expanded.error}`, opIndex };
+    if (changes.length + expanded.ops.length > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put changes more than ${WHITEBOARD_LIMITS.opsPerPut} elements once its align ops are counted box by box`, opIndex };
+    for (const elementOp of expanded.ops) {
+      const elementId = changedElementId(elementOp);
+      const previous = elementId === null ? undefined : elementOf(draft, elementId);
+      const outcome = applyOne(draft, elementOp, author);
+      if (!outcome.ok) return { ok: false, error: `op ${opIndex + 1}: ${outcome.error}`, opIndex };
+      changes.push({ version, author: author.id, elementId, summary: `${author.name} ${describeOp(elementOp, previous, lookup)}` });
+    }
   }
   const diff = diffOf(draft);
   const before = beforeOf(board, diff);
@@ -452,7 +477,7 @@ function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedA
   return { ...board, ...diff.fields, elements, version, updatedAt };
 }
 
-function changedElementId(op: Op): string | null {
+function changedElementId(op: ElementOp): string | null {
   if (op.op === 'add') return op.element.id;
   if (op.op === 'set' || op.op === 'remove') return op.id;
   return null;
@@ -494,7 +519,7 @@ function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
   return 'set the legend';
 }
 
-function describeOp(op: Op, previous: Element | undefined, after: ElementLookup): string {
+function describeOp(op: ElementOp, previous: Element | undefined, after: ElementLookup): string {
   switch (op.op) {
     case 'add': {
       const element = op.element;

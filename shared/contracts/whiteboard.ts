@@ -330,7 +330,8 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(400).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
-], { error: 'an op is add, set, remove or board' });
+  z.object({ op: z.literal('align'), ids: z.array(ElementId).min(2).max(50).describe('the placed boxes to line up'), as: z.enum(['row', 'column']).describe('row gives every box the top of the highest and the height of the tallest; column gives the left of the leftmost and the width of the widest') }).strict(),
+], { error: 'an op is add, set, remove, board or align' });
 
 export const BoardChange = z.object({
   version: z.number().int(),

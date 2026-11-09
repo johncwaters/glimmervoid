@@ -734,6 +734,42 @@ test('a box placed near another keeps its place when that box is removed, and a 
   assert.match(String(placeless.body.error), /needs a place/);
 });
 
+test('an align op gives boxes of ragged heights one top and one height as a row, one left and one width as a column, and refuses an id that is not a placed box', async () => {
+  const boardId = await newBoard('aligned');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'short', title: 'Short', at: { x: 40, y: 60 } } },
+    { op: 'add', element: { kind: 'box', id: 'tall', title: 'Tall', at: { x: 350, y: 40 }, lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }] } },
+    { op: 'add', element: { kind: 'box', id: 'wide', title: 'Wide', at: { x: 700, y: 90 }, width: 300 } },
+    { op: 'align', ids: ['short', 'tall', 'wide'], as: 'row' },
+  ] })).status, 200);
+  const row = (await boardOf(PLANNER_ID, boardId)).board.elements;
+  assert.deepEqual([row.short?.at, row.tall?.at, row.wide?.at], [{ x: 40, y: 40 }, { x: 350, y: 40 }, { x: 700, y: 40 }]);
+  const rowHeight = Number(row.tall?.height);
+  assert.deepEqual([row.short?.height, row.wide?.height], [rowHeight, rowHeight]);
+  assert.ok(rowHeight > 60, 'the row takes the height of its tallest box');
+
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'align', ids: ['short', 'wide'], as: 'column' }] })).status, 200);
+  const column = (await boardOf(PLANNER_ID, boardId)).board.elements;
+  assert.deepEqual([column.short?.at, column.short?.width, column.wide?.at, column.wide?.width], [{ x: 40, y: 40 }, 300, { x: 40, y: 40 }, 300]);
+
+  const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'align', ids: ['short', 'missing'], as: 'row' }] });
+  assert.equal(refused.status, 400);
+  assert.match(String(refused.body.error), /op 1: align names missing, which is not a placed box/);
+
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'banded', title: 'Banded', step: { status: 'planned' } } }] })).status, 200);
+  const unplacedBesideANearAdd = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'beside', title: 'Beside', near: { of: 'banded', side: 'right', gap: 60 } } },
+    { op: 'align', ids: ['banded', 'short'], as: 'row' },
+  ] });
+  assert.equal(unplacedBesideANearAdd.status, 400);
+  assert.match(String(unplacedBesideANearAdd.body.error), /op 2: align names banded, which is not a placed box/);
+
+  const everyOpAnAlign = Array.from({ length: WHITEBOARD_LIMITS.opsPerPut / 2 + 1 }, () => ({ op: 'align', ids: ['short', 'wide'], as: 'row' }));
+  const pastTheOpCap = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: everyOpAnAlign });
+  assert.equal(pastTheOpCap.status, 400);
+  assert.match(String(pastTheOpCap.body.error), /the put changes more than \d+ elements once its align ops are counted box by box/);
+});
+
 test('a box placed near another stays where it was drawn when that box moves, and near a box with no drawn place is refused', async () => {
   const boardId = await newBoard('near chain');
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
