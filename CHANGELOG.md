@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Drag sessions to reorder the sidebar.** Drag a session in the Focus sidebar onto another session in the same project to move it there; a line shows where it will land. The order is saved with your settings, so every open dashboard and the phone shows it, and it survives restarts. A new session joins the end of its project. Dormant sessions still sit below the live ones, and a child session stays under the session that started it.
+- **Drag sessions to reorder the sidebar.** Drag a session in the Focus sidebar onto another session in the same project to move it there; a line shows where it will land. On the phone, press and hold a session on the Focus board, then slide it. The order is saved with your settings, so every open dashboard and the phone shows it, and it survives restarts. A new session joins the end of its project. Dormant sessions still sit below the live ones, and a child session stays under the session that started it.
 
 ## [0.53.0] - 2026-11-08
 

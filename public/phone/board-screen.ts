@@ -4,6 +4,7 @@ import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row
 import type { SessionRow } from '../focus-view/attention-core.ts';
 import { countAttentionByKind, orderAttentionLine, orderRoster, sessionOrderOf } from '../focus-view/attention-core.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
+import { wireBoardRowReorder } from './board-row-reorder.ts';
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';
 import type { RosterGroup } from '../focus-view/roster-groups-core.ts';
 import { groupRoster, visibleOrder } from '../focus-view/roster-groups-core.ts';
@@ -75,6 +76,8 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   const rowState = new WeakMap<HTMLButtonElement, { refs: SessionRowRefs; item: HTMLDivElement }>();
   const groupRefs = new WeakMap<HTMLElement, GroupRefs>();
   const orderKeys = new WeakMap<HTMLElement, string>();
+  const groupKeyBySessionId = new Map<string, string>();
+  let boardRowsInOrder: BoardRow[] = [];
 
   observeHeaderHeight(topBar);
 
@@ -122,6 +125,9 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   function refresh() {
     const orderedRows = currentOrderedRows();
     const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf, hostOfRow);
+    boardRowsInOrder = boardGroups.groups.flatMap((group) => group.rows);
+    groupKeyBySessionId.clear();
+    for (const group of boardGroups.groups) for (const entry of group.rows) groupKeyBySessionId.set(entry.id, group.key);
     const attentionCounts = countAttentionByKind(orderedRows);
     const attentionLine = orderAttentionLine(orderedRows, null);
     const attentionPositionById = new Map(attentionLine.map(({ id }, index) => [id, index + 1]));
@@ -181,6 +187,16 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     emptyDescEl.hidden = isFirstRun;
     attentionEl.hidden = isFirstRun;
   }
+
+  wireBoardRowReorder(groupsEl, {
+    rowsInBoardOrder: () => boardRowsInOrder,
+    groupKeyOf: (row) => groupKeyBySessionId.get(row.id) ?? '',
+    itemFor: (sessionId) => {
+      const row = rowById.get(sessionId);
+      return row ? rowState.get(row)?.item : undefined;
+    },
+    repaint: refresh,
+  });
 
   function renderActivity(ui: SessionUi, kind: ActivityRenderKind) {
     const id = ui.card?.dataset.id;
