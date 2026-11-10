@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Accepting a red pen paragraph break keeps it.** Pressing Enter on the red pen paper suggests a new paragraph, drawn as a pilcrow; accepting it used to throw the break away as if it were a note, so the text ran back into one paragraph. It now becomes a real paragraph break, and rejecting it still joins the text back.
+- **Line breaks on the red pen paper work like any text editor.** Pressing Enter suggests a new paragraph, drawn as a pilcrow; accepting it used to throw the break away as if it were a note, so the text ran back into one paragraph. It now becomes a real paragraph break, Enter twice leaves an empty line, and rejecting it still joins the text back. Backspace at the start of a line and Delete at the end of one now suggest joining the two lines, where before they did nothing, and Delete right before a pilcrow takes it back. Left Arrow after Enter steps back before the pilcrow in one press, so typing lands at the end of the line above, and clicking past the end of that line does the same.
 
 ## [0.56.1] - 2026-11-10
 

@@ -162,7 +162,9 @@ function closeNumberGapAfter(source: string, rejectedLineStart: number, rejected
 
 export function resolveMark(source: string, mark: MarkSegment, decision: MarkDecision): string {
   const isAcceptedParagraph = decision === 'accept' && isParagraphMark(mark);
-  const resolvedText = isAcceptedParagraph ? '\n\n' : resolvedTextOf(mark, decision);
+  const isBesideNewline = source[mark.start - 1] === '\n' || source[mark.end] === '\n';
+  const paragraphBreak = isBesideNewline ? '\n' : '\n\n';
+  const resolvedText = isAcceptedParagraph ? paragraphBreak : resolvedTextOf(mark, decision);
   const resolvedSource = source.slice(0, mark.start) + resolvedText + source.slice(mark.end);
   const startsLine = mark.start === 0 || source[mark.start - 1] === '\n';
   const isRejectedInsertion = decision === 'reject' && mark.markKind === 'insertion' && startsLine;
@@ -262,7 +264,7 @@ function typeText(source: string, selection: SourceSelection, text: string, run:
 }
 
 function isPlainCharAt(source: string, offset: number) {
-  if (offset < 0 || offset >= source.length || source[offset] === '\n') return false;
+  if (offset < 0 || offset >= source.length) return false;
   return parseCriticMarkup(source).some((segment) => segment.kind === 'text' && segment.start <= offset && offset < segment.start + segment.text.length);
 }
 
@@ -279,8 +281,8 @@ function strike(source: string, range: SourceSelection, direction: 'backward' | 
   return applied(written, direction === 'forward' ? written.markEnd : mergedRange.start, null);
 }
 
-function paragraphMarkEndingAt(source: string, caret: number) {
-  return marksOf(source).find((mark) => isParagraphMark(mark) && mark.end === caret) ?? null;
+function paragraphMarkBeside(source: string, caret: number, direction: 'backward' | 'forward') {
+  return marksOf(source).find((mark) => isParagraphMark(mark) && (direction === 'backward' ? mark.end : mark.start) === caret) ?? null;
 }
 
 function removeParagraphMark(source: string, paragraphMark: MarkSegment): SuggestOutcome {
@@ -294,7 +296,7 @@ function deleteText(source: string, selection: SourceSelection, direction: 'back
   const runMark = activeRunMark(source, selection, run);
   if (runMark && direction === 'backward') return rewriteRunMark(source, runMark, runMark.newText.slice(0, -1));
   if (!isCollapsed(selection)) return strike(source, selection, direction);
-  const paragraphMark = direction === 'backward' ? paragraphMarkEndingAt(source, selection.start) : null;
+  const paragraphMark = paragraphMarkBeside(source, selection.start, direction);
   if (paragraphMark) return removeParagraphMark(source, paragraphMark);
   const struckOffset = direction === 'backward' ? selection.start - 1 : selection.start;
   if (!isPlainCharAt(source, struckOffset)) return refused('nothing');

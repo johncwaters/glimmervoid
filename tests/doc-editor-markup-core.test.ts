@@ -18,13 +18,36 @@ test('Backspace right after a red pen Enter removes the paragraph mark it made',
   assert.equal(pressEnterThenBackspace(markedSource, markedSource.indexOf('ef')), markedSource);
 });
 
+function suggestOrFail(source: string, edit: Parameters<typeof suggestEdit>[1]) {
+  const outcome = suggestEdit(source, edit, null);
+  assert.equal(outcome.kind, 'applied');
+  return outcome.kind === 'applied' ? outcome.source : source;
+}
+
+function acceptEveryMarkInTurn(source: string): string {
+  const firstMark = parseCriticMarkup(source).find((segment) => segment.kind === 'mark');
+  if (!firstMark || firstMark.kind !== 'mark') return source;
+  return acceptEveryMarkInTurn(resolveMark(source, firstMark, 'accept'));
+}
+
 test('accepting a red pen Enter keeps its paragraph break and rejecting it joins the text back', () => {
-  const entered = suggestEdit('abcd efg', { kind: 'paragraph', selection: { start: 4, end: 4 } }, null);
-  assert.ok(entered.kind === 'applied');
-  const paragraphMark = parseCriticMarkup(entered.source).find((segment) => segment.kind === 'mark');
+  const entered = suggestOrFail('abcd efg', { kind: 'paragraph', selection: { start: 4, end: 4 } });
+  const paragraphMark = parseCriticMarkup(entered).find((segment) => segment.kind === 'mark');
   assert.ok(paragraphMark && paragraphMark.kind === 'mark');
-  assert.equal(resolveMark(entered.source, paragraphMark, 'accept'), 'abcd\n\n efg');
-  assert.equal(resolveMark(entered.source, paragraphMark, 'reject'), 'abcd efg');
+  assert.equal(resolveMark(entered, paragraphMark, 'accept'), 'abcd\n\n efg');
+  assert.equal(resolveMark(entered, paragraphMark, 'reject'), 'abcd efg');
+  const enteredTwice = suggestOrFail(entered, { kind: 'paragraph', selection: { start: entered.length - 4, end: entered.length - 4 } });
+  assert.equal(acceptEveryMarkInTurn(enteredTwice), 'abcd\n\n\n efg');
+  assert.equal(acceptEveryMarkInTurn(suggestOrFail('abcd\nefg', { kind: 'paragraph', selection: { start: 4, end: 4 } })), 'abcd\n\nefg');
+});
+
+test('red pen Backspace at a line start and Delete at a line end suggest joining the lines', () => {
+  const backspaced = suggestOrFail('abcd\nefg', { kind: 'delete', selection: { start: 5, end: 5 }, direction: 'backward' });
+  assert.equal(backspaced, 'abcd{--\n--}efg');
+  assert.equal(suggestOrFail('abcd\nefg', { kind: 'delete', selection: { start: 4, end: 4 }, direction: 'forward' }), backspaced);
+  assert.equal(acceptEveryMarkInTurn(backspaced), 'abcdefg');
+  const entered = suggestOrFail('abcd efg', { kind: 'paragraph', selection: { start: 4, end: 4 } });
+  assert.equal(suggestOrFail(entered, { kind: 'delete', selection: { start: 4, end: 4 }, direction: 'forward' }), 'abcd efg');
 });
 
 test('rejecting one line of a suggested numbered list closes the gap in the pending numbers after it', () => {

@@ -749,8 +749,13 @@ function pointAfterChild(pane: MarkupPane, child: ChildNode | undefined, line: H
   const lineStart = { sourceOffset: Number(line.dataset.start), segmentStart: undefined };
   if (!(child instanceof HTMLElement)) return lineStart;
   const markIndex = markIndexOf(child);
-  if (markIndex !== null) return { sourceOffset: pane.marks[markIndex]?.end ?? lineStart.sourceOffset, segmentStart: undefined };
+  if (markIndex !== null) return { sourceOffset: caretOffsetBeside(pane.marks[markIndex]) ?? lineStart.sourceOffset, segmentStart: undefined };
   return { sourceOffset: Number(child.dataset.start) + (child.textContent?.length ?? 0), segmentStart: child.dataset.segmentStart };
+}
+
+function caretOffsetBeside(mark: MarkSegment | undefined) {
+  if (!mark) return undefined;
+  return isParagraphMark(mark) ? mark.start : mark.end;
 }
 
 function pointAtLineEdge(pane: MarkupPane, line: HTMLElement | null | undefined, edge: 'start' | 'end'): SourcePoint | null {
@@ -771,8 +776,8 @@ function sourcePointAt(pane: MarkupPane, node: Node, offset: number): SourcePoin
   const element = node instanceof Element ? node : node.parentElement;
   const markIndex = markIndexOf(element);
   if (markIndex !== null) {
-    const mark = pane.marks[markIndex];
-    return mark ? { sourceOffset: mark.end, segmentStart: undefined } : null;
+    const sourceOffset = caretOffsetBeside(pane.marks[markIndex]);
+    return sourceOffset === undefined ? null : { sourceOffset, segmentStart: undefined };
   }
   const textSpan = element?.closest<HTMLElement>('.doc-markup-text');
   if (textSpan) {
@@ -1246,6 +1251,15 @@ function onSurfaceKeydown(editor: MarkupHost, event: KeyboardEvent) {
   if (hasToolbarForRange && event.target === pane.paper && event.key === 'Escape') {
     event.preventDefault();
     window.getSelection()?.collapseToEnd();
+    return;
+  }
+  const caret = pane.selection;
+  const hasPlainStep = event.target === pane.paper && !event.shiftKey && !event.altKey && !event.metaKey && caret !== null && caret.start === caret.end;
+  const stepDirection = hasPlainStep ? stepDirectionOf(event) : null;
+  const crossedParagraphMark = stepDirection === null ? undefined : pane.marks.find((mark) => isParagraphMark(mark) && (stepDirection === 'backward' ? mark.end : mark.start) === caret?.start);
+  if (crossedParagraphMark) {
+    event.preventDefault();
+    placeCaret(pane, stepDirection === 'backward' ? crossedParagraphMark.start : crossedParagraphMark.end);
     return;
   }
   if (event.key !== 'Enter' || !selectMarkAt(editor, event.target)) return;
