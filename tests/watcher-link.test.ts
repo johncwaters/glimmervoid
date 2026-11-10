@@ -555,6 +555,34 @@ test('a self-host doorman forwards pages and WebSockets with its own forwarding 
   assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: '/' })).status, 502);
 });
 
+test('a doorman with a WebSocket open through it finishes closing and ends that socket', async (t) => {
+  const tenantServer = http.createServer((_request, response) => response.end('dashboard'));
+  const echoSockets = new WebSocketServer({ server: tenantServer });
+  echoSockets.on('connection', (socket) => socket.on('message', (message) => socket.send(`echo ${String(message)}`)));
+  const serverPort = await listenOnLoopback(tenantServer);
+  const { tenant } = await doormanTenant(t, 'selfhosttenant02', `http://127.0.0.1:${serverPort}`);
+  const doorman = createDoorman({ table: { tenantDomain: null, tenants: [tenant] }, log: QUIET_LOG });
+  const doormanPort = await doorman.listen(0);
+  const socket = new WebSocket(`ws://127.0.0.1:${doormanPort}/terminals/one`);
+  t.after(async () => {
+    socket.terminate();
+    for (const tenantSocket of echoSockets.clients) tenantSocket.terminate();
+    echoSockets.close();
+    tenantServer.closeAllConnections();
+    await new Promise((resolve) => tenantServer.close(resolve));
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.on('open', () => socket.send('hello'));
+    socket.on('message', () => resolve());
+    socket.on('error', reject);
+  });
+  const socketEnded = new Promise<string>((resolve) => socket.once('close', () => resolve('ended')));
+  const closedInTime = new Promise<string>((resolve) => setTimeout(() => resolve('still open'), 1000));
+
+  assert.equal(await Promise.race([doorman.close().then(() => 'closed'), closedInTime]), 'closed');
+  assert.equal(await Promise.race([socketEnded, closedInTime]), 'ended');
+});
+
 test('a hosted doorman refuses an unknown tenant host, passes the TLS edge headers, and wakes a sleeping tenant server once for every request held on it', async (t) => {
   const seenProtosByPath = new Map<string, string | string[] | undefined>();
   const sleepingServer = http.createServer((request, response) => {

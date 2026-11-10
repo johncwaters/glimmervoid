@@ -220,6 +220,8 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
 
   async function handleUpgrade(request: http.IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     socket.on('error', () => socket.destroy());
+    upgradedSockets.add(socket);
+    socket.once('close', () => upgradedSockets.delete(socket));
     if (!(socket instanceof net.Socket)) return refuseUpgrade(socket, 400);
     const route = routeOf(request);
     if (route.kind === 'refuse') return refuseUpgrade(socket, route.status);
@@ -300,6 +302,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
 
   let tableUpdates: Promise<void> = Promise.resolve();
   let isClosed = false;
+  const upgradedSockets = new Set<Duplex>();
 
   function applyTable(nextTable: DoormanTenantTable): Promise<void> {
     const update = tableUpdates.then(() => applyTableNow(nextTable));
@@ -326,6 +329,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     for (const entry of entriesBySlug.values()) stopWatcher(entry);
     entriesBySlug.clear();
     server.closeAllConnections();
+    for (const upgradedSocket of upgradedSockets) upgradedSocket.destroy();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
