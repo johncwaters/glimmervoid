@@ -34,6 +34,7 @@ const RETRY_AFTER_SECONDS = '5';
 const LOOPBACK_HOST = '127.0.0.1';
 const LINK_SECRET_PATTERN = /^[0-9a-f]{64}$/;
 const TABLE_RELOAD_SETTLE_MS = 200;
+const TABLE_PRESENCE_POLL_MS = 2_000;
 
 async function linkSecretHexAt(linkSecretPath: string): Promise<string | null> {
   const secretHex = await fsp.readFile(linkSecretPath, 'utf8').then((text) => text.trim(), () => '');
@@ -350,9 +351,14 @@ function watchTenantTable(tablePath: string, onChange: () => void): () => void {
     settleTimer = setTimeout(onChange, TABLE_RELOAD_SETTLE_MS);
   });
   watcher.on('error', onChange);
+  const onTableStat = (current: fs.Stats) => {
+    if (current.nlink === 0) onChange();
+  };
+  fs.watchFile(tablePath, { interval: TABLE_PRESENCE_POLL_MS, persistent: false }, onTableStat);
   return () => {
     if (settleTimer !== null) clearTimeout(settleTimer);
     watcher.close();
+    fs.unwatchFile(tablePath, onTableStat);
   };
 }
 

@@ -589,7 +589,7 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
   assert.deepEqual(['/first', '/second', '/third'].map((requestPath) => seenProtosByPath.get(requestPath)), ['https', 'https', 'https']);
 });
 
-test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its tenant table is deleted', async (t) => {
+test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its whole home is deleted', async (t) => {
   const glimmervoidHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-local-doorman-'));
   const stateDir = path.join(glimmervoidHome, 'doorman', '4999');
   const tablePath = path.join(stateDir, 'tenants.json');
@@ -617,9 +617,9 @@ test('a server starts one local doorman found by its port file, replaces it when
   assert.equal(await listeningLineCount(), 1);
 
   await ensureAt('1.0.1');
-  await eventually(async () => await listeningLineCount() === 2 && await answeringUrl() !== undefined ? true : undefined, 20_000);
+  const replacementUrl = await eventually(async () => await listeningLineCount() === 2 ? answeringUrl() : undefined, 20_000);
   assert.match(await fsp.readFile(path.join(stateDir, 'doorman.log'), 'utf8'), /tenants\.json is gone, stopping/);
 
-  await fsp.rm(tablePath);
-  await eventually(async () => await localDoormanUrl(glimmervoidHome, 4999) === null ? true : undefined, 20_000);
+  await fsp.rm(glimmervoidHome, { recursive: true, force: true });
+  await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });

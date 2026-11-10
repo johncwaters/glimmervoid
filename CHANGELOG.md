@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Doormen no longer pile up after their Glimmervoid home is deleted.** On macOS, deleting a whole Glimmervoid home (as the browser harness does with its temporary homes) left its doorman running forever, because the folder watch never reported the tenant table gone. The doorman now also checks for its table every 2 seconds and stops once it is gone.
+
 - **A rejected question no longer leaves a card stuck active.** Pressing Escape on a Claude Code question or permission prompt after opening its card left the card RUNNING while the agent sat idle, since Claude Code reports no end of turn on an interrupt. The card now completes as soon as the terminal title confirms the agent stopped.
 
 ## [0.56.0] - 2026-11-09
