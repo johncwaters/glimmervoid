@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardRecord, mediaOfBox, STICKY_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardAttachments, BoardRecord, mediaOfBox, STICKY_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
@@ -32,8 +32,8 @@ import {
   attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
-import { loadJsonStateFile } from '../json-file.ts';
-import { createKeyedSerialQueue } from '../spawn-gate.ts';
+import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
+import { createKeyedSerialQueue, createSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
@@ -105,6 +105,7 @@ type OperatorReply = {
 };
 
 const RENDERS_FOLDER_NAME = 'renders';
+const ATTACHMENTS_FILENAME = 'session-attachments.state';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
@@ -153,6 +154,7 @@ interface WhiteboardPort {
     review(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
+    detach(boardId: string, sessionId: string): Promise<OperatorReply>;
   };
   retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
@@ -249,6 +251,17 @@ function createWhiteboardWiring({
   const recordsByBoardId = new Map<string, BoardRecord>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
   const attachedBoardIdBySessionId = new Map<string, string>();
+  const latestAttachmentTicketBySessionId = new Map<string, number>();
+  let attachmentTicketCount = 0;
+  const attachmentStore = createJsonStateStore({
+    name: 'board attachments', filePath: path.join(boardsRoot, ATTACHMENTS_FILENAME),
+    parse: (raw) => BoardAttachments.safeParse(raw).data ?? null,
+    adopt: (loadedAttachments) => {
+      for (const [sessionId, boardId] of Object.entries(loadedAttachments ?? {})) attachedBoardIdBySessionId.set(sessionId, boardId);
+    },
+    warn: (message, fields) => logger.warn(`[whiteboard] ${message} ${JSON.stringify(fields)}`),
+  });
+  const attachmentWriteQueue = createSerialQueue();
   const announcedAttachedBoardIdBySessionId = new Map<string, string>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
@@ -267,7 +280,7 @@ function createWhiteboardWiring({
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
-  const loaded = Promise.all([loadBoards(), assets.loaded]).then(sweepUnusedAssets).then(() => {});
+  const loaded = Promise.all([loadBoards(), assets.loaded, attachmentStore.load()]).then(sweepUnusedAssets).then(() => {});
 
   async function sweepUnusedAssets(): Promise<number> {
     if (!isEveryBoardLoaded) return 0;
@@ -667,13 +680,49 @@ function createWhiteboardWiring({
     });
   }
 
+  function takeAttachmentTicket(sessionId: string): number {
+    attachmentTicketCount += 1;
+    latestAttachmentTicketBySessionId.set(sessionId, attachmentTicketCount);
+    return attachmentTicketCount;
+  }
+
+  function persistAttachments(): Promise<boolean> {
+    return attachmentWriteQueue.run(() => {
+      const attachments = Object.fromEntries(attachedBoardIdBySessionId);
+      return attachmentStore.write(attachments, () => `${JSON.stringify(attachments, null, 2)}\n`);
+    });
+  }
+
+  function clearAttachment(boardId: string, sessionId: string): Promise<boolean> {
+    if (attachedBoardIdBySessionId.get(sessionId) === boardId) {
+      attachedBoardIdBySessionId.delete(sessionId);
+      announcedAttachedBoardIdBySessionId.delete(sessionId);
+    }
+    return persistAttachments();
+  }
+
   async function attachBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    await attachmentStore.load();
+    const ticket = takeAttachmentTicket(sessionId);
     const reply = await connectBoard(boardId, sessionId, projectOf(sessionId));
     const isStillConnected = sessionId in (recordsByBoardId.get(boardId)?.cursorBySessionId ?? {});
-    if (reply.status !== 200 || !isStillConnected) return reply;
+    const isLatestAttachmentAction = latestAttachmentTicketBySessionId.get(sessionId) === ticket;
+    if (reply.status !== 200 || !isStillConnected || !isLatestAttachmentAction) return reply;
     attachedBoardIdBySessionId.set(sessionId, boardId);
     announcedAttachedBoardIdBySessionId.delete(sessionId);
+    const isSaved = await persistAttachments();
+    if (!isSaved) return refusal(500, 'the board is beside this session, but saving that failed, so it is no longer beside it after a restart; try again');
     return reply;
+  }
+
+  async function detachBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    await attachmentStore.load();
+    takeAttachmentTicket(sessionId);
+    const isSaved = await clearAttachment(boardId, sessionId);
+    if (!isSaved) return refusal(500, 'the board is no longer beside this session, but saving that failed, so it comes back after a restart; try again');
+    const record = recordsByBoardId.get(boardId);
+    if (!record) return refusal(404, DELETED_BOARD_TEXT);
+    return connectionReply(record, 'the board is no longer beside this session');
   }
 
   function attachedRecordOf(sessionId: string): BoardRecord | null {
@@ -691,13 +740,15 @@ function createWhiteboardWiring({
   }
 
   async function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    await attachmentStore.load();
+    takeAttachmentTicket(sessionId);
     const reply = await changeRecord(boardId, (record) => {
       const next = disconnectSession(record, sessionId);
       return { ok: true, record: next, reply: connectionReply(next, 'this session is no longer told when this board changes') };
     });
-    if (reply.status !== 200 || attachedBoardIdBySessionId.get(sessionId) !== boardId) return reply;
-    attachedBoardIdBySessionId.delete(sessionId);
-    announcedAttachedBoardIdBySessionId.delete(sessionId);
+    if (reply.status !== 200) return reply;
+    const isSaved = await clearAttachment(boardId, sessionId);
+    if (!isSaved) return refusal(500, 'this session is no longer told when this board changes, but saving that failed, so the board comes back beside it after a restart; try again');
     return reply;
   }
 
@@ -792,6 +843,7 @@ function createWhiteboardWiring({
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
+    detach: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => detachBoard(foundBoardId, sessionId)),
   };
 
   async function changeHead(boardId: string, nextOf: (current: BoardRecord) => BoardRecord): Promise<void> {
@@ -811,7 +863,10 @@ function createWhiteboardWiring({
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
     await loaded;
     for (const sessionId of [...announcedVersionByBoardIdBySessionId.keys()].filter(isClosedSession)) announcedVersionByBoardIdBySessionId.delete(sessionId);
-    for (const sessionId of [...attachedBoardIdBySessionId.keys()].filter(isClosedSession)) attachedBoardIdBySessionId.delete(sessionId);
+    const closedAttachedSessionIds = [...attachedBoardIdBySessionId.keys()].filter(isClosedSession);
+    for (const sessionId of closedAttachedSessionIds) attachedBoardIdBySessionId.delete(sessionId);
+    if (closedAttachedSessionIds.length > 0) await persistAttachments();
+    for (const sessionId of [...latestAttachmentTicketBySessionId.keys()].filter(isClosedSession)) latestAttachmentTicketBySessionId.delete(sessionId);
     for (const sessionId of [...announcedAttachedBoardIdBySessionId.keys()].filter(isClosedSession)) announcedAttachedBoardIdBySessionId.delete(sessionId);
     const closedConnectionsPerBoard = [...recordsByBoardId].map(([boardId, record]) => ({ boardId, closedSessionIds: Object.keys(record.cursorBySessionId).filter(isClosedSession) }));
     await Promise.all(closedConnectionsPerBoard

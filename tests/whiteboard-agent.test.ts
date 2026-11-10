@@ -827,6 +827,10 @@ test('the operator connects and disconnects a session from the dashboard, and a 
     const newWhileAttached = await whiteboard(BUILDER_ID, { sub: 'new', title: 'second board' });
     assert.equal(newWhileAttached.status, 409);
     assert.match(String(newWhileAttached.body.error), new RegExp(`board "operator links" \\(${boardId}\\) beside this session`));
+    const detached = await command({ type: 'whiteboard-detach', boardId, sessionId: BUILDER_ID, requestId: 'detach-builder' });
+    assert.ok(detached.summary?.connectedSessionIds.includes(BUILDER_ID));
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'board after detach' })).status, 200);
+    assert.equal((await command({ type: 'whiteboard-connect', boardId, sessionId: BUILDER_ID, requestId: 'reattach-builder' })).ok, true);
 
     const disconnected = await command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'disconnect-builder' });
     assert.equal(disconnected.ok, true);
@@ -862,6 +866,24 @@ test('the operator connects and disconnects a session from the dashboard, and a 
   } finally {
     await closeSocket(control.ws);
   }
+});
+
+test('a board the operator attached beside a session stays attached across a restart', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'attached-restart-'));
+  const project = path.join(boardsRoot, 'app');
+  const agent = { id: 'attached-agent', name: 'agent', project };
+  const beforeRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const boardId = ((await beforeRestart.handleOperator.create('Beside plan')) as { summary: { id: string } }).summary.id;
+  await beforeRestart.handleOperator.connect(boardId, agent.id);
+
+  const afterRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  await afterRestart.loaded;
+  assert.match(String(afterRestart.takeBoardNotice(agent.id, project)), new RegExp(`opened board "Beside plan" \\(${boardId}\\) beside this session`));
+  assert.equal((await afterRestart.handleAgent(agent, { sub: 'new', title: 'second' })).status, 409);
+  await afterRestart.handleOperator.detach(boardId, agent.id);
+
+  const afterDetachRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  assert.equal((await afterDetachRestart.handleAgent(agent, { sub: 'new', title: 'second' })).status, 200);
 });
 
 test('boards and their connections survive a restart', async () => {

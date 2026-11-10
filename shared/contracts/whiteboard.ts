@@ -352,6 +352,8 @@ export const BoardSummary = z.object({
   queuedBySessionId: z.record(z.string(), z.number().int()),
 }).strict();
 
+export const BoardAttachments = z.record(z.string(), z.string());
+
 export const BoardRecord = z.object({
   board: Board,
   log: z.array(BoardChange),

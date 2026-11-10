@@ -44,6 +44,7 @@ export const whiteboardClientVariants = [
   loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
+  loose('whiteboard-detach', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), knownVersion: z.number().int().nullable(), requestId }),
 ] as const;
 

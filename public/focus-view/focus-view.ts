@@ -30,7 +30,7 @@ import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
 import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
-import { boardSummariesOf, boardsConnectedTo, connectSessionToBoard, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
+import { boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -273,7 +273,7 @@ function onRailDrop(event: DragEvent) {
   if (!isUnsplitDrag() || !focusedId) return;
   event.preventDefault();
   activePane = 'terminal';
-  saveSplits(closeSplit(splitBoardBySession, focusedId));
+  closeOperatorSplit(focusedId);
   refreshFocusRoster();
   focusTerminalAfterSettle(sessionUIs.get(focusedId), focusedId);
 }
@@ -292,12 +292,12 @@ export function toggleFocusedBoardSplit(): boolean {
   const toggle = boardSplitToggleOf(getFocusedSessionId());
   if (!toggle) return false;
   if (toggle.boardIdToOpen) {
-    saveSplits(openSplit(splitBoardBySession, toggle.sessionId, toggle.boardIdToOpen));
+    openOperatorSplit(toggle.sessionId, toggle.boardIdToOpen);
     refreshFocusRoster();
     return true;
   }
   activePane = 'terminal';
-  saveSplits(closeSplit(splitBoardBySession, toggle.sessionId));
+  closeOperatorSplit(toggle.sessionId);
   refreshFocusRoster();
   focusTerminalAfterSettle(sessionUIs.get(toggle.sessionId), toggle.sessionId);
   return true;
@@ -306,8 +306,7 @@ export function toggleFocusedBoardSplit(): boolean {
 function splitSessionWithBoard(sessionId: string, boardId: string) {
   const board = boardSummariesOf().find((summary) => summary.id === boardId);
   if (!board || !sessionUIs.has(sessionId)) return;
-  connectSessionToBoard(boardId, sessionId).then(reportBoardConnectRefusal);
-  saveSplits(openSplit(splitBoardBySession, sessionId, boardId));
+  openOperatorSplit(sessionId, boardId);
   if (getFocusedSessionId() === sessionId) {
     refreshFocusRoster();
     return;
@@ -315,8 +314,23 @@ function splitSessionWithBoard(sessionId: string, boardId: string) {
   focusSession(sessionId);
 }
 
-function reportBoardConnectRefusal(outcome: Awaited<ReturnType<typeof connectSessionToBoard>>) {
-  if (!outcome.ok) reportToServerLog('focus', `connecting a dropped board failed: ${outcome.error}`);
+function openOperatorSplit(sessionId: string, boardId: string) {
+  const nextSplits = openSplit(splitBoardBySession, sessionId, boardId);
+  for (const [displacedSessionId, displacedBoardId] of Object.entries(splitBoardBySession)) {
+    if (displacedSessionId !== sessionId && nextSplits[displacedSessionId] !== displacedBoardId) detachBoardFromSession(displacedBoardId, displacedSessionId).then(reportBoardAttachmentRefusal);
+  }
+  connectSessionToBoard(boardId, sessionId).then(reportBoardAttachmentRefusal);
+  saveSplits(nextSplits);
+}
+
+function closeOperatorSplit(sessionId: string) {
+  const closedBoardId = splitBoardBySession[sessionId];
+  saveSplits(closeSplit(splitBoardBySession, sessionId));
+  if (closedBoardId) detachBoardFromSession(closedBoardId, sessionId).then(reportBoardAttachmentRefusal);
+}
+
+function reportBoardAttachmentRefusal(outcome: Awaited<ReturnType<typeof connectSessionToBoard>>) {
+  if (!outcome.ok) reportToServerLog('focus', `changing the board beside a session failed: ${outcome.error}`);
 }
 
 const RAIL_BOUNDS = { minPx: 280, maxPx: 480 };
@@ -896,7 +910,7 @@ function onPaneBoardPicked(boardId: string) {
   }
   const sessionId = getFocusedSessionId();
   if (!sessionId) return;
-  saveSplits(openSplit(splitBoardBySession, sessionId, boardId));
+  openOperatorSplit(sessionId, boardId);
   shownBoardKey = `${sessionId}\n${boardId}`;
   refreshFocusRoster();
 }
