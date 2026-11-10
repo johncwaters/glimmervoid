@@ -12,9 +12,27 @@ interface BootRefusalScope {
   reason: string;
 }
 
-const REPAIR_COMMAND = 'npm rebuild -g node-pty --allow-scripts=node-pty';
-const FALLBACK_REPAIR_COMMAND = 'cd "$(npm root -g)/glimmervoid" && npm rebuild node-pty --dangerously-allow-all-scripts';
-const CHECKOUT_REPAIR_COMMAND = 'npm rebuild node-pty --dangerously-allow-all-scripts';
+interface RepairCommands {
+  globalInstall: string;
+  globalInstallFallback: string;
+  checkout: string;
+}
+
+const LINUX_BUILD_FROM_SOURCE_PREFIX = 'npm_config_build_from_source=true ';
+
+function repairCommandsFor(platform: NodeJS.Platform): RepairCommands {
+  const buildFromSourcePrefix = platform === 'linux' ? LINUX_BUILD_FROM_SOURCE_PREFIX : '';
+  return {
+    globalInstall: `${buildFromSourcePrefix}npm rebuild -g node-pty --allow-scripts=node-pty`,
+    globalInstallFallback: `cd "$(npm root -g)/glimmervoid" && ${buildFromSourcePrefix}npm rebuild node-pty --dangerously-allow-all-scripts`,
+    checkout: `${buildFromSourcePrefix}npm rebuild node-pty --dangerously-allow-all-scripts`,
+  };
+}
+
+function prebuiltBinaryNote(platform: NodeJS.Platform): string[] {
+  if (platform !== 'linux') return [];
+  return ['  node-pty ships a Linux binary built for glibc 2.28 or newer; npm_config_build_from_source=true compiles it here instead, which a musl host such as Alpine or an older glibc needs.'];
+}
 
 function nativeBindingCandidates({ packageDir, platform, arch }: NativeBindingScope): string[] {
   const searchDirs = [
@@ -43,20 +61,23 @@ function nativeToolchainHint(platform: NodeJS.Platform): string {
 }
 
 function nodePtyRebuildHint(platform: NodeJS.Platform): string {
-  return `${nativeToolchainHint(platform)}; then rebuild. global install: ${REPAIR_COMMAND} (the flag is required on npm 12, unknown-but-harmless on older npm). clone or source checkout, from the checkout root: ${CHECKOUT_REPAIR_COMMAND}`;
+  const repairCommands = repairCommandsFor(platform);
+  return `${nativeToolchainHint(platform)}; then rebuild. global install: ${repairCommands.globalInstall} (the flag is required on npm 12, unknown-but-harmless on older npm). clone or source checkout, from the checkout root: ${repairCommands.checkout}`;
 }
 
 function formatNodePtyBootRefusal({ platform, packageDir, reason }: BootRefusalScope): string {
+  const repairCommands = repairCommandsFor(platform);
   return [
     'Refusing to start: the node-pty native binding did not load, so Glimmervoid cannot spawn a terminal for any session.',
     `  reason: ${reason}`,
     `  node-pty package: ${packageDir}`,
     '  npm 12 blocks dependency install scripts by default, so a global install from a git spec leaves node-pty uncompiled.',
-    `  repair (global install): ${REPAIR_COMMAND}`,
+    ...prebuiltBinaryNote(platform),
+    `  repair (global install): ${repairCommands.globalInstall}`,
     '    (run it from a directory outside the installed package; from inside it the same command is project-scoped and dies with EALLOWSCRIPTS)',
     '    (name node-pty, not glimmervoid: rebuilding the wrapper exits 0 and rebuilds nothing nested)',
-    `  fallback (global install): ${FALLBACK_REPAIR_COMMAND}`,
-    `  repair (clone or source checkout): ${CHECKOUT_REPAIR_COMMAND}`,
+    `  fallback (global install): ${repairCommands.globalInstallFallback}`,
+    `  repair (clone or source checkout): ${repairCommands.checkout}`,
     '    (run it from the checkout root; the global repair above rebuilds nothing in a checkout and exits 0)',
     `  ${nativeToolchainHint(platform)}`,
     '  Run "glimmervoid doctor" for the same check plus the rest of your install.',

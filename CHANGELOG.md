@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The server no longer leaks three open files for every terminal it starts on macOS.** Each session or lane terminal left three descriptors open after it exited, so a long-running server crept toward the open-file limit until it was restarted. `node-pty` is now pinned to 1.2.0-beta.18, the first release that closes them. That release ships a Linux binary built for glibc 2.28 or newer, so on a musl host such as Alpine, or an older glibc, the server refuses to start until node-pty is compiled there; the repair commands it and `glimmervoid doctor` print on Linux now carry `npm_config_build_from_source=true`, which is what makes npm compile it.
+
 - **Doormen no longer pile up after their Glimmervoid home is deleted.** On macOS, deleting a whole Glimmervoid home (as the browser harness does with its temporary homes) left its doorman running forever, because the folder watch never reported the tenant table gone. The doorman now also checks for its table every 2 seconds and stops once it is gone.
 
 - **A rejected question no longer leaves a card stuck active.** Pressing Escape on a Claude Code question or permission prompt after opening its card left the card RUNNING while the agent sat idle, since Claude Code reports no end of turn on an interrupt. The card now completes as soon as the terminal title confirms the agent stopped.

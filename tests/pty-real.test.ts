@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import pty from 'node-pty';
 import { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
@@ -132,4 +133,24 @@ test('kill() takes down a real pty process group, not just the direct child', { 
     session._killReapTimer && clearTimeout(session._killReapTimer);
     session.destroy();
   }
+});
+
+function openDescriptorCount(): number {
+  return fs.readdirSync('/dev/fd').length;
+}
+
+function spawnAndAwaitExit(): Promise<void> {
+  return new Promise((resolve) => {
+    const terminal = spawnReal('exit 0');
+    terminal.onData(() => {});
+    terminal.onExit(() => resolve());
+  });
+}
+
+test('twenty exited real ptys leave no open descriptor behind', { skip: isWindows }, async () => {
+  await spawnAndAwaitExit();
+  const descriptorsBefore = openDescriptorCount();
+  for (let spawnIndex = 0; spawnIndex < 20; spawnIndex += 1) await spawnAndAwaitExit();
+  assert.ok(await waitFor(() => openDescriptorCount() <= descriptorsBefore),
+    `open descriptors grew from ${descriptorsBefore} to ${openDescriptorCount()} across twenty exited ptys`);
 });

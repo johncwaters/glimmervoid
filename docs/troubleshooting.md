@@ -47,13 +47,15 @@ The install worked, but npm's global command directory is not on PATH (common wi
 
 ## The server refuses to start: node-pty did not load
 
-Glimmervoid checks the node-pty native module before it boots and refuses to start without it, printing the repair command. The usual cause on Linux is that node-pty was never compiled: it has no Linux prebuilds, and npm 12 blocks dependency install scripts unless `--allow-scripts=node-pty` allows them. npm 10 and 11 still run install scripts, so the flag is harmless there.
+Glimmervoid checks the node-pty native module before it boots and refuses to start without it, printing the repair command. node-pty ships a Linux binary built for glibc 2.28 or newer, so the usual cause on Linux is a host that cannot load it: a musl system such as Alpine, or an older glibc. There node-pty has to be compiled, and `npm_config_build_from_source=true` is what makes npm compile it instead of keeping the shipped binary. npm 12 also blocks dependency install scripts unless `--allow-scripts=node-pty` allows them. npm 10 and 11 still run install scripts, so the flag is harmless there.
+
+The commands below are the Linux ones. On macOS and Windows, leave `npm_config_build_from_source=true` off each of them: the shipped binary is the right one there, and the variable deletes it.
 
 1. Install the build tools: `sudo apt install build-essential python3` (Windows: Visual Studio Build Tools, rarely needed because Windows prebuilds ship).
 2. Rebuild node-pty inside the global install:
 
    ```bash
-   npm rebuild -g node-pty --allow-scripts=node-pty
+   npm_config_build_from_source=true npm rebuild -g node-pty --allow-scripts=node-pty
    ```
 
 Two spellings look right and are not:
@@ -64,10 +66,10 @@ Two spellings look right and are not:
 If that still fails, the in-place form works too, and only node-pty's scripts run because the rebuild is scoped to it:
 
 ```bash
-cd "$(npm root -g)/glimmervoid" && npm rebuild node-pty --dangerously-allow-all-scripts
+cd "$(npm root -g)/glimmervoid" && npm_config_build_from_source=true npm rebuild node-pty --dangerously-allow-all-scripts
 ```
 
-For a source checkout, run `npm rebuild node-pty --dangerously-allow-all-scripts` from the checkout root.
+For a source checkout, run `npm_config_build_from_source=true npm rebuild node-pty --dangerously-allow-all-scripts` from the checkout root.
 
 ## `npx npm@12` or npm 12 fails its engine check
 
