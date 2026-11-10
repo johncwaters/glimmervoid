@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-11-09
+
 ### Added
 
 - **Export a whiteboard as a picture.** Board actions now has Export SVG and Export PNG, which download the open board with its media, the PNG at twice the board's size, where the only way to get a picture out was a screenshot.
