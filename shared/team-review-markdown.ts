@@ -6,15 +6,35 @@ const CREDITED_NOTE_TEXT = 'Automated review by [Glimmervoid](https://glimmervoi
 const HAND_APPROVED_NOTE_TEXT = 'Automated review by [Glimmervoid](https://glimmervoid.dev), not written by a human. Approved by hand after checking it.';
 const NOTE_TEXTS = [AUTOMATED_NOTE_TEXT, CREDITED_NOTE_TEXT, HAND_APPROVED_NOTE_TEXT];
 
-const disclaimerNote = (text: string): string => `> **Obligatory Agent Disclaimer:**\n>\n> ${text}`;
-const legacyCalloutNote = (text: string): string => `> [!NOTE]\n> ${text}`;
+const footerNote = (text: string): string => `<sub>${text.replace(/\.$/, '')}</sub>`;
+const earlierNoteStyles = [(text: string): string => `> [!NOTE]\n> ${text}`, (text: string): string => `> **Obligatory Agent Disclaimer:**\n>\n> ${text}`];
+const EVERY_NOTE = [...NOTE_TEXTS.map(footerNote), ...earlierNoteStyles.flatMap((noteStyle) => NOTE_TEXTS.map(noteStyle))];
 
-export const AUTOMATED_REVIEW_NOTE = disclaimerNote(AUTOMATED_NOTE_TEXT);
-export const CREDITED_REVIEW_NOTE = disclaimerNote(CREDITED_NOTE_TEXT);
-export const HAND_APPROVED_REVIEW_NOTE = disclaimerNote(HAND_APPROVED_NOTE_TEXT);
+export const AUTOMATED_REVIEW_NOTE = footerNote(AUTOMATED_NOTE_TEXT);
+export const CREDITED_REVIEW_NOTE = footerNote(CREDITED_NOTE_TEXT);
+export const HAND_APPROVED_REVIEW_NOTE = footerNote(HAND_APPROVED_NOTE_TEXT);
 
-export function withLegacyNotesUpgraded(body: string): string {
-  return NOTE_TEXTS.reduce((upgraded, text) => upgraded.replaceAll(legacyCalloutNote(text), disclaimerNote(text)), body);
+export function hasAutomatedNote(body: string): boolean {
+  return EVERY_NOTE.some((note) => body.includes(note));
+}
+
+export function withoutAutomatedNote(body: string): string {
+  return EVERY_NOTE.reduce((remaining, note) => remaining.replaceAll(`${note}\n\n`, '').replaceAll(note, ''), body).trim();
+}
+
+function withOpenBlocksClosed(body: string): string {
+  const openFence = body.split('\n').reduce<string | null>((open, line) => {
+    const fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1] ?? null;
+    if (!fence) return open;
+    if (open === null) return fence;
+    return fence[0] === open[0] && fence.length >= open.length && line.trim() === fence ? null : open;
+  }, null);
+  const unclosedDetailsCount = (body.match(/<details\b/gi)?.length ?? 0) - (body.match(/<\/details>/gi)?.length ?? 0);
+  return [body, openFence ?? '', '</details>'.repeat(Math.max(0, unclosedDetailsCount))].filter(Boolean).join('\n');
+}
+
+export function withAutomatedNote(body: string, note: string = AUTOMATED_REVIEW_NOTE): string {
+  return [withOpenBlocksClosed(withoutAutomatedNote(body)), note].filter(Boolean).join('\n\n');
 }
 
 const SEVERITY_ALTERNATION = FindingSeverity.options.join('|');
@@ -37,12 +57,6 @@ export function parseLeadingFindingHeader(body: string): { reviewer: string | nu
   const severity = FindingSeverity.safeParse(match[2]);
   if (!severity.success) return null;
   return { reviewer: match[1] ?? null, severity: severity.data, length: match[0].length };
-}
-
-export function withoutAutomatedNote(body: string): string {
-  const trimmed = withLegacyNotesUpgraded(body).trimStart();
-  const leadingNote = [AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE].find((note) => trimmed.startsWith(note));
-  return leadingNote ? trimmed.slice(leadingNote.length).trim() : body.trim();
 }
 
 export interface GeneralFinding {

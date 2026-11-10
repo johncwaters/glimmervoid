@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Posted reviews open with an "Obligatory Agent Disclaimer:" heading.** The automated-review note on review bodies and inline comments used GitHub's Note callout; it now reads "Obligatory Agent Disclaimer:" instead.
+- **The automated-review note is now a small footer.** Posted reviews and inline comments no longer open with a "Note" callout; one line of small text at the bottom says the review is automated.
 
 ### Fixed
 

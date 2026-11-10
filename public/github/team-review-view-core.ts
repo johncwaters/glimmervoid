@@ -4,7 +4,7 @@ import type {
   DraftComment, EarlierReview, GithubReview, GithubReviewState, InFlightReview, PostedReviewEvent, QueuedReview, ReviewAssessment, ReviewChecksState, ReviewComment, ReviewDraft, ReviewProgressPhase, TeamReviewAction, TeamReviewActionRequest, TeamReviewStatus, TeamReviewThread, ViewerThreadTally,
 } from '#shared/contracts/team-review.ts';
 import { shortSha } from '#shared/git-text.ts';
-import { AUTOMATED_REVIEW_NOTE, findingSeveritiesIn, generalFindingsOf, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
+import { withAutomatedNote, findingSeveritiesIn, generalFindingsOf, generalPreambleOf, parseLeadingFindingHeader, strongestFindingSeverity, withoutAutomatedNote } from '#shared/team-review-markdown.ts';
 import type { GeneralFinding } from '#shared/team-review-markdown.ts';
 import { formatClockOffset } from '../radar/radar-core.ts';
 import { classifyReviewPriority, currentHead, isAwaitingViewerAfterResolvedComments, pullRequestLabel, settlesReview, stageIcon, stageLabel, stageTone } from './github-store-core.ts';
@@ -717,7 +717,7 @@ export type ReadyDecisionControl = 'approve' | 'comment' | 'request-changes';
 
 export function buildReadyDecisionRequest(draft: ReviewDraft, control: ReadyDecisionControl, selection: ReviewSelection): TeamReviewActionRequest {
   if (control === 'approve' && !hasSelection(selection)) return buildActionRequest(draft, 'approve-only', '', []);
-  const body = withReviewerNote(selection.note, [AUTOMATED_REVIEW_NOTE, generalPreambleOf(draft.body), ...selection.generalFindings.map((finding) => finding.markdown)].filter(Boolean).join('\n\n'));
+  const body = withAutomatedNote(withReviewerNote(selection.note, [generalPreambleOf(draft.body), ...selection.generalFindings.map((finding) => finding.markdown)].filter(Boolean).join('\n\n')));
   return buildActionRequest(draft, control, body, selection.comments);
 }
 

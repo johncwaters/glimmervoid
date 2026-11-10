@@ -1,6 +1,6 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import { decisionAsIfApprovalRequired, canApproveAfterComment, EarlierReview, FindingSeverity, GithubReviewState, PostingPlan, type QueuedReview, ReviewFinding, ReviewResult, ReviewVerdict } from '../../../shared/contracts/team-review.ts';
-import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, withLegacyNotesUpgraded, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, generalFindingsOf, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
+import { AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE, hasAutomatedNote, withAutomatedNote, findingHeader as renderFindingHeader, foldedFindingSection, generalFindingBullet, generalFindingsOf, parseLeadingFindingHeader, withoutAutomatedNote } from '../../../shared/team-review-markdown.ts';
 import { isThreadPlaceholderDraft } from './team-review-threads-core.ts';
 import { flaggingReviewers } from './pr-flows-core.ts';
 import type {
@@ -301,15 +301,9 @@ function canPost(draft: ReviewDraft, clickedHead: string, currentHead: string, e
 
 const POSTED_NOTE_BY_EVENT: Record<PostedReviewEvent, string> = { APPROVE: HAND_APPROVED_REVIEW_NOTE, COMMENT: CREDITED_REVIEW_NOTE, REQUEST_CHANGES: CREDITED_REVIEW_NOTE };
 
-function postedReviewBody(event: PostedReviewEvent, storedBody: string): string {
-  const body = withLegacyNotesUpgraded(storedBody);
-  const postedNote = POSTED_NOTE_BY_EVENT[event];
-  if (body.includes(postedNote)) return body;
-  const noteStart = body.indexOf(AUTOMATED_REVIEW_NOTE);
-  if (noteStart === -1 && event !== 'APPROVE') return body;
-  const operatorText = noteStart === -1 ? body.trim() : body.slice(0, noteStart).trim();
-  const automatedText = noteStart === -1 ? '' : body.slice(noteStart + AUTOMATED_REVIEW_NOTE.length).trim();
-  return [operatorText, postedNote, automatedText].filter(Boolean).join('\n\n');
+function postedReviewBody(event: PostedReviewEvent, body: string): string {
+  if (!hasAutomatedNote(body) && event !== 'APPROVE') return body;
+  return withAutomatedNote(body, POSTED_NOTE_BY_EVENT[event]);
 }
 
 function eventForAction(action: string): PostedReviewEvent | null {
@@ -870,15 +864,13 @@ function renderReview(result: ReviewResultType, commentable: CommentableLines | 
     if (isInlineFinding(finding, commentable) && finding.line !== null) {
       comments.push({
         path: finding.path, line: finding.line, side: finding.side,
-        body: `${AUTOMATED_REVIEW_NOTE}\n\n${findingHeader(finding)}\n\n${finding.body}`,
+        body: withAutomatedNote(`${findingHeader(finding)}\n\n${finding.body}`),
       });
       continue;
     }
     generalBullets.push(generalFindingBullet(finding));
   }
-  const bodyParts = [AUTOMATED_REVIEW_NOTE];
-  if (generalBullets.length > 0) bodyParts.push(generalBullets.join('\n'));
-  return { body: bodyParts.join('\n\n'), comments };
+  return { body: withAutomatedNote(generalBullets.join('\n')), comments };
 }
 
 function parsePostingPlan(json: string, expectedHead: string): { ok: true; plan: PostingPlanType } | { ok: false; reason: string } {
@@ -886,13 +878,6 @@ function parsePostingPlan(json: string, expectedHead: string): { ok: true; plan:
   if (!parsed.ok) return parsed;
   if (parsed.plan.commit_id !== expectedHead) return { ok: false, reason: `the posting plan targets ${parsed.plan.commit_id}, not ${expectedHead}` };
   return parsed;
-}
-
-function withAutomatedNote(storedBody: string): string {
-  const body = withLegacyNotesUpgraded(storedBody);
-  if (body.trimStart().startsWith(AUTOMATED_REVIEW_NOTE)) return body;
-  if (!body.trim()) return AUTOMATED_REVIEW_NOTE;
-  return `${AUTOMATED_REVIEW_NOTE}\n\n${body}`;
 }
 
 function isCommentable(comment: ReviewComment, commentable: CommentableLines | null): boolean {

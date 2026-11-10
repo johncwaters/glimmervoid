@@ -12,6 +12,7 @@ import type { PrGh } from './pr-gh.ts';
 import type { DraftExpectation, DraftPatch, NotMineOutcome } from './team-review-poller.ts';
 import type { ReviewComment, ReviewDraft, TeamReviewActionRequest, TeamReviewActionResult } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { withAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { shortSha } from '../../shared/git-text.ts';
 
 const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read the new draft before acting on it';
@@ -179,7 +180,7 @@ function createTeamReviewActions({ drafts, github, store, log = console, telemet
     if (commentsRefusal) return refusePost(timing, commentsRefusal);
     const postedBody = core.postedReviewBody(event, body);
     const posted = await timeStep(timing, 'post', () => github.postReview({
-      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments,
+      repo: draft.repo, number: draft.number, commitId: draft.reviewedHead, event, body: postedBody, comments: comments.map((comment) => ({ ...comment, body: withAutomatedNote(comment.body) })),
     }));
     if (!posted.ok) return refusePost(timing, { reason: 'github-refused', error: posted.err || 'GitHub refused the review' });
     requestPrRefresh?.(comparablePrKey(draft));
