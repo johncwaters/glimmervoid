@@ -3,6 +3,7 @@ import type { AgentApiVerb, SessionCommand } from '../shared/contracts/session.t
 import { checkAgentReply, describeRoleRefusal, parseAgentVerb } from './core/agent-api-core.ts';
 import type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause } from './core/agent-api-core.ts';
 import type { AgentChannel } from './core/child-channel-core.ts';
+import { deliveredValueMasker, maskSecretStrings } from '../shared/secret-patterns.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink } from './agent-api/agent-api-context.ts';
 import { createChildChannels } from './agent-api/child-channels.ts';
@@ -12,6 +13,11 @@ import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
 interface AgentWireReply {
   status: number;
   body: Record<string, unknown>;
+}
+
+function maskedAgentPayload(payload: Record<string, unknown>, deliveredValues: readonly string[]): Record<string, unknown> {
+  const maskText = deliveredValueMasker(deliveredValues);
+  return Object.fromEntries(Object.entries(payload).map(([key, item]) => [key, maskSecretStrings(item, deliveredValues, maskText)]));
 }
 
 interface AgentApiPort {
@@ -60,11 +66,13 @@ function createAgentApiWiring({
   }
 
   async function handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentWireReply> {
-    const parsed = parseAgentVerb(verb, payload);
+    const deliveredValues = session.deliveredSecretValues();
+    const maskedPayload = deliveredValues.length === 0 ? payload : maskedAgentPayload(payload, deliveredValues);
+    const parsed = parseAgentVerb(verb, maskedPayload);
     if (!parsed.ok) return { status: parsed.status, body: { ok: false, error: parsed.error } };
     const roleRefusal = describeRoleRefusal(parsed.verb, roleFactsOf(session));
     if (roleRefusal) return roleRefusal;
-    session.noteCommandRan(parsed.verb === 'whiteboard' && payload.sub === 'show' ? 'show' : parsed.verb);
+    session.noteCommandRan(parsed.verb === 'whiteboard' && maskedPayload.sub === 'show' ? 'show' : parsed.verb);
     const checked = checkAgentReply(parsed.verb, await dispatch(session, parsed.verb, parsed.request));
     if (!checked.ok) logger.warn(`[agent-api] ${parsed.verb} reply broke its contract: ${checked.issue}`);
     return checked.reply;

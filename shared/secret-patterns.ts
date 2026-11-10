@@ -106,12 +106,16 @@ function deliveredValuePieces(deliveredValues: readonly string[]): string[] {
   return [...new Set(pieces.filter((piece) => piece.length >= MIN_MASKED_VALUE_LENGTH))];
 }
 
-function deliveredValueRanges(text: string, deliveredValues: readonly string[]): SecretRange[] {
+function pieceRanges(text: string, pieces: readonly string[]): SecretRange[] {
   const ranges: SecretRange[] = [];
-  for (const piece of deliveredValuePieces(deliveredValues)) {
+  for (const piece of pieces) {
     for (let start = text.indexOf(piece); start !== -1; start = text.indexOf(piece, start + piece.length)) ranges.push({ start, end: start + piece.length });
   }
   return ranges;
+}
+
+function deliveredValueRanges(text: string, deliveredValues: readonly string[]): SecretRange[] {
+  return pieceRanges(text, deliveredValuePieces(deliveredValues));
 }
 
 export function deliveredValuePrefixLength(text: string, deliveredValues: readonly string[]): number {
@@ -125,8 +129,7 @@ export function deliveredValuePrefixLength(text: string, deliveredValues: readon
   return longestPrefixLength;
 }
 
-export function maskSecrets(text: string, deliveredValues: readonly string[] = []): string {
-  const secretRanges = mergeOverlapping([...findSecretRanges(text), ...deliveredValueRanges(text, deliveredValues)]);
+function maskRanges(text: string, secretRanges: readonly SecretRange[]): string {
   if (secretRanges.length === 0) return text;
   let maskedText = '';
   let copiedUpTo = 0;
@@ -137,9 +140,18 @@ export function maskSecrets(text: string, deliveredValues: readonly string[] = [
   return maskedText + text.slice(copiedUpTo);
 }
 
-export function maskSecretStrings(value: unknown, deliveredValues: readonly string[] = []): unknown {
-  if (typeof value === 'string') return maskSecrets(value, deliveredValues);
-  if (Array.isArray(value)) return value.map((item) => maskSecretStrings(item, deliveredValues));
+export function maskSecrets(text: string, deliveredValues: readonly string[] = []): string {
+  return maskRanges(text, mergeOverlapping([...findSecretRanges(text), ...deliveredValueRanges(text, deliveredValues)]));
+}
+
+export function deliveredValueMasker(deliveredValues: readonly string[]): (text: string) => string {
+  const pieces = deliveredValuePieces(deliveredValues);
+  return (text) => maskRanges(text, mergeOverlapping(pieceRanges(text, pieces)));
+}
+
+export function maskSecretStrings(value: unknown, deliveredValues: readonly string[] = [], maskText: (text: string) => string = (text) => maskSecrets(text, deliveredValues)): unknown {
+  if (typeof value === 'string') return maskText(value);
+  if (Array.isArray(value)) return value.map((item) => maskSecretStrings(item, deliveredValues, maskText));
   if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskSecretStrings(item, deliveredValues)]));
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskSecretStrings(item, deliveredValues, maskText)]));
 }

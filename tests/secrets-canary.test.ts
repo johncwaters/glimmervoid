@@ -146,6 +146,17 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     assert.equal(session.taskTitle?.startsWith(CANARY_MARKER), true, 'the prompt became the task title, its readable part kept');
     assert.ok(fs.readFileSync(envFile, 'utf8').includes(CANARY_VALUE), 'the value reached the env file');
 
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    const notifiedNotes: string[] = [];
+    session.on('agent-attention', ({ note }: { note: string }) => notifiedNotes.push(note));
+    const attentionReply = await fetch(`${context.base}/agent/${SESSION_ID}/attention`, {
+      method: 'POST', body: JSON.stringify({ note: `${CANARY_MARKER} ${CANARY_VALUE}` }), headers: { 'content-type': 'application/json', authorization: `Bearer ${session.agentToken}` },
+    });
+    assert.equal(attentionReply.status, 200, 'the attention note was accepted');
+    assert.deepEqual(notifiedNotes.map((note) => note.includes(CANARY_MARKER) && !note.includes(CANARY_VALUE)), [true], 'a value the agent repeats in a note is masked before the note is kept or notified');
+
     assert.equal((await runNeedCli(context, ['CANARY_KEY', 'UNSEEN_KEY'])).exitCode, 10, 'an unapproved name is pending');
     assert.equal((await runNeedCli(context, ['CANARY_KEY', 'REFUSED_KEY'])).exitCode, 20, 'a denied name outranks pending');
 
