@@ -341,7 +341,8 @@
       "name": "model",
       "definition": "The model an agent runs, picked per session, per team review or per Arena setup from the agent model catalog Glimmervoid reads from each agent CLI, and the unit Usage breaks spend down by",
       "aliases": [
-        "opus"
+        "opus",
+        "mythos"
       ]
     },
     {
