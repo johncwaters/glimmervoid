@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';

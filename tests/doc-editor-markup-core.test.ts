@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCriticMarkup, resolveMark, suggestEdit } from '../public/doc-editor/markup-core.ts';

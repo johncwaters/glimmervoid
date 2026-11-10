@@ -1,3 +1,4 @@
+import '../helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../../public/feature-surfaces-core.ts';

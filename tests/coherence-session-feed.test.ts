@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
 import { existsSync } from 'node:fs';

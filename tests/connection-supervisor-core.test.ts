@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HEARTBEAT_DEADLINE_MS, HEARTBEAT_INTERVAL_MS, LONG_HIDE_MS, SUSPENSION_GAP_MS, WAKE_PROBE_DEADLINE_MS, decideConnectionActions } from '../public/connection-supervisor-core.ts';

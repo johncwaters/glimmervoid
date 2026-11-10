@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import { buildAllowlistedChildEnv } from '../server/git/core/git-invocation-core.ts';
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';

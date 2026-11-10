@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import test from 'node:test';
 import { z } from 'zod';
 import fs from 'node:fs';

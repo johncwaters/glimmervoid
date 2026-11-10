@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { THREAD_BASE, THREAD_REPLY_AT, threadNode } from './helpers/team-review-thread-fixture.ts';
 import { droppedEarlierFindings } from '../public/github/team-review-view-core.ts';

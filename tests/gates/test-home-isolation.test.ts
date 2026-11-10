@@ -1,3 +1,4 @@
+import '../helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,4 +36,18 @@ test('every backend-booting test points GLIMMERVOID_CONFIG at a throwaway config
     if (SETS_CONFIG_ENV.test(src) && !TEMP_ROOT.test(src)) offenders.push(`${file}: sets GLIMMERVOID_CONFIG to a path outside os.tmpdir()`);
   }
   assert.deepEqual(offenders, [], `A backend booted on the resolved config writes into the operator's own ~/.glimmervoid:\n  ${offenders.join('\n  ')}`);
+});
+
+function isolationImportFor(file: string): string {
+  const helperFromFile = path.relative(path.dirname(path.join(TESTS_DIR, file)), path.join(TESTS_DIR, 'helpers', 'isolate-home.ts')).split(path.sep).join('/');
+  return `import '${helperFromFile.startsWith('.') ? helperFromFile : `./${helperFromFile}`}';`;
+}
+
+test('every test file imports the isolation helper first', () => {
+  const offenders: string[] = [];
+  for (const { file, src } of readTestFiles()) {
+    const firstImport = src.split(/\r?\n/).find((line) => /^import\b/.test(line));
+    if (firstImport !== isolationImportFor(file)) offenders.push(`${file}: first import must be ${isolationImportFor(file)}`);
+  }
+  assert.deepEqual(offenders, [], `A test file run as bare node --test resolves the operator's own home and temp folder unless its first import isolates them:\n  ${offenders.join('\n  ')}`);
 });

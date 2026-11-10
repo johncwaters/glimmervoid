@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parsePlanMarkdown } from '../public/plan/plan-markdown-core.ts';

@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import { myPrsStatus } from '../server/github/core/my-prs-core.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decideFaviconVariant, renderFaviconSvg } from '../public/favicon-core.ts';

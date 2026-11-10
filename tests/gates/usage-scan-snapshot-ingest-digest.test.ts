@@ -1,3 +1,4 @@
+import '../helpers/isolate-home.ts';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import test from 'node:test';

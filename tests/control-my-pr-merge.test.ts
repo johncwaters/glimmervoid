@@ -1,3 +1,4 @@
+import './helpers/isolate-home.ts';
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import type { SharedClock } from '../server/lanes/lane-runner.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
