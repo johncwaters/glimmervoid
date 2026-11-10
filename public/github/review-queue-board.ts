@@ -74,7 +74,10 @@ function clearDropMarks(column: HTMLElement): void {
 function cardUnder(event: DragEvent, column: HTMLElement): HTMLElement | null {
   if (!(event.target instanceof Element)) return null;
   const card = event.target.closest<HTMLElement>('[data-card-key]');
-  return card && column.contains(card) ? card : null;
+  if (card && column.contains(card)) return card;
+  if (!event.target.classList.contains('review-board-cards')) return null;
+  const cardsBelowPointer = [...event.target.querySelectorAll<HTMLElement>(':scope > [data-card-key]')].filter((gapCard) => gapCard.getBoundingClientRect().top >= event.clientY);
+  return cardsBelowPointer[0] ?? null;
 }
 
 function acceptDrops(column: HTMLElement, groupId: DisplayGroupId, options: ReviewBoardOptions): void {

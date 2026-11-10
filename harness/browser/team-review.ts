@@ -831,6 +831,20 @@ async function verifyDragReorder(page: Page): Promise<void> {
   assert.equal(await page.locator('.review-board [data-drop-before], .review-board [data-drop-target]').count(), 0);
   await dragCardWithinColumn(page, lastKey, null);
   assert.deepEqual(await readyKeys(), computedKeys);
+  await page.evaluate(({ cardKey, aboveKey }) => {
+    const card = document.querySelector(`.review-board [data-queue-key="${cardKey}"]`);
+    const cards = card?.closest('.review-board-cards');
+    const cardBelowGap = cards?.querySelector(`[data-card-key="${aboveKey}"]`);
+    if (!card || !cards || !cardBelowGap) throw new Error('Missing drag card or gap');
+    const dataTransfer = new DataTransfer();
+    const clientY = cardBelowGap.getBoundingClientRect().top - 2;
+    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientY }));
+    fire(card, 'dragstart');
+    fire(cards, 'dragover');
+    if (cardBelowGap.getAttribute('data-drop-before') !== 'true') throw new Error('Gap drag did not mark the card below it');
+    fire(cards, 'drop');
+  }, { cardKey: lastKey, aboveKey: computedKeys[1] });
+  assert.deepEqual(await readyKeys(), [computedKeys[0], lastKey, ...otherKeys.slice(1)]);
   await writeUiPrefs(page, { reviewsCardOrder: [] });
 }
 
