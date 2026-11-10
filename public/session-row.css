@@ -303,8 +303,9 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .pane-layout[data-dragging] .pane-group[data-pane="board"] > .pane-header { cursor: grabbing; }
 .pane-title { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; }
 .pane-title > .wb-island { position: static; flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; box-shadow: none; }
-.pane-title .wb-board-title { height: 24px; padding: 0; }
-.pane-title .wb-board-menu { order: 10; margin-left: auto; }
+.pane-title .wb-board-title { flex: 0 1 auto; min-width: 0; max-width: none; height: 24px; padding: 0; }
+.pane-title .wb-board-meta { order: 9; flex: none; margin-left: auto; white-space: nowrap; }
+.pane-title .wb-board-menu { order: 10; }
 .pane-title .wb-board-menu > .session-overflow-menu { right: 0; left: auto; }
 .session-card-header > .pane-strip > .pane-trail { order: 10; flex: 0 1 auto; margin-left: 0; }
 .session-card-header:has(> .pane-strip) > .session-task-title { order: 1; flex: 0 1 auto; }
