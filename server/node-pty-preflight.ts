@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { nativeBindingCandidates, spawnHelperCandidates } from './core/node-pty-preflight-core.ts';
+import { nativeBindingFileName, nativeBindingCandidates, spawnHelperCandidates } from './core/node-pty-preflight-core.ts';
 import { firstLine } from './core/text-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
@@ -74,7 +74,7 @@ function ensureSpawnHelperExecutable(
 function scanNativeBinding(packageDir: string, scope: NativeScanScope = hostScope()): NodePtyProbeResult {
   const candidates = nativeBindingCandidates({ packageDir, ...scope });
   const hasBinding = candidates.some((candidate) => fs.existsSync(candidate));
-  if (!hasBinding) return { ok: false, reason: `no pty.node found; checked ${candidates.join(', ')}`, packageDir };
+  if (!hasBinding) return { ok: false, reason: `no ${nativeBindingFileName(scope.platform)} found; checked ${candidates.join(', ')}`, packageDir };
 
   const helper = ensureSpawnHelperExecutable(packageDir, scope);
   if (!helper.ok) return { ok: false, reason: helper.reason, packageDir };

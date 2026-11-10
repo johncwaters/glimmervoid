@@ -34,15 +34,20 @@ function prebuiltBinaryNote(platform: NodeJS.Platform): string[] {
   return ['  node-pty ships a Linux binary built for glibc 2.28 or newer; npm_config_build_from_source=true compiles it here instead, which a musl host such as Alpine or an older glibc needs.'];
 }
 
+function nativeBindingFileName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'conpty.node' : 'pty.node';
+}
+
 function nativeBindingCandidates({ packageDir, platform, arch }: NativeBindingScope): string[] {
+  const bindingFileName = nativeBindingFileName(platform);
   const searchDirs = [
     ['build', 'Release'],
     ['build', 'Debug'],
     ['prebuilds', `${platform}-${arch}`],
   ];
   return searchDirs.flatMap((searchDir) => [
-    path.join(packageDir, ...searchDir, 'pty.node'),
-    path.join(packageDir, 'lib', ...searchDir, 'pty.node'),
+    path.join(packageDir, ...searchDir, bindingFileName),
+    path.join(packageDir, 'lib', ...searchDir, bindingFileName),
   ]);
 }
 
@@ -84,4 +89,4 @@ function formatNodePtyBootRefusal({ platform, packageDir, reason }: BootRefusalS
   ].join('\n');
 }
 
-export { nativeBindingCandidates, spawnHelperCandidates, nodePtyRebuildHint, formatNodePtyBootRefusal };
+export { nativeBindingFileName, nativeBindingCandidates, spawnHelperCandidates, nodePtyRebuildHint, formatNodePtyBootRefusal };
