@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createBackend } from '../server/backend/backend.ts';
+import { createSecretsBroker } from '../server/secrets/secrets-broker.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -53,4 +54,69 @@ test('a session wired after a restart masks the approved values already in the e
     if (previousConfigPath === undefined) delete process.env.GLIMMERVOID_CONFIG;
     if (previousConfigPath !== undefined) process.env.GLIMMERVOID_CONFIG = previousConfigPath;
   }
+});
+
+test('a vault read that ends after the operator corrected the reference leaves the corrected approval saved', async () => {
+  const otherSession = { ...NEEDING_SESSION, id: 'other-needing-session' };
+  const correctedSecrets = { byProject: { [NEEDING_SESSION.project]: { API_KEY: { reference: 'op://vault/corrected/field', isAllowed: true } } } };
+  let savedSecrets: unknown = { byProject: { [NEEDING_SESSION.project]: { API_KEY: { reference: 'op://vault/deleted/field', isAllowed: true } } } };
+  let releaseStaleRead = (): void => {};
+  const staleReadReleased = new Promise<void>((resolve) => { releaseStaleRead = resolve; });
+  const broker = createSecretsBroker({
+    readSecrets: () => savedSecrets,
+    writeSecrets: async (mutate) => {
+      const nextSecrets = mutate(savedSecrets);
+      if (nextSecrets === null) return false;
+      savedSecrets = nextSecrets;
+      return true;
+    },
+    isCompanionOnline: () => true,
+    readVault: async (items) => {
+      await staleReadReleased;
+      return items.map((item) => ({ name: item.name, failure: { kind: 'not-found' as const, message: 'no such item' } }));
+    },
+  });
+  const staleNeed = broker.need(otherSession, ['API_KEY']);
+  savedSecrets = correctedSecrets;
+  releaseStaleRead();
+  const reply = await staleNeed;
+  assert.deepEqual(savedSecrets, correctedSecrets);
+  assert.deepEqual(reply.results.map((result) => result.status), ['failed']);
+  assert.deepEqual(broker.requestsSnapshot(), {}, 'no card comes back for a reference that was already replaced');
+});
+
+const NEEDING_SESSION = { id: 'needing-session', project: '/projects/app', cwd: '/projects/app', isRemote: false };
+
+function brokerWithMissingVaultItem(initialSecrets: Record<string, unknown>) {
+  let savedSecrets: unknown = initialSecrets;
+  const broker = createSecretsBroker({
+    readSecrets: () => savedSecrets,
+    writeSecrets: async (mutate) => {
+      const nextSecrets = mutate(savedSecrets);
+      if (nextSecrets === null) return false;
+      savedSecrets = nextSecrets;
+      return true;
+    },
+    isCompanionOnline: () => true,
+    readVault: async (items) => items.map((item) => ({ name: item.name, failure: { kind: 'not-found' as const, message: 'no such item' } })),
+  });
+  return { broker, savedSecrets: () => savedSecrets };
+}
+
+test('Allow with a reference the vault does not have is refused and saves nothing', async () => {
+  const { broker, savedSecrets } = brokerWithMissingVaultItem({});
+  await broker.need(NEEDING_SESSION, ['API_KEY']);
+  const refusal = await broker.decide({ id: NEEDING_SESSION.id, isAllowed: true, referenceByName: { API_KEY: 'op://vault/typo/field' }, valueByName: {}, newItemsVault: '' });
+  assert.equal(refusal, 'The vault has no item at the reference given for API_KEY.');
+  assert.deepEqual(savedSecrets(), {});
+  assert.deepEqual(broker.requestsSnapshot(), { [NEEDING_SESSION.id]: ['API_KEY'] }, 'the card stays for a corrected reference');
+});
+
+test('an approved reference the vault no longer has brings the card back instead of failing forever', async () => {
+  const { broker } = brokerWithMissingVaultItem({ byProject: { [NEEDING_SESSION.project]: { API_KEY: { reference: 'op://vault/deleted/field', isAllowed: true } } } });
+  const reply = await broker.need(NEEDING_SESSION, ['API_KEY']);
+  assert.deepEqual(reply.results.map((result) => result.status), ['pending']);
+  assert.match(reply.results[0]?.note ?? '', /the operator was asked for a new one/);
+  assert.deepEqual(broker.requestsSnapshot(), { [NEEDING_SESSION.id]: ['API_KEY'] });
+  assert.deepEqual(broker.approvalRows(), []);
 });

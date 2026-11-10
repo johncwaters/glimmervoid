@@ -7,7 +7,7 @@ import type { EnvFileWrite } from './env-file.ts';
 import type { CreateMiss } from './vault-socket.ts';
 import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
-import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, withApprovals, withoutApproval } from './core/secrets-broker-core.ts';
+import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, withApprovals, withoutApproval, withoutApprovals } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
 
 interface NeedingSession {
@@ -41,8 +41,12 @@ interface SecretsBrokerOptions {
   telemetry?: Pick<Telemetry, 'capture'> | null;
 }
 
+function deliveredNote(envFile: string): string {
+  return `written to ${envFile}; load it, do not read it (your framework's env loading, or node --env-file=${envFile})`;
+}
+
 const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
-  delivered: 'written to the env file',
+  delivered: deliveredNote('the env file'),
   pending: "waiting on the operator's approval card in Glimmervoid; ask again later or pass --wait",
   denied: 'the operator denied it; do not ask again today',
   'companion-offline': 'the vault companion is not connected, so ask the operator to run glimmervoid vault and then ask again',
@@ -57,6 +61,7 @@ const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze
   invalid: 'The pasted values or vault name are too long for a vault item; give a reference instead.',
   'no-answer': 'The vault companion did not answer in time, so the items may or may not exist; check the vault for them, then give their references instead of pasting again.',
 });
+const REFERENCE_NOT_FOUND_NOTE = 'the vault has no item at the saved reference; the operator was asked for a new one';
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
 function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
@@ -130,11 +135,26 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     const itemsToRead = items.filter((item) => !alreadyDelivered.includes(item));
     const earlier: Delivery = {
       statusByName: Object.fromEntries(alreadyDelivered.map((item) => [item.name, 'delivered'])),
-      noteByName: Object.fromEntries(alreadyDelivered.map((item) => [item.name, `written to ${deliveries?.get(item.name)?.envFile ?? 'the env file'}`])),
+      noteByName: Object.fromEntries(alreadyDelivered.map((item) => [item.name, deliveredNote(deliveries?.get(item.name)?.envFile ?? 'the env file')])),
       envFile: alreadyDelivered.length > 0 ? deliveries?.get(alreadyDelivered[0]?.name ?? '')?.envFile ?? null : null,
     };
     if (itemsToRead.length === 0) return earlier;
     return mergedDelivery(earlier, await readAndWrite(session, itemsToRead));
+  }
+
+  async function askAgainFor(session: NeedingSession, notFoundItems: readonly { name: string; reference: string }[]): Promise<string[]> {
+    if (notFoundItems.length === 0) return [];
+    const readReferenceByName = Object.fromEntries(notFoundItems.map((item) => [item.name, item.reference]));
+    let removedNames: string[] = [];
+    const isSaved = await writeSecrets((rawSecrets) => {
+      removedNames = namesStillSavedAt(rawSecrets, session.project, readReferenceByName);
+      if (removedNames.length === 0) return null;
+      return withoutApprovals(rawSecrets, session.project, removedNames);
+    });
+    if (!isSaved) return [];
+    events.emit('approvals-changed');
+    raiseCard(session, removedNames);
+    return removedNames;
   }
 
   async function readAndWrite(session: NeedingSession, items: readonly { name: string; reference: string }[]): Promise<Delivery> {
@@ -143,14 +163,20 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     if (resolvedItems === null) return failedDelivery(names, COMPANION_LOST_NOTE);
     const delivery: Delivery = { statusByName: {}, noteByName: {}, envFile: null };
     const valuesByName: Record<string, string> = {};
+    const notFoundNames: string[] = [];
     for (const item of resolvedItems) {
       if (!names.includes(item.name)) continue;
       if ('value' in item) {
         valuesByName[item.name] = item.value;
         continue;
       }
+      if (item.failure.kind === 'not-found') notFoundNames.push(item.name);
       delivery.statusByName[item.name] = 'failed';
       delivery.noteByName[item.name] = `the vault could not read it (${item.failure.kind}): ${item.failure.message}`;
+    }
+    for (const name of await askAgainFor(session, items.filter((item) => notFoundNames.includes(item.name)))) {
+      delivery.statusByName[name] = 'pending';
+      delivery.noteByName[name] = REFERENCE_NOT_FOUND_NOTE;
     }
     const unwritableNames = unwritableEnvNames(valuesByName);
     for (const name of unwritableNames) delete valuesByName[name];
@@ -163,7 +189,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     rememberDelivery(session, items.filter((item) => deliveredNames.includes(item.name)), written.envFile, valuesByName);
     return mergedDelivery(answered, {
       statusByName: Object.fromEntries(deliveredNames.map((name) => [name, 'delivered'])),
-      noteByName: Object.fromEntries(deliveredNames.map((name) => [name, `written to ${written.envFile}`])),
+      noteByName: Object.fromEntries(deliveredNames.map((name) => [name, deliveredNote(written.envFile)])),
       envFile: written.envFile,
     });
   }
@@ -237,10 +263,19 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     if (missingNames.length > 0) return `Give a vault reference or paste the value for ${missingNames.join(', ')} before allowing.`;
     decidingSessionIds.add(decision.id);
     try {
+      const notFoundNames = await namesWithNoVaultItem(referenceByName);
+      if (notFoundNames.length > 0) return `The vault has no item at the reference given for ${notFoundNames.join(', ')}.`;
       return await allow(decision, card.project, referenceByName, pastedNames);
     } finally {
       decidingSessionIds.delete(decision.id);
     }
+  }
+
+  async function namesWithNoVaultItem(referenceByName: Readonly<Record<string, string>>): Promise<string[]> {
+    const typedItems = Object.entries(referenceByName).filter(([, reference]) => reference !== '').map(([name, reference]) => ({ name, reference }));
+    if (typedItems.length === 0 || !isCompanionOnline()) return [];
+    const resolvedItems = await readVault(typedItems);
+    return (resolvedItems ?? []).flatMap((item) => ('failure' in item && item.failure.kind === 'not-found' ? [item.name] : []));
   }
 
   async function allow(decision: SecretDecision, project: string, referenceByName: Record<string, string>, pastedNames: readonly string[]): Promise<string | null> {

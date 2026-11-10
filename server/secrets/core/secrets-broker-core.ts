@@ -108,9 +108,18 @@ function withApprovals(rawSecrets: unknown, project: string, referenceByName: Re
   return withProjectEntries(rawSecrets, project, entries);
 }
 
-function withoutApproval(rawSecrets: unknown, project: string, name: string): Record<string, unknown> | null {
-  const { [name]: _revoked, ...remaining } = projectEntriesOf(rawSecrets, project);
+function withoutApprovals(rawSecrets: unknown, project: string, names: readonly string[]): Record<string, unknown> | null {
+  const remaining = Object.fromEntries(Object.entries(projectEntriesOf(rawSecrets, project)).filter(([name]) => !names.includes(name)));
   return withProjectEntries(rawSecrets, project, remaining);
+}
+
+function namesStillSavedAt(rawSecrets: unknown, project: string, referenceByName: Readonly<Record<string, string>>): string[] {
+  const approvals = approvalsOf(rawSecrets, project);
+  return Object.entries(referenceByName).filter(([name, reference]) => approvals[name]?.reference === reference).map(([name]) => name);
+}
+
+function withoutApproval(rawSecrets: unknown, project: string, name: string): Record<string, unknown> | null {
+  return withoutApprovals(rawSecrets, project, [name]);
 }
 
 function missingReferenceNames(names: readonly string[], referenceByName: Readonly<Record<string, string>>): string[] {
@@ -121,5 +130,5 @@ function denialEndsAtMs(nowMs: number): number {
   return nowMs + DENIAL_HOLD_MS;
 }
 
-export { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, needExitCode, withApprovals, withoutApproval };
+export { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, needExitCode, withApprovals, withoutApproval, withoutApprovals };
 export type { ProjectSecretState };
