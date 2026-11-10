@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Posted reviews open with an "Obligatory Agent Disclaimer:" heading.** The automated-review note on review bodies and inline comments used GitHub's Note callout; it now reads "Obligatory Agent Disclaimer:" instead.
+
 ### Fixed
 
 - **A rejected question no longer leaves a card stuck active.** Pressing Escape on a Claude Code question or permission prompt after opening its card left the card RUNNING while the agent sat idle, since Claude Code reports no end of turn on an interrupt. The card now completes as soon as the terminal title confirms the agent stopped.

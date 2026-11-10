@@ -1,9 +1,21 @@
 import { FindingSeverity } from './contracts/team-review.ts';
 import type { ReviewFinding } from './contracts/team-review.ts';
 
-export const AUTOMATED_REVIEW_NOTE = '> [!NOTE]\n> Automated review. Not written by a human.';
-export const CREDITED_REVIEW_NOTE = '> [!NOTE]\n> Automated review by [Glimmervoid](https://glimmervoid.dev). Not written by a human.';
-export const HAND_APPROVED_REVIEW_NOTE = '> [!NOTE]\n> Automated review by [Glimmervoid](https://glimmervoid.dev), not written by a human. Approved by hand after checking it.';
+const AUTOMATED_NOTE_TEXT = 'Automated review. Not written by a human.';
+const CREDITED_NOTE_TEXT = 'Automated review by [Glimmervoid](https://glimmervoid.dev). Not written by a human.';
+const HAND_APPROVED_NOTE_TEXT = 'Automated review by [Glimmervoid](https://glimmervoid.dev), not written by a human. Approved by hand after checking it.';
+const NOTE_TEXTS = [AUTOMATED_NOTE_TEXT, CREDITED_NOTE_TEXT, HAND_APPROVED_NOTE_TEXT];
+
+const disclaimerNote = (text: string): string => `> **Obligatory Agent Disclaimer:**\n>\n> ${text}`;
+const legacyCalloutNote = (text: string): string => `> [!NOTE]\n> ${text}`;
+
+export const AUTOMATED_REVIEW_NOTE = disclaimerNote(AUTOMATED_NOTE_TEXT);
+export const CREDITED_REVIEW_NOTE = disclaimerNote(CREDITED_NOTE_TEXT);
+export const HAND_APPROVED_REVIEW_NOTE = disclaimerNote(HAND_APPROVED_NOTE_TEXT);
+
+export function withLegacyNotesUpgraded(body: string): string {
+  return NOTE_TEXTS.reduce((upgraded, text) => upgraded.replaceAll(legacyCalloutNote(text), disclaimerNote(text)), body);
+}
 
 const SEVERITY_ALTERNATION = FindingSeverity.options.join('|');
 const FINDING_HEADER_SOURCE = String.raw`\*\*(?:\[([^\]\n]+)\]\s+)?(${SEVERITY_ALTERNATION})\*\*`;
@@ -28,7 +40,7 @@ export function parseLeadingFindingHeader(body: string): { reviewer: string | nu
 }
 
 export function withoutAutomatedNote(body: string): string {
-  const trimmed = body.trimStart();
+  const trimmed = withLegacyNotesUpgraded(body).trimStart();
   const leadingNote = [AUTOMATED_REVIEW_NOTE, CREDITED_REVIEW_NOTE, HAND_APPROVED_REVIEW_NOTE].find((note) => trimmed.startsWith(note));
   return leadingNote ? trimmed.slice(leadingNote.length).trim() : body.trim();
 }
