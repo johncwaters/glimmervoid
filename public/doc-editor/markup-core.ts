@@ -146,8 +146,27 @@ function resolvedTextOf(mark: MarkSegment, decision: MarkDecision): string {
   }
 }
 
+const NUMBERED_PREFIX = /^(\d+)\. $/;
+const PENDING_NUMBERED_PREFIX = /^\{\+\+(\d+)\. \+\+\}/;
+
+function closeNumberGapAfter(source: string, rejectedLineStart: number, rejectedNumber: number): string {
+  const rejectedLineEnd = source.indexOf('\n', rejectedLineStart);
+  if (rejectedLineEnd === -1) return source;
+  const followingLines = source.slice(rejectedLineEnd + 1).split('\n');
+  const continuesList = (line: string, lineIndex: number) => Number(PENDING_NUMBERED_PREFIX.exec(line)?.[1]) === rejectedNumber + lineIndex + 1;
+  const firstOtherLineIndex = followingLines.findIndex((line, lineIndex) => !continuesList(line, lineIndex));
+  const listLineCount = firstOtherLineIndex === -1 ? followingLines.length : firstOtherLineIndex;
+  const renumberedLines = followingLines.map((line, lineIndex) => lineIndex < listLineCount ? line.replace(PENDING_NUMBERED_PREFIX, `{++${rejectedNumber + lineIndex}. ++}`) : line);
+  return source.slice(0, rejectedLineEnd + 1) + renumberedLines.join('\n');
+}
+
 export function resolveMark(source: string, mark: MarkSegment, decision: MarkDecision): string {
-  return source.slice(0, mark.start) + resolvedTextOf(mark, decision) + source.slice(mark.end);
+  const resolvedSource = source.slice(0, mark.start) + resolvedTextOf(mark, decision) + source.slice(mark.end);
+  const startsLine = mark.start === 0 || source[mark.start - 1] === '\n';
+  const isRejectedInsertion = decision === 'reject' && mark.markKind === 'insertion' && startsLine;
+  const rejectedNumber = isRejectedInsertion ? NUMBERED_PREFIX.exec(mark.newText)?.[1] : undefined;
+  if (rejectedNumber === undefined) return resolvedSource;
+  return closeNumberGapAfter(resolvedSource, mark.start, Number(rejectedNumber));
 }
 
 export function acceptEveryMark(source: string): string {

@@ -116,10 +116,10 @@ function buildCheckMark() {
 }
 
 const FORMAT_CONTROLS = [
-  { label: 'Bold', action: 'format-bold', delimiter: '**', inlineStyle: 'strong', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
-  { label: 'Italic', action: 'format-italic', delimiter: '*', inlineStyle: 'emphasis', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
-  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', inlineStyle: null, iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
-  { label: 'Code', action: 'format-code', delimiter: '`', inlineStyle: null, iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
+  { label: 'Bold', action: 'format-bold', delimiter: '**', inlineStyle: 'strong', inputType: 'formatBold', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
+  { label: 'Italic', action: 'format-italic', delimiter: '*', inlineStyle: 'emphasis', inputType: 'formatItalic', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
+  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', inlineStyle: null, inputType: null, iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
+  { label: 'Code', action: 'format-code', delimiter: '`', inlineStyle: null, inputType: null, iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
 ];
 
 const BLOCK_CONTROLS = [
@@ -650,11 +650,15 @@ function paintFloats(editor: MarkupHost) {
   pane.btnAddNote.hidden = markAnchor !== null;
   const selectedSource = pane.selection === null ? '' : editor.textarea.value.slice(pane.selection.start, pane.selection.end);
   const selectionStartElement = currentRange()?.startContainer.parentElement ?? null;
-  const inlineStyleAtStart = selectionStartElement?.closest<HTMLElement>('[data-inline]')?.dataset.inline ?? null;
   const selectionStart = pane.selection?.start ?? 0;
-  const lineBeforeSelection = editor.textarea.value.slice(editor.textarea.value.lastIndexOf('\n', selectionStart - 1) + 1, selectionStart);
+  const lineStart = editor.textarea.value.lastIndexOf('\n', selectionStart - 1) + 1;
+  const lineBeforeSelection = editor.textarea.value.slice(lineStart, selectionStart);
+  const blockAtStart = selectionStartElement?.closest<HTMLElement>('.doc-markup-line')?.dataset.block;
+  const tableRowSource = blockAtStart === 'table' ? editor.textarea.value.slice(lineStart).split('\n', 1)[0] : '';
+  const tableRunAtStart = inlineRunsOf(tableRowSource, 'plain', false).find((run) => run.start <= lineBeforeSelection.length && lineBeforeSelection.length < run.end);
+  const inlineStyleAtStart = selectionStartElement?.closest<HTMLElement>('[data-inline]')?.dataset.inline ?? tableRunAtStart?.style ?? null;
   const opensBeforeSelection = (delimiter: string) => (lineBeforeSelection.split(delimiter).length - 1) % 2 === 1;
-  const isSelectionInCode = opensBeforeSelection('`') || selectionStartElement?.closest<HTMLElement>('.doc-markup-line')?.dataset.block === 'fence';
+  const isSelectionInCode = opensBeforeSelection('`') || blockAtStart === 'fence';
   const canFormatSelection = markAnchor === null && !isSelectionInCode && !selectedSource.includes('\n');
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) {
     const control = FORMAT_CONTROLS[controlIndex];
@@ -873,30 +877,35 @@ function formatSelection(editor: MarkupHost, delimiter: string) {
   pane.run = null;
 }
 
+const ORDERED_ITEM_NUMBER = /^[ \t]*(\d{1,9})[.)][ \t]/;
+
 function prefixableLineStartsOf(source: string, selection: SourceSelection) {
   const sourceLines = source.split('\n');
   const acceptedLines = sourceLines.map(acceptEveryMark);
   const blockStyles = blockStylesOf(acceptedLines.join('\n'));
   const lineStarts: number[] = [];
+  let numberAbove = 0;
   let lineStart = 0;
   for (const [lineIndex, line] of sourceLines.entries()) {
     const lineEnd = lineStart + line.length;
     const isSelected = lineEnd >= selection.start && lineStart < selection.end;
     const isPlainProse = blockStyles[lineIndex] === 'plain' && acceptedLines[lineIndex].trim() !== '';
+    const isFirstPrefixedLine = isSelected && isPlainProse && lineStarts.length === 0;
+    if (isFirstPrefixedLine) numberAbove = Number(ORDERED_ITEM_NUMBER.exec(acceptedLines[lineIndex - 1] ?? '')?.[1] ?? 0);
     if (isSelected && isPlainProse) lineStarts.push(lineStart);
     lineStart = lineEnd + 1;
   }
-  return lineStarts;
+  return { lineStarts, numberAbove };
 }
 
 function prefixSelectedLines(editor: MarkupHost, prefixOf: (lineNumber: number) => string) {
   const pane = editor.markup;
   const selection = pane.selection;
   if (!selection) return;
-  const lineStarts = prefixableLineStartsOf(editor.textarea.value, selection);
+  const { lineStarts, numberAbove } = prefixableLineStartsOf(editor.textarea.value, selection);
   let prefixedSource = editor.textarea.value;
   for (const [lineIndex, lineStart] of [...lineStarts.entries()].reverse()) {
-    const outcome = suggestEdit(prefixedSource, { kind: 'type', selection: { start: lineStart, end: lineStart }, text: prefixOf(lineIndex + 1) }, null);
+    const outcome = suggestEdit(prefixedSource, { kind: 'type', selection: { start: lineStart, end: lineStart }, text: prefixOf(numberAbove + lineIndex + 1) }, null);
     if (outcome.kind === 'refused') {
       showTip(editor, outcome.reason);
       return;
@@ -944,6 +953,12 @@ function onBeforeInput(editor: MarkupHost, event: InputEvent) {
   const selection = selectionForInput(editor.markup, event);
   if (selection === 'crosses-mark') {
     showTip(editor, 'nested');
+    return;
+  }
+  const formatControlIndex = FORMAT_CONTROLS.findIndex((control) => control.inputType === event.inputType);
+  const isFormatOffered = formatControlIndex !== -1 && !editor.markup.markCard.hidden && !editor.markup.formatButtons[formatControlIndex].hidden;
+  if (isFormatOffered) {
+    formatSelection(editor, FORMAT_CONTROLS[formatControlIndex].delimiter);
     return;
   }
   const edit = selection ? editFor(event, selection) : null;
@@ -1218,6 +1233,18 @@ function onSurfaceKeydown(editor: MarkupHost, event: KeyboardEvent) {
     startInPlaceEditFromKeyboard(editor, event);
     return;
   }
+  const pane = editor.markup;
+  const hasToolbarForRange = !pane.markCard.hidden && pane.selection !== null && pane.selection.end > pane.selection.start;
+  if (hasToolbarForRange && event.target === pane.paper && event.key === 'Tab' && !event.shiftKey) {
+    event.preventDefault();
+    pane.markCard.querySelector<HTMLElement>('button:not([hidden])')?.focus();
+    return;
+  }
+  if (hasToolbarForRange && event.target === pane.paper && event.key === 'Escape') {
+    event.preventDefault();
+    window.getSelection()?.collapseToEnd();
+    return;
+  }
   if (event.key !== 'Enter' || !selectMarkAt(editor, event.target)) return;
   event.preventDefault();
   editor.markup.btnAccept.focus();
@@ -1296,6 +1323,11 @@ export function wireMarkupPane(editor: MarkupHost) {
     trackPaperSelection(editor);
   }, { signal });
   pane.markCard.addEventListener('mousedown', (event) => event.preventDefault());
+  pane.markCard.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    pane.paper.focus({ preventScroll: true });
+  });
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.addEventListener('click', () => formatSelection(editor, FORMAT_CONTROLS[controlIndex].delimiter));
   for (const [controlIndex, blockButton] of pane.blockButtons.entries()) blockButton.addEventListener('click', () => prefixSelectedLines(editor, BLOCK_CONTROLS[controlIndex].prefixOf));
