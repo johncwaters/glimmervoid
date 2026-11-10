@@ -312,9 +312,9 @@ const BOARD_EXPORT_SCALE = 2;
 const PICTURE_CONTENT_TYPE_BY_FORMAT = { svg: 'image/svg+xml', png: 'image/png' } as const;
 
 async function exportedBoardPicture(layouts: WhiteboardLayouts, assets: WhiteboardAssetStore | null, boardId: string, format: typeof PICTURE_FORMATS[number]): ReturnType<typeof boardPictureFile> {
-  const isKnownBoard = (await layouts.summaryOf(boardId)) !== null;
-  if (!isKnownBoard) return { ok: false, status: 404, error: 'no such board' };
-  return boardPictureFile(layouts, assets, boardId, { format, region: null, limits: filePictureLimitsOf(BOARD_EXPORT_SCALE) });
+  const found = await layouts.findBoardId(boardId, null);
+  if (!found.ok) return { ok: false, status: found.reply.status, error: 'no such board' };
+  return boardPictureFile(layouts, assets, found.boardId, { format, region: null, limits: filePictureLimitsOf(BOARD_EXPORT_SCALE) });
 }
 
 function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
