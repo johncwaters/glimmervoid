@@ -18,6 +18,15 @@ test('Backspace right after a red pen Enter removes the paragraph mark it made',
   assert.equal(pressEnterThenBackspace(markedSource, markedSource.indexOf('ef')), markedSource);
 });
 
+test('accepting a red pen Enter keeps its paragraph break and rejecting it joins the text back', () => {
+  const entered = suggestEdit('abcd efg', { kind: 'paragraph', selection: { start: 4, end: 4 } }, null);
+  assert.ok(entered.kind === 'applied');
+  const paragraphMark = parseCriticMarkup(entered.source).find((segment) => segment.kind === 'mark');
+  assert.ok(paragraphMark && paragraphMark.kind === 'mark');
+  assert.equal(resolveMark(entered.source, paragraphMark, 'accept'), 'abcd\n\n efg');
+  assert.equal(resolveMark(entered.source, paragraphMark, 'reject'), 'abcd efg');
+});
+
 test('rejecting one line of a suggested numbered list closes the gap in the pending numbers after it', () => {
   const numberedSource = '{++1. ++}one\n{++2. ++}two\n{++3. ++}three\n{++4. ++}four\n\n{++9. ++}other';
   const secondMark = parseCriticMarkup(numberedSource).find((segment) => segment.kind === 'mark' && segment.newText === '2. ');

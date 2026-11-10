@@ -161,7 +161,9 @@ function closeNumberGapAfter(source: string, rejectedLineStart: number, rejected
 }
 
 export function resolveMark(source: string, mark: MarkSegment, decision: MarkDecision): string {
-  const resolvedSource = source.slice(0, mark.start) + resolvedTextOf(mark, decision) + source.slice(mark.end);
+  const isAcceptedParagraph = decision === 'accept' && isParagraphMark(mark);
+  const resolvedText = isAcceptedParagraph ? '\n\n' : resolvedTextOf(mark, decision);
+  const resolvedSource = source.slice(0, mark.start) + resolvedText + source.slice(mark.end);
   const startsLine = mark.start === 0 || source[mark.start - 1] === '\n';
   const isRejectedInsertion = decision === 'reject' && mark.markKind === 'insertion' && startsLine;
   const rejectedNumber = isRejectedInsertion ? NUMBERED_PREFIX.exec(mark.newText)?.[1] : undefined;

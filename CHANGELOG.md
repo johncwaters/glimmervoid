@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Accepting a red pen paragraph break keeps it.** Pressing Enter on the red pen paper suggests a new paragraph, drawn as a pilcrow; accepting it used to throw the break away as if it were a note, so the text ran back into one paragraph. It now becomes a real paragraph break, and rejecting it still joins the text back.
+
 ## [0.56.1] - 2026-11-10
 
 ### Changed
