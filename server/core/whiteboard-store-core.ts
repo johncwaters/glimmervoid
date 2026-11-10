@@ -350,6 +350,18 @@ const BOARD_CONTEXT_NOTE: AgentNote = {
   isTemplate: true,
 };
 
+function attachedBoardNoticeLineFor({ title, id }: Pick<Board, 'title' | 'id'>): string {
+  return `The operator opened board "${title}" (${id}) beside this session. Draw on it with whiteboard get ${id} and whiteboard put rather than whiteboard new.`;
+}
+
+const ATTACHED_BOARD_NOTE: AgentNote = {
+  name: 'Board beside the session',
+  carriedBy: 'UserPromptSubmit',
+  firesWhen: 'the operator opened a board beside the session that it was not yet told about',
+  text: attachedBoardNoticeLineFor({ title: '<title>', id: '<board id>' }),
+  isTemplate: true,
+};
+
 function boardNoticeFor(records: readonly BoardRecord[], sessionId: string, announcedVersionByBoardId: ReadonlyMap<string, number>): BoardNotice | null {
   const announced = records.flatMap((record) => {
     const newestUnreadVersion = changesForReader(record, sessionId).at(-1)?.version;
@@ -446,4 +458,4 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
 
 export { pickShowBoardId, shownBoxOp };
 export type { ShownCard };
-export { BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
+export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

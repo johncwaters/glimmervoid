@@ -824,10 +824,23 @@ test('the operator connects and disconnects a session from the dashboard, and a 
     assert.equal(moved.ok, true);
     const builderView = await boardOf(BUILDER_ID, boardId);
     assert.deepEqual(builderView.changes.map((change) => change.summary), ['operator added box "Operator box"']);
+    const newWhileAttached = await whiteboard(BUILDER_ID, { sub: 'new', title: 'second board' });
+    assert.equal(newWhileAttached.status, 409);
+    assert.match(String(newWhileAttached.body.error), new RegExp(`board "operator links" \\(${boardId}\\) beside this session`));
 
     const disconnected = await command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'disconnect-builder' });
     assert.equal(disconnected.ok, true);
     assert.equal(disconnected.summary?.connectedSessionIds.includes(BUILDER_ID), false);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'second board' })).status, 200);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'third board' })).status, 200);
+    await whiteboard(BUILDER_ID, { sub: 'disconnect', board: boardId });
+    await Promise.all([
+      command({ type: 'whiteboard-connect', boardId, sessionId: BUILDER_ID, requestId: 'racing-connect' }),
+      command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'racing-disconnect' }),
+    ]);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'fourth board' })).status, 200);
 
     const unknown = await command({ type: 'whiteboard-connect', boardId, sessionId: 'no-such-session', requestId: 'connect-unknown' });
     assert.equal(unknown.ok, false);

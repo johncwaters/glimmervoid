@@ -306,7 +306,7 @@ export function toggleFocusedBoardSplit(): boolean {
 function splitSessionWithBoard(sessionId: string, boardId: string) {
   const board = boardSummariesOf().find((summary) => summary.id === boardId);
   if (!board || !sessionUIs.has(sessionId)) return;
-  if (!board.connectedSessionIds.includes(sessionId)) connectSessionToBoard(boardId, sessionId).then(reportBoardConnectRefusal);
+  connectSessionToBoard(boardId, sessionId).then(reportBoardConnectRefusal);
   saveSplits(openSplit(splitBoardBySession, sessionId, boardId));
   if (getFocusedSessionId() === sessionId) {
     refreshFocusRoster();

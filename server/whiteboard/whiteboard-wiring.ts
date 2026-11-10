@@ -29,7 +29,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { loadJsonStateFile } from '../json-file.ts';
@@ -248,6 +248,8 @@ function createWhiteboardWiring({
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
+  const attachedBoardIdBySessionId = new Map<string, string>();
+  const announcedAttachedBoardIdBySessionId = new Map<string, string>();
   const deletedBoardIds = new Set<string>();
   const writeQueue = createKeyedSerialQueue();
   const assets = createWhiteboardAssetStore({ boardsRoot, logger, now });
@@ -665,11 +667,38 @@ function createWhiteboardWiring({
     });
   }
 
-  function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
-    return changeRecord(boardId, (record) => {
+  async function attachBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    const reply = await connectBoard(boardId, sessionId, projectOf(sessionId));
+    const isStillConnected = sessionId in (recordsByBoardId.get(boardId)?.cursorBySessionId ?? {});
+    if (reply.status !== 200 || !isStillConnected) return reply;
+    attachedBoardIdBySessionId.set(sessionId, boardId);
+    announcedAttachedBoardIdBySessionId.delete(sessionId);
+    return reply;
+  }
+
+  function attachedRecordOf(sessionId: string): BoardRecord | null {
+    const attachedBoardId = attachedBoardIdBySessionId.get(sessionId);
+    const record = attachedBoardId === undefined ? undefined : recordsByBoardId.get(attachedBoardId);
+    if (!record || !(sessionId in record.cursorBySessionId)) return null;
+    return record;
+  }
+
+  function takeAttachedBoardLine(sessionId: string): string | null {
+    const attached = attachedRecordOf(sessionId);
+    if (!attached || announcedAttachedBoardIdBySessionId.get(sessionId) === attached.board.id) return null;
+    announcedAttachedBoardIdBySessionId.set(sessionId, attached.board.id);
+    return attachedBoardNoticeLineFor(attached.board);
+  }
+
+  async function disconnectBoard(boardId: string, sessionId: string): Promise<WhiteboardReply> {
+    const reply = await changeRecord(boardId, (record) => {
       const next = disconnectSession(record, sessionId);
       return { ok: true, record: next, reply: connectionReply(next, 'this session is no longer told when this board changes') };
     });
+    if (reply.status !== 200 || attachedBoardIdBySessionId.get(sessionId) !== boardId) return reply;
+    attachedBoardIdBySessionId.delete(sessionId);
+    announcedAttachedBoardIdBySessionId.delete(sessionId);
+    return reply;
   }
 
   async function clearLinksTo(deletedBoardId: string): Promise<void> {
@@ -761,7 +790,7 @@ function createWhiteboardWiring({
       if (!loading.ok) return operatorReplyOf(loading.reply);
       return { ok: true, error: null, review: await reviewFor(loading.record.board, { readsChanges: true }) };
     },
-    connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => connectBoard(foundBoardId, sessionId, projectOf(sessionId))),
+    connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
   };
 
@@ -782,6 +811,8 @@ function createWhiteboardWiring({
   async function forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void> {
     await loaded;
     for (const sessionId of [...announcedVersionByBoardIdBySessionId.keys()].filter(isClosedSession)) announcedVersionByBoardIdBySessionId.delete(sessionId);
+    for (const sessionId of [...attachedBoardIdBySessionId.keys()].filter(isClosedSession)) attachedBoardIdBySessionId.delete(sessionId);
+    for (const sessionId of [...announcedAttachedBoardIdBySessionId.keys()].filter(isClosedSession)) announcedAttachedBoardIdBySessionId.delete(sessionId);
     const closedConnectionsPerBoard = [...recordsByBoardId].map(([boardId, record]) => ({ boardId, closedSessionIds: Object.keys(record.cursorBySessionId).filter(isClosedSession) }));
     await Promise.all(closedConnectionsPerBoard
       .filter(({ closedSessionIds }) => closedSessionIds.length > 0)
@@ -818,7 +849,7 @@ function createWhiteboardWiring({
     const projectBoardsLine = isFirstPrompt && sessionProject !== null ? projectBoardsNoticeFor(recordsByBoardId.values(), { sessionId, project: sessionProject }, now()) : null;
     const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
     for (const { boardId, version } of notice?.announced ?? []) announcedVersionByBoardId.set(boardId, version);
-    const lines = [projectBoardsLine, notice?.text ?? null].filter((line) => line !== null);
+    const lines = [takeAttachedBoardLine(sessionId), projectBoardsLine, notice?.text ?? null].filter((line) => line !== null);
     return lines.length === 0 ? null : lines.join('\n');
   }
 
@@ -843,7 +874,7 @@ function createWhiteboardWiring({
   }
 
   async function showBoardIdFor(caller: WhiteboardCaller, newBoardTitle: string): Promise<{ ok: true; boardId: string; provisionalTitle: string | null } | { ok: false; reply: WhiteboardReply }> {
-    const pickedBoardId = pickShowBoardId([...recordsByBoardId.values()], caller.id);
+    const pickedBoardId = attachedRecordOf(caller.id)?.board.id ?? pickShowBoardId([...recordsByBoardId.values()], caller.id);
     if (pickedBoardId) return { ok: true, boardId: pickedBoardId, provisionalTitle: null };
     const provisionalTitle = newBoardTitle.slice(0, WHITEBOARD_LIMITS.title);
     const created = await createBoardFor(caller, provisionalTitle);
@@ -899,9 +930,16 @@ function createWhiteboardWiring({
     });
   }
 
+  function createUnlessAttached(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+    const attached = attachedRecordOf(caller.id);
+    if (!attached) return createBoardFor(caller, title);
+    const { title: attachedTitle, id } = attached.board;
+    return Promise.resolve(refusal(409, `the operator opened board "${attachedTitle}" (${id}) beside this session, so no new board was made; draw on it with whiteboard get ${id} and whiteboard put, or whiteboard disconnect ${id} first if this work needs a board of its own`));
+  }
+
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
-    if (request.sub === 'new') return createBoardFor(caller, request.title);
+    if (request.sub === 'new') return createUnlessAttached(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
     if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null);
     if (request.sub === 'list') {
