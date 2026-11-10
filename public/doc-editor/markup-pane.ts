@@ -659,7 +659,7 @@ function paintFloats(editor: MarkupHost) {
   const inlineStyleAtStart = selectionStartElement?.closest<HTMLElement>('[data-inline]')?.dataset.inline ?? tableRunAtStart?.style ?? null;
   const opensBeforeSelection = (delimiter: string) => (lineBeforeSelection.split(delimiter).length - 1) % 2 === 1;
   const isSelectionInCode = opensBeforeSelection('`') || blockAtStart === 'fence';
-  const canFormatSelection = markAnchor === null && !isSelectionInCode && !selectedSource.includes('\n');
+  const canFormatSelection = markAnchor === null && !isSelectionInCode && !selectedSource.trimEnd().includes('\n');
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) {
     const control = FORMAT_CONTROLS[controlIndex];
     const isAlreadyStyled = (inlineStyleAtStart !== null && control.inlineStyle === inlineStyleAtStart) || (control.delimiter === '~~' && opensBeforeSelection('~~'));
@@ -795,9 +795,9 @@ function readPaperSelection(pane: MarkupPane, range: AbstractRange | null): Pape
   const end = sourcePointAt(pane, range.endContainer, range.endOffset);
   if (!start || !end) return null;
   if (range.collapsed) return { start: start.sourceOffset, end: start.sourceOffset };
-  const endsAtEmptyLine = range.endOffset === 0 && range.endContainer instanceof HTMLElement && range.endContainer.classList.contains('doc-markup-line') && range.endContainer.childElementCount === 0;
+  const endsAtLineStart = range.endOffset === 0 && range.endContainer instanceof HTMLElement && range.endContainer.classList.contains('doc-markup-line');
   const holdsMark = pane.marks.some((mark) => mark.start < end.sourceOffset && mark.end > start.sourceOffset);
-  if (start.segmentStart !== undefined && endsAtEmptyLine && !holdsMark) return { start: start.sourceOffset, end: end.sourceOffset };
+  if (start.segmentStart !== undefined && endsAtLineStart && !holdsMark) return { start: start.sourceOffset, end: Math.max(start.sourceOffset, end.sourceOffset - 1) };
   if (start.segmentStart === undefined || start.segmentStart !== end.segmentStart) return 'crosses-mark';
   return { start: start.sourceOffset, end: end.sourceOffset };
 }
@@ -820,14 +820,16 @@ function caretPointFor(pane: MarkupPane, sourceOffset: number): { node: Node; of
   return markElement && pane.paper.contains(markElement) ? { after: markElement } : null;
 }
 
-function placeCaret(pane: MarkupPane, sourceOffset: number) {
+function placeCaret(pane: MarkupPane, sourceOffset: number, endSourceOffset = sourceOffset) {
   const point = caretPointFor(pane, sourceOffset);
+  const endPoint = caretPointFor(pane, endSourceOffset);
   const selection = window.getSelection();
-  if (!point || !selection) return;
+  if (!point || !endPoint || !selection) return;
   const range = document.createRange();
   if ('after' in point) range.setStartAfter(point.after);
   if ('node' in point) range.setStart(point.node, point.offset);
-  range.collapse(true);
+  if ('after' in endPoint) range.setEndAfter(endPoint.after);
+  if ('node' in endPoint) range.setEnd(endPoint.node, endPoint.offset);
   pane.paper.focus({ preventScroll: true });
   selection.removeAllRanges();
   selection.addRange(range);
@@ -869,10 +871,11 @@ function formatSelection(editor: MarkupHost, delimiter: string) {
   const selection = pane.selection;
   if (!selection) return;
   const selectedText = editor.textarea.value.slice(selection.start, selection.end);
-  if (selectedText.trim() === '') return;
-  const wrappedText = selectedText.replace(/^(\s*)(.*?)(\s*)$/s, (_whole, leadingSpace: string, words: string, trailingSpace: string) => `${leadingSpace}${delimiter}${words}${delimiter}${trailingSpace}`);
+  const words = selectedText.trim();
+  if (words === '') return;
+  const wordsStart = selection.start + selectedText.indexOf(words);
   pane.history = { ...pane.history, openGroup: null };
-  applySuggestion(editor, { kind: 'type', selection, text: wrappedText });
+  applySuggestion(editor, { kind: 'type', selection: { start: wordsStart, end: wordsStart + words.length }, text: `${delimiter}${words}${delimiter}` });
   pane.history = { ...pane.history, openGroup: null };
   pane.run = null;
 }
@@ -1327,6 +1330,7 @@ export function wireMarkupPane(editor: MarkupHost) {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     pane.paper.focus({ preventScroll: true });
+    if (pane.selection) placeCaret(pane, pane.selection.start, pane.selection.end);
   });
   pane.btnAddNote.addEventListener('click', () => openNoteComposer(editor));
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) formatButton.addEventListener('click', () => formatSelection(editor, FORMAT_CONTROLS[controlIndex].delimiter));
