@@ -12,9 +12,14 @@ interface SecretsWiringOptions {
   broker: SecretsBroker;
   findSession: (id: string) => Session | null;
   broadcastControl: (message: Record<string, unknown>) => void;
+  warn?: (message: string) => void;
 }
 
-function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWiringOptions): void {
+interface SecretsWiring {
+  seedSessionMasks: (session: Session) => void;
+}
+
+function wireSecretsBroker({ broker, findSession, broadcastControl, warn = console.warn }: SecretsWiringOptions): SecretsWiring {
   const watchedSessionIds = new Set<string>();
   function forgetOnTeardown(session: Session): void {
     if (watchedSessionIds.has(session.id)) return;
@@ -39,6 +44,21 @@ function wireSecretsBroker({ broker, findSession, broadcastControl }: SecretsWir
     forgetOnTeardown(session);
   });
   broker.events.on('approvals-changed', () => broadcastControl({ type: 'secret-approvals', projects: broker.approvalRows() }));
+
+  const seededDirectoryBySession = new WeakMap<Session, string>();
+  function seedFromCurrentDirectory(session: Session): void {
+    const directory = session.effectiveCwd();
+    if (seededDirectoryBySession.get(session) === directory) return;
+    seededDirectoryBySession.set(session, directory);
+    void broker.seedMasks({ id: session.id, project: session.path, cwd: directory, isRemote: session.remoteWorkspace !== null }).then((problem) => {
+      if (problem !== null) warn(`[secrets] ${problem}`);
+    });
+  }
+  function seedSessionMasks(session: Session): void {
+    seedFromCurrentDirectory(session);
+    session.on('state-change', () => seedFromCurrentDirectory(session));
+  }
+  return { seedSessionMasks };
 }
 
 export { wireSecretsBroker };

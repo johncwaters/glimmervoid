@@ -79,7 +79,7 @@ import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
 import { createVaultSocket } from '../secrets/vault-socket.ts';
 import { decideVaultBind } from '../core/vault-listener-core.ts';
-import { writeEnvFile } from '../secrets/env-file.ts';
+import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
 import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
@@ -413,6 +413,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     createInVault: vaultSocket.create,
     newItemsVault: vaultSocket.newItemsVault,
     writeEnvFile,
+    readEnvValues,
     telemetry,
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {
@@ -426,7 +427,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return true;
     },
   });
-  wireSecretsBroker({ broker: secretsBroker, findSession: getSessionAny, broadcastControl: broadcastControlFromWebSockets });
+  const secretsWiring = wireSecretsBroker({ broker: secretsBroker, findSession: getSessionAny, broadcastControl: broadcastControlFromWebSockets });
   agentApi = createAgentApiWiring({
     config,
     agentSessions,
@@ -473,7 +474,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hubCliCommand: `${selfLaunch('cli').map(shellQuote).join(' ')} --config ${shellQuote(configStore.configPath)}`,
   });
 
-  const wireSessionEvents = createSessionEventWiring({
+  const wireSessionStatusEvents = createSessionEventWiring({
     configStore,
     config,
     recordLane,
@@ -498,6 +499,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry,
     logger: console,
   });
+
+  function wireSessionEvents(session: Session): void {
+    wireSessionStatusEvents(session);
+    secretsWiring.seedSessionMasks(session);
+  }
 
   const sessionRegistry = createSessionRegistry({
     httpServer,

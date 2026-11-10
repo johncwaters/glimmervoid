@@ -36,6 +36,7 @@ interface SecretsBrokerOptions {
   createInVault?: (items: CreateJob['items']) => Promise<CreatedResult['items'] | CreateMiss>;
   newItemsVault?: () => string | null;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
+  readEnvValues?: (directory: string) => Promise<Readonly<Record<string, string>>>;
   now?: () => number;
   telemetry?: Pick<Telemetry, 'capture'> | null;
 }
@@ -58,7 +59,7 @@ const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze
 });
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, PendingCard>();
@@ -95,8 +96,26 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, { source: string; envFile: string }>();
     for (const { name, reference } of items) deliveries.set(name, { source: deliverySource(session, reference), envFile });
     deliveriesBySession.set(session.id, deliveries);
-    deliveredValuesBySession.set(session.id, new Set([...deliveredValuesOf(session.id), ...Object.values(valuesByName)]));
-    events.emit('delivered', session.id);
+    addDeliveredValues(session.id, Object.values(valuesByName));
+  }
+
+  function addDeliveredValues(sessionId: string, values: readonly string[]): void {
+    deliveredValuesBySession.set(sessionId, new Set([...deliveredValuesOf(sessionId), ...values]));
+    events.emit('delivered', sessionId);
+  }
+
+  async function seedMasks(session: NeedingSession): Promise<string | null> {
+    if (session.isRemote) return null;
+    const approvedNames = Object.entries(approvalsOf(readSecrets(), session.project)).filter(([, approval]) => approval.isAllowed).map(([name]) => name);
+    if (approvedNames.length === 0) return null;
+    try {
+      const envValues = await readEnvValues(session.cwd);
+      const approvedValues = approvedNames.map((name) => envValues[name] ?? '').filter((value) => value !== '');
+      if (approvedValues.length > 0) addDeliveredValues(session.id, approvedValues);
+      return null;
+    } catch (error) {
+      return `could not read the env file of session ${session.id} to mask its secrets: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   async function deliver(session: NeedingSession, names: readonly string[]): Promise<Delivery> {
@@ -298,7 +317,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault, deliveredValuesOf };
+  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { parseEnv } from 'node:util';
 
 import { runGit } from '../git/git-exec.ts';
 import { upsertEnvLines } from './core/env-file-core.ts';
@@ -75,5 +76,11 @@ async function writeEnvFileNow(directory: string, valuesByName: Readonly<Record<
   }
 }
 
-export { writeEnvFile };
+async function readEnvValues(directory: string): Promise<Record<string, string>> {
+  const existingText = await readExistingEnvFile(path.join(directory, ENV_FILE_NAME));
+  if (existingText === null) return {};
+  return Object.fromEntries(Object.entries(parseEnv(existingText)).flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])));
+}
+
+export { readEnvValues, writeEnvFile };
 export type { EnvFileWrite };
