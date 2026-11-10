@@ -1,7 +1,7 @@
 {
   "_meta": {
     "source": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
-    "fetchedAt": "2026-08-19T19:16:37.705Z",
+    "fetchedAt": "2026-11-09T19:13:01.494Z",
     "coverage": "anthropic (Claude Code) plus openai gpt-5 family (Codex CLI) plus moonshot list prices for Kimi Code models keyed by their wire.jsonl id (kimi-for-coding is a preview alias with no list price). Grok prices itself from its own transcripts and is deliberately absent."
   },
   "models": {
@@ -105,6 +105,15 @@
       "max_input_tokens": 1000000,
       "litellm_provider": "anthropic"
     },
+    "claude-fable-5-2": {
+      "input_cost_per_token": 0.000008,
+      "output_cost_per_token": 0.00004,
+      "cache_creation_input_token_cost": 0.00001,
+      "cache_read_input_token_cost": 2e-7,
+      "max_input_tokens": 1000000,
+      "litellm_provider": "anthropic",
+      "fast_multiplier": 2
+    },
     "claude-haiku-4-5": {
       "input_cost_per_token": 0.000001,
       "output_cost_per_token": 0.000005,
@@ -149,6 +158,15 @@
       "cache_read_input_token_cost": 2.5e-7,
       "max_input_tokens": 1000000,
       "litellm_provider": "anthropic"
+    },
+    "claude-mythos-5-2": {
+      "input_cost_per_token": 0.000008,
+      "output_cost_per_token": 0.00004,
+      "cache_creation_input_token_cost": 0.00001,
+      "cache_read_input_token_cost": 2e-7,
+      "max_input_tokens": 1000000,
+      "litellm_provider": "anthropic",
+      "fast_multiplier": 2
     },
     "claude-mythos-preview": {
       "input_cost_per_token": 0.00001,
@@ -236,7 +254,8 @@
       "cache_creation_input_token_cost": 0.00000625,
       "cache_read_input_token_cost": 5e-7,
       "max_input_tokens": 1000000,
-      "litellm_provider": "anthropic"
+      "litellm_provider": "anthropic",
+      "fast_multiplier": 2
     },
     "claude-opus-5": {
       "input_cost_per_token": 0.000005,
@@ -244,7 +263,8 @@
       "cache_creation_input_token_cost": 0.00000625,
       "cache_read_input_token_cost": 5e-7,
       "max_input_tokens": 1000000,
-      "litellm_provider": "anthropic"
+      "litellm_provider": "anthropic",
+      "fast_multiplier": 2
     },
     "claude-opus-5-5": {
       "input_cost_per_token": 0.000004,
@@ -252,7 +272,8 @@
       "cache_creation_input_token_cost": 0.000005,
       "cache_read_input_token_cost": 2e-7,
       "max_input_tokens": 1000000,
-      "litellm_provider": "anthropic"
+      "litellm_provider": "anthropic",
+      "fast_multiplier": 2
     },
     "claude-sonnet-4-20250514": {
       "input_cost_per_token": 0.000003,
@@ -312,7 +333,7 @@
       "input_cost_per_token": 0.000002,
       "output_cost_per_token": 0.00001,
       "cache_creation_input_token_cost": 0.0000025,
-      "cache_read_input_token_cost": 2e-7,
+      "cache_read_input_token_cost": 1e-7,
       "max_input_tokens": 1000000,
       "litellm_provider": "anthropic"
     },
@@ -430,21 +451,21 @@
       "input_cost_per_token": 0.00000125,
       "output_cost_per_token": 0.00001,
       "cache_read_input_token_cost": 1.25e-7,
-      "max_input_tokens": 272000,
+      "max_input_tokens": 400000,
       "litellm_provider": "openai"
     },
     "gpt-5.1-codex-max": {
       "input_cost_per_token": 0.00000125,
       "output_cost_per_token": 0.00001,
       "cache_read_input_token_cost": 1.25e-7,
-      "max_input_tokens": 272000,
+      "max_input_tokens": 400000,
       "litellm_provider": "openai"
     },
     "gpt-5.1-codex-mini": {
       "input_cost_per_token": 2.5e-7,
       "output_cost_per_token": 0.000002,
       "cache_read_input_token_cost": 2.5e-8,
-      "max_input_tokens": 272000,
+      "max_input_tokens": 400000,
       "litellm_provider": "openai"
     },
     "gpt-5.2": {
@@ -571,6 +592,18 @@
       "max_input_tokens": 1050000,
       "litellm_provider": "openai"
     },
+    "gpt-5.5-cyber": {
+      "input_cost_per_token": 0.0000125,
+      "output_cost_per_token": 0.000075,
+      "cache_read_input_token_cost": 0.00000125,
+      "litellm_provider": "openai"
+    },
+    "gpt-5.5-cyber-preview": {
+      "input_cost_per_token": 0.0000125,
+      "output_cost_per_token": 0.000075,
+      "cache_read_input_token_cost": 0.00000125,
+      "litellm_provider": "openai"
+    },
     "gpt-5.5-pro": {
       "input_cost_per_token": 0.00003,
       "output_cost_per_token": 0.00018,
@@ -586,11 +619,19 @@
       "litellm_provider": "openai"
     },
     "gpt-5.6": {
-      "input_cost_per_token": 0.000005,
-      "output_cost_per_token": 0.00003,
-      "cache_creation_input_token_cost": 0.00000625,
-      "cache_read_input_token_cost": 5e-7,
-      "max_input_tokens": 1050000,
+      "input_cost_per_token": 0.000004,
+      "output_cost_per_token": 0.00002,
+      "cache_creation_input_token_cost": 0.000005,
+      "cache_read_input_token_cost": 4e-7,
+      "max_input_tokens": 922000,
+      "litellm_provider": "openai"
+    },
+    "gpt-5.6-cyber": {
+      "input_cost_per_token": 0.0000125,
+      "output_cost_per_token": 0.000075,
+      "cache_creation_input_token_cost": 0.000015625,
+      "cache_read_input_token_cost": 0.00000125,
+      "max_input_tokens": 272000,
       "litellm_provider": "openai"
     },
     "gpt-5.6-luna": {
@@ -598,15 +639,15 @@
       "output_cost_per_token": 0.0000012,
       "cache_creation_input_token_cost": 2.5e-7,
       "cache_read_input_token_cost": 2e-8,
-      "max_input_tokens": 1050000,
+      "max_input_tokens": 922000,
       "litellm_provider": "openai"
     },
     "gpt-5.6-sol": {
-      "input_cost_per_token": 0.000005,
-      "output_cost_per_token": 0.00003,
-      "cache_creation_input_token_cost": 0.00000625,
-      "cache_read_input_token_cost": 5e-7,
-      "max_input_tokens": 1050000,
+      "input_cost_per_token": 0.000004,
+      "output_cost_per_token": 0.00002,
+      "cache_creation_input_token_cost": 0.000005,
+      "cache_read_input_token_cost": 4e-7,
+      "max_input_tokens": 922000,
       "litellm_provider": "openai"
     },
     "gpt-5.6-terra": {
@@ -614,7 +655,7 @@
       "output_cost_per_token": 0.000012,
       "cache_creation_input_token_cost": 0.0000025,
       "cache_read_input_token_cost": 2e-7,
-      "max_input_tokens": 1050000,
+      "max_input_tokens": 922000,
       "litellm_provider": "openai"
     },
     "kimi-code/k3": {

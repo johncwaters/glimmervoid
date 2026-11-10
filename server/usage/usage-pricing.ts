@@ -109,11 +109,22 @@ function withSnapshotLongContextTier(
   return merged;
 }
 
+function withSnapshotFastMultiplier(
+  fetchedRow: Record<string, unknown>,
+  snapshotRow: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!fetchedRow || typeof fetchedRow !== 'object') return fetchedRow;
+  if (!snapshotRow || !Object.hasOwn(snapshotRow, 'fast_multiplier')) return fetchedRow;
+  if (Object.hasOwn(fetchedRow, 'fast_multiplier')) return fetchedRow;
+  return { ...fetchedRow, fast_multiplier: snapshotRow.fast_multiplier };
+}
+
 function overlaySnapshot(models: ModelTable | null): { models: ModelTable } {
   const snapshotModels: ModelTable = pricingSnapshot.models || {};
   const overlaid: ModelTable = { ...snapshotModels };
   for (const [key, fetchedRow] of Object.entries(models || {})) {
-    overlaid[key] = withSnapshotLongContextTier(fetchedRow, snapshotModels[key]);
+    const snapshotRow = snapshotModels[key];
+    overlaid[key] = withSnapshotFastMultiplier(withSnapshotLongContextTier(fetchedRow, snapshotRow), snapshotRow);
   }
   return { models: overlaid };
 }

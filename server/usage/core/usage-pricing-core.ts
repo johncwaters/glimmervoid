@@ -150,8 +150,9 @@ function ratesForPrice(price: ModelPrice): TokenRates {
   const cacheRead = numberOr(price.cache_read_input_token_cost, null) ?? input * 0.1;
   const inputAbove = numberOr(price.input_cost_per_token_above_200k_tokens, null) ?? input;
   const outputAbove = numberOr(price.output_cost_per_token_above_200k_tokens, null) ?? output;
-  const cacheCreateAbove = numberOr(price.cache_creation_input_token_cost_above_200k_tokens, null) ?? inputAbove * 1.25;
-  const cacheReadAbove = numberOr(price.cache_read_input_token_cost_above_200k_tokens, null) ?? inputAbove * 0.1;
+  const longContextInputScale = input > 0 ? inputAbove / input : 1;
+  const cacheCreateAbove = numberOr(price.cache_creation_input_token_cost_above_200k_tokens, null) ?? cacheCreate * longContextInputScale;
+  const cacheReadAbove = numberOr(price.cache_read_input_token_cost_above_200k_tokens, null) ?? cacheRead * longContextInputScale;
   return { input, output, cacheCreate, cacheRead, inputAbove, outputAbove, cacheCreateAbove, cacheReadAbove };
 }
 
