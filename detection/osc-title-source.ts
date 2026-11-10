@@ -198,6 +198,13 @@ class OscTitleSource extends EventEmitter {
     this._lastKind = null;
   }
 
+  rearmIdleReading(): void {
+    if (this._destroyed) return;
+    if (this._lastKind !== 'ready' || this._lastChar === null) return;
+    this._lastKind = 'idle-pending';
+    this._armStabilization(this._lastChar);
+  }
+
   setContext(context: TitleContext | null | undefined): void {
     if (this._destroyed || !context) return;
     this._context = { ...this._context, ...context };

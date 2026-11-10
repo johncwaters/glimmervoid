@@ -58,7 +58,7 @@ import {
   UNSEEN_OUTCOME_ON_ENTRY,
 } from "./core/state-machine.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
-import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit } from "./core/waiting-input-core.ts";
+import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, LONE_ESCAPE } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
 import type { Teardown, TeardownAction } from "./core/session-teardown.ts";
@@ -2067,10 +2067,8 @@ class Session extends EventEmitter {
       isQuestionPrompt: this._pendingPromptToolName === ASK_USER_QUESTION_TOOL_NAME,
       input,
     });
-    if (decision === "end-waiting") {
-      this.transition("user_input");
-      return;
-    }
+    if (decision === "end-waiting") this.transition("user_input");
+    if (input === LONE_ESCAPE) this._titleSource.rearmIdleReading();
     if (decision === "acknowledge") this.emit("waiting-input-acknowledged");
   }
 

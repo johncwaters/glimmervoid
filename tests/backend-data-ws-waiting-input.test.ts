@@ -174,6 +174,22 @@ test('Escape at a Claude Code permission prompt leaves WAITING, and the idle tit
   }
 });
 
+test('Escape after dismissing a Claude Code question whose title already went idle completes the card', async () => {
+  const harness = await bootHarness(claudeCodeAtPermissionPrompt(ASK_USER_QUESTION_TOOL_NAME, WORKING_TITLE));
+  try {
+    harness.session._titleSource.feed(IDLE_TITLE);
+    await waitUntil(() => harness.session._lastSignal?.signal === 'ready');
+    assert.equal(harness.session.state, STATES.WAITING);
+    harness.session.dismiss();
+    assert.equal(harness.session.state, STATES.RUNNING);
+    await harness.sendInput(ESCAPE);
+    await waitUntil(() => harness.session.state === STATES.COMPLETE);
+    assert.equal(harness.session.state, STATES.COMPLETE);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('a keystroke on a title-only agent card still ends WAITING', async () => {
   const adapter = createCustomAdapter({ id: 'opencode', label: 'OpenCode', command: 'opencode', args: [] });
   const session = new Session({ id: SESSION_ID, name: 'title lane', path: process.cwd(), adapter });

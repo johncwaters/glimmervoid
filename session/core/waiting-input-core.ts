@@ -52,4 +52,4 @@ function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, is
   return "acknowledge";
 }
 
-export { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit };
+export { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, LONE_ESCAPE };
