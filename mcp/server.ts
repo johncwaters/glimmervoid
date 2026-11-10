@@ -12,7 +12,7 @@ import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
 import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
-import { boardPictureResult, boardReplyWithReading } from './whiteboard.ts';
+import { boardPictureResult, boardRenderResult, boardReplyWithReading } from './whiteboard.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
 import { GROUPED_TOOLS, allowedActionNames, combinedAnnotations, inputSchemaFor, routeToolCall } from './core/tools.ts';
@@ -70,6 +70,7 @@ const PRESENTERS: Readonly<Record<Presenter, (target: CallTarget, verb: AgentApi
   'agent-reply': ({ session, agentApi }, verb, payload) => agentApi.handle(session, verb, payload),
   'board-with-reading': ({ session, agentApi, getWhiteboardLayouts }, _verb, payload) => boardReplyWithReading(session, agentApi, getWhiteboardLayouts(), payload),
   'board-picture': ({ session, agentApi, getWhiteboardAssets, getWhiteboardLayouts }, _verb, payload) => boardPictureResult(session, agentApi, getWhiteboardAssets(), getWhiteboardLayouts(), payload),
+  'board-render': ({ session, getWhiteboardAssets, getWhiteboardLayouts }, _verb, payload) => boardRenderResult(session, getWhiteboardAssets(), getWhiteboardLayouts(), payload),
   'spawn-reply': reshapedReply(spawnReplyForMcp),
   'board-without-command-guide': reshapedReply(boardReplyWithoutCommandGuide),
   'settings-list': reshapedReply(settingsListForMcp),

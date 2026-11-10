@@ -439,8 +439,8 @@ function iconNamesOf(layout: BoardLayout): IconName[] {
 
 const LAYER_ORDER: readonly LaidOutElement['kind'][] = ['frame', 'wire', 'box'];
 
-function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF): string {
-  const { x, y, width, height } = layout.bounds;
+function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_HREF, frame: Rect = layout.bounds): string {
+  const { x, y, width, height } = frame;
   const layers = LAYER_ORDER.map((kind) => tag('g', { class: 'wb-layer' }, layout.elements.filter((element) => element.kind === kind).map((element) => elementMarkup(element, assetHref)).join('')));
   const body = [
     tag('style', {}, STANDALONE_STYLE),

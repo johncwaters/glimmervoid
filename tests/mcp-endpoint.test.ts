@@ -9,6 +9,7 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { waitFor } from './helpers/wait-for.ts';
 import { mcpCredentialFor } from '../mcp/core/credentials.ts';
 import { spawnReplyForMcp } from '../mcp/core/replies.ts';
 import { boardPicture } from '../mcp/core/board-reading.ts';
@@ -255,6 +256,53 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   assert.equal(picture?.type, 'image');
   assert.equal(picture?.mimeType, 'image/png');
   assert.deepEqual([...Buffer.from(picture?.data ?? '', 'base64').subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+});
+
+test('whiteboard view pictures only a named region at twice its size, and render writes the whole board to a PNG or SVG file at the named path', async () => {
+  const { credential, projectDir } = bootedBackend();
+  await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'sharp board' } }, credential));
+  const ops = [
+    { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', at: { x: 0, y: 0 } } },
+    { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', at: { x: 900, y: 600 } } },
+  ];
+  assert.notEqual((await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'sharp board', ops } }, credential))).isError, true);
+  const pixelSizeOf = (png: Buffer) => [png.readUInt32BE(16), png.readUInt32BE(20)];
+
+  const viewed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'sharp board', region: { x: 0, y: 0, width: 300, height: 100 } } }, credential));
+  assert.notEqual(viewed.isError, true, JSON.stringify(viewed));
+  const [regionPicture] = viewed.content as { data: string }[];
+  assert.deepEqual(pixelSizeOf(Buffer.from(regionPicture?.data ?? '', 'base64')), [600, 200]);
+
+  const outside = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'sharp board', region: { x: 50_000, y: 50_000, width: 10, height: 10 } } }, credential));
+  assert.equal(outside.isError, true);
+  assert.match(JSON.stringify(outside.content), /the region lies outside the board/);
+
+  const sliver = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'sharp board', region: { x: 10, y: 10, width: 0.1, height: 0.1 } } }, credential));
+  assert.equal(sliver.isError, true);
+  assert.match(JSON.stringify(sliver.content), /under one pixel of picture/);
+
+  const rendered = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'render', board: 'sharp board', scale: 3 } }, credential));
+  assert.notEqual(rendered.isError, true, JSON.stringify(rendered));
+  const renderedBody = rendered.structuredContent as { wrote: string; format: string; width: number; height: number };
+  assert.equal(renderedBody.format, 'png');
+  const whole = pixelSizeOf(fs.readFileSync(renderedBody.wrote));
+  assert.deepEqual(whole, [renderedBody.width, renderedBody.height]);
+  assert.ok((whole[0] ?? 0) >= 1120 * 3, `the whole board at 3 pixels a unit, got ${whole.join('x')}`);
+
+  const drawn = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'render', board: 'sharp board', format: 'svg' } }, credential));
+  assert.notEqual(drawn.isError, true, JSON.stringify(drawn));
+  const svgPath = (drawn.structuredContent as { wrote: string }).wrote;
+  assert.match(fs.readFileSync(svgPath, 'utf8'), /^<svg .*<\/svg>\n$/s);
+  assert.equal(path.dirname(svgPath), path.dirname(renderedBody.wrote));
+  assert.equal(fs.statSync(svgPath).mode & 0o077, 0, 'a render is readable by the server account only');
+
+  const [small, large] = await Promise.all([1, 3].map(async (scale) => (await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'render', board: 'sharp board', scale } }, credential))).structuredContent as { wrote: string; width: number; height: number }));
+  assert.notEqual(small?.wrote, large?.wrote);
+  for (const reply of [small, large]) assert.deepEqual(pixelSizeOf(fs.readFileSync(reply?.wrote ?? '')), [reply?.width, reply?.height]);
+  assert.equal(path.relative(projectDir, svgPath).startsWith('..'), true, 'a render lands in a folder Glimmervoid owns, never one the agent names');
+
+  await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'delete', board: 'sharp board' } }, credential));
+  await waitFor(() => fs.readdirSync(path.dirname(svgPath)).length === 0, 'deleting the board removes every render of it');
 });
 
 test('whiteboard view pictures a board with a far-off box at a capped size', async () => {

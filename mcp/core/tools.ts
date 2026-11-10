@@ -16,7 +16,7 @@ interface CallContext {
   ownsSpawnedSessions: boolean;
 }
 
-type Presenter = 'agent-reply' | 'board-with-reading' | 'board-picture' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list' | 'reply-text';
+type Presenter = 'agent-reply' | 'board-with-reading' | 'board-picture' | 'board-render' | 'spawn-reply' | 'board-without-command-guide' | 'settings-list' | 'reply-text';
 
 type ActionHints = { readOnly: boolean; destructive: boolean; idempotent: boolean; openWorld: boolean };
 
@@ -94,8 +94,15 @@ function attachPayload(toolArguments: ToolArguments, context: CallContext): Reco
 
 function boardPictureRoute(): ActionRoute {
   return {
-    verb: 'whiteboard', presenter: 'board-picture', required: ['board'], accepts: ['board'], hints: READS,
-    toPayload: (toolArguments) => ({ sub: 'get', peek: true, ...definedEntries(toolArguments, ['board']) }),
+    verb: 'whiteboard', presenter: 'board-picture', required: ['board'], accepts: ['board', 'region'], hints: READS,
+    toPayload: (toolArguments) => ({ sub: 'get', peek: true, ...definedEntries(toolArguments, ['board', 'region']) }),
+  };
+}
+
+function boardRenderRoute(): ActionRoute {
+  return {
+    verb: 'whiteboard', presenter: 'board-render', required: ['board'], accepts: ['board', 'format', 'scale'], hints: { ...WRITES, idempotent: true },
+    toPayload: (toolArguments) => definedEntries(toolArguments, ['board', 'format', 'scale']),
   };
 }
 
@@ -130,7 +137,7 @@ const SESSION_TOOL: GroupedTool = {
 const WHITEBOARD_TOOL: GroupedTool = {
   name: 'whiteboard',
   title: 'Glimmervoid whiteboards',
-  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, put applies element ops (add, set, remove, and align to give boxes one top and height as a row or one left and width as a column; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, a note is a box with shape note wired dashed to the box it is about and removed once settled, delete removes a board of this session's project, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
+  description: `Draw diagrams, architecture maps and plans on a shared whiteboard the operator sees and edits on the dashboard; prefer it to a diagram in chat. new creates a board and list names this project's boards in use (all: true names every board); every other action needs a board that exists, so call list or new first. get reads one with what changed since this session last read it; a board over ${WHITEBOARD_LIMITS.readPage} elements or too much text for one page comes back as an outline (counts, bounds, frames, clusters elsewhere) plus the elements in its focus region, which is the operator's current view until you pass region to look elsewhere; query pages elements by region, ids or text; view returns a picture of it as the operator sees it, small enough to read inline, so pass region to picture one part of a large board with text you can read; render writes the whole board to a file Glimmervoid keeps, a PNG at 1 to 3 times its size or an SVG, media included, and replies with the file's path, so copy that file to export a board or read it for a sharp picture; put applies element ops (add, set, remove, and align to give boxes one top and height as a row or one left and width as a column; a box with a step is a plan step, and a wire from one step to another orders them); get and put also return the plan steps in build order and any layout warnings to fix, connect and disconnect follow a board's changes, a note is a box with shape note wired dashed to the box it is about and removed once settled, delete removes a board of this session's project, attach stores a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and returns the media a box takes to show it, and doc reads the Markdown text of the document a box shows, as the operator last saved it.`,
   loadsUpfront: true,
   fields: {
     board: BoardField.optional(),
@@ -140,11 +147,13 @@ const WHITEBOARD_TOOL: GroupedTool = {
     all: z.boolean().optional().describe('list: every board in every project, archived ones too, instead of this project\'s boards in use'),
     peek: z.boolean().optional().describe('get: read without marking changes as seen; view never marks them'),
     review: z.boolean().optional().describe('get: include the plan review against the code session'),
-    region: BoardRegion.optional().describe('get: the focus region to read in full, kept as this session\'s focus until the operator view changes; query: the region to page through'),
+    region: BoardRegion.optional().describe('get: the focus region to read in full, kept as this session\'s focus until the operator view changes; query: the region to page through; view: the part of the board to picture, at up to twice its size'),
     ids: z.array(z.string()).min(1).max(WHITEBOARD_LIMITS.readPage).optional().describe('query: the element ids to read'),
     text: z.string().min(1).max(WHITEBOARD_LIMITS.queryText).optional().describe('query: words to find in element titles, lines and notes'),
     cursor: z.string().max(40).optional().describe('get, query: the nextCursor a previous read returned, to read the next page of the same read'),
     path: z.string().min(1).max(4096).optional().describe('attach: the image file, absolute or relative to this session\'s directory'),
+    format: z.enum(['png', 'svg']).optional().describe('render: the kind of file to write, png unless given'),
+    scale: z.number().int().min(1).max(3).optional().describe('render: how many pixels a PNG gets per board unit, 1, 2 or 3, and 2 unless given; a large board gets fewer'),
   },
   actions: {
     list: whiteboardRoute('list', ['all'], { hints: READS }),
@@ -152,6 +161,7 @@ const WHITEBOARD_TOOL: GroupedTool = {
     get: whiteboardRoute('get', ['board', 'peek', 'review', 'region', 'cursor'], { required: ['board'], hints: REWRITES, presenter: 'board-with-reading' }),
     query: whiteboardRoute('query', ['board', 'region', 'ids', 'text', 'cursor'], { required: ['board'], hints: READS }),
     view: boardPictureRoute(),
+    render: boardRenderRoute(),
     put: whiteboardRoute('put', ['board', 'ops'], { required: ['board', 'ops'], hints: DESTROYS, presenter: 'board-with-reading' }),
     connect: whiteboardRoute('connect', ['board'], { required: ['board'], hints: REWRITES, presenter: 'board-without-command-guide' }),
     disconnect: whiteboardRoute('disconnect', ['board'], { required: ['board'], hints: REWRITES }),

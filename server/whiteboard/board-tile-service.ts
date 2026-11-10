@@ -2,6 +2,7 @@ import type { Board, BoardHead, BoardOutline } from '../../shared/contracts/whit
 import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
+import type { PictureOptions } from '../../mcp/core/board-reading.ts';
 import type { PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
@@ -51,7 +52,7 @@ interface PictureImage {
   height: number;
 }
 
-type BoardPictureRead = { ok: true; svgDocument: string; svgDensity: number; maxPixels: number } | { ok: false; error: string };
+type BoardPictureRead = { ok: true; svgDocument: string; svgDensity: number; maxPixels: number; frame: Rect } | { ok: false; error: string };
 
 interface BoardRegionRead {
   focus: Rect;
@@ -75,8 +76,8 @@ interface BoardTileService {
   regionOf(board: Board, focus: Rect | null, withOutline: boolean): Promise<BoardRegionRead>;
   pinPositionsOf(board: Board, ids: readonly string[]): Promise<PinPositions>;
   summaryOf(board: Board): Promise<LayoutSummary>;
-  pictureImagesOf(board: Board): Promise<PictureImage[]>;
-  pictureOf(board: Board, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead>;
+  pictureImagesOf(board: Board, options: PictureOptions): Promise<PictureImage[]>;
+  pictureOf(board: Board, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead>;
 }
 
 function headOf(board: Board): { head: BoardHead; elementCount: number } {
@@ -210,8 +211,8 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     return { laidOutBoxOf: (id) => pinnedBoxById.get(id), pinnedOffsetY: answer.pinnedOffsetY ?? 0 };
   }
 
-  async function pictureOf(board: Board, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead> {
-    const answer = await layouts.ask(board, { kind: 'picture', boardId: board.id, dataUriByAssetId });
+  async function pictureOf(board: Board, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead> {
+    const answer = await layouts.ask(board, { kind: 'picture', boardId: board.id, dataUriByAssetId, options });
     if (!answer.picture) throw new Error(`the whiteboard layout sent no picture for board ${board.id}`);
     return answer.picture;
   }
@@ -239,7 +240,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     regionOf,
     pinPositionsOf,
     summaryOf: async (board) => summaryOfAnswer(board, await layouts.ask(board, { kind: 'summary', boardId: board.id })),
-    pictureImagesOf: async (board) => (await layouts.ask(board, { kind: 'picture-images', boardId: board.id })).pictureImages ?? [],
+    pictureImagesOf: async (board, options) => (await layouts.ask(board, { kind: 'picture-images', boardId: board.id, options })).pictureImages ?? [],
     pictureOf,
   };
 }

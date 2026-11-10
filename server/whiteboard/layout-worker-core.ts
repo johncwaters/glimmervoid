@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { BoardHead, BoardOutline, Element } from '../../shared/contracts/whiteboard.ts';
+import { BoardHead, BoardOutline, BoardRegion, Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
@@ -20,13 +20,18 @@ const RequestId = z.number().int();
 const ViewerTiles = z.strictObject({ viewerId: z.number().int(), version: z.number().int().nullable(), heldKeys: z.array(TileKey) });
 const ChangedElement = z.strictObject({ id: z.string(), after: Element.nullable(), isAppended: z.boolean() });
 
+const PictureOptions = z.strictObject({
+  region: BoardRegion.nullable(),
+  limits: z.strictObject({ maxScale: z.number().positive(), maxWidthPx: z.number().positive(), maxHeightPx: z.number().positive() }),
+});
+
 const LayoutRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('sync-start'), requestId: RequestId, syncId: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative() }),
   z.strictObject({ kind: z.literal('sync-elements'), requestId: RequestId, syncId: z.number().int(), boardId: z.string(), elements: z.array(Element) }),
   z.strictObject({ kind: z.literal('advance'), requestId: RequestId, head: BoardHead, changes: z.array(ChangedElement), viewers: z.array(ViewerTiles) }),
   z.strictObject({ kind: z.literal('refresh'), requestId: RequestId, boardId: z.string(), viewers: z.array(ViewerTiles) }),
-  z.strictObject({ kind: z.literal('picture-images'), requestId: RequestId, boardId: z.string() }),
-  z.strictObject({ kind: z.literal('picture'), requestId: RequestId, boardId: z.string(), dataUriByAssetId: z.record(z.string(), z.string()) }),
+  z.strictObject({ kind: z.literal('picture-images'), requestId: RequestId, boardId: z.string(), options: PictureOptions }),
+  z.strictObject({ kind: z.literal('picture'), requestId: RequestId, boardId: z.string(), dataUriByAssetId: z.record(z.string(), z.string()), options: PictureOptions }),
   z.strictObject({ kind: z.literal('tiles'), requestId: RequestId, boardId: z.string(), keys: z.array(TileKey), withChrome: z.boolean() }),
   z.strictObject({ kind: z.literal('cached-tiles'), requestId: RequestId, boardId: z.string(), version: z.number().int(), updatedAt: z.number(), keys: z.array(TileKey), withChrome: z.boolean() }),
   z.strictObject({ kind: z.literal('pins'), requestId: RequestId, boardId: z.string(), ids: z.array(z.string()) }),
@@ -60,7 +65,7 @@ const LayoutAnswer = z.strictObject({
   pictureImages: z.array(z.strictObject({ media: LaidOutMedia, width: z.number(), height: z.number() })).optional(),
   openSteps: z.array(OpenStep).optional(),
   picture: z.union([
-    z.strictObject({ ok: z.literal(true), svgDocument: z.string(), svgDensity: z.number(), maxPixels: z.number() }),
+    z.strictObject({ ok: z.literal(true), svgDocument: z.string(), svgDensity: z.number(), maxPixels: z.number(), frame: LayoutRect }),
     z.strictObject({ ok: z.literal(false), error: z.string() }),
   ]).optional(),
 });
@@ -254,12 +259,12 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
         const viewerMessages = request.viewers.filter((viewer) => viewer.version !== board.version).map((viewer) => wholeTilesOf(viewer, current.index));
         return { version: board.version, warnings: warningsOfBoard(board), chrome: current.index.chrome, viewerMessages };
       }
-      case 'picture-images': return { pictureImages: pictureImagesOf(layoutBoardRemembered(boardNamed(request.boardId))) };
+      case 'picture-images': return { pictureImages: pictureImagesOf(layoutBoardRemembered(boardNamed(request.boardId)), request.options) };
       case 'picture': {
         const board = boardNamed(request.boardId);
-        const picture = boardPicture(board, layoutBoardRemembered(board), (media) => request.dataUriByAssetId[media.asset] ?? null);
+        const picture = boardPicture(board, layoutBoardRemembered(board), (media) => request.dataUriByAssetId[media.asset] ?? null, request.options);
         if (!picture.ok) return { picture };
-        return { picture: { ok: true, svgDocument: picture.svgDocument, svgDensity: picture.svgDensity, maxPixels: picture.maxPixels } };
+        return { picture: { ok: true, svgDocument: picture.svgDocument, svgDensity: picture.svgDensity, maxPixels: picture.maxPixels, frame: picture.frame } };
       }
       case 'tiles': {
         const { index } = heldTilesOf(boardNamed(request.boardId));

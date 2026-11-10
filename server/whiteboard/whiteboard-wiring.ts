@@ -13,6 +13,8 @@ import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-boa
 import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
+import { forgetBoardRenders } from './board-picture.ts';
+import type { PictureOptions } from '../../mcp/core/board-reading.ts';
 import { LAYOUT_CACHE_FILENAME } from './layout-cache.ts';
 import type { BoardPictureRead, BoardTileService, LayoutSummary, OpenStepLog, PictureImage } from './board-tile-service.ts';
 import { createOpenStepLogs } from './open-step-log.ts';
@@ -102,6 +104,7 @@ type OperatorReply = {
   patch?: WhiteboardPatch;
 };
 
+const RENDERS_FOLDER_NAME = 'renders';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
@@ -170,11 +173,13 @@ interface BoardReadingOf {
 }
 
 interface WhiteboardLayouts {
+  rendersRoot: string;
+  isBoardDeleted(boardId: string): boolean;
   findBoardId(ref: string, callerProject: string | null): Promise<{ ok: true; boardId: string } | { ok: false; reply: WhiteboardReply }>;
   readingOf(boardId: string): Promise<BoardReadingOf | null>;
   summaryOf(boardId: string): Promise<LayoutSummary | null>;
-  pictureImagesOf(boardId: string): Promise<PictureImage[] | null>;
-  pictureOf(boardId: string, dataUriByAssetId: Record<string, string>): Promise<BoardPictureRead | null>;
+  pictureImagesOf(boardId: string, options: PictureOptions): Promise<PictureImage[] | null>;
+  pictureOf(boardId: string, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead | null>;
 }
 
 function elementIdsNamedBy(op: Op): string[] {
@@ -717,6 +722,7 @@ function createWhiteboardWiring({
     unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
     tiles.forgetBoard(boardId);
+    void forgetBoardRenders(path.join(boardsRoot, RENDERS_FOLDER_NAME), boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
     void sweepUnusedAssets();
@@ -923,7 +929,10 @@ function createWhiteboardWiring({
     return loading.ok ? loading.record.board : null;
   }
 
+  const rendersRoot = path.join(boardsRoot, RENDERS_FOLDER_NAME);
   const layouts: WhiteboardLayouts = {
+    rendersRoot,
+    isBoardDeleted: (boardId) => deletedBoardIds.has(boardId),
     findBoardId: async (ref, callerProject) => {
       await loaded;
       return findBoardId(ref, callerProject);
@@ -938,13 +947,13 @@ function createWhiteboardWiring({
       const board = await loadedBoardOf(boardId);
       return board ? tiles.summaryOf(board) : null;
     },
-    pictureImagesOf: async (boardId) => {
+    pictureImagesOf: async (boardId, options) => {
       const board = await loadedBoardOf(boardId);
-      return board ? tiles.pictureImagesOf(board) : null;
+      return board ? tiles.pictureImagesOf(board, options) : null;
     },
-    pictureOf: async (boardId, dataUriByAssetId) => {
+    pictureOf: async (boardId, dataUriByAssetId, options) => {
       const board = await loadedBoardOf(boardId);
-      return board ? tiles.pictureOf(board, dataUriByAssetId) : null;
+      return board ? tiles.pictureOf(board, dataUriByAssetId, options) : null;
     },
   };
 
