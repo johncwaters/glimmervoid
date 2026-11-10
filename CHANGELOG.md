@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Export a whiteboard as a picture.** Board actions now has Export SVG and Export PNG, which download the open board with its media, the PNG at twice the board's size, where the only way to get a picture out was a screenshot.
 - **Sharp whiteboard pictures for agents.** A board an agent looked at came back at one pixel a unit or less, so its text was a blur. The picture is now drawn at up to twice the size, an agent can ask for one region of a large board to read it up close, and a new render action writes the whole board to a PNG at one to three times its size, or to an SVG, with its media included, in a folder Glimmervoid keeps, and tells the agent where the file is.
 - **Line boxes up on a whiteboard in one step.** An agent can now give a set of boxes one top and one height as a row, or one left and one width as a column, with a single align op, where it had to work out and set each position and size itself and rows came out ragged.
 - **Borderless boxes on a whiteboard.** A box or a device box can now drop its card: tick Borderless in the properties panel, or have an agent set `"borderless":true`, and the box draws no fill and no outline, so a device mockup or a picture stands alone under its title instead of sitting in a box inside a box. Its size and wires stay where they were, and a diff mark or a plan step still draws its outline.

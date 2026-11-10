@@ -90,4 +90,3 @@ async function forgetBoardRenders(rendersRoot: string, boardId: string): Promise
 }
 
 export { PICTURE_FORMATS, RENDER_SCALES, boardPictureFile, forgetBoardRenders, renderKindOf, writeBoardRender };
-export type { BoardPictureFile, PictureFormat, RenderScale };

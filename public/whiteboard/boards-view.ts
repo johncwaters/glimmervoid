@@ -3,7 +3,7 @@ import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Fr
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -344,6 +344,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
     actionItem('Rename board', startTitleRename),
     actionItem('New board', newBoardFromDialog),
     boardSettingsItem,
+    actionItem('Export SVG', () => void exportBoardPicture('svg')),
+    actionItem('Export PNG', () => void exportBoardPicture('png')),
     actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
   menu.addEventListener('click', (event) => {
@@ -803,6 +805,24 @@ function addFrame(): void {
       return error;
     },
   });
+}
+
+async function exportBoardPicture(format: 'svg' | 'png'): Promise<void> {
+  const summary = selectedSummary();
+  if (!summary) return;
+  const response = await fetch(`${WHITEBOARD_PICTURE_ROUTE}/${encodeURIComponent(summary.id)}/picture.${format}`).catch(() => null);
+  if (!response?.ok) {
+    const refusal: unknown = await response?.json().catch(() => null);
+    const reason = typeof refusal === 'object' && refusal !== null && 'error' in refusal && typeof refusal.error === 'string' ? refusal.error : 'the board could not be exported';
+    status.show('error', reason);
+    return;
+  }
+  const pictureUrl = URL.createObjectURL(await response.blob());
+  const download = el('a');
+  download.href = pictureUrl;
+  download.download = `${summary.title}.${format}`;
+  download.click();
+  URL.revokeObjectURL(pictureUrl);
 }
 
 function confirmDeleteBoard(): void {

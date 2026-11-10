@@ -506,6 +506,18 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.equal((await fetch(assetUrl(`${media.asset}.webp`))).status, 404);
   assert.equal((await fetch(assetUrl(`${media.asset}.preview.webp`))).status, 404);
   assert.equal((await fetch(assetUrl(`${'0'.repeat(64)}.png`))).status, 404);
+  const exportUrl = (board: string, filename: string) => `${running().base}/whiteboards/pictures/${board}/${filename}`;
+  const exportedPng = await fetch(exportUrl(boardId, 'picture.png'));
+  assert.deepEqual([exportedPng.status, exportedPng.headers.get('content-type'), exportedPng.headers.get('content-disposition')], [200, 'image/png', 'attachment']);
+  const exportedSize = await sharp(Buffer.from(await exportedPng.arrayBuffer())).metadata();
+  const exportedSvg = await fetch(exportUrl(boardId, 'picture.svg'));
+  assert.equal(exportedSvg.headers.get('content-type'), 'image/svg+xml');
+  const exportedMarkup = await exportedSvg.text();
+  assert.match(exportedMarkup, /data:image\/png;base64,/);
+  const drawnWidth = Number(/ width="([0-9.]+)"/.exec(exportedMarkup)?.[1]);
+  assert.equal(exportedSize.width, Math.round(drawnWidth * 2));
+  assert.equal((await fetch(exportUrl(boardId, 'picture.gif'))).status, 404);
+  assert.equal((await fetch(exportUrl('no-such-board', 'picture.png'))).status, 404);
   const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
   assert.deepEqual(await pasted.json(), { ok: true, media });
   const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });

@@ -58,6 +58,7 @@ const Output = z.object({
 }).strict().meta({ id: 'Output' });
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
+export const WHITEBOARD_PICTURE_ROUTE = '/whiteboards/pictures';
 export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';

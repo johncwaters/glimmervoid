@@ -42,7 +42,9 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
+import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
@@ -304,6 +306,15 @@ function sendBoardPage(res: Response, servable: { path: string; contentType: str
 
 function isPage(servable: { contentType: string }): boolean {
   return servable.contentType.startsWith('text/html');
+}
+
+const BOARD_EXPORT_SCALE = 2;
+const PICTURE_CONTENT_TYPE_BY_FORMAT = { svg: 'image/svg+xml', png: 'image/png' } as const;
+
+async function exportedBoardPicture(layouts: WhiteboardLayouts, assets: WhiteboardAssetStore | null, boardId: string, format: typeof PICTURE_FORMATS[number]): ReturnType<typeof boardPictureFile> {
+  const isKnownBoard = (await layouts.summaryOf(boardId)) !== null;
+  if (!isKnownBoard) return { ok: false, status: 404, error: 'no such board' };
+  return boardPictureFile(layouts, assets, boardId, { format, region: null, limits: filePictureLimitsOf(BOARD_EXPORT_SCALE) });
 }
 
 function serveBoardAsset(req: Request, res: Response, servable: { path: string; contentType: string }): void {
@@ -737,6 +748,29 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       return;
     }
     serveBoardAsset(req, res, servable);
+  });
+
+  app.get(`${WHITEBOARD_PICTURE_ROUTE}/:boardId/:filename`, (req, res) => {
+    const format = PICTURE_FORMATS.find((known) => req.params.filename === `picture.${known}`);
+    const layouts = dependencies.getWhiteboardLayouts?.() ?? null;
+    if (!format || !layouts) {
+      res.status(format ? 503 : 404).json({ ok: false, error: format ? 'boards are not ready yet' : 'a board exports as picture.svg or picture.png' });
+      return;
+    }
+    void exportedBoardPicture(layouts, dependencies.getWhiteboardAssets?.() ?? null, req.params.boardId, format).then((picture) => {
+      if (!picture.ok) {
+        res.status(picture.status).json({ ok: false, error: picture.error });
+        return;
+      }
+      res.setHeader('Content-Security-Policy', BOARD_MEDIA_SANDBOX_POLICY);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('Content-Type', PICTURE_CONTENT_TYPE_BY_FORMAT[format]);
+      res.status(200).end(picture.bytes);
+    }, () => {
+      res.status(500).json({ ok: false, error: 'the board could not be exported' });
+    });
   });
 
   mountCustomSoundRoutes(app, { soundsDir: customSoundsDir });
