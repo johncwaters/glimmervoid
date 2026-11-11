@@ -720,6 +720,10 @@
     {
       "name": "keyboard",
       "definition": "The phone's on-screen soft keyboard that types into a session's terminal, opened by tapping the terminal and opened or closed by the Keyboard key in the phone key strip"
+    },
+    {
+      "name": "reload",
+      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file"
     }
   ],
   "retired": [
