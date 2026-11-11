@@ -93,6 +93,25 @@ export function splitReviewingNow(groups: readonly QueueGroup[], pulledKeys: rea
   return { groups: displayGroups, pulledKeys: keptPulledKeys };
 }
 
+export function splitMovedToWaiting(groups: readonly QueueGroup[], movedEntries: readonly string[]): { groups: QueueGroup[]; movedEntries: string[] } {
+  const movedEntrySet = new Set(movedEntries);
+  const movedItems = turnItems(groups).filter((item) => movedEntrySet.has(queueItemActivityEntry(item)));
+  const liveMovedEntries = new Set(movedItems.map(queueItemActivityEntry));
+  const shownCardIds = new Set(groups.flatMap((group) => group.items.map((item) => activityEntryCardId(queueItemActivityEntry(item)))));
+  const isEntryKept = (entry: string) => liveMovedEntries.has(entry) || !shownCardIds.has(activityEntryCardId(entry));
+  const movedKeys = new Set(movedItems.map((item) => item.key));
+  const splitGroups = groups.map((group): QueueGroup => {
+    if (group.id === 'turn') return { ...group, items: group.items.filter((item) => !movedKeys.has(item.key)) };
+    if (group.id === 'waiting') return { ...group, items: [...movedItems, ...group.items] };
+    return group;
+  });
+  return { groups: splitGroups, movedEntries: movedEntries.filter(isEntryKept) };
+}
+
+function activityEntryCardId(entry: string): string {
+  return entry.slice(0, entry.indexOf('@'));
+}
+
 export const SLIM_GROUP_IDS: ReadonlySet<DisplayGroupId> = new Set(['queued', 'working', 'parked']);
 
 function queueKeySource(key: string): string {
@@ -436,7 +455,7 @@ export function steppedRowKey(rowKeys: readonly string[], selectedKey: string | 
   return rowKeys[Math.min(rowKeys.length - 1, Math.max(0, index + step))];
 }
 
-export type BoardDrop = { kind: 'pull'; shouldBePulled: boolean } | { kind: 'team-action'; action: TeamReviewAction };
+export type BoardDrop = { kind: 'pull'; shouldBePulled: boolean } | { kind: 'team-action'; action: TeamReviewAction } | { kind: 'wait'; isMoved: boolean; shouldBePulled: boolean };
 
 const TEAM_ACTION_BY_DROP_LANE: Readonly<Partial<Record<DisplayGroupId, TeamReviewAction>>> = { parked: 'discard', queued: 'requeue', turn: 'restore' };
 
@@ -448,14 +467,16 @@ function offeredTeamActions(item: Extract<QueueItem, { source: 'team' }>): reado
   return [...layout.leading, ...layout.trailing];
 }
 
-export function boardDropOf(item: QueueItem, sourceGroupId: DisplayGroupId, targetGroupId: DisplayGroupId): BoardDrop | null {
+export function boardDropOf(item: QueueItem, sourceGroupId: DisplayGroupId, targetGroupId: DisplayGroupId, isMovedToWaiting = false): BoardDrop | null {
   if (sourceGroupId === targetGroupId) return null;
   if (PULL_LANE_IDS.has(sourceGroupId) && PULL_LANE_IDS.has(targetGroupId)) return { kind: 'pull', shouldBePulled: targetGroupId === 'now' };
+  if (PULL_LANE_IDS.has(sourceGroupId) && targetGroupId === 'waiting') return { kind: 'wait', isMoved: true, shouldBePulled: false };
+  if (isMovedToWaiting && PULL_LANE_IDS.has(targetGroupId)) return { kind: 'wait', isMoved: false, shouldBePulled: targetGroupId === 'now' };
   const action = TEAM_ACTION_BY_DROP_LANE[targetGroupId];
   if (item.source !== 'team' || !action || !offeredTeamActions(item).includes(action)) return null;
   return { kind: 'team-action', action };
 }
 
-export function boardDropLaneIds(item: QueueItem, sourceGroupId: DisplayGroupId): DisplayGroupId[] {
-  return BOARD_COLUMN_ORDER.filter((targetGroupId) => boardDropOf(item, sourceGroupId, targetGroupId) !== null);
+export function boardDropLaneIds(item: QueueItem, sourceGroupId: DisplayGroupId, isMovedToWaiting = false): DisplayGroupId[] {
+  return BOARD_COLUMN_ORDER.filter((targetGroupId) => boardDropOf(item, sourceGroupId, targetGroupId, isMovedToWaiting) !== null);
 }

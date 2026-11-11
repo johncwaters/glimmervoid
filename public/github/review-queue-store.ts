@@ -1,9 +1,9 @@
 import type { ReviewsSnapshot } from '#shared/contracts/reviews.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
-import { getPrsAttentionAck, getPrsUnseenRows, setPrsAttentionAck, setPrsUnseenRows } from '../ui-prefs.ts';
+import { getPrsAttentionAck, getPrsUnseenRows, getReviewsMovedToWaiting, setPrsAttentionAck, setPrsUnseenRows, setReviewsMovedToWaiting } from '../ui-prefs.ts';
 import { isKeepMergeableFeatureEnabled } from './github-store-core.ts';
 import { myPrsSnapshot, subscribeMyPrs } from './my-prs-store.ts';
-import { bannerTilesOf, buildReviewQueue, decideTurnAttention, turnActivityEntries } from './review-queue-core.ts';
+import { bannerTilesOf, buildReviewQueue, decideTurnAttention, splitMovedToWaiting, turnActivityEntries } from './review-queue-core.ts';
 import type { QueueGroup } from './review-queue-core.ts';
 import { subscribeTeamReview, teamReviewSections, teamReviewStatusView } from './team-review-store.ts';
 
@@ -76,7 +76,10 @@ export function attachReviewQueueView(view: AttachedReviewQueueView): void {
 
 export function rebuildReviewQueue(): QueueGroup[] {
   const { prs, sessionsByPrKey, status } = myPrsSnapshot();
-  groups = buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()), isKeepMergeableFeatureEnabled(status), status?.viewer ?? null);
+  const storedMovedEntries = getReviewsMovedToWaiting();
+  const split = splitMovedToWaiting(buildReviewQueue(teamReviewSections(), prs, new Set(sessionsByPrKey.keys()), isKeepMergeableFeatureEnabled(status), status?.viewer ?? null), storedMovedEntries);
+  groups = split.groups;
+  if (hasBothLanes() && split.movedEntries.length !== storedMovedEntries.length) setReviewsMovedToWaiting(split.movedEntries);
   refreshActivity();
   return groups;
 }

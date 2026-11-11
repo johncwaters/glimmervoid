@@ -724,6 +724,10 @@
     {
       "name": "reload",
       "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file"
+    },
+    {
+      "name": "merged",
+      "definition": "A pull request's GitHub state once it lands on its base branch; the Reviews Merged column and an own pull request's Merged stage"
     }
   ],
   "retired": [

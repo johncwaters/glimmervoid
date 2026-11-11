@@ -36,6 +36,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   reviewsTurnLimit: number;
   reviewsPulledKeys: string[];
   reviewsCardOrder: string[];
+  reviewsMovedToWaiting: string[];
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
@@ -93,6 +94,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   reviewsTurnLimit: normalizeReviewsTurnLimit,
   reviewsPulledKeys: asStringList,
   reviewsCardOrder: asStringList,
+  reviewsMovedToWaiting: asStringList,
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
@@ -184,6 +186,8 @@ export const getReviewsPulledKeys = () => read('reviewsPulledKeys');
 export const setReviewsPulledKeys = (queueKeys: string[]) => write('reviewsPulledKeys', queueKeys);
 export const getReviewsCardOrder = () => read('reviewsCardOrder');
 export const setReviewsCardOrder = (queueKeys: string[]) => write('reviewsCardOrder', queueKeys);
+export const getReviewsMovedToWaiting = () => read('reviewsMovedToWaiting');
+export const setReviewsMovedToWaiting = (activityEntries: string[]) => write('reviewsMovedToWaiting', activityEntries);
 
 export const getReviewsBoardDetailWidth = () => read('reviewsBoardDetailWidth');
 export const setReviewsBoardDetailWidth = (px: number | null) => write('reviewsBoardDetailWidth', px);

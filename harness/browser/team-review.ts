@@ -82,6 +82,7 @@ async function verifyRows(page: Page): Promise<void> {
     ref: button.querySelector('.pr-queue-ref')?.textContent,
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
     stateWord: button.querySelector('.pr-queue-state')?.textContent,
+    groupTitle: button.closest('.pr-queue-section')?.querySelector('.review-group-heading > span')?.textContent?.trim(),
     stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
     findings: button.querySelector('.pr-queue-findings')?.textContent,
     actionWords: button.querySelectorAll('.review-queue-action').length,
@@ -106,8 +107,12 @@ async function verifyRows(page: Page): Promise<void> {
     assert.equal(row.authorAvatars, 1);
     assert.equal(row.title, null);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
+    if (row.stateWord === undefined) {
+      assert.ok(['Queued', 'Merged', 'Parked'].includes(row.groupTitle ?? ''), `${row.key} lost its state chip in ${row.groupTitle}`);
+      continue;
+    }
     assert.equal(row.stateTone, row.glyphTone);
-    assert.ok(row.stateWord);
+    assert.notEqual(row.stateWord, row.groupTitle);
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
@@ -710,11 +715,19 @@ async function verifyAgeTones(page: Page): Promise<void> {
 async function verifyBoardCardBottomRowsFit(page: Page): Promise<void> {
   const overflowingCardKeys = await page.locator('.review-board-cards .pr-queue-row').evaluateAll((cards) => cards.flatMap((card) => {
     const cardRight = card.getBoundingClientRect().right;
-    const shownBottomRowItems = [...card.querySelector('.pr-queue-bottom')?.children ?? []].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0);
-    const itemCenters = shownBottomRowItems.map((box) => box.top + box.height / 2);
-    const isOneLine = itemCenters.length === 0 || Math.max(...itemCenters) - Math.min(...itemCenters) < 4;
-    const isInsideCard = shownBottomRowItems.every((box) => box.right <= cardRight);
-    return isOneLine && isInsideCard ? [] : [card.getAttribute('data-review-key')];
+    const shownBottomRowItems = [...card.querySelector('.pr-queue-bottom')?.children ?? []].filter((child) => child.getBoundingClientRect().width > 0);
+    const textLineCount = (item: Element) => {
+      const ownTextNodes = [...item.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE);
+      const lineTops = ownTextNodes.flatMap((textNode) => {
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        return [...range.getClientRects()].map((lineBox) => Math.round(lineBox.top));
+      });
+      return new Set(lineTops).size;
+    };
+    const isEachItemOneLine = shownBottomRowItems.every((item) => textLineCount(item) <= 1);
+    const isInsideCard = shownBottomRowItems.every((item) => item.getBoundingClientRect().right <= cardRight);
+    return isEachItemOneLine && isInsideCard ? [] : [card.getAttribute('data-review-key')];
   }));
   assert.deepEqual(overflowingCardKeys, []);
   const orgDot = page.locator('.review-board-cards .pr-queue-row[data-review-key="Acme/app#7"] .pr-queue-author > .author-org-tag');
@@ -820,6 +833,18 @@ async function verifyDragReorder(page: Page): Promise<void> {
   await writeUiPrefs(page, { reviewsCardOrder: [] });
 }
 
+async function verifyDragToWaiting(page: Page): Promise<void> {
+  const columnOf = (reviewKey: string) => page.locator(`.review-board .pr-queue-row[data-review-key="${reviewKey}"]`).evaluate((card) => card.closest<HTMLElement>('.review-board-column')?.dataset.group);
+  const movedEntries = () => page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsMovedToWaiting?: string[] }).reviewsMovedToWaiting ?? []);
+  assert.equal(await columnOf('Acme/app#1'), 'turn');
+  assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'waiting'), true);
+  assert.equal(await columnOf('Acme/app#1'), 'waiting');
+  assert.equal((await movedEntries()).length, 1);
+  assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'turn'), true);
+  assert.equal(await columnOf('Acme/app#1'), 'turn');
+  assert.deepEqual(await movedEntries(), []);
+}
+
 async function verifyDragToParked(page: Page): Promise<void> {
   await page.evaluate(() => {
     const captureWindow = window as ActionCaptureWindow;
@@ -834,7 +859,6 @@ async function verifyDragToParked(page: Page): Promise<void> {
     };
   });
   try {
-    assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'waiting'), false);
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'merged'), false);
     assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
     const highlightedLanes = await page.evaluate(() => {
@@ -848,7 +872,7 @@ async function verifyDragToParked(page: Page): Promise<void> {
       card?.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
       return lanes;
     });
-    assert.deepEqual(highlightedLanes, ['queued', 'turn', 'now', 'parked']);
+    assert.deepEqual(highlightedLanes, ['queued', 'turn', 'now', 'waiting', 'parked']);
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'parked'), true);
     const sent = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string; key?: string };
     assert.deepEqual({ action: sent.action, key: sent.key }, { action: 'discard', key: 'Acme/app#1' });
@@ -1075,6 +1099,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await verifyBoardCardBottomRowsFit(page);
   await verifyColumnSteps(page);
   await verifyDragReorder(page);
+  await verifyDragToWaiting(page);
   await verifyDragToParked(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');

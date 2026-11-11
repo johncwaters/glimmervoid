@@ -14,7 +14,7 @@ import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotice
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
-import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
+import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsMovedToWaiting, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsMovedToWaiting, setReviewsPulledKeys } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
@@ -205,14 +205,32 @@ function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
   return true;
 }
 
+function isMovedToWaiting(item: QueueItem): boolean {
+  return getReviewsMovedToWaiting().includes(queueItemActivityEntry(item));
+}
+
+function moveToWaiting(item: QueueItem, isMoved: boolean, shouldBePulled: boolean): void {
+  const entry = queueItemActivityEntry(item);
+  const otherEntries = getReviewsMovedToWaiting().filter((movedEntry) => movedEntry !== entry);
+  setReviewsMovedToWaiting(isMoved ? [...otherEntries, entry] : otherEntries);
+  renderedSignature = null;
+  render();
+  if (shouldBePulled) movePulled(item.key, true);
+  rowsByKey.get(item.key)?.focus({ preventScroll: true });
+}
+
 function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId): void {
   const sourceGroup = displayGroups.find((group) => group.items.some((item) => item.key === queueKey));
   const item = sourceGroup?.items.find((groupItem) => groupItem.key === queueKey);
   if (!sourceGroup || !item) return;
-  const drop = boardDropOf(item, sourceGroup.id, targetGroupId);
+  const drop = boardDropOf(item, sourceGroup.id, targetGroupId, isMovedToWaiting(item));
   if (!drop) return;
   if (drop.kind === 'pull') {
     movePulled(queueKey, drop.shouldBePulled);
+    return;
+  }
+  if (drop.kind === 'wait') {
+    moveToWaiting(item, drop.isMoved, drop.shouldBePulled);
     return;
   }
   selectItem(queueKey, { isFromQueue: true });
@@ -545,7 +563,7 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
       renderedSignature = null;
       render();
     },
-    dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id),
+    dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id, isMovedToWaiting(item)),
     onDropCard: dropCardOnLane,
     onReorderCard: reorderCard,
   });
