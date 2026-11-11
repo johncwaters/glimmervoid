@@ -649,9 +649,9 @@ export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessi
   }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
   const ageAtMs = mergedAt ? Date.parse(mergedAt) : pr.stageSinceMs ?? Date.parse(pr.updatedAt);
-  const ageReadout = el('span', 'pr-queue-elapsed', mergedAt ? `merged ${formatAgo(ageAtMs)}` : `for ${formatDuration(Date.now() - ageAtMs)}`);
+  const ageReadout = el('span', 'pr-queue-elapsed', mergedAt ? formatAgo(ageAtMs) : `for ${formatDuration(Date.now() - ageAtMs)}`);
   ageReadout.dataset.ageAt = String(ageAtMs);
-  ageReadout.dataset.ageLabel = mergedAt ? 'merged' : 'for';
+  ageReadout.dataset.ageLabel = mergedAt ? '' : 'for';
   if (!mergedAt) ageReadout.dataset.ageFormat = 'duration';
   bottom.append(ageReadout);
   const repairLabel = keepMergeableRowLabel(pr, keepMergeableToggle.isFeatureEnabled(latest));

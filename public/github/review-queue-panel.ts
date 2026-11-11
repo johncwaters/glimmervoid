@@ -292,10 +292,16 @@ function itemAgeTone(item: QueueItem, groupId: DisplayGroupId) {
   return ageToneOf(groupId, queueItemWaitStartMs(item), Date.now());
 }
 
-function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
-  const isTurn = groupId === 'turn' || groupId === 'now';
+function hideChipEchoingGroupTitle(row: HTMLElement, groupTitle: string): void {
+  const stateChip = row.querySelector('.pr-queue-bottom > .my-pr-stage');
+  if (stateChip?.textContent === groupTitle) stateChip.remove();
+}
+
+function createItemRow(item: QueueItem, group: DisplayGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const isTurn = group.id === 'turn' || group.id === 'now';
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
-  const ageTone = itemAgeTone(item, groupId);
+  hideChipEchoingGroupTitle(row, group.title);
+  const ageTone = itemAgeTone(item, group.id);
   if (ageTone) row.dataset.ageTone = ageTone;
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
@@ -507,7 +513,7 @@ function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sess
     section.append(tiles);
     return section;
   }
-  for (const item of group.items) section.append(createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey));
+  for (const item of group.items) section.append(createItemRow(item, group, hasMultipleRepos, sessionsByPrKey));
   return section;
 }
 
@@ -528,7 +534,7 @@ function rowsSignature(groups: readonly DisplayGroup[], sessionsByPrKey: Readonl
 function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
   const hasReadyItems = turnItems(currentGroups).length > 0;
   return createReviewBoard(displayGroups, {
-    createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
+    createCard: (item, group) => createItemRow(item, group, hasMultipleRepos, sessionsByPrKey),
     createTile: (item, group) => createItemTile(item, group.id),
     createCount: createGroupCount,
     createHeadingExtras: headingExtrasOf,

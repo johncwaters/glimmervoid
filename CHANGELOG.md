@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reviews board cards stop breaking words across lines and stop repeating themselves.** In a narrow column, a status such as Needs approval now stays on one line, and the age moves to the next line when the row runs out of room. A card no longer shows a status that only repeats its column title, such as Merged in Merged or Queued in Queued, so a merged pull request now shows only its age, such as 21h ago, instead of Merged merged 21h ago.
 - **The Reviews board keeps its detail panel open.** On desktop the Board layout now shows the review detail beside the board as soon as you open the tab, and it stays there: the Close button is gone and Escape no longer hides it. Escape still clears a decision you picked in the note. The phone keeps its separate queue and detail screens.
 - **A doc opens as a sheet over the board, and a click outside closes it.** On desktop, opening a Markdown doc now shows it as a centered sheet at reading width with the board dimmed around it, instead of covering the whole screen. The title bar is gone: Undo, Redo, Close and the doc picker float at the sheet's top right, and the save status sits under the text. Clicking the board outside the sheet saves your edits and closes the doc, the same as Escape. If the save fails, it asks before discarding. On the phone the doc still fills the screen.
 
