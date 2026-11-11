@@ -223,6 +223,7 @@ const OWNED_COMMAND_SPECS = {
       ],
     }],
   },
+  'github-usage': { name: 'github-usage', summary: 'Show the GitHub API calls and rate-limit points Glimmervoid spent in the last hour beside the account pool', options: [JSON_OPTION] },
   'pr-action': {
     name: 'pr-action',
     summary: 'Report the outcome of the PR action run that started this process',

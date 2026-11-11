@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **See how much of your GitHub rate limit Glimmervoid spends.** Run `glimmervoid github-usage` from any terminal or session to list each GitHub operation Glimmervoid ran in the last hour, with its calls and rate-limit points per pool (GraphQL, core, search). Beside that it shows how much of your account's pool is used in GitHub's current window and how much of that was Glimmervoid, so when the limit runs low you can tell whether Glimmervoid or something else on your account drained it. GraphQL points are the cost GitHub reports for each query. The running server refreshes the numbers every minute, keeps only the last hour, and logs a one-line summary each hour. `--json` prints the raw snapshot.
+
 ### Fixed
 
 - **The dashboard tells you to reload when it is older than the server.** A dashboard tab left open across a Glimmervoid update could keep running the old page, and a board or view the old page could not read drew empty with no explanation. The header now says the server sent a message this dashboard could not read and to reload the page, once per page load. Messages from a linked host never show it, since reloading cannot fix another machine's version.
