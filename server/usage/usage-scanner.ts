@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { buildUsageReport, pruneEntries, startOfLocalDay } from './core/usage-aggregate-core.ts';
-import { localDayKey } from '../../shared/display-text.ts';
+import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
+import { clock } from '../../shared/clock.ts';
 import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
 import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
 import type { UsageBlock } from './core/usage-blocks-core.ts';
@@ -864,7 +864,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
 
   function todayDayKey(): string {
-    return localDayKey(nowFn());
+    return clock.dayKeyOf(nowFn());
   }
 
   async function persistWarehouse(): Promise<void> {
@@ -897,7 +897,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         blockHours,
         retainDays: reportRetainDays,
       }),
-      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+      tz: clock.timezone(),
     };
     return {
       tz: report.tz,
@@ -910,7 +910,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function cachedRollupsForDays(days: number | undefined, reportRetainDays: number) {
-    const rangeKey = `${days ?? 'all'}:${todayDayKey()}`;
+    const rangeKey = `${days ?? 'all'}:${clock.timezone()}:${todayDayKey()}`;
     const cached = cachedRollupsByRange.get(rangeKey);
     if (cached) return cached;
     const rollups = buildRollups(reportRetainDays);
@@ -1006,7 +1006,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   function buildLaneRows(reportRetainDays: number, now: number) {
     const lanes = getRecordedLanes();
     if (!lanes) return null;
-    const windowStartMs = startOfLocalDay(now, reportRetainDays - 1);
+    const windowStartMs = clock.startOfDay(now, reportRetainDays - 1);
     return laneRollup(entries.filter((entry) => entry.timestampMs >= windowStartMs), lanes);
   }
 

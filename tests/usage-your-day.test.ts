@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { buildYourDay } from '../server/usage/core/usage-your-day-core.ts';
 import type { ActivityEvent } from '../server/usage/core/usage-your-day-core.ts';
 import { yourDayHint } from '../public/usage/usage-view-core.ts';
-import { localDayKey } from '../shared/display-text.ts';
+import { clock } from '../shared/clock.ts';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -50,7 +50,7 @@ test('yourDay hint calls the day before a 23 hour day yesterday just after midni
   }
   const shortDay = new Date(dayAfterShortDay.getFullYear(), dayAfterShortDay.getMonth(), dayAfterShortDay.getDate() - 1);
   const yourDay = {
-    yesterday: { day: localDayKey(shortDay), sessionCount: 2, activeMs: 90 * MINUTE_MS },
+    yesterday: { day: clock.dayKeyOf(shortDay), sessionCount: 2, activeMs: 90 * MINUTE_MS },
     insights: [],
     usual: { peakWaiting: 0, stretchMs: 0 },
     currentStretchStartedAt: null,

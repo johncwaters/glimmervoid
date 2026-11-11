@@ -1,4 +1,4 @@
-import { localClockText } from '#shared/display-text.ts';
+import { clock } from '#shared/clock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
@@ -34,7 +34,7 @@ function buildDebugCloseButton() {
 
 function formatTimestamp(ts: number | undefined) {
   if (!ts) return '-';
-  return localClockText(new Date(ts));
+  return clock.format(ts, 'hour-minute-second');
 }
 
 function formatSeconds(ms: number | undefined) {

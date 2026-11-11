@@ -1,5 +1,6 @@
 import type { YourDay } from '#shared/contracts/your-day.ts';
-import { localDayKey, twoUnitDurationText } from '#shared/display-text.ts';
+import { clock } from '#shared/clock.ts';
+import { twoUnitDurationText } from '#shared/display-text.ts';
 import { isHintCardShown, showHintCard } from './feature-hint.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { attentionTally } from './session-card/card-registry.ts';
@@ -51,7 +52,7 @@ function liveTipText(waitingCount: number, stretchMs: number) {
 function tryMorningTip(yourDay: YourDay, now: number) {
   const topInsight = yourDay.insights[0];
   if (!topInsight || new Date(now).getHours() < MORNING_START_HOUR) return false;
-  if (!claim(`morning-${localDayKey(now)}`, now, DAY_MS)) return false;
+  if (!claim(`morning-${clock.dayKeyOf(now)}`, now, DAY_MS)) return false;
   showHintCard({ text: `Morning. ${topInsight.text}`, ariaLabel: 'Your day tip', onOpen: openUsageView, onDismiss: () => {} });
   return true;
 }
@@ -62,7 +63,7 @@ function tryLiveTip(yourDay: YourDay, now: number) {
   const waitingCount = attentionTally.counts.waitingCount;
   const stretchMs = now - stretchStartedAt;
   if (waitingCount <= yourDay.usual.peakWaiting || stretchMs <= yourDay.usual.stretchMs) return;
-  const silencedKey = claimKey('your-day', `live-silenced-${localDayKey(now)}`);
+  const silencedKey = claimKey('your-day', `live-silenced-${clock.dayKeyOf(now)}`);
   if (readStorage(silencedKey)) return;
   if (!claim('live', now, LIVE_TIP_GAP_MS)) return;
   showHintCard({

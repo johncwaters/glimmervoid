@@ -43,6 +43,7 @@ import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
+import { setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
@@ -116,6 +117,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const configStore = createConfigStore({ settingsDefaults, isExperimentalBuild: options.isExperimentalBuild, readTelemetryInstallId: () => telemetry.currentInstallId() });
   const { config } = configStore;
+  setOperatorTimezoneSource(() => config.operatorTimezone);
   applyCustomAgents(config);
   const port = options.localPort ?? resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: config.port, defaultPort: DEFAULT_CONFIG.port });
   const boundDashboardPort = (): number => {

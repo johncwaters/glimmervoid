@@ -36,6 +36,12 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Set by dragging sessions in the sidebar, or pressing and holding them on the phone Board.', ...FILE_ONLY,
   },
   {
+    id: 'file-operator-timezone', path: 'operatorTimezone', title: 'Operator timezone', group: 'machine-sessions',
+    description: 'Timezone that wake times, day boundaries and shown times use; until a dashboard reports one, the machine timezone.',
+    control: 'text', keywords: ['timezone', 'time zone', 'clock', 'wake', 'day'], defaultValue: null, nullable: true, takesEffect: 'now',
+    fileOnlyReason: 'Set by the dashboard from the browser timezone each time it connects with a different one.', ...FILE_ONLY,
+  },
+  {
     id: 'file-replay-buffer', path: 'replayBufferKB', title: 'Replay buffer', group: 'machine-terminal',
     description: 'PTY output retained for clients that reconnect or join late.',
     control: 'number', range: REPLAY_BUFFER_KB_RANGE, unit: { label: 'KB', storedPerDisplay: 1 }, keywords: ['history', 'backfill'], defaultValue: 512,
