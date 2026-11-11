@@ -293,10 +293,10 @@ test('community research and judge runs read public text only from untrusted.jso
 
 test('community research refuses to start without a read token or while the environment would close its GitHub access', () => {
   const config = { community: { enabled: true }, posthog: { apiKey: 'phx_key', projectId: 1 } };
-  assert.match(communityGate(config, {}).reason ?? '', /needs a GitHub read token/);
+  assert.match(communityGate(config, {}, null).reason ?? '', /needs a GitHub read token/);
   const withToken = { ...config, github: { readToken: 'read-token' } };
-  assert.match(communityGate(withToken, { HTTPS_PROXY: 'http://proxy.corp:3128' }).reason ?? '', /HTTPS_PROXY/);
-  assert.deepEqual(communityGate(withToken, {}), { start: true });
+  assert.match(communityGate(withToken, { HTTPS_PROXY: 'http://proxy.corp:3128' }, null).reason ?? '', /HTTPS_PROXY/);
+  assert.deepEqual(communityGate(withToken, {}, null), { start: true });
 });
 
 test('a rate-limited forum poll sends no Discord query, any failed poll waits at least the poll interval, and a rate-limited Discord poll waits for PostHog', async () => {

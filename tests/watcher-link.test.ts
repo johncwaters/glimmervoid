@@ -22,9 +22,10 @@ import { githubStoreProbes, watchProbeId } from '../server/github/github-store-p
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
 import { startIdleStop } from '../server/idle-stop-wiring.ts';
+import { laneAccessConfigOf } from '../server/lanes/core/lane-permissions-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { CREDENTIALS_PATH, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, PROBE_SET_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -759,19 +760,6 @@ test('a server starts one local doorman found by its port file, replaces it when
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });
 
-function postSignedThroughDoorman(doormanPort: number, host: string, key: Buffer, requestPath: string, payload: unknown): Promise<{ status: number; body: string }> {
-  const body = JSON.stringify(payload);
-  return new Promise((resolve, reject) => {
-    const headers = { host, 'content-type': 'application/json', ...signedHeaders(key, { method: 'POST', path: requestPath, body }, Date.now()) };
-    const request = http.request({ host: '127.0.0.1', port: doormanPort, method: 'POST', path: requestPath, headers }, (response) => {
-      const chunks: Buffer[] = [];
-      response.on('data', (chunk: Buffer) => chunks.push(chunk));
-      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
-    });
-    request.on('error', reject).end(body);
-  });
-}
-
 function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' });
@@ -800,7 +788,7 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
   return { appFetch, mints, secretReads, githubApp: { clientId: 'Iv23liTestClient', privateKeySecret: secretName } };
 }
 
-test('a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, and leaves an operator read token in charge', async (t) => {
+test('a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [10 * 60_000 + 200]);
   const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', 'http://127.0.0.1:9');
@@ -810,20 +798,34 @@ test('a doorman with a GitHub App mints a read-only installation token for its t
     return Response.json({ data: { viewer: { login: 'tenant' } } });
   };
   const doorman = createDoorman({
-    table: { tenantDomain: 'tenants.example', githubApp: app.githubApp, tenants: [{ ...tenant, githubInstallation: { installationId: 4242, repositories: ['glimmervoid', 'site'] } }] },
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [{ ...tenant, githubInstallation: { installationId: 4242, repositories: ['glimmervoid', 'site'] } }] },
     probeFetch, githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
   });
   const doormanPort = await doorman.listen(0);
-  t.after(() => doorman.close());
-  const tenantHost = 'apptenant000001.tenants.example';
-  const serverKey = directionKey(linkSecret, 'server-to-watcher');
+  const linkCredentials: { github: string | null } = { github: null };
+  const coveredProbeCounts: number[] = [];
+  let githubAppTokenChanges = 0;
+  const link = createWatcherLink({
+    linkSecret, now: () => clock.nowMs, log: QUIET_LOG,
+    credentials: () => ({ github: linkCredentials.github, posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${doormanPort}`, statusCheckMs: 50 }),
+    onGithubAppTokenChange: () => { githubAppTokenChanges += 1; },
+  });
+  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [LIGHT_PROBE], onNudge: () => {}, onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: () => {} });
+  t.after(async () => {
+    link.stop();
+    await doorman.close();
+  });
+  await link.start();
 
-  assert.equal((await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: null, posthog: null })).status, 200);
-  assert.equal((await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, PROBE_SET_PATH, { revision: 'r1', probes: [LIGHT_PROBE] })).status, 200);
+  await eventually(() => (coveredProbeCounts.at(-1) === 1 && link.githubAppToken() !== null ? true : undefined));
+  const serverToken = link.githubAppToken();
+  assert.match(serverToken ?? '', /^ghs_minted[23]$/, 'the server gets a fresh mint, never the token with ten minutes left');
+  assert.equal(githubAppTokenChanges, 1);
+  assert.equal(laneAccessConfigOf({}, serverToken).readToken, serverToken, 'lanes read GitHub with the App token when no read token is set');
+  assert.match(probeAuthorizations[0] ?? '', /^Bearer ghs_minted\d$/, 'the first probe already carries a minted token');
+
   await eventually(() => (app.mints.length >= 2 ? true : undefined));
-  clock.nowMs += 61_000;
-  await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: null, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } });
-  await eventually(() => (probeAuthorizations.includes('Bearer ghs_minted2') ? true : undefined));
 
   assert.deepEqual(app.mints[0].body, { repositories: ['glimmervoid', 'site'], permissions: { actions: 'read', checks: 'read', contents: 'read', issues: 'read', metadata: 'read', pull_requests: 'read', statuses: 'read' } });
   for (const mint of app.mints) {
@@ -833,6 +835,8 @@ test('a doorman with a GitHub App mints a read-only installation token for its t
   assert.deepEqual(app.secretReads, ['https://secretmanager.googleapis.com/v1/projects/glimmervoid-test/secrets/github-app-private-key/versions/current:access'], 'the key is read once and kept for ten minutes');
 
   clock.nowMs += 61_000;
-  await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: 'operator-read-token', posthog: null });
+  linkCredentials.github = 'operator-read-token';
+  link.credentialsMayHaveChanged();
   await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
+  assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppToken()).readToken, 'operator-read-token');
 });

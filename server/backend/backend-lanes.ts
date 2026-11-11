@@ -86,6 +86,7 @@ interface BackendLaneDependencies {
   config: GlimmervoidConfig;
   appVersion: string;
   configStore: ConfigStore;
+  githubAppToken: () => string | null;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
   reviewSessions: Map<string, Session>;
@@ -112,6 +113,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
     config,
     configStore,
+    githubAppToken,
     sessions,
     agentSessions,
     reviewSessions,
@@ -216,7 +218,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     },
     log: logger,
   });
-  const getLaneAccessConfig = () => laneAccessConfigOf(configStore.config);
+  const getLaneAccessConfig = () => laneAccessConfigOf(configStore.config, githubAppToken());
   const posthog = createRadarWiring({
     config,
     getLaneAccessConfig,
@@ -231,7 +233,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const community = createCommunityWiring({
-    config, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
+    config, githubAppToken, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
     controlClientCount: viewerControlClientCount,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
   });
@@ -249,7 +251,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const sharedRepoCacheRoot = path.join(glimmervoidHome, 'team-review-repos');
   const sharedRepoCache = createRepoCache({ rootDir: sharedRepoCacheRoot });
   const teamReview = createTeamReviewWiring({
-    config, store: githubStore.laneStore,
+    config, githubAppToken, store: githubStore.laneStore,
     github,
     requestPrRefresh: githubStore.laneStore.requestRefresh,
     reviewSessions,

@@ -8,6 +8,7 @@ export const CREDENTIALS_PATH = `${WATCHER_PATH_PREFIX}credentials`;
 export const STATUS_PATH = `${WATCHER_PATH_PREFIX}status`;
 export const HEALTH_PATH = `${WATCHER_PATH_PREFIX}healthz`;
 export const HOST_STOP_PATH = `${WATCHER_PATH_PREFIX}host-stop`;
+export const GITHUB_TOKEN_PATH = `${WATCHER_PATH_PREFIX}github-token`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
@@ -88,3 +89,8 @@ export function githubApiOrigin(environment: Readonly<Record<string, string | un
 
 export const HostStopAnswer = z.strictObject({ outcome: z.enum(['stopping', 'no-adapter']) });
 export type HostStopOutcome = z.infer<typeof HostStopAnswer>['outcome'];
+
+export const GithubTokenGrant = z.strictObject({ token: z.string().min(1), expiresAtMs: z.number().int().positive() });
+export type GithubTokenGrant = z.infer<typeof GithubTokenGrant>;
+export const GithubTokenAnswer = z.strictObject({ grant: GithubTokenGrant.nullable() });
+export type GithubTokenAnswer = z.infer<typeof GithubTokenAnswer>;

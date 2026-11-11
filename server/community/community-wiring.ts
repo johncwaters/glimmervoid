@@ -190,16 +190,17 @@ interface CommunityWiringOptions {
   controlClientCount?: () => number;
   sendTelegram?: typeof sendTelegramMessage;
   log?: Pick<Console, 'warn'>;
+  githubAppToken?: () => string | null;
 }
 
 function createCommunityWiring({
   config, broadcast = () => {}, homeDir = glimmervoidHomeDir(),
   createApi = (connection) => createPosthogApi(connection), spawnDependencies = null,
-  controlClientCount = () => 0, sendTelegram = sendTelegramMessage, log = console,
+  controlClientCount = () => 0, sendTelegram = sendTelegramMessage, log = console, githubAppToken = () => null,
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
   const runItem = spawnDependencies
-    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config) })
+    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()) })
     : undefined;
 
   function notifyDraftReady(entry: CommunityStateEntry): void {
@@ -215,9 +216,9 @@ function createCommunityWiring({
 
   const runner = createLaneRunner({
     tag: core.COMMUNITY_LANE_ID,
-    gate: () => core.communityGate(config, process.env),
-    cfgKey: () => stableConfigKey({ community: config.community ?? null, posthog: core.readPosthogConnection(config), hasReadToken: Boolean(laneAccessConfigOf(config).readToken) }),
-    emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config, process.env)), entries: [] }),
+    gate: () => core.communityGate(config, process.env, githubAppToken()),
+    cfgKey: () => stableConfigKey({ community: config.community ?? null, posthog: core.readPosthogConnection(config), hasReadToken: Boolean(laneAccessConfigOf(config, githubAppToken()).readToken) }),
+    emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config, process.env, githubAppToken())), entries: [] }),
     broadcast,
     createPoller: ({ onTickComplete }) => {
       const connection = core.readPosthogConnection(config);

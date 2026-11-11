@@ -60,20 +60,21 @@ interface TeamReviewWiringOptions {
   clock?: SharedClock;
   requestPrRefresh?: (key: string) => void;
   telemetry?: Pick<Telemetry, 'capture'> | null;
+  githubAppToken?: () => string | null;
 }
 
-function teamReviewShouldStart(config: TeamReviewWiringConfig): LaneRunnerGate {
+function teamReviewShouldStart(config: TeamReviewWiringConfig, githubAppToken: string | null): LaneRunnerGate {
   const settings = core.readTeamReviewSettings(config);
   if (!settings.enabled) return { start: false };
   if (!settings.org) return { start: false, reason: 'Team review needs a GitHub organization or team' };
-  if (!laneAccessConfigOf(config).readToken) return { start: false, reason: TEAM_REVIEW_READ_TOKEN_REQUIRED };
+  if (!laneAccessConfigOf(config, githubAppToken).readToken) return { start: false, reason: TEAM_REVIEW_READ_TOKEN_REQUIRED };
   const envBlocker = laneAccessEnvBlocker(process.env);
   if (envBlocker) return { start: false, reason: `Team review cannot read GitHub while ${envBlocker} is set in Glimmervoid's environment` };
   return { start: true };
 }
 
-function teamReviewCfgKey(config: TeamReviewWiringConfig): string {
-  return JSON.stringify({ ...core.readTeamReviewSettings(config), hasReadToken: Boolean(laneAccessConfigOf(config).readToken) });
+function teamReviewCfgKey(config: TeamReviewWiringConfig, githubAppToken: string | null): string {
+  return JSON.stringify({ ...core.readTeamReviewSettings(config), hasReadToken: Boolean(laneAccessConfigOf(config, githubAppToken).readToken) });
 }
 
 function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
@@ -113,7 +114,7 @@ function createTeamReviewStateIo(statePath: string, log: Pick<Console, 'warn'>) 
 }
 
 function createTeamReviewWiring({
-  config, store, reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, gitWorkspace,
+  config, githubAppToken = () => null, store, reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, gitWorkspace,
   recordLane = null, broadcast = () => {}, log = console,
   homeDir = glimmervoidHomeDir(),
   github = createPrGh(homeDir),
@@ -121,7 +122,7 @@ function createTeamReviewWiring({
   repoCache = createRepoCache({ rootDir: repoCacheRoot }),
   spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-    replayBufferKB: config.replayBufferKB, hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config),
+    replayBufferKB: config.replayBufferKB, hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()),
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,
@@ -154,9 +155,9 @@ function createTeamReviewWiring({
 
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
-    gate: () => teamReviewShouldStart(config),
-    cfgKey: () => teamReviewCfgKey(config),
-    emptyStatus: () => emptyTeamReviewStatus(teamReviewShouldStart(config)),
+    gate: () => teamReviewShouldStart(config, githubAppToken()),
+    cfgKey: () => teamReviewCfgKey(config, githubAppToken()),
+    emptyStatus: () => emptyTeamReviewStatus(teamReviewShouldStart(config, githubAppToken())),
     broadcast,
     createPoller: ({ onTickComplete }) => {
       const settings = core.readTeamReviewSettings(config);
@@ -167,7 +168,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github, store,
         spawnReview: trackReview,
-        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: () => laneAccessConfigOf(config) }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
+        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()) }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;
@@ -193,7 +194,7 @@ function createTeamReviewWiring({
 
   function getStatus(): TeamReviewStatusType {
     const parsed = TeamReviewStatus.safeParse(runner.getStatus());
-    return parsed.success ? parsed.data : emptyTeamReviewStatus(teamReviewShouldStart(config));
+    return parsed.success ? parsed.data : emptyTeamReviewStatus(teamReviewShouldStart(config, githubAppToken()));
   }
 
   async function refresh() {

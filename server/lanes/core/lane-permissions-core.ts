@@ -102,8 +102,8 @@ interface LaneAccessConfig {
 
 const CLOSED_LANE_ACCESS_CONFIG: LaneAccessConfig = Object.freeze({ readToken: null, extraFetchDomains: Object.freeze([]) });
 
-function laneAccessConfigOf(config: { github?: { readToken?: string } | null; lanes?: { fetchDomains?: readonly string[] } | null }): LaneAccessConfig {
-  return { readToken: config.github?.readToken || null, extraFetchDomains: config.lanes?.fetchDomains ?? [] };
+function laneAccessConfigOf(config: { github?: { readToken?: string } | null; lanes?: { fetchDomains?: readonly string[] } | null }, githubAppToken: string | null): LaneAccessConfig {
+  return { readToken: config.github?.readToken || githubAppToken || null, extraFetchDomains: config.lanes?.fetchDomains ?? [] };
 }
 
 function laneAccess({ agent, readToken, extraFetchDomains, ghConfigDir, inheritedEnv }: LaneAccessInput): LaneAccess {

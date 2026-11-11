@@ -30,8 +30,8 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: the watcher imports only the link contract, the link signing core and its own code, so it can run on a box with no server
   because: the watcher must run on a separate always-on box with no server code, and a server import would drag lane logic and secrets into it
   kinds: none
-- app tokens stay read-only and fill in: A doorman with a GitHub App gives its tenant watcher a read-only installation token scoped to the tenant's repositories, re-minted before the hour ends, and only where the server sent no read token.
+- app tokens stay read-only and fill in: A doorman with a GitHub App gives its tenant watcher a read-only installation token scoped to the tenant's repositories, re-minted before the hour ends, hands the awake server the same token over the signed link for its lanes, and fills in only where no read token is set.
   over: a tenant with an installation and no read token, the token's last ten minutes, and a server that sends an operator read token
-  via: a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, and leaves an operator read token in charge
+  via: a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge
   because: the tenant server sleeps through most hours, so only the doorman can keep a one-hour token fresh, and an installation token cannot read notifications, so it must never displace a personal read token
   kinds: none

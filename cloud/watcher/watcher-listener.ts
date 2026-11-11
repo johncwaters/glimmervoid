@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from '../link/core/link-signing-core.ts';
-import { CREDENTIALS_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
-import type { HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
 
 const LOOPBACK_HOST = '127.0.0.1';
@@ -37,10 +37,11 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', now = Date.now, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), now = Date.now, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
   stopHost?: () => Promise<HostStopOutcome>;
+  mintGithubToken?: () => Promise<GithubTokenAnswer | null>;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
 }) {
@@ -64,6 +65,11 @@ function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-
     if (method === 'POST' && path === HOST_STOP_PATH) {
       const outcome = await stopHost();
       return { status: outcome === 'stopping' ? 202 : 200, payload: { outcome } };
+    }
+    if (method === 'POST' && path === GITHUB_TOKEN_PATH) {
+      const tokenAnswer = await mintGithubToken();
+      if (tokenAnswer === null) return { status: 503, payload: { error: 'GitHub token mint failed' } };
+      return { status: 200, payload: tokenAnswer };
     }
     return { status: 404, payload: { error: 'not found' } };
   }

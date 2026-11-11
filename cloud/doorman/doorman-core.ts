@@ -76,6 +76,7 @@ const INSTALLATION_TOKEN_PERMISSIONS = Object.freeze({
 const JWT_BACKDATE_SECONDS = 60;
 const JWT_LIFETIME_SECONDS = 540;
 const TOKEN_REFRESH_LEAD_MS = 10 * 60_000;
+const SERVER_TOKEN_MIN_LIFE_MS = 40 * 60_000;
 const MINT_RETRY_BASE_MS = 60_000;
 const MINT_RETRY_MAX_MS = 10 * 60_000;
 
@@ -98,9 +99,13 @@ function tokenRefreshDelayMs(expiresAtMs: number, nowMs: number): number {
   return Math.max(0, expiresAtMs - TOKEN_REFRESH_LEAD_MS - nowMs);
 }
 
+function isTokenFreshForServer(expiresAtMs: number, nowMs: number): boolean {
+  return expiresAtMs - nowMs >= SERVER_TOKEN_MIN_LIFE_MS;
+}
+
 function mintRetryDelayMs(attempt: number, retryAfterMs: number | null): number {
   return Math.max(retryAfterMs ?? 0, nextBackoffMs({ attempt, baseMs: MINT_RETRY_BASE_MS, maxMs: MINT_RETRY_MAX_MS, jitter: 'none' }));
 }
 
-export { githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
+export { githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
 export type { DoormanRoute, ForwardState };

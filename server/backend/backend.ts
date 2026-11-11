@@ -348,8 +348,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
 
   const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
+  let githubAppTokenOfLink: () => string | null = () => null;
   const laneAssembly = createBackendLanes({
     config,
+    githubAppToken: () => githubAppTokenOfLink(),
     appVersion: packageJson.version,
     provenanceWriterId,
     configStore,
@@ -662,13 +664,15 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
   const watcherLink = createWatcherLink({
     linkSecret: loadOrCreateLinkSecret(watcherLinkKeyPath(glimmervoidHomeDir()), legacyWatcherLinkKeyPath(glimmervoidHomeDir())),
-    credentials: () => ({ github: laneAccessConfigOf(configStore.config).readToken, posthog: readPosthogReadConnection(configStore.config) }),
+    credentials: () => ({ github: laneAccessConfigOf(configStore.config, null).readToken, posthog: readPosthogReadConnection(configStore.config) }),
     telemetry,
     startWatcher: createRemoteWatcherStarter({
       resolveWatcherUrl: async () => configuredDoormanUrl ?? localDoormanUrl(glimmervoidHomeDir(), port),
       prepareWatcher: prepareLocalDoorman,
     }),
+    onGithubAppTokenChange: () => laneAssembly.restartServiceLanes(),
   });
+  githubAppTokenOfLink = watcherLink.githubAppToken;
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,

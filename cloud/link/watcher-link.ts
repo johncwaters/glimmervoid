@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { CREDENTIALS_PATH, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import type { HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, GITHUB_TOKEN_PATH, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { GithubTokenGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
@@ -23,10 +23,6 @@ type HostStopRequestOutcome = HostStopOutcome | 'failed';
 
 const MISSING_CREDENTIAL_NAMES = { github: 'GitHub read token', posthog: 'PostHog read connection' } as const;
 
-function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
-  return heldCredentials[credential] !== null;
-}
-
 function laneTimerSentence(laneIds: readonly string[]): string {
   if (laneIds.length === 1) return `${laneIds[0]} polls on its own timer`;
   return `${laneIds.join(', ')} poll on their own timers`;
@@ -36,6 +32,9 @@ const RECOMPILE_DEBOUNCE_MS = 2_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
 const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
+const GITHUB_TOKEN_CHECK_MS = 5 * 60_000;
+const GITHUB_TOKEN_MIN_LIFE_MS = 45 * 60_000;
+const NO_GITHUB_APP_RECHECK_MS = 60 * 60_000;
 
 function requestOf(probe: Probe): string {
   return JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null]);
@@ -77,7 +76,7 @@ function jsonOrNull(text: string): unknown {
   }
 }
 
-function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher, log = console, telemetry = null }: {
+function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher, log = console, telemetry = null, onGithubAppTokenChange = () => {} }: {
   credentials: () => WatcherCredentials;
   linkSecret: Buffer;
   fetchFn?: FetchFn;
@@ -85,6 +84,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
   startWatcher: WatcherStarter;
   log?: Pick<Console, 'log' | 'warn'>;
   telemetry?: Pick<Telemetry, 'capture'> | null;
+  onGithubAppTokenChange?: () => void;
 }) {
   const nudgeKey = directionKey(linkSecret, 'watcher-to-server');
   const commandKey = directionKey(linkSecret, 'server-to-watcher');
@@ -107,6 +107,21 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
   let watcherStartCount = 0;
   let statusReadCount = 0;
   let supervisor: ReturnType<WatcherStarter> | null = null;
+  let githubAppGrant: GithubTokenGrant | null = null;
+  let isDoormanMintingGithub = false;
+  let noGithubAppAnsweredAtMs: number | null = null;
+  let isRequestingGithubToken = false;
+  let hadGithubAppToken = false;
+  let githubTokenTimer: NodeJS.Timeout | null = null;
+
+  function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
+    return heldCredentials[credential] !== null || (credential === 'github' && isDoormanMintingGithub);
+  }
+
+  function githubAppToken(): string | null {
+    if (githubAppGrant === null || now() >= githubAppGrant.expiresAtMs) return null;
+    return githubAppGrant.token;
+  }
 
   function updateCoverage(): void {
     const isLinked = watcherUrl !== null && deliveredProbeSet !== null && deliveredCredentialsDigest !== null;
@@ -210,6 +225,62 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
       log.warn(`[watcher] could not ask the doorman to stop this host: ${(stopError as Error).message}`);
       return 'failed';
     }
+  }
+
+  async function requestGithubToken(): Promise<GithubTokenAnswer | null> {
+    if (watcherUrl === null) return null;
+    try {
+      const response = await fetchFn(new URL(GITHUB_TOKEN_PATH, watcherUrl), {
+        method: 'POST',
+        headers: signedHeaders(commandKey, { method: 'POST', path: GITHUB_TOKEN_PATH, body: '' }, now()),
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        log.warn(`[watcher] ${GITHUB_TOKEN_PATH} answered ${response.status}`);
+        return null;
+      }
+      const answer = GithubTokenAnswer.safeParse(await response.json());
+      return answer.success ? answer.data : null;
+    } catch (tokenError) {
+      log.warn(`[watcher] could not ask the doorman for a GitHub token: ${(tokenError as Error).message}`);
+      return null;
+    }
+  }
+
+  function isGithubTokenDue(): boolean {
+    if (!isDoormanMintingGithub && noGithubAppAnsweredAtMs !== null) return now() - noGithubAppAnsweredAtMs >= NO_GITHUB_APP_RECHECK_MS;
+    return githubAppGrant === null || githubAppGrant.expiresAtMs - now() < GITHUB_TOKEN_MIN_LIFE_MS;
+  }
+
+  function adoptGithubTokenAnswer(answer: GithubTokenAnswer): void {
+    const wasDoormanMinting = isDoormanMintingGithub;
+    githubAppGrant = answer.grant;
+    isDoormanMintingGithub = answer.grant !== null;
+    noGithubAppAnsweredAtMs = answer.grant === null ? now() : null;
+    if (wasDoormanMinting === isDoormanMintingGithub) return;
+    log.log(`[watcher] the doorman ${isDoormanMintingGithub ? 'mints' : 'has no'} GitHub App tokens for this server`);
+    updateCoverage();
+    probesMayHaveChanged();
+  }
+
+  function announceGithubAppTokenChange(): void {
+    const hasGithubAppToken = githubAppToken() !== null;
+    if (hasGithubAppToken === hadGithubAppToken) return;
+    hadGithubAppToken = hasGithubAppToken;
+    onGithubAppTokenChange();
+  }
+
+  async function checkGithubToken(): Promise<void> {
+    if (isRequestingGithubToken || watcherUrl === null || credentials().github !== null || !isGithubTokenDue()) return announceGithubAppTokenChange();
+    isRequestingGithubToken = true;
+    try {
+      const answer = await requestGithubToken();
+      if (answer !== null) adoptGithubTokenAnswer(answer);
+    } finally {
+      isRequestingGithubToken = false;
+    }
+    announceGithubAppTokenChange();
   }
 
   async function readWatcherStatus(): Promise<WatcherStatus | null> {
@@ -389,17 +460,21 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
         watcherUrl = listeningUrl;
         watcherStartCount += 1;
         void deliver();
+        void checkGithubToken();
       },
       onEnded: watcherEnded,
       log,
     });
     supervisor.start();
+    githubTokenTimer = setInterval(() => void checkGithubToken(), GITHUB_TOKEN_CHECK_MS);
+    githubTokenTimer.unref();
   }
 
   function stop(): void {
     supervisor?.stop();
     if (deliveryTimer !== null) clearTimeout(deliveryTimer);
     if (recompileTimer !== null) clearTimeout(recompileTimer);
+    if (githubTokenTimer !== null) clearInterval(githubTokenTimer);
   }
 
   function registerProbeSource(source: ProbeSource): void {
@@ -410,7 +485,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;
