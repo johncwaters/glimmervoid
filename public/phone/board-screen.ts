@@ -85,7 +85,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
     const { row, refs } = buildSessionRow();
     row.dataset.id = id;
     row.addEventListener('click', () => selectSession(id));
-    const { item } = wrapSessionRow(row, () => requestSessionRemoval(id), () => undoPendingClose(id));
+    const { item } = wrapSessionRow(row, 'Remove session', () => requestSessionRemoval(id), () => undoPendingClose(id));
     item.setAttribute('role', 'listitem');
     rowState.set(row, { refs, item });
     return row;

@@ -30,7 +30,7 @@ import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
 import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
-import { boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, onBoardListChanged, takeOpenBoardRequest } from '../whiteboard/board-store.ts';
+import { beginPendingBoardDelete, boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, isBoardDeleting, onBoardListChanged, pendingBoardDeleteStartedAt, takeOpenBoardRequest, undoPendingBoardDelete } from '../whiteboard/board-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -422,7 +422,7 @@ function buildPill(id: string) {
   pill.addEventListener('pointerenter', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, id); });
   pill.addEventListener('pointerleave', () => { if (railHeadEl) tetherAttentionTile(railHeadEl, null); });
 
-  const { item, removeButton } = wrapSessionRow(pill, () => requestSessionRemoval(id), () => undoPendingClose(id));
+  const { item, removeButton } = wrapSessionRow(pill, 'Remove session', () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
   wireBoardRowDropTarget(item, id);
@@ -612,7 +612,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const boardSummaries = boardSummariesOf();
   if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
   const groupKeyBySessionId = new Map(groups.groups.filter((group) => group.hostId === null).flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
-  const boardsOfProject = boardsByProject(boardSummaries, currentLiveSplits(), groupKeyBySessionId);
+  const boardsOfProject = boardsByProject(boardSummaries.filter((board) => !isBoardDeleting(board.id)), currentLiveSplits(), groupKeyBySessionId);
   const railGroups = withBoardProjects(groups, boardsOfProject.keys());
   const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
   const placedBoardIds = new Set<string>();
@@ -714,9 +714,9 @@ function buildBoardRow(boardId: string) {
   boardRow.draggable = true;
   boardRow.addEventListener('click', () => centerBoard(boardId));
   boardRow.addEventListener('dragstart', (event) => startBoardRowDrag(event, boardId));
-  const item = el('div', 'session-row-item');
+  const { item, removeButton } = wrapSessionRow(boardRow, 'Remove board', () => beginPendingBoardDelete(boardId), () => undoPendingBoardDelete(boardId));
+  removeButton.tabIndex = -1;
   item.dataset.boardNode = boardId;
-  item.append(boardRow);
   return Object.assign(boardRow, { _refs: refs, _row: item });
 }
 
@@ -736,7 +736,7 @@ function connectedSessionNameOf(board: BoardSummary) {
 function paintedBoardRowOf(board: BoardSummary, placedBoardIds: Set<string>) {
   let row = boardRowById.get(board.id);
   if (!row) { row = buildBoardRow(board.id); boardRowById.set(board.id, row); }
-  paintBoardRow(row, row._refs, board.title, connectedSessionNameOf(board));
+  paintBoardRow(row, row._refs, board.title, connectedSessionNameOf(board), pendingBoardDeleteStartedAt(board.id));
   row.classList.toggle('focused', board.id === centeredBoardId);
   placedBoardIds.add(board.id);
   return row._row;

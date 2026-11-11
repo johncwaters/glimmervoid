@@ -111,9 +111,9 @@ export function buildSessionRow(extraClassName = '') {
   return { row, refs };
 }
 
-export function wrapSessionRow(row: HTMLElement, onRemove: () => void, onUndoRemove: () => void) {
+export function wrapSessionRow(row: HTMLElement, removeLabel: string, onRemove: () => void, onUndoRemove: () => void) {
   const item = el('div', 'session-row-item');
-  const removeButton = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session', onClick: (event) => {
+  const removeButton = button({ variant: 'icon', size: 'small', label: removeLabel, icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session', onClick: (event) => {
     event.stopPropagation();
     onRemove();
   } });
@@ -216,7 +216,7 @@ function buildSplitBoardMember(row: HTMLElement) {
   return member;
 }
 
-export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: string, connectedSessionName: string | null) {
+export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: string, connectedSessionName: string | null, deleteStartedAt: number | null) {
   writeDataIfChanged(row, 'state', '');
   writeDataIfChanged(row, 'prompt', '');
   row.toggleAttribute('data-board', true);
@@ -227,6 +227,7 @@ export function paintBoardRow(row: HTMLElement, refs: SessionRowRefs, title: str
   writeHiddenIfChanged(refs.task, connectedSessionName === null);
   const accessibleLabel = [title, BOARD_LABEL, connectedSessionName].filter((part) => part !== null).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
+  paintCloseCountdown(row, deleteStartedAt);
 }
 
 function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: SessionUi, state: string) {

@@ -3,7 +3,8 @@ import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messa
 import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from '../action-status.ts';
+import { SESSION_CLOSE_UNDO_WINDOW_MS } from '../session-actions.ts';
 
 type BoardCommandOutcome = { ok: true; reply: ServerMessageOf<'whiteboard-result'> } | { ok: false; error: string };
 type BoardListener = (boardId: string) => void;
@@ -12,6 +13,8 @@ const listListeners: (() => void)[] = [];
 const boardListeners: BoardListener[] = [];
 let boardSummaries: BoardSummary[] = [];
 let boardsBySessionId = new Map<string, BoardSummary[]>();
+const pendingDeleteByBoardId = new Map<string, { timer: number; startedAt: number }>();
+const deletingBoardIds = new Set<string>();
 
 function notifyList(): void {
   for (const listener of [...listListeners]) listener();
@@ -74,10 +77,54 @@ export function applyWhiteboardsSnapshot(message: ServerMessageOf<'whiteboards-s
 }
 
 export function applyWhiteboardRemoved(message: ServerMessageOf<'whiteboard-removed'>): void {
-  boardSummaries = boardSummaries.filter((summary) => summary.id !== message.boardId);
+  forgetBoard(message.boardId);
+}
+
+function forgetBoard(boardId: string): void {
+  const pendingDelete = pendingDeleteByBoardId.get(boardId);
+  if (pendingDelete) window.clearTimeout(pendingDelete.timer);
+  pendingDeleteByBoardId.delete(boardId);
+  deletingBoardIds.delete(boardId);
+  boardSummaries = boardSummaries.filter((summary) => summary.id !== boardId);
   indexBoardsBySession();
-  notifyBoard(message.boardId);
+  notifyBoard(boardId);
   notifyList();
+}
+
+export function pendingBoardDeleteStartedAt(boardId: string): number | null {
+  return pendingDeleteByBoardId.get(boardId)?.startedAt ?? null;
+}
+
+export function isBoardDeleting(boardId: string): boolean {
+  return deletingBoardIds.has(boardId);
+}
+
+export function beginPendingBoardDelete(boardId: string): void {
+  if (pendingDeleteByBoardId.has(boardId) || deletingBoardIds.has(boardId)) return;
+  const timer = window.setTimeout(() => void finishPendingBoardDelete(boardId), SESSION_CLOSE_UNDO_WINDOW_MS);
+  pendingDeleteByBoardId.set(boardId, { timer, startedAt: performance.now() });
+  notifyList();
+}
+
+export function undoPendingBoardDelete(boardId: string): void {
+  const pendingDelete = pendingDeleteByBoardId.get(boardId);
+  if (!pendingDelete) return;
+  window.clearTimeout(pendingDelete.timer);
+  pendingDeleteByBoardId.delete(boardId);
+  notifyList();
+}
+
+async function finishPendingBoardDelete(boardId: string): Promise<void> {
+  if (!pendingDeleteByBoardId.delete(boardId)) return;
+  deletingBoardIds.add(boardId);
+  notifyList();
+  const boardTitle = boardSummaries.find((summary) => summary.id === boardId)?.title;
+  const boardName = boardTitle === undefined ? 'The board' : `"${boardTitle}"`;
+  const outcome = await deleteBoard(boardId);
+  if (outcome.ok) return forgetBoard(boardId);
+  deletingBoardIds.delete(boardId);
+  notifyList();
+  reportHeaderError({ source: 'Delete board', message: `${boardName} was not deleted: ${outcome.error}` });
 }
 
 export async function createBoard(title: string): Promise<{ ok: true; boardId: string } | { ok: false; error: string }> {

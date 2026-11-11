@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Delete a board from the Focus rail.** Each board row now has the same remove button a session row has. Pressing it dims the row and gives you Undo with the same countdown as closing a session; when the countdown ends the board is deleted for good. If the server refuses, the row comes back and the header says why.
+
 ### Fixed
 
 - **Agents draw on the board you put beside them.** Dropping a board beside a session in Focus, or connecting one from its card, now tells the agent on its next prompt to draw there, and its whiteboard new is refused while that board is attached, naming the board, so drawings no longer land on a fresh board you are not looking at. A shown file goes to that board too. Disconnecting the board lets the agent make its own again. The board stays attached across a Glimmervoid restart, and closing the split, by dragging the session out or with the split key, detaches it while the agent keeps following its changes. Opening a board beside a session with the split key or the pane's board picker attaches it too, and the agent's whiteboard tool now tells it to draw on that board before making a new one.
