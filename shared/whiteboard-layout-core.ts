@@ -675,8 +675,12 @@ function legendEntriesOf(board: IndexedBoard): LegendEntry[] {
   return legendEntriesFrom(board.legend, elementsOfKind(board, 'wire'), new Set(elementsOfKind(board, 'box').map((box) => box.change)), board.planStepById.size > 0);
 }
 
+function customLegendLabelByKey(customLegend: Board['legend']): Map<string, string> {
+  return new Map(customLegend.map((entry) => [wireStyleKey(entry.tone, entry.dashed), entry.label]));
+}
+
 function legendEntriesFrom(customLegend: Board['legend'], usedWireStyles: Iterable<WireStyle>, usedChanges: ReadonlySet<Box['change']>, hasPlanSteps: boolean): LegendEntry[] {
-  const customLabelByKey = new Map(customLegend.map((entry) => [wireStyleKey(entry.tone, entry.dashed), entry.label]));
+  const customLabelByKey = customLegendLabelByKey(customLegend);
   const usedKeys = new Set<string>();
   const wireEntries = [...usedWireStyles].flatMap((wire) => {
     const key = wireStyleKey(wire.tone, wire.dashed);
@@ -785,6 +789,6 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
-  dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
+  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };

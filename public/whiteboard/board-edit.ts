@@ -13,10 +13,10 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'frame', 'box'];
-const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', p: 'panel', s: 'sticky', t: 'text', i: 'icon', m: 'device', a: 'wire', b: 'pen' };
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', s: 'note', t: 'text', i: 'icon', m: 'device', a: 'wire', b: 'pen' };
 
-type BoardTool = 'select' | 'box' | 'decision' | 'panel' | 'sticky' | 'text' | 'icon' | 'device' | 'wire' | 'pen';
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'panel' | 'sticky' | 'text' | 'icon' | 'device'>;
+type BoardTool = 'select' | 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device'>;
 
 interface ViewPoint {
   x: number;
@@ -105,17 +105,16 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
   return tool !== 'select' && tool !== 'wire' && tool !== 'pen';
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', sticky: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', note: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
 
 function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box> {
   switch (tool) {
     case 'icon': return { shape: 'icon', icon: PLACED_ICON };
     case 'device': return { shape: 'device', device: PLACED_DEVICE, media };
-    case 'sticky': return { shape: 'note', tone: 'yellow', media };
+    case 'note': return { shape: 'note', tone: 'yellow', media };
     case 'text': return { shape: 'box', borderless: true };
     case 'decision': return { shape: 'decision', media };
-    case 'box':
-    case 'panel': return { shape: 'box', media };
+    case 'box': return { shape: 'box', media };
   }
 }
 
