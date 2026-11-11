@@ -59,6 +59,9 @@
 .doc-markup-text[data-inline="syntax"] { color: var(--text-muted); font-weight: 400; }
 .doc-markup-text[data-inline="strong"] { font-weight: 700; }
 .doc-markup-text[data-inline="emphasis"] { font-style: italic; }
+.doc-markup-text[data-inline="link"] { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.doc-markup-text[data-inline="link-syntax"] { color: var(--text-muted); font-weight: 400; }
+.doc-markup-paper:not(.doc-markup-copying) .doc-markup-text[data-inline="link-syntax"]:not([data-revealed]) { display: none; }
 .doc-markup-mark { cursor: pointer; border-radius: 2px; }
 [contenteditable="true"] [data-revise], .doc-markup-end [data-revise] { cursor: text; }
 .doc-markup-editing { outline: 2px solid var(--pen-ink); outline-offset: 2px; filter: none; }

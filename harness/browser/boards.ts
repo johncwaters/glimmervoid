@@ -22,7 +22,8 @@ const RESIZE_TIMEOUT_MS = 5000;
 const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
-const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n';
+const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n\nSee [the spec](https://example.com/spec) here.\n';
+const BOARD_DOC_LINK_URL = 'https://example.com/spec';
 const LINKED_DOC_BOX_ID = 'linked-doc';
 const LINKED_DOC_PATH = 'docs/linked-card.md';
 
@@ -314,7 +315,35 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   assert.deepEqual((await editor.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent))).sort(), ['Close', 'Redo', 'Undo'], 'a document opens on the red pen paper with only its Close, Undo and Redo buttons');
   await paper.locator('.doc-markup-line[data-block="h1"] .doc-markup-text[data-inline="syntax"]', { hasText: '#' }).waitFor();
   await paper.locator('.doc-markup-text[data-inline="strong"]', { hasText: /^Bold$/ }).waitFor();
+  const linkLabel = paper.locator('.doc-markup-text[data-inline="link"]', { hasText: /^the spec$/ });
+  const linkTarget = paper.locator('.doc-markup-text[data-inline="link-syntax"]', { hasText: `](${BOARD_DOC_LINK_URL})` });
+  await linkLabel.waitFor();
+  assert.equal(await linkTarget.isVisible(), false, 'a valid Markdown link shows only its label');
+  await page.evaluate(() => {
+    const openedUrls: string[] = [];
+    Reflect.set(window, 'openedUrls', openedUrls);
+    window.open = (url) => {
+      openedUrls.push(String(url));
+      return null;
+    };
+  });
+  await linkLabel.click({ modifiers: ['ControlOrMeta'] });
+  assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'openedUrls')), [BOARD_DOC_LINK_URL], 'a modifier click on a link label opens its URL');
+  await linkLabel.click();
+  await linkTarget.waitFor({ state: 'visible' });
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
+  await linkTarget.waitFor({ state: 'hidden' });
+  const copiedText = await paper.evaluate((paperElement) => {
+    const linkLine = paperElement.querySelector('[data-inline="link"]')?.closest('.doc-markup-line');
+    const lineRange = document.createRange();
+    if (linkLine) lineRange.selectNodeContents(linkLine);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(lineRange);
+    const copyEvent = new ClipboardEvent('copy', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
+    paperElement.dispatchEvent(copyEvent);
+    return copyEvent.clipboardData?.getData('text/plain') ?? '';
+  });
+  assert.ok(copiedText.includes(`[the spec](${BOARD_DOC_LINK_URL})`), `copying a line keeps its link source, got ${JSON.stringify(copiedText)}`);
   await page.keyboard.press(LINE_END_KEY);
   await page.keyboard.type(' Again.');
   await paper.locator('.doc-markup-insertion').waitFor();
