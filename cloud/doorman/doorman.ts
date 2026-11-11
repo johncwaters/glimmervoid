@@ -17,10 +17,11 @@ import { isMissingFileError } from '../../shared/text.ts';
 import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import type { DoormanTenant } from '../../shared/contracts/doorman.ts';
+import type { HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { headersAtEdge, isConnectFailure, isWakeAllowed, nextForwardState, routeRequest } from './doorman-core.ts';
 import type { DoormanRoute, ForwardState } from './doorman-core.ts';
 
-type HostAdapter = { wake(tenantSlug: string): Promise<void> };
+type HostAdapter = { wake(tenantSlug: string): Promise<void>; stop(tenantSlug: string): Promise<void> };
 type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number };
 type WakeOutcome = 'answering' | 'no-adapter' | 'cooling-down' | 'unreachable';
 type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null };
@@ -79,11 +80,11 @@ function causeOf(error: unknown): unknown {
   return error instanceof Error && error.cause !== undefined ? error.cause : error;
 }
 
-async function createTenantWatcher(tenant: DoormanTenant, linkSecret: Buffer, { forwardFetch, probeFetch, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
+async function createTenantWatcher(tenant: DoormanTenant, linkSecret: Buffer, { forwardFetch, probeFetch, stopHost, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; stopHost: () => Promise<HostStopOutcome>; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
   const home = createWatcherHome({ homeDir: tenant.watcherHome, credentialKey: credentialStoreKey(linkSecret), log });
   const nudges = createNudgeSender({ serverUrl: tenant.serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), fetchFn: forwardFetch, now, log });
   const runner = createProbeRunner({ home, nudges, fetchFn: probeFetch, now, log });
-  const listener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), now, log });
+  const listener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), stopHost, now, log });
   await runner.start();
   return {
     handle: listener.handle,
@@ -252,7 +253,13 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
         return fetch(input, init);
       }
     };
-    const watcher = await createTenantWatcher(entry.tenant, Buffer.from(secretHex, 'hex'), { forwardFetch, probeFetch, now, log }).catch((startError: unknown) => {
+    const stopHost = async (): Promise<HostStopOutcome> => {
+      if (hostAdapter === null) return 'no-adapter';
+      log.log(`[doorman] tenant ${entry.tenant.slug} asked to stop`);
+      void hostAdapter.stop(entry.tenant.slug).catch((stopError: unknown) => log.warn(`[doorman] stopping ${entry.tenant.slug} failed: ${errorMessage(stopError)}`));
+      return 'stopping';
+    };
+    const watcher = await createTenantWatcher(entry.tenant, Buffer.from(secretHex, 'hex'), { forwardFetch, probeFetch, stopHost, now, log }).catch((startError: unknown) => {
       log.warn(`[doorman] tenant ${entry.tenant.slug} watcher did not start: ${errorMessage(startError)}`);
       return null;
     });

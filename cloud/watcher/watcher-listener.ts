@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from '../link/core/link-signing-core.ts';
-import { CREDENTIALS_PATH, HEALTH_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
 
 const LOOPBACK_HOST = '127.0.0.1';
@@ -36,13 +37,15 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, now = Date.now, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', now = Date.now, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
+  stopHost?: () => Promise<HostStopOutcome>;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
 }) {
   const seenRequestIds = createRecentRequestIds();
+  const listenerStartedAtMs = now();
 
   async function route(method: string, path: string, body: string): Promise<{ status: number; payload: unknown }> {
     if (method === 'POST' && path === PROBE_SET_PATH) {
@@ -58,6 +61,10 @@ function createWatcherListener({ runner, signingKey, now = Date.now, log = conso
       return { status: 200, payload: {} };
     }
     if (method === 'GET' && path === STATUS_PATH) return { status: 200, payload: runner.status() };
+    if (method === 'POST' && path === HOST_STOP_PATH) {
+      const outcome = await stopHost();
+      return { status: outcome === 'stopping' ? 202 : 200, payload: { outcome } };
+    }
     return { status: 404, payload: { error: 'not found' } };
   }
 
@@ -73,9 +80,15 @@ function createWatcherListener({ runner, signingKey, now = Date.now, log = conso
       answer(response, 413, { error: 'body too large' });
       return;
     }
-    const verdict = verifyRequest(signingKey, signedRequestFromHeaders(request.headers, method, path, body), now(), seenRequestIds);
+    const signedRequest = signedRequestFromHeaders(request.headers, method, path, body);
+    const verdict = verifyRequest(signingKey, signedRequest, now(), seenRequestIds);
     if (!verdict.ok) {
       log.warn(`[watcher] refused ${method} ${path}: ${verdict.reason}`);
+      answer(response, 401, { error: 'unauthorized' });
+      return;
+    }
+    if (path === HOST_STOP_PATH && signedRequest.timestampMs < listenerStartedAtMs) {
+      log.warn(`[watcher] refused ${method} ${path}: signed before this watcher started`);
       answer(response, 401, { error: 'unauthorized' });
       return;
     }

@@ -7,6 +7,7 @@ export const PROBE_SET_PATH = `${WATCHER_PATH_PREFIX}probe-set`;
 export const CREDENTIALS_PATH = `${WATCHER_PATH_PREFIX}credentials`;
 export const STATUS_PATH = `${WATCHER_PATH_PREFIX}status`;
 export const HEALTH_PATH = `${WATCHER_PATH_PREFIX}healthz`;
+export const HOST_STOP_PATH = `${WATCHER_PATH_PREFIX}host-stop`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
@@ -84,3 +85,6 @@ export const GITHUB_API_BASE_ENV = 'GLIMMERVOID_GITHUB_API_BASE';
 export function githubApiOrigin(environment: Readonly<Record<string, string | undefined>>): string {
   return loopbackOverrideOrigin(environment[GITHUB_API_BASE_ENV], GITHUB_API_ORIGIN);
 }
+
+const HostStopAnswer = z.strictObject({ outcome: z.enum(['stopping', 'no-adapter']) });
+export type HostStopOutcome = z.infer<typeof HostStopAnswer>['outcome'];
