@@ -5,7 +5,7 @@ export const BYLINE_PREFIX = 'from ';
 export const BOX_SHAPES = ['box', 'decision', 'note', 'icon', 'device'] as const;
 export type BoxShape = (typeof BOX_SHAPES)[number];
 
-export interface ShapeTraits {
+interface ShapeTraits {
   label: string;
   pickerIcon: IconName;
   holdsLines: boolean;
