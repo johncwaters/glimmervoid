@@ -17,6 +17,10 @@ import {
   boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
 } from './board-gl-scene.ts';
 import type { BoardPalette, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
+import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, movedBoxesAt, stackFrameOfTopCard, stackMovesBetween } from './stack-motion-core.ts';
+import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
+import type { StackMove } from './stack-motion-core.ts';
+import { prefersReducedMotion } from '../attention-banner.ts';
 
 interface Camera {
   x: number;
@@ -556,6 +560,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let decorationStart: LayerRange = emptyRange();
   let previewStart: LayerRange = emptyRange();
   let preview: ScenePreview | null = null;
+  let stackMotion: { moves: readonly StackMove[]; startMs: number; frameRequest: number } | null = null;
+  let stackFan: { frameId: string; fromSpread: number; toSpread: number; spread: number; startMs: number; frameRequest: number | null } | null = null;
   let baseDrawnMediaCount = 0;
   const previewRanges: LayerRange[] = Array.from({ length: LAYER_COUNT }, emptyRange);
   let visibleDrawnMedia: DrawnMedia[] = [];
@@ -1163,11 +1169,87 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function renderLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
     const current = scene;
     if (lastRendered?.source === layout && lastRendered.blocks === nextBlocks && current?.layout === layout) {
-      dropPreview(current);
+      if (!stackMotion) dropPreview(current);
       return;
     }
+    const previousById = current?.elementById ?? null;
     drawLayout(layout, nextBlocks);
     lastRendered = { source: layout, layout, blocks: nextBlocks };
+    if (previousById) startStackMotion(stackMovesBetween(previousById, layout));
+  }
+
+  function hoveredStackFrameId(boxId: string | null): string | null {
+    const current = scene;
+    const hovered = boxId === null ? undefined : current?.elementById.get(boxId);
+    if (!current || hovered?.kind !== 'box') return null;
+    return stackFrameOfTopCard(current.layout, hovered)?.id ?? null;
+  }
+
+  function fanStack(frameId: string | null): void {
+    if (stackMotion || (preview && !stackFan)) return;
+    const restingFan = stackFan;
+    const targetFrameId = frameId ?? restingFan?.frameId ?? null;
+    if (targetFrameId === null) return;
+    if (restingFan && restingFan.frameId !== targetFrameId) dropStackFan();
+    const fromSpread = stackFan?.spread ?? STACK_SPREAD;
+    const toSpread = frameId === null ? STACK_SPREAD : FANNED_STACK_SPREAD;
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = { frameId: targetFrameId, fromSpread, toSpread, spread: fromSpread, startMs: performance.now(), frameRequest: null };
+    if (prefersReducedMotion()) {
+      paintStackFan(stackFan.startMs + STACK_FAN_MS);
+      return;
+    }
+    stackFan.frameRequest = requestAnimationFrame(paintStackFan);
+  }
+
+  function dropStackFan(): void {
+    if (!stackFan) return;
+    if (stackFan.frameRequest !== null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
+    if (scene) dropPreview(scene);
+  }
+
+  function paintStackFan(nowMs: number): void {
+    const fan = stackFan;
+    const frame = fan ? scene?.elementById.get(fan.frameId) : undefined;
+    if (!fan || frame?.kind !== 'frame') {
+      dropStackFan();
+      return;
+    }
+    const progress = easedProgress(nowMs - fan.startMs, STACK_FAN_MS);
+    fan.spread = fan.fromSpread + (fan.toSpread - fan.fromSpread) * progress;
+    fan.frameRequest = null;
+    if (progress >= 1 && fan.toSpread === STACK_SPREAD) {
+      dropStackFan();
+      return;
+    }
+    paintElements([frame], () => fan.spread);
+    if (progress < 1) fan.frameRequest = requestAnimationFrame(paintStackFan);
+  }
+
+  function stopStackMotion(): void {
+    if (!stackMotion) return;
+    cancelAnimationFrame(stackMotion.frameRequest);
+    stackMotion = null;
+  }
+
+  function startStackMotion(moves: readonly StackMove[]): void {
+    if (moves.length === 0 || prefersReducedMotion()) return;
+    stackMotion = { moves, startMs: performance.now(), frameRequest: requestAnimationFrame(paintStackMotion) };
+    paintElements(movedBoxesAt(moves, 0));
+  }
+
+  function paintStackMotion(nowMs: number): void {
+    const motion = stackMotion;
+    if (!motion) return;
+    const progress = easedProgress(nowMs - motion.startMs, STACK_MOTION_MS);
+    if (progress >= 1) {
+      stackMotion = null;
+      if (scene) dropPreview(scene);
+      return;
+    }
+    paintElements(movedBoxesAt(motion.moves, progress));
+    motion.frameRequest = requestAnimationFrame(paintStackMotion);
   }
 
   function isSameIdSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
@@ -1178,13 +1260,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return true;
   }
 
-  function paintElements(elements: readonly LaidOutElement[]): void {
+  function paintElements(elements: readonly LaidOutElement[], stackSpreadOf?: (frameId: string) => number): void {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
     const current = scene;
     if (!current) return;
     const currentPalette = ensurePalette();
     const glyphSource = ensureAtlasInBoardFont();
-    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
+    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable, ...(stackSpreadOf ? { stackSpreadOf } : {}) };
     const built = sceneOf({ ...current.layout, elements: [...elements], legend: [], caption: null, plan: null }, context, () => null);
     const geometries = built.elements.map((geometry) => ({ ...geometry, paintRank: current.geometries[current.geometryIndexById.get(geometry.id) ?? -1]?.paintRank ?? 0 }));
     const hiddenIds = new Set(elements.map((element) => element.id));
@@ -1197,6 +1279,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function drawLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
+    stopStackMotion();
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
     preview = null;
     if (atlas?.isFull()) {
       atlas.forgetUnusedGlyphs();
@@ -1331,6 +1416,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function clear(): void {
+    stopStackMotion();
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
     scene = null;
     preview = null;
     lastRendered = null;
@@ -1378,7 +1466,12 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     render,
     renderLayout,
     layout: () => lastRendered?.layout ?? null,
-    paintElements,
+    paintElements: (elements) => {
+      stopStackMotion();
+      if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+      stackFan = null;
+      paintElements(elements);
+    },
     setCamera: (nextCamera) => {
       camera = nextCamera;
       reportView();
@@ -1405,6 +1498,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (hoveredBoxId === boxId) return;
       hoveredBoxId = boxId;
       refreshDecorations();
+      fanStack(hoveredStackFrameId(boxId));
     },
     clear,
   };

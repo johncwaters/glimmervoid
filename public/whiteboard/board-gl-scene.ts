@@ -292,6 +292,7 @@ interface SceneContext {
   palette: BoardPalette;
   glyphs: GlyphSource;
   hasDrawnMedia: (box: LaidOutBox) => boolean;
+  stackSpreadOf?: (frameId: string) => number;
 }
 
 function lineTextColor(line: LaidOutLine, palette: BoardPalette): Rgba {
@@ -466,8 +467,9 @@ function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: Sc
   const { palette, glyphs } = context;
   const part = createPart();
   const card = { x: frame.x, y: frame.y + FRAME_TITLE_HEIGHT, width: frame.width - STACK_SPREAD * 2, height: frame.height - FRAME_TITLE_HEIGHT - STACK_SPREAD * 2 };
+  const ghostSpread = context.stackSpreadOf?.(frame.id) ?? STACK_SPREAD;
   for (const depth of [2, 1]) {
-    const ghostCard = { ...card, x: card.x + STACK_SPREAD * depth, y: card.y + STACK_SPREAD * depth };
+    const ghostCard = { ...card, x: card.x + ghostSpread * depth, y: card.y + ghostSpread * depth };
     pushOutlinedRect(part, ghostCard, 8, palette.cardBackground, palette.line, 1.2, SOLID, ALWAYS);
   }
   const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };

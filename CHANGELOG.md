@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Card stacks on a board open and close with motion.** Opening a stack now slides its cards out from the top card to their places, and closing one slides them back onto it, so you can see where each card went. Hovering a closed stack fans its cards apart a little to show there is more than one card under the top one. With reduced motion set in your system, the cards jump straight to their places.
 - **Device mockups and icons on a board stand alone.** A phone, tablet, laptop, desktop or browser box, and an icon box, now draws without the card around it by default, so it no longer reads as a box inside a box. Devices and icons already on your boards change too. Untick Borderless in the properties panel, or have an agent set `"borderless": false`, to bring the card back.
 
 ### Fixed
@@ -20,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Close the keyboard on your phone.** The terminal's key row now ends with a keyboard key: press it to put the keyboard away and read the whole terminal, and press it again (or tap the terminal) to type. The key is highlighted while the keyboard is open. On an iPhone the keyboard's Return key now reads "send", since it submits your prompt, so it no longer looks like Safari's checkmark is the way to send.
 
 - **The dashboard tells you to reload when it is older than the server.** A dashboard tab left open across a Glimmervoid update could keep running the old page, and a board or view the old page could not read drew empty with no explanation. The header now says the server sent a message this dashboard could not read and to reload the page, once per page load. Messages from a linked host never show it, since reloading cannot fix another machine's version.
+- **The Markdown format bar sits over your selection.** Selecting text in a Markdown doc showed the bold, italic, strikethrough, code and list buttons starting at the left edge of the selection; the bar is now centered over it.
 - **Fit board shows the whole board.** Pressing Fit on a large board used to stop at a zoom where box text stayed readable and show only the top left, so some of the board stayed off screen. Fit now zooms out until every box, wire and frame is in view, centered between the floating toolbars, and the same happens when a board first opens. Small boards still stop at 2x zoom.
 
 ## [0.57.0] - 2026-11-11

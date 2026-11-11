@@ -631,7 +631,8 @@ function placeFloatAbove(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRe
   const topAbove = anchorRect.top - rootRect.top - float.offsetHeight - 6;
   const widestLeft = Math.max(0, rootRect.width - float.offsetWidth);
   float.style.top = `${topAbove >= 0 ? topAbove : anchorRect.bottom - rootRect.top + 4}px`;
-  float.style.left = `${Math.min(Math.max(0, anchorRect.left - rootRect.left), widestLeft)}px`;
+  const centeredLeft = anchorRect.left + anchorRect.width / 2 - float.offsetWidth / 2 - rootRect.left;
+  float.style.left = `${Math.min(Math.max(0, centeredLeft), widestLeft)}px`;
 }
 
 function placeFloat(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
