@@ -1,7 +1,6 @@
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { ChangeMap } from '../../../shared/contracts/change-map.ts';
 import { errorMessage } from '../../../shared/text.ts';
-import type { Session } from '../../../session/sessions.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { createChangeMapService, joinSessionRegistries } from '../../change-map/change-map-wiring.ts';
 import { createChangesWatch } from '../../changes-watch.ts';
@@ -9,21 +8,6 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable } from '../core/control-dispatch-core.ts';
-
-const MERGE_REFUSAL_COPY: Record<string, string> = {
-  'destroyed':         'session no longer exists',
-  'no-worktree':       'no worktree to merge',
-  'merge-in-progress': 'a merge is already in flight on this worktree',
-};
-
-function reportMergeRefusal(ws: ControlSocket, s: Session, r: { refused?: boolean; reason?: string | null } | null | undefined): void {
-  if (r?.refused !== true) return;
-  const detail = r.reason === 'not-continuable'
-    ? `session state ${s.state} is not mergeable`
-    : ((r.reason ? MERGE_REFUSAL_COPY[r.reason] : '') || r.reason);
-  console.log(`[control] merge refused: id=${s.id} state=${s.state} reason=${r.reason}`);
-  ws.send(JSON.stringify({ type: 'session-error', id: s.id, session: s.name, message: `Merge refused: ${detail}.` }));
-}
 
 function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const { sessions, agentSessions, findSession } = context;
@@ -35,10 +19,6 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
   });
 
   const handlers = {
-    'merge-session': async (msg: ClientMessageOf<'merge-session'>, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeWorktree()); },
-    'finish-session': (msg: ClientMessageOf<'finish-session'>) => { const s = findSession(msg); if (s) s.finishAndMerge(); },
-    'merge-continue-session': async (msg: ClientMessageOf<'merge-continue-session'>, ws: ControlSocket) => { const s = findSession(msg); if (s) reportMergeRefusal(ws, s, await s.mergeAndContinue({ force: msg.force === true })); },
-    'discard-session-worktree': (msg: ClientMessageOf<'discard-session-worktree'>) => { const s = findSession(msg); if (s) s.discardWorktree(); },
     'resolve-session-merge': (msg: ClientMessageOf<'resolve-session-merge'>) => { const s = findSession(msg); if (s) s.pasteMergePrompt(); },
     'request-session-diff': async (msg: ClientMessageOf<'request-session-diff'>, ws: ControlSocket) => {
       const s = findSession(msg);

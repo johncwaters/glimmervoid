@@ -1,12 +1,8 @@
 .review-reader { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg-surface); }
 .review-reader[hidden] { display: none; }
 .review-reader:focus { outline: none; }
-.review-reader[data-placement="overlay"] { position: absolute; inset: 0; z-index: 5; }
-.review-reader-bar { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 34px; padding: 4px 8px 4px 12px; background: var(--bg-header); border-bottom: 1px solid var(--border-dim); }
-.review-reader-status { flex: 1 1 16ch; min-width: 0; margin: 0; color: var(--text-head); font-size: var(--type-meta); line-height: 1.5; }
-.review-reader-notice { flex: 1 1 100%; order: 1; margin: 0; color: var(--state-failed); font-size: var(--type-meta); }
-.review-reader-notice[hidden] { display: none; }
-.review-reader-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+.review-reader-status { margin: 0; padding: 8px 12px; color: var(--text-head); font-size: var(--type-meta); border-bottom: 1px solid var(--border-dim); }
+.review-reader[data-placement="overlay"] { position: relative; z-index: 5; min-height: 0; }
 .review-reader-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(220px, 32%) minmax(0, 1fr); }
 .review-reader-files { min-height: 0; overflow-y: auto; padding: 10px 0; border-right: 1px solid var(--border-dim); --review-row-pad: 12px; --review-stat-gap: 8px; }
 .review-reader-totals { display: flex; gap: var(--review-stat-gap); margin: 0 0 8px; padding: 0 var(--review-row-pad); font: var(--type-meta) var(--font-mono); }

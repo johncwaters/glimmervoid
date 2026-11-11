@@ -138,7 +138,12 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const action = `${isHeader ? 'open' : 'show'}-${page.id}`;
     const control = button({ variant: 'icon', size: isHeader ? 'small' : undefined, label: page.label, icon, action });
     control.addEventListener('click', () => {
-      if (shownSessionId) openSessionPage(page.id, shownSessionId);
+      if (!shownSessionId) return;
+      if (isHeader && isSessionPageOpen(page.id, shownSessionId)) {
+        closeSessionPage();
+        return;
+      }
+      openSessionPage(page.id, shownSessionId);
     });
     const dot = el('span', 'session-page-dot');
     dot.setAttribute('aria-hidden', 'true');
@@ -156,6 +161,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     const isAvailable = shownSessionId !== null && page.isAvailableFor(shownSessionId);
     pageButton.wrap.toggleAttribute('data-slot-held', !isAvailable);
     pageButton.dot.hidden = !isAvailable || !shownSessionId || !page.hasUnreadFor(shownSessionId);
+    if (style === 'header') pageButton.control.setAttribute('aria-pressed', String(shownSessionId !== null && isSessionPageOpen(page.id, shownSessionId)));
   }
 
   function paintAll() {

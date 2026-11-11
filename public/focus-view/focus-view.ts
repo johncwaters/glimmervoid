@@ -147,10 +147,6 @@ export function isFocusActive() { return active; }
 
 export function getFocusedSessionId() { return uiState.snapshot().focusedSessionId; }
 
-export function isBoardCentered() {
-  return active && centeredBoardId !== null;
-}
-
 export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | null; center: HTMLElement | null; resizer: HTMLElement | null }) {
   railEl = rail;
   centerEl = center;
@@ -979,8 +975,9 @@ const focusPageHost: SessionPageHost = {
   placement: 'overlay',
   sessionId: () => (active && centerEl && !centeredBoardId ? getFocusedSessionId() : null),
   elementFor: () => {
-    if (!centerEl) throw new Error('Focus view is not mounted');
-    return centerEl;
+    const centeredCard = sessionUIs.get(getFocusedSessionId() ?? '')?.card;
+    if (!centeredCard) throw new Error('Focus view has no centered session');
+    return centeredCard;
   },
   didShow: () => {},
   didHide: () => {

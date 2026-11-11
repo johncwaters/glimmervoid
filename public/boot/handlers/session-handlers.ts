@@ -9,7 +9,6 @@ import { attentionTally } from '../../session-card/card-registry.ts';
 import { createSessionCard, hasSession, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
-import { releaseMergeRequest } from '../../review/review-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { forgetSession, handleSessionStatus, rebuildSessionCard, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, syncTraceSessionsFromCards } from '../session-frames.ts';
 
@@ -36,7 +35,6 @@ const messageHandlers = {
 
   'notify':             (msg) => { alertFromNotify(msg); handleDebugStateRefresh(msg.session); },
   'session-error':      (msg) => {
-    releaseMergeRequest(msg.id);
     reportSessionProblem(msg.id, msg.message);
   },
 } satisfies DashboardHandlerTable;

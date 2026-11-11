@@ -3,7 +3,6 @@ import { PHONE_MAX_WIDTH_PX, decideLayout } from '../../public/form-factor-core.
 export type ViewerId = 'a' | 'b';
 
 
-export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected';
 
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
@@ -14,7 +13,7 @@ export type Step =
   | { kind: 'assert-rail-drag'; viewer?: ViewerId }
   | { kind: 'assert-board-scale'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
-  | { kind: 'assert-review-merge'; upstream: UpstreamVariant; viewer?: ViewerId }
+  | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
@@ -252,11 +251,11 @@ export const SCENARIOS: readonly Scenario[] = [
     viewports: ['phone-393', 'desktop-1280', 'desktop-800', 'desktop-1920'],
     steps: [{ kind: 'assert-team-review' }, { kind: 'shot', name: 'team-review' }],
   },
-  ...(['none', 'conflict', 'diverged', 'push-rejected'] as const).map((upstream): Scenario => ({
-    name: upstream === 'none' ? 'review-merge' : `review-merge-${upstream}`,
+  {
+    name: 'review-changes',
     viewports: ['desktop-1280'],
-    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-merge', upstream }, { kind: 'shot', name: 'merged' }],
-  })),
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-changes' }, { kind: 'shot', name: 'changes' }],
+  },
   {
     name: 'rename-repaints-roster',
     viewports: ['desktop-1280', 'phone-393'],
@@ -716,7 +715,7 @@ export function needsIssues(scenario: Scenario): boolean {
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-review-merge' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
+  return scenario.steps.some((step) => step.kind === 'assert-review-changes' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {

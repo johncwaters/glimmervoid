@@ -2,8 +2,7 @@ import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
 import { z } from 'zod';
 import type { Layout } from './cases-core.ts';
-import { git } from '../site-capture/isolated-glimmervoid.ts';
-import { commitFile, findSessionWorktree, pollFor, readOriginFile } from './review-merge.ts';
+import { commitFile, findSessionWorktree, pollFor } from './review-changes.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,7 +15,6 @@ import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
 import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
-const MERGE_SETTLE_MS = 1500;
 const WORKTREE_TIMEOUT_MS = 15000;
 const REVIEW_TIMEOUT_MS = 20000;
 const RESIZE_TIMEOUT_MS = 5000;
@@ -1340,7 +1338,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
-  await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
+  await verifyBoardRowsInRail(page, panel, sessionId);
 }
 
 export async function verifyRailDrag(page: Page, sessionId: string, projectDirectory: string): Promise<string> {
@@ -1377,7 +1375,7 @@ async function waitForSplitBoardTitle(page: Page, sessionId: string, boardTitle:
   await pollFor(`the rail split shows ${boardTitle ?? 'no board'}`, BOARD_TIMEOUT_MS, async () => (await splitBoardTitleOf(page, sessionId) === boardTitle ? true : null));
 }
 
-async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: string, projectDirectory: string): Promise<void> {
+async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: string): Promise<void> {
   const laterTitle = `Later plan ${sessionId.slice(0, 8)}`;
   const secondTitle = `Second plan ${sessionId.slice(0, 8)}`;
   assert.equal(await page.locator('.rail-boards-details').count(), 0, 'the rail has no separate Boards section');
@@ -1389,7 +1387,6 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await laterRow.click();
   await openBoardTitle(panel, laterTitle).waitFor();
   await page.locator('#focus-pane-terminal').waitFor({ state: 'hidden' });
-  await verifyMergeShortcutIgnoredWhileBoardCentered(page, projectDirectory);
   await verifyRailArrowsReachBoardRows(page, laterTitle);
   await laterRow.and(page.locator('.focused')).waitFor();
   const sessionRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first();
@@ -1444,14 +1441,6 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await page.keyboard.press(BOARD_SPLIT_KEY);
   await openBoardTitle(panel, unrelatedTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
-}
-
-async function verifyMergeShortcutIgnoredWhileBoardCentered(page: Page, projectDirectory: string): Promise<void> {
-  const originPath = (await git(projectDirectory, ['remote', 'get-url', 'origin'])).trim();
-  await page.keyboard.press('Alt+KeyI');
-  await page.waitForTimeout(MERGE_SETTLE_MS);
-  assert.equal(await page.getByRole('dialog').count(), 0, 'the merge shortcut asks nothing while a board is centered');
-  assert.equal(await readOriginFile(originPath, UNCOVERED_FILE_NAME), null, 'the merge shortcut merges nothing while a board is centered');
 }
 
 async function verifyRailArrowsReachBoardRows(page: Page, boardTitle: string): Promise<void> {

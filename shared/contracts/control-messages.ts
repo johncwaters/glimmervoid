@@ -54,7 +54,6 @@ export type { CoderEnvironmentOffer, OnboardingStepReport, OperatorSurface, Oper
 
 const idOnlyClientTypes = [
   'kill', 'start-session',
-  'merge-session', 'finish-session', 'merge-continue-session', 'discard-session-worktree',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
 

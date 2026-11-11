@@ -2,10 +2,8 @@ import { CHANGES_POLL_INTERVAL_MS } from '#shared/contracts/control-messages.ts'
 import { ChangeMap } from '#shared/contracts/change-map.ts';
 import type { ChangeMapView } from '#shared/change-map-view-core.ts';
 import { buildChangeMapView } from '#shared/change-map-view-core.ts';
-import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
-import { openConfirmDialog } from '../session-card/modal.ts';
 import { shouldDropDiffCache } from './diff-core.ts';
 import type { SessionDiffPayload } from './review-copy-core.ts';
 import type { ReaderFile, ReviewView } from './review-reader-core.ts';
@@ -14,28 +12,21 @@ import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts'
 
 export interface SessionReview extends ReviewView {
   sessionId: string;
-  sessionName: string;
   files: ReaderFile[];
   diffError: string | null;
   changeMapView: ChangeMapView | null;
-  notice: string | null;
   isWorkspace: boolean;
 }
-
-const NOTICE_MS = 5000;
 
 const statusById = new Map<string, string>();
 const reasonById = new Map<string, string | null>();
 const diffById = new Map<string, SessionDiffPayload | null>();
 const diffErrorById = new Map<string, string>();
 const mapById = new Map<string, ChangeMap | null>();
-const mergeRequestedFromStatusById = new Map<string, string>();
 const filesByPayload = new WeakMap<SessionDiffPayload, ReaderFile[]>();
 const changeMapViewByMap = new WeakMap<ChangeMap, ChangeMapView>();
 const listeners = new Set<(sessionId: string) => void>();
 const onScreenSurfaces = new Set<Element>();
-let notice: { sessionId: string; text: string } | null = null;
-let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let watchedSessionId: string | null = null;
 let watchRenewTimer: ReturnType<typeof setInterval> | null = null;
 let surfaceObserver: IntersectionObserver | null = null;
@@ -85,30 +76,16 @@ export function reviewOf(sessionId: string): SessionReview | null {
     hasDiffError: diffError !== null,
     isWorkspace: isWorkspaceSession(sessionId),
     state: ui.currentState,
-    effectiveBase: ui.effectiveBase,
-    isMergeInFlight: mergeRequestedFromStatusById.has(sessionId),
     files,
   });
   return {
     ...view,
     sessionId,
-    sessionName: ui.card.dataset.session || sessionId,
     files,
     diffError,
     changeMapView: changeMapViewOf(mapById.get(sessionId)),
-    notice: notice?.sessionId === sessionId ? notice.text : null,
     isWorkspace: isWorkspaceSession(sessionId),
   };
-}
-
-function showNotice(sessionId: string, text: string) {
-  notice = { sessionId, text };
-  if (noticeTimer) clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => {
-    notice = null;
-    announce(sessionId);
-  }, NOTICE_MS);
-  announce(sessionId);
 }
 
 function requestChangeMap(sessionId: string) {
@@ -136,14 +113,11 @@ function applyStatus(sessionId: string, nextStatus: string) {
 export function setMergeStatus(sessionId: string, status: string, reason: string | null = null) {
   const nextStatus = status || 'none';
   reasonById.set(sessionId, reason);
-  const requestedFrom = mergeRequestedFromStatusById.get(sessionId);
-  if (requestedFrom !== undefined && requestedFrom !== nextStatus) mergeRequestedFromStatusById.delete(sessionId);
   applyStatus(sessionId, nextStatus);
 }
 
 export function seedMergeStatus(sessionId: string, status: string, reason: string | null = null) {
   reasonById.set(sessionId, reason);
-  mergeRequestedFromStatusById.delete(sessionId);
   applyStatus(sessionId, status || 'none');
 }
 
@@ -191,12 +165,6 @@ export function refreshReview(id: unknown) {
   announce(sessionId);
 }
 
-export function releaseMergeRequest(id: unknown) {
-  const sessionId = sessionIdOf(id);
-  if (!sessionId || !mergeRequestedFromStatusById.delete(sessionId)) return;
-  announce(sessionId);
-}
-
 export function forgetReview(id: unknown) {
   const sessionId = sessionIdOf(id);
   statusById.delete(sessionId);
@@ -204,59 +172,11 @@ export function forgetReview(id: unknown) {
   diffById.delete(sessionId);
   diffErrorById.delete(sessionId);
   mapById.delete(sessionId);
-  mergeRequestedFromStatusById.delete(sessionId);
   if (sessionId === getSelectedId()) {
     setSelectedId(null);
     return;
   }
   announce(sessionId);
-}
-
-function requestMerge(sessionId: string, isForced: boolean) {
-  if (mergeRequestedFromStatusById.has(sessionId)) return;
-  const wasSent = sendControlMsg(isForced ? { type: 'merge-continue-session', id: sessionId, force: true } : { type: 'merge-continue-session', id: sessionId });
-  if (!wasSent) {
-    showNotice(sessionId, 'Not connected. The merge was not sent.');
-    return;
-  }
-  mergeRequestedFromStatusById.set(sessionId, statusById.get(sessionId) || 'none');
-  announce(sessionId);
-}
-
-export function mergeSession(sessionId: string) {
-  const review = reviewOf(sessionId);
-  if (!review) return false;
-  if (mergeRequestedFromStatusById.has(sessionId)) {
-    showNotice(sessionId, `Merge is already on its way for "${review.sessionName}".`);
-    return false;
-  }
-  if (!review.isMergeEnabled) {
-    showNotice(sessionId, review.mergeRefusal ?? `Nothing to merge in "${review.sessionName}" right now.`);
-    return false;
-  }
-  if (sessionUIs.get(sessionId)?.currentState !== STATES.RUNNING) {
-    requestMerge(sessionId, false);
-    return true;
-  }
-  openConfirmDialog({
-    title: 'Merge while working',
-    message: 'This session still looks like it is working. Merging rebases its worktree under it. Merge anyway?',
-    confirmLabel: 'Merge anyway',
-    onConfirm: () => requestMerge(sessionId, true),
-  });
-  return true;
-}
-
-export function discardSession(sessionId: string) {
-  const review = reviewOf(sessionId);
-  if (!review?.isDiscardShown) return;
-  openConfirmDialog({
-    title: 'Discard worktree',
-    message: `Throw away the worktree changes for "${review.sessionName}"? This cannot be undone.`,
-    confirmLabel: 'Discard',
-    danger: true,
-    onConfirm: () => sendControlMsg({ type: 'discard-session-worktree', id: sessionId }),
-  });
 }
 
 function hasShowingSurface(): boolean {

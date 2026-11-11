@@ -154,12 +154,6 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   return sessionUi;
 }
 
-export function setSessionEffectiveBase(sessionId: unknown, base: unknown) {
-  const ui = findSessionUi(sessionId);
-  if (!ui) return;
-  ui.effectiveBase = typeof base === 'string' ? base : undefined;
-}
-
 export function setSessionAgent(sessionId: unknown, agent: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;

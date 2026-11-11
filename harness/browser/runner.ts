@@ -9,7 +9,7 @@ import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
-import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
+import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
@@ -1237,9 +1237,9 @@ export async function runCase({
       await verifyTeamReviewRows(viewer.page, viewer.layout, sessionId);
       return passedOutcome('team-review-rows', 'quiet rows, accessible names, repo refs and detail presentation verified');
     }
-    if (step.kind === 'assert-review-merge') {
-      await verifyReviewMerge(viewer.page, projectDirectory, step.upstream);
-      return passedOutcome('review-merge', `upstream ${step.upstream}: Merge disabled with a stable label once clicked, then the expected Review, header and origin state`);
+    if (step.kind === 'assert-review-changes') {
+      await verifyReviewChanges(viewer.page, projectDirectory);
+      return passedOutcome('review-changes', 'the change reader opens with no Merge or Discard, j steps files, and the Changes button and Escape both close it');
     }
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);

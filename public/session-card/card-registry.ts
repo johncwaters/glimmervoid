@@ -42,7 +42,6 @@ export interface SessionUi {
   agent?: string | null;
   isBorrowed: boolean;
   pendingPromptKind: string | null;
-  effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;
   unseenOutcome?: UnseenOutcome | null;

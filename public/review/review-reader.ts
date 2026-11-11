@@ -1,26 +1,20 @@
 import { repoNameForPath } from '#shared/change-map-view-core.ts';
 import { createPressable } from '../ui/pressable.ts';
-import { button } from '../ui/button.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
-import { announceSessionPageChange, closeSessionPage } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange } from '../session-pages/session-pages.ts';
 import { CHANGES_ICON_PATH } from '../svg-dom.ts';
 import { renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReaderFile } from './review-reader-core.ts';
 import { findReaderFile, stepReaderFile } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { discardSession, mergeSession, onReviewChange, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
+import { onReviewChange, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 
 const CHANGES_PAGE_ID = 'changes';
 
 interface ReaderParts {
   root: HTMLElement;
-  status: HTMLElement;
-  notice: HTMLElement;
-  mergeButton: HTMLButtonElement;
-  discardButton: HTMLButtonElement;
-  closeButton: HTMLButtonElement;
   fileColumn: HTMLElement;
   diff: HTMLElement;
 }
@@ -39,26 +33,11 @@ function buildReader(): ReaderParts {
   root.setAttribute('aria-label', 'Changes');
   root.tabIndex = -1;
   root.hidden = true;
-  const bar = el('div', 'review-reader-bar');
-  const status = el('p', 'review-reader-status');
-  status.setAttribute('role', 'status');
-  const notice = el('p', 'review-reader-notice');
-  notice.setAttribute('role', 'status');
-  const actions = el('div', 'review-reader-actions');
-  const mergeButton = button({ variant: 'primary', label: 'Merge', action: 'merge-session', onClick: () => {
-    if (shownSessionId) mergeSession(shownSessionId);
-  } });
-  const discardButton = button({ variant: 'danger', label: 'Discard', action: 'discard-session', onClick: () => {
-    if (shownSessionId) discardSession(shownSessionId);
-  } });
-  const closeButton = button({ variant: 'secondary', label: 'Close', action: 'close-reader', onClick: closeSessionPage });
-  actions.append(mergeButton, discardButton, closeButton);
-  bar.append(status, notice, actions);
   const body = el('div', 'review-reader-body');
   const fileColumn = el('div', 'review-reader-files');
   const diff = el('div', 'review-reader-diff');
   body.append(fileColumn, diff);
-  root.append(bar, body);
+  root.append(body);
   root.addEventListener('keydown', onReaderKeydown);
   onReviewChange((sessionId) => {
     if (sessionId === shownSessionId) render();
@@ -70,7 +49,7 @@ function buildReader(): ReaderParts {
     announceLevel();
   });
   watchReviewSurface(root);
-  return { root, status, notice, mergeButton, discardButton, closeButton, fileColumn, diff };
+  return { root, fileColumn, diff };
 }
 
 function readerParts() {
@@ -113,20 +92,12 @@ function render() {
   if (!parts || placement === null) return;
   shownSessionId = getSelectedId();
   const review = shownSessionId ? reviewOf(shownSessionId) : null;
-  parts.closeButton.hidden = placement !== 'overlay';
   if (!review) {
     renderNoSession(parts);
     return;
   }
   const hadOpenFile = selectedPath !== null;
   settleSelectedPath(review.files);
-  parts.status.textContent = review.sentence;
-  const noticeText = review.notice ?? (review.isMergeShown && !review.isMergeEnabled ? review.mergeRefusal : null);
-  parts.notice.textContent = noticeText ?? '';
-  parts.notice.hidden = noticeText === null;
-  parts.mergeButton.hidden = !review.isMergeShown;
-  parts.mergeButton.disabled = !review.isMergeEnabled;
-  parts.discardButton.hidden = !review.isDiscardShown;
   parts.root.dataset.level = placement === 'screen' && selectedPath !== null ? 'diff' : 'list';
   renderFileColumn(parts.fileColumn, review);
   renderDiff(parts.diff, findReaderFile(review.files, selectedPath));
@@ -134,12 +105,8 @@ function render() {
 }
 
 function renderNoSession(readerPartsToPaint: ReaderParts) {
-  readerPartsToPaint.status.textContent = 'No session selected';
-  readerPartsToPaint.notice.hidden = true;
-  readerPartsToPaint.mergeButton.hidden = true;
-  readerPartsToPaint.discardButton.hidden = true;
   readerPartsToPaint.root.dataset.level = 'list';
-  readerPartsToPaint.fileColumn.replaceChildren();
+  readerPartsToPaint.fileColumn.replaceChildren(el('p', 'review-empty-title', 'No session selected'));
   readerPartsToPaint.diff.replaceChildren();
 }
 
@@ -150,10 +117,11 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     fileColumn.append(el('p', 'review-diff-error', review.diffError));
     return;
   }
-  if (review.isEmpty) {
+  if (review.isEmpty || review.files.length === 0) {
     fileColumn.append(el('p', 'review-empty-title', review.sentence));
     return;
   }
+  if (review.statusLine) fileColumn.append(el('p', 'review-reader-status', review.statusLine));
   if (review.totals.files > 0) fileColumn.append(totalsLine(review.totals));
   const list = el('div', 'review-reader-file-list');
   list.setAttribute('role', 'list');
