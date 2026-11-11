@@ -84,6 +84,7 @@ type PaperSelection = SourceSelection | 'crosses-mark' | null;
 type InPlaceEdit = { mark: MarkSegment; part: RevisablePart; element: HTMLElement };
 
 const PILCROW = String.fromCharCode(0xb6);
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 const MARGIN_CODE_LABELS: Record<string, string> = { unclear: '?', para: PILCROW };
 const MARK_KIND_DESCRIPTIONS: Record<MarkSegment['markKind'], string> = {
   deletion: 'Cut', insertion: 'Add', substitution: 'Change', highlight: 'Note', comment: 'Note',
@@ -257,6 +258,7 @@ function buildSubstitutionContent(mark: MarkSegment): Node[] {
     const newLetters = [...mark.newText];
     return [...mark.oldText].map((oldLetter, letterIndex) => caseLetterElement(oldLetter, newLetters[letterIndex]));
   }
+  if (/\s/.test(mark.oldText.trim())) return [el('del', null, mark.oldText), revisable(el('ins', 'doc-markup-inserted', mark.newText), 'suggestion')];
   const caret = el('span', 'doc-markup-caret', '^');
   caret.append(revisable(el('span', 'doc-markup-caret-label', mark.newText), 'suggestion'));
   return [el('del', null, mark.oldText), caret];
@@ -348,6 +350,15 @@ function buildRow(lineStart: number, block: BlockStyle): MarkupRow & { row: HTML
 }
 
 type PaperRow = ReturnType<typeof buildRow>;
+
+function giveMarkLedLinesACaretStop(rows: readonly PaperRow[]) {
+  for (const { line } of rows) {
+    if (!(line.firstChild instanceof HTMLElement) || line.firstChild.dataset.markIndex === undefined) continue;
+    const caretStop = el('span', 'doc-markup-caret-stop', ZERO_WIDTH_SPACE);
+    caretStop.dataset.start = line.dataset.start;
+    line.prepend(caretStop);
+  }
+}
 
 function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStart: Map<number, BlockStyle>) {
   let sourceOffset = segment.start;
@@ -562,6 +573,7 @@ function paintPaper(editor: MarkupHost) {
     currentRow.margin.append(marginNote);
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
+  giveMarkLedLinesACaretStop(rows);
   pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
   const shownRows = previewedRows(editor, source, rows);
   carryNotePlacement(pane.paintedRows, rows);
@@ -765,7 +777,7 @@ type SourcePoint = { sourceOffset: number; segmentStart: string | undefined };
 
 function pointAfterChild(pane: MarkupPane, child: ChildNode | undefined, line: HTMLElement): SourcePoint {
   const lineStart = { sourceOffset: Number(line.dataset.start), segmentStart: undefined };
-  if (!(child instanceof HTMLElement)) return lineStart;
+  if (!(child instanceof HTMLElement) || child.classList.contains('doc-markup-caret-stop')) return lineStart;
   const markIndex = markIndexOf(child);
   if (markIndex !== null) return { sourceOffset: caretOffsetBeside(pane.marks[markIndex]) ?? lineStart.sourceOffset, segmentStart: undefined };
   return { sourceOffset: Number(child.dataset.start) + (child.textContent?.length ?? 0), segmentStart: child.dataset.segmentStart };
@@ -797,6 +809,8 @@ function sourcePointAt(pane: MarkupPane, node: Node, offset: number): SourcePoin
     const sourceOffset = caretOffsetBeside(pane.marks[markIndex]);
     return sourceOffset === undefined ? null : { sourceOffset, segmentStart: undefined };
   }
+  const caretStop = element?.closest<HTMLElement>('.doc-markup-caret-stop');
+  if (caretStop) return { sourceOffset: Number(caretStop.dataset.start), segmentStart: undefined };
   const textSpan = element?.closest<HTMLElement>('.doc-markup-text');
   if (textSpan) {
     const isTextNode = node.nodeType === Node.TEXT_NODE;
@@ -836,6 +850,8 @@ function caretPointFor(pane: MarkupPane, sourceOffset: number): { node: Node; of
     const textNode = textSpan.firstChild;
     if (textNode && spanStart <= sourceOffset && sourceOffset <= spanStart + (textSpan.textContent?.length ?? 0)) return { node: textNode, offset: sourceOffset - spanStart };
   }
+  const caretStop = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-caret-stop')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
+  if (caretStop?.firstChild) return { node: caretStop.firstChild, offset: 1 };
   const line = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-line')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
   if (line) return { node: line, offset: 0 };
   const markIndex = pane.marks.findIndex((mark) => mark.end === sourceOffset);
@@ -950,8 +966,19 @@ function prefixSelectedLines(editor: MarkupHost, prefixOf: (lineNumber: number) 
   paintMarkupTools(editor);
 }
 
+function withoutCaretStops(text: string) {
+  return text.replaceAll(ZERO_WIDTH_SPACE, '');
+}
+
 function typedTextOf(event: InputEvent) {
-  return event.data ?? event.dataTransfer?.getData('text/plain') ?? '';
+  return withoutCaretStops(event.data ?? event.dataTransfer?.getData('text/plain') ?? '');
+}
+
+function copyWithoutCaretStops(event: ClipboardEvent) {
+  const copiedText = window.getSelection()?.toString() ?? '';
+  if (!copiedText.includes(ZERO_WIDTH_SPACE) || !event.clipboardData) return;
+  event.preventDefault();
+  event.clipboardData.setData('text/plain', withoutCaretStops(copiedText));
 }
 
 function editFor(event: InputEvent, selection: SourceSelection): SuggestEdit | null {
@@ -1334,6 +1361,7 @@ export function wireMarkupPane(editor: MarkupHost) {
   });
   pane.btnPreviewAll.addEventListener('click', () => toggleEveryBlockPreview(editor));
   pane.paper.addEventListener('beforeinput', (event) => onBeforeInput(editor, event));
+  pane.paper.addEventListener('copy', copyWithoutCaretStops);
   pane.paper.addEventListener('compositionstart', (event) => {
     if (isInsideInPlaceEdit(pane, event.target)) return;
     const selection = readPaperSelection(pane, currentRange());

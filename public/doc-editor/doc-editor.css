@@ -66,6 +66,7 @@
 .doc-markup-caret { position: relative; display: inline-block; padding-block-start: calc(var(--type-body) * 1.3 + 2px); line-height: 1; color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); font-weight: 700; }
 .doc-markup-caret-label { position: absolute; top: 0; left: 0; max-width: min(40ch, 60vw); overflow: hidden; font-size: var(--type-body); font-weight: 400; line-height: 1.3; text-overflow: ellipsis; white-space: pre; filter: url(#doc-markup-ink); }
 .doc-markup-inserted { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); text-decoration: none; filter: url(#doc-markup-ink); }
+.doc-markup-mark del + .doc-markup-inserted { margin-inline-start: 0.3em; }
 .doc-markup-glyph { width: 0.6em; height: 0.8em; fill: none; stroke: var(--pen-ink); stroke-width: 1.6; stroke-linecap: round; filter: url(#doc-markup-ink); }
 .doc-markup-delete-loop { margin-inline-start: -0.15em; vertical-align: 0.35em; }
 .doc-markup-closeup { vertical-align: -0.1em; }
