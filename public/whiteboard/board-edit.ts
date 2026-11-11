@@ -129,9 +129,6 @@ function hoverCursorOf(hit: BoardHit | null): string {
 }
 
 const MAX_FIT_ZOOM = 2;
-const BOX_LINE_FONT_UNITS = 12;
-const MIN_READABLE_FONT_PX = 10;
-const MAX_READABLE_UNITS_PER_PIXEL = BOX_LINE_FONT_UNITS / MIN_READABLE_FONT_PX;
 const WHOLE_BOARD_ZOOM_OUT_MARGIN = 1.25;
 
 function unitsPerPixelShowing(area: { width: number; height: number }, canvasWidth: number, canvasHeight: number): number {
@@ -201,15 +198,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
     isFitOwedOnceSized = false;
     const band = islandFreeBand();
     const maxZoom = layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM;
-    const wholeBoardUnitsPerPixel = Math.max(1 / maxZoom, unitsPerPixelShowing(bounds, canvasWidth, band.heightPx));
-    const isWholeBoardTooSmallToRead = wholeBoardUnitsPerPixel > MAX_READABLE_UNITS_PER_PIXEL;
-    const unitsPerPixel = isWholeBoardTooSmallToRead ? MAX_READABLE_UNITS_PER_PIXEL : wholeBoardUnitsPerPixel;
+    const unitsPerPixel = Math.max(1 / maxZoom, unitsPerPixelShowing(bounds, canvasWidth, band.heightPx));
     const fittedViewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
     const bandCenterPx = band.topPx + band.heightPx / 2;
     camera = {
       x: bounds.x - Math.max(0, fittedViewWidth - bounds.width) / 2,
-      y: isWholeBoardTooSmallToRead ? bounds.y - band.topPx * unitsPerPixel : boardCenterY - bandCenterPx * unitsPerPixel,
+      y: boardCenterY - bandCenterPx * unitsPerPixel,
       scale: 1 / unitsPerPixel,
     };
     applyCamera();

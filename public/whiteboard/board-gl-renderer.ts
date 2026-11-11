@@ -1111,6 +1111,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     upload(programs.glyph, glyphs);
     for (let layer = 0; layer <= LAYER_COUNT; layer += 1) drawLayer(context, programs, glyphSource, layer);
     canvas.dataset.drawnElements = String(current.geometries.length);
+    canvas.dataset.drawnBlocks = String(blocks.length);
     canvas.dataset.mediaTextures = String(mediaTextures.size);
   }
 

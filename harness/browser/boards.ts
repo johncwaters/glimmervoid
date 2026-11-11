@@ -1363,6 +1363,8 @@ const SCALE_FIRST_DRAW_BUDGET_MS = 1500;
 const SCALE_FRAME_BUDGET_MS = 100;
 const SCALE_DRAGGED_BOX_COUNT = 8;
 const SCALE_DRAG_OFFSET = { x: 120, y: 0 };
+const SCALE_DRAG_ZOOM = 0.55;
+const SCALE_MAX_ZOOM_IN_NOTCHES = 80;
 const SCALE_PUT_BYTES_SHARE = 0.9;
 const SCALE_SAVE_TIMEOUT_MS = 30000;
 const STACKED_BOX_EVERY = 10;
@@ -1469,10 +1471,14 @@ async function panToAtGrid(open: OpenBoard, board: Board): Promise<Map<string, S
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
-  await page.mouse.move(start.x, start.y);
+  const camera = await cameraOf(open);
+  const boxesOnScreen = layoutBoard(board).elements.filter((laidOut) => laidOut.kind === 'box').map((laidOut) => centerOf(screenRectOn(camera, laidOut))).filter((center) => center.x > canvasBox.x && center.y > canvasBox.y && center.x < canvasBox.x + canvasBox.width && center.y < canvasBox.y + canvasBox.height);
+  const zoomAnchor = boxesOnScreen[Math.floor(boxesOnScreen.length / 2)] ?? start;
+  await page.mouse.move(zoomAnchor.x, zoomAnchor.y);
   await page.keyboard.down('Control');
-  for (let notch = 0; notch < 4; notch += 1) await page.mouse.wheel(0, 400);
+  for (let notch = 0; notch < SCALE_MAX_ZOOM_IN_NOTCHES && (await cameraOf(open)).scale < SCALE_DRAG_ZOOM; notch += 1) await page.mouse.wheel(0, -400);
   await page.keyboard.up('Control');
+  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const visible = await visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
     if (visible.size === SCALE_DRAGGED_BOX_COUNT) return visible;
@@ -1495,12 +1501,19 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   const openStartedAt = Date.now();
   const panel = await showBoardInFocus(page, sessionId, SCALE_BOARD_TITLE);
   const open: OpenBoard = { page, panel, boardId };
-  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]');
+    return Number(canvas?.dataset.drawnElements ?? 0) + Number(canvas?.dataset.drawnBlocks ?? 0) > 0;
+  }, null, { timeout: 60000 });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const firstDrawMs = Date.now() - openStartedAt;
 
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  const fittedBoard = screenRectOn(await cameraOf(open), layoutBoard(await shownBoardOf(open)).bounds);
+  const isWholeBoardInView = fittedBoard.x >= canvasBox.x - 1 && fittedBoard.y >= canvasBox.y - 1 && fittedBoard.x + fittedBoard.width <= canvasBox.x + canvasBox.width + 1 && fittedBoard.y + fittedBoard.height <= canvasBox.y + canvasBox.height + 1;
+  assert.ok(isWholeBoardInView, `Fit brings the whole large board into view, board ${JSON.stringify(fittedBoard)} canvas ${JSON.stringify(canvasBox)}`);
   await startFrameRecorder(page);
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.5);
   await page.mouse.down({ button: 'right' });

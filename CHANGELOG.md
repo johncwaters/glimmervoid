@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The dashboard tells you to reload when it is older than the server.** A dashboard tab left open across a Glimmervoid update could keep running the old page, and a board or view the old page could not read drew empty with no explanation. The header now says the server sent a message this dashboard could not read and to reload the page, once per page load. Messages from a linked host never show it, since reloading cannot fix another machine's version.
+- **Fit board shows the whole board.** Pressing Fit on a large board used to stop at a zoom where box text stayed readable and show only the top left, so some of the board stayed off screen. Fit now zooms out until every box, wire and frame is in view, centered between the floating toolbars, and the same happens when a board first opens. Small boards still stop at 2x zoom.
 
 ## [0.57.0] - 2026-11-11
 
