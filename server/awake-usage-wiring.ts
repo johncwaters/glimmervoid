@@ -13,7 +13,7 @@ function startAwakeUsageAlerts({ readAwakeUsage, notify, statePath, readEveryMs 
   statePath: string | null;
   readEveryMs?: number;
   log?: Pick<Console, 'warn'>;
-}): { stop(): void; checked(): Promise<void> } {
+}): { stop(): void; check(): void; checked(): Promise<void> } {
   let notified: AwakeUsageNotified | null = null;
   let lastCheck: Promise<void> = Promise.resolve();
   const store = createJsonStateStore({
@@ -43,7 +43,7 @@ function startAwakeUsageAlerts({ readAwakeUsage, notify, statePath, readEveryMs 
   check();
   const interval = setInterval(check, readEveryMs);
   interval.unref();
-  return { stop: () => clearInterval(interval), checked: () => lastCheck };
+  return { stop: () => clearInterval(interval), check, checked: () => lastCheck };
 }
 
 export { startAwakeUsageAlerts };

@@ -317,7 +317,9 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
         return null;
       }
       const answer = AwakeUsageAnswer.safeParse(await response.json());
-      return answer.success ? answer.data.awakeUsage : null;
+      if (answer.success) return answer.data.awakeUsage;
+      log.warn(`[watcher] ${AWAKE_USAGE_PATH} answered an unreadable usage: ${answer.error.message}`);
+      return null;
     } catch (usageError) {
       log.warn(`[watcher] could not read awake usage: ${(usageError as Error).message}`);
       return null;
@@ -473,12 +475,20 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     updateCoverage();
   }
 
+  const linkedListeners = new Set<() => void>();
+
+  function whenLinked(listener: () => void): void {
+    linkedListeners.add(listener);
+  }
+
   async function start(): Promise<void> {
     supervisor = startWatcher({
       linkSecret,
       onListening: (listeningUrl) => {
+        const isNewLink = watcherUrl !== listeningUrl;
         watcherUrl = listeningUrl;
         watcherStartCount += 1;
+        if (isNewLink) for (const listener of linkedListeners) listener();
         void deliver();
         void checkGithubToken();
       },
@@ -505,7 +515,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage, whenLinked };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

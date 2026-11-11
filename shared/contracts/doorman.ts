@@ -18,7 +18,7 @@ export const DoormanTenant = z.strictObject({
   linkSecretPath: z.string().min(1),
   watcherHome: z.string().min(1),
   githubInstallation: DoormanGithubInstallation.nullable().default(null),
-  awakeHoursPerMonth: z.number().positive().nullable(),
+  awakeHoursPerMonth: z.number().positive().nullable().default(null),
 });
 export type DoormanTenant = z.infer<typeof DoormanTenant>;
 

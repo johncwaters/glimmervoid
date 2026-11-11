@@ -33,7 +33,7 @@ async function totalFromLedger(ledgerPath: string, nowMs: number, warn: (message
     ledgerText = await fsp.readFile(ledgerPath, 'utf8');
   } catch (readError) {
     if (!isMissingFileError(readError)) {
-      warn(`could not read ${ledgerPath}, treating this month as used up until it can be read: ${(readError as Error).message}`);
+      warn(`could not read ${ledgerPath}, treating this month as used up until the doorman restarts: ${(readError as Error).message}`);
       return { ...emptyMeterTotal(nowMs), closedAwakeMs: Number.MAX_SAFE_INTEGER };
     }
   }

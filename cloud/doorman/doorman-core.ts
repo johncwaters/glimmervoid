@@ -148,7 +148,7 @@ function awakeUsageAt(total: MeterTotal, awakeHoursPerMonth: number | null, nowM
   const rolled = rolledTo(total, nowMs);
   const openAwakeMs = rolled.openSinceMs === null ? 0 : Math.max(0, nowMs - rolled.openSinceMs);
   return {
-    usedMs: rolled.closedAwakeMs + openAwakeMs,
+    usedMs: Math.min(Number.MAX_SAFE_INTEGER, rolled.closedAwakeMs + openAwakeMs),
     capMs: awakeHoursPerMonth === null ? null : Math.ceil(awakeHoursPerMonth * MS_PER_HOUR),
     periodStartAt: new Date(rolled.periodStartMs).toISOString(),
     periodEndsAt: new Date(nextMonthStartMs(rolled.periodStartMs)).toISOString(),

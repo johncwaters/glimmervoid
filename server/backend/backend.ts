@@ -684,6 +684,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
     statePath: configSiblingPath(configStore.configPath, 'awake-usage-alerts.json'),
   });
+  watcherLink.whenLinked(awakeUsageAlerts.check);
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
