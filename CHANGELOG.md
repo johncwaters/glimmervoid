@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`glimmervoid doctor` shows where npm and pnpm come from.** A new Package managers section lists the npm and pnpm that new worktrees install with, and whether each was found on PATH, through your login shell PATH or in a usual install folder, or that it was not found at all.
 - **See how much of your GitHub rate limit Glimmervoid spends.** Run `glimmervoid github-usage` from any terminal or session to list each GitHub operation Glimmervoid ran in the last hour, with its calls and rate-limit points per pool (GraphQL, core, search). Beside that it shows how much of your account's pool is used in GitHub's current window and how much of that was Glimmervoid, so when the limit runs low you can tell whether Glimmervoid or something else on your account drained it. GraphQL points are the cost GitHub reports for each query. The running server refreshes the numbers every minute, keeps only the last hour, and logs a one-line summary each hour. `--json` prints the raw snapshot.
 
 ### Changed

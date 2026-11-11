@@ -301,6 +301,16 @@ async function runDoctor(): Promise<boolean> {
     line('glimmervoid on PATH', `${command.commandPath}${target}`);
   }
 
+  switchSection('Package managers');
+  try {
+    const { resolveInstallPath } = await import('../server/install-path.ts');
+    const { tools } = await resolveInstallPath(['npm', 'pnpm']);
+    const INSTALL_PATH_SOURCE_TEXT = { server: 'on PATH', 'login-shell': 'from your login shell PATH', 'known-dir': 'in a usual install folder' } as const;
+    for (const tool of tools) line(tool.name, tool.path ? `${tool.path} (${INSTALL_PATH_SOURCE_TEXT[tool.source ?? 'server']})` : 'not found; new worktrees start without its dependencies');
+  } catch (err) {
+    line('package managers', `probe failed: ${firstLine(errorText(err))}`);
+  }
+
   switchSection('Agents');
 
   try {
