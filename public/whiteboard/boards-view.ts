@@ -1127,6 +1127,7 @@ export function mountBoardHost(): HTMLElement {
     onConnectBoxes: connectBoxes,
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
+    isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),
     onToolChange: paintActiveTool,
   });
 

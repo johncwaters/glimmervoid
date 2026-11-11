@@ -23,6 +23,13 @@ interface ViewPoint {
   y: number;
 }
 
+function isDroppedOutside(laidOutBox: LaidOutElement | undefined, dropOffset: ViewPoint, frameArea: Rect): boolean {
+  if (laidOutBox?.kind !== 'box') return false;
+  const centerX = laidOutBox.x + laidOutBox.width / 2 + dropOffset.x;
+  const centerY = laidOutBox.y + laidOutBox.height / 2 + dropOffset.y;
+  return centerX < frameArea.x || centerX > frameArea.x + frameArea.width || centerY < frameArea.y || centerY > frameArea.y + frameArea.height;
+}
+
 const stacksByTopBoxIdByBoard = new WeakMap<Board, Map<string, Frame>>();
 
 export function stacksByTopBoxIdOf(board: Board): Map<string, Frame> {
@@ -53,6 +60,7 @@ interface BoardEditorOptions {
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
   onOpenStack: (frameId: string) => void;
+  isOpenedStack: (frameId: string) => boolean;
   onToolChange: (tool: BoardTool) => void;
 }
 
@@ -666,8 +674,29 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
     if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
-    const isSent = await options.sendOps(changes.map(({ boxId, fields }) => ({ op: 'set', id: boxId, fields })));
+    const moveOps = changes.map(({ boxId, fields }): Op => ({ op: 'set', id: boxId, fields }));
+    const departureOps = board ? frameDepartureOps(drag, board) : [];
+    const isSent = await options.sendOps([...moveOps, ...departureOps]) || (departureOps.length > 0 && await options.sendOps(moveOps));
     if (!isSent) paintPreview();
+  }
+
+  function frameDepartureOps(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): Op[] {
+    const layout = renderer.layout();
+    if (drag.mode !== 'move' || !layout) return [];
+    const dropOffset = dragOffsetOf(drag);
+    const laidOutById = new Map(layout.elements.map((element) => [element.id, element] as const));
+    const movingBoxIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
+    const topCardIdByHiddenId = new Map([...stacksByTopBoxIdOf(board).values()].flatMap((stack) => stack.contains.slice(1).map((hiddenId) => [hiddenId, stack.contains[0]] as const)));
+    const cardIdOf = (boxId: string) => topCardIdByHiddenId.get(boxId) ?? boxId;
+    const isMoving = (boxId: string) => movingBoxIds.has(cardIdOf(boxId));
+    return [...board.elements.valuesOfKind('frame')].flatMap((frame): Op[] => {
+      const frameArea = laidOutById.get(frame.id);
+      if (frame.collapsed || frameArea?.kind !== 'frame' || frame.contains.every(isMoving)) return [];
+      const remainingBoxIds = frame.contains.filter((boxId) => !isMoving(boxId) || !isDroppedOutside(laidOutById.get(cardIdOf(boxId)), dropOffset, frameArea));
+      if (remainingBoxIds.length === frame.contains.length) return [];
+      const isFrameDissolved = remainingBoxIds.length === 0 || (remainingBoxIds.length === 1 && options.isOpenedStack(frame.id));
+      return [isFrameDissolved ? { op: 'remove', id: frame.id } : { op: 'set', id: frame.id, fields: { contains: remainingBoxIds } }];
+    });
   }
 
   function finishClick(drag: Extract<Gesture, { kind: 'drag' }>): void {
