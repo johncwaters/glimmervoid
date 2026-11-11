@@ -11,7 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewMerge } from './review-merge.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
-import { CARD_REGISTRY_URL, boardRowIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
+import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
 import type { GridReading } from './probe.ts';
 import { caseKey } from './report-core.ts';
 import type { CaseRecord, GridSnapshot, Outcome, StepRecord } from './report-core.ts';
@@ -1006,6 +1006,31 @@ async function runAssertUndoClose(viewer: Viewer, projectDirectory: string, dead
   return passedOutcome('undo-close', findings.join('; '));
 }
 
+async function addSessionAwayFromIt(viewer: Viewer): Promise<void> {
+  if (viewer.layout === 'phone') {
+    await viewer.page.locator(PHONE_BACK_SELECTOR).first().click();
+    await viewer.page.locator('.phone-board-list [data-action="add-group-session"]').first().click();
+    return;
+  }
+  await viewer.page.locator(DESKTOP_LEAVE_FOCUS_SELECTOR).first().click();
+  await viewer.page.keyboard.press('Alt+Shift+Digit0');
+}
+
+async function runAssertAddedSessionShown(viewer: Viewer, deadlines: Deadlines): Promise<StepOutcome> {
+  const cardsBeforeAdd = new Set(await viewer.page.evaluate(sessionCardIds));
+  await addSessionAwayFromIt(viewer);
+  const shown = await pollUntil(async () => {
+    const addedSessionId = (await viewer.page.evaluate(sessionCardIds)).find((id) => !cardsBeforeAdd.has(id));
+    if (!addedSessionId) return { ok: false, detail: 'no added session is listed yet' };
+    const shownSessionId = await viewer.page.evaluate((cardSelector) => document.querySelector<HTMLElement>(cardSelector)?.dataset.id ?? null, `${cardSlotSelector(viewer)} .session-card`);
+    if (shownSessionId !== addedSessionId) return { ok: false, detail: `the card shown is ${String(shownSessionId)}, not the added ${addedSessionId}` };
+    const phoneScreen = (await viewer.page.evaluate(readSettingsHistory)).phoneScreen;
+    if (viewer.layout === 'phone' && phoneScreen !== 'terminal') return { ok: false, detail: `the phone shows ${String(phoneScreen)}, not the Terminal screen` };
+    return probeCardLive(viewer, addedSessionId);
+  }, { label: `viewer ${viewer.id} shows the added session`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
+  return outcomeFor('added-session-shown', shown);
+}
+
 async function runExpectSessionGone(viewer: Viewer, sessionId: string, deadlines: Deadlines): Promise<StepOutcome> {
   const rosterEntry = viewer.page.locator(rosterSelector(viewer, sessionId));
   const gone = await pollUntil(async () => {
@@ -1277,6 +1302,7 @@ export async function runCase({
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);
     if (step.kind === 'remove-session') return runRemoveSession(viewer, sessionId);
     if (step.kind === 'assert-undo-close') return runAssertUndoClose(viewer, projectDirectory, deadlines);
+    if (step.kind === 'assert-added-session-shown') return runAssertAddedSessionShown(viewer, deadlines);
     if (step.kind === 'remove-from-phone-terminal') return runRemoveFromPhoneTerminal(viewer, sessionId, deadlines);
     if (step.kind === 'expect-session-gone') return runExpectSessionGone(viewer, sessionId, deadlines);
     if (step.kind === 'rename-session') return runRenameSession(viewer, sessionId, harnessSessionName(step.newName, sessionId), deadlines);

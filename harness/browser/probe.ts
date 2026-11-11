@@ -221,6 +221,10 @@ export function boardRowIds(): string[] {
   return found;
 }
 
+export function sessionCardIds(): string[] {
+  return [...document.querySelectorAll<HTMLElement>('.session-card[data-id]')].flatMap((card) => (card.dataset.id ? [card.dataset.id] : []));
+}
+
 export function pillIds(): string[] {
   const found: string[] = [];
   for (const element of document.querySelectorAll('.focus-rail button.session-row')) {

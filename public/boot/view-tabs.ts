@@ -44,14 +44,12 @@ const VIEW_TABS = createDashboardViews({
   onRestart: confirmServerRestart,
   openTerminal: (id) => {
     if (showPhoneSession(id)) return;
-    activateView('focus');
-    centerSessionQuietly(id);
+    centerSessionInFocus(id);
   },
   openReviewFile: (id, openPath) => {
     if (!hasSession(id)) return;
     if (showPhoneSession(id)) return;
-    activateView('focus');
-    centerSessionQuietly(id);
+    centerSessionInFocus(id);
     openChangesInFocus(openPath);
   },
   openReviews: () => {
@@ -109,6 +107,11 @@ interface ActivateViewOptions {
   section?: string;
   setting?: string | null;
   persist?: boolean;
+}
+
+function centerSessionInFocus(id: string) {
+  activateView('focus');
+  centerSessionQuietly(id);
 }
 
 function activateView(view: string, { section, setting, persist = true }: ActivateViewOptions = {}) {
@@ -315,6 +318,7 @@ export {
   activateView,
   applySurfaceSettings,
   applyTabOrder,
+  centerSessionInFocus,
   clearSettingsHash,
   focusViewTabIfFocused,
   mountViewTabs,

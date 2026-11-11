@@ -8,6 +8,7 @@ export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected'
 export type Step =
   | { kind: 'assert-issues'; viewer?: ViewerId }
   | { kind: 'assert-undo-close'; viewer?: ViewerId }
+  | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
   | { kind: 'assert-board-pane'; viewer?: ViewerId }
   | { kind: 'assert-rail-drag'; viewer?: ViewerId }
@@ -215,6 +216,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'undo-close',
     viewports: ['phone-393', 'desktop-1280'],
     steps: [{ kind: 'assert-undo-close' }, { kind: 'shot', name: 'undo-close' }],
+  },
+  {
+    name: 'added-session-shown',
+    viewports: ['phone-393', 'desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-added-session-shown' }, { kind: 'shot', name: 'added-session-shown' }],
   },
   {
     name: 'boards',

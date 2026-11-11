@@ -1,7 +1,8 @@
 import { isRealInputOwningKey } from '../dom-helpers.ts';
-import { activateFocusOnNextAttention, centerSessionQuietly, focusAdjacentInRail, focusNextAttention, focusNthInRail, isBoardCentered, isFocusActive, toggleFocusedBoardSplit } from '../focus-view/focus-view.ts';
+import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isBoardCentered, isFocusActive, toggleFocusedBoardSplit } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
+import { showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { isModalOpen } from '../session-card/modal.ts';
@@ -12,7 +13,7 @@ import { mergeSession } from '../review/review-store.ts';
 import { getSelectedId } from '../review/selection.ts';
 import { toggleStreamerMode } from '../streamer-mode.ts';
 import { getActiveView } from '../ui-state-core.ts';
-import { activateView, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
+import { activateView, centerSessionInFocus, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
 
 function focusedTerminalSessionId() {
   const focusedCard = document.activeElement?.closest<HTMLElement>('.session-card');
@@ -20,7 +21,8 @@ function focusedTerminalSessionId() {
 }
 
 function revealSpawnedSession(id: string) {
-  centerSessionQuietly(id);
+  if (showPhoneSession(id)) return;
+  centerSessionInFocus(id);
   selectSession(id);
   requestAnimationFrame(() => requestAnimationFrame(() => sessionUIs.get(id)?.term?.focus()));
 }
