@@ -62,7 +62,7 @@ test('a clean home carries the operator deny and ask rules, sandbox, env and key
 });
 
 test('every hook an agent installs is described with a purpose in the Hooks tab', () => {
-  const everyFlagOn = { detectScheduledWakeups: true, observeToolCalls: true, planReview: true, hookTools: [{ id: 'saneYolo' as const, binPath: 'C:\\Users\\operator\\node_modules\\.bin\\cc-safety-net', launch: ['node', 'C:\\Users\\operator\\node_modules\\.bin\\cc-safety-net'] }] };
+  const everyFlagOn = { detectScheduledWakeups: true, observeToolCalls: true, hookTools: [{ id: 'saneYolo' as const, binPath: 'C:\\Users\\operator\\node_modules\\.bin\\cc-safety-net', launch: ['node', 'C:\\Users\\operator\\node_modules\\.bin\\cc-safety-net'] }] };
   const groups = listAgentIds().flatMap((agentId) => {
     const adapter = getAdapter(agentId);
     const describeInstalledHooks = adapter?.hooks?.describeInstalledHooks;

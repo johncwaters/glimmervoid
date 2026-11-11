@@ -99,10 +99,6 @@ function navigateOnceActive(navigate: (shell: PhoneShellModule) => boolean): boo
   return true;
 }
 
-export function showPhonePlan(sessionId: string): boolean {
-  return navigateOnceActive((shell) => shell.showPhonePlan(sessionId));
-}
-
 export function showPhoneSession(sessionId: string): boolean {
   return navigateOnceActive((shell) => shell.showPhoneSession(sessionId));
 }

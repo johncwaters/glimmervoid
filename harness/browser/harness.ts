@@ -149,7 +149,6 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     recordSignals: false,
     postTurnChecks: { enabled: false },
     checkForUpdates: false,
-    planReview: { enabled: true },
     telemetry: { enabled: false },
   };
   fs.writeFileSync(configPath, `${JSON.stringify(configDocument, null, 2)}\n`, 'utf8');

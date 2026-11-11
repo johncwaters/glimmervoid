@@ -206,10 +206,6 @@ export const TraceSettings = z.object({
   enabled: optionalBoolean('trace.enabled'),
 }, { error: 'trace must be an object' }).optional();
 
-export const PlanReviewSettings = z.object({
-  enabled: optionalBoolean('planReview.enabled'),
-}, { error: 'planReview must be an object' }).optional();
-
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
 const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: string) => boolean) => z.array(
   z.string({ error: `${field} must be an array of paths` }).trim()

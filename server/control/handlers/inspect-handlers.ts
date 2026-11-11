@@ -1,5 +1,4 @@
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
-import { PlanDecision } from '../../../shared/contracts/plan-review.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
@@ -10,7 +9,7 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 
 function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const { findSession } = context;
-  const { readTracePage = null, readPlanRevision = null, decidePlanReview = null, sessionDocs = null, coherenceFeed = null } = deps;
+  const { readTracePage = null, sessionDocs = null, coherenceFeed = null } = deps;
 
   const handlers = {
     'debug-state': (msg: ClientMessageOf<'debug-state'>, ws: ControlSocket) => {
@@ -30,38 +29,6 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
       } catch (error) {
         sendError(ws, `Session trace read failed: ${errorMessage(error)}`, { id: session.id, requestId: message.requestId });
       }
-    },
-    'session-plan': async (message: ClientMessageOf<'session-plan'>, ws: ControlSocket) => {
-      const requestedSessionId = String(message.id || '');
-      if (!readPlanRevision) return sendError(ws, 'Plan review is not enabled', { id: requestedSessionId, scope: 'plan' });
-      const agentId = typeof message.agentId === 'string' ? message.agentId : null;
-      const revision = typeof message.revision === 'number' ? message.revision : null;
-      const draft = message.draft === true;
-      try {
-        const result = await readPlanRevision(requestedSessionId, { agentId, revision, draft });
-        if (!result) return sendError(ws, 'Plan revision not found', { id: requestedSessionId, scope: 'plan' });
-        ws.send(JSON.stringify({ type: 'session-plan-response', id: requestedSessionId, ...result }));
-      } catch (error) {
-        sendError(ws, `Plan read failed: ${errorMessage(error)}`, { id: requestedSessionId, scope: 'plan' });
-      }
-    },
-    'plan-decision': (message: ClientMessageOf<'plan-decision'>, ws: ControlSocket) => {
-      const requestedSessionId = String(message.id || '');
-      const refuse = (reason: string) => sendError(ws, reason, { id: requestedSessionId, scope: 'plan-decision' });
-      if (!decidePlanReview) return refuse('Plan review is not enabled');
-      const session = findSession(message);
-      if (!session) return refuse('Session not found');
-      const parsed = PlanDecision.safeParse({ ...message, id: session.id });
-      if (!parsed.success) return refuse('Plan decision refused by the schema');
-      const refusal = decidePlanReview(session.id, parsed.data);
-      if (!refusal) return;
-      ws.send(JSON.stringify({
-        type: 'session-error',
-        id: session.id,
-        scope: 'plan-decision',
-        session: session.name,
-        message: refusal,
-      }));
     },
     'session-doc-read': async (message: ClientMessageOf<'session-doc-read'>, ws: ControlSocket) => {
       const reply = { type: 'session-doc-response', requestId: message.requestId ?? null, id: message.id, path: message.path };
@@ -123,7 +90,7 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
     'session-setup': (msg, requestId, message) => ({ type: 'session-setup-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies, genericErrorTypes: ['debug-state', 'session-trace', 'session-plan', 'plan-decision'] };
+  return { handlers, invalidReplies, genericErrorTypes: ['debug-state', 'session-trace'] };
 }
 
 export { createInspectHandlers };

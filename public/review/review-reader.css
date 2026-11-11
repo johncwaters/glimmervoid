@@ -83,22 +83,14 @@
   background: color-mix(in oklab, var(--accent) 8%, transparent);
   white-space: pre-wrap;
 }
-.review-line,
-.plan-diff-line { display: flex; white-space: pre-wrap; }
-.review-line-gutter,
-.plan-diff-gutter { flex: 0 0 1.4em; text-align: center; color: var(--text-muted); user-select: none; }
-.review-line-text,
-.plan-diff-text { flex: 1; min-width: 0; word-break: break-word; }
-.review-line-add,
-.plan-diff-added { background: color-mix(in oklab, var(--state-running) 12%, transparent); }
-.review-line-add .review-line-gutter,
-.plan-diff-added .plan-diff-gutter { color: var(--state-running); }
-.review-line-del,
-.plan-diff-removed { background: color-mix(in oklab, var(--state-failed) 12%, transparent); }
-.review-line-del .review-line-gutter,
-.plan-diff-removed .plan-diff-gutter { color: var(--state-failed); }
-.review-line-meta,
-.plan-diff-skipped { color: var(--text-muted); }
+.review-line { display: flex; white-space: pre-wrap; }
+.review-line-gutter { flex: 0 0 1.4em; text-align: center; color: var(--text-muted); user-select: none; }
+.review-line-text { flex: 1; min-width: 0; word-break: break-word; }
+.review-line-add { background: color-mix(in oklab, var(--state-running) 12%, transparent); }
+.review-line-add .review-line-gutter { color: var(--state-running); }
+.review-line-del { background: color-mix(in oklab, var(--state-failed) 12%, transparent); }
+.review-line-del .review-line-gutter { color: var(--state-failed); }
+.review-line-meta { color: var(--text-muted); }
 .review-shortcut {
   display: inline-block;
   margin-left: 6px;

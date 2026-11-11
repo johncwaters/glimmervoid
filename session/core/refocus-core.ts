@@ -7,7 +7,6 @@ import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
 interface RefocusContext {
   taskTitle: string | null;
-  latestPlanTitle: string | null;
 }
 
 interface RefocusReplyInput {
@@ -19,10 +18,9 @@ interface RefocusReplyInput {
   takeResumeNote?: () => string | null;
 }
 
-function refocusIntentParts({ taskTitle, latestPlanTitle }: RefocusContext): string[] {
+function refocusIntentParts({ taskTitle }: RefocusContext): string[] {
   const intentParts: string[] = [];
   if (taskTitle?.trim()) intentParts.push(`Current task: "${taskTitle}".`);
-  if (latestPlanTitle?.trim()) intentParts.push(`Latest plan: "${latestPlanTitle}".`);
   return intentParts;
 }
 
@@ -39,8 +37,8 @@ function compactedReminder(intent: string): string {
 const REFOCUS_NOTE: AgentNote = {
   name: 'Refocus after compaction',
   carriedBy: 'SessionStart',
-  firesWhen: 'the agent compacted its context and the session has a task title or plan',
-  text: compactedReminder(refocusIntentParts({ taskTitle: '<task title>', latestPlanTitle: '<latest plan>' }).join(' ')),
+  firesWhen: 'the agent compacted its context and the session has a task title',
+  text: compactedReminder(refocusIntentParts({ taskTitle: '<task title>' }).join(' ')),
   isTemplate: true,
 };
 

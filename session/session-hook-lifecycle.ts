@@ -55,7 +55,6 @@ interface SessionHookOptions {
   enableProjectMcp: boolean;
   hookTools: ResolvedHookTool[];
   planLimits: boolean;
-  planReview: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
@@ -355,7 +354,6 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         carryOperatorPermissions: options.isCleanHome ?? false,
         hookTools: options.hookTools,
         planLimits: options.planLimits,
-        planReview: options.planReview,
         userHooks: [
           ...(typeof options.getUserHooks === "function" ? options.getUserHooks() : []),
           ...glimmervoidSuppliedHooks(),

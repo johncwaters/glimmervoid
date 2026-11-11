@@ -45,7 +45,6 @@ interface BackendShutdownDependencies {
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
   traceChangeBroadcast?: Stoppable | null;
-  planReview?: Stoppable | null;
   telegramOutbox: { idle: () => unknown };
   configStore?: { idle: () => unknown };
   bootWork: Promise<unknown>[];
@@ -133,8 +132,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const uploadsWiring = dependencies.uploadsWiring;
     if (uploadsWiring) stoppers.add('uploads', () => uploadsWiring.stop());
 
-    const planReview = dependencies.planReview;
-    if (planReview) stoppers.add('plan-review', () => planReview.stop());
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
     destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.questionManagerSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);

@@ -91,7 +91,6 @@ export const SessionSnapshot = z.object({
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
   pendingPromptKind: z.string().nullable(),
-  hasPlan: z.boolean().default(false),
   mergeStatus: MergeStatus.nullable(),
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),

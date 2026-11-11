@@ -2,7 +2,6 @@ import { PHONE_MAX_WIDTH_PX, decideLayout } from '../../public/form-factor-core.
 
 export type ViewerId = 'a' | 'b';
 
-export type CardControl = 'plan-terminal';
 
 export type UpstreamVariant = 'none' | 'conflict' | 'diverged' | 'push-rejected';
 
@@ -39,9 +38,7 @@ export type Step =
   | { kind: 'assert-fit'; viewer?: ViewerId }
   | { kind: 'touch-scroll'; viewer?: ViewerId }
   | { kind: 'fit-measurement'; available: boolean; viewer?: ViewerId }
-  | { kind: 'expect-face'; value: 'plan' | 'terminal'; viewer?: ViewerId }
   | { kind: 'expect-link'; value: 'live' | 'connecting'; viewer?: ViewerId }
-  | { kind: 'click'; control: CardControl; viewer?: ViewerId }
   | { kind: 'watch-terminal'; viewer?: ViewerId }
   | { kind: 'expect-terminal-untouched'; durationMs: number; viewer?: ViewerId }
   | { kind: 'expect-revealed'; viewer?: ViewerId }
@@ -392,18 +389,6 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
-    name: 'plan-face',
-    optional: true,
-    steps: [
-      { kind: 'open' },
-      { kind: 'settle' },
-      { kind: 'type', text: 'plan' },
-      { kind: 'expect-face', value: 'plan' },
-      { kind: 'settle' },
-      { kind: 'shot', name: 'plan' },
-    ],
-  },
-  {
     name: 'h1-desktop-first',
     companionViewport: 'desktop-1280',
     steps: [
@@ -475,23 +460,6 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'settle', expectGrid: 'exact' },
       { kind: 'resize', width: 393, height: 852 },
       { kind: 'settle', expectGrid: 'exact' },
-    ],
-  },
-  {
-    name: 'h8-plan-face-return',
-    companionViewport: 'desktop-1280',
-    steps: [
-      { kind: 'open', viewer: 'b' },
-      { kind: 'settle', viewer: 'b', expectGrid: 'exact' },
-      { kind: 'open', viewer: 'a' },
-      { kind: 'settle', viewer: 'a', expectGrid: 'exact' },
-      { kind: 'resize', width: 1100, height: 700, viewer: 'b' },
-      { kind: 'settle', viewer: 'a', expectGrid: 'following' },
-      { kind: 'type', text: 'plan', viewer: 'a' },
-      { kind: 'expect-face', value: 'plan', viewer: 'a' },
-      { kind: 'click', control: 'plan-terminal', viewer: 'a' },
-      { kind: 'expect-face', value: 'terminal', viewer: 'a' },
-      { kind: 'settle', viewer: 'a', expectGrid: 'exact' },
     ],
   },
   {

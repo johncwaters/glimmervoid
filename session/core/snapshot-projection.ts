@@ -74,7 +74,6 @@ interface SnapshotSource {
   awaitingBackgroundTasks: boolean;
   pendingPromptKind: string | null;
   attentionNotes: AttentionNote[];
-  hasPlan: boolean;
   mergeStatus: string;
   mergeReason: string | null;
   worktreeNotice: string | null;
@@ -112,7 +111,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     pendingPromptKind: source.pendingPromptKind,
     attentionNotes: source.attentionNotes,
-    hasPlan: source.hasPlan,
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,
     worktreeNotice: source.worktreeNotice,

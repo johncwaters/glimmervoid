@@ -94,7 +94,6 @@ Declare another agent under `customAgents` in `config.json` with an `id`, `label
 - **Exact status.** Hooks report every state change and the terminal title fills the gaps. The screen is never scraped ([how](#how-status-detection-works)).
 - **Notifications.** Browser notifications when a session needs input, finishes or fails, with your own alert sounds if you like (drop `.ogg`, `.mp3`, `.wav`, `.m4a` or `.webm` files into `~/.glimmervoid/sounds/`). Telegram covers you when no dashboard is open.
 - **Phone layout.** Board, terminal and review screens, attention first, with a terminal that resizes around the keyboard.
-- **Plan review.** Read, edit and approve Claude Code plans from the dashboard or your phone.
 - **Sane YOLO.** It runs in every session and lane whose agent supports it, refusing commands like `git reset --hard` and `git push --force` and reads of credentials such as SSH keys and `.env` files. It catches accidents; it is not a sandbox.
 - **Usage.** Tokens and estimated cost from local Claude Code, Codex, Kimi Code and Grok transcripts, with optional budgets.
 - **Auto-resume.** Sessions live when Glimmervoid stopped come back with their conversation resumed.

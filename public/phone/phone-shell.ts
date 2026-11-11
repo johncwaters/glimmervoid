@@ -6,7 +6,6 @@ import { jumpTargetCount, pickStrongestAttention } from '../focus-view/attention
 import { getRestorableSessionId, isSessionShown, requestSessionOpen, selectSession } from '../session-actions.ts';
 import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { showSessionPlanFace } from '../session-card/card-faces.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPage, SessionPageHost } from '../session-pages/session-pages.ts';
 import { canStepBackInSessionPage, closeSessionPage, isSessionPageOpen, onSessionPageChange, openSessionPage, releaseSessionPageHost, sessionPages, setSessionPageHost, stepBackInSessionPage } from '../session-pages/session-pages.ts';
@@ -160,7 +159,6 @@ function buildNav() {
     const btn = buildNavButton(screen.label, screen.iconPath);
     btn.dataset.screen = screen.id;
     btn.addEventListener('click', () => {
-      if (screen.id === TERMINAL && uiState.snapshot().phoneScreen === TERMINAL) showTerminalFaceOfShownSession();
       showScreen(screen.id);
     });
     navButtonById.set(screen.id, btn);
@@ -428,12 +426,6 @@ function applyScreen(requestedScreenId: string) {
   terminalScreen.unview();
 }
 
-function showTerminalFaceOfShownSession() {
-  const shownSessionId = terminalScreen?.getSessionId();
-  if (!shownSessionId) return;
-  sessionUIs.get(shownSessionId)?._showTerminalFace?.();
-}
-
 function canShowScreen(screenId: string) {
   return screenElById.has(screenId) && !unavailableScreenIds.has(screenId);
 }
@@ -507,13 +499,6 @@ export function deactivatePhoneShell() {
   if (pushedHistoryDepth > 0) history.go(-pushedHistoryDepth);
   pushedHistoryDepth = 0;
   urlAwaitingOwnHistoryPop = null;
-}
-
-export function showPhonePlan(sessionId: string) {
-  if (!active || !boardScreen || !terminalScreen) return false;
-  if (!sessionUIs.has(sessionId)) return false;
-  openSession(sessionId);
-  return showSessionPlanFace(sessionId);
 }
 
 export function isPhoneShellActive() {

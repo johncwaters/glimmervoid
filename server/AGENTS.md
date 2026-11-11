@@ -68,15 +68,10 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Arms never get the operator's refresh token: an arm's refresh could rotate it and log the operator out.
 - The reviewed commit is the mode of the inline comments' commits and the base is the base tip at review time, so a stacked or force-pushed PR replays what reviewers saw.
 
-### Plan Review
+### Held Questions
 
-- The plan endpoint is a SECOND URL, never a second entry on the shared one: hooks run in parallel and a `PermissionRequest` payload carries no tool-use id, so two entries on one URL arrive as indistinguishable posts. The unmatched entry stays byte-identical.
-- Every path fails OPEN and the held reply is written AT MOST ONCE, never after the socket closed: a fired hook timeout destroys the socket in silence, so a late write is a no-op.
-- EVERY way a review can end writes that one reply and leaves `open` behind, since a hold nobody answers is an agent hung forever; `PostToolUse` counts, because the terminal can answer without cancelling the hook.
-- An allow echoes the plan bytes AS RECEIVED, never a re-read of `planFilePath`, or whatever the file holds then becomes the approved plan; only an operator EDIT on the open revision replaces them.
-- The in-memory index holds offsets, chars and titles and never a body, so a summary push carries no plan and a body crosses an authenticated socket only on request; a DRAFT body comes from the hook's own path, never a client's.
-- Only a plan segment raises the body cap, the RESULT one twice, as it repeats the plan it approves.
-- A child's AskUserQuestion, held for its parent, follows the same hold rules on its own URLs (`permissionrequest-conversation`, released by a matching `posttooluse-conversation`); no other tool is held, so ExitPlanMode stays with plan review (`session/core/claude-approval-core.ts`).
+- Every held hook fails OPEN and its reply is written AT MOST ONCE, never after the socket closed: a fired hook timeout destroys the socket in silence, so a late write is a no-op.
+- A child's AskUserQuestion, held for its parent, has its own URLs (`permissionrequest-conversation`, released by a matching `posttooluse-conversation`); no other tool is held, so ExitPlanMode answers in the agent's own terminal (`session/core/claude-approval-core.ts`).
 
 ### Security: Trust Boundary
 

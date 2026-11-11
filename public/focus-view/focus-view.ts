@@ -5,7 +5,6 @@ import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { getRestorableSessionId, isSessionShown, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession, undoPendingClose } from '../session-actions.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
-import { showSessionPlanFace } from '../session-card/card-faces.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
 import { buildNextAttentionKeys, setBoardSplitKeyClaimTest, SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -998,12 +997,6 @@ export function openChangesInFocus(path: string | null = null) {
 export function centerSessionQuietly(id: string) {
   if (!active || !sessionUIs.has(id)) return;
   focusSession(id);
-}
-
-export function openPlanInFocus(id: string) {
-  if (!active || !sessionUIs.has(id)) return false;
-  focusSession(id);
-  return showSessionPlanFace(id);
 }
 
 export function focusNthInRail(n: number) {

@@ -165,7 +165,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   removeDivider.setAttribute('role', 'separator');
   sessionMenu.append(removeDivider, btnRemoveMenuItem);
 
-  const btnPlan = button({ variant: 'quiet', size: 'small', label: 'Plan', action: 'show-plan', hidden: true });
   const btnDocs = button({ variant: 'quiet', size: 'small', label: 'Docs', action: 'open-docs', hidden: true });
 
 
@@ -179,7 +178,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   card.append(header, termWrap);
 
-  return { card, header, nameEl, taskTitleEl, btnRename, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnPlan, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRename, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

@@ -26,7 +26,6 @@ import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } fr
 interface ViewRegistryActions {
   onRestart: () => void;
   openTerminal: (id: string) => void;
-  openPlan: (id: string) => void;
   openReviewFile: (id: string, openPath: string) => void;
   openReviews: () => boolean;
   setPhoneAttention: (view: string, attention: ViewAttention) => void;

@@ -1,16 +1,12 @@
 import type { FitAddon } from '@xterm/addon-fit';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal } from '@xterm/xterm';
-import type { PlanReviewState } from '#shared/contracts/plan-review.ts';
 import type { UnseenOutcome } from '#shared/contracts/session.ts';
-import type { createPlanFace } from '../plan/plan-face.ts';
-import type { SessionCardFace } from './face-core.ts';
 import type { TerminalGrid } from './grid-core.ts';
 import { createAttentionTally } from '../focus-view/attention-core.ts';
 
 type SessionCardElement = HTMLDivElement & { _cardHostClass?: string };
 
-type PlanFaceController = ReturnType<typeof createPlanFace>;
 
 export interface SessionUi {
   term: Terminal | null;
@@ -37,7 +33,6 @@ export interface SessionUi {
   btnWorkspaceRepos: HTMLButtonElement;
   tags: HTMLDivElement;
   btnTrace: HTMLButtonElement;
-  btnPlan: HTMLButtonElement;
   btnDocs: HTMLButtonElement;
   btnRemove: HTMLButtonElement;
   debugOverlay: HTMLDivElement | null;
@@ -45,12 +40,8 @@ export interface SessionUi {
   abortController: AbortController;
   currentState: string;
   agent?: string | null;
-  face: SessionCardFace;
   isBorrowed: boolean;
-  hasPlan: boolean;
   pendingPromptKind: string | null;
-  planReviewState: PlanReviewState;
-  planFace: PlanFaceController;
   effectiveBase?: string;
   activeAgents?: number;
   awaitingBackgroundTasks?: boolean;
@@ -75,8 +66,6 @@ export interface SessionUi {
   _resetSoftKeyboardBuffer?: () => void;
   _ensureTerminalReady?: () => void;
   _setBorrowed?: (isBorrowed: boolean) => void;
-  _showPreferredFace?: () => void;
-  _showTerminalFace?: () => void;
 }
 
 export const sessionUIs = new Map<string, SessionUi>();

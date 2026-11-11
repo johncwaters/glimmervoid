@@ -125,10 +125,6 @@ function nextPendingPromptToolName(
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 
-interface SessionPlanReviewPort {
-  hasPlan: (sessionId: string) => boolean;
-}
-
 type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer";
 
 interface SessionRecorderPort {
@@ -202,7 +198,6 @@ interface SessionOptions {
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
-  planReviewPort?: SessionPlanReviewPort | null;
   planLimits?: boolean;
   getUserHooks?: (() => UserHook[]) | null;
   getTerminalColors?: (() => TerminalColors) | null;
@@ -315,7 +310,6 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
-  _planReviewPort: SessionPlanReviewPort | null;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
@@ -402,7 +396,6 @@ class Session extends EventEmitter {
     enableProjectMcp = false,
     hookTools = [],
 
-    planReviewPort = null,
 
     planLimits = false,
 
@@ -563,7 +556,6 @@ class Session extends EventEmitter {
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("planLimits");
-    this._planReviewPort = planReviewPort;
     this._prepareCoherence = prepareCoherence;
     this.coherenceHooks = null;
     this.coherenceAttachment = null;
@@ -583,7 +575,6 @@ class Session extends EventEmitter {
       enableProjectMcp: !!enableProjectMcp,
       hookTools: this._hookTools,
       planLimits: this._planLimits,
-      planReview: planReviewPort !== null,
       getUserHooks,
       extraUserHooks,
       scratchAgentHome,
@@ -1468,7 +1459,6 @@ class Session extends EventEmitter {
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingPromptKind: this._pendingPromptKind,
       attentionNotes: this.attentionNotes,
-      hasPlan: this._planReviewPort?.hasPlan(this.id) === true,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
@@ -2253,4 +2243,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions, SessionPlanReviewPort };
+export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions };

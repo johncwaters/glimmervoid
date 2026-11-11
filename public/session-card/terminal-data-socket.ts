@@ -11,7 +11,7 @@ import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState } from './grid-core.ts';
 import { dataAttachPrefix, hostOfSession } from '../hosts/session-hosts.ts';
-import { dataAttachPath, isCardTerminalHidden, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
+import { dataAttachPath, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
 import { uiState } from '../ui-state-core.ts';
 import { resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
@@ -21,13 +21,6 @@ import { BRAND_MARK_BRACKETS, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
 import { createSvgShape } from '../svg-dom.ts';
 import { isScrolledAwayFromLatest } from './terminal-notices.ts';
 import { isInputHeldForWakeCheck, sendQueuedInput } from './terminal-input.ts';
-
-function isCardTerminalHiddenNow(ui: SessionUi, sessionId: string) {
-  return isCardTerminalHidden({
-    isBorrowedCard: uiState.snapshot().borrowedCardId === sessionId,
-    isTerminalFaceShown: ui.face === 'terminal',
-  });
-}
 
 const deepHistoryLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
 
@@ -68,15 +61,15 @@ function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLi
 
 const isOutputFlowingBySocket = new WeakMap<WebSocket, boolean>();
 
-function isTerminalOutputWanted(ui: SessionUi, sessionId: string) {
-  return document.visibilityState === 'visible' && !isCardTerminalHiddenNow(ui, sessionId);
+function isTerminalOutputWanted(sessionId: string) {
+  return document.visibilityState === 'visible' && uiState.snapshot().borrowedCardId === sessionId;
 }
 
 function syncTerminalOutputFlow(ui: SessionUi | null | undefined, sessionId: string) {
   if (ui && reconnectIfDeferredAndShown(ui, sessionId)) return;
   const socket = ui?.dataWs;
   if (!ui || socket?.readyState !== WebSocket.OPEN) return;
-  const isWanted = isTerminalOutputWanted(ui, sessionId);
+  const isWanted = isTerminalOutputWanted(sessionId);
   if (isOutputFlowingBySocket.get(socket) === isWanted) return;
   isOutputFlowingBySocket.set(socket, isWanted);
   socket.send(JSON.stringify({ type: isWanted ? 'resume-output' : 'pause-output' }));
@@ -124,7 +117,7 @@ function onTerminalLinkChange(notify: () => void) {
 function countShownConnectingTerminals() {
   let shownConnectingTerminalCount = 0;
   for (const [sessionId, ui] of sessionUIs) {
-    if (ui.card.dataset.link === 'connecting' && isTerminalOutputWanted(ui, sessionId)) shownConnectingTerminalCount++;
+    if (ui.card.dataset.link === 'connecting' && isTerminalOutputWanted(sessionId)) shownConnectingTerminalCount++;
   }
   return shownConnectingTerminalCount;
 }
@@ -181,7 +174,7 @@ function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, d
 function reconnectIfDeferredAndShown(ui: SessionUi, sessionId: string) {
   const isDeferred = sessionUisReconnectingWhenShown.has(ui);
   const isWaitingOnRetry = !ui.dataWs && sessionUIs.get(sessionId) === ui;
-  if (!(isDeferred || isWaitingOnRetry) || !ui.term || !isTerminalOutputWanted(ui, sessionId)) return false;
+  if (!(isDeferred || isWaitingOnRetry) || !ui.term || !isTerminalOutputWanted(sessionId)) return false;
   sessionUisReconnectingWhenShown.delete(ui);
   ui._dataWsRetryAttempt = 0;
   detachThenReconnect(sessionId, ui, ui.term, 0);
@@ -282,7 +275,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const isDeepAttach = deepHistoryLinesFromBottom !== undefined;
   const linesFromBottomToRestore = deepHistoryLinesFromBottom ?? restoredLinesFromBottom;
   let isAwaitingSnapshotScroll = false;
-  const isAttachedFlowing = isTerminalOutputWanted(ui, sessionId);
+  const isAttachedFlowing = isTerminalOutputWanted(sessionId);
   const attachPath = dataAttachPrefix(sessionId) + dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing);
   const prewarmed = claimPrewarmedDataSocket(sessionId, attachPath);
   const ws = prewarmed?.socket ?? new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
@@ -353,7 +346,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     if (isAttachedFlowing && !isHandshakeAbandoned) noteWakeMark('terminal-closed');
     sessionUisReattachingQuietly.delete(ui);
     if (!hasEverOpened && !isHandshakeAbandoned && !hostOfSession(sessionId)) clearPageToken();
-    if (!isTerminalOutputWanted(ui, sessionId)) {
+    if (!isTerminalOutputWanted(sessionId)) {
       detachUntilShown(sessionId, ui, term);
       return;
     }
@@ -403,7 +396,7 @@ function reconnectDataWs(id: unknown) {
 function reconnectShownTerminals() {
   for (const [sessionId, ui] of sessionUIs) {
     if (!ui.term) continue;
-    if (isTerminalOutputWanted(ui, sessionId)) {
+    if (isTerminalOutputWanted(sessionId)) {
       reconnectDataWs(sessionId);
       continue;
     }

@@ -25,7 +25,7 @@ export function borrowCard(ui: SessionUi | null | undefined, sessionId: string, 
 
   ui._ensureTerminalReady?.();
   ui._setBorrowed?.(true);
-  ui._showPreferredFace?.();
+  ui._ensureTerminalReady?.();
 }
 
 export function releaseCard() {
@@ -38,7 +38,7 @@ export function releaseCard() {
 
   const ui = sessionUIs.get(releasedId);
 
-  ui?._showTerminalFace?.();
+  ui?._ensureTerminalReady?.();
   ui?._setBorrowed?.(false);
   ui?._setActiveViewer?.(false);
   const card = ui?.card;

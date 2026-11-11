@@ -1,4 +1,4 @@
-import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
+import { parseAtxHeading } from '../plan/plan-markdown-core.ts';
 
 export type BlockStyle = 'h1' | 'h2' | 'h3' | 'quote' | 'list' | 'fence' | 'table' | 'plain';
 export type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code';

@@ -48,7 +48,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `session-card/` | Session card modules: terminal, lifecycle, DOM, naming, WebGL pool (see `session-card/AGENTS.md`) |
 | `focus-view/` | Focus view: roster rail + centered card, attention queue (see `focus-view/AGENTS.md`) |
 | `phone/` | Phone layout: the Board (labelled Focus) and Terminal behind a bottom nav, plus one More screen per desktop tab, rendered only under `[data-layout="phone"]` (see `phone/AGENTS.md`) |
-| `plan/` | Safe plan parsing and the session card's shared plan face (see `plan/AGENTS.md`) |
+| `plan/` | Safe markdown parsing and rendering for docs and board documents (see `plan/AGENTS.md`) |
 | `review/` | Worktree review: `review-store.ts` owns per-session merge state and sends the merge, discard and diff control messages; the change reader and the Focus review bar only render it. `selection.ts` is the one source of the selected session |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
 | `github/` | GitHub views: issues, my PRs, team review, the PR queue and status icons, and the shared polling retry text |

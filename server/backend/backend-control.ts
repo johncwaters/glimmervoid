@@ -11,7 +11,6 @@ import type { RaceLauncher } from '../race/race-launch.ts';
 import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
-import type { PlanDecision } from '../../shared/contracts/plan-review.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import type { UpdateJournal } from '../../shared/contracts/update-journal.ts';
@@ -19,7 +18,6 @@ import type { PlanLimitsVendor, ServerMessageOf } from '../../shared/contracts/c
 import type { UpdateApplyOutcome } from '../update-apply.ts';
 import type { UpdateStatus } from './backend-update.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
-import type { PlanReadResult } from '../plan-review-wiring.ts';
 import type { TracePage, TracePageRequest } from '../trace-wiring.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -104,11 +102,6 @@ interface BackendControlDependencies {
   benchmarks: BenchmarkControl;
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
-  readPlanRevision: ((
-    sessionId: string,
-    request: { agentId?: string | null; revision?: number | null },
-  ) => Promise<PlanReadResult | null>) | null;
-  decidePlanReview: ((sessionId: string, decision: PlanDecision) => string | null) | null;
   sessionDocs: SessionDocsPort;
   secrets: SecretsBroker;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
@@ -195,8 +188,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     requestUsageReport: (args) => usage.requestReport(args),
     getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi')],
     readTracePage: dependencies.readTracePage,
-    readPlanRevision: dependencies.readPlanRevision,
-    decidePlanReview: dependencies.decidePlanReview,
     sessionDocs: dependencies.sessionDocs,
     secrets: dependencies.secrets,
     whiteboards: dependencies.whiteboards,

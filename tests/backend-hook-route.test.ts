@@ -188,6 +188,29 @@ test('oversize body (>64KB) is aborted and the server survives', async () => {
   assert.equal(after.status, 404, 'server is still alive and routing after the aborted request');
 });
 
+test('a plan-mode PermissionRequest over 64 KB still reaches the hook router', async () => {
+  const routedEvents: string[] = [];
+  const app = createAgentIngressApp({
+    allowedHosts: [],
+    hookRouter: { handle: (input) => { routedEvents.push(String(input.event)); return { status: 200, reason: 'test' }; } },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+  });
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  try {
+    const planBody = JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: 'x'.repeat(100 * 1024) } });
+    const response = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/permissionrequest?t=accepted`, {
+      method: 'POST', body: planBody, headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(routedEvents, ['permissionrequest']);
+  } finally {
+    server.closeAllConnections();
+    await closeServer(server);
+  }
+});
+
 test('compact SessionStart uses the registered current task title', async () => {
   const { base, token, session } = ctx();
   const previousCustomTitle = session.customTitle;
@@ -231,17 +254,16 @@ test('compact SessionStart never injects a refined task title into the agent con
   }
 });
 
-test('refocus lookups run only for accepted compact SessionStart and preserve plan decisions', async () => {
+test('refocus lookups run only for accepted compact SessionStart', async () => {
   const lookedUpSessionIds: string[] = [];
   const app = createAgentIngressApp({
     allowedHosts: [],
     hookRouter: { handle: (input) => ({ status: input.token === 'accepted' ? 200 : 403, reason: 'test' }) },
     getSession: () => null,
     getUsage: () => ({ ingestStatusline: () => {} }),
-    getPlanReview: () => ({ hookBodyCapBytes: () => 0, onHookEvent: () => Promise.resolve({ decision: 'allow' }) }),
     refocusContextFor: (sessionId) => {
       lookedUpSessionIds.push(sessionId);
-      return { taskTitle: 'Fix relay', latestPlanTitle: 'Return context' };
+      return { taskTitle: 'Fix relay' };
     },
   });
   const server = http.createServer(app);
@@ -258,14 +280,13 @@ test('refocus lookups run only for accepted compact SessionStart and preserve pl
       });
       assert.equal(response.status, token === 'accepted' ? 200 : 403);
       const reply = await response.json();
-      assert.equal(reply.decision, 'allow');
       if (!hasReminder) {
         assert.equal(reply.hookSpecificOutput, undefined);
         continue;
       }
       assert.deepEqual(reply.hookSpecificOutput, {
         hookEventName: 'SessionStart',
-        additionalContext: 'Context was just compacted. Current task: "Fix relay". Latest plan: "Return context". Before your next step, check it still serves this intent and drop work that does not.',
+        additionalContext: 'Context was just compacted. Current task: "Fix relay". Before your next step, check it still serves this intent and drop work that does not.',
       });
     }
     assert.deepEqual(lookedUpSessionIds, [SESSION_ID]);

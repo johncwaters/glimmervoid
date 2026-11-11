@@ -22,7 +22,7 @@ function focusableWithin(container: HTMLElement) {
       && candidate.getClientRects().length > 0);
 }
 
-export function trapTabWithin(container: HTMLElement, event: KeyboardEvent) {
+function trapTabWithin(container: HTMLElement, event: KeyboardEvent) {
   if (event.key !== 'Tab') return;
   const focusable = focusableWithin(container);
   if (focusable.length === 0) {

@@ -5,7 +5,7 @@ import type { Browser, BrowserContext, ConsoleMessage, Page, WebSocketRoute } fr
 
 import { safeTextTail } from '../support/backend-harness.ts';
 import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.ts';
-import type { CardControl, HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
+import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
@@ -65,10 +65,6 @@ const PHONE_REMOVE_RETURN_MS = 4000;
 const PHONE_MORE_SELECTOR = 'button.phone-nav-item[aria-expanded]';
 const PHONE_SETTINGS_MENU_SELECTOR = 'button.phone-nav-menu-item[data-screen="settings"]';
 const SETTINGS_SECTION_SELECTOR = 'button.settings-view-nav-item';
-const SELECTOR_BY_CONTROL: Record<CardControl, string> = {
-  'plan-terminal': 'button[data-action="minimize-plan"]',
-};
-
 interface RememberedGrid {
   cols: number;
   rows: number;
@@ -169,7 +165,6 @@ function snapshotOf(reading: GridReading, tick: number | null): GridSnapshot {
     rows: reading.rows,
     tick,
     dataGrid: reading.dataGrid,
-    face: reading.face,
     bufferLength: reading.bufferLength,
   };
 }
@@ -188,9 +183,7 @@ function describeStep(step: Step): string {
   if (step.kind === 'foreground') return step.quiet === true ? 'foreground quiet' : 'foreground';
   if (step.kind === 'wait') return `wait ${step.durationMs}ms`;
   if (step.kind === 'assert-grid') return `assert-grid tick+${step.tickOffset ?? 0}`;
-  if (step.kind === 'expect-face') return `expect-face ${step.value}`;
   if (step.kind === 'expect-link') return `expect-link ${step.value}`;
-  if (step.kind === 'click') return `click ${step.control}`;
   if (step.kind === 'expect-terminal-untouched') return `expect-terminal-untouched ${step.durationMs}ms`;
   if (step.kind === 'shot') return `shot ${step.name}`;
   if (step.kind === 'expect-session-name') return `expect-session-name ${step.name}`;
@@ -833,37 +826,6 @@ async function runExpectLink(
   return outcomeFor('card-link', linked);
 }
 
-async function runExpectFace(
-  viewer: Viewer,
-  sessionId: string,
-  value: 'plan' | 'terminal',
-  deadlines: Deadlines,
-): Promise<StepOutcome> {
-  const faced = await pollUntil(async () => {
-    const reading = await readGridOf(viewer, sessionId);
-    if (!reading) return { ok: false, detail: 'the session card carries no terminal yet' };
-    if (reading.face !== value) return { ok: false, reading, detail: `face is ${String(reading.face)}, wanted ${value}` };
-    return { ok: true, reading, detail: `face is ${value}` };
-  }, { label: `face ${value} for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
-  return outcomeFor('card-face', faced);
-}
-
-async function runClick(
-  viewer: Viewer,
-  control: CardControl,
-  deadlines: Deadlines,
-): Promise<StepOutcome> {
-  const button = viewer.page.locator(`${cardSlotSelector(viewer)} ${SELECTOR_BY_CONTROL[control]}`).first();
-  const shown = await pollUntil(async () => {
-    if (await button.count() === 0) return { ok: false, detail: `${control} is not on the card` };
-    if (!await button.isVisible()) return { ok: false, detail: `${control} is on the card but hidden` };
-    return { ok: true, detail: `${control} is clickable` };
-  }, { label: `${control} for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
-  if (!shown.ok) return failedOutcome('control-clickable', shown.detail);
-  await button.click();
-  return passedOutcome('control-clicked', `clicked ${control}`);
-}
-
 async function sendControlMessage(viewer: Viewer, controlMessage: Record<string, unknown>): Promise<Record<string, unknown> | null> {
   return viewer.page.evaluate(async (message) => {
     const tokenResponse = await fetch('/control-token');
@@ -1309,9 +1271,7 @@ export async function runCase({
       if (!changed) return failedOutcome('fit-measurement', 'the fit addon is missing');
       return passedOutcome('fit-measurement', `measurement available: ${step.available}`);
     }
-    if (step.kind === 'expect-face') return runExpectFace(viewer, sessionId, step.value, deadlines);
     if (step.kind === 'expect-link') return runExpectLink(viewer, sessionId, step.value, deadlines);
-    if (step.kind === 'click') return runClick(viewer, step.control, deadlines);
     if (step.kind === 'watch-terminal') return runWatchTerminal(viewer, sessionId, tickAtWatchByViewer);
     if (step.kind === 'expect-terminal-untouched') return runExpectTerminalUntouched(viewer, sessionId, step.durationMs);
     if (step.kind === 'expect-revealed') return runExpectRevealed(viewer, sessionId, tickAtWatchByViewer.get(viewer.id) ?? null, deadlines);

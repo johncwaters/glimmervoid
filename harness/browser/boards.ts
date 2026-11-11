@@ -1153,7 +1153,6 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await card.waitFor({ state: 'visible' });
   assert.equal(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a session with no board shows Terminal only');
   assert.equal(await page.locator('.pane-tab').count(), 0, 'Focus shows no pane tabs');
-  await verifyPlanFaceMinimizesToTerminal(page, card);
   await card.getByRole('button', { name: 'Session actions', exact: true }).click();
   await card.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
@@ -1346,20 +1345,6 @@ async function verifyRailArrowsReachBoardRows(page: Page, boardTitle: string): P
     if (focusedBoardId) reachedBoardIds.push(focusedBoardId);
   }
   assert.ok(boardId && reachedBoardIds.includes(boardId), 'rail arrows reach board rows under their project');
-}
-
-async function verifyPlanFaceMinimizesToTerminal(page: Page, card: Locator): Promise<void> {
-  assert.equal(await page.locator('.card-face-tabs').count(), 0, 'Terminal shows once, with no view tabs');
-  const sessionId = await card.getAttribute('data-id');
-  const isPlanShown = await page.evaluate(async (id) => {
-    const cardFacesUrl = '/session-card/card-faces.ts';
-    const cardFaces: { setSessionHasPlan(id: unknown, hasPlan: unknown): void; showSessionPlanFace(id: unknown): boolean } = await import(cardFacesUrl);
-    cardFaces.setSessionHasPlan(id, true);
-    return cardFaces.showSessionPlanFace(id);
-  }, sessionId);
-  assert.equal(isPlanShown, true, 'the centered card switches to its Plan face');
-  await card.getByRole('button', { name: 'Minimize', exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('#focus-pane-terminal .session-card')?.getAttribute('data-face') === 'terminal');
 }
 
 async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): Promise<void> {

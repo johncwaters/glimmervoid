@@ -6,7 +6,6 @@ import { pipeline } from 'node:stream';
 import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
-import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT } from '../../shared/contracts/plan-review.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
@@ -54,6 +53,7 @@ import { serveClientDir } from './http/backend-http-static.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
+const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { permissionrequest: 512 * 1024 };
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
 const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
@@ -63,8 +63,6 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   'posttooluse',
   'posttoolusefailure',
   'statusline',
-  PLAN_HOOK_EVENT,
-  PLAN_RESULT_HOOK_EVENT,
   CONVERSATION_PERMISSION_HOOK_EVENT,
   CONVERSATION_TOOL_RESULT_HOOK_EVENT,
   RESUME_NOTE_HOOK_EVENT,
@@ -91,21 +89,6 @@ interface HookRouterOutput {
   reason: string;
 }
 
-interface PlanReviewHookPort {
-  hookBodyCapBytes(event: string): number;
-  onHookEvent(event: {
-    glimmervoidId: string;
-    event: string;
-    payload: Record<string, unknown>;
-    accepted: boolean;
-    signal: AbortSignal;
-  }): Promise<Record<string, unknown> | null> | null;
-}
-
-function hookBodyCapBytes(event: string, planReview: PlanReviewHookPort | null): number {
-  return Math.max(HOOK_BODY_CAP_BYTES, planReview?.hookBodyCapBytes(event) ?? 0);
-}
-
 interface BackendHttpDependencies {
   staticDir: string | null;
   customSoundsDir?: string;
@@ -126,7 +109,6 @@ interface BackendHttpDependencies {
   };
   getSession: (id: string) => Session | null;
   getUsage: () => { ingestStatusline: (payload: object) => void };
-  getPlanReview?: () => PlanReviewHookPort | null;
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
@@ -226,7 +208,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'getPlanReview' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -365,8 +347,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     hookRouter,
     getSession,
     getUsage,
-    getPlanReview = () => null,
-    refocusContextFor = () => ({ taskTitle: null, latestPlanTitle: null }),
+    refocusContextFor = () => ({ taskTitle: null }),
     takePromptSupervision = () => null,
     getAgentApi = () => null,
     getWhiteboardAssets = () => null,
@@ -389,7 +370,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       res.status(403).end();
       return;
     }
-    const bodyCapBytes = hookBodyCapBytes(req.params.event, getPlanReview());
+    const bodyCapBytes = HOOK_BODY_CAP_BYTES_BY_EVENT[req.params.event.toLowerCase()] ?? HOOK_BODY_CAP_BYTES;
     const hookEventName = knownHookEventName(req.params.event);
     const overCap = (declaredBytes: string) => {
       if (SILENT_OVERSIZE_HOOK_EVENTS.has(hookEventName)) return;
@@ -426,17 +407,9 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         res.status(output.status).json(decision ? { ...reply, ...decision } : reply);
       };
       const abandonedByClaudeCode = new AbortController();
-      const planDecision = getPlanReview()?.onHookEvent({
-        glimmervoidId: req.params.glimmervoidId,
-        event: req.params.event,
-        payload,
-        accepted: output.status === 200,
-        signal: abandonedByClaudeCode.signal,
-      }) || null;
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
       const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
-      const heldDecision = planDecision
-        || (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null)
+      const heldDecision = (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null)
         || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null);
       if (!heldDecision) {
         answer(null);

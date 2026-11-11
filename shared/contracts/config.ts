@@ -4,7 +4,7 @@ import { TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, WorktreeControlSettings,
-  PlanReviewSettings, TelemetryFileSettings, TraceSettings, VaultFileSettings,
+  TelemetryFileSettings, TraceSettings, VaultFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { isLinkUrlSafe } from './watcher-link.ts';
@@ -190,7 +190,6 @@ const FILE_CONFIG_SHAPE = {
   guardrails: optionalLooseObject('guardrails'),
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
-  planReview: PlanReviewSettings,
   customAgents: CustomAgentDeclarations.optional(),
 };
 export const Config = z.object({

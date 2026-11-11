@@ -34,7 +34,6 @@ export const GET: APIRoute = ({ site }) => {
       `- Sane YOLO: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
       '- Notifications: browser notifications, or Telegram when no dashboard tab is open.',
-      '- Plan review: approve an agent\'s plan from any device.',
       '- Auto-resume: sessions that were live when Glimmervoid stopped come back on the next start, mid-turn included.',
       '- Streamer mode: hides secrets on screen.',
     ].join('\n'),

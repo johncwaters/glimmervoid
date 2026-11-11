@@ -34,7 +34,6 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
     repoRoots: [],
     autoResume: false,
     worktree: { autoRebase: false },
-    planReview: { enabled: false },
     capture: { enabled: true },
   }, null, 2), 'utf8');
 }

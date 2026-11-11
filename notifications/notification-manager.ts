@@ -8,7 +8,6 @@ import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 import type { NotifyAlertGroup } from '../shared/contracts/control-messages.ts';
 
-type NotificationKind = 'plan';
 
 interface AlertGroup {
   id: number;
@@ -20,7 +19,6 @@ export interface NotificationContext {
   escalationCount: number;
   timestamp: number;
   phoneEscalation?: boolean;
-  kind?: NotificationKind;
   group?: NotifyAlertGroup;
 }
 
@@ -46,7 +44,6 @@ interface NotificationEntry {
   state: NotificationState;
   category: string | null;
   message: string | null;
-  kind: NotificationKind | null;
   timer: NodeJS.Timeout | null;
   escalationCount: number;
   phoneTimer: NodeJS.Timeout | null;
@@ -118,7 +115,7 @@ class NotificationManager extends EventEmitter {
     this._channels.push({ name, fn, offDashboard, canEscalate });
   }
 
-  trigger(sessionName: string, category: string, message: string, kind: NotificationKind | null = null): boolean {
+  trigger(sessionName: string, category: string, message: string): boolean {
     this._ensureEntry(sessionName);
     const entry = this._entries.get(sessionName);
     if (!entry) return false;
@@ -127,7 +124,6 @@ class NotificationManager extends EventEmitter {
     if (wouldNoteHideLiveAlert(entry, category)) return false;
     entry.category = category;
     entry.message = message;
-    entry.kind = kind;
     entry.escalationCount = 0;
     return this._transition(sessionName, 'trigger');
   }
@@ -181,7 +177,6 @@ class NotificationManager extends EventEmitter {
         state: NS.IDLE,
         category: null,
         message: null,
-        kind: null,
         timer: null,
         escalationCount: 0,
         phoneTimer: null,
@@ -348,7 +343,6 @@ class NotificationManager extends EventEmitter {
     const context = {
       escalationCount: entry.escalationCount,
       timestamp: Date.now(),
-      ...(entry.kind ? { kind: entry.kind } : {}),
       ...(extraContext || {}),
     };
     for (const channel of this._channels) {

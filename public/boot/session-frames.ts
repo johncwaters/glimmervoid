@@ -16,7 +16,6 @@ import { attentionTally, sessionName, sessionUIs } from '../session-card/card-re
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionEffectiveBase, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { forgetAttentionNotes, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
-import { setSessionHasPlan } from '../session-card/card-faces.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
@@ -24,7 +23,6 @@ import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
-import { activatePlanHash } from './hash-routes.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 import { forgetSessionHost, hostOfSession, rememberSessionHost, sessionsOfHost } from '../hosts/session-hosts.ts';
 
@@ -109,8 +107,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
     seedManagerDecisions(s.id, s.auditLog, s.managerSeenSeq);
 
-    setSessionHasPlan(s.id, s.hasPlan);
-
   }
   updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
@@ -119,7 +115,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
   restoreFocusedSession();
   refreshAttentionSurfaces();
   syncTraceSessionsFromCards();
-  activatePlanHash(location.hash);
   markShownPhoneSessionSeen();
   noteSnapshotReceived();
 }
@@ -166,7 +161,6 @@ function syncTraceSessionsFromCards() {
 }
 
 function carryOverClientSessionFields(sessionId: string, previousUi: SessionUi | undefined) {
-  setSessionHasPlan(sessionId, previousUi?.hasPlan === true);
   setSessionUnseenOutcome(sessionId, previousUi?.unseenOutcome);
 }
 

@@ -140,7 +140,6 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   background: var(--bg-surface);
   border-top: 1px solid var(--border-dim);
 }
-html[data-layout="phone"] .phone-terminal:has(.session-card[data-face="plan"]) .phone-key-strip { display: none; }
 .phone-key-strip[hidden] { display: none; }
 .phone-key[aria-pressed="true"] {
   color: var(--accent);

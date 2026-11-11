@@ -5,7 +5,6 @@ import type { HealthSnapshot } from '../../health-monitor.ts';
 import { applyHealthSnapshot } from '../../health-monitor.ts';
 import { applyHooksReport, applyLateHookResult } from '../../hooks-store.ts';
 import { refreshFirstRunChecklist } from '../../onboarding/first-run-loader.ts';
-import { applySessionPlanError } from '../../session-card/card-faces.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-store.ts';
 import { applyTraceError } from '../../trace-store.ts';
@@ -33,8 +32,7 @@ const messageHandlers = {
   'error':              (msg) => {
     const isUpdateErrorShownInline = applySettingsUpdateError(msg);
     const isTraceErrorShownInline = applyTraceError(msg);
-    const isPlanErrorShownInline = applySessionPlanError(msg);
-    if (isUpdateErrorShownInline || isTraceErrorShownInline || isPlanErrorShownInline) return;
+    if (isUpdateErrorShownInline || isTraceErrorShownInline) return;
     if (msg.id) { reportSessionProblem(msg.id, msg.message); return; }
     reportHeaderError({ source: SERVER_ERROR_SOURCE, message: msg.message });
   },

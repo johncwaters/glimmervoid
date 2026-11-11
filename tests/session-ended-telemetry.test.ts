@@ -23,7 +23,7 @@ test('a running session that Glimmervoid destroys reports session_ended once wit
     await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ id: 'ended-session', name: 'project', path: directory }] }));
     const makeSession = createSessionFactory({
       configStore: { configPath }, hookRouter: null, getHookPort: () => null,
-      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      getGitWorkspace: () => null,
       resolveHookTools: () => [], getUserHooks: () => [],
     });
     const startRunningWiredSession = () => {

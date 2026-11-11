@@ -5,22 +5,14 @@ import assert from 'node:assert/strict';
 
 import { z } from 'zod';
 
-import { ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
+import { type ClientMessage, ServerMessage } from '../shared/contracts/index.ts';
 import {
   type ServerMessageOf,
   CONTROL_FRAME_MAX_BYTES,
 } from '../shared/contracts/control-messages.ts';
 import { Session } from '../session/sessions.ts';
 import { MyPr, MyPrsStatus } from '../shared/contracts/my-prs.ts';
-import {
-  PLAN_BODY_CAP_BYTES,
-  PLAN_COMMENTS_MAX,
-  PLAN_COMMENT_MAX_CHARS,
-  PLAN_FEEDBACK_MAX_CHARS,
-  PlanDecision,
-} from '../shared/contracts/plan-review.ts';
 import { STATES } from '../shared/states.ts';
-import { REFRESHABLE_TYPES } from '../server/core/control-send-core.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 interface ServerPayload {
@@ -51,15 +43,6 @@ const UPDATE_JOURNAL = {
   startedAt: NOW,
   finishedAt: NOW + 2,
 };
-const PLAN_REVIEW = {
-  agentId: 'agent-9',
-  agentType: 'general-purpose',
-  revisions: [{ revision: 1, receivedAt: NOW, chars: 6271, title: 'First cut' }],
-  state: 'decided' as const,
-  openRevision: null,
-  approvedRevision: 1,
-  lastDecision: 'approve' as const,
-};
 const SESSION = {
   id: 'session-1',
   name: 'glimmervoid',
@@ -77,7 +60,6 @@ const SESSION = {
   activeAgents: 0,
   awaitingBackgroundTasks: false,
   pendingPromptKind: null,
-  hasPlan: false,
   mergeStatus: 'none',
   mergeReason: null,
   worktreeNotice: null,
@@ -119,9 +101,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'debug-state-response', id: 'session-1', payload: { state: STATES.RUNNING } },
   { type: 'session-trace-response', id: 'session-1', records: [], start: 0, next: 0, reset: false, path: '/traces/session-1.jsonl' },
   { type: 'session-trace-changed', id: 'session-1' },
-  { type: 'session-plan-changed', id: 'session-1', agentId: null, agentType: null, revision: 2, receivedAt: NOW, state: 'open', lastDecision: null, approvedRevision: null, chars: 8454, title: 'Shrink the large owned files', hasPlan: true },
-  { type: 'session-plan-draft', id: 'session-1', agentId: null, planFilePath: '/home/u/.claude/plans/a.md', changedAt: NOW },
-  { type: 'session-plan-response', id: 'session-1', reviews: [PLAN_REVIEW], body: { agentId: 'agent-9', revision: 2, plan: '# Shrink the large owned files', planFilePath: '/home/u/.claude/plans/a.md', receivedAt: NOW } },
   { type: 'session-docs-changed', id: 'session-1', docs: [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] },
   { type: 'session-docs-snapshot', sessions: { 'session-1': [{ path: '/repo/drafts/post.md', name: 'drafts/post.md', surfacedAt: NOW }] } },
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
@@ -355,48 +334,6 @@ test('server variants read by the browser validate more than their type name', (
   }
 });
 
-test('a plan draft notice carries where the draft lives and when it changed, never the draft itself', () => {
-  const notice = {
-    type: 'session-plan-draft',
-    id: 'session-1',
-    agentId: null,
-    planFilePath: '/home/u/.claude/plans/a.md',
-    changedAt: NOW,
-  };
-  assert.deepEqual(ServerMessage.parse(notice), notice);
-  const draftArm = ServerMessage.options.find((option) => option.shape.type.value === 'session-plan-draft');
-  assert.ok(draftArm);
-  assert.equal(Object.keys(draftArm.shape).includes('plan'), false, 'a notice is a nudge to ask, never a body');
-  assert.equal(
-    REFRESHABLE_TYPES.has('session-plan-draft'),
-    false,
-    'no snapshot or pull carries draft-change state, so dropping the notice loses the chip until the next write',
-  );
-  const { changedAt: _changedAt, ...withoutChangedAt } = notice;
-  assert.equal(ServerMessage.safeParse(withoutChangedAt).success, false);
-});
-
-test('a plan summary push never carries the plan body but does carry who wrote it and when', () => {
-  const summaryArm = ServerMessage.options.find((option) => option.shape.type.value === 'session-plan-changed');
-  assert.ok(summaryArm);
-  assert.deepEqual(Object.keys(summaryArm.shape).includes('plan'), false);
-  assert.equal(REFRESHABLE_TYPES.has('session-plan-changed'), true);
-  const summary = { type: 'session-plan-changed', id: 'session-1', agentId: 'agent-9', agentType: 'Explore', revision: 1, receivedAt: NOW, state: 'open', lastDecision: null, approvedRevision: null, chars: 12, title: 'Explore', hasPlan: true };
-  assert.deepEqual(ServerMessage.parse(summary), summary);
-  const { agentType: _agentType, ...withoutAgentType } = summary;
-  assert.equal(ServerMessage.safeParse(withoutAgentType).success, false);
-  const { receivedAt: _receivedAt, ...withoutReceivedAt } = summary;
-  assert.equal(ServerMessage.safeParse(withoutReceivedAt).success, false);
-});
-
-test('the plan decision wire shape is the lane schema, so one edit cannot leave the two disagreeing', () => {
-  const decisionArm = ClientMessage.options.find((option) => option.shape.type.value === 'plan-decision');
-  assert.ok(decisionArm);
-  const { type: _type, ...wireShape } = decisionArm.shape;
-  assert.deepEqual(Object.keys(wireShape).sort(), Object.keys(PlanDecision.shape).sort());
-  assert.equal(ClientMessage.safeParse({ type: 'plan-decision', id: 'session-1', agentId: null, revision: 1, decision: 'approve' }).success, true);
-});
-
 test('a malformed request receives its typed error reply with the Zod message', () => {
   const server = createControlServer(controlDeps({ projects: [] }));
   const connection = connectControl<ServerPayload>(server);
@@ -411,29 +348,6 @@ test('a malformed request receives its typed error reply with the Zod message', 
   assert.equal(reply.type, 'usage-report');
   assert.match(String(reply.error), /string/);
   assert.equal(ServerMessage.safeParse(reply).success, true);
-});
-
-test('the control socket takes the largest plan decision the caps allow, so approving an edit never closes it', () => {
-  const decision = {
-    type: 'plan-decision',
-    id: 'session-1',
-    agentId: 'agent-9',
-    revision: 3,
-    decision: 'revise',
-    plan: 'y'.repeat(PLAN_BODY_CAP_BYTES),
-    feedback: 'f'.repeat(PLAN_FEEDBACK_MAX_CHARS),
-    comments: Array.from({ length: PLAN_COMMENTS_MAX }, (_entry, index) => ({
-      heading: `h${index}`.padEnd(PLAN_COMMENT_MAX_CHARS, 'h'),
-      comment: 'c'.repeat(PLAN_COMMENT_MAX_CHARS),
-    })),
-  };
-  assert.equal(PlanDecision.safeParse(decision).success, true);
-  const frameBytes = Buffer.byteLength(JSON.stringify(decision), 'utf8');
-  assert.ok(frameBytes > 16 * 1024, 'the 16 KB default this budget replaced could not carry one edited plan');
-  assert.ok(
-    frameBytes <= CONTROL_FRAME_MAX_BYTES,
-    `a maximal plan decision is ${frameBytes} bytes, over the ${CONTROL_FRAME_MAX_BYTES} byte control frame budget`,
-  );
 });
 
 test('the control WebSocket server is built with that budget, never a hand-written number', async () => {

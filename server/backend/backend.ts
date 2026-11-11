@@ -181,7 +181,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     config,
     configStore,
     getGitWorkspace: () => gitWorkspace,
-    getPlanReviewPort: () => laneAssembly.planReview?.port ?? null,
     getCoderEnv: () => laneAssembly.coderEnv,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     getBroadcastControl: () => broadcastControl,
@@ -196,10 +195,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hookRouter,
     getSession: (glimmervoidId) => laneAssembly.findLiveSession(glimmervoidId),
     getUsage: () => usage,
-    getPlanReview: () => laneAssembly.planReview,
     refocusContextFor: (glimmervoidId) => ({
       taskTitle: getSessionAny(glimmervoidId)?.refocusTaskTitle ?? null,
-      latestPlanTitle: laneAssembly.planReview?.latestPlanTitle(glimmervoidId) ?? null,
     }),
     takePromptSupervision: (glimmervoidId) => {
       const session = getSessionAny(glimmervoidId);
@@ -494,7 +491,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     coherenceFeed,
     starHint: laneAssembly.starHint,
-    planReview: laneAssembly.planReview,
     closeSessionDataClients,
     removeExitedSession: (id: string) => removeExitedSession?.(id),
     telemetry,
@@ -713,7 +709,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     uploadsWiring,
     traceChangeBroadcast,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
-    planReview: laneAssembly.planReview,
     telegramOutbox,
     heartbeat,
     outcomes,
@@ -801,8 +796,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     benchmarks: laneAssembly.benchmarks,
     usage,
     readTracePage: traceWiring?.readTracePage ?? null,
-    readPlanRevision: laneAssembly.planReview?.readPlanRevision ?? null,
-    decidePlanReview: laneAssembly.planReview?.decide ?? null,
     sessionDocs,
     secrets: secretsBroker,
     whiteboards,

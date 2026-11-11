@@ -10,7 +10,7 @@ const BOOLEAN_FIELD_WRITE = /\.(?!(?:hidden|disabled|checked|spellcheck|draggabl
 
 const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['detection/osc-title-source.ts', 7],
-  ['detection/settings-injector.ts', 6],
+  ['detection/settings-injector.ts', 5],
   ['notifications/telegram-outbox.ts', 3],
   ['public/add-session/add-session-picker.ts', 7],
   ['public/boot/connection-screen.ts', 3],
@@ -19,7 +19,6 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['public/doc-editor/doc-editor-ui.ts', 4],
   ['public/flying-animals.ts', 3],
   ['public/github/team-review-detail-views.ts', 3],
-  ['public/plan/plan-face.ts', 9],
   ['public/render-scheduler.ts', 8],
   ['public/session-card/card-debug.ts', 3],
   ['public/session-card/terminal-data-socket.ts', 5],
@@ -51,7 +50,6 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['server/github/team-review-poller/team-review-runs.ts', 5],
   ['server/json-file.ts', 12],
   ['server/lanes/lane-runner.ts', 4],
-  ['server/plan-review-wiring.ts', 5],
   ['server/radar/radar-poller.ts', 3],
   ['server/server-lifecycle.ts', 5],
   ['server/spawn-gate.ts', 4],

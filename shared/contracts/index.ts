@@ -5,7 +5,6 @@ export * from './config.ts';
 export * from './control-messages.ts';
 export * from './data-messages.ts';
 export * from './hooks.ts';
-export * from './plan-review.ts';
 export * from './session.ts';
 export * from './telemetry.ts';
 export * from './trace.ts';

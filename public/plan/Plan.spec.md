@@ -1,5 +1,5 @@
 # Plan
 
-Plan review in the dashboard: the Plan face for a session's ExitPlanMode revisions
+Safe markdown parsing and rendering for docs and board documents
 
 ## invariants

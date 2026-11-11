@@ -5,7 +5,6 @@ export interface GridSnapshot {
   rows: number;
   tick: number | null;
   dataGrid: string | null;
-  face: string | null;
   bufferLength: number;
 }
 

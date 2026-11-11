@@ -20,7 +20,7 @@ const SETUP_CASES = [
 async function spawnedArgs(project: ProjectEntry, directory: string, hasHookRouter = false): Promise<string[]> {
   const makeSession = createSessionFactory({
     configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: hasHookRouter ? { register: () => {}, unregister: () => {} } : null, getHookPort: () => (hasHookRouter ? 45999 : null),
-    getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [], resolveHookTools: () => [],
+    getGitWorkspace: () => null, getUserHooks: () => [], resolveHookTools: () => [],
   });
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] };
   const session = makeSession(project, config);
@@ -111,7 +111,7 @@ for (const { graphicalSessionState, waylandDisplay, expectedBusAddress } of [
       const project: ProjectEntry = { ...ProjectConfig.parse({ id: 'bus', name: 'bus', path: directory, agent: 'codex' }), id: 'bus', name: 'bus', path: directory };
       const makeSession = createSessionFactory({
         configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
-        getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [], resolveHookTools: () => [],
+        getGitWorkspace: () => null, getUserHooks: () => [], resolveHookTools: () => [],
       });
       const session = makeSession(project, { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] });
       const spawnedBusAddresses: (string | undefined)[] = [];

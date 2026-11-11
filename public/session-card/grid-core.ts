@@ -40,11 +40,6 @@ interface ViewerEngagementInput {
   isPhoneLayout: boolean;
 }
 
-interface CardTerminalVisibilityInput {
-  isBorrowedCard: boolean;
-  isTerminalFaceShown: boolean;
-}
-
 interface DeepHistoryRequestInput {
   viewportTopLine: number;
   scrollbackLineCount: number;
@@ -111,13 +106,6 @@ export function isViewerEngaged({
   if (isPhoneLayout) return true;
   if (isDocumentFocused) return true;
   return hasFocusInsideCard && !hasWindowBlurredSinceFocus;
-}
-
-export function isCardTerminalHidden({
-  isBorrowedCard,
-  isTerminalFaceShown,
-}: CardTerminalVisibilityInput): boolean {
-  return !isBorrowedCard || !isTerminalFaceShown;
 }
 
 export function shouldRequestDeepHistory({

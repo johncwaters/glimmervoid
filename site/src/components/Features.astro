@@ -10,7 +10,7 @@ const RADAR_BLIPS = [
 ];
 const FEATURES = [
   { area: 'notify', name: 'Notifications', line: 'Browser or Telegram' },
-  { area: 'plan', name: 'Plan review', line: 'Approve plans anywhere' },
+  { area: 'vault', name: 'Vault', line: 'You approve every secret an agent reads' },
   { area: 'issues', name: 'Issues', line: 'Open a session from an issue', visual: 'issue' },
   { area: 'spawn', name: 'glimmervoid spawn', line: 'Agents start their own helpers', visual: 'helpers' },
   { area: 'radar', name: 'Radar', line: 'PostHog errors to PRs, opt-in', visual: 'radar' },
@@ -88,7 +88,7 @@ const FEATURES = [
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-areas:
       "usage usage trace notify"
-      "usage usage trace plan"
+      "usage usage trace vault"
       "issues spawn spawn radar"
       "streamer streamer upload radar"
       "resume worktrees coder coder";
@@ -165,7 +165,7 @@ const FEATURES = [
       grid-template-areas:
         "usage usage"
         "trace trace"
-        "notify plan"
+        "notify vault"
         "spawn spawn"
         "issues radar"
         "streamer streamer"

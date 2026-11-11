@@ -13,7 +13,6 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(DEFAULT_CONFIG.worktree.integrationBranch, null);
   assert.equal(Config.shape.worktree.safeParse({ integrationBranch: null }).success, true);
   assert.equal(DEFAULT_CONFIG.trace.enabled, true);
-  assert.equal(DEFAULT_CONFIG.planReview.enabled, true);
 });
 
 test('a config.json still holding the retired changeMap.narrator block loads unchanged', () => {

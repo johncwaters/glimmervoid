@@ -5,7 +5,6 @@ export interface GridReading {
   rows: number;
   ptySize: { cols: number; rows: number } | null;
   dataGrid: string | null;
-  face: string | null;
   link: string | null;
   dataWsState: number | null;
   bufferLength: number;
@@ -57,7 +56,7 @@ interface ProbedSessionUi {
   term?: ProbedTerminal | null;
   ptySize?: { cols: number; rows: number } | null;
   dataWs?: { readyState: number; close(): void; harnessIsWatched?: boolean } | null;
-  card?: { dataset: { grid?: string; face?: string; link?: string } } | null;
+  card?: { dataset: { grid?: string; link?: string } } | null;
 }
 
 export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Promise<GridReading | null> {
@@ -83,7 +82,6 @@ export async function readGrid({ sessionId, registryUrl }: ReadGridRequest): Pro
     rows: term.rows,
     ptySize: sessionUi.ptySize ?? null,
     dataGrid: card.dataset.grid ?? null,
-    face: card.dataset.face ?? null,
     link: card.dataset.link ?? null,
     dataWsState: sessionUi.dataWs ? sessionUi.dataWs.readyState : null,
     bufferLength: buffer.length,

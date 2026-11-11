@@ -15,13 +15,19 @@ import { suggestSessionName } from '../session-card/naming.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
 import { STATES } from '#shared/states.ts';
-import { formatRelativeAge } from '../plan/plan-view-core.ts';
+import { elapsedText } from '#shared/display-text.ts';
 import { getAddSessionStarts, setAddSessionStarts } from '../ui-prefs.ts';
 import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, rememberStart, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { hostStatuses } from '../hosts/host-status.ts';
 import { requestOnHost } from '../hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
+
+function formatRelativeAge(receivedAt: number, now: number): string {
+  const elapsedMs = now - receivedAt;
+  if (!Number.isFinite(elapsedMs)) return 'just now';
+  return elapsedText(elapsedMs, { rounding: 'floor', wording: 'abbreviated', suffix: ' ago', justNowBelowSeconds: 60 });
+}
 
 const NO_AGENT_ID = '';
 

@@ -31,7 +31,7 @@ test('a project marked saneYolo resolves the Sane YOLO hook while the machine se
   const requestedSaneYoloSettings: (boolean | undefined)[] = [];
   const makeSession = createSessionFactory({
     configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
-    getGitWorkspace: () => null, getPlanReviewPort: () => null, getUserHooks: () => [],
+    getGitWorkspace: () => null, getUserHooks: () => [],
     resolveHookTools: (config) => { requestedSaneYoloSettings.push(config.saneYolo); return []; },
   });
   const project = { id: 'sane-yolo-project', name: 'project', path: directory, dangerouslySkipPermissions: true, saneYolo: true };

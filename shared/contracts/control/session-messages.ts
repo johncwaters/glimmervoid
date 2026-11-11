@@ -65,7 +65,6 @@ export const sessionServerVariants = [
     category: z.string(),
     message: z.string(),
     escalationCount: z.number().int().nonnegative(),
-    kind: z.literal('plan').optional(),
     group: NotifyAlertGroup.optional(),
   }),
   loose('post-turn-leftovers', { repositories: z.array(z.string()), command: z.string() }),

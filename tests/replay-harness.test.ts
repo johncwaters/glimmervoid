@@ -9,7 +9,6 @@ import claudeCode from '../session/adapters/claude-code.ts';
 import kimi from '../session/adapters/kimi.ts';
 import { setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
-import { parseExitPlanModeHookPayload } from '../shared/contracts/plan-review.ts';
 import { Session } from '../session/sessions.ts';
 import { STATES } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
@@ -78,7 +77,6 @@ test('v2 fixture (ExitPlanMode request): awaiting-input reaches the card as a pl
   const request = records.find((record) => record.type === 'hook');
   assert.equal(claudeCode.hooks.mapSignal(String(request?.event), request?.payload), 'awaiting-input');
   assert.equal(claudeCode.hooks.mapPromptKind(String(request?.event), request?.payload), 'plan');
-  assert.ok(parseExitPlanModeHookPayload(request?.payload), 'the recorded payload survives the fail-closed parse');
 });
 
 test('v2 fixture (AskUserQuestion answered while the title sits idle): the PostToolUse hook ends WAITING', (t) => {

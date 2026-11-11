@@ -7,7 +7,6 @@ import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session
 import { buildSessionCardOptions } from '../../session-card/card-options-core.ts';
 import { attentionTally } from '../../session-card/card-registry.ts';
 import { createSessionCard, hasSession, renameSessionCard, setSessionAgent, setSessionMergeStatus, setSessionTaskTitle, setSessionWorktree } from '../../session-card/lifecycle.ts';
-import { applySessionPlanError } from '../../session-card/card-faces.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySessionSetupResponse } from '../../session-setup/setup-dialog.ts';
 import { releaseMergeRequest } from '../../review/review-store.ts';
@@ -38,7 +37,6 @@ const messageHandlers = {
   'notify':             (msg) => { alertFromNotify(msg); handleDebugStateRefresh(msg.session); },
   'session-error':      (msg) => {
     releaseMergeRequest(msg.id);
-    if (applySessionPlanError(msg)) return;
     reportSessionProblem(msg.id, msg.message);
   },
 } satisfies DashboardHandlerTable;

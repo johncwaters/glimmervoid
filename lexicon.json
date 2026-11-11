@@ -15,7 +15,7 @@
     },
     {
       "name": "view",
-      "definition": "A primary dashboard surface the operator switches between (Focus, Settings, Trace, Issues, Usage and the lane tabs, plus Boards on the phone), or one session's rendering inside it, its face (Terminal, Plan or the Board pane in Focus)",
+      "definition": "A primary dashboard surface the operator switches between (Focus, Settings, Trace, Issues, Usage and the lane tabs, plus Boards on the phone), or one session's rendering inside it, its face (Terminal or the Board pane in Focus)",
       "aliases": [
         "face"
       ]
@@ -322,7 +322,7 @@
     },
     {
       "name": "comment",
-      "definition": "A review comment on a pull request: a GitHub thread the operator can send to a session or dismiss, or a line comment in a team review draft or a plan review"
+      "definition": "A review comment on a pull request: a GitHub thread the operator can send to a session or dismiss, or a line comment in a team review draft"
     },
     {
       "name": "base",
@@ -465,11 +465,11 @@
     },
     {
       "name": "plan",
-      "definition": "An agent's plan captured from plan mode (Claude Code ExitPlanMode and its peers) as retained revisions, shown on a session card's plan face for the operator to approve or send feedback on"
+      "definition": "An agent's proposed approach before it builds: drawn as plan steps on a board, or a Claude Code plan-mode plan the operator approves in the session's own terminal, where the card shows Plan ready"
     },
     {
       "name": "plan review",
-      "definition": "The operator's review of a captured plan on the session card's plan face: reading the open revision, commenting, and choosing Approve or Send feedback"
+      "definition": "The retired dashboard feature that held Claude Code plan approvals on a session card's plan face; named only in the changelog's history, since plans now go through boards and plan-mode approvals answer in the terminal"
     },
     {
       "name": "core",
@@ -684,7 +684,7 @@
     },
     {
       "name": "revision",
-      "definition": "One version of something that changes over time: a captured plan's numbered revision on the plan face (0 for an unsubmitted draft), or the hash a probe set carries that changes whenever any probe does"
+      "definition": "One version of something that changes over time: the hash a probe set carries that changes whenever any probe does"
     },
     {
       "name": "secrets",

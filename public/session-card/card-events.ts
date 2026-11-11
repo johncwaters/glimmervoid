@@ -1,17 +1,14 @@
 import { openDocEditor } from '../doc-editor/doc-editor.ts';
-import { createPlanHash } from '../plan/plan-link.ts';
 import { setSelectedId } from '../review/selection.ts';
 import { openTraceForSession } from '../trace-store.ts';
 import { isRenameInProgress, makeTitleEditable, startInlineRename, startInlineTitleEdit } from './card-titles.ts';
 import { closeDebugOverlay, openDebugOverlay } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
-import { decidePlanHeaderAction } from './face-core.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { wirePopupMenuKeys } from '../menu.ts';
 import { loadResumeDialog } from './deferred-loads.ts';
-import { showSessionPlanFace } from './card-faces.ts';
 
 function closeSessionMenu(ui: SessionUi) {
   ui.sessionMenu.classList.remove('open');
@@ -60,13 +57,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
   ui.btnDocs.addEventListener('click', () => {
     closeSessionMenu(ui);
     openDocEditor(sessionId);
-  });
-
-  ui.btnPlan.addEventListener('click', () => {
-    const action = decidePlanHeaderAction(ui);
-    if (action === 'hidden') return;
-    if (action === 'face') { showSessionPlanFace(sessionId); return; }
-    location.hash = createPlanHash(sessionId);
   });
 
   ui.btnRemove.addEventListener('click', () => {

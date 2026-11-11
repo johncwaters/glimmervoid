@@ -9,7 +9,7 @@ import type { TerminalColors } from '../../session/core/terminal-color-query.ts'
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
-import type { RemoteLaunch, SessionOptions, SessionPlanReviewPort } from '../../session/sessions.ts';
+import type { RemoteLaunch, SessionOptions } from '../../session/sessions.ts';
 import { getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
@@ -30,7 +30,6 @@ interface SessionFactoryDependencies {
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
   getHookPort: () => number | null;
   getGitWorkspace: () => GitWorkspace | null;
-  getPlanReviewPort: () => SessionPlanReviewPort | null;
   resolveHookTools: (config: GlimmervoidConfig) => ResolvedHookTool[];
   getUserHooks: (projectId: string) => UserHook[];
   getTerminalColors?: () => TerminalColors;
@@ -134,7 +133,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       detectScheduledWakeups: config.detectScheduledWakeups,
       hookTools: originalHookTools,
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
-      planReviewPort: dependencies.getPlanReviewPort(),
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,

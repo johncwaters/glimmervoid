@@ -30,7 +30,7 @@ test('linked PRs persist on the project entry, broadcast on change and survive a
     await writeFile(configPath, JSON.stringify({ recordSignals: false, projects: [{ id: 'pr-links-session', name: 'project', path: directory }] }));
     const makeSession = createSessionFactory({
       configStore: { configPath }, hookRouter: null, getHookPort: () => null,
-      getGitWorkspace: () => null, getPlanReviewPort: () => null,
+      getGitWorkspace: () => null,
       resolveHookTools: () => [], getUserHooks: () => [],
     });
     const startWiredSession = () => {

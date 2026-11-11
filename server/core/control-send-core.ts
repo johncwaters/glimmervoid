@@ -18,7 +18,6 @@ const REFRESHABLE_TYPES = new Set([
   'radar-status',
   'radar-investigation-activity',
   'session-trace-changed',
-  'session-plan-changed',
 ]);
 
 const DEFAULT_HIGH_WATER_MARK = 1 * 1024 * 1024;
@@ -48,4 +47,4 @@ function decideControlSend({
   return { action: 'send', reason: null };
 }
 
-export { decideControlSend, REFRESHABLE_TYPES };
+export { decideControlSend };

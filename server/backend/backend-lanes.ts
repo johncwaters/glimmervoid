@@ -39,7 +39,6 @@ import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createQuestionManagerLane, QUESTION_MANAGER_LANE_TOOLS } from '../question-manager/question-manager.ts';
-import { createPlanReviewWiring } from '../plan-review-wiring.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import { createCommunityWiring } from '../community/community-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../spawn-gate.ts';
@@ -417,19 +416,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const traceChangeBroadcast = traceWiring
     ? createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl })
     : null;
-  const isPlanReviewEnabled = config.planReview?.enabled ?? DEFAULT_CONFIG.planReview.enabled;
-  const planReview = isPlanReviewEnabled
-    ? createPlanReviewWiring({
-      configPath: configStore.configPath,
-      logger,
-    })
-    : null;
-  planReview?.on('plan-changed', (summary: Record<string, unknown>) => {
-    broadcastControl({ type: 'session-plan-changed', ...summary });
-  });
-  planReview?.on('plan-draft', (notice: Record<string, unknown>) => {
-    broadcastControl({ type: 'session-plan-draft', ...notice });
-  });
   const taskTitleSessions = new Map<string, Session>();
   const taskTitleRefiner = createTaskTitleRefiner({
     getConfig: () => configStore.config,
@@ -478,7 +464,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     usage,
     'task-title': taskTitleRefiner,
     trace: traceWiring,
-    'plan-review': planReview,
   };
   const fixedLanes = new Map<string, unknown>(Object.entries(fixedLaneEntries));
   type LaneMap = typeof fixedLaneEntries;
@@ -512,7 +497,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
-      () => planReview?.start().catch((error: unknown) => logger.warn(`[plan-review] start failed: ${errorMessage(error)}`)),
     ];
     for (const start of startSteps) start();
   }
@@ -554,7 +538,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ownedPaths,
     githubStore,
     investigationSessions,
-    planReview,
     posthog,
     recordLane,
     restartServiceLanes,

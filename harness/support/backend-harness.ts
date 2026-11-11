@@ -386,7 +386,6 @@ export async function prepareIsolatedEnvironment({ tempDirectory, repoRoots, rec
     autoResume: false,
     branchGc: { enabled: false }, usage: { enabled: false }, capture: { enabled: recordSessions },
     recordSignals: recordSessions, postTurnChecks: { enabled: false }, checkForUpdates: false,
-    planReview: { enabled: false },
     posthog: { enabled: false }, telegram: { enabled: false }, teamReview: { enabled: false },
     telemetry: { enabled: false },
   });

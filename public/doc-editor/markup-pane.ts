@@ -1,6 +1,5 @@
 import { el } from '../dom-helpers.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
-import { commonPrefixLength, commonSuffixLength } from '../plan/plan-diff-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
 import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
@@ -12,6 +11,20 @@ import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, Suggest
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
 import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
+
+function commonPrefixLength(before: readonly string[], after: readonly string[]): number {
+  const shortest = Math.min(before.length, after.length);
+  let matched = 0;
+  while (matched < shortest && before[matched] === after[matched]) matched++;
+  return matched;
+}
+
+function commonSuffixLength(before: readonly string[], after: readonly string[], prefix: number): number {
+  const shortest = Math.min(before.length, after.length) - prefix;
+  let matched = 0;
+  while (matched < shortest && before[before.length - 1 - matched] === after[after.length - 1 - matched]) matched++;
+  return matched;
+}
 
 export interface MarkupHost {
   baseHash: string | null;

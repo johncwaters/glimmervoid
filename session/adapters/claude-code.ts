@@ -4,11 +4,12 @@ import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile } from "./index.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
-import { PLAN_TOOL_NAME } from "../../shared/contracts/index.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import { isRecord } from "../../shared/coerce.ts";
 import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
+
+const EXIT_PLAN_MODE_TOOL_NAME = "ExitPlanMode";
 
 const ID = "claude-code";
 const COMMAND_NAME = "claude";
@@ -51,7 +52,7 @@ function mapHookConfidence(event: string, payload?: HookPayload): string | null 
 function mapHookPromptKind(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   if (e === "permissionrequest") {
-    if (String(payload?.tool_name || "") === PLAN_TOOL_NAME) return "plan";
+    if (String(payload?.tool_name || "") === EXIT_PLAN_MODE_TOOL_NAME) return "plan";
     return "permission";
   }
   if (e === "notification") {

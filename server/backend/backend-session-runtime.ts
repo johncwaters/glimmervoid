@@ -3,7 +3,6 @@ import http from 'node:http';
 import { HookRouter } from '../../detection/hook-source.ts';
 import { sweepOrphans } from '../../detection/settings-injector.ts';
 import { hooksForProject } from '../../session/core/user-hooks-core.ts';
-import type { SessionPlanReviewPort } from '../../session/sessions.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
@@ -29,7 +28,6 @@ interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   getGitWorkspace: () => GitWorkspace | null;
-  getPlanReviewPort?: () => SessionPlanReviewPort | null;
   getBroadcastControl: () => ControlBroadcast | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
@@ -108,7 +106,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     hookRouter,
     getHookPort,
     getGitWorkspace: dependencies.getGitWorkspace,
-    getPlanReviewPort: dependencies.getPlanReviewPort || (() => null),
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,

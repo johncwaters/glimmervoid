@@ -1,6 +1,30 @@
-import { parseAtxHeading } from '#shared/contracts/plan-review.ts';
 import { normalizedHttpUrl } from '#shared/http-url.ts';
 import { findUrls } from '../session-card/link-detect-core.ts';
+
+const HEADING_SCAN_MAX_CHARS = 4096;
+const ATX_HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+
+interface AtxHeading {
+  level: number;
+  text: string;
+}
+
+function withoutClosingHeadingMarks(text: string): string {
+  const trimmed = text.trimEnd();
+  let textEnd = trimmed.length;
+  while (textEnd > 0 && trimmed[textEnd - 1] === '#') textEnd--;
+  if (textEnd === trimmed.length || textEnd === 0) return trimmed;
+  const charBeforeMarks = trimmed[textEnd - 1];
+  if (charBeforeMarks !== ' ' && charBeforeMarks !== '\t') return trimmed;
+  return trimmed.slice(0, textEnd).trimEnd();
+}
+
+export function parseAtxHeading(line: string, { overlongLine }: { overlongLine: 'truncate' | 'reject' }): AtxHeading | null {
+  if (overlongLine === 'reject' && line.length > HEADING_SCAN_MAX_CHARS) return null;
+  const heading = ATX_HEADING.exec(line.slice(0, HEADING_SCAN_MAX_CHARS));
+  if (!heading) return null;
+  return { level: heading[1].length, text: withoutClosingHeadingMarks(heading[2]) };
+}
 
 export type PlanInline =
   | { type: 'text'; text: string }
@@ -410,35 +434,4 @@ function parseBlocks(lines: readonly string[], context: ParseContext, depth: num
 
 export function parsePlanMarkdown(markdown: string): PlanBlock[] {
   return parseBlocks(markdown.replace(/\r\n?/g, '\n').split('\n'), { slugCounts: new Map() }, 0);
-}
-
-export interface PlanSection {
-  heading: string | null;
-  id: string | null;
-  level: number;
-  blocks: PlanBlock[];
-}
-
-export function splitPlanSections(blocks: readonly PlanBlock[]): PlanSection[] {
-  const sections: PlanSection[] = [];
-  let current: PlanSection = { heading: null, id: null, level: 0, blocks: [] };
-  const closeCurrent = () => {
-    if (current.heading === null && current.blocks.length === 0) return;
-    sections.push(current);
-  };
-  for (const block of blocks) {
-    if (block.type !== 'heading') {
-      current.blocks.push(block);
-      continue;
-    }
-    closeCurrent();
-    current = {
-      heading: planInlineText(block.children),
-      id: block.id,
-      level: block.level,
-      blocks: [block],
-    };
-  }
-  closeCurrent();
-  return sections;
 }

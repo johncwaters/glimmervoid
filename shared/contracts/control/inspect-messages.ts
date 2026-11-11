@@ -1,10 +1,9 @@
 import { z } from 'zod';
-import { PlanChangedPush, PlanDecision, PlanDraftPush, PlanResponseFrame } from '../plan-review.ts';
 import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence } from '../coherence.ts';
 import { SessionDoc } from '../session.ts';
 import { TraceRecord } from '../trace.ts';
 import { SessionSetup } from '../session-setup.ts';
-import { requestId, sessionId, loose, nullableString, optionalError, opaqueObject, planRevisionNumber, sessionDocPath } from './control-fields.ts';
+import { requestId, sessionId, loose, optionalError, opaqueObject, sessionDocPath } from './control-fields.ts';
 
 export const inspectClientVariants = [
   loose('session-trace', {
@@ -13,13 +12,6 @@ export const inspectClientVariants = [
     after: z.number().int().nonnegative().default(0),
     endingAt: z.union([z.number().int().nonnegative(), z.literal('tail')]).optional(),
   }),
-  loose('session-plan', {
-    id: sessionId,
-    agentId: nullableString,
-    revision: planRevisionNumber.optional(),
-    draft: z.boolean().optional(),
-  }),
-  loose('plan-decision', PlanDecision.shape),
   loose('session-doc-read', { id: sessionId, path: sessionDocPath, requestId }),
   loose('session-doc-asset-read', { id: sessionId, path: sessionDocPath, src: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
@@ -39,9 +31,6 @@ export const inspectServerVariants = [
     path: z.string(),
   }),
   loose('session-trace-changed', { id: sessionId }),
-  loose('session-plan-changed', PlanChangedPush.shape),
-  loose('session-plan-draft', PlanDraftPush.shape),
-  loose('session-plan-response', PlanResponseFrame.shape),
   loose('session-docs-changed', { id: sessionId, docs: z.array(SessionDoc) }),
   loose('session-docs-snapshot', { sessions: z.record(z.string(), z.array(SessionDoc)) }),
   loose('session-doc-response', { requestId, id: sessionId, path: z.string(), ok: z.boolean(), text: z.string().optional(), hash: z.string().optional(), error: optionalError }),

@@ -42,7 +42,7 @@ interface SessionEventDependencies {
   telegramChannel: { noteStateChange: (id: string) => void; recheck: (id: string) => void };
   notificationManager: {
     acknowledge: (id: string) => void;
-    trigger: (id: string, category: string, message: string, kind?: 'plan' | null) => void;
+    trigger: (id: string, category: string, message: string) => void;
     noteOperatorActivity: () => void;
   };
   attachSessionPrLink: (session: Session) => void;
@@ -54,21 +54,15 @@ interface SessionEventDependencies {
   starHint?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   pushProvenanceNotes?: (repoDir: string) => Promise<void>;
-  planReview?: {
-    attachSession: (session: Session) => void;
-    latestPlanTitle: (sessionId: string) => string | null;
-  } | null;
   telemetry?: Pick<Telemetry, 'capture' | 'captureException'> | null;
   logger: Pick<Console, 'error' | 'log' | 'warn'>;
 }
 
 interface NotifyCopyContext {
-  planTitle: string | null;
   agentNote: string | null;
 }
 
 function waitingCopy(name: string, context: NotifyCopyContext): string {
-  if (context.planTitle) return `${name} has a plan ready for review: ${context.planTitle}`;
   if (context.agentNote) return `${name}: ${context.agentNote}`;
   return `${name} needs your input`;
 }
@@ -112,7 +106,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     dependencies.traceWiring?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.coherenceFeed?.attachSession(session);
-    dependencies.planReview?.attachSession(session);
     dependencies.starHint?.attachSession(session);
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
@@ -300,15 +293,11 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (!category) return;
       const message = NOTIFY_MESSAGES[category];
       if (!message) return;
-      const planTitleForCopy = pendingPromptKind === 'plan'
-        ? (dependencies.planReview?.latestPlanTitle(session.id) ?? null)
-        : null;
       const agentNoteForCopy = pendingPromptKind === 'agent' ? pendingAgentNote : null;
       dependencies.notificationManager.trigger(
         session.id,
         category,
-        message(session.name, { planTitle: planTitleForCopy, agentNote: agentNoteForCopy }),
-        planTitleForCopy === null ? null : 'plan',
+        message(session.name, { agentNote: agentNoteForCopy }),
       );
       if (agentNoteForCopy !== null) pendingAgentNote = null;
     });

@@ -311,7 +311,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       detectScheduledWakeups: config.detectScheduledWakeups !== false,
       observeToolCalls: false,
       hookTools,
-      planReview: config.planReview?.enabled !== false,
     };
     return listAgentIds().flatMap((agentId) => {
       const adapter = getAdapter(agentId);

@@ -6,7 +6,6 @@ import { reportToServerLog, sendControlMsg } from './control-ws.ts';
 import { alertGroupBannerOptions, desktopNotificationOptions, foldAlertGroupLines } from './desktop-notification-core.ts';
 import { el } from './dom-helpers.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
-import { createPlanHash } from './plan/plan-link.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { getSoundId, isNotificationsEnabled, isSoundEnabled } from './ui-prefs.ts';
 import { button } from './ui/button.ts';
@@ -148,7 +147,6 @@ function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlert
     const notification = new notificationApi(title, alertGroupBannerOptions(group, alertGroupLines.lines));
     notification.onclick = () => {
       window.focus();
-      if (msg.kind === 'plan') window.location.hash = createPlanHash(msg.session);
       notification.close();
     };
     for (const sessionId of group.sessionIds) {
@@ -218,9 +216,8 @@ export function showDesktopNotification({
   session,
   category,
   message,
-  kind,
   ignoreFocus = false,
-}: { session?: unknown; category?: unknown; message?: unknown; kind?: unknown; ignoreFocus?: unknown; [key: string]: unknown } = {}) {
+}: { session?: unknown; category?: unknown; message?: unknown; ignoreFocus?: unknown; [key: string]: unknown } = {}) {
   const notificationApi = getNotificationApi();
   if (!notificationApi || !isDesktopNotificationWanted(!!ignoreFocus)) return;
   if (notificationApi.permission === 'denied') reportBlockedNotificationsOnce();
@@ -235,9 +232,6 @@ export function showDesktopNotification({
     const notification = new notificationApi(shownSessionName || 'Glimmervoid', desktopNotificationOptions(session, category, message));
     notification.onclick = () => {
       window.focus();
-      if (kind === 'plan' && sessionId) {
-        window.location.hash = createPlanHash(sessionId);
-      }
       notification.close();
     };
     if (sessionUi) rememberShownNotification(sessionId, notification);

@@ -1,9 +1,8 @@
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
 import type { FeatureSurfaceSettings } from '../feature-surfaces-core.ts';
-import { centerSessionQuietly, openChangesInFocus, openPlanInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
+import { centerSessionQuietly, openChangesInFocus, openRequestedBoardInFocus } from '../focus-view/focus-view.ts';
 import { isPhoneShellActive, orderPhonePanels, setPhoneScreenAttention, setPhoneScreenAvailable, showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
-import { resolvePlanTarget } from '../plan/plan-link.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
 import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-store.ts';
 import { isSettingsHash } from '../settings/settings-link.ts';
@@ -48,7 +47,6 @@ const VIEW_TABS = createDashboardViews({
     activateView('focus');
     centerSessionQuietly(id);
   },
-  openPlan: (id) => { activateView('focus'); openPlanInFocus(id); },
   openReviewFile: (id, openPath) => {
     if (!hasSession(id)) return;
     if (showPhoneSession(id)) return;
@@ -275,13 +273,11 @@ function syncPackViews(panels: readonly PackPanelView[]) {
 function selectInitialView() {
   const savedView = getSavedActiveView();
   const isInitialSettingsLink = isSettingsHash(location.hash);
-  const initialPlanTarget = resolvePlanTarget(location.hash);
   if (isInitialSettingsLink) {
     activateSettingsSection(null, null, location.hash);
     activateView('settings', { persist: false });
   }
-  if (initialPlanTarget) activateView('focus', { persist: false });
-  if (isInitialSettingsLink || initialPlanTarget) return;
+  if (isInitialSettingsLink) return;
   const canRestoreSavedView = isViewAvailable(savedView);
   if (!canRestoreSavedView) savedViewAwaitingSurface = savedView;
   activateView(canRestoreSavedView ? savedView : 'focus', { persist: canRestoreSavedView });

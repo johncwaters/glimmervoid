@@ -11,7 +11,6 @@ import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../session/core/user-hooks-core.ts';
-import { PLAN_HOOK_EVENT, PLAN_RESULT_HOOK_EVENT, PLAN_TOOL_NAME } from '../shared/contracts/plan-review.ts';
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { RESUME_NOTE_HOOK_EVENT, REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
 import { safePathSegment } from '../shared/paths.ts';
@@ -19,9 +18,7 @@ import { isRecord, textOr } from '../shared/coerce.ts';
 
 const DEFAULT_BASE_DIR = path.join(hostScratchRoot(), 'glimmervoid-hooks');
 const DEFAULT_TIMEOUT_SEC = 5;
-const PLAN_HOOK_TIMEOUT_SEC = 86400;
-const PLAN_HOLD_RELEASE_LEAD_SEC = 60;
-const PLAN_HOLD_RELEASE_MS = (PLAN_HOOK_TIMEOUT_SEC - PLAN_HOLD_RELEASE_LEAD_SEC) * 1000;
+const HELD_HOOK_TIMEOUT_SEC = 86400;
 
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
@@ -69,7 +66,6 @@ interface BuildHookSettingsOptions {
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
-  planReview?: boolean;
   userSettingsPath?: string | null;
   carryOperatorPermissions?: boolean;
   relayLaunch?: readonly string[];
@@ -99,7 +95,6 @@ function ensureOwnedDir(dir: string, mode: number): void {
 const HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'PreCompact', 'PostCompact'];
 
 const WAKEUP_TOOL_MATCHER = 'ScheduleWakeup|CronCreate|CronDelete';
-const PLAN_TOOL_MATCHER = PLAN_TOOL_NAME;
 const PR_LINK_TOOL_MATCHER = 'Bash';
 const COMMAND_HINT_TOOL_MATCHER = 'Write|Edit|Agent|Task';
 const FAILED_SHELL_TOOL_MATCHER = 'Bash';
@@ -197,7 +192,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, planReview = false, userSettingsPath = null, carryOperatorPermissions, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -221,16 +216,10 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
     hooks[event] = [{ hooks: [{ type: 'http', url: hookUrl(event), timeout: timeoutSec }] }];
   }
   const permissionRequestEntries = hooks.PermissionRequest;
-  if (planReview && permissionRequestEntries) {
-    permissionRequestEntries.push({
-      matcher: PLAN_TOOL_MATCHER,
-      hooks: [{ type: 'http', url: hookUrl(PLAN_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
-    });
-  }
   if (permissionRequestEntries) {
     permissionRequestEntries.push({
       matcher: ASK_USER_QUESTION_TOOL_NAME,
-      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: PLAN_HOOK_TIMEOUT_SEC }],
+      hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: HELD_HOOK_TIMEOUT_SEC }],
     });
   }
   const sharedPostToolUseMatchers: string[] = [];
@@ -239,12 +228,6 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const sharedPostToolUseUrl = hookUrl('PostToolUse');
   const postToolUse: SettingsHookEntry[] = sharedPostToolUseMatchers
     .map((matcher) => ({ matcher, hooks: [{ type: 'http', url: sharedPostToolUseUrl, timeout: timeoutSec }] }));
-  if (planReview) {
-    postToolUse.push({
-      matcher: PLAN_TOOL_MATCHER,
-      hooks: [{ type: 'http', url: hookUrl(PLAN_RESULT_HOOK_EVENT), timeout: timeoutSec }],
-    });
-  }
   postToolUse.push({
     matcher: ASK_USER_QUESTION_TOOL_NAME,
     hooks: [{ type: 'http', url: hookUrl(CONVERSATION_TOOL_RESULT_HOOK_EVENT), timeout: timeoutSec }],
@@ -371,4 +354,4 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
   return removed;
 }
 
-export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, PLAN_HOLD_RELEASE_MS, FILE_MODE, RELAY_LAUNCH, COMMAND_HOOK_RELAY_LAUNCH, NO_CHAIN };
+export { buildHookSettings, describeInstalledClaudeHooks, writeSessionSettings, sweepOrphans, generateToken, HOOK_EVENTS, DEFAULT_TIMEOUT_SEC, RELAY_LAUNCH, COMMAND_HOOK_RELAY_LAUNCH, NO_CHAIN };

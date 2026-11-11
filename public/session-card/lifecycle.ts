@@ -24,8 +24,7 @@ import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
-import { createDeferredPlanFace, loadedPlanFaceModule } from './deferred-loads.ts';
-import { openManagerDecisionLine, reportSessionProblem } from './card-problems.ts';
+import { openManagerDecisionLine } from './card-problems.ts';
 import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
@@ -92,23 +91,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   container.appendChild(dom.card);
 
   let sessionUi: SessionUi;
-  function showTerminalFace() {
-    sessionUi.face = 'terminal';
-    sessionUi.card.dataset.face = 'terminal';
-    sessionUi.termWrap.hidden = false;
-    sessionUi.planFace.hide();
-    updateButtonVisibility(sessionUi);
-    ensureTerminalReady(sessionUi, id);
-  }
   const abortController = new AbortController();
-  const planFace = createDeferredPlanFace({
-    signal: abortController.signal,
-    requestPlan: (requestedId, agentId, revision) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, revision }),
-    requestDraft: (requestedId, agentId) => sendControlMsg({ type: 'session-plan', id: requestedId, agentId, draft: true }),
-    showTerminal: showTerminalFace,
-    sendDecision: (requestedId, request) => sendControlMsg({ type: 'plan-decision', id: requestedId, ...request }),
-    reportProblem: (message: string) => reportSessionProblem(id, message),
-  });
   sessionUi = {
     term: null,
     fitAddon: null,
@@ -135,29 +118,21 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     btnWorkspaceRepos: dom.btnWorkspaceRepos,
     tags: dom.tags,
     btnTrace: dom.btnTrace,
-    btnPlan: dom.btnPlan,
     btnDocs: dom.btnDocs,
     btnRemove: dom.btnRemove,
     debugOverlay: null,
     debugOpen: false,
     abortController,
     currentState: state,
-    face: 'terminal',
     isBorrowed: false,
-    hasPlan: false,
     pendingPromptKind: null,
-    planReviewState: { reviews: [] },
-    planFace,
   };
   sessionUi._ensureTerminalReady = () => ensureTerminalReady(sessionUi, id);
-  sessionUi._showTerminalFace = showTerminalFace;
-  sessionUi._showPreferredFace = showTerminalFace;
   sessionUi._setBorrowed = (isBorrowed) => {
     sessionUi.isBorrowed = isBorrowed;
     dom.card.toggleAttribute('data-borrowed', isBorrowed);
     updateButtonVisibility(sessionUi);
   };
-  dom.card.append(planFace.el);
   const replacedUi = sessionUIs.get(id);
   if (replacedUi) tallyRemove(attentionTally, tallyRowOf(replacedUi));
   sessionUIs.set(id, sessionUi);
@@ -260,7 +235,6 @@ export function removeSessionCard(sessionId: unknown) {
   tallyRemove(attentionTally, tallyRowOf(ui));
   sessionUIs.delete(sessionIdOf(sessionId));
   syncLiveSession(sessionIdOf(sessionId), undefined);
-  loadedPlanFaceModule?.dropPlanBodyCache(sessionIdOf(sessionId));
 
   if (ui.resizeObserver) ui.resizeObserver.disconnect();
   if (ui.abortController) ui.abortController.abort();

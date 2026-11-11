@@ -1,6 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
@@ -12,7 +10,6 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_BURST_LINES = 100;
 const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
-const PLAN_BODY = '# Fake agent plan\n\nOne step, so the reviewer has something to decide on.\n';
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
 const BRACKETED_PASTE_MARKER = /\x1b\[20[01]~/g;
@@ -123,22 +120,6 @@ function writeBurst(count: number): void {
   if (chunk.length > 0) process.stdout.write(chunk);
 }
 
-function writePlanFile(): string {
-  const planFilePath = path.join(os.tmpdir(), `fake-agent-plan-${process.pid}.md`);
-  try {
-    fs.writeFileSync(planFilePath, PLAN_BODY, 'utf8');
-  } catch {}
-  return planFilePath;
-}
-
-function requestPlanReview(): void {
-  postHook('permissionrequest-plan', {
-    hook_event_name: 'PermissionRequest',
-    tool_name: 'ExitPlanMode',
-    tool_input: { plan: PLAN_BODY, planFilePath: writePlanFile() },
-  });
-}
-
 function writeRow(rowNumber: number, text: string): void {
   process.stdout.write(`${ESC}[${rowNumber};1H${ESC}[2K${text}`);
 }
@@ -177,10 +158,6 @@ function dispatch(command: string): void {
     writeBurst(burstCount(command.slice('burst'.length).trim()));
     screen.tick += 1;
     paint();
-    return;
-  }
-  if (command === 'plan') {
-    requestPlanReview();
     return;
   }
   if (command === 'ask') {

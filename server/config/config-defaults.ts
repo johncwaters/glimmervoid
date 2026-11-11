@@ -34,10 +34,6 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
 
-  planReview: {
-    enabled: true,
-  },
-
   taskTitle: {
     refiner: { enabled: true, model: DEFAULT_MODELS.taskTitleRefiner, minIntervalSeconds: 60, timeoutSeconds: 60 },
   },

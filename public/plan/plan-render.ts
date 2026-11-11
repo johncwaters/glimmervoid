@@ -1,7 +1,5 @@
 import { el } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
-import type { PlanDiff, PlanDiffLineKind } from './plan-diff-core.ts';
-import type { PlanBlock, PlanInline, PlanListItem, PlanSection } from './plan-markdown-core.ts';
+import type { PlanBlock, PlanInline, PlanListItem } from './plan-markdown-core.ts';
 
 function appendInline(parent: HTMLElement, nodes: readonly PlanInline[]) {
   for (const node of nodes) {
@@ -107,64 +105,5 @@ function appendBlocks(parent: HTMLElement, blocks: readonly PlanBlock[]) {
 export function renderPlanBlocks(blocks: readonly PlanBlock[]): HTMLElement {
   const root = el('div', 'plan-document');
   appendBlocks(root, blocks);
-  return root;
-}
-
-interface PlanSectionHandlers {
-  hasComment: (section: PlanSection) => boolean;
-  isComposing: (section: PlanSection) => boolean;
-  onComment: (section: PlanSection) => void;
-  attachmentFor: (section: PlanSection) => HTMLElement | null;
-}
-
-export function renderPlanSections(
-  sections: readonly PlanSection[],
-  { hasComment, isComposing, onComment, attachmentFor }: PlanSectionHandlers,
-): HTMLElement {
-  const root = el('div', 'plan-document');
-  const sectionElements: HTMLElement[] = [];
-  for (const section of sections) {
-    const wrap = el('section', 'plan-section');
-    wrap.dataset.selected = 'false';
-    wrap.addEventListener('click', () => {
-      for (const sectionElement of sectionElements) sectionElement.dataset.selected = String(sectionElement === wrap);
-    });
-    sectionElements.push(wrap);
-    const head = el('div', 'plan-section-head');
-    const firstBlock = section.blocks[0];
-    const hasHeading = firstBlock?.type === 'heading';
-    if (hasHeading) appendBlocks(head, [firstBlock]);
-    if (!hasHeading) wrap.id = 'plan-introduction';
-    if (!hasComment(section) && !isComposing(section)) {
-      const commentButton = button({ variant: 'quiet', size: 'small', label: 'Comment', action: 'comment-section', onClick: () => onComment(section) });
-      commentButton.setAttribute('aria-label', `Comment on ${section.heading ?? 'Introduction'}`);
-      head.append(commentButton);
-    }
-    const body = el('div', 'plan-section-body');
-    appendBlocks(body, hasHeading ? section.blocks.slice(1) : section.blocks);
-    wrap.append(head, body);
-    const attachment = attachmentFor(section);
-    if (attachment) wrap.append(attachment);
-    root.append(wrap);
-  }
-  return root;
-}
-
-const DIFF_GUTTERS: Record<PlanDiffLineKind, string> = {
-  added: '+',
-  removed: '-',
-  unchanged: ' ',
-  skipped: ' ',
-};
-
-export function renderPlanDiff(diff: PlanDiff): HTMLElement {
-  const root = el('div', 'plan-diff');
-  for (const line of diff.lines) {
-    const row = el('div', `plan-diff-line plan-diff-${line.kind}`);
-    const gutter = el('span', 'plan-diff-gutter', DIFF_GUTTERS[line.kind]);
-    gutter.setAttribute('aria-hidden', 'true');
-    row.append(gutter, el('span', 'plan-diff-text', line.text));
-    root.append(row);
-  }
   return root;
 }

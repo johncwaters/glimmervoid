@@ -52,7 +52,6 @@ export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freez
   hooks: 'Operator-defined hooks per project, managed from the dashboard Hooks panel.',
   guardrails: 'Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`.',
   hosts: 'Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar. Each entry has `id` (lowercase letters, digits and dashes), `name`, `sshTarget` (an ssh host or `~/.ssh/config` alias, never starting with a dash) and `dashboardPort` (that machine\'s loopback dashboard port). The tunnel runs `ssh` with `BatchMode=yes` and `StrictHostKeyChecking=yes`, so the host key must already be known. A host on a different Glimmervoid version is refused. Managed from Settings, Remote, or with `glimmervoid host add`, `list` and `remove`; a running Glimmervoid applies a change without a restart.',
-  planReview: 'Hold Claude Code plan approvals (`ExitPlanMode`) so the plan can be read and approved from the dashboard or phone (`planReview.enabled`).',
 });
 
 const BROWSER_LEVEL = 'browser';

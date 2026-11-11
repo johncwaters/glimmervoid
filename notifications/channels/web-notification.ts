@@ -6,7 +6,6 @@ type NotifyBroadcast = {
   category: string;
   message: string;
   escalationCount: number;
-  kind?: 'plan';
   group?: NotifyAlertGroup;
 };
 
@@ -16,7 +15,7 @@ function createWebNotificationChannel(
   sessionName: string,
   category: string,
   message: string,
-  context?: { escalationCount?: number; kind?: 'plan'; group?: NotifyAlertGroup } | null,
+  context?: { escalationCount?: number; group?: NotifyAlertGroup } | null,
 ) => undefined {
   return function webNotificationChannel(sessionName, category, message, context) {
     broadcast({
@@ -25,7 +24,6 @@ function createWebNotificationChannel(
       category,
       message,
       escalationCount: context?.escalationCount ?? 0,
-      ...(context?.kind ? { kind: context.kind } : {}),
       ...(context?.group ? { group: context.group } : {}),
     });
   };
