@@ -19,6 +19,7 @@ import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
+import { createReviewWiring, REVIEWS_FOLDER_NAME } from '../review/review-wiring.ts';
 import type { ProvisionalBoardNaming } from '../whiteboard/whiteboard-wiring.ts';
 import { createChangeMapService, joinSessionRegistries } from '../change-map/change-map-wiring.ts';
 import { createRemoteSetupWiring } from '../remote-setup-wiring.ts';
@@ -281,6 +282,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControlFromWebSockets(message);
     if (message.type !== 'session-removed' || typeof message.id !== 'string') return;
     void whiteboards.forgetSession(message.id);
+    void reviews.forgetSession(message.id);
     forgetSessionInSavedOrder(message.id);
   };
   const hostLinks = createHostLinksWiring({
@@ -302,6 +304,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
   });
   const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
+  const reviews = createReviewWiring({
+    reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
+    broadcastControl: broadcastControlFromWebSockets,
+    findSession: (sessionId) => getSessionAny(sessionId),
+  });
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
@@ -812,6 +819,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     secrets: secretsBroker,
     whiteboards,
+    reviews,
     changeMaps,
     coherenceFeed,
     serverBuild: () => serverBuild,

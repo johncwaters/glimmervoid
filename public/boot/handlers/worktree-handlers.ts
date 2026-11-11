@@ -1,6 +1,6 @@
 import { clearHeaderError, reportHeaderError } from '../../action-status.ts';
 import { openInstallDetailsDialog } from '../../dialogs.ts';
-import { setChangeMap, noteWorktreeChanged, setSessionDiff, setSessionDiffError } from '../../review/review-store.ts';
+import { setChangeMap, setReviewState, noteWorktreeChanged, setSessionDiff, setSessionDiffError } from '../../review/review-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 
 const WORKTREE_ERROR_SOURCE = 'Worktree';
@@ -13,6 +13,7 @@ const messageHandlers = {
   'session-diff':       (msg) => { setSessionDiff(msg.id, msg); },
   'session-diff-error': (msg) => { setSessionDiffError(msg.id, msg.message); },
   'change-map':         (msg) => setChangeMap(msg.id, msg.map),
+  'review-state':       (msg) => setReviewState(msg.id, msg.state),
   'session-changed':    (msg) => noteWorktreeChanged(msg.id),
 } satisfies DashboardHandlerTable;
 

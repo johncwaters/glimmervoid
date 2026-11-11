@@ -72,6 +72,44 @@ async function verifyModifiedFileDiff(page: Page, worktreePath: string): Promise
   assert.equal(await firstLine.count(), 0, 'unchanged lines far from the edit start collapsed');
   await reader.locator('.review-reader-diff [data-expand-button]').first().click();
   await firstLine.first().waitFor({ timeout: READER_TIMEOUT_MS });
+  await verifyLineComment(page);
+  await verifyViewedMark(page, worktreePath);
+}
+
+const COMMENT_TEXT = 'Name this line after what it holds';
+const REWRITTEN_CONTEXT_LINE = 'line 20 rewritten by the agent';
+
+async function verifyLineComment(page: Page): Promise<void> {
+  const reader = page.locator('.review-reader[data-placement="overlay"]');
+  await reader.locator(ADDED_DIFF_LINE, { hasText: EDITED_CONTEXT_LINE }).click();
+  const composerText = reader.getByRole('textbox', { name: 'Comment for the agent' });
+  await composerText.waitFor({ timeout: READER_TIMEOUT_MS });
+  await composerText.fill(COMMENT_TEXT);
+  await reader.getByRole('button', { name: 'Send', exact: true }).click();
+  const thread = reader.locator('.review-thread', { hasText: COMMENT_TEXT });
+  await thread.waitFor({ timeout: READER_TIMEOUT_MS });
+  assert.equal(await composerText.count(), 0, 'sending closes the comment box');
+  assert.equal(await thread.locator('.review-thread-tag', { hasText: 'outdated' }).count(), 0, 'a fresh comment is not outdated');
+}
+
+async function verifyViewedMark(page: Page, worktreePath: string): Promise<void> {
+  const reader = page.locator('.review-reader[data-placement="overlay"]');
+  await reader.getByRole('checkbox', { name: 'Viewed' }).check();
+  await reader.getByRole('list', { name: 'Viewed', exact: true }).locator(`.review-reader-file[data-path="${CONTEXT_FILE_NAME}"]`).waitFor({ timeout: READER_TIMEOUT_MS });
+  const lines = Array.from({ length: CONTEXT_LINE_COUNT }, (_, index) => `line ${index + 1}`);
+  lines[19] = REWRITTEN_CONTEXT_LINE;
+  await fs.writeFile(path.join(worktreePath, CONTEXT_FILE_NAME), `${lines.join('\n')}\n`, 'utf8');
+  const newRow = reader.getByRole('list', { name: 'New', exact: true }).locator(`.review-reader-file[data-path="${CONTEXT_FILE_NAME}"]`);
+  await newRow.locator('.review-changed-again').waitFor({ timeout: READER_TIMEOUT_MS });
+  const showUpdate = reader.getByRole('button', { name: 'Show update', exact: true });
+  await showUpdate.waitFor({ timeout: READER_TIMEOUT_MS });
+  assert.equal(await reader.locator(ADDED_DIFF_LINE, { hasText: EDITED_CONTEXT_LINE }).count(), 1, 'the open diff waits behind Show update');
+  await showUpdate.click();
+  await reader.locator(ADDED_DIFF_LINE, { hasText: REWRITTEN_CONTEXT_LINE }).waitFor({ timeout: READER_TIMEOUT_MS });
+  const thread = reader.locator('.review-thread', { hasText: COMMENT_TEXT });
+  await thread.locator('.review-thread-tag', { hasText: 'outdated' }).waitFor({ timeout: READER_TIMEOUT_MS });
+  await thread.getByRole('button', { name: 'Resolve', exact: true }).click();
+  await reader.locator('.review-thread[data-status="resolved"]', { hasText: COMMENT_TEXT }).waitFor({ timeout: READER_TIMEOUT_MS });
 }
 
 async function openChangesReader(page: Page): Promise<void> {

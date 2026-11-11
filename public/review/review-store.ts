@@ -1,5 +1,6 @@
 import { CHANGES_POLL_INTERVAL_MS } from '#shared/contracts/control-messages.ts';
 import { ChangeMap } from '#shared/contracts/change-map.ts';
+import { ReviewState } from '#shared/contracts/review-state.ts';
 import type { ChangeMapView } from '#shared/change-map-view-core.ts';
 import { buildChangeMapView } from '#shared/change-map-view-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -16,6 +17,7 @@ export interface SessionReview extends ReviewView {
   diffError: string | null;
   changeMapView: ChangeMapView | null;
   isWorkspace: boolean;
+  reviewState: ReviewState | null;
 }
 
 const statusById = new Map<string, string>();
@@ -23,6 +25,7 @@ const reasonById = new Map<string, string | null>();
 const diffById = new Map<string, SessionDiffPayload | null>();
 const diffErrorById = new Map<string, string>();
 const mapById = new Map<string, ChangeMap | null>();
+const reviewStateById = new Map<string, ReviewState>();
 const filesByPayload = new WeakMap<SessionDiffPayload, ReaderFile[]>();
 const changeMapViewByMap = new WeakMap<ChangeMap, ChangeMapView>();
 const listeners = new Set<(sessionId: string) => void>();
@@ -85,6 +88,7 @@ export function reviewOf(sessionId: string): SessionReview | null {
     diffError,
     changeMapView: changeMapViewOf(mapById.get(sessionId)),
     isWorkspace: isWorkspaceSession(sessionId),
+    reviewState: reviewStateById.get(sessionId) ?? null,
   };
 }
 
@@ -95,6 +99,7 @@ function requestChangeMap(sessionId: string) {
 
 function requestDiff(sessionId: string) {
   sendControlMsg({ type: 'request-session-diff', id: sessionId });
+  sendControlMsg({ type: 'request-review-state', id: sessionId });
   requestChangeMap(sessionId);
 }
 
@@ -133,6 +138,15 @@ export function setSessionDiffError(id: unknown, message: string) {
   const sessionId = sessionIdOf(id);
   if (!sessionId) return;
   diffErrorById.set(sessionId, message);
+  announce(sessionId);
+}
+
+export function setReviewState(id: unknown, state: unknown) {
+  const sessionId = sessionIdOf(id);
+  if (!sessionId) return;
+  const parsed = ReviewState.safeParse(state);
+  if (!parsed.success) return;
+  reviewStateById.set(sessionId, parsed.data);
   announce(sessionId);
 }
 

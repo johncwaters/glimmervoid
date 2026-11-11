@@ -23,6 +23,7 @@ import type { Telemetry } from '../telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
+import type { ReviewPort } from '../review/review-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
@@ -104,6 +105,7 @@ interface BackendControlDependencies {
   sessionDocs: SessionDocsPort;
   secrets: SecretsBroker;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
+  reviews: ReviewPort;
   changeMaps: ChangeMapService;
   coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
@@ -187,6 +189,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     sessionDocs: dependencies.sessionDocs,
     secrets: dependencies.secrets,
     whiteboards: dependencies.whiteboards,
+    reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     coherenceFeed: dependencies.coherenceFeed,
     coderEnv: laneAssembly.coderEnv,

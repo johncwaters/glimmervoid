@@ -1,3 +1,4 @@
+import type { ReviewComment, ReviewState } from '#shared/contracts/review-state.ts';
 import { STATES } from '#shared/states.ts';
 import type { DiffFile } from './diff-core.ts';
 import { parseUnifiedDiff, summarizeFiles } from './diff-core.ts';
@@ -90,4 +91,61 @@ export function reviewViewOf(input: ReviewInput): ReviewView {
     isEmpty: headline.isEmpty === true,
     totals,
   };
+}
+
+export type ReviewScope = 'all' | 'since-last-review';
+type FileReadState = 'new' | 'changed-again' | 'viewed';
+type ViewedHashByPath = ReviewState['viewedHashByPath'];
+
+export function fileReadStateOf(file: ReaderFile, viewedHashByPath: ViewedHashByPath): FileReadState {
+  if (!Object.hasOwn(viewedHashByPath, file.path)) return 'new';
+  return viewedHashByPath[file.path] === file.contentHash ? 'viewed' : 'changed-again';
+}
+
+export function groupReaderFiles(files: readonly ReaderFile[], viewedHashByPath: ViewedHashByPath, scope: ReviewScope) {
+  const unviewedFiles = files.filter((file) => fileReadStateOf(file, viewedHashByPath) !== 'viewed');
+  return {
+    newFiles: unviewedFiles.filter((file) => !file.isGenerated),
+    viewedFiles: scope === 'all' ? files.filter((file) => fileReadStateOf(file, viewedHashByPath) === 'viewed') : [],
+    generatedFiles: unviewedFiles.filter((file) => file.isGenerated),
+  };
+}
+
+export function readerStateOf(input: { hasDiffError: boolean; isEmpty: boolean; fileCount: number; unviewedCount: number }): 'reviewing' | 'caught-up' | 'no-changes' | 'error' {
+  if (input.hasDiffError) return 'error';
+  if (input.isEmpty || input.fileCount === 0) return 'no-changes';
+  return input.unviewedCount === 0 ? 'caught-up' : 'reviewing';
+}
+
+export function shouldHoldUpdate(displayedPatch: string | null, latestPatch: string | null): boolean {
+  return displayedPatch !== null && latestPatch !== null && displayedPatch !== latestPatch;
+}
+
+export function lineTextAt(patch: string, side: ReviewComment['side'], line: number): string | null {
+  let oldLine = 0;
+  let newLine = 0;
+  let isInHunk = false;
+  for (const patchLine of patch.split('\n')) {
+    const hunkStart = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(patchLine);
+    if (hunkStart) {
+      oldLine = Number(hunkStart[1]);
+      newLine = Number(hunkStart[2]);
+      isInHunk = true;
+      continue;
+    }
+    if (!isInHunk || patchLine === '' || patchLine.startsWith('\\')) continue;
+    const marker = patchLine.charAt(0);
+    const text = patchLine.slice(1);
+    if (marker !== '+' && side === 'old' && oldLine === line) return text;
+    if (marker !== '-' && side === 'new' && newLine === line) return text;
+    if (marker !== '+') oldLine++;
+    if (marker !== '-') newLine++;
+  }
+  return null;
+}
+
+export function isCommentOutdated(comment: ReviewComment, file: ReaderFile | null): boolean {
+  if (!file) return true;
+  const currentText = lineTextAt(file.patch, comment.side, comment.line);
+  return currentText !== comment.lineText;
 }

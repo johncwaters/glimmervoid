@@ -28,6 +28,7 @@ import type { StarHintWiring } from './star-hint-wiring.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
+import type { ReviewPort } from './review/review-wiring.ts';
 import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
@@ -51,6 +52,7 @@ import { createServerHandlers } from './control/handlers/server-handlers.ts';
 import { createSessionHandlers } from './control/handlers/session-handlers.ts';
 import { createSettingsHandlers } from './control/handlers/settings-handlers.ts';
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
+import { createReviewHandlers } from './control/handlers/review-handlers.ts';
 import { createWorktreeHandlers } from './control/handlers/worktree-handlers.ts';
 
 type ControlRequest = ClientMessage;
@@ -149,6 +151,7 @@ interface ControlHandlerDeps {
   sessionDocs?: SessionDocsPort | null;
   secrets?: Pick<SecretsBroker, 'decide' | 'revoke'> | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
+  reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
@@ -195,6 +198,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),
     createWhiteboardHandlers(context, deps),
+    createReviewHandlers(context, deps),
     createInspectHandlers(context, deps),
   ]);
 

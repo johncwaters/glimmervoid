@@ -12,6 +12,7 @@ import { whiteboardClientVariants, whiteboardServerVariants } from './control/wh
 import { raceClientVariants, raceServerVariants } from './control/race-messages.ts';
 import { systemClientVariants, systemServerVariants } from './control/system-messages.ts';
 import { packClientVariants, packServerVariants } from './control/pack-messages.ts';
+import { reviewClientVariants, reviewServerVariants } from './control/review-messages.ts';
 
 export {
   CHANGES_POLL_INTERVAL_MS,
@@ -78,6 +79,7 @@ const clientVariants = [
   ...raceClientVariants,
   ...systemClientVariants,
   ...packClientVariants,
+  ...reviewClientVariants,
   ...idOnlyClientVariants,
 ] as const;
 
@@ -96,6 +98,7 @@ const serverVariants = [
   ...raceServerVariants,
   ...systemServerVariants,
   ...packServerVariants,
+  ...reviewServerVariants,
 ] as const;
 
 export const ServerMessage = z.discriminatedUnion('type', serverVariants);

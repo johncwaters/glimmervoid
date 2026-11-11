@@ -436,12 +436,32 @@ function createSessionWorktreeLifecycle({
     }));
   }
 
+  function statusPathsOf(porcelainZ: string): string[] {
+    const entries = porcelainZ.split("\0").filter(Boolean);
+    const paths: string[] = [];
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index];
+      paths.push(entry.slice(3));
+      if (/^[RC]/.test(entry)) index += 1;
+    }
+    return paths;
+  }
+
+  async function readChangedFileStamps(worktreeDir: string, porcelainZ: string): Promise<string> {
+    const stamps = await Promise.all(statusPathsOf(porcelainZ).map(async (changedPath) => {
+      const stats = await fs.promises.lstat(path.join(worktreeDir, changedPath)).catch(() => null);
+      return stats ? `${changedPath}:${stats.size}:${stats.mtimeMs}` : `${changedPath}:gone`;
+    }));
+    return stamps.join("\0");
+  }
+
   async function computeWorktreeSignature(): Promise<WorktreeSignature | null> {
     const worktreeDir = lifecycleState.worktreeDir;
     if (!worktreeDir) return null;
     const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
     const run = (args: string[]): Promise<string> => gitOut(["--no-optional-locks", ...args], opts);
     let status: string;
+    let changedFileStamps: string;
     let head: string;
     let ahead = "0";
     let behind = "0";
@@ -450,7 +470,8 @@ function createSessionWorktreeLifecycle({
     let targetSha: string | null = null;
     let baseRef: string | null = null;
     try {
-      status = await run(["status", "--porcelain"]);
+      status = await run(["status", "--porcelain", "-z"]);
+      changedFileStamps = await readChangedFileStamps(worktreeDir, status);
       head = (await run(["rev-parse", "HEAD"])).trim();
       baseRef = (await resolveVerifiedBaseRef(opts)).ref;
       if (baseRef) ahead = (await run(["rev-list", "--count", `${baseRef}..HEAD`])).trim();
@@ -477,7 +498,7 @@ function createSessionWorktreeLifecycle({
       return null;
     }
     lifecycleState.lastLoggedCheckFailure = null;
-    const sig = crypto.createHash("sha1").update(`${status} ${head} ${ahead}`).digest("hex");
+    const sig = crypto.createHash("sha1").update(`${status} ${changedFileStamps} ${head} ${ahead}`).digest("hex");
     return { sig, dirty: status.trim() !== "", ahead, behind, rebaseBehind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 

@@ -94,6 +94,19 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
   { type: 'diff-file', requestId: 'request-diff-file-1', id: 'session-1', path: 'a.ts', ok: true, oldContents: 'old', newContents: null },
+  {
+    type: 'review-state',
+    id: 'session-1',
+    state: {
+      version: 1,
+      viewedHashByPath: { 'a.ts': 'a'.repeat(40) },
+      comments: [{
+        id: 'c-0123abcd', path: 'a.ts', side: 'new', line: 3, lineText: 'const a = 1;', text: 'Name this', sentAt: NOW,
+        status: 'resolved', resolvedBy: 'agent', replies: [{ text: 'Renamed', at: NOW }],
+      }],
+    },
+  },
+  { type: 'review-result', requestId: 'review-send-comment-1', ok: false, error: 'The comment was saved, but it could not be sent to the agent (destroyed)' },
   { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
   { type: 'session-diff-error', id: 'session-1', message: 'git diff HEAD timed out after 15000ms' },
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },
