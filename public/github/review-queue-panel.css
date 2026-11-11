@@ -306,14 +306,10 @@ button.my-pr-stack-row:focus-visible { outline: 2px solid var(--accent); outline
 .review-layout-option[aria-pressed="true"] { color: var(--text-head); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 html[data-layout="phone"] .review-layout-switch { display: none; }
 
-.pr-detail-resizer,
-.review-board-detail-bar { display: none; }
+.pr-detail-resizer { display: none; }
 .review-queue[data-reviews-layout="board"] > .pr-columns { grid-template-columns: minmax(0, 1fr) 7px var(--pr-detail-width, minmax(360px, 40%)); }
 .review-queue[data-reviews-layout="board"] > .pr-columns > .pr-queue-resizer:not(.pr-detail-resizer) { display: none; }
 .review-queue[data-reviews-layout="board"] > .pr-columns > .pr-detail-resizer { display: block; }
-.review-queue[data-reviews-layout="board"] .review-board-detail-bar { position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 8px 16px; border-bottom: 1px solid var(--border-dim); background: var(--bg); }
-.review-queue[data-reviews-layout="board"]:not([data-detail-open="true"]) > .pr-columns { grid-template-columns: minmax(0, 1fr); }
-.review-queue[data-reviews-layout="board"]:not([data-detail-open="true"]) > .pr-columns > :is(.pr-detail-resizer, .pr-detail-host) { display: none; }
 .review-queue[data-reviews-layout="board"] .pr-queue-pane { border-right: 0; }
 
 .review-board { display: flex; align-items: stretch; gap: 12px; flex: 1 0 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 8px; }

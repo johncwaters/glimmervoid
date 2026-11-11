@@ -82,16 +82,6 @@ function setDetailScreenOpen(isOpen: boolean): void {
   setReviewDetailScreenOpen(isOpen);
 }
 
-function isBoardDetailClosed(): boolean {
-  return isBoardShown() && root?.dataset.detailOpen !== 'true';
-}
-
-function closeBoardDetail(): boolean {
-  if (!isBoardShown() || isBoardDetailClosed()) return false;
-  returnToQueue();
-  return true;
-}
-
 function returnToQueue(): void {
   setDetailScreenOpen(false);
   if (selectedKey) rowsByKey.get(selectedKey)?.focus({ preventScroll: true });
@@ -248,9 +238,7 @@ function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'toggle-pulled') return toggleSelectedPulled();
   if (action === 'next-column') return stepColumn(1);
   if (action === 'previous-column') return stepColumn(-1);
-  if (isBoardDetailClosed()) return false;
-  if (runTeamReviewKey(action)) return true;
-  return action === 'cancel' && closeBoardDetail();
+  return runTeamReviewKey(action);
 }
 
 function isReviewNoteFocused(): boolean {
@@ -684,11 +672,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   const back = button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToReviewQueue });
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
-  const boardBar = el('div', 'review-board-detail-bar');
-  const closeDetail = button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue });
-  closeDetail.setAttribute('aria-label', 'Close review detail');
-  boardBar.append(closeDetail);
-  shell.detail.append(phoneBar, boardBar, detailHost);
+  shell.detail.append(phoneBar, detailHost);
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);
