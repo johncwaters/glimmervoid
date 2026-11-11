@@ -103,7 +103,7 @@ const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Bo
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): ElementInput {
   const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
   switch (shape) {
-    case 'icon': return { ...placed, shape, icon: PLACED_ICON };
+    case 'icon': return { ...placed, shape, icon: PLACED_ICON, borderless: true };
     case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', borderless: true, media, params: {} };
     case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }], params: {} };
     case 'sticky': return { ...placed, shape, tone: 'yellow', lines: [], media, params: {} };

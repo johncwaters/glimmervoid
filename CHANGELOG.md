@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Device mockups on a board stand alone.** A phone, tablet, laptop, desktop or browser box now draws without the card around it by default, so it no longer reads as a box inside a box. Devices already on your boards change too. Untick Borderless in the properties panel, or have an agent set `"borderless": false`, to bring the card back.
+- **Device mockups and icons on a board stand alone.** A phone, tablet, laptop, desktop or browser box, and an icon box, now draws without the card around it by default, so it no longer reads as a box inside a box. Devices and icons already on your boards change too. Untick Borderless in the properties panel, or have an agent set `"borderless": false`, to bring the card back.
 
 ### Fixed
 

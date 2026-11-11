@@ -157,7 +157,7 @@ const boxContentFields = {
 };
 
 const Borderless = z.boolean().default(false).describe('draws the box with no card fill or outline, so its lines, media or device stand alone');
-const DeviceBorderless = z.boolean().default(true).describe('draws the device with no card fill or outline, so it stands alone under its title; false draws the card');
+const StandaloneBorderless = z.boolean().default(true).describe('draws the device or icon with no card fill or outline, so it stands alone with its title; false draws the card');
 
 const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 outputs' });
 
@@ -181,13 +181,13 @@ const textBoxFields = { ...boxBaseFields, shape: z.literal('text').describe('dra
 const NoDeviceBoxLines = z.never({ error: 'a device box holds no lines, so set shape to box first' }).optional()
   .describe('refused: a device box holds no lines');
 
-const iconBoxFields = { ...boxBaseFields, shape: z.literal('icon').describe('draws its icon large with the title under it, and holds no lines or media'), icon: IconName };
+const iconBoxFields = { ...boxBaseFields, shape: z.literal('icon').describe('draws its icon large with the title under it, and holds no lines or media'), icon: IconName, borderless: StandaloneBorderless };
 const deviceBoxFields = {
   ...boxBaseFields,
   shape: z.literal('device').describe('draws a device with its media on the screen, or an empty screen without media'),
   device: DeviceName,
   fit: DeviceFit,
-  borderless: DeviceBorderless,
+  borderless: StandaloneBorderless,
   media: BoxMedia.nullable().default(null).describe('media drawn on the device screen, from whiteboard attach'),
   params: DialParams,
 };
@@ -232,7 +232,7 @@ export function linesOfBox(box: Box): readonly BoxLine[] {
 }
 
 export function isBorderlessBox(box: Box): boolean {
-  return (box.shape === 'box' || box.shape === 'device') && box.borderless;
+  return 'borderless' in box && box.borderless;
 }
 
 export function mediaOfBox(box: Box): BoxMedia | null {
@@ -549,7 +549,7 @@ function filledBoxBase(box: SparseBox) {
 
 function filledBox(box: SparseBox): Box {
   switch (box.shape) {
-    case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon' };
+    case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon', borderless: box.borderless ?? true };
     case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', borderless: box.borderless ?? true, media: filledMedia(box.media) };
     case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
     case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };

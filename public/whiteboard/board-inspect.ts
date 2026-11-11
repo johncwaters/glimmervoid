@@ -350,7 +350,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     }))] : []),
     ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
-    ...(box.shape === 'box' || box.shape === 'device' ? [checkboxField('borderless', 'Borderless', box.borderless, (borderless) => set({ borderless }))] : []),
+    ...('borderless' in box ? [checkboxField('borderless', 'Borderless', box.borderless, (borderless) => set({ borderless }))] : []),
     ...(box.shape === 'sticky' ? [fieldRow('Tone', selectField('tone', STICKY_TONE_CHOICES, box.tone, (tone) => set({ tone })))] : []),
     ...dialSections(box, latestBox, set),
     ...linkedFileSections(box, linkState, () => linkableMediaOf(latestBox()), set),
