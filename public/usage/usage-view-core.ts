@@ -1,4 +1,5 @@
-import { localDayKey, localHourMinuteText, twoUnitDurationText } from '#shared/display-text.ts';
+import { clock } from '#shared/clock.ts';
+import { twoUnitDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import { formatCount, formatTokens, formatUsd, NO_VALUE, planWindowOf, RANGE_OPTIONS, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
 import type { YourDay } from '#shared/contracts/your-day.ts';
@@ -120,23 +121,7 @@ function dayKeysOf(days: unknown) {
 export function reportDayKey(report: UsageReport | null | undefined) {
   const ts = Number(report?.ts);
   if (!Number.isFinite(ts) || ts <= 0) return '';
-  return dayKeyInZone(ts, typeof report?.tz === 'string' && report.tz ? report.tz : null);
-}
-
-function dayKeyInZone(ts: number, tz: string | null) {
-  const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
-  if (tz) options.timeZone = tz;
-  const formatted = safeZoneFormat(ts, options);
-  if (DAY_KEY_RE.test(formatted)) return formatted;
-  return safeZoneFormat(ts, { year: 'numeric', month: '2-digit', day: '2-digit' });
-}
-
-function safeZoneFormat(ts: number, options: Intl.DateTimeFormatOptions) {
-  try {
-    return new Intl.DateTimeFormat('en-CA', options).format(new Date(ts));
-  } catch {
-    return '';
-  }
+  return clock.dayKeyOf(ts, typeof report?.tz === 'string' && report.tz ? report.tz : undefined);
 }
 
 function formatMinutes(minutes: unknown) {
@@ -145,7 +130,7 @@ function formatMinutes(minutes: unknown) {
 }
 
 export function yourDayHint(yourDay: YourDay, now: number) {
-  const yesterdayKey = shiftedDayKey(localDayKey(now), -1);
+  const yesterdayKey = shiftedDayKey(clock.dayKeyOf(now), -1);
   const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
   const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
   const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';
@@ -158,7 +143,7 @@ export function blockLabel(startTs: unknown) {
   const date = new Date(ts);
   const month = MONTH_NAMES[date.getMonth()];
   if (!month) return NO_VALUE;
-  return `${month} ${date.getDate()} ${localHourMinuteText(date)}`;
+  return `${month} ${date.getDate()} ${clock.format(date, 'hour-minute')}`;
 }
 
 const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
@@ -343,7 +328,7 @@ function weekStartKey(day: unknown) {
   const dayOfWeek = date.getDay();
   const daysSinceMonday = (dayOfWeek + 6) % 7;
   date.setDate(date.getDate() - daysSinceMonday);
-  return localDayKey(date);
+  return clock.dayKeyOf(date);
 }
 
 export function monthKey(day: unknown) {
@@ -509,11 +494,11 @@ export function heatmapCells(
   const fallbackToday = Number.isFinite(suppliedToday.getTime()) ? suppliedToday : new Date();
   const todayKey = typeof today === 'string' && DAY_KEY_RE.test(today)
     ? today
-    : localDayKey(fallbackToday);
+    : clock.dayKeyOf(fallbackToday);
   const anchor = parseDayKey(weekStartKey(todayKey));
   if (!anchor) return { cells: [], max: 0, weeks: 0 };
   const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - (weeks - 1) * 7, 12);
-  const startKey = localDayKey(start);
+  const startKey = clock.dayKeyOf(start);
   const cells: HeatmapCell[] = [];
 
   let max = 0;
@@ -527,7 +512,7 @@ export function heatmapCells(
   for (let week = 0; week < weeks; week += 1) {
     for (let weekday = 0; weekday < 7; weekday += 1) {
       const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + week * 7 + weekday, 12);
-      const key = localDayKey(date);
+      const key = clock.dayKeyOf(date);
       const row = byDay.get(key) || null;
       const beyondToday = key > todayKey;
       const beforeSeries = firstDay !== null && key < firstDay;
@@ -879,10 +864,10 @@ export function resetClockText(resetsAtMs: unknown, now: number) {
   const resetsAt = numberOr(resetsAtMs, null);
   if (resetsAt === null || resetsAt <= 0) return '';
   const date = new Date(resetsAt);
-  const clock = localHourMinuteText(date);
-  if (localDayKey(resetsAt) === localDayKey(now)) return clock;
-  if (resetsAt - now < 7 * DAY_MS && date.getDay() !== new Date(now).getDay()) return `${WEEKDAY_NAMES[date.getDay()]} ${clock}`;
-  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()} ${clock}`;
+  const hourMinuteText = clock.format(date, 'hour-minute');
+  if (clock.dayKeyOf(resetsAt) === clock.dayKeyOf(now)) return hourMinuteText;
+  if (resetsAt - now < 7 * DAY_MS && date.getDay() !== new Date(now).getDay()) return `${WEEKDAY_NAMES[date.getDay()]} ${hourMinuteText}`;
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()} ${hourMinuteText}`;
 }
 
 function roundedPercentText(pct: number) {
@@ -1013,7 +998,7 @@ export function periodDayKeys(todayKey: string, days: number) {
   return Array.from({ length: days }, (_, index) => {
     const date = new Date(today);
     date.setDate(today.getDate() - (days - 1 - index));
-    return localDayKey(date);
+    return clock.dayKeyOf(date);
   });
 }
 
@@ -1062,7 +1047,7 @@ function shiftedDayKey(dayKey: string, offsetDays: number) {
   const date = parseDayKey(dayKey);
   if (!date) return '';
   date.setDate(date.getDate() + offsetDays);
-  return localDayKey(date);
+  return clock.dayKeyOf(date);
 }
 
 function valueByDayOf(daily: unknown, field: 'tokens' | 'costUSD') {

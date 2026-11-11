@@ -89,16 +89,3 @@ export function byteSizeText(byteCount: number, largestUnit: ByteSizeLargestUnit
   if (byteCount < BYTES_PER_GB) return `${(byteCount / BYTES_PER_MB).toFixed(1)} MB`;
   return `${(byteCount / BYTES_PER_GB).toFixed(2)} GB`;
 }
-
-export function localDayKey(moment: Date | number): string {
-  const date = new Date(moment);
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-export function localHourMinuteText(date: Date): string {
-  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-}
-
-export function localClockText(date: Date): string {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}

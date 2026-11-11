@@ -7,7 +7,7 @@ import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding
 import { countShownConnectingTerminals, onTerminalLinkChange } from '../session-card/terminal-data-socket.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { prefetchViewsWhenIdle, reloadOnceIfBundleRetired } from '../view-registry.ts';
-import { applyDashboardSettings } from './dashboard-settings.ts';
+import { applyDashboardSettings, reportOperatorTimezone } from './dashboard-settings.ts';
 import { playLoadingUnlock } from './loading-unlock.ts';
 import { activateSettingsHash } from './hash-routes.ts';
 import { VIEW_TABS, refreshViewsIfVisible, resendUnsentShownView } from './view-tabs.ts';
@@ -142,6 +142,7 @@ function onControlConnected() {
     .then((msg) => {
       if (!msg.settings) return;
       applyDashboardSettings(msg.settings);
+      reportOperatorTimezone(msg.settings);
       if (getActiveView() === 'settings') activateSettingsHash(location.hash);
     })
     .catch(() => {});

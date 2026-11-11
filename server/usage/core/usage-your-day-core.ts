@@ -1,7 +1,6 @@
-import { localDayKey } from '../../../shared/display-text.ts';
+import { clock } from '../../../shared/clock.ts';
 import type { YourDay, YourDayInsight } from '../../../shared/contracts/your-day.ts';
 import { parseJsonRecord } from '../../core/json-core.ts';
-import { startOfLocalDay } from './usage-aggregate-core.ts';
 
 type ActivityKind = 'prompt' | 'turnEnd';
 
@@ -219,7 +218,7 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
   let best: { startHour: number; medianMs: number } | null = null;
   for (let startHour = 0; startHour < 24; startHour += 1) {
     const inWindow = samples.filter((sample) => {
-      const hour = new Date(sample.ts).getHours();
+      const hour = clock.hourOf(sample.ts);
       return (hour - startHour + 24) % 24 < SHARP_WINDOW_HOURS;
     });
     if (inWindow.length < MIN_SAMPLES_PER_WINDOW) continue;
@@ -233,7 +232,7 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
 }
 
 function recapDayLabel(recapDay: string, now: number): string {
-  if (recapDay === localDayKey(startOfLocalDay(now, 1))) return 'Yesterday';
+  if (recapDay === clock.dayKeyOf(clock.startOfDay(now, 1))) return 'Yesterday';
   const [year, month, day] = recapDay.split('-').map(Number);
   return `On ${new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
@@ -250,24 +249,24 @@ function jugglingInsight(yesterday: DayStats, dayLabel: string, usualJuggling: n
   if (yesterday.peakJuggling < MIN_JUGGLING_SESSIONS) return null;
   const deviation = yesterday.peakJuggling / Math.max(usualJuggling, 1);
   if (deviation < MIN_DEVIATION) return null;
-  const peakHour = new Date(yesterday.peakJugglingAt).getHours();
+  const peakHour = clock.hourOf(yesterday.peakJugglingAt);
   return { kind: 'juggling', text: `${dayLabel} at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions within ${JUGGLING_WINDOW_MS / MINUTE_MS}m.`, deviation };
 }
 
 function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null }: { now: number; laneByKey?: ReadonlyMap<string, string> | null }): YourDay | null {
-  const todayStart = startOfLocalDay(now);
+  const todayStart = clock.startOfDay(now);
   const windowStart = todayStart - BASELINE_DAYS * DAY_MS;
   const counted = events
     .filter((event) => event.ts >= windowStart && event.ts <= now && !isLaneSession(event, laneByKey))
     .sort((left, right) => left.ts - right.ts);
   const eventsByDay = new Map<string, ActivityEvent[]>();
   for (const event of counted) {
-    const day = localDayKey(event.ts);
+    const day = clock.dayKeyOf(event.ts);
     const dayEvents = eventsByDay.get(day) ?? [];
     dayEvents.push(event);
     eventsByDay.set(day, dayEvents);
   }
-  const today = localDayKey(now);
+  const today = clock.dayKeyOf(now);
   const pastDays = [...eventsByDay.entries()]
     .filter(([day, dayEvents]) => day !== today && dayEvents.some((event) => event.kind === 'prompt'))
     .map(([day, dayEvents]) => dayStatsOf(day, dayEvents));
@@ -301,7 +300,7 @@ function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null 
 }
 
 function pruneActivity(eventsByKey: Map<string, ActivityEvent>, now: number): boolean {
-  const oldestKept = startOfLocalDay(now) - BASELINE_DAYS * DAY_MS;
+  const oldestKept = clock.startOfDay(now) - BASELINE_DAYS * DAY_MS;
   let didPrune = false;
   for (const [key, event] of eventsByKey) {
     if (event.ts >= oldestKept) continue;

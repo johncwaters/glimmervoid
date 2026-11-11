@@ -1,7 +1,7 @@
 import type { UsageEntryLike, UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, dedupKeys, emptyTotals, totalTokensOf } from './usage-entry-core.ts';
 import { numberOr } from '../../../shared/coerce.ts';
-import { localDayKey } from '../../../shared/display-text.ts';
+import { clock } from '../../../shared/clock.ts';
 
 interface VendorTotals {
   tokens: number;
@@ -59,7 +59,7 @@ function buildUsageReport(
     tz?: string | null;
   } = {},
 ) {
-  const windowStartMs = startOfLocalDay(now, retainDays - 1);
+  const windowStartMs = clock.startOfDay(now, retainDays - 1);
   const keptEntries = (entries || []).filter((entry) => entry.timestampMs >= windowStartMs);
   const totals = emptyTotals();
   const dailyByDay = new Map<string, DailyBucket>();
@@ -71,7 +71,7 @@ function buildUsageReport(
   for (const entry of keptEntries) {
     addEntryToTotals(totals, entry);
     addEntryToVendorTotals(byVendor, entry);
-    const day = localDayKey(entry.timestampMs);
+    const day = clock.dayKeyOf(entry.timestampMs);
     addEntryToDailyBucket(dailyByDay, day, entry);
     addEntryToModelBucket(modelByName, entry.model || '<unknown>', entry);
     addEntryToSessionBucket(sessionById, entry, sessionsById);
@@ -108,11 +108,6 @@ function serializeVendorTotals(map: Map<string, VendorTotals>): Record<string, V
     if (totals) wire[vendor] = { ...totals };
   }
   return wire;
-}
-
-function startOfLocalDay(ts: number, daysBack = 0): number {
-  const date = new Date(ts);
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - daysBack).getTime();
 }
 
 function pruneEntries(
@@ -188,4 +183,4 @@ function serializeDailyBucket(bucket: DailyBucket): SerializedDailyBucket {
   };
 }
 
-export { buildUsageReport, pruneEntries, startOfLocalDay, vendorOf };
+export { buildUsageReport, pruneEntries, vendorOf };
