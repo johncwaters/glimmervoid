@@ -64,6 +64,7 @@ import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
 import type { Teardown, TeardownAction } from "./core/session-teardown.ts";
 import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
+import type { ExpiredOpenWork } from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
 import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
@@ -1203,6 +1204,10 @@ class Session extends EventEmitter {
 
   get hasBackgroundWork(): boolean {
     return this.backgroundTracking.hasBackgroundWork();
+  }
+
+  get expiredOpenWork(): ExpiredOpenWork {
+    return this.backgroundTracking.expiredOpenWork();
   }
 
   get agentToken(): string | null {

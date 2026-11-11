@@ -344,6 +344,8 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `watcher_nudge_received` | `lane`, `kind` | The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository. |
 | `vault_companion_connection` | `state`, `refusal_kind`, `connected_seconds` | A vault companion connected, disconnected (with how long it stayed, in whole seconds) or was refused (because it asked for the wrong path or brought the wrong token; once per reason until a companion connects). Never the token, address or account. |
 | `vault_secret_answered` | `delivered_count`, `pending_count`, `denied_count`, `companion_offline_count`, `failed_count` | An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, companion offline or failed. Never the names, values or project. |
+| `background_work_outlived_limit` | `adapter`, `kind`, `minutes_past_limit` | A subagent or background shell finished after the 30 or 60 minute limit past which Glimmervoid stops counting it as working, with which kind of agent, which kind of work and how many whole minutes past the limit. Never the task or its output. |
+| `idle_stop_requested` | `outcome`, `sessions_with_expired_work`, `expired_subagent_count`, `expired_shell_count` | The server asked to put its host to sleep after 20 awake minutes with no agent working, with the answer (stopping, no host to stop, or failed) and how many sessions, subagents and background shells were still unfinished past their limit at that moment. |
 
 ## Browser preferences
 

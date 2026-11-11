@@ -3,6 +3,10 @@ const DEFAULT_AGENT_TTL_MS = 30 * 60 * 1000;
 
 type TimestampMap = Map<string, number>;
 type AgentStopOutcome = 'removed' | 'orphan' | 'duplicate' | 'ignored';
+type ExpiredWorkKind = 'subagent' | 'shell';
+type ExpiredOpenWork = Record<ExpiredWorkKind, number>;
+type LateFinish = { kind: ExpiredWorkKind; minutesPastLimit: number };
+type ExpiredWork = { kind: ExpiredWorkKind; startedAtMs: number };
 
 function addAgent(map: TimestampMap, agentId: string | null | undefined, ts: number): boolean {
   if (!agentId) return false;
@@ -247,6 +251,8 @@ interface TaskRegistry {
   regateByAgentId(agentId: unknown): void;
   noteBackgroundTaskLaunched(taskId: string): void;
   noteTaskNotificationsDelivered(taskIds: readonly string[]): void;
+  expiredOpenWork(): ExpiredOpenWork;
+  drainLateFinishes(): LateFinish[];
   activeCount(): number;
   isOnlyBackgroundTasks(): boolean;
   hasLiveMonitor(): boolean;
@@ -274,17 +280,53 @@ function createTaskRegistry({
   let declaredTeammateIds = new Set<string>();
   const launchedBackgroundTasks: TimestampMap = new Map();
   const undeliveredSettledTasks: TimestampMap = new Map();
+  const expiredWorkById = new Map<string, ExpiredWork>();
+  let pendingLateFinishes: LateFinish[] = [];
   let breakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
+  const limitMsByKind: Record<ExpiredWorkKind, number> = { subagent: agentTtlMs, shell: shellTaskTtlMs };
+
+  function moveExpiredWork(map: TimestampMap, kind: ExpiredWorkKind, at: number): void {
+    for (const [id, startedAtMs] of map) {
+      if (at - startedAtMs < limitMsByKind[kind]) continue;
+      map.delete(id);
+      expiredWorkById.set(id, { kind, startedAtMs });
+    }
+  }
+
+  function noteFinish(kind: ExpiredWorkKind, startedAtMs: number | undefined, at: number): void {
+    if (startedAtMs === undefined) return;
+    const msPastLimit = at - startedAtMs - limitMsByKind[kind];
+    if (msPastLimit < 0) return;
+    pendingLateFinishes.push({ kind, minutesPastLimit: Math.floor(msPastLimit / 60_000) });
+  }
+
+  function finishExpiredWork(id: string, kind: ExpiredWorkKind, at: number): void {
+    const expired = expiredWorkById.get(id);
+    if (expired?.kind !== kind) return;
+    expiredWorkById.delete(id);
+    noteFinish(kind, expired.startedAtMs, at);
+  }
+
+  function finishExpiredWorkMissingFrom(liveIds: ReadonlySet<string>, kind: ExpiredWorkKind, at: number): void {
+    for (const id of [...expiredWorkById.keys()]) {
+      if (!liveIds.has(id)) finishExpiredWork(id, kind, at);
+    }
+  }
+
+  function finishWork(map: TimestampMap, id: string, kind: ExpiredWorkKind, at: number): void {
+    noteFinish(kind, map.get(id), at);
+    finishExpiredWork(id, kind, at);
+  }
 
   function entryAgeMs(entry: DeclaredEntry, at: number): number {
     return at - declaredEntryAgeStartTs(entry, declaredTs, declaredFirstSeenTs);
   }
 
   function reap(at: number): void {
-    pruneAgents(countedAgents, at, agentTtlMs);
+    moveExpiredWork(countedAgents, 'subagent', at);
     pruneAgents(orphanAgentStops, at, agentTtlMs);
     pruneAgents(idleTeammateNames, at, agentTtlMs);
-    pruneAgents(launchedBackgroundTasks, at, shellTaskTtlMs);
+    moveExpiredWork(launchedBackgroundTasks, 'shell', at);
     pruneAgents(undeliveredSettledTasks, at, notificationDeliveryWindowMs);
     if (declaredEntries === null) return;
     const hasUnexpiredEntry = declaredEntries.some((entry) => entryAgeMs(entry, at)
@@ -299,12 +341,14 @@ function createTaskRegistry({
       if (agentId) {
         idleTaskIds.delete(agentId);
         observedAgentIdsThisTurn.add(agentId);
+        expiredWorkById.delete(agentId);
       }
       return addAgent(countedAgents, agentId, ts);
     },
 
     noteAgentStop(agentId) {
       if (!agentId) return 'ignored';
+      finishWork(countedAgents, agentId, 'subagent', now());
       const changed = removeAgent(countedAgents, agentId);
       if (changed) {
         observedAgentIdsThisTurn.add(agentId);
@@ -336,8 +380,10 @@ function createTaskRegistry({
       for (const id of declaredIds) {
         if (!declaredFirstSeenTs.has(id)) declaredFirstSeenTs.set(id, declaredTs);
       }
+      finishExpiredWorkMissingFrom(declaredIds, 'shell', declaredTs);
       for (const id of launchedBackgroundTasks.keys()) {
         if (declaredIds.has(id)) continue;
+        noteFinish('shell', launchedBackgroundTasks.get(id), declaredTs);
         launchedBackgroundTasks.delete(id);
         undeliveredSettledTasks.set(id, declaredTs);
       }
@@ -349,7 +395,10 @@ function createTaskRegistry({
         entries, idleTaskIds, (entry) => entryAgeMs(entry, declaredTs),
         shellTaskTtlMs, 0, teammateTaskTtlMs, agentTtlMs,
       );
-      if (rawDeclaredActive === 0 && countedAgents.size > 0) countedAgents.clear();
+      if (rawDeclaredActive > 0) return;
+      for (const startedAtMs of countedAgents.values()) noteFinish('subagent', startedAtMs, declaredTs);
+      countedAgents.clear();
+      finishExpiredWorkMissingFrom(new Set(), 'subagent', declaredTs);
     },
 
     clearDeclared() {
@@ -391,14 +440,30 @@ function createTaskRegistry({
 
     noteBackgroundTaskLaunched(taskId) {
       undeliveredSettledTasks.delete(taskId);
+      expiredWorkById.delete(taskId);
       launchedBackgroundTasks.set(taskId, now());
     },
 
     noteTaskNotificationsDelivered(taskIds) {
+      const at = now();
       for (const taskId of taskIds) {
+        finishWork(launchedBackgroundTasks, taskId, 'shell', at);
         launchedBackgroundTasks.delete(taskId);
         undeliveredSettledTasks.delete(taskId);
       }
+    },
+
+    expiredOpenWork() {
+      reap(now());
+      const expiredOpenWork: ExpiredOpenWork = { subagent: 0, shell: 0 };
+      for (const work of expiredWorkById.values()) expiredOpenWork[work.kind] += 1;
+      return expiredOpenWork;
+    },
+
+    drainLateFinishes() {
+      const lateFinishes = pendingLateFinishes;
+      pendingLateFinishes = [];
+      return lateFinishes;
     },
 
     activeCount() {
@@ -467,6 +532,8 @@ function createTaskRegistry({
       declaredTeammateIds.clear();
       launchedBackgroundTasks.clear();
       undeliveredSettledTasks.clear();
+      expiredWorkById.clear();
+      pendingLateFinishes = [];
     },
 
     inspect() {
@@ -488,4 +555,4 @@ function createTaskRegistry({
 }
 
 export { extractBackgroundTasks, msUntilNextDrain, createTaskRegistry, DEFAULT_AGENT_TTL_MS, DEFAULT_SHELL_TASK_TTL_MS, DEFAULT_TEAMMATE_TASK_TTL_MS };
-export type { TaskRegistryBreakdown, TaskRegistryOptions };
+export type { ExpiredOpenWork, LateFinish, TaskRegistryBreakdown, TaskRegistryOptions };

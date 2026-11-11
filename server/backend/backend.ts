@@ -669,7 +669,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       prepareWatcher: prepareLocalDoorman,
     }),
   });
-  const idleStop = startIdleStop({ liveSessions: allLiveSessions, requestHostStop: watcherLink.requestHostStop });
+  const idleStop = startIdleStop({
+    liveSessions: allLiveSessions,
+    requestHostStop: watcherLink.requestHostStop,
+    reportStopRequested: (properties) => telemetry.capture('idle_stop_requested', properties),
+  });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,

@@ -1,12 +1,29 @@
 import { isSessionBusy, nextQuietAwakeMs, shouldRequestStop } from './core/idle-stop-core.ts';
 import type { HostStopRequestOutcome } from '../cloud/link/watcher-link.ts';
 import type { SessionState } from '../shared/states.ts';
+import type { ExpiredOpenWork } from '../session/core/agent-tracker.ts';
+import type { TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
+
+type LiveSessionView = { state: SessionState; hasBackgroundWork: boolean; expiredOpenWork: ExpiredOpenWork };
+type StopRequestedReport = TelemetryEventProperties<'idle_stop_requested'>;
+
+function expiredWorkReport(sessions: readonly LiveSessionView[]): Omit<StopRequestedReport, 'outcome'> {
+  const report = { sessions_with_expired_work: 0, expired_subagent_count: 0, expired_shell_count: 0 };
+  for (const { expiredOpenWork } of sessions) {
+    if (expiredOpenWork.subagent + expiredOpenWork.shell === 0) continue;
+    report.sessions_with_expired_work += 1;
+    report.expired_subagent_count += expiredOpenWork.subagent;
+    report.expired_shell_count += expiredOpenWork.shell;
+  }
+  return report;
+}
 
 const DEFAULT_TICK_MS = 15_000;
 
-function startIdleStop({ liveSessions, requestHostStop, now = Date.now, tickMs = DEFAULT_TICK_MS, log = console }: {
-  liveSessions: () => Iterable<{ state: SessionState; hasBackgroundWork: boolean }>;
+function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, now = Date.now, tickMs = DEFAULT_TICK_MS, log = console }: {
+  liveSessions: () => Iterable<LiveSessionView>;
   requestHostStop: () => Promise<HostStopRequestOutcome>;
+  reportStopRequested: (report: StopRequestedReport) => void;
   now?: () => number;
   tickMs?: number;
   log?: Pick<Console, 'log'>;
@@ -16,11 +33,13 @@ function startIdleStop({ liveSessions, requestHostStop, now = Date.now, tickMs =
   let isRequestInFlight = false;
   let hasLoggedNoAdapter = false;
 
-  async function askHostToStop(): Promise<void> {
+  async function askHostToStop(sessions: readonly LiveSessionView[]): Promise<void> {
     isRequestInFlight = true;
+    const expiredWork = expiredWorkReport(sessions);
     const outcome = await requestHostStop().finally(() => {
       isRequestInFlight = false;
     });
+    reportStopRequested({ outcome, ...expiredWork });
     if (outcome === 'stopping') log.log('[idle-stop] no agent work for 20 awake minutes; asked the doorman to stop this host');
     if (outcome !== 'no-adapter' || hasLoggedNoAdapter) return;
     hasLoggedNoAdapter = true;
@@ -29,12 +48,13 @@ function startIdleStop({ liveSessions, requestHostStop, now = Date.now, tickMs =
 
   function tick(): void {
     const nowMs = now();
-    const isBusy = [...liveSessions()].some(isSessionBusy);
+    const sessions = [...liveSessions()];
+    const isBusy = sessions.some(isSessionBusy);
     quietAwakeMs = nextQuietAwakeMs({ quietAwakeMs, isBusy, previousTickAt, nowMs, tickMs });
     previousTickAt = nowMs;
     if (isRequestInFlight || !shouldRequestStop(quietAwakeMs)) return;
     quietAwakeMs = 0;
-    void askHostToStop();
+    void askHostToStop(sessions);
   }
 
   const interval = setInterval(tick, tickMs);

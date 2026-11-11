@@ -5,7 +5,7 @@ import { mapSignalToEvent } from "./core/status-mapper.ts";
 import { extractNotifiedTaskIds } from "./core/task-title-core.ts";
 import * as wakeupTracker from "./core/wakeup-tracker.ts";
 import type { WakeupMap } from "./core/wakeup-tracker.ts";
-import type { TaskRegistryBreakdown } from "./core/agent-tracker.ts";
+import type { ExpiredOpenWork, TaskRegistryBreakdown } from "./core/agent-tracker.ts";
 import type { SessionState } from "../shared/states.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -59,6 +59,7 @@ interface SessionBackgroundTracking {
   activeAgentCount(): number;
   awaitingBackgroundTasks(): boolean;
   hasBackgroundWork(): boolean;
+  expiredOpenWork(): ExpiredOpenWork;
   emitAgentsChange(): void;
   clearAgents(): void;
   stashGateHeldReady(signal: ResolvedStatusSignal): void;
@@ -229,7 +230,17 @@ function createSessionBackgroundTracking({
 
   function withAgentCount(mutate: () => void): void {
     mutate();
+    emitLateFinishes();
     emitAgentsChange();
+  }
+
+  function emitLateFinishes(): void {
+    for (const lateFinish of tasks.drainLateFinishes()) port.emit("background-work-outlived-limit", lateFinish);
+  }
+
+  function expiredOpenWork(): ExpiredOpenWork {
+    if (!detectBackgroundAgents) return { subagent: 0, shell: 0 };
+    return tasks.expiredOpenWork();
   }
 
   function applyBackgroundTasks(payload: unknown): void {
@@ -301,6 +312,7 @@ function createSessionBackgroundTracking({
 
   function noteAgentStopped(agentId: string): void {
     const outcome = tasks.noteAgentStop(agentId);
+    emitLateFinishes();
     if (outcome === "duplicate") return;
     if (gateHeldReady) {
       gateQuietSince = null;
@@ -428,6 +440,7 @@ function createSessionBackgroundTracking({
     activeAgentCount,
     awaitingBackgroundTasks,
     hasBackgroundWork,
+    expiredOpenWork,
     emitAgentsChange,
     clearAgents,
     stashGateHeldReady,

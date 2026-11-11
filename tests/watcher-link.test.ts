@@ -295,7 +295,7 @@ test('the server refuses a nudge that is forged, stale, replayed or signed with 
   assert.equal(health.status, 200);
 });
 
-test('a server asks its doorman to stop its host once, after 20 awake minutes with no agent working, running background work or waiting on a wakeup, and never counts suspended time', async (t) => {
+test('a server asks its doorman to stop its host once, after 20 awake minutes with no agent working, running background work or waiting on a wakeup, never counts suspended time, and reports the request with the background work left unfinished past its limit', async (t) => {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-idle-stop-'));
   const linkSecret = crypto.randomBytes(32);
   const stopRequests: string[] = [];
@@ -332,8 +332,16 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
 
   t.mock.timers.enable({ apis: ['setInterval'] });
   const clock = { nowMs: 0 };
-  let liveSessions: { state: SessionState; hasBackgroundWork: boolean }[] = [];
-  const idleStop = startIdleStop({ liveSessions: () => liveSessions, requestHostStop: link.requestHostStop, now: () => clock.nowMs, log: QUIET_LOG });
+  const noExpiredWork = { subagent: 0, shell: 0 };
+  let liveSessions: { state: SessionState; hasBackgroundWork: boolean; expiredOpenWork: typeof noExpiredWork }[] = [];
+  const stopReports: unknown[] = [];
+  const idleStop = startIdleStop({
+    liveSessions: () => liveSessions,
+    requestHostStop: link.requestHostStop,
+    reportStopRequested: (report) => stopReports.push(report),
+    now: () => clock.nowMs,
+    log: QUIET_LOG,
+  });
   try {
     const passAwakeMinutes = (minutes: number) => {
       for (let quarter = 0; quarter < minutes * 4; quarter += 1) {
@@ -342,13 +350,16 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
       }
     };
 
-    liveSessions = [{ state: STATES.RUNNING, hasBackgroundWork: false }, { state: STATES.IDLE, hasBackgroundWork: false }];
+    liveSessions = [{ state: STATES.RUNNING, hasBackgroundWork: false, expiredOpenWork: noExpiredWork }, { state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: noExpiredWork }];
     passAwakeMinutes(30);
-    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: true }];
+    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: true, expiredOpenWork: noExpiredWork }];
     passAwakeMinutes(30);
-    liveSessions = [{ state: STATES.STARTING, hasBackgroundWork: false }];
+    liveSessions = [{ state: STATES.STARTING, hasBackgroundWork: false, expiredOpenWork: noExpiredWork }];
     passAwakeMinutes(1);
-    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: false }];
+    liveSessions = [
+      { state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: { subagent: 1, shell: 2 } },
+      { state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: noExpiredWork },
+    ];
     passAwakeMinutes(19.75);
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.deepEqual(stopRequests, []);
@@ -363,6 +374,7 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
     t.mock.timers.reset();
   }
   assert.deepEqual(stopRequests, ['stop']);
+  assert.deepEqual(stopReports, [{ outcome: 'stopping', sessions_with_expired_work: 1, expired_subagent_count: 1, expired_shell_count: 2 }]);
 });
 
 test('a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers', async (t) => {

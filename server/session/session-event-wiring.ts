@@ -1,5 +1,6 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
+import type { LateFinish } from '../../session/core/agent-tracker.ts';
 import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
 import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { SessionStatusFields } from '../../shared/contracts/control-messages.ts';
@@ -190,6 +191,13 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (isResumeTarget) persistProjectField('resumeSessionId', id);
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
+    });
+    session.on('background-work-outlived-limit', ({ kind, minutesPastLimit }: LateFinish) => {
+      dependencies.telemetry?.capture('background_work_outlived_limit', {
+        adapter: adapterBucket(session.agentId),
+        kind,
+        minutes_past_limit: minutesPastLimit,
+      });
     });
     session.on('resume-cleared', () => persistProjectField('resumeSessionId', null));
     session.on('task-title-state-change', (titleState: PersistedTaskTitle | undefined) => {

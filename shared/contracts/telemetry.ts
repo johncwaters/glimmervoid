@@ -63,6 +63,19 @@ const VaultCompanionConnectionProperties = z.object({
   connected_seconds: nonNegativeInteger.optional(),
 }).strict();
 
+const BackgroundWorkOutlivedLimitProperties = z.object({
+  adapter: z.enum(TELEMETRY_ADAPTERS),
+  kind: z.enum(['subagent', 'shell']),
+  minutes_past_limit: nonNegativeInteger,
+}).strict();
+
+const IdleStopRequestedProperties = z.object({
+  outcome: z.enum(['stopping', 'no-adapter', 'failed']),
+  sessions_with_expired_work: nonNegativeInteger,
+  expired_subagent_count: nonNegativeInteger,
+  expired_shell_count: nonNegativeInteger,
+}).strict();
+
 const VaultSecretAnsweredProperties = z.object({
   delivered_count: nonNegativeInteger,
   pending_count: nonNegativeInteger,
@@ -227,6 +240,8 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   watcher_nudge_received: WatcherNudgeReceivedProperties,
   vault_companion_connection: VaultCompanionConnectionProperties,
   vault_secret_answered: VaultSecretAnsweredProperties,
+  background_work_outlived_limit: BackgroundWorkOutlivedLimitProperties,
+  idle_stop_requested: IdleStopRequestedProperties,
 });
 
 export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
@@ -256,6 +271,8 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'watcher_nudge_received', description: 'The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository.' },
   { name: 'vault_companion_connection', description: 'A vault companion connected, disconnected (with how long it stayed, in whole seconds) or was refused (because it asked for the wrong path or brought the wrong token; once per reason until a companion connects). Never the token, address or account.' },
   { name: 'vault_secret_answered', description: 'An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, companion offline or failed. Never the names, values or project.' },
+  { name: 'background_work_outlived_limit', description: 'A subagent or background shell finished after the 30 or 60 minute limit past which Glimmervoid stops counting it as working, with which kind of agent, which kind of work and how many whole minutes past the limit. Never the task or its output.' },
+  { name: 'idle_stop_requested', description: 'The server asked to put its host to sleep after 20 awake minutes with no agent working, with the answer (stopping, no host to stop, or failed) and how many sessions, subagents and background shells were still unfinished past their limit at that moment.' },
 ]);
 
 export const TELEMETRY_BASE_PROPERTY_KEYS = Object.freeze([
