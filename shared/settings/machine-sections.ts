@@ -46,11 +46,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'tab-order', keywords: ['tabs', 'order', 'rearrange', 'reorder', 'header', 'more', 'menu'], defaultValue: [], ...MACHINE_NOW,
     },
     {
-      id: 'remote-sessions', path: 'remoteSessions', title: 'Remote Coder sessions',
-      description: 'Offer Coder workspaces when adding a session.',
-      control: 'toggle', keywords: ['experimental', 'coder', 'remote', 'workspace', 'cloud'], defaultValue: false, ...MACHINE_NOW,
-    },
-    {
       id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
       description: 'Hide sensitive details while screen sharing.',
       control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
@@ -140,11 +135,12 @@ export const MACHINE_VAULT: SettingsSection = {
   ],
 };
 
-export const MACHINE_HOSTS: SettingsSection = {
-  id: 'machine-hosts',
+export const MACHINE_REMOTE: SettingsSection = {
+  id: 'machine-remote',
   level: 'machine',
-  title: 'Hosts',
-  description: 'Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar.',
+  title: 'Remote',
+  description: 'Sessions on other machines: hosts running Glimmervoid that this dashboard links over ssh, and Coder workspaces.',
+  legacyIds: ['machine-hosts'],
   settings: [
     {
       id: 'hosts', path: 'status:hosts', title: 'Linked hosts',
@@ -156,6 +152,12 @@ export const MACHINE_HOSTS: SettingsSection = {
       description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
       control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
       legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
+    },
+    {
+      id: 'remote-sessions', path: 'remoteSessions', title: 'Remote Coder sessions',
+      description: 'Offer Coder workspaces when adding a session.',
+      control: 'toggle', keywords: ['experimental', 'coder', 'remote', 'workspace', 'cloud'], defaultValue: false, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-sessions' }],
     },
   ],
 };

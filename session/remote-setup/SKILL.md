@@ -107,6 +107,6 @@ This machine's Glimmervoid reaches the host with its own `ssh -N -L` tunnel, run
 2. Compare versions: `<this glimmervoid> --version` here, `glimmervoid --version` on the host. They must match or the link shows "version differs"; install the matching version on the host with `npm install -g glimmervoid@<version>`, or tell the operator when this machine runs a build npm does not have.
 3. Pick a host id the operator agrees to: 1 to 32 lowercase letters, digits and dashes, starting with a letter.
 4. Run `<this glimmervoid> host add <id> --ssh <host> --port <the host's dashboard port>` on this machine. It writes this machine's config, and the running Glimmervoid links the host without a restart.
-5. The operator sees the host as connected in Settings, Hosts, and its sessions in the rail. `<this glimmervoid> host remove <id>` undoes it and leaves the host's sessions running.
+5. The operator sees the host as connected in Settings, Remote, and its sessions in the rail. `<this glimmervoid> host remove <id>` undoes it and leaves the host's sessions running.
 
 Then summarize for the operator: the host, the dashboard URL, which steps they still own (logins, keeping `ssh -A` open for signing), and how to undo each change you made.
