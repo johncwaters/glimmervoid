@@ -584,7 +584,7 @@ async function doormanTenant(t: test.TestContext, slug: string, serverUrl: strin
   const linkSecret = crypto.randomBytes(32);
   const linkSecretPath = path.join(tenantHome, 'watcher-link.key');
   await fsp.writeFile(linkSecretPath, `${linkSecret.toString('hex')}\n`, { mode: 0o600 });
-  return { linkSecret, tenant: { slug, serverUrl, linkSecretPath, watcherHome: path.join(tenantHome, 'watcher') } };
+  return { linkSecret, tenant: { slug, serverUrl, linkSecretPath, watcherHome: path.join(tenantHome, 'watcher'), awakeHoursPerMonth: null } };
 }
 
 test('a self-host doorman forwards pages and WebSockets with its own forwarding headers, serves its tenant watcher under the tenant key only, refuses outside nudges, answers a signed host stop that it has no adapter, and answers 502 at once when the server is down', async (t) => {
@@ -696,7 +696,7 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
       stopCalls.push(tenantSlug);
     },
   };
-  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [tenant] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20 }, log: QUIET_LOG });
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [tenant] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000 }, log: QUIET_LOG });
   const doormanPort = await doorman.listen(0);
   t.after(async () => {
     await doorman.close();
@@ -723,6 +723,51 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
   assert.deepEqual([accepted.status, JSON.parse(accepted.body)], [202, { outcome: 'stopping' }]);
   assert.equal((await requestThroughDoorman(doormanPort, { host: tenantHost, method: 'POST', path: HOST_STOP_PATH, headers: replayedHeaders })).status, 401);
   assert.deepEqual(stopCalls, ['hostedtenant0001']);
+});
+
+test('a hosted doorman meters awake time in the tenant ledger, stops a host that reaches its monthly awake hours even when the first stop call hangs, and refuses to wake it again, even after a doorman restart', async (t) => {
+  const tenantServer = http.createServer((_request, response) => response.end('awake'));
+  const tenantPort = await listenOnLoopback(tenantServer);
+  await new Promise((resolve) => tenantServer.close(resolve));
+  const { tenant } = await doormanTenant(t, 'cappedtenant0001', `http://127.0.0.1:${tenantPort}`);
+  const cappedTenant = { ...tenant, awakeHoursPerMonth: 0.0001 };
+  const wakeCalls: string[] = [];
+  const stopCalls: string[] = [];
+  const hostAdapter = {
+    wake: async (tenantSlug: string) => {
+      wakeCalls.push(tenantSlug);
+      await listenOnLoopback(tenantServer, tenantPort);
+    },
+    stop: async (tenantSlug: string) => {
+      stopCalls.push(tenantSlug);
+      if (stopCalls.length === 1) return new Promise<void>(() => {});
+      tenantServer.closeAllConnections();
+      await new Promise((resolve) => tenantServer.close(resolve));
+    },
+  };
+  const tunables = { holdTimeoutMs: 5000, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 20 };
+  const table = { tenantDomain: 'tenants.example', tenants: [cappedTenant] };
+  const tenantHost = 'cappedtenant0001.tenants.example';
+  const firstDoorman = createDoorman({ table, hostAdapter, tunables, log: QUIET_LOG });
+  const firstPort = await firstDoorman.listen(0);
+
+  assert.deepEqual(await requestThroughDoorman(firstPort, { host: tenantHost, path: '/' }), { status: 200, body: 'awake' });
+  await eventually(() => stopCalls.length === 2 ? true : undefined);
+  await eventually(async () => (await fsp.readFile(path.join(tenant.watcherHome, 'awake-ledger.jsonl'), 'utf8').catch(() => '')).includes('slept') ? true : undefined);
+  const refused = await requestThroughDoorman(firstPort, { host: tenantHost, path: '/' });
+  assert.equal(refused.status, 503);
+  assert.match(refused.body, /used its 0.0001 awake hours for this month/);
+  assert.deepEqual(wakeCalls, ['cappedtenant0001']);
+  await firstDoorman.close();
+
+  const ledgerEvents = (await fsp.readFile(path.join(tenant.watcherHome, 'awake-ledger.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line).event);
+  assert.deepEqual(ledgerEvents, ['woke', 'slept']);
+
+  const restartedDoorman = createDoorman({ table, hostAdapter, tunables, log: QUIET_LOG });
+  const restartedPort = await restartedDoorman.listen(0);
+  t.after(() => restartedDoorman.close());
+  assert.equal((await requestThroughDoorman(restartedPort, { host: tenantHost, path: '/' })).status, 503);
+  assert.deepEqual(wakeCalls, ['cappedtenant0001']);
 });
 
 test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its whole home is deleted', async (t) => {

@@ -2,12 +2,14 @@ import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
-import type { DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { AwakeEvent, AwakeUsage, DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 
 type DoormanRoute =
   | { kind: 'watcher'; tenant: DoormanTenant }
   | { kind: 'forward'; tenant: DoormanTenant }
   | { kind: 'refuse'; status: 404 | 421 };
+
+type MeterTotal = { periodStartMs: number; closedAwakeMs: number; openSinceMs: number | null };
 
 type ForwardState = 'answering' | 'waking' | 'unreachable';
 type ForwardEvent = 'connectFailed' | 'connected' | 'holdTimedOut' | 'cooldownPassedAndRequest';
@@ -17,6 +19,8 @@ const FORWARD_TRANSITIONS: Readonly<Record<ForwardState, Partial<Record<ForwardE
   waking: { connected: 'answering', holdTimedOut: 'unreachable' },
   unreachable: { cooldownPassedAndRequest: 'waking', connected: 'answering' },
 });
+
+const MS_PER_HOUR = 3_600_000;
 
 const TAILSCALE_HEADER_PREFIX = 'tailscale-';
 const FORWARDED_HEADER_NAMES = Object.freeze(['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-port', 'x-forwarded-proto']);
@@ -107,5 +111,52 @@ function mintRetryDelayMs(attempt: number, retryAfterMs: number | null): number 
   return Math.max(retryAfterMs ?? 0, nextBackoffMs({ attempt, baseMs: MINT_RETRY_BASE_MS, maxMs: MINT_RETRY_MAX_MS, jitter: 'none' }));
 }
 
-export { githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
-export type { DoormanRoute, ForwardState };
+function monthStartMs(atMs: number): number {
+  const at = new Date(atMs);
+  return Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
+}
+
+function nextMonthStartMs(atMs: number): number {
+  const at = new Date(atMs);
+  return Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1);
+}
+
+function emptyMeterTotal(nowMs: number): MeterTotal {
+  return { periodStartMs: monthStartMs(nowMs), closedAwakeMs: 0, openSinceMs: null };
+}
+
+function rolledTo(total: MeterTotal, atMs: number): MeterTotal {
+  if (atMs < nextMonthStartMs(total.periodStartMs)) return total;
+  const periodStartMs = monthStartMs(atMs);
+  return { periodStartMs, closedAwakeMs: 0, openSinceMs: total.openSinceMs === null ? null : periodStartMs };
+}
+
+function foldAwakeEvent(total: MeterTotal, awakeEvent: AwakeEvent): MeterTotal {
+  const atMs = Date.parse(awakeEvent.at);
+  const rolled = rolledTo(total, atMs);
+  if (awakeEvent.event !== 'slept') return { ...rolled, openSinceMs: rolled.openSinceMs ?? atMs };
+  if (rolled.openSinceMs === null) return rolled;
+  return { ...rolled, closedAwakeMs: rolled.closedAwakeMs + Math.max(0, atMs - rolled.openSinceMs), openSinceMs: null };
+}
+
+function isMeteredAwake(total: MeterTotal): boolean {
+  return total.openSinceMs !== null;
+}
+
+function awakeUsageAt(total: MeterTotal, awakeHoursPerMonth: number | null, nowMs: number): AwakeUsage {
+  const rolled = rolledTo(total, nowMs);
+  const openAwakeMs = rolled.openSinceMs === null ? 0 : Math.max(0, nowMs - rolled.openSinceMs);
+  return {
+    usedMs: rolled.closedAwakeMs + openAwakeMs,
+    capMs: awakeHoursPerMonth === null ? null : Math.ceil(awakeHoursPerMonth * MS_PER_HOUR),
+    periodStartAt: new Date(rolled.periodStartMs).toISOString(),
+    periodEndsAt: new Date(nextMonthStartMs(rolled.periodStartMs)).toISOString(),
+  };
+}
+
+function isOverCap(usage: AwakeUsage): boolean {
+  return usage.capMs !== null && usage.usedMs >= usage.capMs;
+}
+
+export { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
+export type { DoormanRoute, ForwardState, MeterTotal };

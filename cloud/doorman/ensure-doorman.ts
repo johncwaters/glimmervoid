@@ -6,7 +6,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { spawn } from '../../server/child-process-safe.ts';
 import { selfLaunch } from '../../server/runtime-paths.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
-import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTableServerUrls } from '../../shared/contracts/doorman.ts';
+import type { DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { GITHUB_API_BASE_ENV } from '../../shared/contracts/watcher-link.ts';
 import { watcherLinkKeyPath } from '../../server/secrets/core/secret-files-core.ts';
 
@@ -63,6 +64,7 @@ function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListener
       linkSecretPath: watcherLinkKeyPath(glimmervoidHome),
       watcherHome: localWatcherHome(glimmervoidHome, localPort),
       githubInstallation: null,
+      awakeHoursPerMonth: null,
     }],
   };
 }
@@ -134,7 +136,7 @@ function isServerAnswering(serverUrl: string): Promise<boolean> {
 async function tenantServerUrlOf(tablePath: string): Promise<string | null> {
   const tableText = await fsp.readFile(tablePath, 'utf8').catch(() => null);
   if (tableText === null) return null;
-  const table = DoormanTenantTable.safeParse(JSON.parse(tableText));
+  const table = DoormanTableServerUrls.safeParse(JSON.parse(tableText));
   return table.success ? table.data.tenants.at(0)?.serverUrl ?? null : null;
 }
 
