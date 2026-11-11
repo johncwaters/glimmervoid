@@ -1,7 +1,7 @@
 import type { SettingsSetting, SettingsSection, SettingsGroup, SettingsRegistry } from './registry-fields.ts';
 import { BROWSER_APPEARANCE, BROWSER_NOTIFICATIONS, BROWSER_SHORTCUTS } from './browser-sections.ts';
 import { MACHINE_TELEGRAM, MACHINE_SESSIONS, MACHINE_SAFETY, MACHINE_UPDATES, MACHINE_HOSTS, MACHINE_SERVER, MACHINE_USAGE, MACHINE_PRIVACY } from './machine-sections.ts';
-import { LANES_POSTHOG, LANES_GITHUB_ACCESS, LANES_TEAM_REVIEW, LANES_WORKFLOWS, LANES_BENCHMARKS, LANES_COHERENCE, LANES_ISSUES, LANES_COMMUNITY } from './lanes-sections.ts';
+import { LANES_POSTHOG, LANES_GITHUB_ACCESS, LANES_TEAM_REVIEW, LANES_MY_PRS, LANES_BENCHMARKS, LANES_COHERENCE, LANES_ISSUES, LANES_COMMUNITY } from './lanes-sections.ts';
 import { FILE_ONLY_SETTINGS } from './file-only-settings.ts';
 
 export type { SettingsEffect, SettingsChoicePresentation, SettingsSetting, SettingsSection, SettingsGroup, SettingsRegistry } from './registry-fields.ts';
@@ -9,6 +9,7 @@ export type { SettingsEffect, SettingsChoicePresentation, SettingsSetting, Setti
 export const FILE_ONLY_GROUPS: Readonly<Record<string, SettingsGroup>> = Object.freeze({
   'machine-terminal': { title: 'Terminal', description: 'Terminal behavior shared by dashboard clients.' },
   'machine-detection-sessions': { title: 'Detection and sessions', description: 'Config-file-only detection, timing, worktree and process settings.' },
+  'machine-packs': { title: 'Packs', description: 'Packs other people share, each waiting for your approval before anything in it runs.' },
   'lanes-question-manager': { title: 'Question manager', description: 'Rules that answer a session question in the sessions you switch the question manager on for.' },
 });
 
@@ -25,7 +26,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   LANES_POSTHOG,
   LANES_GITHUB_ACCESS,
   LANES_TEAM_REVIEW,
-  LANES_WORKFLOWS,
+  LANES_MY_PRS,
   LANES_BENCHMARKS,
   LANES_COHERENCE,
   LANES_ISSUES,

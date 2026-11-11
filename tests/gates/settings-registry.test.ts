@@ -238,7 +238,8 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     posthog: 'lanes-posthog',
     'team-review': 'lanes-team-review',
     reviews: 'lanes-team-review',
-    workflows: 'lanes-workflows',
+    workflows: 'lanes-my-prs',
+    'lanes-workflows': 'lanes-my-prs',
     benchmarks: 'lanes-benchmarks',
     privacy: 'machine-privacy',
     telemetry: 'machine-privacy',
@@ -246,6 +247,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
   });
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
+    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
     'machine-sessions': { 'remote-setup': 'machine-hosts' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
@@ -512,10 +514,9 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],
     ['team-review-stamp-reviewer-effort', 'teamReview.stampReviewer.effort', 'text'],
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
-    ['team-review-auto-rebase-my-prs', 'teamReview.autoRebaseMyPrs', 'toggle'],
-    ['team-review-keep-mergeable-enabled', 'teamReview.keepMergeableEnabled', 'toggle'],
-    ['team-review-keep-mergeable-timeout', 'teamReview.keepMergeableTimeoutMinutes', 'number'],
-    ['team-review-merge-queue-enabled', 'teamReview.mergeQueueEnabled', 'toggle'],
+  ]);
+  assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path).slice(0, 4), [
+    'teamReview.autoRebaseMyPrs', 'teamReview.keepMergeableEnabled', 'teamReview.keepMergeableTimeoutMinutes', 'teamReview.mergeQueueEnabled',
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);

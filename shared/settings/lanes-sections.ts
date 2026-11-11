@@ -87,8 +87,8 @@ export const LANES_GITHUB_ACCESS: SettingsSection = {
 export const LANES_TEAM_REVIEW: SettingsSection = {
   id: 'lanes-team-review',
   level: 'lanes',
-  title: 'Team review',
-  description: "Draft reviews of teammates' pull requests for you to post.",
+  title: 'Reviews',
+  description: "Team review drafts reviews of teammates' pull requests for you to post; My pull requests keeps your own moving.",
   legacyIds: ['team-review', 'reviews'],
   settings: [
     {
@@ -148,37 +148,42 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       control: 'toggle', keywords: ['mcp', 'servers', 'tools'], danger: true,
       warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
     },
+  ],
+};
+
+export const LANES_MY_PRS: SettingsSection = {
+  id: 'lanes-my-prs',
+  level: 'lanes',
+  parent: 'lanes-team-review',
+  title: 'My pull requests',
+  description: 'Keep your own pull requests rebased, mergeable and merged, and run workflow rules on their events.',
+  legacyIds: ['workflows', 'lanes-workflows'],
+  settings: [
     {
       id: 'team-review-auto-rebase-my-prs', path: 'teamReview.autoRebaseMyPrs', title: 'Keep my pull requests rebased',
       description: 'Rebase your open pull requests when they fall behind their base branch.',
       control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
       warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-auto-rebase-my-prs' }],
     },
     {
       id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
       description: 'Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests.',
       control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-enabled' }],
     },
     {
       id: 'team-review-keep-mergeable-timeout', path: 'teamReview.keepMergeableTimeoutMinutes', title: 'Keep mergeable deadline',
       description: 'Longest a Keep mergeable repair may run.',
       control: 'number', range: KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, unit: MINUTES, keywords: ['timeout', 'repair'], defaultValue: 30, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-timeout' }],
     },
     {
       id: 'team-review-merge-queue-enabled', path: 'teamReview.mergeQueueEnabled', title: 'Merge when ready',
       description: 'Offer Merge when ready: queued pull requests merge once they pass.',
       control: 'toggle', keywords: ['merge queue', 'auto merge', 'my prs'], defaultValue: true, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-merge-queue-enabled' }],
     },
-  ],
-};
-
-export const LANES_WORKFLOWS: SettingsSection = {
-  id: 'lanes-workflows',
-  level: 'lanes',
-  title: 'Workflows',
-  description: 'Rules that act on pull request events.',
-  legacyIds: ['workflows'],
-  settings: [
     {
       id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',
       description: 'Watch the repositories your rules name and run their actions.',

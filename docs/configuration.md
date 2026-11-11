@@ -125,9 +125,9 @@ What background lanes may read on GitHub and the web.
 | `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
 | `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
 
-### Team review
+### Reviews
 
-Draft reviews of teammates' pull requests for you to post.
+Team review drafts reviews of teammates' pull requests for you to post; My pull requests keeps your own moving.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
@@ -142,28 +142,27 @@ Draft reviews of teammates' pull requests for you to post.
 | `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. |
 | `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. |
 | `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the review agent your own MCP servers. |
+| `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
+
+### My pull requests
+
+Keep your own pull requests rebased, mergeable and merged, and run workflow rules on their events.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | Rebase your open pull requests when they fall behind their base branch. |
 | `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests. |
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair may run. |
 | `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready: queued pull requests merge once they pass. |
-| `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
-| `prFlows.sources` | PR flows sources | `[]` | Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
-| `prFlows.actions` | PR flows actions | `[]` | Commands that act on a review item of your own pull request, shown as a button with their label and named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source, also expands {itemPath} and {itemLine}, gets the item as GLIMMERVOID_ITEM_JSON, waits for your approval in My PRs, and has an id unique within the list. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" \| "started" \| "refused" \| "failed", "message"} JSON. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
-| `prFlows.prActions` | PR flows PR actions | `[]` | Commands that act on a whole pull request of yours, shown as a button next to Keep mergeable and Merge when ready and run once per click, never by a rule. Each entry has id, label, command and timeoutSeconds like an action, plus optional repos (owner/name; every repository when absent), expands {headRef} and {baseRef} instead of the item placeholders, gets GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON, and waits for your approval in My PRs. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" \| "started" \| "refused" \| "failed", "message"} JSON. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
-| `packs` | Packs | `[]` | More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions, rules and a repos default for them) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in Settings, Packs that any edit to a file in it asks again. **File-only.** A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval. |
-| `prFlows.rules` | PR flows rules | `[]` | Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>. **File-only.** Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends. |
-| `prFlows.repoRules` | PR flows repository rules | `{}` | Deprecated: put repos on each rule in prFlows.rules instead. Rules per repository (owner/name to a list of rules), still checked before prFlows.rules for that repository. **File-only.** A structured value with no dashboard control; edit it in config.json. |
-
-### Workflows
-
-Rules that act on pull request events.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
 | `workflows.enabled` | Run workflows | `true` | Watch the repositories your rules name and run their actions. |
 | `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow sessions running at once. |
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `workflows.rules` | Workflow rule definitions | `[]` | The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; the Workflows section only switches each rule on or off. |
+| `workflows.rules` | Workflow rule definitions | `[]` | The rules My pull requests switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; My pull requests only switches each rule on or off. |
+| `prFlows.sources` | PR flows sources | `[]` | Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
+| `prFlows.actions` | PR flows actions | `[]` | Commands that act on a review item of your own pull request, shown as a button with their label and named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source, also expands {itemPath} and {itemLine}, gets the item as GLIMMERVOID_ITEM_JSON, waits for your approval in My PRs, and has an id unique within the list. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" \| "started" \| "refused" \| "failed", "message"} JSON. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
+| `prFlows.prActions` | PR flows PR actions | `[]` | Commands that act on a whole pull request of yours, shown as a button next to Keep mergeable and Merge when ready and run once per click, never by a rule. Each entry has id, label, command and timeoutSeconds like an action, plus optional repos (owner/name; every repository when absent), expands {headRef} and {baseRef} instead of the item placeholders, gets GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON, and waits for your approval in My PRs. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" \| "started" \| "refused" \| "failed", "message"} JSON. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
+| `prFlows.rules` | PR flows rules | `[]` | Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>. **File-only.** Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends. |
+| `prFlows.repoRules` | PR flows repository rules | `{}` | Deprecated: put repos on each rule in prFlows.rules instead. Rules per repository (owner/name to a list of rules), still checked before prFlows.rules for that repository. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
 ### Benchmarks
 
@@ -252,6 +251,14 @@ Config-file-only detection, timing, worktree and process settings.
 | `taskTitle.refiner.model` | Task title model | `"haiku"` | Claude model alias the title refiner asks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval | `60` | Shortest pause between two title refinements of one session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `taskTitle.refiner.timeoutSeconds` | Task title timeout | `60` | Maximum time allowed for one title refinement. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
+### Packs
+
+Packs other people share, each waiting for your approval before anything in it runs.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `packs` | Packs | `[]` | More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions, rules and a repos default for them) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in Settings, Packs that any edit to a file in it asks again. **File-only.** A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval. |
 
 ### Question manager
 

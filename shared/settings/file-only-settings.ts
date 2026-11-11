@@ -309,18 +309,18 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'A legacy key: github.teams names teams as org/slug entries and wins whenever it is set.', ...FILE_ONLY,
   },
   {
-    id: 'file-workflows-max-actions-per-poll', path: 'workflows.maxActionsPerPoll', title: 'Actions per poll', group: 'lanes-workflows',
+    id: 'file-workflows-max-actions-per-poll', path: 'workflows.maxActionsPerPoll', title: 'Actions per poll', group: 'lanes-my-prs',
     description: 'Most actions run in one poll. The rest are dropped and logged.',
     control: 'number', range: WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, unit: ACTIONS, keywords: ['cap', 'rate limit'], defaultValue: 20, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
-    id: 'file-workflows-rules', path: 'workflows.rules', title: 'Workflow rule definitions', group: 'lanes-workflows',
-    description: 'The rules the Workflows section switches on and off: each names its repositories, one pull request event, its filters and its actions.',
+    id: 'file-workflows-rules', path: 'workflows.rules', title: 'Workflow rule definitions', group: 'lanes-my-prs',
+    description: 'The rules My pull requests switches on and off: each names its repositories, one pull request event, its filters and its actions.',
     control: 'json', keywords: ['pull requests', 'automation', 'rules'], defaultValue: [], takesEffect: 'now',
-    fileOnlyReason: 'Rule definitions are written in config.json; the Workflows section only switches each rule on or off.', ...FILE_ONLY,
+    fileOnlyReason: 'Rule definitions are written in config.json; My pull requests only switches each rule on or off.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-sources', path: 'prFlows.sources', title: 'PR flows sources', group: 'lanes-team-review',
+    id: 'file-pr-flows-sources', path: 'prFlows.sources', title: 'PR flows sources', group: 'lanes-my-prs',
     description: 'Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check.',
     jsonSchema: z.toJSONSchema(z.array(PrFlowSourceCommand), { io: 'input' }),
     example: [{ id: 'scanner', label: 'Scanner', command: ['my-review-scanner', '--pr', '{prUrl}', '--json'], timeoutSeconds: 120 }],
@@ -328,7 +328,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-actions', path: 'prFlows.actions', title: 'PR flows actions', group: 'lanes-team-review',
+    id: 'file-pr-flows-actions', path: 'prFlows.actions', title: 'PR flows actions', group: 'lanes-my-prs',
     description: 'Commands that act on a review item of your own pull request, shown as a button with their label and named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source, also expands {itemPath} and {itemLine}, gets the item as GLIMMERVOID_ITEM_JSON, waits for your approval in My PRs, and has an id unique within the list. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" | "started" | "refused" | "failed", "message"} JSON.',
     jsonSchema: z.toJSONSchema(z.array(PrFlowCommand), { io: 'input' }),
     example: [{ id: 'ask-bot', label: 'Ask bot', command: ['gh', 'pr', 'comment', '{prUrl}', '--body', '@review-bot fix {itemPath}:{itemLine}'] }],
@@ -336,7 +336,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-pr-actions', path: 'prFlows.prActions', title: 'PR flows PR actions', group: 'lanes-team-review',
+    id: 'file-pr-flows-pr-actions', path: 'prFlows.prActions', title: 'PR flows PR actions', group: 'lanes-my-prs',
     description: 'Commands that act on a whole pull request of yours, shown as a button next to Keep mergeable and Merge when ready and run once per click, never by a rule. Each entry has id, label, command and timeoutSeconds like an action, plus optional repos (owner/name; every repository when absent), expands {headRef} and {baseRef} instead of the item placeholders, gets GLIMMERVOID_PR_HEAD_REF, GLIMMERVOID_PR_BASE_REF and the pull request as GLIMMERVOID_PR_JSON, and waits for your approval in My PRs. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" | "started" | "refused" | "failed", "message"} JSON.',
     jsonSchema: z.toJSONSchema(z.array(PrFlowPrAction), { io: 'input' }),
     example: [{ id: 'agent-merge', label: 'Merge via agent', repos: ['acme/app'], command: ['my-merge-trigger', '{prUrl}', '{headRef}'], timeoutSeconds: 60 }],
@@ -344,13 +344,13 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs.', ...FILE_ONLY,
   },
   {
-    id: 'file-packs', path: 'packs', title: 'Packs', group: 'lanes-team-review',
+    id: 'file-packs', path: 'packs', title: 'Packs', group: 'machine-packs',
     description: 'More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions, rules and a repos default for them) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in Settings, Packs that any edit to a file in it asks again.',
     control: 'list', keywords: ['packs', 'share', 'plugins', 'pull requests', 'commands'], defaultValue: [], takesEffect: 'now',
     fileOnlyReason: 'A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-team-review',
+    id: 'file-pr-flows-rules', path: 'prFlows.rules', title: 'PR flows rules', group: 'lanes-my-prs',
     description: 'Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>.',
     jsonSchema: prFlowRulesJsonSchema(z.array(PrFlowRule)),
     example: [{ name: 'Generated files', paths: ['dist/'], action: 'dismiss', reason: 'Generated output; the source change is reviewed instead.' }, { name: 'Bot nits', authors: ['review-bot[bot]'], priority: ['low'], repos: ['acme/app'], action: 'run:ask-bot' }],
@@ -358,7 +358,7 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends.', ...FILE_ONLY,
   },
   {
-    id: 'file-pr-flows-repo-rules', path: 'prFlows.repoRules', title: 'PR flows repository rules', group: 'lanes-team-review',
+    id: 'file-pr-flows-repo-rules', path: 'prFlows.repoRules', title: 'PR flows repository rules', group: 'lanes-my-prs',
     description: 'Deprecated: put repos on each rule in prFlows.rules instead. Rules per repository (owner/name to a list of rules), still checked before prFlows.rules for that repository.',
     jsonSchema: prFlowRulesJsonSchema(z.record(z.string(), z.array(PrFlowRule))),
     example: { 'acme/app': [{ name: 'Docs typos', paths: ['docs/'], text: 'typo', action: 'fix-local' }] },
