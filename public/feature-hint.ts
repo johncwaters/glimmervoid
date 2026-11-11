@@ -7,13 +7,14 @@ import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-ani
 import { button } from './ui/button.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
+import { clock } from '#shared/clock.ts';
 
 let shownHintCard: HTMLElement | null = null;
 let isStarHintWaiting = false;
 
 function claimCard(category: string, cardKey: string) {
   try {
-    return claimNotification(localStorage, claimKey(category, cardKey), Date.now());
+    return claimNotification(localStorage, claimKey(category, cardKey), clock.nowMs());
   } catch {
     return true;
   }

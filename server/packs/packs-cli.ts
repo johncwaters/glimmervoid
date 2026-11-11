@@ -19,6 +19,7 @@ import { prFlowsOutputJsonSchemaText } from '../../shared/contracts/pr-flows.ts'
 import { packGuideText } from './pack-agent.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { readApprovedPackFingerprints, readPackDir } from './pack-files.ts';
+import { clock } from '../../shared/clock.ts';
 
 type ParsedRun = Extract<ParsedCommand, { kind: 'run' }>;
 type PreviewResponse = { status: number; headers: Record<string, string>; body: string | Buffer };
@@ -108,7 +109,7 @@ async function previewResponse(packDir: string, requestUrl: string, requestOrigi
   if (urlPath !== '/') return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not found' };
   const approvedFingerprints = readApprovedPackFingerprints(homeDir);
   const report = await checkPack(packDir, env, (fingerprint) => approvedFingerprints.has(fingerprint));
-  const page = previewHostPage({ title: `Pack preview: ${report.name ?? path.basename(packDir)}`, report: packReportText(report), hasProblem: packCheckHasProblem(report), pack, nowMs: Date.now() });
+  const page = previewHostPage({ title: `Pack preview: ${report.name ?? path.basename(packDir)}`, report: packReportText(report), hasProblem: packCheckHasProblem(report), pack, nowMs: clock.nowMs() });
   return { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, body: page };
 }
 

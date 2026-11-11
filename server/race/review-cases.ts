@@ -9,6 +9,7 @@ import { githubStoreRateLimitedError } from '../github/github-store-poller.ts';
 import type { GithubStoreRead } from '../github/github-store-poller.ts';
 import type { GithubLaneStore } from '../github/github-store-wiring.ts';
 import { writeJsonAtomic } from '../json-file.ts';
+import { clock } from '../../shared/clock.ts';
 
 const LEGACY_CASES_FOLDER = 'cases';
 const MINED_PULL_REQUEST_LIMIT = 30;
@@ -79,7 +80,7 @@ async function entriesIn(casesDir: string, keyPrefix: string): Promise<ReviewCas
   return entries;
 }
 
-function createReviewCaseLibrary({ minedRoot, legacySuitesRoot, store, now = Date.now, log }: ReviewCaseLibraryDependencies) {
+function createReviewCaseLibrary({ minedRoot, legacySuitesRoot, store, now = clock.nowMs, log }: ReviewCaseLibraryDependencies) {
   async function list(): Promise<ReviewCaseEntry[]> {
     const entries: ReviewCaseEntry[] = [];
     for (const owner of await subfolderNames(minedRoot)) {

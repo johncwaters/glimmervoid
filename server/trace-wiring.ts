@@ -17,6 +17,7 @@ import { createTraceCheckpoints } from './trace/trace-checkpoints.ts';
 import { createTraceTranscriptDrain } from './trace/trace-transcript-drain.ts';
 import { createTraceSubagentCapture } from './trace/trace-subagent-capture.ts';
 import { createTraceSessionBinding } from './trace/trace-session-binding.ts';
+import { clock } from '../shared/clock.ts';
 
 const TRACE_RETAIN_DAYS = 7;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -34,7 +35,7 @@ interface TraceWiringOptions {
 
 async function pruneTraceFiles({
   traceDirectory,
-  now = Date.now(),
+  now = clock.nowMs(),
   isBoundSessionId = () => false,
 }: {
   traceDirectory: string;
@@ -55,7 +56,7 @@ function createTraceWiring({
   configPath = null,
   logger = console,
   debug = false,
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
   clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
   maxRememberedSubagents = MAX_REMEMBERED_SUBAGENTS,

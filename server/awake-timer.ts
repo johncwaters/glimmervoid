@@ -1,4 +1,5 @@
 import { advanceAwakeElapsed } from './github/core/team-review-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const DEFAULT_TICK_MS = 15000;
 
@@ -23,7 +24,7 @@ function startAwakeTicks({ tickMs, now, onTick }: {
   return { interval, awakeElapsedMs: () => advanceAwakeElapsed({ awakeElapsedMs, previousTickAt, nowMs: now(), tickMs }) };
 }
 
-export function createAwakeTimeoutFn({ tickMs = DEFAULT_TICK_MS, now = Date.now }: {
+export function createAwakeTimeoutFn({ tickMs = DEFAULT_TICK_MS, now = clock.nowMs }: {
   tickMs?: number;
   now?: () => number;
 } = {}): (callback: () => void, timeoutMs: number) => NodeJS.Timeout {
@@ -46,7 +47,7 @@ export interface AwakeStopwatch {
   stop: () => void;
 }
 
-export function startAwakeStopwatch({ tickMs = DEFAULT_TICK_MS, now = Date.now }: {
+export function startAwakeStopwatch({ tickMs = DEFAULT_TICK_MS, now = clock.nowMs }: {
   tickMs?: number;
   now?: () => number;
 } = {}): AwakeStopwatch {

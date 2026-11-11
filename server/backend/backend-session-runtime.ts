@@ -23,6 +23,7 @@ import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -86,7 +87,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   };
   let lastForcedCodexRefreshAtMs: number | null = null;
   const rateLimitedCodexRefresh = () => {
-    const nowMs = Date.now();
+    const nowMs = clock.nowMs();
     const isWithinForcedRefreshWindow = lastForcedCodexRefreshAtMs !== null && nowMs - lastForcedCodexRefreshAtMs < FORCED_CODEX_REFRESH_INTERVAL_MS;
     if (isWithinForcedRefreshWindow) return codexCredentials.hostLogin();
     lastForcedCodexRefreshAtMs = nowMs;

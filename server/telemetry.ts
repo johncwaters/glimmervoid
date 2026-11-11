@@ -18,6 +18,7 @@ import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtom
 import { createLaneLog } from './lanes/lane-log.ts';
 import type { LaneLogger } from './lanes/lane-log.ts';
 import { createCoalescedTimer } from '../shared/coalesce-timer.ts';
+import { clock } from '../shared/clock.ts';
 
 const MAX_QUEUED_EVENTS = 500;
 const FLUSH_AT_EVENT_COUNT = 20;
@@ -94,7 +95,7 @@ interface Telemetry {
 
 function createTelemetry(options: TelemetryOptions): Telemetry {
   const fetchFn = options.fetchFn ?? globalThis.fetch;
-  const now = options.now ?? (() => new Date());
+  const now = options.now ?? (() => clock.now());
   const log = createLaneLog({ prefix: '[telemetry]', logger: options.logger });
   const baseProperties = {
     app_version: options.version,

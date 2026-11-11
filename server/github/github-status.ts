@@ -1,5 +1,6 @@
 import { errorMessage } from '../../shared/text.ts';
 import { GithubStatusSummary, isStatusReadDue, openIncidentName } from './core/github-status-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface GithubStatusOptions {
   fetchFn?: typeof fetch;
@@ -7,7 +8,7 @@ interface GithubStatusOptions {
   log: Pick<Console, 'warn'>;
 }
 
-export function createGithubStatus({ fetchFn = fetch, now = Date.now, log }: GithubStatusOptions) {
+export function createGithubStatus({ fetchFn = fetch, now = clock.nowMs, log }: GithubStatusOptions) {
   let lastReadAtMs: number | null = null;
   let cachedIncident: string | null = null;
   let hasWarned = false;

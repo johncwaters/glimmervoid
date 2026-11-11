@@ -16,6 +16,7 @@ import { agentLoginOf, agentLoginSummary, openAgentConnectDialog, openRemoteSetu
 import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
 import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from '../server-power.ts';
+import { clock } from '#shared/clock.ts';
 
 const SAVED_STATUS_MS = 2200;
 const COPY_STATUS_MS = 1600;
@@ -200,7 +201,7 @@ function telegramDeliveryLines(): string[] {
   if (!parsedDelivery.success) return [];
   const { setupWarning, lastFailure } = parsedDelivery.data;
   const lines = setupWarning ? [setupWarning] : [];
-  if (lastFailure) lines.push(`The last Telegram send failed at ${new Date(lastFailure.failedAt).toLocaleString()}: ${lastFailure.message}`);
+  if (lastFailure) lines.push(`The last Telegram send failed at ${clock.format(lastFailure.failedAt, 'date-time')}: ${lastFailure.message}`);
   return lines;
 }
 

@@ -9,6 +9,7 @@ import { createLaneLog } from '../lanes/lane-log.ts';
 import type { LaneLog } from '../lanes/lane-log.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from '../json-file.ts';
+import { clock } from '../../shared/clock.ts';
 
 const LITELLM_PRICING_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -193,7 +194,7 @@ async function loadPricing({
   fsPromises = nodeFsPromises,
   fetchFn = globalThis.fetch,
   cachePath = path.join(glimmervoidHomeDir(), 'litellm-pricing.json'),
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
   timeoutMs = 15000,
   logger = null,
 }: LoadPricingOptions = {}): Promise<PricingResult> {

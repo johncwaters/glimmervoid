@@ -8,6 +8,7 @@ import { METRIC_OPTIONS, PERIOD_VIEWS, RANGE_OPTIONS, SESSION_ROW_LIMIT, USAGE_C
 import type { PeriodSummary, UsageMetric } from './usage-view-core.ts';
 import { _ticker, _usage, render, setFocusAfterRender, setSessionsTsEl } from './usage-panel-state.ts';
 import { buildBackControl, buildSection, buildTile, clampPct, paintSessionsTs } from './usage-panel-parts.ts';
+import { clock } from '#shared/clock.ts';
 
 const _expandedModels = new Set<string>();
 
@@ -159,7 +160,7 @@ function buildInsightsSection() {
   const insights = reportInsights(_usage.report);
   const yourDay = _usage.report?.yourDay;
   if (insights.length === 0 && !yourDay) return null;
-  const section = buildSection('Insights', yourDay ? yourDayHint(yourDay, Date.now()) : '');
+  const section = buildSection('Insights', yourDay ? yourDayHint(yourDay, clock.nowMs()) : '');
   if (insights.length === 0) return section;
   const list = el('ul', 'usage-insights');
   for (const insight of insights) {

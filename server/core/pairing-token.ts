@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { clock } from '../../shared/clock.ts';
 
 const DEFAULT_TOKEN_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_DEVICE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
@@ -41,7 +42,7 @@ function hashSecret(value: unknown): string {
 }
 
 function mintPairingToken({
-  now = Date.now(),
+  now = clock.nowMs(),
   ttlMs = DEFAULT_TOKEN_TTL_MS,
   randomBytes = crypto.randomBytes,
 }: { now?: number; ttlMs?: number; randomBytes?: RandomBytes } = {}): PairingToken {
@@ -51,7 +52,7 @@ function mintPairingToken({
 
 function decideRedemption({
   record,
-  now = Date.now(),
+  now = clock.nowMs(),
 }: { record?: RedeemableRecord | null; now?: number }): AuthDecision {
   if (!record) return { ok: false, reason: 'unknown' };
   if (record.usedAt) return { ok: false, reason: 'used' };
@@ -67,7 +68,7 @@ function mintDeviceCredential({ randomBytes = crypto.randomBytes }: { randomByte
 
 function decideDeviceAuth({
   record,
-  now = Date.now(),
+  now = clock.nowMs(),
   maxAgeMs = DEFAULT_DEVICE_MAX_AGE_MS,
   secretMatches,
 }: {

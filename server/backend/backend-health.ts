@@ -3,6 +3,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { MemoryGateStatus } from '../spawn-gate.ts';
 import { STATES } from '../../shared/states.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
+import { clock } from '../../shared/clock.ts';
 
 const HEALTH_SNAPSHOT_INTERVAL_MS = 10000;
 
@@ -61,7 +62,7 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       activeResources = process.getActiveResourcesInfo().length;
     } catch {}
     return {
-      timestamp: Date.now(),
+      timestamp: clock.nowMs(),
       uptimeSeconds: Math.round(process.uptime()),
       process: {
         rss: memory.rss,

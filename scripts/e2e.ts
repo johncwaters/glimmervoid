@@ -5,6 +5,7 @@ import { readImportsMap } from '../server/change-map/core/change-map-core.ts';
 import { buildImportGraph, extractImportSpecifiers } from '../server/core/import-graph-core.ts';
 import { selectScenarios } from './core/e2e-selection-core.ts';
 import type { ScenarioSeeds, SelectedScenario } from './core/e2e-selection-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCENARIO_DIRECTORY = 'tests/e2e';
@@ -87,13 +88,13 @@ function selectionFor(choice: ScenarioChoice, scenarioFiles: readonly string[]):
 }
 
 function runScenarios(scenarioFiles: readonly string[]): number {
-  const startedAt = Date.now();
+  const startedAt = clock.nowMs();
   const run = spawnSync(
     process.execPath,
     ['--import', './tests/helpers/isolate-home.ts', '--test', '--test-concurrency=1', ...scenarioFiles],
     { cwd: REPO_ROOT, stdio: 'inherit' },
   );
-  console.log(`[e2e] ${scenarioFiles.length} scenario files in ${Date.now() - startedAt} ms`);
+  console.log(`[e2e] ${scenarioFiles.length} scenario files in ${clock.nowMs() - startedAt} ms`);
   return run.status ?? 1;
 }
 

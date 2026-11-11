@@ -46,7 +46,7 @@ interface SerializedDailyBucket extends UsageTotals {
 function buildUsageReport(
   entries: UsageEntryLike[] | null | undefined,
   {
-    now = Date.now(),
+    now = clock.nowMs(),
     blockHours = 5,
     retainDays = 90,
     sessionsById = new Map<string, KnownSession>(),
@@ -112,7 +112,7 @@ function serializeVendorTotals(map: Map<string, VendorTotals>): Record<string, V
 
 function pruneEntries(
   entries: UsageEntryLike[] | null | undefined,
-  { now = Date.now(), retainDays = 90 }: { now?: number; retainDays?: number } = {},
+  { now = clock.nowMs(), retainDays = 90 }: { now?: number; retainDays?: number } = {},
 ): { kept: UsageEntryLike[]; removedKeys: string[] } {
   const cutoff = now - retainDays * 24 * 60 * 60 * 1000;
   const kept: UsageEntryLike[] = [];

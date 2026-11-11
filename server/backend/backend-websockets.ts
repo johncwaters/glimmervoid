@@ -21,6 +21,7 @@ import { resolveSessionSize } from '../core/viewer-size-core.ts';
 import { createWsSender } from '../ws-sender.ts';
 import type { WsSender } from '../ws-sender.ts';
 import type { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
+import { clock } from '../../shared/clock.ts';
 
 type ControlBroadcast = (message: ControlMessageRecord) => void;
 
@@ -172,7 +173,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   }
 
   function logDataSocketClose(socket: WebSocket, sessionId: string | null, attachDescription: string, openedAtMs: number, code: number, reason: string): void {
-    const openMs = Date.now() - openedAtMs;
+    const openMs = clock.nowMs() - openedAtMs;
     const isReject = code === 1008;
     const session = sessionId === null ? null : getSession(sessionId);
     const sessionKey = session ? session.id : NO_LIVE_SESSION_KEY;
@@ -191,7 +192,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   function attachDataConnection(): void {
     dataWss.on('connection', (socket, request) => {
       recordOutcome('dataWsOpened');
-      const openedAtMs = Date.now();
+      const openedAtMs = clock.nowMs();
       const sessionId = dataSessionIdFromUrl(request.url);
       const attach = parseDataAttach(request.url);
       socket.on('close', (code, reason) => {
@@ -245,7 +246,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       id: session.id,
       session: session.name,
       message: reason,
-      timestamp: Date.now(),
+      timestamp: clock.nowMs(),
     });
   }
 
@@ -278,7 +279,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 
     let lastOutputBeatAt = 0;
     const sendOutputBeat = (): void => {
-      const now = Date.now();
+      const now = clock.nowMs();
       if (now - lastOutputBeatAt < OUTPUT_BEAT_INTERVAL_MS) return;
       lastOutputBeatAt = now;
       sender.sendDroppable(OUTPUT_BEAT_FRAME);
@@ -310,7 +311,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
             id: session.id,
             session: session.name,
             message: 'Paste too large - try pasting smaller chunks',
-            timestamp: Date.now(),
+            timestamp: clock.nowMs(),
           });
           return;
         }

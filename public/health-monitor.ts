@@ -5,6 +5,7 @@ import { el } from './dom-helpers.ts';
 import { createPressable } from './ui/pressable.ts';
 import { anomalyCount, shouldShowHealthMonitor } from './health-monitor-core.ts';
 import type { HealthAnomalies } from './health-monitor-core.ts';
+import { clock } from '#shared/clock.ts';
 
 const STATE_ABBREV: Record<string, string> = {
   DORMANT: 'DOR', INITIALIZING: 'INI', STARTING: 'STA',
@@ -68,7 +69,7 @@ function formatUptime(s: number | null | undefined) {
 
 function formatReadAge(readAtMs: number | null | undefined) {
   if (readAtMs == null) return NO_VALUE;
-  return `${formatUptime(Math.max(0, Math.round((Date.now() - readAtMs) / 1000)))} ago`;
+  return `${formatUptime(Math.max(0, Math.round((clock.nowMs() - readAtMs) / 1000)))} ago`;
 }
 
 function buildPanel() {

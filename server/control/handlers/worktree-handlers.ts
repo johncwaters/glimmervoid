@@ -9,6 +9,7 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable } from '../core/control-dispatch-core.ts';
+import { clock } from '../../../shared/clock.ts';
 
 const MERGE_REFUSAL_COPY: Record<string, string> = {
   'destroyed':         'session no longer exists',
@@ -59,7 +60,7 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       const map = await changeMaps.build(s).catch((error: unknown): ChangeMap => {
         console.warn(`[control] request-change-map build failed: id=${s.id}: ${errorMessage(error)}`);
         return {
-          sessionId: s.id, sig: null, generatedAt: Date.now(), repos: [],
+          sessionId: s.id, sig: null, generatedAt: clock.nowMs(), repos: [],
           error: `Change map could not be built: ${errorMessage(error)}`,
         };
       });

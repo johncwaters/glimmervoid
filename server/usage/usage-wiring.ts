@@ -35,6 +35,7 @@ import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
+import { clock } from '../../shared/clock.ts';
 
 const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
@@ -228,7 +229,7 @@ function createUsageWiring({
   loadPricingFn = loadPricing,
   readKimiPlanLimits,
   scannerDeps = {},
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
   partialContinueMs = PARTIAL_CONTINUE_MS,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
   clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,

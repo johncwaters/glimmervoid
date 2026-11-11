@@ -6,6 +6,7 @@ import type { QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import { clock } from '../shared/clock.ts';
 
 interface ClaudeApprovalHold {
   request: ClaudePermissionRequest;
@@ -170,7 +171,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
 
   function nextDecisionHeader() {
     managerDecisionCount += 1;
-    return { kind: MANAGER_DECISION_AUDIT_KIND, seq: managerDecisionCount, ts: Date.now() } as const;
+    return { kind: MANAGER_DECISION_AUDIT_KIND, seq: managerDecisionCount, ts: clock.nowMs() } as const;
   }
 
   function recordManagerAnswer(verdict: ManagerAnswer): void {

@@ -11,6 +11,7 @@ import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { IssuesProbeInputs } from './issues-probes.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 interface IssuesPollerDependencies {
   teams: string[];
@@ -33,7 +34,7 @@ interface IssuesPollerDependencies {
 }
 
 export function createIssuesPoller(dependencies: IssuesPollerDependencies) {
-  const { teams, store, onTickComplete, now = Date.now, log = console } = dependencies;
+  const { teams, store, onTickComplete, now = timeClock.nowMs, log = console } = dependencies;
   let state = core.emptyIssuesState();
   let projects: core.IssuesProjectRepo[] = [];
   let viewer: string | null = null;

@@ -20,6 +20,7 @@ import { createKeyedSerialQueue } from '../../spawn-gate.ts';
 import type { ControlContext, RequestWithId } from '../control-context.ts';
 import { replyTo } from '../control-context.ts';
 import type { ConnectFrames, ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable, RawControlRequest } from '../core/control-dispatch-core.ts';
+import { clock } from '../../../shared/clock.ts';
 
 type TeamReviewActionOutcome = Omit<TeamReviewActionResult, 'key'>;
 
@@ -174,7 +175,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
       if (!created.ok) { reply({ error: created.error }); return; }
       const session = sessions.get(created.project.id);
       if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
-      const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], Date.now());
+      const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], clock.nowMs());
       if (link) session.linkPrManually(link);
       const pasted = session.pasteTextWhenReady(prSessionPrompt({ repo: checkout.repo, detail: checkout.detail, draft: checkout.draft }));
       if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }

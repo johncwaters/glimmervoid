@@ -24,6 +24,7 @@ import { headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWa
 import { createGithubAppMinter } from './github-app.ts';
 import type { GithubAppMinter } from './github-app.ts';
 import type { DoormanRoute, ForwardState } from './doorman-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 type HostAdapter = { wake(tenantSlug: string): Promise<void>; stop(tenantSlug: string): Promise<void> };
 type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number };
@@ -113,7 +114,7 @@ async function createTenantWatcher(tenant: DoormanTenant, linkSecret: Buffer, { 
   };
 }
 
-function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEFAULT_TUNABLES, probeFetch = fetch, githubAppFetch = fetch, now = Date.now, log = console }: {
+function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEFAULT_TUNABLES, probeFetch = fetch, githubAppFetch = fetch, now = clock.nowMs, log = console }: {
   table: DoormanTenantTableInput;
   hostAdapter?: HostAdapter | null;
   tunables?: DoormanTunables;

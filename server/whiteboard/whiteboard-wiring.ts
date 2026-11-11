@@ -42,6 +42,7 @@ import { isLinkableMediaKind, linkPathProblem, withServerSyncedHash } from '../.
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 import { createBoardStore } from './board-store-client.ts';
 import { BOARD_STORE_FILENAME } from './board-store-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
@@ -251,7 +252,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = Date.now, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {},
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {},
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();

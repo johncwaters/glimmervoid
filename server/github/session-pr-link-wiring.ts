@@ -9,6 +9,7 @@ import {
   parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs,
 } from '../core/session-pr-link-core.ts';
 import type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate } from '../core/session-pr-link-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface PrLinkableSession extends PrLinkSession, Pick<EventEmitter, 'on' | 'off'> {
   path: string;
@@ -50,7 +51,7 @@ async function listCommitsAhead(projectPath: string, baseRefName: string): Promi
   return revList.ok ? parseRevListShas(revList.out) : null;
 }
 
-function createSessionPrLinkWiring({ store, now = Date.now, git, log = console }: SessionPrLinkWiringOptions) {
+function createSessionPrLinkWiring({ store, now = clock.nowMs, git, log = console }: SessionPrLinkWiringOptions) {
   const attachedSessions = new WeakSet<PrLinkableSession>();
   const joinableSessions = new Set<PrLinkableSession>();
   const repoSlugBySession = new WeakMap<PrLinkableSession, Promise<string | null>>();

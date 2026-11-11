@@ -234,7 +234,7 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
 function recapDayLabel(recapDay: string, now: number): string {
   if (recapDay === clock.dayKeyOf(clock.startOfDay(now, 1))) return 'Yesterday';
   const [year, month, day] = recapDay.split('-').map(Number);
-  return `On ${new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  return `On ${clock.format(Date.UTC(year, month - 1, day, 12), 'month-day', 'UTC')}`;
 }
 
 function longestStretchInsight(yesterday: DayStats, dayLabel: string, usualStretchMs: number): YourDayInsight | null {

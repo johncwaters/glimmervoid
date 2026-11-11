@@ -19,6 +19,7 @@ import { TEAM_REVIEW_SESSION_DENY_RULES, teamReviewAcceptEditsPermissions, hooks
 import type { TeamReviewWorkDir, TeamReviewSpawn } from './team-review-spawn.ts';
 import { worktreeDirName, pathExists, isResumableInsideRoots, pruneCachedClone, deleteDirectory, deleteCheckout, findLocalCheckout, isLinkedToCheckout } from './team-review-checkouts.ts';
 import type { TeamReviewWiringConfig, TeamReviewRepoCache, TeamReviewGitWorkspace, TeamReviewReap } from './team-review-checkouts.ts';
+import { clock } from '../../shared/clock.ts';
 
 const RESULT_MAX_BYTES = 1024 * 1024;
 
@@ -100,7 +101,7 @@ function createTeamReviewDispatcher({
   makeWorkDir = makeTeamReviewWorkDir,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
   randomSuffix = () => randomBytes(4).toString('hex'),
-  now = () => Date.now(),
+  now = () => clock.nowMs(),
   setTimeoutFn = createAwakeTimeoutFn({ now }),
   shutdownSignal = null,
   readReviewSetup = () => DEFAULT_TEAM_REVIEW_SETUP,

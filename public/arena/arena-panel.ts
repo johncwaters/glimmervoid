@@ -16,6 +16,7 @@ import type { ViewModule } from '../view-registry-core.ts';
 import { agentLabel, agentsWithModels, contestantsFor, defaultSetup, effortOf, effortsOf, modelsOf, VARY_SETTINGS, varyChoices, varyLineup, withEffortChoice, withModel } from './lineup-core.ts';
 import type { VarySetting } from './lineup-core.ts';
 import { openRaceSession, raceHistory, raceList, subscribeRaces } from './race-store.ts';
+import { clock } from '#shared/clock.ts';
 
 const START_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -253,7 +254,7 @@ function buildRace(race: RaceRecord): HTMLElement {
   const item = el('article', 'arena-race');
   item.append(el('h3', 'arena-race-title', race.spec.title));
   const roundText = race.series ? `, round ${race.series.round} of ${race.spec.rounds}` : '';
-  item.append(el('p', 'arena-race-meta', `${race.baseBranch} at ${race.startSha.slice(0, SHORT_SHA_LENGTH)}, ${new Date(race.createdAt).toLocaleString()}${roundText}`));
+  item.append(el('p', 'arena-race-meta', `${race.baseBranch} at ${race.startSha.slice(0, SHORT_SHA_LENGTH)}, ${clock.format(race.createdAt, 'date-time')}${roundText}`));
   const actions = el('div', 'arena-race-actions');
   const judgeButton = button({ variant: 'secondary', size: 'small', label: 'Judge now', disabled: race.phase === 'judging', onClick: () => judgeRace(race) });
   const statusEl = el('span', 'arena-status', judgeStatusByRace.get(race.id) || phaseText(race));
@@ -341,7 +342,7 @@ function buildPastRace(race: RaceRecord): HTMLElement {
   const summary = el('div', 'arena-past-summary');
   summary.append(
     el('span', 'arena-past-title', race.spec.title),
-    el('span', 'arena-status', `${new Date(race.createdAt).toLocaleDateString()}, ${race.spec.contestants.length} contestants${winner ? `, winner ${winner.label}` : ''}`),
+    el('span', 'arena-status', `${clock.format(race.createdAt, 'date')}, ${race.spec.contestants.length} contestants${winner ? `, winner ${winner.label}` : ''}`),
     button({ variant: 'quiet', size: 'small', label: isShown ? 'Hide' : 'Show', onClick: () => {
       if (isShown) shownPastRaceIds.delete(race.id);
       if (!isShown) shownPastRaceIds.add(race.id);

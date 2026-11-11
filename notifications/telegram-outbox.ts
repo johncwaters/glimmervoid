@@ -10,6 +10,7 @@ import {
   DEFAULT_MAX_AGE_MS, DEFAULT_MAX_ATTEMPTS, DEFAULT_MAX_ENTRIES,
 } from './core/outbox-core.ts';
 import type { OutboxEntry } from './core/outbox-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const OUTBOX_VERSION = 1;
 const DEFAULT_RETRY_INTERVAL_MS = 60000;
@@ -32,7 +33,7 @@ interface TelegramOutboxDeps {
 function createTelegramOutbox({
   filePath,
   send,
-  now = Date.now,
+  now = clock.nowMs,
   maxEntries = DEFAULT_MAX_ENTRIES,
   maxAttempts = DEFAULT_MAX_ATTEMPTS,
   maxAgeMs = DEFAULT_MAX_AGE_MS,

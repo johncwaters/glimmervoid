@@ -20,6 +20,7 @@ import { packageRoot as resolvedPackageRoot } from './runtime-paths.ts';
 import { runGit } from './git/git-exec.ts';
 import { REPO_SLUG } from '../shared/repo.ts';
 import { compareReleaseVersions } from '../shared/build-channel.ts';
+import { clock } from '../shared/clock.ts';
 
 const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
 const RELEASE_REQUEST_HEADERS = { Accept: 'application/vnd.github+json', 'User-Agent': 'glimmervoid-update-check' };
@@ -286,7 +287,7 @@ async function checkForUpdate({
   runCommand = execFileAsync,
   statePath = defaultStatePath(),
   ttlMs = STATE_TTL_MS,
-  now = Date.now(),
+  now = clock.nowMs(),
 }: CheckForUpdateOptions = {}): Promise<UpdateCheckStatus> {
   const timer = setTimeout(() => abortController.abort(), timeoutMs);
   const signal = abortController.signal;

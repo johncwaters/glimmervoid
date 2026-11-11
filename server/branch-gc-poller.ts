@@ -12,6 +12,7 @@ import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { comparableDirectoryPath } from '../shared/canonical-paths.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
+import { clock } from '../shared/clock.ts';
 
 const DEFAULT_STALE_DAYS = 14;
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -115,7 +116,7 @@ function createBranchGcPoller(deps: BranchGcPollerDeps): BranchGcPoller {
     log = console,
     decisionTrace = () => {},
     onTickComplete = () => {},
-    now = () => Date.now(),
+    now = () => clock.nowMs(),
     statProjectPath = (projectPath: string) => fsp.stat(projectPath),
   } = deps;
   const skippedProjectPaths = new Set<string>();

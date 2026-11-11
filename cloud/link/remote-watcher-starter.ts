@@ -1,6 +1,7 @@
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import { directionKey, signedHeaders } from './core/link-signing-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 type WatcherStarter = (options: {
   linkSecret: Buffer;
@@ -18,7 +19,7 @@ function originOf(watcherUrl: string): string {
   return URL.parse(watcherUrl)?.origin ?? watcherUrl;
 }
 
-function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, fetchFn = fetch, now = Date.now }: {
+function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, fetchFn = fetch, now = clock.nowMs }: {
   resolveWatcherUrl: () => Promise<string | null>;
   prepareWatcher?: () => Promise<void>;
   statusCheckMs?: number;

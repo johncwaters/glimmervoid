@@ -16,6 +16,7 @@ import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { clock } from '../../shared/clock.ts';
 
 
 const OBSERVATION_PINGS: Record<string, { kind: string; dedupe: boolean } | undefined> = {
@@ -210,7 +211,7 @@ function createRadarPoller(deps: RadarPollerDependencies): RadarPoller {
     telemetry = null,
     onTickComplete = () => {},
     onInvestigationActivity = () => {},
-    now = () => Date.now(),
+    now = () => clock.nowMs(),
     releasePendingFix = async () => {},
   } = deps;
 

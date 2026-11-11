@@ -10,6 +10,7 @@ import { isAuthorizedCompanion, localCompanionSocketUrl } from '../core/vault-li
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionMessage, VaultJob } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
+import { clock } from '../../shared/clock.ts';
 
 const JOB_TIMEOUT_MS = 120_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -95,10 +96,10 @@ function createVaultSocket({ envToken, companionFile, legacyCompanionFile = null
       const message = parsedMessageOrNull(rawMessage);
       if (message !== null) handleMessage(socket, message);
     });
-    const connectedAtMs = Date.now();
+    const connectedAtMs = clock.nowMs();
     socket.on('close', () => {
       settleJobsOf(socket);
-      telemetry?.capture('vault_companion_connection', { state: 'disconnected', connected_seconds: Math.max(0, Math.round((Date.now() - connectedAtMs) / 1000)) });
+      telemetry?.capture('vault_companion_connection', { state: 'disconnected', connected_seconds: Math.max(0, Math.round((clock.nowMs() - connectedAtMs) / 1000)) });
       if (companion !== socket) return;
       companion = null;
       companionNewItemsVault = null;

@@ -3,6 +3,7 @@ import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from 
 import { AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
+import { clock } from '../../shared/clock.ts';
 
 const LOOPBACK_HOST = '127.0.0.1';
 
@@ -37,7 +38,7 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), awakeUsage = () => null, now = Date.now, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), awakeUsage = () => null, now = clock.nowMs, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
   stopHost?: () => Promise<HostStopOutcome>;

@@ -12,6 +12,7 @@ import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_MAX_EDGE_PX } from '../../shared/contr
 import type { BoxMedia, Dial } from '../../shared/contracts/whiteboard.ts';
 import { DIAL_MANIFEST_SCAN_BYTES, dialManifestOf } from '../core/dial-manifest-core.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { clock } from '../../shared/clock.ts';
 
 const ASSETS_FOLDER_NAME = 'assets';
 const ASSET_INPUT_CAP_BYTES = SHOWN_FILE_CAP_BYTES;
@@ -297,7 +298,7 @@ async function dialsOf(pagePath: string, format: MediaFormat, name: string): Pro
   return manifest.ok ? manifest.dials : refusal(422, `${name} declares dials a board cannot take: ${manifest.error}`);
 }
 
-function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.now }: { boardsRoot: string; logger?: Pick<Console, 'warn'>; now?: () => number }): WhiteboardAssetStore {
+function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.nowMs }: { boardsRoot: string; logger?: Pick<Console, 'warn'>; now?: () => number }): WhiteboardAssetStore {
   const assetsRoot = path.join(boardsRoot, ASSETS_FOLDER_NAME);
   const storedByAssetId = new Map<string, StoredAsset>();
   const heldUntilByAssetId = new Map<string, number>();

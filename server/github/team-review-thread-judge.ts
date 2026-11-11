@@ -10,6 +10,7 @@ import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import type { TeamReviewThreadResult } from '../../shared/contracts/team-review.ts';
 import { REVIEW_AGENT_ADAPTER_ID, reviewerAgentArgs } from './core/team-review-core.ts';
 import type { ReviewerChoice } from './core/team-review-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 export const THREAD_JUDGE_TOOLS = Object.freeze(['Read', 'Write']);
 const THREAD_JUDGE_TIMEOUT_MS = 120000;
@@ -24,7 +25,7 @@ export function createThreadJudge(spawn: LaneSpawn, readReviewer: () => Reviewer
     timeout.unref();
     try {
       await fs.writeFile(path.join(workDir, 'thread-prompt.txt'), prompt, 'utf8');
-      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: THREAD_JUDGE_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, THREAD_JUDGE_ITEM_MAX_CHARS);
+      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: THREAD_JUDGE_SOURCE, fetchedAt: clock.now().toISOString(), items: untrustedItems }, THREAD_JUDGE_ITEM_MAX_CHARS);
       const signal = shutdownSignal ? AbortSignal.any([controller.signal, shutdownSignal]) : controller.signal;
       if (signal.aborted) return null;
       await spawn({

@@ -11,6 +11,7 @@ import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, Suggest
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
 import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
+import { clock } from '#shared/clock.ts';
 
 function commonPrefixLength(before: readonly string[], after: readonly string[]): number {
   const shortest = Math.min(before.length, after.length);
@@ -859,7 +860,7 @@ function writeDocText(editor: MarkupHost, nextText: string) {
 }
 
 function rememberDocEdit(editor: MarkupHost, edit: { kind: EditKind; after: string; caretBefore: number; caretAfter: number }) {
-  editor.markup.history = recordDocEdit(editor.markup.history, { ...edit, before: editor.textarea.value, atMs: Date.now() });
+  editor.markup.history = recordDocEdit(editor.markup.history, { ...edit, before: editor.textarea.value, atMs: clock.nowMs() });
   writeDocText(editor, edit.after);
 }
 

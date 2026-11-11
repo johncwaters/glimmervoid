@@ -13,6 +13,7 @@ import { errorLabel, errorMessage } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
+import { clock } from '../shared/clock.ts';
 
 type PendingPairing = {
   tokenHash: string;
@@ -110,7 +111,7 @@ function pairingsSignature(doc: unknown): string {
 
 function createPairingsStore({
   filePath = defaultPairingsPath(),
-  now = Date.now,
+  now = clock.nowMs,
   randomBytes,
   warn = console.warn,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
@@ -152,7 +153,7 @@ function createPairingsStore({
   function removeIfStale(): boolean {
     try {
       const stat = fs.statSync(lockPath);
-      if (Date.now() - stat.mtimeMs <= LOCK_STALE_MS) return false;
+      if (clock.nowMs() - stat.mtimeMs <= LOCK_STALE_MS) return false;
       fs.unlinkSync(lockPath);
       warn('[pairings] Removed a stale write lock left by an earlier process');
       return true;
@@ -351,7 +352,7 @@ function createPairingsStore({
 function createSeenStore({
   filePath = defaultSeenPath(),
   throttleMs = 60000,
-  now = Date.now,
+  now = clock.nowMs,
 }: { filePath?: string; throttleMs?: number; now?: () => number } = {}): SeenStore {
   const lastWriteByDevice = new Map<string, number>();
   let pending: Promise<void> | null = null;

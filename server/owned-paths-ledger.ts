@@ -9,6 +9,7 @@ import type { OwnedPathEntry } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
 import { holdsKeptPath, orphanedOwnedPaths } from './core/owned-paths-core.ts';
+import { clock } from '../shared/clock.ts';
 
 type OwnedPathsLedgerHandle = ReturnType<typeof createOwnedPathsLedger>;
 
@@ -115,7 +116,7 @@ async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPat
   if (holdsKeptPath(entry.path, keptPaths)) return 'it holds a checkout that was kept';
   if (await holdsCheckout(entry.path)) return 'it still holds a checkout';
   const isRecorded = await appendRemovalRecord(journalPath, {
-    ts: Date.now(), cause: 'owned-paths', kind: 'folder', path: entry.path, branch: null, projectPath: entry.projectPath,
+    ts: clock.nowMs(), cause: 'owned-paths', kind: 'folder', path: entry.path, branch: null, projectPath: entry.projectPath,
     sessionId: sessionIdFromOwner(entry.owner), checksPassed: ['session-not-configured', 'holds-no-checkout'], pid: process.pid,
   }, log);
   if (!isRecorded) return 'its removal record could not be written';

@@ -7,6 +7,7 @@ import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAf
 import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
+import { clock } from '#shared/clock.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
@@ -87,7 +88,7 @@ type Gesture =
 
 export function newElementId(kind: BoardElement['kind']): string {
   const entropy = Math.random().toString(36).slice(2, 8);
-  return `${kind}-${Date.now().toString(36)}${entropy}`;
+  return `${kind}-${clock.nowMs().toString(36)}${entropy}`;
 }
 
 function isPhoneLayout(): boolean {

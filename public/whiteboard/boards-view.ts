@@ -35,6 +35,7 @@ import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
   boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
+import { clock } from '#shared/clock.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
@@ -397,7 +398,7 @@ function paintBoardEditedAge(): void {
   if (!parts) return;
   const summary = selectedSummary();
   if (!summary) return;
-  const editedText = `edited ${elapsedText(Date.now() - summary.updatedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: EDITED_JUST_NOW_BELOW_SECONDS })}`;
+  const editedText = `edited ${elapsedText(clock.nowMs() - summary.updatedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: EDITED_JUST_NOW_BELOW_SECONDS })}`;
   if (parts.boardMeta.textContent !== editedText) parts.boardMeta.textContent = editedText;
 }
 

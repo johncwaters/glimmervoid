@@ -18,6 +18,7 @@ import type { PrGh } from './pr-gh.ts';
 import type { createGitWorkspace } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 export function createIssuesStateIo(statePath: string, log: Pick<Console, 'warn'>) {
   let loaded = core.emptyIssuesState();
@@ -90,7 +91,7 @@ export function createIssuesWiring({ config, gitWorkspace, broadcast, hasSession
     const snapshot = cachedState;
     return stateWrites.run(() => stateIo.writeState(snapshot));
   }
-  const emptyStatus = () => core.issuesStatus({ ts: Date.now(), ...core.issuesCachedSourcesGate(cachedState.issues, teams()), issues: cachedState.issues, sessionLinks: pruneSessionLinks(), lastSyncAt: cachedState.lastSyncAt });
+  const emptyStatus = () => core.issuesStatus({ ts: timeClock.nowMs(), ...core.issuesCachedSourcesGate(cachedState.issues, teams()), issues: cachedState.issues, sessionLinks: pruneSessionLinks(), lastSyncAt: cachedState.lastSyncAt });
   let pollerStatus: IssuesStatusType | null = null;
   let watcherProblem: string | null = null;
   const currentStatus = () => core.issuesStatus({ ...(pollerStatus ?? emptyStatus()), sessionLinks: pruneSessionLinks(), watcherProblem });

@@ -36,6 +36,7 @@ import {
   teamReviewLaneNotices,
 } from './team-review-panel.ts';
 import { teamReviewSections, teamReviewStatusView } from './team-review-store.ts';
+import { clock } from '#shared/clock.ts';
 
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
@@ -301,7 +302,7 @@ function rowFor(item: QueueItem, hasMultipleRepos: boolean, sessionsByPrKey: Rea
 }
 
 function itemAgeTone(item: QueueItem, groupId: DisplayGroupId) {
-  return ageToneOf(groupId, queueItemWaitStartMs(item), Date.now());
+  return ageToneOf(groupId, queueItemWaitStartMs(item), clock.nowMs());
 }
 
 function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
@@ -524,7 +525,7 @@ function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sess
 }
 
 function queueNoticeElements(): HTMLElement[] {
-  const mineNotices = myPrsQueueNotices(myPrsSnapshot().status, Date.now()).filter((notice) => notice.tone !== 'error').map((notice) => el('p', 'my-pr-note', notice.text));
+  const mineNotices = myPrsQueueNotices(myPrsSnapshot().status, clock.nowMs()).filter((notice) => notice.tone !== 'error').map((notice) => el('p', 'my-pr-note', notice.text));
   return [...(pollingControls ? [pollingControls.notice] : []), ...teamReviewLaneNotices(), ...mineNotices];
 }
 

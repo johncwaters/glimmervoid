@@ -90,6 +90,7 @@ import type { KillProc, SessionProcessReaper, SignalProc } from "./session-proce
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
+import { clock } from '../shared/clock.ts';
 
 const PTY_PROMPT_SETTLE_MS = 1500;
 const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
@@ -456,7 +457,7 @@ class Session extends EventEmitter {
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.ptyProcess = null;
     this.state = STATES.DORMANT;
-    this.stateSince = Date.now();
+    this.stateSince = clock.nowMs();
     this.failureReason = null;
     this.unseenOutcome = null;
     this.managerSeenSeq = 0;
@@ -882,7 +883,7 @@ class Session extends EventEmitter {
     }
 
     if (this._isSubagentTurnStop(raw)) {
-      this._recordDecision({ ts: Date.now(), kind: "signal", signal: raw.signal, source: raw.source, state: this.state, active: this.backgroundTracking.activeAgentCount(), action: "subagent-stop-dropped" });
+      this._recordDecision({ ts: clock.nowMs(), kind: "signal", signal: raw.signal, source: raw.source, state: this.state, active: this.backgroundTracking.activeAgentCount(), action: "subagent-stop-dropped" });
       return;
     }
 
@@ -946,7 +947,7 @@ class Session extends EventEmitter {
 
       const isSelfWake = isSelfWakePrompt(raw.payload?.prompt);
       if (!isSelfWake) this._dispatchAttention({ type: "operator_prompt" });
-      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: Date.now(), isSelfWake });
+      this.emit("user-prompt", { state: this.state, stateSince: this.stateSince, ts: clock.nowMs(), isSelfWake });
     }
 
     if (raw && raw.signal === "ready" && raw.source === "hook") {
@@ -1129,7 +1130,7 @@ class Session extends EventEmitter {
     const gateHeld = !event && s.signal === "ready" && (active > 0 || orphanStopGate)
       && !!eventWithoutGate;
     this._recordDecision({
-      ts: Date.now(),
+      ts: clock.nowMs(),
       kind: "signal",
       signal: s.signal,
       source: s.source,
@@ -1243,7 +1244,7 @@ class Session extends EventEmitter {
 
   raiseAttention(origin: AttentionOrigin, note: string): AgentAttentionReply {
     if (this._destroyed) return { ok: true, pending: false };
-    const effect = this._dispatchAttention({ type: "raise", origin, note, at: Date.now(), state: this.state });
+    const effect = this._dispatchAttention({ type: "raise", origin, note, at: clock.nowMs(), state: this.state });
     if (effect.refusal !== null) return { ok: false, error: effect.refusal };
     return { ok: true, pending: effect.isHeld };
   }
@@ -1255,7 +1256,7 @@ class Session extends EventEmitter {
   _dispatchAttention(event: AttentionEvent): ReturnType<typeof reduceAttention>["effect"] {
     const { lanes, effect } = reduceAttention(this._attention, event);
     this._attention = lanes;
-    const ts = Date.now();
+    const ts = clock.nowMs();
     for (const record of effect.records) {
       this._recordDecision({ ts, kind: "attention", origin: record.origin, disposition: record.disposition, state: this.state, note: record.note });
     }
@@ -1479,7 +1480,7 @@ class Session extends EventEmitter {
         ...this.getDetectionStats(),
         agents: { ...this.backgroundTracking.agentBreakdown(), active },
         gate: held
-          ? { heldForMs: Date.now() - held.ts, seq: held.seq, lastActivitySeq: this.backgroundTracking.lastActivitySeq() }
+          ? { heldForMs: clock.nowMs() - held.ts, seq: held.seq, lastActivitySeq: this.backgroundTracking.lastActivitySeq() }
           : null,
       },
       decisions: this._observability.decisionTail(15),
@@ -1506,7 +1507,7 @@ class Session extends EventEmitter {
         to,
         event,
         detail: detail || null,
-        timestamp: Date.now(),
+        timestamp: clock.nowMs(),
         selfTransition: true,
       });
       if (this._recorder) {
@@ -1541,7 +1542,7 @@ class Session extends EventEmitter {
       void this._refreshTranscriptTaskTitle();
     }
 
-    const enteredAt = Date.now();
+    const enteredAt = clock.nowMs();
     this.stateSince = enteredAt;
     this._pushAuditEntry({
       from,
@@ -1927,7 +1928,7 @@ class Session extends EventEmitter {
       if (this._hookSeen) return;
       console.warn(`[session:${this.name}] no hook callback within ${Math.round(this._titleQuietFallbackMs / 1000)}s - opening the title tier (detection is degraded)`);
       this._titleQuiet = false;
-      this._recordDecision({ kind: "title-latch", ts: Date.now(), decision: "fallback-open", reason: "no hook callback before the deadline" });
+      this._recordDecision({ kind: "title-latch", ts: clock.nowMs(), decision: "fallback-open", reason: "no hook callback before the deadline" });
     }, { unref: true });
   }
 

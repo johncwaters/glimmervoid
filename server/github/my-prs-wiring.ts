@@ -30,6 +30,7 @@ import { errorMessage } from '../../shared/text.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { runGit } from '../git/git-exec.ts';
 import { createSshSigner, readSigningKeySetting } from '../ssh-signing.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 type MyPrsPoller = ReturnType<typeof createMyPrsPoller>;
 type MyPrsPollerDependencies = Parameters<typeof createMyPrsPoller>[0];
@@ -367,7 +368,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
   const gate = () => core.myPrsShouldStart(settings());
   const emptyStatus = () => {
     const verdict = gate();
-    return core.myPrsStatus({ ts: Date.now(), configured: verdict.start, reason: verdict.reason ?? null });
+    return core.myPrsStatus({ ts: timeClock.nowMs(), configured: verdict.start, reason: verdict.reason ?? null });
   };
   const runner = createLaneRunner<MyPrsPoller>({
     tag: core.MY_PRS_LANE_ID,

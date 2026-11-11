@@ -7,6 +7,7 @@ import { ATTENTION_NOTE_NOTIFY_CATEGORY, QUIET_NOTIFY_CATEGORIES } from '../shar
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import type { NotificationState } from '../shared/notification-states.ts';
 import type { NotifyAlertGroup } from '../shared/contracts/control-messages.ts';
+import { clock } from '../shared/clock.ts';
 
 
 interface AlertGroup {
@@ -87,7 +88,7 @@ class NotificationManager extends EventEmitter {
     alertGroupWindowMs = 3000,
     phoneEscalationMs = 300000,
     recordOutcome = () => {},
-    now = () => Date.now(),
+    now = () => clock.nowMs(),
   }: NotificationManagerDependencies = {}) {
     super();
     this._entries = new Map();
@@ -342,7 +343,7 @@ class NotificationManager extends EventEmitter {
     if (category === null || message === null) return;
     const context = {
       escalationCount: entry.escalationCount,
-      timestamp: Date.now(),
+      timestamp: clock.nowMs(),
       ...(extraContext || {}),
     };
     for (const channel of this._channels) {

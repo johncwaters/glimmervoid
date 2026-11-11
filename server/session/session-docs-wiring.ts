@@ -11,6 +11,7 @@ import { DOC_IMAGE_CAP_BYTES, decodeDocBytes, describeDocRefusal, encodeDocText,
 import type { DocRefusal } from './core/session-docs-core.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface DocSession {
   id: string;
@@ -143,7 +144,7 @@ async function nameWithinRoot(root: string, realPath: string): Promise<string> {
   return path.relative(realRoot, realPath);
 }
 
-function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
+function createSessionDocsWiring({ broadcastControl, now = clock.nowMs }: {
   broadcastControl: (message: ControlMessageRecord) => void;
   now?: () => number;
 }): SessionDocsPort {

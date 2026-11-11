@@ -4,6 +4,7 @@ import { CODER_ENV_IDLE_TICK_MS, parseGlimmervoidWorkspaces, planReconcile, shou
 import type { CoderWorkspace, ReconcilePlan, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickLoopOptions, TickOutcome } from '../lanes/lane-runner.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface RemoteIdleSession {
   projectId: string;
@@ -28,7 +29,7 @@ type CoderEnvPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | 'clear
 
 function createCoderEnvPoller({
   listWorkspaces, stopWorkspace, deleteWorkspace, sessionsForIdleCheck, mappings, busyWorkspaces, ownedWorkspaces, isReconcilePending, deleteAfterStoppedDays, onReconciled,
-  now = Date.now, log = console, ...loopOptions
+  now = clock.nowMs, log = console, ...loopOptions
 }: CoderEnvPollerDeps) {
   const stoppedIdlePeriods = new Map<string, number>();
 

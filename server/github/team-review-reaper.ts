@@ -5,6 +5,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { isContainedReviewDirectory, parseCwdTable, parseProcessTable, protectedProcessIds, selectTeamReviewProcessIds } from './core/team-review-reaper-core.ts';
 import type { OwnedDirectoryScope, ProcessRow } from './core/team-review-reaper-core.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { clock } from '../../shared/clock.ts';
 
 const PROCESS_LIST_TIMEOUT_MS = 5000;
 const TERMINATION_GRACE_MS = 2000;
@@ -68,9 +69,9 @@ function sendSignal(pid: number, signal: NodeJS.Signals): boolean {
 }
 
 async function waitForProcessesToExit(pids: readonly number[]): Promise<number[]> {
-  const deadline = Date.now() + TERMINATION_GRACE_MS;
+  const deadline = clock.nowMs() + TERMINATION_GRACE_MS;
   let survivors = pids.filter(isProcessAlive);
-  while (survivors.length > 0 && Date.now() < deadline) {
+  while (survivors.length > 0 && clock.nowMs() < deadline) {
     await new Promise<void>((resolve) => setTimeout(resolve, EXIT_POLL_MS));
     survivors = survivors.filter(isProcessAlive);
   }

@@ -428,7 +428,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     fsPromises = nodeFsPromises,
     env = process.env,
     homeDir = os.homedir(),
-    nowFn = Date.now,
+    nowFn = clock.nowMs,
     pricingTable,
     aliases = {},
     costMode = 'auto',

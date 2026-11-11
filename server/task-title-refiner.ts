@@ -16,6 +16,7 @@ import { readLaneResultFile } from './lanes/lane-spawn.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_MODELS } from '../shared/contracts/agent-models.ts';
+import { clock } from '../shared/clock.ts';
 
 const PROMPT_FILE = 'task-title-prompt.txt';
 const RESULT_FILE = 'task-title-result.json';
@@ -100,7 +101,7 @@ async function refineTaskTitle(request: RefinementRequest, model: string, spawnL
   return { refinement: parseRefinedTaskTitle(laneResult, sessionNamesToAvoid), proposedSessionName };
 }
 
-function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBoard, nowFn = () => Date.now(), logger = console }: TaskTitleRefinerOptions) {
+function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBoard, nowFn = () => clock.nowMs(), logger = console }: TaskTitleRefinerOptions) {
   const statesBySession = new Map<Session, SessionRefinementState>();
   const queuedBySession = new Map<Session, RefinementRequest>();
   let active: ActiveRefinement | null = null;

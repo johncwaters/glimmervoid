@@ -47,6 +47,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { probeBranchAndUpstream, standaloneExecutableRealpath } from './update-check.ts';
 import { BEFORE_HAND_OFF_CAP_MS } from './server-lifecycle.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
+import { clock as timeClock } from '../shared/clock.ts';
 
 const RETIRED_UPDATE_CHANNELS = new Set(['experimental', 'main']);
 const FETCH_TIMEOUT_MS = 60_000;
@@ -172,7 +173,7 @@ function refusal(reason: string, message: string): UpdateApplyOutcome {
 function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApplyLane {
   const runCommand = dependencies.runCommand || execFileAsync;
   const fsPromises = dependencies.fsPromises || fs.promises;
-  const clock = dependencies.clock || (() => Date.now());
+  const clock = dependencies.clock || (() => timeClock.nowMs());
   const updatePath = path.join(dependencies.packageRoot, '.glimmervoid', 'update');
   const stagingPath = path.join(updatePath, 'next');
   const npmGlobalLayout = decideNpmGlobalLayout(dependencies.packageRoot);

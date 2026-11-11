@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 import pkg from '../package.json' with { type: 'json' };
 import { REPO_SLUG } from '../shared/repo.ts';
+import { clock } from '../shared/clock.ts';
 
 function run(cmd: string, opts: ExecSyncOptions = {}): void {
   console.log(`  $ ${cmd}`);
@@ -77,7 +78,7 @@ function findTestRunDispatchedSince(commitSha: string, dispatchedAt: Date): stri
 
 function requirePassingTestRun(commitSha: string): void {
   console.log(`\n==> Running ${TEST_WORKFLOW} on ${commitSha} before tagging...`);
-  const dispatchedAt = new Date(Date.now() - TEST_RUN_CLOCK_SKEW_MS);
+  const dispatchedAt = new Date(clock.nowMs() - TEST_RUN_CLOCK_SKEW_MS);
   run(`gh workflow run ${TEST_WORKFLOW} --ref ${RELEASE_BRANCH}`);
   const testRunId = findTestRunDispatchedSince(commitSha, dispatchedAt);
   if (testRunId === null) {

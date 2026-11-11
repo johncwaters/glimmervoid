@@ -6,6 +6,7 @@ import kimi from '../../session/adapters/kimi.ts';
 import { parseClaudeInitialize, parseCodexModels, parseKimiModels } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS } from '../../shared/contracts/agent-models.ts';
 import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel } from '../../shared/contracts/agent-models.ts';
+import { clock } from '../../shared/clock.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
 const PROBE_TIMEOUT_MS = 20_000;
@@ -62,7 +63,7 @@ async function scanAgentModels(nowMs: number): Promise<void> {
   lastCatalog = { agents };
 }
 
-function refreshAgentModelsWhenStale(nowMs = Date.now()): Promise<void> {
+function refreshAgentModelsWhenStale(nowMs = clock.nowMs()): Promise<void> {
   if (scanInFlight) return scanInFlight;
   if (nowMs - lastScanStartedAtMs < SCAN_FRESH_FOR_MS) return Promise.resolve();
   lastScanStartedAtMs = nowMs;
@@ -70,7 +71,7 @@ function refreshAgentModelsWhenStale(nowMs = Date.now()): Promise<void> {
   return scanInFlight;
 }
 
-function currentAgentModelCatalog(nowMs = Date.now()): AgentModelCatalog {
+function currentAgentModelCatalog(nowMs = clock.nowMs()): AgentModelCatalog {
   void refreshAgentModelsWhenStale(nowMs);
   return lastCatalog;
 }

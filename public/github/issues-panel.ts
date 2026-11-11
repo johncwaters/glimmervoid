@@ -22,6 +22,7 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { actionOutcomeOfIssue, isChangingIssueState, isIssueClosed, isOpeningIssue, issueBodyText, issuesSnapshot, openIssueSession, reportIssuesAction, requestIssueBody, selectedIssue, selectIssue, setIssueState, subscribeIssues } from './issues-store.ts';
 import type { IssuesChange } from './issues-store.ts';
+import { clock } from '#shared/clock.ts';
 
 type IssuesPage = { kind: 'list'; list: IssueList } | { kind: 'issue'; cameFrom: IssueList };
 
@@ -70,7 +71,7 @@ function createStatusIcon(status: IssueStatus): HTMLElement {
 
 function createAge(timestampMs: number, className: string): HTMLElement {
   const waitStart = new Date(timestampMs).toISOString();
-  const age = el('span', className, issueRelativeAge(waitStart, Date.now()));
+  const age = el('span', className, issueRelativeAge(waitStart, clock.nowMs()));
   age.dataset.issueAge = waitStart;
   return age;
 }
@@ -363,7 +364,7 @@ function onIssuesKey(event: KeyboardEvent): void {
 
 function updateAges(): void {
   if (!root || root.closest('[hidden]') || document.hidden) return;
-  const nowMs = Date.now();
+  const nowMs = clock.nowMs();
   const latestStatus = issuesSnapshot().latestStatus;
   const lastSyncAt = latestStatus?.lastSyncAt;
   const syncText = lastSyncAt ? `Synced ${issueAgo(lastSyncAt, nowMs)}.` : 'Not synced yet.';

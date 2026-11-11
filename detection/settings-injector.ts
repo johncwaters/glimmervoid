@@ -15,6 +15,7 @@ import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVER
 import { RESUME_NOTE_HOOK_EVENT, REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
 import { safePathSegment } from '../shared/paths.ts';
 import { isRecord, textOr } from '../shared/coerce.ts';
+import { clock } from '../shared/clock.ts';
 
 const DEFAULT_BASE_DIR = path.join(hostScratchRoot(), 'glimmervoid-hooks');
 const DEFAULT_TIMEOUT_SEC = 5;
@@ -338,7 +339,7 @@ function sweepOrphans(baseDir: string = DEFAULT_BASE_DIR, maxAgeMs: number = 24 
   } catch {
     return 0;
   }
-  const cutoff = Date.now() - maxAgeMs;
+  const cutoff = clock.nowMs() - maxAgeMs;
   let removed = 0;
   for (const ent of entries) {
     if (!ent.isDirectory()) continue;

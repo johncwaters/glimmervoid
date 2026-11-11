@@ -8,6 +8,7 @@ import { createLaneLog } from '../lanes/lane-log.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { kimiUsagesSource, parseKimiUsages, pickKimiAccessToken } from './core/usage-kimi-limits-core.ts';
 import type { KimiPlanLimitsSnapshot } from './core/usage-kimi-limits-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const KIMI_USAGES_TIMEOUT_MS = 8000;
 
@@ -39,7 +40,7 @@ function createKimiPlanLimitsReader({
   fsPromises = nodeFsPromises,
   fetchFn = fetch,
   timeoutMs = KIMI_USAGES_TIMEOUT_MS,
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
   logger = console,
 }: KimiPlanLimitsReaderOptions = {}) {
   const laneLog = createLaneLog({ prefix: '[usage]', logger });

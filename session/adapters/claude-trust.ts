@@ -6,6 +6,7 @@ import {
 } from '../core/claude-trust-core.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../../server/core/claude-config-paths-core.ts';
 import { writeTextAtomic } from '../../server/json-file.ts';
+import { clock } from '../../shared/clock.ts';
 
 type FolderTrustOutcome = 'already-trusted' | 'granted';
 
@@ -21,7 +22,7 @@ function sleepFor(durationMs: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, durationMs); });
 }
 
-function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), now = Date.now, platform = process.platform, sleep = sleepFor }: ClaudeFolderTrustOptions = {}) {
+function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), now = clock.nowMs, platform = process.platform, sleep = sleepFor }: ClaudeFolderTrustOptions = {}) {
   async function resolveConfiguredPath(): Promise<string> {
     const [legacyConfigPath, currentConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
     const hasLegacyConfig = await fs.access(legacyConfigPath).then(() => true, () => false);

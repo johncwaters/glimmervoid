@@ -4,6 +4,7 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { appendJsonLine } from './json-file.ts';
 import type { RemovalCause, RemovalKind, RemovalRecord } from '../shared/contracts/removal-record.ts';
 import { errorMessage } from '../shared/text.ts';
+import { clock } from '../shared/clock.ts';
 
 function removalsJournalPath(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, 'logs', 'removals.jsonl');
@@ -37,7 +38,7 @@ async function recordSweptPath({ cause, kind, path: sweptPath, checksPassed, ses
   log?: Pick<Console, 'warn'>;
 }): Promise<boolean> {
   return appendRemovalRecord(journalPath, {
-    ts: Date.now(), cause, kind, path: sweptPath, branch: null, projectPath: null, sessionId, checksPassed, pid: process.pid,
+    ts: clock.nowMs(), cause, kind, path: sweptPath, branch: null, projectPath: null, sessionId, checksPassed, pid: process.pid,
   }, log);
 }
 

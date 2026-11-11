@@ -9,6 +9,7 @@ import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { getSoundId, isNotificationsEnabled, isSoundEnabled } from './ui-prefs.ts';
 import { button } from './ui/button.ts';
+import { clock } from '#shared/clock.ts';
 
 type AlertSoundModule = typeof import('./alert-sound.ts');
 
@@ -140,7 +141,7 @@ function showAlertGroupBanner(msg: ServerMessageOf<'notify'>, group: NotifyAlert
   if (!notificationApi) return;
   alertGroupLines = foldAlertGroupLines(alertGroupLines, group, msg.message);
   clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
-  if (!claimNotification(window.localStorage, claimKey(`group-${group.id}`, `${msg.session}-${msg.category}`), Date.now())) return;
+  if (!claimNotification(window.localStorage, claimKey(`group-${group.id}`, `${msg.session}-${msg.category}`), clock.nowMs())) return;
   const onlySessionUi = group.sessionIds.length === 1 ? sessionUIs.get(msg.session) : undefined;
   const title = group.sessionIds.length > 1 ? `${group.sessionIds.length} sessions` : (onlySessionUi ? sessionName(onlySessionUi) : 'Glimmervoid');
   try {
@@ -224,7 +225,7 @@ export function showDesktopNotification({
   if (notificationApi.permission !== 'granted') return;
   clearHeaderError(NOTIFICATIONS_ERROR_SOURCE);
 
-  if (!claimNotification(window.localStorage, claimKey(session, category), Date.now())) return;
+  if (!claimNotification(window.localStorage, claimKey(session, category), clock.nowMs())) return;
   const sessionId = typeof session === 'string' ? session : '';
   const sessionUi = sessionUIs.get(sessionId);
   const shownSessionName = sessionUi ? sessionName(sessionUi) : '';

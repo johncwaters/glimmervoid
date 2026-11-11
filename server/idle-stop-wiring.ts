@@ -3,6 +3,7 @@ import type { HostStopRequestOutcome } from '../cloud/link/watcher-link.ts';
 import type { SessionState } from '../shared/states.ts';
 import type { ExpiredOpenWork } from '../session/core/agent-tracker.ts';
 import type { TelemetryEventProperties } from '../shared/contracts/telemetry.ts';
+import { clock } from '../shared/clock.ts';
 
 type LiveSessionView = { state: SessionState; hasBackgroundWork: boolean; expiredOpenWork: ExpiredOpenWork };
 type StopRequestedReport = TelemetryEventProperties<'idle_stop_requested'>;
@@ -20,7 +21,7 @@ function expiredWorkReport(sessions: readonly LiveSessionView[]): Omit<StopReque
 
 const DEFAULT_TICK_MS = 15_000;
 
-function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, now = Date.now, tickMs = DEFAULT_TICK_MS, log = console }: {
+function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, now = clock.nowMs, tickMs = DEFAULT_TICK_MS, log = console }: {
   liveSessions: () => Iterable<LiveSessionView>;
   requestHostStop: () => Promise<HostStopRequestOutcome>;
   reportStopRequested: (report: StopRequestedReport) => void;

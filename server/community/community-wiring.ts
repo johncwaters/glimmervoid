@@ -30,6 +30,7 @@ import { ACCEPT_EDITS_MODE, laneAccessConfigOf } from '../lanes/core/lane-permis
 import { firstLine, raceWithAbort } from '../lanes/ephemeral-session.ts';
 import type { RecordLane, SpawnGate } from '../lanes/ephemeral-session.ts';
 import type { HookRouter } from '../../detection/hook-source.ts';
+import { clock } from '../../shared/clock.ts';
 
 const COMMUNITY_WORK_DIRNAME = 'community-work';
 const RESULT_MAX_BYTES = 1024 * 1024;
@@ -131,7 +132,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
     try {
       const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath });
-      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
+      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: clock.now().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
       await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
         timeoutMs: core.RUN_TIMEOUT_SECONDS * 1000,

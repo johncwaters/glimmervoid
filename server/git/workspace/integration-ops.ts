@@ -12,6 +12,7 @@ import { ISOLATED_CHECKOUT_BASE_REF, ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS, ISOLA
 import type { CheckoutDetachedArgs, GitResult, GitWorkspaceContext, IntegrationSyncResult, MergeFastForwardArgs, MergeFastForwardResult, MergeProbeEnvArgs, MergeTreeArgs, MergeTreeProbe, QueuedGitResult, ResetKeepArgs, StageIsolatedCheckoutArgs, WorktreeArgs } from './workspace-context.ts';
 import type { OriginOps } from './origin-ops.ts';
 import type { RebaseOps } from './rebase-ops.ts';
+import { clock } from '../../../shared/clock.ts';
 
 const fsp = fs.promises;
 const INTEGRATION_SYNC_FETCH_BUDGET_MS = 15_000;
@@ -213,7 +214,7 @@ function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, r
   }
 
   function budgetLeftMs(deadline: number): number {
-    return deadline - Date.now();
+    return deadline - clock.nowMs();
   }
 
   async function recoverFailedIntegrationFetch(projectPath: string, branch: string, fetched: GitResult, deadline: number): Promise<GitResult> {
@@ -238,7 +239,7 @@ function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, r
   }
 
   async function syncIntegrationBranchBody({ projectPath, branch }: WorktreeArgs): Promise<IntegrationSyncResult> {
-    const fetchDeadline = Date.now() + INTEGRATION_SYNC_FETCH_BUDGET_MS;
+    const fetchDeadline = clock.nowMs() + INTEGRATION_SYNC_FETCH_BUDGET_MS;
     if (!(await hasOriginRemote(projectPath))) return { outcome: 'no-remote', from: null, to: null };
     const localRef = `refs/heads/${branch}`;
     const remoteRef = `refs/remotes/origin/${branch}`;

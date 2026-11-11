@@ -1,3 +1,4 @@
+import { clock } from '../../shared/clock.ts';
 const DEFAULT_INTERVAL_MS = 30_000;
 
 const DEFAULT_DEADLINE_MS = 75_000;
@@ -14,7 +15,7 @@ interface HeartbeatSweepPlan<TKey> {
 
 function planHeartbeatSweep<TKey>(
   connections: (HeartbeatConnection<TKey> | null | undefined)[],
-  { now = Date.now(), deadlineMs = DEFAULT_DEADLINE_MS }: { now?: number; deadlineMs?: number } = {},
+  { now = clock.nowMs(), deadlineMs = DEFAULT_DEADLINE_MS }: { now?: number; deadlineMs?: number } = {},
 ): HeartbeatSweepPlan<TKey> {
   const terminate: TKey[] = [];
   const ping: TKey[] = [];

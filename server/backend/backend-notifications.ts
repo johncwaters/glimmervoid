@@ -17,6 +17,7 @@ import type { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
 import type { NotificationContext } from '../../notifications/notification-manager.ts';
 import { createHeartbeat } from '../ws-heartbeat.ts';
 import { NOTIFICATION_STATES } from '../../shared/notification-states.ts';
+import { clock } from '../../shared/clock.ts';
 
 const ESCALATION_INTERVAL_MS = 300000;
 const DEFAULT_ALERT_GROUP_WINDOW_MS = 3000;
@@ -76,7 +77,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     const refusal = telegramTestRefusal({ botToken, chatId });
     if (refusal) return { ok: false, error: refusal };
     const sendResult = await sendTelegramMessage({ botToken, chatId, text, tag: 'channel:telegram' });
-    lastTelegramFailure = sendResult.ok ? null : { message: sendResult.error ?? 'The send failed.', failedAt: Date.now() };
+    lastTelegramFailure = sendResult.ok ? null : { message: sendResult.error ?? 'The send failed.', failedAt: clock.nowMs() };
     return sendResult;
   }
 
@@ -161,7 +162,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     if (to === NOTIFICATION_STATES.ACKNOWLEDGED || to === NOTIFICATION_STATES.IDLE) unsentHubAlertBySessionId.delete(session);
     const liveSession = sessions.get(session);
     if (!liveSession) return;
-    liveSession.recordNotifyDecision({ ts: Date.now(), kind: 'notify-state', from, to, event, category });
+    liveSession.recordNotifyDecision({ ts: clock.nowMs(), kind: 'notify-state', from, to, event, category });
   });
 
   function applySettings(): void {

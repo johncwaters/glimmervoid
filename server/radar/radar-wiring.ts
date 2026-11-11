@@ -53,6 +53,7 @@ import type { RadarToolPosture } from './radar-posture.ts';
 import { buildFixPrompt, buildInvestigationPrompt, fallbackPrBody, fallbackPrTitle, promptIssueUrl, safeIssueId } from './radar-prompts.ts';
 import { checkFixBranch, commitFixWork, handoffFailure, readWorktreeGitPointer, runCli } from './radar-fix-handoff.ts';
 import type { CliResult, PosthogWorkspace } from './radar-fix-handoff.ts';
+import { clock } from '../../shared/clock.ts';
 
 const REPORT_DIR = DEFAULT_POSTHOG_REPORT_DIR;
 const REPORT_RETAIN_FILES = 20;
@@ -171,7 +172,7 @@ function createResultFileFor(kind: string, projectId: unknown, issueId: unknown)
 }
 
 function newFixDiscriminator(): string {
-  return `${Date.now().toString(36)}${crypto.randomBytes(2).toString('hex')}`;
+  return `${clock.nowMs().toString(36)}${crypto.randomBytes(2).toString('hex')}`;
 }
 
 async function sweepReports(dir: string = REPORT_DIR, retain: number = REPORT_RETAIN_FILES): Promise<void> {
@@ -335,21 +336,21 @@ function createRadarWiring({
   async function writeIssuePayload(laneCwd: string, issue: PosthogIssue, projectId: string | number): Promise<boolean> {
     const exceptionEvents = await fetchExceptionEvents(projectId, issue.issueId);
     await writeUntrustedPayload(laneCwd, {
-      trust: 'untrusted', source: core.RADAR_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(),
+      trust: 'untrusted', source: core.RADAR_UNTRUSTED_SOURCE, fetchedAt: clock.now().toISOString(),
       items: core.radarUntrustedItems(issue, exceptionEvents ?? []),
     }, core.RADAR_UNTRUSTED_ITEM_MAX_CHARS);
     return exceptionEvents !== null;
   }
 
   function observeTrail(sess: Session, onActivity: (trail: InvestigationTrail) => void): void {
-    let trail = createInvestigationTrail(Date.now());
+    let trail = createInvestigationTrail(clock.nowMs());
     const transcriptTail: TranscriptTail = { realPath: null, offset: 0 };
     let pendingReports: Promise<void> = Promise.resolve();
     onActivity(trail);
     sess.on('hook-event', ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
       const step = trailStepFromHook(event, payload);
       if (!step) return;
-      const at = Date.now();
+      const at = clock.nowMs();
       const transcriptPath = typeof payload.transcript_path === 'string' ? payload.transcript_path : '';
       pendingReports = pendingReports.then(async () => {
         const newTranscriptLines = transcriptPath ? await readNewTranscriptLines(transcriptTail, transcriptPath).catch(() => []) : [];
@@ -453,7 +454,7 @@ function createRadarWiring({
       if (handoff.failedStep) telemetry?.capture('radar_fix_handoff_failed', { step: handoff.failedStep });
       if (signal?.aborted) return abortedResult;
       const pendingFix = handoff.verdict === 'FIXED' && workspace.branch
-        ? { repoPath, branch: workspace.branch, base: workspace.base ?? null, agentPrTitle: prTitle, agentPrBody: prBody, expiresAt: Date.now() + core.PENDING_FIX_TTL_MS }
+        ? { repoPath, branch: workspace.branch, base: workspace.base ?? null, agentPrTitle: prTitle, agentPrBody: prBody, expiresAt: clock.nowMs() + core.PENDING_FIX_TTL_MS }
         : null;
       isBranchKept = pendingFix !== null;
       return {

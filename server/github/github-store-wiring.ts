@@ -8,6 +8,7 @@ import { createGithubStorePoller } from './github-store-poller.ts';
 import { GITHUB_STORE_LANE_ID, coveredProbeKey, githubStoreProbes, nudgedStorePoll } from './github-store-probes.ts';
 import type { Nudge, Probe } from '../../shared/contracts/watcher-link.ts';
 import type { PrGh } from './pr-gh.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 const MAX_NUDGED_POLL_ATTEMPTS = 5;
 const MAX_NUDGED_POLL_RETRY_MS = 5 * 60_000;
@@ -27,7 +28,7 @@ export function storeReadingLaneClock(clock: SharedClock | undefined): SharedClo
   return clock ? { schedule: clock.schedule, exclusive: async (work) => work(), githubStatus: clock.githubStatus } : undefined;
 }
 
-export function createGithubStoreWiring({ github, clock, now = Date.now, isDashboardConnected, broadcast, log, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn }: GithubStoreWiringOptions) {
+export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, isDashboardConnected, broadcast, log, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn }: GithubStoreWiringOptions) {
   const poller = createGithubStorePoller({
     github,
     now,

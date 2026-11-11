@@ -22,6 +22,7 @@ import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core
 import { hostStatuses } from '../hosts/host-status.ts';
 import { requestOnHost } from '../hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
+import { clock } from '#shared/clock.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
   const elapsedMs = now - receivedAt;
@@ -284,7 +285,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       setProjectTarget(row);
       advanceFromPick(true);
     });
-    const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, Date.now())) : null);
+    const meta = liveCountText(row) ?? (row.lastActivityMs !== null ? el('span', 'add-session-row-meta', formatRelativeAge(row.lastActivityMs, clock.nowMs())) : null);
     if (meta) rowEl.append(meta);
     return rowEl;
   }
@@ -715,7 +716,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function rememberSuccessfulStart(rememberedPath: string | null) {
     if (rememberedPath === null) return;
-    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId === NO_AGENT_ID ? defaultAgentId : selectedAgentId, Date.now()));
+    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId === NO_AGENT_ID ? defaultAgentId : selectedAgentId, clock.nowMs()));
   }
 
   function lockPicking(isLocked: boolean) {

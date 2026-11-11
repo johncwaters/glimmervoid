@@ -28,6 +28,7 @@ import {
 } from './trace-store.ts';
 import type { TraceChange, TraceTrim } from './trace-store.ts';
 import type { ViewModule } from './view-registry-core.ts';
+import { clock } from '#shared/clock.ts';
 
 interface TurnSection {
   section: HTMLElement;
@@ -118,7 +119,7 @@ function buildHeader(): HTMLElement {
   const sessionStartedAtMs = selectedTrace
     ? traceSessionStartedAtMs(selectedTrace.firstOffset, selectedTrace.hasDroppedEarliestRows, selectedTrace.grouping.turns[0])
     : null;
-  if (sessionStartedAtMs !== null) controls.append(el('span', 'trace-session-start', `Started ${new Date(sessionStartedAtMs).toLocaleString()}`));
+  if (sessionStartedAtMs !== null) controls.append(el('span', 'trace-session-start', `Started ${clock.format(sessionStartedAtMs, 'date-time')}`));
   section.append(controls, buildTraceFilters());
   if (!traceFailureText) return section;
   const failureStatus = createActionStatus('trace-status');
