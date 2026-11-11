@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-11-11
+
 ### Added
 
 - **Hosted servers read GitHub through a GitHub App, with no personal token.** A hosted doorman with the Glimmervoid GitHub App configured mints read-only tokens limited to your installed repositories and renews each before its hour runs out. Its watcher keeps checking GitHub with them while your server sleeps, and an awake server gets the same token for its GitHub reads and lanes, so team review and community research no longer refuse for a missing read token. A GitHub read token you set in Settings still wins, because only a personal token can read notifications. A local install with no App configured works as before.
