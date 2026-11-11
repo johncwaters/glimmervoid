@@ -8,6 +8,17 @@
   <link rel="preload" href="./fonts/commit-mono-400-regular-core.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="./fonts/commit-mono-700-regular-core.woff2" as="font" type="font/woff2" crossorigin>
   <title>Glimmervoid</title>
+  <script>
+    (function paintSavedThemeColors() {
+      var savedPrefs;
+      try { savedPrefs = JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') || '{}'); } catch { return; }
+      var themeColors = savedPrefs && savedPrefs.themeColors;
+      if (!themeColors || typeof themeColors !== 'object') return;
+      for (var propertyName in themeColors) {
+        if (propertyName.indexOf('--') === 0 && typeof themeColors[propertyName] === 'string') document.documentElement.style.setProperty(propertyName, themeColors[propertyName]);
+      }
+    })();
+  </script>
   <style>
     html, body {
       margin: 0;
@@ -30,7 +41,7 @@
       align-items: center;
       justify-content: center;
       gap: 20px;
-      background: #0f0d15;
+      background: var(--bg, #0f0d15);
       transition: opacity 300ms ease;
     }
 
@@ -44,7 +55,7 @@
       font-size: 20px;
       font-weight: 700;
       letter-spacing: 0.1em;
-      color: #efedf6;
+      color: var(--text-head, #efedf6);
       text-transform: uppercase;
     }
 
@@ -78,7 +89,7 @@
 
     .loading-mark-bracket {
       fill: none;
-      stroke: #efedf6;
+      stroke: var(--text-head, #efedf6);
       stroke-width: 11;
       stroke-linejoin: miter;
       stroke-linecap: butt;
@@ -91,13 +102,13 @@
     .loading-mark-bracket[data-side="right"] { animation-delay: 325ms; }
 
     .loading-mark-light {
-      fill: #b688fe;
+      fill: var(--accent, #b688fe);
       transform: scale(0);
     }
 
     .loading-mark-halo {
       fill: none;
-      stroke: #b688fe;
+      stroke: var(--accent, #b688fe);
       stroke-width: 2;
       vector-effect: non-scaling-stroke;
       opacity: 0;
@@ -116,14 +127,14 @@
     }
 
     @keyframes loading-mark-scan {
-      0%, 30%, 100% { transform: none; stroke: #efedf6; }
-      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: #b688fe; }
+      0%, 30%, 100% { transform: none; stroke: var(--text-head, #efedf6); }
+      12% { transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)); stroke: var(--accent, #b688fe); }
     }
 
     .loading-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #9e97af;
+      color: var(--text-muted, #9e97af);
     }
 
     .loading-detail {
@@ -132,7 +143,7 @@
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
       line-height: 1.6;
-      color: #5d5a62;
+      color: color-mix(in srgb, var(--text-muted, #9e97af) 50%, var(--bg, #0f0d15));
       text-align: center;
       text-wrap: balance;
     }
@@ -146,7 +157,7 @@
       align-items: center;
       justify-content: center;
       gap: 20px;
-      background: rgba(15, 14, 17, 0);
+      background: transparent;
       backdrop-filter: blur(0px);
       pointer-events: none;
       opacity: 0;
@@ -154,7 +165,7 @@
     }
 
     .shutdown-screen.active {
-      background: rgba(15, 14, 17, 0.92);
+      background: color-mix(in srgb, var(--bg, #0f0d15) 92%, transparent);
       backdrop-filter: blur(8px);
       pointer-events: auto;
       opacity: 1;
@@ -163,7 +174,7 @@
     .shutdown-status {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
-      color: #9e97af;
+      color: var(--text-muted, #9e97af);
       transition: color 300ms ease;
     }
 
@@ -172,7 +183,7 @@
     }
 
     .shutdown-screen.done .shutdown-status {
-      color: #4b435a;
+      color: var(--border-hover, #4b435a);
     }
   </style>
 </head>

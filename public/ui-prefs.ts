@@ -19,6 +19,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
   soundId: string;
   themeId: string;
+  themeColors: Record<string, string>;
   flyingAnimalsEnabled: boolean;
   notificationsEnabled: boolean;
   phoneArrowPad: boolean;
@@ -52,6 +53,10 @@ const asString = (fallback: string) => (value: unknown): string => (typeof value
 const asNullableString = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 const asNullableNumber = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
+const asCustomPropertyMap = (value: unknown): Record<string, string> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].startsWith('--') && typeof entry[1] === 'string'));
+};
 const asStringList = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string' && entry !== ''))] : [];
 
@@ -64,6 +69,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   soundEnabled: asBoolean(true),
   soundId: asString(DEFAULT_SOUND_ID),
   themeId: asString('glimmer'),
+  themeColors: asCustomPropertyMap,
   flyingAnimalsEnabled: asBoolean(false),
   flyingAnimalsMinGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds),
   flyingAnimalsMaxGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds),
@@ -145,6 +151,7 @@ export function getThemeId(): string {
   return 'glimmer';
 }
 export const setThemeId = (id: string) => write('themeId', id);
+export const setThemeColors = (colors: Record<string, string>) => write('themeColors', colors);
 
 export const isFlyingAnimalsEnabled = () => read('flyingAnimalsEnabled');
 export const setFlyingAnimalsEnabled = (enabled: boolean) => write('flyingAnimalsEnabled', enabled);

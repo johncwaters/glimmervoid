@@ -1,6 +1,7 @@
 import type { ThemePalette } from '#shared/contracts/theme-palette.ts';
 import { themeCssColors } from '#shared/theme-colors-core.ts';
 import { agentBrandCssColors } from './agent-brand-colors.ts';
+import { setThemeColors } from './ui-prefs.ts';
 
 type ThemeMode = ThemePalette['mode'];
 
@@ -408,6 +409,7 @@ function showTheme(themeId: string) {
   for (const [prop, value] of Object.entries(theme.colors)) {
     root.style.setProperty(prop, value);
   }
+  setThemeColors(theme.colors);
 
   if (themeId !== 'unicorn') return;
   if (prev === null || prev === 'unicorn') return;
