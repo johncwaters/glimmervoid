@@ -21,6 +21,7 @@ import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, move
 import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
+import { button } from '../ui/button.ts';
 
 interface Camera {
   x: number;
@@ -132,6 +133,13 @@ interface ScenePreview {
 
 const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
 const CULL_CELL_SIZE = 512;
+const CONTEXT_RETRY_MS = 5000;
+const NOTICES = {
+  redrawing: { text: 'The board is redrawing after the graphics card reset.', hasReloadButton: false },
+  paused: { text: 'The browser paused graphics for this page after a graphics card reset. The board keeps retrying.', hasReloadButton: true },
+  unsupported: { text: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.', hasReloadButton: false },
+} as const;
+type NoticeKind = keyof typeof NOTICES;
 const GATHER_MARGIN_FACTOR = 0.75;
 const LOD_STEPS_PER_OCTAVE = 4;
 const HIT_TOLERANCE_PX = 7;
@@ -533,7 +541,8 @@ function emptyRange(): LayerRange {
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { canvas, viewport, mediaLayer, notice, onViewChange } = options;
+  const { viewport, mediaLayer, notice, onViewChange } = options;
+  let canvas = options.canvas;
   const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
   let gl: WebGL2RenderingContext | null = canvas.getContext('webgl2', contextAttributes);
   let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram; block: PrimitiveProgram } | null = null;
@@ -575,10 +584,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   const mediaTextures = new Map<string, MediaTexture>();
   let gatherNumber = 0;
   let sceneBuildCount = 0;
+  let contextRetryTimer: number | null = null;
+  const noticeText = document.createElement('span');
+  const reloadPageButton = button({ variant: 'secondary', size: 'small', label: 'Reload page', action: 'reload-page', onClick: () => location.reload() });
 
-  function showNotice(text: string | null): void {
-    notice.hidden = text === null;
-    notice.textContent = text ?? '';
+  function showNotice(kind: NoticeKind | null): void {
+    notice.hidden = kind === null;
+    if (!kind) return;
+    noticeText.textContent = NOTICES[kind].text;
+    notice.replaceChildren(...(NOTICES[kind].hasReloadButton ? [noticeText, reloadPageButton] : [noticeText]));
   }
 
   function ensureAtlas(): GlyphAtlas {
@@ -654,7 +668,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function createGlOrNotice(): void {
     if (!gl) {
-      showNotice('This browser cannot draw boards: WebGL2 is turned off or unavailable.');
+      showNotice('unsupported');
       return;
     }
     setUpGl(gl);
@@ -1435,26 +1449,77 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   }
 
-  canvas.addEventListener('webglcontextlost', (event) => {
+  function adoptContext(context: WebGL2RenderingContext | null): void {
+    gl = context;
+    createGlOrNotice();
+    if (!gl) return;
+    for (const entry of mediaTextures.values()) uploadMediaTexture(entry);
+    showNotice(null);
+    requestDraw();
+  }
+
+  function scheduleContextRetry(): void {
+    if (contextRetryTimer !== null) clearTimeout(contextRetryTimer);
+    contextRetryTimer = window.setTimeout(retryWithFreshCanvas, CONTEXT_RETRY_MS);
+  }
+
+  function cancelContextRetry(): void {
+    if (contextRetryTimer === null) return;
+    clearTimeout(contextRetryTimer);
+    contextRetryTimer = null;
+  }
+
+  function retryWithFreshCanvas(): void {
+    contextRetryTimer = null;
+    const freshCanvas = canvas.cloneNode(false);
+    if (!(freshCanvas instanceof HTMLCanvasElement)) return;
+    const freshContext = freshCanvas.getContext('webgl2', contextAttributes);
+    if (!freshContext) {
+      showNotice('paused');
+      scheduleContextRetry();
+      return;
+    }
+    unwatchCanvas(canvas);
+    canvas.replaceWith(freshCanvas);
+    canvas = freshCanvas;
+    watchCanvas(freshCanvas);
+    adoptContext(freshContext);
+  }
+
+  function onContextLost(event: Event): void {
     event.preventDefault();
     primitives = null;
     atlas?.forgetTexture();
     for (const entry of mediaTextures.values()) entry.texture = null;
     blockTextures.clear();
-    showNotice('The board is redrawing after the graphics card reset.');
-  });
-  canvas.addEventListener('webglcontextrestored', () => {
-    gl = canvas.getContext('webgl2', contextAttributes);
-    createGlOrNotice();
-    for (const entry of mediaTextures.values()) uploadMediaTexture(entry);
-    showNotice(null);
-    requestDraw();
-  });
-  new ResizeObserver(() => {
+    showNotice('redrawing');
+    scheduleContextRetry();
+  }
+
+  function onContextRestored(): void {
+    cancelContextRetry();
+    adoptContext(canvas.getContext('webgl2', contextAttributes));
+  }
+
+  const canvasResizeObserver = new ResizeObserver(() => {
     reportView();
     isGatherDirty = true;
     requestDraw();
-  }).observe(canvas);
+  });
+
+  function watchCanvas(target: HTMLCanvasElement): void {
+    target.addEventListener('webglcontextlost', onContextLost);
+    target.addEventListener('webglcontextrestored', onContextRestored);
+    canvasResizeObserver.observe(target);
+  }
+
+  function unwatchCanvas(target: HTMLCanvasElement): void {
+    target.removeEventListener('webglcontextlost', onContextLost);
+    target.removeEventListener('webglcontextrestored', onContextRestored);
+    canvasResizeObserver.unobserve(target);
+  }
+
+  watchCanvas(canvas);
   const requestDrawOnThemeChange = (): void => {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) requestDraw();
   };

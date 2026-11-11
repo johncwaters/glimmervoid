@@ -365,6 +365,9 @@
 .wb-gl-notice {
   position: absolute;
   inset: auto 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: fit-content;
   margin: 0 auto;
   padding: 6px 12px;

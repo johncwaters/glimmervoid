@@ -1065,7 +1065,7 @@ export function mountBoardHost(): HTMLElement {
   const glNotice = el('p', 'wb-gl-notice');
   glNotice.setAttribute('role', 'status');
   glNotice.hidden = true;
-  viewport.append(glCanvas, world, glNotice);
+  viewport.append(glCanvas, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const agentIsland = island('wb-island-agent', 'Session', queuedForSession);
@@ -1084,7 +1084,7 @@ export function mountBoardHost(): HTMLElement {
     el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
   );
   emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
-  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack);
+  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack, glNotice);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
