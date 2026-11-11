@@ -163,6 +163,8 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
 }
 .phone-key:active { color: var(--text-head); border-color: var(--border-hover); }
 .phone-key-arrow { flex: 0 0 32px; font-size: var(--type-body); letter-spacing: 0; }
+.phone-key-keyboard { flex: 0 0 40px; display: inline-flex; align-items: center; justify-content: center; }
+.phone-key-keyboard .line-icon { width: 20px; height: 20px; }
 .phone-arrow-pad { display: none; flex: 2 1 auto; touch-action: none; }
 html[data-arrow-pad] .phone-arrow-pad { display: block; }
 html[data-arrow-pad] .phone-key-arrow { display: none; }

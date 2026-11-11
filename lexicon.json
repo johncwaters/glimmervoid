@@ -716,6 +716,10 @@
       "aliases": [
         "hint"
       ]
+    },
+    {
+      "name": "keyboard",
+      "definition": "The phone's on-screen soft keyboard that types into a session's terminal, opened by tapping the terminal and opened or closed by the Keyboard key in the phone key strip"
     }
   ],
   "retired": [

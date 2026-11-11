@@ -54,10 +54,11 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     + '<p class="phone-empty-desc">Select a session from the board to watch it here.</p>';
 
   const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
-  const { element: keyStrip, takeHeldControl } = createMobileKeyStrip({
+  const { element: keyStrip, takeHeldControl, setKeyboardOpen } = createMobileKeyStrip({
     send: sendToShownTerminal,
     getSessionId: () => shownId,
     reportProblem: (text) => keyStatus.show('error', text),
+    toggleKeyboard: toggleShownTerminalKeyboard,
   });
   screen.append(topBar, cardSlot, emptyEl, keyStatus.element, keyStrip);
 
@@ -80,7 +81,25 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     ui.term.focus();
   }
 
+  function isShownTerminalFocused() {
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    const textarea = ui?.term?.textarea;
+    return !!textarea && document.activeElement === textarea;
+  }
+
+  function toggleShownTerminalKeyboard() {
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    if (!ui?.term) return;
+    if (isShownTerminalFocused()) {
+      ui.term.blur();
+      return;
+    }
+    ui.term.focus();
+  }
+
   cardSlot.addEventListener('click', focusShownTerminal);
+  cardSlot.addEventListener('focusin', () => setKeyboardOpen(isShownTerminalFocused()));
+  cardSlot.addEventListener('focusout', () => queueMicrotask(() => setKeyboardOpen(isShownTerminalFocused())));
 
   function sendHeldControlChord(typedCharacter: string) {
     const controlBytes = controlBytesForCharacter(typedCharacter);
@@ -125,6 +144,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     identity.hidden = !hasSession;
     pageButtons.element.hidden = !hasSession;
     pageButtons.showSession(hasSession ? shownId : null);
+    setKeyboardOpen(isShownTerminalFocused());
     if (!hasSession) {
       topBar.removeAttribute('data-state');
       topBar.removeAttribute('data-monitoring');

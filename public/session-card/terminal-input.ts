@@ -56,6 +56,8 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   };
   ui._resetSoftKeyboardBuffer = resetSoftKeyboardBuffer;
 
+  textarea.addEventListener('focus', () => syncEnterKeyHint(textarea));
+
   const sendTypedText = () => {
     const bytes = bytesForSoftKeyboardEdit(alreadySentText, textarea.value);
     alreadySentText = textarea.value;
@@ -112,6 +114,14 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
     sendTerminalInput(ui, deletion, { fromSoftKeyboard: true });
     term.scrollToBottom();
   });
+}
+
+function syncEnterKeyHint(textarea: HTMLTextAreaElement) {
+  if (!isPhoneLayout()) {
+    textarea.removeAttribute('enterkeyhint');
+    return;
+  }
+  textarea.setAttribute('enterkeyhint', 'send');
 }
 
 function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {

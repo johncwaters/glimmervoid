@@ -3,6 +3,7 @@ import { createPressable } from '../ui/pressable.ts';
 import type { MobileKey } from '../mobile-keys.ts';
 import { arrowStepsForDrag, isClipboardKey, isUploadKey, mobileKeyBytes, MOBILE_KEYS } from '../mobile-keys.ts';
 import { uploadFileToSession } from '../session-upload.ts';
+import { createLineIcon, KEYBOARD_ICON_PATH } from '../svg-dom.ts';
 
 const CONTROL_BYTES_BY_SYMBOL: Readonly<Record<string, string>> = {
   ' ': '\x00',
@@ -26,9 +27,10 @@ interface MobileKeyStripOptions {
   send: (data: string | null | undefined) => void;
   getSessionId?: () => string | null | undefined;
   reportProblem: (text: string) => void;
+  toggleKeyboard: () => void;
 }
 
-export function createMobileKeyStrip({ send, getSessionId, reportProblem }: MobileKeyStripOptions) {
+export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggleKeyboard }: MobileKeyStripOptions) {
   const strip = el('div', 'phone-key-strip');
   strip.setAttribute('role', 'toolbar');
   strip.setAttribute('aria-label', 'Terminal keys');
@@ -65,6 +67,18 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
     btn.addEventListener('pointerdown', (event) => event.preventDefault());
     btn.addEventListener('click', () => pressKey(key, btn));
     strip.appendChild(btn);
+  }
+
+  const keyboardButton = createPressable('phone-key phone-key-keyboard');
+  keyboardButton.append(createLineIcon(KEYBOARD_ICON_PATH, '1.5'));
+  keyboardButton.setAttribute('aria-label', 'Keyboard');
+  keyboardButton.setAttribute('aria-pressed', 'false');
+  keyboardButton.addEventListener('pointerdown', (event) => event.preventDefault());
+  keyboardButton.addEventListener('click', () => toggleKeyboard());
+  strip.appendChild(keyboardButton);
+
+  function setKeyboardOpen(isOpen: boolean) {
+    keyboardButton.setAttribute('aria-pressed', String(isOpen));
   }
 
   function pressKey(key: Readonly<MobileKey>, btn: HTMLButtonElement) {
@@ -113,7 +127,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem }: Mobi
     if (btn) btn.disabled = false;
   }
 
-  return { element: strip, takeHeldControl };
+  return { element: strip, takeHeldControl, setKeyboardOpen };
 }
 
 function createArrowPad(send: (data: string | null | undefined) => void) {
