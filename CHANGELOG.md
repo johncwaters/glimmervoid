@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dashboard tells you to reload when it is older than the server.** A dashboard tab left open across a Glimmervoid update could keep running the old page, and a board or view the old page could not read drew empty with no explanation. The header now says the server sent a message this dashboard could not read and to reload the page, once per page load. Messages from a linked host never show it, since reloading cannot fix another machine's version.
+
 ## [0.57.0] - 2026-11-11
 
 ### Added

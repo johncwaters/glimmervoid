@@ -9,6 +9,9 @@ type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
 type ControlSocketChange = 'connecting' | 'opened' | 'closed';
 type ControlSocketChangeListener = (change: ControlSocketChange) => void;
+type UnreadableServerMessageListener = () => void;
+
+export const UNREADABLE_SERVER_MESSAGE_TEXT = 'The server sent a message this dashboard could not read. Reload the page to pick up the current version.';
 
 interface PendingRequest {
   resolve: (message: ServerMessage) => void;
@@ -23,6 +26,7 @@ interface ControlClientOptions {
   onStateChange?(state: string, label: string): void;
   onSocketChange?(change: ControlSocketChange): void;
   onOpened?(): void;
+  onUnreadableMessage?(): void;
 }
 
 export interface ControlClient {
@@ -81,7 +85,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
     if (!pending) return;
     clearTimeout(pending.timer);
     pendingRequests.delete(requestId);
-    pending.reject(new Error('The server sent a reply this dashboard could not read. Reload the page to pick up the current version.'));
+    pending.reject(new Error(UNREADABLE_SERVER_MESSAGE_TEXT));
   }
 
   function rejectPendingRequests(reason: string) {
@@ -126,6 +130,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
     if (!parsedMessage.success) {
       reportToServerLog('control', `dropped ${frameTypeOf(rawMessage)}: ${describeSchemaIssues(parsedMessage.error.issues)}`);
       rejectUnreadableReply(rawMessage);
+      options.onUnreadableMessage?.();
       return;
     }
     const msg = parsedMessage.data;
@@ -201,6 +206,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
 let _messageHandler: ControlMessageHandler | null = null;
 let _connectionStateCallback: ConnectionStateCallback | null = null;
 let _controlSocketChangeListener: ControlSocketChangeListener | null = null;
+let _unreadableServerMessageListener: UnreadableServerMessageListener | null = null;
 let routeControlMessage: (msg: Record<string, unknown>) => ControlClient | null = () => null;
 let listHostClients: () => readonly ControlClient[] = () => [];
 
@@ -210,6 +216,7 @@ const localClient = createControlClient({
   onMessage: (message) => _messageHandler?.(message),
   onStateChange: (state, label) => _connectionStateCallback?.(state, label),
   onSocketChange: (change) => _controlSocketChangeListener?.(change),
+  onUnreadableMessage: () => _unreadableServerMessageListener?.(),
   onOpened: () => {
     clientLogReporter.flushUnsent();
     headerErrorTelemetryReporter.flushUnsent();
@@ -227,6 +234,10 @@ export function setConnectionStateCallback(fn: ConnectionStateCallback) {
 
 export function onControlSocketChange(listener: ControlSocketChangeListener) {
   _controlSocketChangeListener = listener;
+}
+
+export function onUnreadableServerMessage(listener: UnreadableServerMessageListener) {
+  _unreadableServerMessageListener = listener;
 }
 
 export function onControlMessage(handler: ControlMessageHandler) {
