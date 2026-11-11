@@ -34,6 +34,8 @@ const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
 const GITHUB_TOKEN_CHECK_MS = 5 * 60_000;
 const GITHUB_TOKEN_MIN_LIFE_MS = 45 * 60_000;
+type GithubTokenState = { kind: 'unasked' } | { kind: 'no-app'; answeredAtMs: number } | { kind: 'minting'; grant: GithubTokenGrant };
+
 const NO_GITHUB_APP_RECHECK_MS = 60 * 60_000;
 
 function requestOf(probe: Probe): string {
@@ -107,20 +109,18 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
   let watcherStartCount = 0;
   let statusReadCount = 0;
   let supervisor: ReturnType<WatcherStarter> | null = null;
-  let githubAppGrant: GithubTokenGrant | null = null;
-  let isDoormanMintingGithub = false;
-  let noGithubAppAnsweredAtMs: number | null = null;
-  let isRequestingGithubToken = false;
-  let hadGithubAppToken = false;
+  let githubTokenState: GithubTokenState = { kind: 'unasked' };
+  let githubTokenRequest: Promise<void> | null = null;
+  let announcedGithubAppToken: string | null = null;
   let githubTokenTimer: NodeJS.Timeout | null = null;
 
   function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
-    return heldCredentials[credential] !== null || (credential === 'github' && isDoormanMintingGithub);
+    return heldCredentials[credential] !== null || (credential === 'github' && githubTokenState.kind === 'minting');
   }
 
   function githubAppToken(): string | null {
-    if (githubAppGrant === null || now() >= githubAppGrant.expiresAtMs) return null;
-    return githubAppGrant.token;
+    if (githubTokenState.kind !== 'minting' || now() >= githubTokenState.grant.expiresAtMs) return null;
+    return githubTokenState.grant.token;
   }
 
   function updateCoverage(): void {
@@ -249,36 +249,35 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
   }
 
   function isGithubTokenDue(): boolean {
-    if (!isDoormanMintingGithub && noGithubAppAnsweredAtMs !== null) return now() - noGithubAppAnsweredAtMs >= NO_GITHUB_APP_RECHECK_MS;
-    return githubAppGrant === null || githubAppGrant.expiresAtMs - now() < GITHUB_TOKEN_MIN_LIFE_MS;
+    if (githubTokenState.kind === 'no-app') return now() - githubTokenState.answeredAtMs >= NO_GITHUB_APP_RECHECK_MS;
+    return githubTokenState.kind === 'unasked' || githubTokenState.grant.expiresAtMs - now() < GITHUB_TOKEN_MIN_LIFE_MS;
   }
 
   function adoptGithubTokenAnswer(answer: GithubTokenAnswer): void {
-    const wasDoormanMinting = isDoormanMintingGithub;
-    githubAppGrant = answer.grant;
-    isDoormanMintingGithub = answer.grant !== null;
-    noGithubAppAnsweredAtMs = answer.grant === null ? now() : null;
-    if (wasDoormanMinting === isDoormanMintingGithub) return;
-    log.log(`[watcher] the doorman ${isDoormanMintingGithub ? 'mints' : 'has no'} GitHub App tokens for this server`);
+    const previousKind = githubTokenState.kind;
+    githubTokenState = answer.grant === null ? { kind: 'no-app', answeredAtMs: now() } : { kind: 'minting', grant: answer.grant };
+    if ((previousKind === 'minting') === (githubTokenState.kind === 'minting')) return;
+    log.log(`[watcher] the doorman ${githubTokenState.kind === 'minting' ? 'mints' : 'has no'} GitHub App tokens for this server`);
     updateCoverage();
     probesMayHaveChanged();
   }
 
   function announceGithubAppTokenChange(): void {
-    const hasGithubAppToken = githubAppToken() !== null;
-    if (hasGithubAppToken === hadGithubAppToken) return;
-    hadGithubAppToken = hasGithubAppToken;
+    const currentGithubAppToken = githubAppToken();
+    if ((currentGithubAppToken === null) === (announcedGithubAppToken === null)) return;
+    announcedGithubAppToken = currentGithubAppToken;
     onGithubAppTokenChange();
   }
 
   async function checkGithubToken(): Promise<void> {
-    if (isRequestingGithubToken || watcherUrl === null || credentials().github !== null || !isGithubTokenDue()) return announceGithubAppTokenChange();
-    isRequestingGithubToken = true;
-    try {
-      const answer = await requestGithubToken();
+    if (githubTokenRequest !== null || watcherUrl === null || credentials().github !== null || !isGithubTokenDue()) return announceGithubAppTokenChange();
+    githubTokenRequest = requestGithubToken().then((answer) => {
       if (answer !== null) adoptGithubTokenAnswer(answer);
+    });
+    try {
+      await githubTokenRequest;
     } finally {
-      isRequestingGithubToken = false;
+      githubTokenRequest = null;
     }
     announceGithubAppTokenChange();
   }
