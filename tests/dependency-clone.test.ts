@@ -270,6 +270,34 @@ test('a pnpm lockfile the local pnpm cannot read is skipped quietly while anothe
   ]);
 });
 
+test('a server started with a PATH that lacks npm still installs a worktree with npm found in a usual folder', { skip: !CAN_INSTALL }, async () => {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-minimal-path-');
+  writeJson(path.join(mainCheckout, 'package.json'), { name: 'fixture', version: '1.0.0' });
+  writeJson(path.join(mainCheckout, 'package-lock.json'), { name: 'fixture', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'fixture', version: '1.0.0' } } });
+  git(['add', '-A'], mainCheckout);
+  git(['commit', '-m', 'init'], mainCheckout);
+  const worktreeDir = path.join(root, 'session-worktree');
+  git(['worktree', 'add', '-b', 'session', worktreeDir], mainCheckout);
+  const launcherHome = path.join(root, 'home');
+  const npmInUsualFolder = path.join(launcherHome, '.local', 'bin', 'npm');
+  fs.mkdirSync(path.dirname(npmInUsualFolder), { recursive: true });
+  fs.writeFileSync(npmInUsualFolder, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const seedScript = [
+    `const { seedWorktreeDependencies } = await import(${JSON.stringify(path.resolve('server/git/dependency-clone.ts'))});`,
+    `const outcome = await seedWorktreeDependencies({ mainCheckout: ${JSON.stringify(mainCheckout)}, worktreeDir: ${JSON.stringify(worktreeDir)}, signal: new AbortController().signal, hookConfigRelPaths: [] }).completion;`,
+    'console.log(JSON.stringify(outcome.install.results.map((result) => [result.dir, result.ok])));',
+  ].join('\n');
+
+  const seeded = await runCommand(process.execPath, ['--input-type=module', '-e', seedScript], {
+    cwd: process.cwd(),
+    timeoutMs: 120_000,
+    replaceEnv: { PATH: '/usr/bin:/bin', HOME: launcherHome, SHELL: '/usr/bin/false', GLIMMERVOID_HOME: process.env.GLIMMERVOID_HOME },
+  });
+
+  assert.ok(seeded.ok, seeded.err);
+  assert.deepEqual(JSON.parse(seeded.out.trim().split('\n').at(-1) ?? ''), [['.', true]]);
+});
+
 test('a seed whose session closes before it starts installs nothing and frees the queue', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
   const sessionClosed = new AbortController();

@@ -224,7 +224,8 @@ export type PlannedInstall = { dir: string; command: string; args: readonly stri
 type DependencyInstallPlan = { installs: PlannedInstall[]; unsupportedDirs: string[] };
 export type InstallResult =
   | { dir: string; command: string; ok: true; unbuiltPackages: string[] }
-  | { dir: string; command: string; ok: false; lastOutputLine: string; timedOut: boolean };
+  | { dir: string; command: string; ok: false; kind: InstallFailureKind; lastOutputLine: string; outputTail: string[]; searchedPath: string };
+export type InstallFailureKind = 'tool-missing' | 'folder-missing' | 'failed' | 'timed-out';
 export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDirs: string[]; elapsedMs: number };
 
 export const INSTALL_TIMEOUT_MS = 10 * 60_000;
@@ -264,12 +265,78 @@ function installableLockKind(lockfiles: readonly string[]): LockKind | null {
   return null;
 }
 
-export function installEnvFrom(serverEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function installEnvFrom(serverEnv: NodeJS.ProcessEnv, extraPathEntries: readonly string[] = []): NodeJS.ProcessEnv {
   const installEnv: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(serverEnv)) {
     if (INSTALL_ENV_NAMES.has(name)) installEnv[name] = value;
   }
+  const mergedPath = mergePathEntries(splitPathEntries(serverEnv.PATH ?? ''), extraPathEntries);
+  if (mergedPath.length) installEnv.PATH = mergedPath.join(path.delimiter);
   return installEnv;
+}
+
+export function splitPathEntries(pathText: string): string[] {
+  return pathText.split(path.delimiter).filter(Boolean);
+}
+
+export function mergePathEntries(primaryEntries: readonly string[], extraEntries: readonly string[]): string[] {
+  return [...new Set([...primaryEntries, ...extraEntries])];
+}
+
+const LOGIN_SHELL_PATH_START = '__GLIMMERVOID_ENV_START__';
+const LOGIN_SHELL_PATH_END = '__GLIMMERVOID_ENV_END__';
+
+export function loginShellPathScript(): string {
+  return `printf '%s\\n' ${LOGIN_SHELL_PATH_START}; env; printf '%s\\n' ${LOGIN_SHELL_PATH_END}`;
+}
+
+export function parseLoginShellPath(stdout: string): string[] | null {
+  const lines = stdout.split(/\r?\n/);
+  const startIndex = lines.lastIndexOf(LOGIN_SHELL_PATH_START);
+  const endIndex = lines.lastIndexOf(LOGIN_SHELL_PATH_END);
+  if (startIndex < 0 || endIndex <= startIndex) return null;
+  const pathLine = lines.slice(startIndex + 1, endIndex).find((line) => line.startsWith('PATH='));
+  if (!pathLine) return null;
+  return splitPathEntries(pathLine.slice('PATH='.length)).filter((entry) => path.isAbsolute(entry));
+}
+
+type KnownToolDirScope = { platform: string; env: NodeJS.ProcessEnv; homedir: string };
+
+export function knownToolDirs({ platform, env, homedir }: KnownToolDirScope): string[] {
+  const isAbsoluteOnPlatform = platform === 'win32' ? path.win32.isAbsolute : path.posix.isAbsolute;
+  const pnpmHome = env.PNPM_HOME && isAbsoluteOnPlatform(env.PNPM_HOME) ? [env.PNPM_HOME] : [];
+  if (platform === 'win32') {
+    const appData = env.APPDATA ?? path.win32.join(homedir, 'AppData', 'Roaming');
+    const localAppData = env.LOCALAPPDATA ?? path.win32.join(homedir, 'AppData', 'Local');
+    const programFiles = env.ProgramFiles ?? 'C:\\Program Files';
+    return [...pnpmHome, path.win32.join(appData, 'npm'), path.win32.join(localAppData, 'pnpm'), path.win32.join(programFiles, 'nodejs'), path.win32.join(localAppData, 'Volta', 'bin')];
+  }
+  const pnpmDefaultHome = platform === 'darwin' ? path.join(homedir, 'Library', 'pnpm') : path.join(homedir, '.local', 'share', 'pnpm');
+  return [
+    ...pnpmHome,
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    path.join(homedir, '.local', 'bin'),
+    path.join(homedir, '.volta', 'bin'),
+    path.join(homedir, '.npm-global', 'bin'),
+    pnpmDefaultHome,
+    path.join(homedir, '.local', 'share', 'fnm', 'aliases', 'default', 'bin'),
+    path.join(homedir, 'Library', 'Application Support', 'fnm', 'aliases', 'default', 'bin'),
+    path.join(homedir, '.asdf', 'shims'),
+    path.join(homedir, '.local', 'share', 'mise', 'shims'),
+  ];
+}
+
+export function toolCandidatePaths(toolName: string, dirs: readonly string[], platform: string): string[] {
+  const executableNames = platform === 'win32' ? [`${toolName}.cmd`, `${toolName}.exe`] : [toolName];
+  const join = platform === 'win32' ? path.win32.join : path.join;
+  return dirs.flatMap((dir) => executableNames.map((executableName) => join(dir, executableName)));
+}
+
+const INSTALL_OUTPUT_TAIL_LINES = 20;
+
+export function outputTailOf(...outputs: readonly string[]): string[] {
+  return outputs.join('\n').split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim()).slice(-INSTALL_OUTPUT_TAIL_LINES);
 }
 
 export function lastOutputLineOf(output: string): string {
@@ -301,7 +368,7 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
   const warnings: string[] = [];
   for (const result of outcome.results) {
     if (result.ok && result.unbuiltPackages.length) warnings.push(describeUnbuiltPackages(result.dir, result.unbuiltPackages));
-    if (result.ok || isUnreadablePnpmLockfileFailure(result)) continue;
+    if (result.ok || result.kind === 'folder-missing' || isUnreadablePnpmLockfileFailure(result)) continue;
     warnings.push(describeInstallFailure(result));
   }
   if (outcome.unsupportedDirs.length) {
@@ -313,7 +380,8 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
 function describeInstallFailure(result: Extract<InstallResult, { ok: false }>): string {
   const place = result.dir === '.' ? 'the worktree root' : result.dir;
   const nextStep = result.command ? `To see the full output, run \`${result.command}\` in ${place}.` : `Install dependencies in ${place} yourself.`;
-  if (result.timedOut) return `Installing dependencies in ${place} timed out after 10 minutes. ${nextStep}`;
+  if (result.kind === 'tool-missing') return `Glimmervoid could not find ${result.command.split(' ')[0]}, so dependencies in ${place} were not installed. Install it, then start a new session.`;
+  if (result.kind === 'timed-out') return `Installing dependencies in ${place} timed out after 10 minutes. ${nextStep}`;
   const reason = (result.lastOutputLine || 'the command printed no output').replace(/[.:;]+$/, '');
   return `Installing dependencies in ${place} failed: ${reason}. ${nextStep}`;
 }
