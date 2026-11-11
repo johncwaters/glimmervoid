@@ -1,8 +1,8 @@
 import { AgentHomeKind, AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
-import type { CheckOutcome, ContestantMetrics, JudgeRow, PanelStanding, RaceCheck, RaceContestant, RaceHistory, RaceRecord, StandingRow } from '#shared/contracts/race.ts';
+import type { CheckOutcome, ContestantMetrics, JudgeRow, PanelStanding, RaceCheck, RaceContestant, RaceHistory, RaceRecord, RaceReviewCase, ReviewCaseEntry, StandingRow } from '#shared/contracts/race.ts';
 import { RACE_CRITERIA, RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
-import { REMOVED_CONTESTANT, raceProgress, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
+import { REMOVED_CONTESTANT, raceProgress, recallStanding, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
 import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -21,6 +21,8 @@ import { openRaceSession, raceHistory, raceList, subscribeRaces } from './race-s
 const START_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const SHORT_SHA_LENGTH = 8;
+const MINE_TIMEOUT_MS = 300_000;
+const DEFAULT_REVIEW_PROMPT = 'Review this pull request for defects.';
 
 interface RaceDraft {
   raceTitle: string;
@@ -32,6 +34,7 @@ interface RaceDraft {
   checkTimeoutSeconds: number;
   timeLimitMinutes: number | null;
   rounds: number;
+  reviewCase: RaceReviewCase | null;
 }
 
 const DEFAULT_CHECK_TIMEOUT_SECONDS = 600;
@@ -41,7 +44,7 @@ let racesEl: HTMLElement | null = null;
 let historyEl: HTMLElement | null = null;
 const shownPastRaceIds = new Set<string>();
 let catalog: AgentModelCatalog = { agents: [] };
-let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1 };
+let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1, reviewCase: null };
 let judgeSeed: 'pending' | 'settled' = 'pending';
 let isEditingAsFile = false;
 const shownDiffByKey = new Map<string, string>();
@@ -115,8 +118,13 @@ function standingOf(race: RaceRecord, contestantId: string): PanelStanding | nul
   return race.panel?.standing.find((entry) => entry.contestantId === contestantId) ?? null;
 }
 
+function recallRankOf(race: RaceRecord, contestantId: string): number | null {
+  if (!race.spec.reviewCase) return null;
+  return recallStanding(race).find((entry) => entry.contestantId === contestantId)?.rank ?? null;
+}
+
 function rankOf(race: RaceRecord, contestantId: string): number | null {
-  return standingOf(race, contestantId)?.rank ?? race.judge?.ranking.find((entry) => entry.contestantId === contestantId)?.rank ?? null;
+  return recallRankOf(race, contestantId) ?? standingOf(race, contestantId)?.rank ?? race.judge?.ranking.find((entry) => entry.contestantId === contestantId)?.rank ?? null;
 }
 
 function buildCriteriaLine(standing: PanelStanding): HTMLElement {
@@ -136,6 +144,8 @@ function buildContestantLine(race: RaceRecord, contestant: RaceContestant): HTML
   const head = el('div', 'arena-contestant-head');
   head.append(el('span', 'arena-contestant-rank', rank === null ? '-' : `#${rank}`));
   head.append(el('span', 'arena-contestant-label', contestant.label));
+  const recall = race.recallByContestant[contestant.id];
+  if (recall !== undefined) head.append(el('span', 'arena-contestant-score', `recall ${percentText(recall)}`));
   if (standing) head.append(el('span', 'arena-contestant-score', `${standing.criteriaPassed} of ${RACE_CRITERIA.length}`));
   head.append(el('span', 'arena-contestant-state', state === REMOVED_CONTESTANT ? 'Removed' : stateLabel(state)));
   if (stats) head.append(el('span', 'arena-contestant-stats', `+${stats.linesAdded} -${stats.linesRemoved}, ${stats.filesChanged} files`));
@@ -221,7 +231,8 @@ function phaseText(race: RaceRecord): string {
   const progress = raceProgress(Object.values(race.sessionIdByContestant), (sessionId) => contestantState(sessionId));
   if (race.winnerContestantId) return `Winner: ${race.spec.contestants.find((contestant) => contestant.id === race.winnerContestantId)?.label ?? race.winnerContestantId}.`;
   if (race.phase === 'judging') return 'Judging.';
-  if (race.phase === 'judged') return [race.panel || race.judge ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
+  const isScored = race.panel !== null || race.judge !== null || Object.keys(race.recallByContestant).length > 0;
+  if (race.phase === 'judged') return [isScored ? 'Judged.' : 'Finished.', race.judgeError].filter(Boolean).join(' ');
   return `${progress.settled} of ${progress.total} settled.`;
 }
 
@@ -266,8 +277,9 @@ function buildSeriesSummary(race: RaceRecord): HTMLElement | null {
   const latestRound = Math.max(...rounds.map((round) => round.series?.round ?? 1));
   if (race.series.round !== latestRound) return null;
   const labelById = new Map(race.spec.contestants.map((contestant) => [contestant.id, contestant.label]));
+  const scoreText = (score: number | null) => (race.spec.reviewCase ? `recall ${percentText(score)}` : String(score));
   const parts = seriesStanding(rounds).map((standing) => {
-    const spread = standing.lowestScore === null ? 'no scores' : `scores ${standing.lowestScore} to ${standing.highestScore}`;
+    const spread = standing.lowestScore === null ? 'no scores' : `scores ${scoreText(standing.lowestScore)} to ${scoreText(standing.highestScore)}`;
     return `${labelById.get(standing.contestantId) ?? standing.contestantId} ${standing.wins} of ${standing.roundsJudged} (${spread})`;
   });
   return el('p', 'arena-panel-summary', `Series wins: ${parts.join(', ')}`);
@@ -298,6 +310,7 @@ function tableOf(headings: readonly string[], rows: readonly (readonly string[])
 function standingCells(row: StandingRow): string[] {
   return [
     row.label, String(row.races), String(row.wins), percentText(row.wins / row.races),
+    percentText(row.meanRecall),
     ...RACE_CRITERIA.map((criterion) => percentText(row.passRate[criterion])),
     row.meanCostUSD === null ? NO_VALUE : `$${row.meanCostUSD.toFixed(2)}`,
     row.meanElapsedMs === null ? NO_VALUE : elapsedText(row.meanElapsedMs),
@@ -312,8 +325,10 @@ function pastContestantText(race: RaceRecord, contestant: RaceContestant): strin
   const standing = standingOf(race, contestant.id);
   const finish = race.finishByContestant[contestant.id];
   const metrics = race.metricsByContestant[contestant.id];
+  const recall = race.recallByContestant[contestant.id];
   return [
     standing ? `#${standing.rank} ${contestant.label}, ${standing.criteriaPassed} of ${RACE_CRITERIA.length}` : contestant.label,
+    recall === undefined ? null : `recall ${percentText(recall)}`,
     finish?.status === 'did-not-finish' ? `did not finish: ${finish.reason ?? 'no reason given'}` : null,
     metrics ? metricsText(metrics) : null,
     standing?.summary ?? null,
@@ -348,7 +363,7 @@ function buildHistory(history: RaceHistory): HTMLElement[] {
     parts.push(el('p', 'arena-empty', 'No judged races yet.'));
     return parts;
   }
-  parts.push(tableOf(['Setup', 'Races', 'Wins', 'Win rate', 'Correct', 'Complete', 'Scope', 'Quality', 'Cost', 'Time'], history.standings.map(standingCells)));
+  parts.push(tableOf(['Setup', 'Races', 'Wins', 'Win rate', 'Recall', 'Correct', 'Complete', 'Scope', 'Quality', 'Cost', 'Time'], history.standings.map(standingCells)));
   if (history.judges.length > 0) {
     parts.push(el('h3', 'arena-history-heading', 'Judges'));
     parts.push(tableOf(['Judge', 'Ranked your pick first'], history.judges.map(judgeCells)));
@@ -415,6 +430,7 @@ function draftSpec(): Record<string, unknown> {
     check: draft.check,
     timeLimitMinutes: draft.timeLimitMinutes,
     rounds: draft.rounds,
+    reviewCase: draft.reviewCase,
   };
 }
 
@@ -592,9 +608,85 @@ function readDraftFromFile(text: string): string | null {
   const parsed = RaceSpec.safeParse(parseJsonText(text));
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
-  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes, rounds: spec.rounds };
+  draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes, rounds: spec.rounds, reviewCase: spec.reviewCase };
   judgeSeed = 'settled';
   return null;
+}
+
+function useReviewCase(entry: ReviewCaseEntry): void {
+  draft.reviewCase = entry.reviewCase;
+  if (draft.raceTitle.trim() === '') draft.raceTitle = `Review ${entry.title}`.slice(0, 120);
+  if (draft.prompt.trim() === '') draft.prompt = DEFAULT_REVIEW_PROMPT;
+}
+
+function buildCaseRow(entry: ReviewCaseEntry, onPicked: () => void): HTMLElement {
+  const row = el('li', 'arena-case');
+  const text = el('div', 'arena-case-text');
+  text.append(el('span', 'arena-case-title', entry.title));
+  text.append(el('span', 'arena-status', `${entry.reviewCase.repo}, ${entry.reviewCase.references.length} review comments, ${entry.reviewCase.changedFiles.length} files`));
+  row.append(text, button({ variant: 'secondary', size: 'small', label: 'Use this case', onClick: () => {
+    useReviewCase(entry);
+    onPicked();
+  } }));
+  return row;
+}
+
+function openCasePicker(onPicked: () => void): void {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Start from a review case' });
+  const statusEl = el('p', 'arena-status');
+  statusEl.setAttribute('role', 'status');
+  const list = el('ul', 'arena-cases');
+  const loadCases = () => {
+    statusEl.textContent = 'Loading the review cases.';
+    sendControlRequest('race-cases', {}, { timeoutMs: REQUEST_TIMEOUT_MS })
+      .then((reply) => {
+        if (reply.type !== 'race-cases-result') return;
+        const cases = reply.cases ?? [];
+        list.replaceChildren(...cases.map((entry) => buildCaseRow(entry, () => { close(); onPicked(); })));
+        statusEl.textContent = reply.ok ? (cases.length === 0 ? 'No review cases yet. Mine some from a repository below.' : '') : `Could not list the review cases: ${reply.error ?? 'unknown error'}`;
+      })
+      .catch((reason: unknown) => { statusEl.textContent = `Could not list the review cases: ${reason instanceof Error ? reason.message : String(reason)}`; });
+  };
+  const repoInput = el('input', 'settings-view-input');
+  repoInput.placeholder = 'owner/repo';
+  repoInput.setAttribute('aria-label', 'Repository to mine merged pull requests from');
+  repoInput.value = draft.reviewCase?.repo ?? '';
+  const mineButton = button({ variant: 'secondary', size: 'small', label: 'Mine cases', onClick: () => {
+    mineButton.disabled = true;
+    statusEl.textContent = `Mining merged pull requests of ${repoInput.value.trim()}.`;
+    sendControlRequest('race-mine-cases', { repo: repoInput.value.trim() }, { timeoutMs: MINE_TIMEOUT_MS })
+      .then((reply) => {
+        if (reply.type !== 'race-mine-cases-result') return;
+        if (!reply.ok) {
+          statusEl.textContent = `Could not mine cases: ${reply.error ?? 'unknown error'}`;
+          return;
+        }
+        loadCases();
+      })
+      .catch((reason: unknown) => { statusEl.textContent = `Could not mine cases: ${reason instanceof Error ? reason.message : String(reason)}`; })
+      .finally(() => { mineButton.disabled = false; });
+  } });
+  const mineRow = el('div', 'arena-case-mine');
+  mineRow.append(repoInput, mineButton);
+  dialog.append(list, mineRow, statusEl, actions);
+  btnCancel.addEventListener('click', close);
+  loadCases();
+}
+
+function buildReviewCaseField(onChanged: () => void): HTMLElement {
+  const field = el('div', 'arena-field arena-review-case');
+  const reviewCase = draft.reviewCase;
+  field.append(el('span', 'arena-field-label', reviewCase
+    ? `Review case: ${reviewCase.repo} ${reviewCase.caseId} at ${reviewCase.headSha.slice(0, SHORT_SHA_LENGTH)}, ${reviewCase.references.length} review comments. Contestants review it and are ranked by recall.`
+    : 'Review case: none, contestants work on the prompt'));
+  const controls = el('div', 'arena-actions');
+  controls.append(button({ variant: 'quiet', size: 'small', label: 'Start from case', onClick: () => openCasePicker(onChanged) }));
+  if (reviewCase) controls.append(button({ variant: 'quiet', size: 'small', label: 'Clear case', onClick: () => {
+    draft.reviewCase = null;
+    onChanged();
+  } }));
+  field.append(controls);
+  return field;
 }
 
 function buildNewRace(): HTMLElement {
@@ -624,6 +716,7 @@ function buildNewRace(): HTMLElement {
     }
     repoInput?.setAttribute('list', knownPaths.id);
     body.append(repoField, knownPaths);
+    body.append(buildReviewCaseField(paint));
     body.append(textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, true));
     body.append(buildCheckField());
     body.append(buildTimeLimitField());

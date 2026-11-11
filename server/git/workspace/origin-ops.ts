@@ -169,6 +169,15 @@ function createOriginOps(context: GitWorkspaceContext) {
     return run(['fetch', '--prune', 'origin'], projectPath, fetchOptions);
   }
 
+  async function fetchOriginCommitBody({ projectPath, sha = '' }: WorktreeArgs): Promise<GitResult> {
+    if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(sha)) return { ok: false, out: '', err: `not a commit sha: ${sha}` };
+    const present = await run(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], projectPath);
+    if (present.ok) return present;
+    const fetched = await run(['fetch', '--quiet', '--no-tags', 'origin', sha], projectPath, { timeout: GIT_FETCH_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: '0' } });
+    if (!fetched.ok) return fetched;
+    return run(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], projectPath);
+  }
+
   async function isFetchableBranchName(projectPath: string, branchName: string): Promise<boolean> {
     const isBranchName = await run(['check-ref-format', '--branch', branchName], projectPath);
     return isBranchName.ok && !branchName.startsWith('-');
@@ -275,7 +284,7 @@ function createOriginOps(context: GitWorkspaceContext) {
     }
   }
 
-  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, fetchOriginBranch, isFetchableBranchName, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
+  return { detectDefaultBranch, migrateMarkerBase, hasOriginRemote, originUrl, synchronizeBaseWithOrigin, pushBaseToOrigin, pushProvenanceNotes, ensureLocalBranch, fetchOriginBody, fetchOriginCommitBody, fetchOriginBranch, isFetchableBranchName, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips };
 }
 
 type OriginOps = ReturnType<typeof createOriginOps>;

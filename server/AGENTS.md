@@ -27,7 +27,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` |
 | `update-check.ts` | Startup release-tag check, advisory only |
-| `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/benchmark-core.ts`, `core/benchmark-mining-core.ts`) |
+| `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/review-score-core.ts`, `core/review-case-mining-core.ts`) |
 | `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
 | `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |

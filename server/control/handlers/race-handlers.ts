@@ -55,11 +55,23 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
     reply({ ok: problems.length === 0, error: problems.length > 0 ? problems.join(' ') : null });
   }
 
+  async function handleRaceCases(msg: ClientMessageOf<'race-cases'>, ws: ControlSocket): Promise<void> {
+    const listed = races ? await races.listCases() : { ok: false as const, error: 'Races are not running' };
+    replyTo(ws, msg, 'race-cases-result', listed.ok ? { ok: true, error: null, cases: listed.cases } : { ok: false, error: listed.error });
+  }
+
+  async function handleRaceMineCases(msg: ClientMessageOf<'race-mine-cases'>, ws: ControlSocket): Promise<void> {
+    const mined = races ? await races.mineCases(msg.repo) : { ok: false as const, error: 'Races are not running' };
+    replyTo(ws, msg, 'race-mine-cases-result', mined.ok ? { ok: true, error: null, mined: mined.mined, refused: mined.refused } : { ok: false, error: mined.error });
+  }
+
   const handlers = {
     'race-start': handleRaceStart,
     'race-judge': handleRaceJudge,
     'race-diff': handleRaceDiff,
     'race-pick-winner': handleRacePickWinner,
+    'race-cases': handleRaceCases,
+    'race-mine-cases': handleRaceMineCases,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -67,6 +79,8 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
     'race-judge': (_msg, requestId, message) => ({ type: 'race-judge-result', requestId, ok: false, error: message }),
     'race-diff': (_msg, requestId, message) => ({ type: 'race-diff-result', requestId, ok: false, error: message }),
     'race-pick-winner': (_msg, requestId, message) => ({ type: 'race-pick-winner-result', requestId, ok: false, error: message }),
+    'race-cases': (_msg, requestId, message) => ({ type: 'race-cases-result', requestId, ok: false, error: message }),
+    'race-mine-cases': (_msg, requestId, message) => ({ type: 'race-mine-cases-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames: () => (races ? [races.status(), races.historyFrame()] : []), launcher };

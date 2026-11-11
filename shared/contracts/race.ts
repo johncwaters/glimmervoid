@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
+import { ReviewCaseId, ReviewReference, repoSlug } from './review-case.ts';
+import { CommitSha } from './team-review.ts';
 
 const RACE_MIN_CONTESTANTS = 2;
 export const RACE_MAX_CONTESTANTS = 5;
@@ -34,6 +36,24 @@ export type RaceCheck = z.infer<typeof RaceCheck>;
 export const RaceJudge = z.strictObject({ setup: AgentSetup });
 export type RaceJudge = z.infer<typeof RaceJudge>;
 
+export const RaceReviewCase = z.strictObject({
+  caseId: ReviewCaseId,
+  repo: repoSlug,
+  baseSha: CommitSha,
+  headSha: CommitSha,
+  changedFiles: z.array(z.string().min(1)),
+  references: z.array(ReviewReference).min(1),
+});
+export type RaceReviewCase = z.infer<typeof RaceReviewCase>;
+
+export const ReviewCaseEntry = z.strictObject({
+  key: z.string().min(1).max(200),
+  title: z.string().max(300),
+  url: z.string().nullable(),
+  reviewCase: RaceReviewCase,
+});
+export type ReviewCaseEntry = z.infer<typeof ReviewCaseEntry>;
+
 function foldLegacyJudge(spec: unknown): unknown {
   if (typeof spec !== 'object' || spec === null || !('judge' in spec) || 'judges' in spec) return spec;
   const { judge, ...rest } = spec;
@@ -50,6 +70,7 @@ export const RaceSpec = z.preprocess(foldLegacyJudge, z.strictObject({
   check: RaceCheck.nullable().default(null),
   timeLimitMinutes: z.number().int().min(1).max(720).nullable().default(null),
   rounds: z.number().int().min(1).max(RACE_MAX_ROUNDS).default(1),
+  reviewCase: RaceReviewCase.nullable().default(null),
 }).refine((spec) => new Set(spec.contestants.map((contestant) => contestant.id)).size === spec.contestants.length, {
   error: 'contestant ids must be unique',
   path: ['contestants'],
@@ -151,6 +172,7 @@ export const RaceRecord = z.strictObject({
   judge: JudgeResult.nullable().default(null),
   panel: PanelResult.nullable().default(null),
   judgeError: z.string().nullable().default(null),
+  recallByContestant: z.record(RaceId, z.number().min(0).max(1)).default({}),
   winnerContestantId: RaceId.nullable().default(null),
   series: z.strictObject({ id: RaceId, round: z.number().int().min(1) }).nullable().default(null),
 });
@@ -164,6 +186,7 @@ export const StandingRow = z.strictObject({
   races: z.number().int().min(0),
   wins: z.number().int().min(0),
   passRate: z.record(RaceCriterion, z.number().min(0).max(1).nullable()),
+  meanRecall: z.number().min(0).max(1).nullable(),
   meanCostUSD: z.number().min(0).nullable(),
   meanElapsedMs: z.number().min(0).nullable(),
 });

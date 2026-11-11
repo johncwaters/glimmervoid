@@ -14,7 +14,7 @@ import type { CheckOutcome, RaceCheck, RaceHistory } from '../shared/contracts/r
 import { contestantDiff } from '../server/race/race-diff.ts';
 import { createRaceStore } from '../server/race/race-store.ts';
 import { createRaceWiring } from '../server/race/race-wiring.ts';
-import { seriesStanding } from '../shared/race-core.ts';
+import { recallStanding, seriesStanding } from '../shared/race-core.ts';
 
 const quietLog = { log: () => {}, warn: () => {} };
 
@@ -84,10 +84,10 @@ test('every judge on the panel sees its own shuffled letter ids and no agent con
   const record: RaceRecord = {
     id: 'race-blind',
     spec: {
-      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, rounds: 1, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
+      version: 1, title: 'Fix add', prompt: 'Fix add.', repoPath: mainRepo, judges: [{ setup }, { setup: { ...setup, model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }] } }], timeLimitMinutes: null, rounds: 1, reviewCase: null, check: { program: 'node', args: ['-e', 'console.log(require("fs").readdirSync(".").join("\\n")); import("./add.ts").then((m) => { console.log("add(1, 2) =", m.add(1, 2)); process.exit(m.add(1, 2) === 3 ? 0 : 7); })'], timeoutSeconds: 30 },
       contestants: Object.keys(worktreeByContestant).map((id) => ({ id, label: `Label ${id}`, setup, home: 'operator' as const })),
     },
-    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null, series: null,
+    startSha, baseBranch: 'main', createdAt: 1, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: { 'kimi-only-config': { elapsedMs: 45, waits: 1, tokens: 900, costUSD: 0.01 } }, finishByContestant: {}, judge: null, panel: null, judgeError: null, recallByContestant: {}, winnerContestantId: null, series: null,
     sessionIdByContestant: Object.fromEntries(Object.keys(worktreeByContestant).map((id) => [id, `session-${id}`])),
   };
   const store = createRaceStore({ directory: path.join(root, 'races'), log: quietLog });
@@ -230,7 +230,7 @@ test('a race with two rounds starts the second from the same start point once th
     integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges'),
   });
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
-  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, reviewCase: null, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
   const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
   assert.ok(started.ok);
   assert.deepEqual(wiring.status().races[0].series, { id: started.raceId, round: 1 });
@@ -260,7 +260,7 @@ test('a winner picked in an earlier round stops the settle poll judging a later 
   let launches = 0;
   const wiring = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges') });
   const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
-  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
+  const spec = { version: 1 as const, title: 'Series', prompt: 'Do it.', repoPath: root, judges: [], check: null, timeLimitMinutes: null, rounds: 2, reviewCase: null, contestants: [{ id: 'a', label: 'A', setup, home: 'operator' as const }, { id: 'b', label: 'B', setup, home: 'operator' as const }] };
   const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: `round-${Math.floor(launches++ / 2) + 1}-${contestant.id}` }));
   assert.ok(started.ok);
   await wiring.judge(started.raceId);
@@ -276,6 +276,54 @@ test('a winner picked in an earlier round stops the settle poll judging a later 
   const restarted = createRaceWiring({ store, git, integrationBranch: () => null, broadcast: () => {}, log: quietLog });
   await restarted.loadRaces([started.raceId]);
   assert.deepEqual(restarted.status().races.map((race) => race.series?.round).sort(), [1, 2]);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a review race starts at the reviewed commit, scores each review by recall through a blinded matcher, and ranks by recall', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'race-review-'));
+  const headSha = 'b'.repeat(40);
+  const worktreeByContestant: Record<string, string> = {};
+  for (const [contestantId, findings] of [['careful', '- add.ts:1 subtracts instead of adding\n- add.ts:1 has no test\n'], ['vague', '- consider renaming add\n'], ['silent', null]] as const) {
+    worktreeByContestant[contestantId] = fs.mkdtempSync(path.join(root, `wt-${contestantId}-`));
+    if (findings) fs.writeFileSync(path.join(worktreeByContestant[contestantId], 'review-findings.md'), findings);
+  }
+  const fetchedShas: string[] = [];
+  const matcherPrompts: string[] = [];
+  const spawnedIds: string[] = [];
+  const wiring = createRaceWiring({
+    store: createRaceStore({ directory: path.join(root, 'races'), log: quietLog }),
+    git: { fetchOrigin: async () => ({ ok: true }), listIntegrationTips: async () => ({ ok: false }), fetchOriginCommit: async ({ sha }) => { fetchedShas.push(sha); return { ok: true }; } },
+    integrationBranch: () => null, broadcast: () => {}, log: quietLog, sessionStateOf: () => 'COMPLETE', judgeRoot: path.join(root, 'judges'),
+    worktreeOf: (sessionId) => worktreeByContestant[sessionId] ?? null,
+    usageLookup: () => (sessionId) => ({ tokens: 10, costUSD: sessionId === 'careful' ? 0.5 : 0.1 }),
+    diffOf: async ({ blindCheckoutDir }) => { if (blindCheckoutDir) fs.mkdirSync(blindCheckoutDir, { recursive: true }); const stats = { filesChanged: 1, linesAdded: 2, linesRemoved: 0 }; return { ok: true, diff: '+ review-findings.md', stats, blindDiff: '+ review-findings.md', blindStats: stats }; },
+    spawnJudge: async ({ id, prompt, cwd }) => {
+      spawnedIds.push(id.split(':')[0]);
+      matcherPrompts.push(prompt);
+      const shownSubtraction = [...prompt.matchAll(/F(\d+)\n[^\n]*\n[^\n]*subtracts/g)].map((match) => Number(match[1]));
+      fs.writeFileSync(path.join(cwd, 'review-match-result.json'), JSON.stringify({ judgements: [
+        shownSubtraction.length > 0 ? { referenceId: 'r1', verdict: 'found', findingIndexes: shownSubtraction } : { referenceId: 'r1', verdict: 'missed', findingIndexes: [] },
+        { referenceId: 'r2', verdict: 'missed', findingIndexes: [] },
+      ] }));
+    },
+  });
+  const setup = { agent: 'claude-code', model: null, options: [], instructions: '' };
+  const reviewCase = { caseId: 'pr-7', repo: 'acme/math', baseSha: 'a'.repeat(40), headSha, changedFiles: ['add.ts'], references: [{ id: 'r1', text: 'add subtracts its operands', tags: [] }, { id: 'r2', text: 'the export lacks a type', tags: [] }] };
+  const spec = { version: 1 as const, title: 'Review', prompt: 'Review this pull request for defects.', repoPath: root, judges: [{ setup }], check: null, timeLimitMinutes: null, rounds: 1, reviewCase, contestants: ['careful', 'vague', 'silent'].map((id) => ({ id, label: id, setup, home: 'operator' as const })) };
+  const started = await wiring.start(spec, (contestant) => ({ ok: true, sessionId: contestant.id }));
+  assert.ok(started.ok);
+  assert.deepEqual(fetchedShas, [headSha]);
+  assert.equal(wiring.status().races[0].startSha, headSha);
+  await wiring.judge(started.raceId);
+  await waitFor(() => wiring.status().races[0]?.phase === 'judged');
+  const judged = wiring.status().races[0];
+  assert.deepEqual(judged.recallByContestant, { careful: 0.5, vague: 0, silent: 0 });
+  assert.deepEqual(spawnedIds, ['race-matcher', 'race-matcher'], 'a review race runs only matchers, and none for a contestant with no findings file');
+  assert.equal(judged.judgeError, null);
+  for (const matcherPrompt of matcherPrompts) assert.ok(!/careful|vague|silent/.test(matcherPrompt), 'the matcher prompt names a contestant');
+  assert.deepEqual(Object.fromEntries(recallStanding(judged).map((entry) => [entry.contestantId, entry.rank])), { careful: 1, vague: 2, silent: 2 });
+  await waitFor(() => wiring.historyFrame().history.standings.length > 0);
+  assert.deepEqual(wiring.historyFrame().history.standings.map((row) => [row.races, row.wins, row.meanRecall]), [[3, 1, 0.5 / 3]]);
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -319,8 +367,8 @@ test('history folds every stored race a judge scored into standings per setup an
   const history = wiring.historyFrame().history;
   assert.equal(history.judgedRaces, 2);
   const rowOf = (label: string) => history.standings.find((row) => row.label.startsWith(label));
-  assert.deepEqual(rowOf('claude-code claude-haiku-5-5'), { setupKey: rowOf('claude-code claude-haiku-5-5')?.setupKey, label: 'claude-code claude-haiku-5-5, clean home', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 1, quality: 1 }, meanCostUSD: 0.04, meanElapsedMs: 60_000 });
-  assert.deepEqual(rowOf('claude-code claude-opus-5-5 high'), { setupKey: rowOf('claude-code claude-opus-5-5 high')?.setupKey, label: 'claude-code claude-opus-5-5 high, your setup', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 0.5, quality: 0 }, meanCostUSD: 0.6, meanElapsedMs: null });
+  assert.deepEqual(rowOf('claude-code claude-haiku-5-5'), { setupKey: rowOf('claude-code claude-haiku-5-5')?.setupKey, label: 'claude-code claude-haiku-5-5, clean home', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 1, quality: 1 }, meanRecall: null, meanCostUSD: 0.04, meanElapsedMs: 60_000 });
+  assert.deepEqual(rowOf('claude-code claude-opus-5-5 high'), { setupKey: rowOf('claude-code claude-opus-5-5 high')?.setupKey, label: 'claude-code claude-opus-5-5 high, your setup', races: 2, wins: 1, passRate: { correctness: 1, completeness: 1, scope: 0.5, quality: 0 }, meanRecall: null, meanCostUSD: 0.6, meanElapsedMs: null });
   assert.deepEqual(history.judges, [{ label: 'judge one', matched: 1, races: 1 }, { label: 'judge two', matched: 0, races: 1 }]);
   assert.deepEqual(history.past.map((record) => record.id), ['paneled'], 'the live race, the unjudged race and the race no judge scored stay out of past races');
   const foldsBeforeWrite = histories.length;

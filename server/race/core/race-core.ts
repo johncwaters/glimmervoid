@@ -1,18 +1,33 @@
 import type { AgentSetup } from '../../../shared/contracts/agent-models.ts';
 import { EFFORT_OPTION_ID } from '../../../shared/contracts/agent-models.ts';
 import { RACE_CRITERIA, RACE_HISTORY_PAST_LIMIT } from '../../../shared/contracts/race.ts';
-import type { CheckOutcome, ContestantFinish, ContestantVerdict, CriterionStanding, DiffStats, JudgeRow, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceHistory, RaceRecord, RaceSpec, StandingRow } from '../../../shared/contracts/race.ts';
+import type { CheckOutcome, ContestantFinish, ContestantVerdict, CriterionStanding, DiffStats, JudgeRow, JudgeVerdict, PanelResult, PanelStanding, RaceCheck, RaceContestant, RaceCriterion, RaceHistory, RaceRecord, RaceReviewCase, RaceSpec, StandingRow } from '../../../shared/contracts/race.ts';
 import { z } from 'zod';
 import { fencedUntrusted } from '../../lanes/core/lane-report-core.ts';
-import { isSettledContestantState } from '../../../shared/race-core.ts';
+import { isSettledContestantState, recallStanding } from '../../../shared/race-core.ts';
 import { STATES } from '../../../shared/states.ts';
 
 const SESSION_NAME_MAX_CHARS = 64;
 const SESSION_NAME_UNSAFE_CHARS = /[^a-zA-Z0-9_\-. ()]+/g;
 
+const REVIEW_FINDINGS_FILENAME = 'review-findings.md';
+const REVIEW_MATCH_RESULT_FILENAME = 'review-match-result.json';
+const CHANGED_FILES_MAX_CHARS = 200000;
+
+function reviewInstructions(reviewCase: RaceReviewCase): string {
+  return [
+    `Review the change from ${reviewCase.baseSha} to HEAD (${reviewCase.headSha}) in this checkout: run git diff ${reviewCase.baseSha} HEAD to read it.`,
+    'The files it changes, as listed by GitHub:',
+    fencedUntrusted('changed-files', reviewCase.changedFiles.join('\n'), CHANGED_FILES_MAX_CHARS),
+    `Write every defect you find to ./${REVIEW_FINDINGS_FILENAME} at the root of this checkout, one top-level "- " bullet per defect naming the file, the line and what goes wrong. Change no other file and make no commit.`,
+    'Review from this checkout alone: do not look up this pull request, its review comments or its later commits on GitHub or anywhere else, and read nothing outside this checkout.',
+  ].join('\n');
+}
+
 function contestantPrompt(spec: RaceSpec, contestant: RaceContestant): string {
   const instructions = contestant.setup.instructions.trim();
-  return instructions === '' ? spec.prompt : `${spec.prompt}\n\n${instructions}`;
+  const task = spec.reviewCase ? `${spec.prompt}\n\n${reviewInstructions(spec.reviewCase)}` : spec.prompt;
+  return instructions === '' ? task : `${task}\n\n${instructions}`;
 }
 
 function contestantSessionName(spec: RaceSpec, contestant: RaceContestant): string {
@@ -240,11 +255,16 @@ function setupLabel(contestant: RaceContestant): string {
   return parts.join(', ');
 }
 
+function hasRecall(record: RaceRecord): boolean {
+  return record.spec.reviewCase !== null && Object.keys(record.recallByContestant).length > 0;
+}
+
 function isScored(record: RaceRecord): boolean {
-  return record.phase === 'judged' && (record.panel !== null || record.judge !== null);
+  return record.phase === 'judged' && (record.panel !== null || record.judge !== null || hasRecall(record));
 }
 
 function isWinnerOf(record: RaceRecord, contestantId: string): boolean {
+  if (hasRecall(record)) return recallStanding(record).some((standing) => standing.contestantId === contestantId && standing.rank === 1);
   if (record.panel) return record.panel.standing.some((standing) => standing.contestantId === contestantId && standing.rank === 1);
   return record.judge?.ranking.some((entry) => entry.contestantId === contestantId && entry.rank === 1) ?? false;
 }
@@ -260,6 +280,7 @@ interface StandingTally {
   races: number;
   wins: number;
   credit: Record<RaceCriterion, Total>;
+  recall: Total;
   cost: Total;
   elapsed: Total;
 }
@@ -284,7 +305,7 @@ function standings(records: readonly RaceRecord[]): StandingRow[] {
     if (!isScored(record)) continue;
     for (const contestant of record.spec.contestants) {
       const key = setupKey(contestant);
-      const tally = tallyByKey.get(key) ?? { setupKey: key, label: setupLabel(contestant), races: 0, wins: 0, credit: perCriterion(() => ({ sum: 0, count: 0 })), cost: { sum: 0, count: 0 }, elapsed: { sum: 0, count: 0 } };
+      const tally = tallyByKey.get(key) ?? { setupKey: key, label: setupLabel(contestant), races: 0, wins: 0, credit: perCriterion(() => ({ sum: 0, count: 0 })), recall: { sum: 0, count: 0 }, cost: { sum: 0, count: 0 }, elapsed: { sum: 0, count: 0 } };
       tallyByKey.set(key, tally);
       tally.races += 1;
       if (isWinnerOf(record, contestant.id)) tally.wins += 1;
@@ -293,13 +314,14 @@ function standings(records: readonly RaceRecord[]): StandingRow[] {
         const verdict = standing?.criteria[criterion];
         if (verdict) addTo(tally.credit[criterion], CRITERION_CREDIT[verdict]);
       }
+      addTo(tally.recall, record.recallByContestant[contestant.id]);
       const metrics = record.metricsByContestant[contestant.id];
       addTo(tally.cost, metrics?.costUSD);
       addTo(tally.elapsed, metrics?.elapsedMs);
     }
   }
   return [...tallyByKey.values()]
-    .map((tally) => ({ setupKey: tally.setupKey, label: tally.label, races: tally.races, wins: tally.wins, passRate: perCriterion((criterion) => meanOf(tally.credit[criterion])), meanCostUSD: meanOf(tally.cost), meanElapsedMs: meanOf(tally.elapsed) }))
+    .map((tally) => ({ setupKey: tally.setupKey, label: tally.label, races: tally.races, wins: tally.wins, passRate: perCriterion((criterion) => meanOf(tally.credit[criterion])), meanRecall: meanOf(tally.recall), meanCostUSD: meanOf(tally.cost), meanElapsedMs: meanOf(tally.elapsed) }))
     .sort((left, right) => right.wins / right.races - left.wins / left.races || right.races - left.races);
 }
 
@@ -324,5 +346,5 @@ function raceHistory(records: readonly RaceRecord[], liveIds: ReadonlySet<string
   return { judgedRaces: judged.length, standings: standings(judged), judges: judgeRows(judged), past };
 }
 
-export { AGENT_CONFIG_FOLDERS, raceHistory, setupKey, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
+export { AGENT_CONFIG_FOLDERS, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESULT_FILENAME, raceHistory, setupKey, contestantFinish, raceDeadline, RACE_JUDGE_RESULT_FILENAME, checkOutcomeOf, judgeCheckFileName, judgeCheckoutDirName, judgeIdAt, judgeLabel, panelStanding, parseJudgeVerdict, unblindVerdict, winnerNotesPrompt, contestantPrompt, contestantSessionName, judgeDiffFileName, judgePrompt, parseShortstat, raceIdsOf };
 export type { CheckRun, JudgeInput, SessionWatch };

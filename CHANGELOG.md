@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hooks moved into Settings.** The Hooks tab left the main navigation; the same page, with built-in hooks per agent and your own hooks editor, is now Settings, Hooks.
 - **Sane YOLO is the one name for session protection.** The README, website and brand now say Sane YOLO where they said guardrails, and session temp folders live under `~/.glimmervoid/sane-yolo-temp`. Sessions already running keep their folder under `guardrails-temp`, which Glimmervoid clears like any other session temp folder once they end and removes when it is empty.
 - **Plan review is gone; plans go through boards.** The Plan button and plan face left the session card, and the `planReview` setting is retired. When Claude Code leaves plan mode, the card shows Plan ready and you approve the plan in the session's own terminal.
+- **Arena races can review a real pull request.** New race, Start from case picks a review case mined from a repository's merged pull requests, or Mine cases mines some from an owner/repo. Each contestant checks out the reviewed commit, writes its findings to `review-findings.md`, and a blinded matcher scores them against the comments reviewers left on that pull request. Contestants rank by recall, ties going to the cheaper run, and Standings gain a Recall column. Cases mined by the old benchmarks lane show up in the picker as they are.
 
 ### Fixed
 

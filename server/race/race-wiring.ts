@@ -9,14 +9,18 @@ import { REMOVED_CONTESTANT, contestantTimeline, seriesKey, seriesRoundIds, winn
 import type { StateTransition } from '../../shared/race-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
+import { buildJudgePrompt as buildMatcherPrompt, extractReviewFindings, scoreCell, validateJudgeOutput as parseMatcherOutput } from '../core/review-score-core.ts';
 import type { JudgeInput, SessionWatch } from './core/race-core.ts';
-import { RACE_JUDGE_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, raceHistory, unblindVerdict } from './core/race-core.ts';
+import { RACE_JUDGE_RESULT_FILENAME, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, raceHistory, unblindVerdict } from './core/race-core.ts';
 import type { ContestantDiff } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
+import type { ReviewCaseLibrary } from './review-cases.ts';
 
 const SETTLE_CHECK_INTERVAL_MS = 15_000;
 const JUDGE_TIMEOUT_MS = 30 * 60 * 1000;
 const RACE_DIFF_MAX_CHARS = 200_000;
+const REVIEW_FINDINGS_MAX_BYTES = 1024 * 1024;
+const DEFAULT_MATCHER_SETUP: AgentSetup = { agent: 'claude-code', model: null, options: [], instructions: '' };
 
 interface ChangedContestant {
   contestantId: string;
@@ -35,6 +39,7 @@ interface RaceStartPoint {
 
 interface RaceGit {
   fetchOrigin: (args: { projectPath: string }) => Promise<{ ok: boolean }>;
+  fetchOriginCommit?: (args: { projectPath: string; sha: string }) => Promise<{ ok: boolean }>;
   listIntegrationTips: (args: { projectPath: string; integrationBranch: string | null }) => Promise<{ ok: boolean } | { ok: true; integrationTips: { branch: string; sha: string | null }[] }>;
 }
 
@@ -65,6 +70,7 @@ interface RaceWiringDependencies {
   transitionsOf?: (sessionId: string) => readonly StateTransition[] | null;
   usageLookup?: () => (sessionId: string) => { tokens: number; costUSD: number } | null;
   judgeRoot?: string | null;
+  reviewCases?: ReviewCaseLibrary | null;
   now?: () => number;
   random?: () => number;
 }
@@ -81,7 +87,7 @@ function shuffled<Item>(items: readonly Item[], random: () => number): Item[] {
 function createRaceWiring({
   store, git, integrationBranch, broadcast, log, sessionStateOf = () => REMOVED_CONTESTANT, sessionWatchOf, worktreeOf = () => null,
   diffOf = async () => ({ ok: false, reason: 'diffs are unavailable' }), spawnJudge = null, runCheck = async () => ({ status: 'unavailable', exitCode: null, reason: 'checks are unavailable', durationMs: 0, outputTail: '' }),
-  transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, now = Date.now, random = Math.random,
+  transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, reviewCases = null, now = Date.now, random = Math.random,
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
   const launchBySeries = new Map<string, ContestantLaunch>();
@@ -142,9 +148,26 @@ function createRaceWiring({
     }
   }
 
+  async function resolveReviewStartPoint(spec: RaceSpec): Promise<RaceStartPoint | null> {
+    const reviewCase = spec.reviewCase;
+    if (!reviewCase || !git.fetchOriginCommit) return null;
+    const fetched = await git.fetchOriginCommit({ projectPath: spec.repoPath, sha: reviewCase.headSha });
+    if (!fetched.ok) return null;
+    return { startSha: reviewCase.headSha, baseBranch: `${reviewCase.repo} case ${reviewCase.caseId}` };
+  }
+
   async function start(spec: RaceSpec, launch: ContestantLaunch): Promise<{ ok: true; raceId: string; error: string | null } | { ok: false; error: string }> {
+    if (spec.reviewCase) {
+      const reviewStart = await resolveReviewStartPoint(spec);
+      if (!reviewStart) return { ok: false, error: `Could not fetch the reviewed commit ${spec.reviewCase.headSha} of ${spec.reviewCase.repo} into ${spec.repoPath}; pick a clone of that repository.` };
+      return startSeries(spec, launch, reviewStart);
+    }
     const startPoint = await resolveStartPoint(spec.repoPath);
     if (!startPoint) return { ok: false, error: `Could not find the integration branch of ${spec.repoPath}.` };
+    return startSeries(spec, launch, startPoint);
+  }
+
+  async function startSeries(spec: RaceSpec, launch: ContestantLaunch, startPoint: RaceStartPoint): Promise<{ ok: true; raceId: string; error: string | null } | { ok: false; error: string }> {
     const raceId = randomUUID();
     const series = spec.rounds > 1 ? { id: raceId, round: 1 } : null;
     if (series) launchBySeries.set(series.id, launch);
@@ -153,7 +176,7 @@ function createRaceWiring({
 
   async function startRound(raceId: string, spec: RaceSpec, launch: ContestantLaunch, startPoint: RaceStartPoint, series: RaceRecord['series']): Promise<{ ok: true; raceId: string; error: string | null } | { ok: false; error: string }> {
     const sessionIdByContestant: Record<string, string> = {};
-    const freshRecord = (): RaceRecord => ({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, winnerContestantId: null, series });
+    const freshRecord = (): RaceRecord => ({ id: raceId, spec, ...startPoint, createdAt: now(), sessionIdByContestant, phase: 'running', diffStatsByContestant: {}, checkByContestant: {}, metricsByContestant: {}, finishByContestant: {}, judge: null, panel: null, judgeError: null, recallByContestant: {}, winnerContestantId: null, series });
     const savedBeforeLaunch = await saveRecord(freshRecord());
     if (savedBeforeLaunch !== null) return { ok: false, error: `Could not save the race, so no contestant started: ${savedBeforeLaunch}` };
     const failures: string[] = [];
@@ -278,7 +301,7 @@ function createRaceWiring({
     const { changed, statsByContestant, checkByContestant, unreadable } = await collectChangedContestants(record, judgeDir);
     const unreadableNote = unreadable.length > 0 ? `Could not read the diff of ${unreadable.join(', ')}, so it was left out.` : null;
     const collected = { diffStatsByContestant: statsByContestant, checkByContestant };
-    if (record.spec.judges.length === 0 || !spawnJudge) return { ...collected, panel: null, judgeError: unreadableNote };
+    if (record.spec.reviewCase || record.spec.judges.length === 0 || !spawnJudge) return { ...collected, panel: null, judgeError: unreadableNote };
     if (changed.length === 0) return { ...collected, panel: null, judgeError: unreadableNote ?? 'No contestant changed anything, so there was nothing to judge.' };
     const timeout = AbortSignal.timeout(JUDGE_TIMEOUT_MS);
     const spawn = spawnJudge;
@@ -288,6 +311,55 @@ function createRaceWiring({
     if (verdicts.length === 0) return { ...collected, panel: null, judgeError: `Every judge failed: ${failures.map((failure) => `${failure.label} ${failure.reason}`).join('; ')}.` };
     const panel: PanelResult = { verdicts, failures, ...panelStanding(verdicts, changed.map((contestant) => contestant.contestantId)) };
     return { ...collected, panel, judgeError: unreadableNote };
+  }
+
+  async function readReviewFindings(worktreeDir: string): Promise<string[]> {
+    const findingsPath = path.join(worktreeDir, REVIEW_FINDINGS_FILENAME);
+    const stat = await fsp.lstat(findingsPath).catch(() => null);
+    if (!stat?.isFile() || stat.size > REVIEW_FINDINGS_MAX_BYTES) return [];
+    return extractReviewFindings(await fsp.readFile(findingsPath, 'utf8').catch(() => ''));
+  }
+
+  async function matchContestant(spawn: NonNullable<typeof spawnJudge>, record: RaceRecord, lineupIndex: number, findings: readonly string[], judgeDir: string, signal: AbortSignal): Promise<{ ok: true; recall: number } | { ok: false; reason: string }> {
+    const reviewCase = record.spec.reviewCase;
+    if (!reviewCase) return { ok: false, reason: 'the race has no review case' };
+    if (findings.length === 0) return { ok: true, recall: 0 };
+    const matcherDir = path.join(judgeDir, `matcher-${lineupIndex}`);
+    await fsp.mkdir(matcherDir, { recursive: true });
+    const matcher = buildMatcherPrompt({ references: reviewCase.references, findings: findings.map((body) => ({ path: null, line: null, severity: null, lane: null, body })), seed: lineupIndex + 1 });
+    try {
+      await spawn({
+        id: `race-matcher:${record.id}:${randomUUID().slice(0, 8)}`,
+        name: `Race matcher ${lineupIndex + 1} ${record.spec.title}`.slice(0, 64),
+        prompt: `${matcher.prompt}\n\nWrite exactly that JSON, and nothing else, to ./${REVIEW_MATCH_RESULT_FILENAME} with the Write tool.`,
+        cwd: matcherDir,
+        setup: record.spec.judges[0]?.setup ?? DEFAULT_MATCHER_SETUP,
+        readPaths: [],
+        signal,
+      });
+    } catch (error) {
+      return { ok: false, reason: errorMessage(error) };
+    }
+    const parsed = parseMatcherOutput(JSON.stringify(await readLaneResultFile(path.join(matcherDir, REVIEW_MATCH_RESULT_FILENAME))), { referenceIds: reviewCase.references.map((reference) => reference.id), shownToOriginal: matcher.shownToOriginal });
+    if (!parsed.ok) return { ok: false, reason: signal.aborted ? 'ran out of time' : parsed.reason };
+    return { ok: true, recall: scoreCell(parsed.judgements, reviewCase.references).recall };
+  }
+
+  async function scoreRecall(record: RaceRecord, judgeDir: string): Promise<{ recallByContestant: RaceRecord['recallByContestant']; failures: string[] }> {
+    if (!record.spec.reviewCase || !spawnJudge) return { recallByContestant: {}, failures: [] };
+    const spawn = spawnJudge;
+    const timeout = AbortSignal.timeout(JUDGE_TIMEOUT_MS);
+    const recallByContestant: RaceRecord['recallByContestant'] = {};
+    const failures: string[] = [];
+    await Promise.all(record.spec.contestants.map(async (contestant, lineupIndex) => {
+      const sessionId = record.sessionIdByContestant[contestant.id];
+      const worktreeDir = sessionId ? worktreeOf(sessionId) : null;
+      if (!worktreeDir || record.finishByContestant[contestant.id]?.status === 'did-not-finish') return;
+      const matched = await matchContestant(spawn, record, lineupIndex, await readReviewFindings(worktreeDir), judgeDir, timeout);
+      if (matched.ok) recallByContestant[contestant.id] = matched.recall;
+      if (!matched.ok) failures.push(`Could not score the review of ${contestant.label}: ${matched.reason.slice(0, 300)}.`);
+    }));
+    return { recallByContestant, failures };
   }
 
   function measureContestants(record: RaceRecord): RaceRecord['metricsByContestant'] {
@@ -345,8 +417,11 @@ function createRaceWiring({
     const metricsByContestant = measureContestants(record);
     const finishByContestant = finishesAtTrigger ?? finishOfContestants(record);
     try {
-      const outcome = await runJudgeOnce({ ...record, finishByContestant }, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
-      await updateRecord(raceId, (current) => ({ ...current, ...outcome, metricsByContestant, finishByContestant, judge: null, phase: 'judged' }));
+      const settled = { ...record, metricsByContestant, finishByContestant };
+      const outcome = await runJudgeOnce(settled, judgeDir).catch((error: unknown) => ({ diffStatsByContestant: record.diffStatsByContestant, checkByContestant: record.checkByContestant, panel: null, judgeError: `The judge failed: ${errorMessage(error)}.` }));
+      const recall = await scoreRecall(settled, judgeDir).catch((error: unknown) => ({ recallByContestant: {}, failures: [`Recall scoring failed: ${errorMessage(error)}.`] }));
+      const judgeError = [outcome.judgeError, ...recall.failures].filter((part): part is string => part !== null).join(' ') || null;
+      await updateRecord(raceId, (current) => ({ ...current, ...outcome, judgeError, recallByContestant: recall.recallByContestant, metricsByContestant, finishByContestant, judge: null, phase: 'judged' }));
       log.log(`[race] judged ${record.spec.title}${outcome.judgeError ? `: ${outcome.judgeError}` : ''}`);
       await startNextRound(record);
     } finally {
@@ -419,7 +494,17 @@ function createRaceWiring({
     return { ok: true, diff: diff.diff.slice(0, RACE_DIFF_MAX_CHARS) };
   }
 
-  return { status, historyFrame, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText };
+  async function listCases(): Promise<{ ok: true; cases: Awaited<ReturnType<ReviewCaseLibrary['list']>> } | { ok: false; error: string }> {
+    if (!reviewCases) return { ok: false, error: 'The review case library is unavailable.' };
+    return { ok: true, cases: await reviewCases.list() };
+  }
+
+  async function mineCases(repo: string): Promise<Awaited<ReturnType<ReviewCaseLibrary['mine']>>> {
+    if (!reviewCases) return { ok: false, error: 'The review case library is unavailable.' };
+    return reviewCases.mine(repo);
+  }
+
+  return { status, historyFrame, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText, listCases, mineCases };
 }
 
 type RaceWiring = ReturnType<typeof createRaceWiring>;

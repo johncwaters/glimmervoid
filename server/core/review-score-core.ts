@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import {
-  BenchmarkJudgement, PrCheckoutCaseInput,
-  type BenchmarkArm, type BenchmarkArmScore, type BenchmarkCase, type BenchmarkCellResult,
-  type BenchmarkInFlightCell, type BenchmarkMatchVerdict, type BenchmarkReference,
-  type BenchmarkReport, type BenchmarkReportRow, type BenchmarkRun, type BenchmarkSubjectOutput, type BenchmarkSuite,
+import type {
+  BenchmarkArm, BenchmarkArmScore, BenchmarkCellResult, BenchmarkInFlightCell,
+  BenchmarkReport, BenchmarkReportRow, BenchmarkRun, BenchmarkSubjectOutput, BenchmarkSuite,
 } from '../../shared/contracts/benchmark.ts';
+import { Judgement, PrCheckoutCaseInput } from '../../shared/contracts/review-case.ts';
+import type { MatchVerdict, ReviewCase, ReviewReference } from '../../shared/contracts/review-case.ts';
 import { fencedUntrusted, parseFindingLine, sectionAfter } from '../github/core/team-review-core.ts';
 
 interface PlannedCell {
@@ -14,7 +14,7 @@ interface PlannedCell {
   trial: number;
 }
 
-interface BenchmarkFinding {
+interface ReviewFinding {
   path: string | null;
   line: number | null;
   severity: string | null;
@@ -23,10 +23,10 @@ interface BenchmarkFinding {
 }
 
 type PromptRendering = { ok: true; prompt: string } | { ok: false; reason: string };
-type ExtractedFindings = { findings: BenchmarkFinding[]; degradedReasons: string[] } | { error: string };
-type ValidatedJudgements = { ok: true; judgements: BenchmarkJudgement[] } | { ok: false; reason: string };
+type ExtractedFindings = { findings: ReviewFinding[]; degradedReasons: string[] } | { error: string };
+type ValidatedJudgements = { ok: true; judgements: Judgement[] } | { ok: false; reason: string };
 
-function planCells(suite: BenchmarkSuite, cases: readonly BenchmarkCase[]): PlannedCell[] {
+function planCells(suite: BenchmarkSuite, cases: readonly ReviewCase[]): PlannedCell[] {
   const cells: PlannedCell[] = [];
   const reversedArms = suite.arms.toReversed();
   cases.forEach((benchmarkCase, casePosition) => {
@@ -63,7 +63,7 @@ function caseInputVariable(value: string | number): string {
   return fencedUntrusted('untrusted-case-input', value, CASE_INPUT_MAX_CHARS);
 }
 
-function subjectVariables(workspaceVariables: Record<string, string>, caseInput: BenchmarkCase['input']): Record<string, string> {
+function subjectVariables(workspaceVariables: Record<string, string>, caseInput: ReviewCase['input']): Record<string, string> {
   const variables = { ...workspaceVariables };
   const checkoutInput = PrCheckoutCaseInput.safeParse(caseInput);
   if (checkoutInput.success) {
@@ -115,7 +115,7 @@ function extractFindings(output: string, kind: BenchmarkSubjectOutput): Extracte
     const section = sectionAfter(outputLines, 'STRUCTURED_FINDINGS:');
     if (section === null) return { error: 'Missing STRUCTURED_FINDINGS heading' };
     const degradedReasons = degradedReasonsIn(linesOutsideSection(outputLines, 'STRUCTURED_FINDINGS:').join('\n'));
-    const findings: BenchmarkFinding[] = [];
+    const findings: ReviewFinding[] = [];
     for (const line of section) {
       if (!line.trim() || line.trim() === '(none)') continue;
       const finding = parseFindingLine(line);
@@ -136,6 +136,36 @@ function extractFindings(output: string, kind: BenchmarkSubjectOutput): Extracte
   };
 }
 
+const REVIEW_FINDINGS_MAX = 200;
+const REVIEW_FINDING_MAX_CHARS = 4000;
+const FINDING_BULLET = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
+
+function extractReviewFindings(markdown: string): string[] {
+  const findings: string[] = [];
+  let current: string[] | null = null;
+  const flush = () => {
+    const body = current?.join(' ').trim() ?? '';
+    if (body !== '') findings.push(body.slice(0, REVIEW_FINDING_MAX_CHARS));
+    current = null;
+  };
+  for (const line of markdown.split(/\r?\n/)) {
+    const bullet = FINDING_BULLET.exec(line);
+    if (bullet) {
+      flush();
+      current = [bullet[1]];
+      continue;
+    }
+    const isContinuation = current !== null && /^\s+\S/.test(line);
+    if (isContinuation) {
+      current?.push(line.trim());
+      continue;
+    }
+    flush();
+  }
+  flush();
+  return findings.slice(0, REVIEW_FINDINGS_MAX);
+}
+
 function seededRandom(seed: number): () => number {
   let state = seed | 0;
   return () => {
@@ -154,7 +184,7 @@ function withoutLaneTags(body: string): string {
 }
 
 function buildJudgePrompt({ references, findings, seed }: {
-  references: readonly BenchmarkReference[]; findings: readonly BenchmarkFinding[]; seed: number;
+  references: readonly ReviewReference[]; findings: readonly ReviewFinding[]; seed: number;
 }): { prompt: string; shownToOriginal: number[] } {
   const random = seededRandom(seed);
   const shownToOriginal = findings.map((_, index) => index);
@@ -180,7 +210,7 @@ function buildJudgePrompt({ references, findings, seed }: {
   return { prompt, shownToOriginal };
 }
 
-const JudgeOutput = z.strictObject({ judgements: z.array(BenchmarkJudgement) });
+const JudgeOutput = z.strictObject({ judgements: z.array(Judgement) });
 
 function validateJudgeOutput(text: string, { referenceIds, shownToOriginal }: {
   referenceIds: readonly string[]; shownToOriginal: readonly number[];
@@ -191,7 +221,7 @@ function validateJudgeOutput(text: string, { referenceIds, shownToOriginal }: {
   if (!parsed.success) return { ok: false, reason: `Invalid judge output: ${parsed.error.message}` };
   const expectedIds = new Set(referenceIds);
   const seenIds = new Set<string>();
-  const judgements: BenchmarkJudgement[] = [];
+  const judgements: Judgement[] = [];
   for (const judgement of parsed.data.judgements) {
     if (!expectedIds.has(judgement.referenceId)) return { ok: false, reason: `Unknown reference id: ${judgement.referenceId}` };
     if (seenIds.has(judgement.referenceId)) return { ok: false, reason: `Duplicate reference id: ${judgement.referenceId}` };
@@ -205,9 +235,9 @@ function validateJudgeOutput(text: string, { referenceIds, shownToOriginal }: {
   return { ok: true, judgements };
 }
 
-const CREDIT_BY_VERDICT: Record<BenchmarkMatchVerdict, number> = { found: 1, partial: 0.5, missed: 0 };
+const CREDIT_BY_VERDICT: Record<MatchVerdict, number> = { found: 1, partial: 0.5, missed: 0 };
 
-function scoreCell(judgements: readonly BenchmarkJudgement[], references: readonly BenchmarkReference[]): {
+function scoreCell(judgements: readonly Judgement[], references: readonly ReviewReference[]): {
   credit: number; recall: number; recallByTag: Record<string, number>;
 } {
   const creditByReference = new Map<string, number>();
@@ -236,7 +266,7 @@ function sumCosts(costs: readonly (number | null)[]): number | null {
   return knownCosts.reduce((sum, cost) => sum + cost, 0);
 }
 
-function armScore(cells: readonly BenchmarkCellResult[], references: readonly BenchmarkReference[]): BenchmarkArmScore {
+function armScore(cells: readonly BenchmarkCellResult[], references: readonly ReviewReference[]): BenchmarkArmScore {
   const scores = cells.filter((cell) => cell.status === 'scored' && cell.degradedReasons.length === 0).map((cell) => scoreCell(cell.judgements, references));
   const tags = new Set(references.flatMap((reference) => reference.tags));
   return {
@@ -249,7 +279,7 @@ function armScore(cells: readonly BenchmarkCellResult[], references: readonly Be
 }
 
 function pairedReport({ suite, run, referencesByCase }: {
-  suite: BenchmarkSuite; run: BenchmarkRun; referencesByCase: Record<string, readonly BenchmarkReference[]>;
+  suite: BenchmarkSuite; run: BenchmarkRun; referencesByCase: Record<string, readonly ReviewReference[]>;
 }): BenchmarkReport {
   const cellsByCase = new Map<string, Map<string, BenchmarkCellResult[]>>();
   for (const cell of run.cells) {
@@ -292,13 +322,13 @@ function pairedReport({ suite, run, referencesByCase }: {
 
 interface BenchmarkRunnerDependencies {
   suite: BenchmarkSuite;
-  cases: BenchmarkCase[];
+  cases: ReviewCase[];
   runId: string;
   now: () => number;
   signal: AbortSignal;
   prepareArms: () => Promise<{ ok: true } | { ok: false; reason: string }>;
-  prepareWorkspace: (benchmarkCase: BenchmarkCase) => Promise<{ ok: true; variables: Record<string, string> } | { ok: false; reason: string }>;
-  verifyWorkspace: (benchmarkCase: BenchmarkCase) => Promise<{ clean: true } | { clean: false; reason: string }>;
+  prepareWorkspace: (benchmarkCase: ReviewCase) => Promise<{ ok: true; variables: Record<string, string> } | { ok: false; reason: string }>;
+  verifyWorkspace: (benchmarkCase: ReviewCase) => Promise<{ clean: true } | { clean: false; reason: string }>;
   runSubject: (request: { cell: PlannedCell; arm: BenchmarkArm; prompt: string; timeoutSeconds: number; signal: AbortSignal }) => Promise<{ ok: true; output: string; costUsd: number | null } | { ok: false; reason: string; costUsd: number | null }>;
   runJudge: (request: { cell: PlannedCell; prompt: string; model: string; signal: AbortSignal }) => Promise<{ ok: true; output: string; costUsd: number | null } | { ok: false; reason: string; costUsd: number | null }>;
   judgeSeed: (cell: PlannedCell) => number;
@@ -311,7 +341,7 @@ function failureReason(error: unknown): string {
   return String(error) || 'Unknown benchmark failure';
 }
 
-async function runCell(dependencies: BenchmarkRunnerDependencies, cell: PlannedCell, benchmarkCase: BenchmarkCase, arm: BenchmarkArm, cellCount: number): Promise<BenchmarkCellResult | null> {
+async function runCell(dependencies: BenchmarkRunnerDependencies, cell: PlannedCell, benchmarkCase: ReviewCase, arm: BenchmarkArm, cellCount: number): Promise<BenchmarkCellResult | null> {
   const { suite, signal, now } = dependencies;
   const cellResult: BenchmarkCellResult = {
     caseId: cell.caseId, armId: cell.armId, trial: cell.trial, status: 'error',
@@ -405,6 +435,6 @@ async function runBenchmark(dependencies: BenchmarkRunnerDependencies): Promise<
 }
 
 export {
-  buildJudgePrompt, pairedReport, runBenchmark, scoreCell,
+  buildJudgePrompt, extractReviewFindings, pairedReport, runBenchmark, scoreCell, validateJudgeOutput,
 };
 export type { BenchmarkRunnerDependencies, PlannedCell };

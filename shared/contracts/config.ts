@@ -169,6 +169,7 @@ export const ProjectConfig = z.object({
   agentHome: AgentHomeKind.optional(),
   raceId: RaceId.optional(),
   startSha: GitObjectSha.optional(),
+  isStartPinned: z.boolean().optional(),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,

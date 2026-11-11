@@ -557,7 +557,7 @@ function createGitWorkspace(opts: {
   const rebase = createRebaseOps(context, origin);
   const probe = createProbeOps(context, origin);
   const integration = createIntegrationOps(context, origin, rebase);
-  const { detectDefaultBranch, migrateMarkerBase, originUrl, ensureLocalBranch, fetchOriginBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips } = origin;
+  const { detectDefaultBranch, migrateMarkerBase, originUrl, ensureLocalBranch, fetchOriginBody, fetchOriginCommitBody, seedBranchFromOriginBody, isAncestor, listRemoteBranches, listIntegrationTips } = origin;
   const { mergeBackBody, mergeKeepBody, rebaseOnlyBody, resolveRebaseTarget } = rebase;
   const { describeWorkspaceMemberWorkBody, hasUnmergedWorkBody, listWorktreesBody, listSessionWorktreesBody, probeWorktreeDirtyBody } = probe;
   const { checkoutDetachedBody, stageIsolatedCheckout, mergeFastForwardTo, resetKeepToBody, syncIntegrationBranchBody, resolveMergeProbeEnv, writeMergedTree, treeOid } = integration;
@@ -590,6 +590,7 @@ function createGitWorkspace(opts: {
       admissionRefused: true,
     })),
     fetchOrigin: serialized(fetchOriginBody),
+    fetchOriginCommit: serialized(fetchOriginCommitBody),
     seedBranchFromOrigin: serialized(seedBranchFromOriginBody),
     pruneWorktrees: serialized(pruneWorktreesBody),
     discardSessionBranch: serialized(discardSessionBranchBody),

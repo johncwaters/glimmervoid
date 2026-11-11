@@ -123,7 +123,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getHookPort: dependencies.getHookPort,
       gitWorkspace: builtMapping || isMachineShell ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
-      autoRebase: config.worktree?.autoRebase !== false,
+      autoRebase: config.worktree?.autoRebase !== false && project.isStartPinned !== true,
       syncOnStart: config.worktree?.syncOnStart !== false,
       liveWorktreeReview: config.liveWorktreeReview !== false,
       worktreeRoot: configuredWorktreeRoot(config, project.path),

@@ -4,9 +4,9 @@ import path from 'node:path';
 
 import { runCommandSafely } from './child-process-safe.ts';
 import { OVERRIDE_TOKEN_ENV } from './claude-credentials.ts';
-import { pairedReport, runBenchmark } from './core/benchmark-core.ts';
-import type { BenchmarkRunnerDependencies, PlannedCell } from './core/benchmark-core.ts';
-import { mineCandidates } from './core/benchmark-mining-core.ts';
+import { pairedReport, runBenchmark } from './core/review-score-core.ts';
+import type { BenchmarkRunnerDependencies, PlannedCell } from './core/review-score-core.ts';
+import { mineCandidates } from './core/review-case-mining-core.ts';
 import { absolutePathReadRule } from './github/core/team-review-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from './json-file.ts';
 import type { LaneSpawn } from './lanes/lane-spawn.ts';
@@ -16,11 +16,11 @@ import type { GithubStoreRead } from './github/github-store-poller.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, hooksPathPinnedSpawnEnv, teamReviewAcceptEditsPermissions } from './github/team-review-spawn.ts';
 import type { TeamReviewRepoCache } from './github/team-review-checkouts.ts';
 import type { TeamReviewSpawn } from './github/team-review-spawn.ts';
-import {
-  BenchmarkCase, BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite, PrCheckoutCaseInput,
-} from '../shared/contracts/benchmark.ts';
+import { BenchmarkId, BenchmarkRun, BenchmarkStatus, BenchmarkSuite } from '../shared/contracts/benchmark.ts';
+import { ReviewCase as BenchmarkCase, PrCheckoutCaseInput } from '../shared/contracts/review-case.ts';
+import type { ReviewCase as BenchmarkCaseType } from '../shared/contracts/review-case.ts';
 import type {
-  BenchmarkActionRequest, BenchmarkActionResult, BenchmarkArm, BenchmarkCase as BenchmarkCaseType, BenchmarkInFlightCell,
+  BenchmarkActionRequest, BenchmarkActionResult, BenchmarkArm, BenchmarkInFlightCell,
   BenchmarkRun as BenchmarkRunType, BenchmarkStatus as BenchmarkStatusType, BenchmarkSuite as BenchmarkSuiteType,
   BenchmarkSuiteSummary,
 } from '../shared/contracts/benchmark.ts';

@@ -161,6 +161,45 @@
   width: auto;
 }
 
+.arena-cases {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arena-case {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.arena-case-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.arena-case-title {
+  color: var(--text-head);
+  overflow-wrap: anywhere;
+}
+
+.arena-case-mine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
 .arena-new-body > button,
 .arena-vary > button,
 .arena-vary > .arena-select {

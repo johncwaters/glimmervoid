@@ -546,7 +546,7 @@
     },
     {
       "name": "arena",
-      "definition": "The dashboard view where the operator races one prompt across 2 to 5 agent setups, each in its own worktree from the same commit, and a judge ranks the contestants that changed something"
+      "definition": "The dashboard view where the operator races one prompt across 2 to 5 agent setups, each in its own worktree from the same commit, and a judge ranks the contestants that changed something; a race started from a review case instead has each contestant review that pull request's reviewed commit and ranks them by recall against its reviewers' comments"
     },
     {
       "name": "ws",
@@ -697,6 +697,10 @@
     {
       "name": "guardrails",
       "definition": "The retired name of Sane YOLO, kept only where old data still carries it: the legacy guardrails config key and its migrations, the guardrails-temp folder and the retired guardrails folders swept at startup"
+    },
+    {
+      "name": "review case",
+      "definition": "A frozen pull request review Arena can race on: the reviewed and base commits, the changed files, and the reviewers' comments as reference defects, mined from a repository's merged pull requests into ~/.glimmervoid/review-cases/<owner>/<repo>, or kept from an old benchmarks suite's cases folder"
     }
   ],
   "retired": [

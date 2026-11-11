@@ -1,19 +1,19 @@
 import { isBotAuthor } from '../github/core/github-store-core.ts';
 import type {
-  BenchmarkCase, BenchmarkReference, CommitComparison, MergedPrListing, MinedBaseEvent, MinedPrReviewData, MinedReviewThread,
-} from '../../shared/contracts/benchmark.ts';
+  ReviewCase, ReviewReference, CommitComparison, MergedPrListing, MinedBaseEvent, MinedPrReviewData, MinedReviewThread,
+} from '../../shared/contracts/review-case.ts';
 
 type Refusal = { ok: false; reason: string };
 
 interface InlineReferenceSource {
-  reference: BenchmarkReference;
+  reference: ReviewReference;
   commit: string | null;
   createdAt: string;
 }
 
 interface ReviewedRange {
   reviewedSha: string;
-  references: BenchmarkReference[];
+  references: ReviewReference[];
   earliestAt: string;
   latestAt: string;
 }
@@ -31,7 +31,7 @@ interface MiningDependencies {
 
 interface MinedCandidateOutcome {
   number: number;
-  candidate: BenchmarkCase | null;
+  candidate: ReviewCase | null;
   refusal: string | null;
 }
 

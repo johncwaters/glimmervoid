@@ -49,12 +49,17 @@ function seriesRoundIds(record: RaceRecord): string[] {
   return Array.from({ length: record.spec.rounds }, (_, index) => (index === 0 ? seriesId : `${seriesId}-round-${index + 1}`));
 }
 
+function roundScores(record: RaceRecord): { contestantId: string; rank: number; score: number }[] {
+  if (record.spec.reviewCase) return recallStanding(record).map((standing) => ({ contestantId: standing.contestantId, rank: standing.rank, score: standing.recall }));
+  return record.panel?.standing.map((standing) => ({ contestantId: standing.contestantId, rank: standing.rank, score: standing.criteriaPassed })) ?? [];
+}
+
 function seriesStanding(records: readonly RaceRecord[]): SeriesStanding[] {
   const contestantIds = records[0]?.spec.contestants.map((contestant) => contestant.id) ?? [];
-  const judgedRounds = records.filter((record) => record.panel !== null);
+  const judgedRounds = records.map(roundScores).filter((standings) => standings.length > 0);
   return contestantIds.map((contestantId) => {
-    const standings = judgedRounds.flatMap((record) => record.panel?.standing.filter((standing) => standing.contestantId === contestantId) ?? []);
-    const scores = standings.map((standing) => standing.criteriaPassed);
+    const standings = judgedRounds.flatMap((round) => round.filter((standing) => standing.contestantId === contestantId));
+    const scores = standings.map((standing) => standing.score);
     return {
       contestantId,
       wins: standings.filter((standing) => standing.rank === 1).length,
@@ -65,5 +70,25 @@ function seriesStanding(records: readonly RaceRecord[]): SeriesStanding[] {
   });
 }
 
-export { REMOVED_CONTESTANT, seriesKey, seriesRoundIds, seriesStanding, contestantTimeline, isSettledContestantState, raceProgress, winnerNotesOf };
+interface RecallStanding {
+  contestantId: string;
+  rank: number;
+  recall: number;
+}
+
+function recallStanding(record: RaceRecord): RecallStanding[] {
+  const costOf = (contestantId: string) => record.metricsByContestant[contestantId]?.costUSD ?? Number.POSITIVE_INFINITY;
+  const scored = Object.entries(record.recallByContestant)
+    .map(([contestantId, recall]) => ({ contestantId, recall, cost: costOf(contestantId) }))
+    .sort((left, right) => right.recall - left.recall || left.cost - right.cost);
+  const standing: RecallStanding[] = [];
+  for (const [index, entry] of scored.entries()) {
+    const previous = scored[index - 1];
+    const isTiedWithPrevious = previous !== undefined && previous.recall === entry.recall && previous.cost === entry.cost;
+    standing.push({ contestantId: entry.contestantId, recall: entry.recall, rank: isTiedWithPrevious ? standing[index - 1].rank : index + 1 });
+  }
+  return standing;
+}
+
+export { REMOVED_CONTESTANT, recallStanding, seriesKey, seriesRoundIds, seriesStanding, contestantTimeline, isSettledContestantState, raceProgress, winnerNotesOf };
 export type { StateTransition };

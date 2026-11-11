@@ -16,6 +16,7 @@ import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
+import { createReviewCaseLibrary } from '../race/review-cases.ts';
 import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
 import { runCommandSafely } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
@@ -361,6 +362,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     usageLookup: () => usage.sessionUsageLookup(),
     diffOf: contestantDiff,
     judgeRoot: path.join(glimmervoidHome, 'race-judges'),
+    reviewCases: createReviewCaseLibrary({ minedRoot: path.join(glimmervoidHome, 'review-cases'), legacySuitesRoot: path.join(glimmervoidHome, 'benchmarks'), store: githubStore.laneStore, log: logger }),
     runCheck: async ({ worktreeDir, check }) => {
       const startedAt = Date.now();
       const run = await runCommandSafely(check.program, check.args, { cwd: worktreeDir, env: buildAllowlistedChildEnv(process.env, process.platform), timeoutMs: check.timeoutSeconds * 1000, maxBufferBytes: RACE_CHECK_MAX_BUFFER_BYTES });

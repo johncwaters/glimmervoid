@@ -1,15 +1,13 @@
 import { z } from 'zod';
-import { CommitSha } from './team-review.ts';
+import { Judgement, ReviewCaseId, repoSlug } from './review-case.ts';
 
-const BENCHMARK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const repoSlug = z.string().regex(/^[^/\s]+\/[^/\s]+$/);
 const timestamp = z.number().finite();
 const nonEmptyText = z.string().min(1);
 
 const BENCHMARK_INJECTED_ENV_NAMES = Object.freeze(['CLAUDE_CODE_OAUTH_TOKEN']);
 
-export const BenchmarkId = z.string().regex(BENCHMARK_ID_RE);
+export const BenchmarkId = ReviewCaseId;
 export type BenchmarkId = z.infer<typeof BenchmarkId>;
 
 function hasUniqueIds(entries: readonly { id: string }[]): boolean {
@@ -72,53 +70,6 @@ export const BenchmarkSuite = z.strictObject({
 });
 export type BenchmarkSuite = z.infer<typeof BenchmarkSuite>;
 
-export const BenchmarkReference = z.strictObject({
-  id: BenchmarkId,
-  text: nonEmptyText,
-  tags: z.array(BenchmarkId),
-  path: nonEmptyText.optional(),
-  line: z.number().int().positive().optional(),
-});
-export type BenchmarkReference = z.infer<typeof BenchmarkReference>;
-
-const BenchmarkCaseOrigin = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('manual') }),
-  z.strictObject({
-    kind: z.literal('github-pr'),
-    repo: repoSlug,
-    number: z.number().int().positive(),
-    url: nonEmptyText,
-    minedAt: timestamp,
-  }),
-]);
-
-export const BenchmarkCase = z.strictObject({
-  id: BenchmarkId,
-  input: z.record(z.string(), z.unknown()),
-  references: z.array(BenchmarkReference).min(1).refine(hasUniqueIds, { message: 'reference ids must be unique' }),
-  source: BenchmarkCaseOrigin,
-});
-export type BenchmarkCase = z.infer<typeof BenchmarkCase>;
-
-export const PrCheckoutCaseInput = z.object({
-  repo: repoSlug,
-  number: z.number().int().positive(),
-  reviewedSha: CommitSha,
-  baseSha: CommitSha,
-  changedFiles: z.array(nonEmptyText),
-});
-export type PrCheckoutCaseInput = z.infer<typeof PrCheckoutCaseInput>;
-
-export const BenchmarkMatchVerdict = z.enum(['found', 'partial', 'missed']);
-export type BenchmarkMatchVerdict = z.infer<typeof BenchmarkMatchVerdict>;
-
-export const BenchmarkJudgement = z.strictObject({
-  referenceId: BenchmarkId,
-  verdict: BenchmarkMatchVerdict,
-  findingIndexes: z.array(z.number().int().nonnegative()),
-});
-export type BenchmarkJudgement = z.infer<typeof BenchmarkJudgement>;
-
 const BenchmarkCellStatus = z.enum(['scored', 'invalid', 'error']);
 
 export const BenchmarkCellResult = z.strictObject({
@@ -130,7 +81,7 @@ export const BenchmarkCellResult = z.strictObject({
   finishedAt: timestamp,
   degradedReasons: z.array(nonEmptyText),
   findingCount: z.number().int().nonnegative(),
-  judgements: z.array(BenchmarkJudgement),
+  judgements: z.array(Judgement),
   costUsd: z.number().finite().nonnegative().nullable(),
   error: nonEmptyText.nullable(),
 });
@@ -234,64 +185,3 @@ export const BenchmarkStatus = z.object({
 }).passthrough();
 export type BenchmarkStatus = z.infer<typeof BenchmarkStatus>;
 
-const githubAuthor = z.object({ __typename: z.string(), login: z.string() }).nullable();
-
-export const MergedPrListing = z.object({
-  number: z.number().int().positive(),
-  title: z.string(),
-  url: nonEmptyText,
-  mergedAt: z.string().nullable(),
-  reviewThreads: z.object({ totalCount: z.number().int().nonnegative() }),
-  reviews: z.object({ totalCount: z.number().int().nonnegative() }),
-});
-export type MergedPrListing = z.infer<typeof MergedPrListing>;
-
-export const MinedReviewThread = z.object({
-  path: z.string(),
-  line: z.number().int().positive().nullable(),
-  originalLine: z.number().int().positive().nullable(),
-  comments: z.object({
-    nodes: z.array(z.object({
-      databaseId: z.number().int().positive(),
-      author: githubAuthor,
-      body: z.string(),
-      createdAt: z.string(),
-      originalCommit: z.object({ oid: CommitSha }).nullable(),
-    })),
-  }),
-});
-export type MinedReviewThread = z.infer<typeof MinedReviewThread>;
-
-const MinedReview = z.object({
-  databaseId: z.number().int().positive(),
-  author: githubAuthor,
-  body: z.string(),
-  submittedAt: z.string().nullable(),
-  commit: z.object({ oid: CommitSha }).nullable(),
-});
-
-export const MinedBaseEvent = z.discriminatedUnion('__typename', [
-  z.object({ __typename: z.literal('BaseRefChangedEvent'), createdAt: z.string() }),
-  z.object({
-    __typename: z.literal('BaseRefForcePushedEvent'),
-    createdAt: z.string(),
-    beforeCommit: z.object({ oid: CommitSha }).nullable(),
-  }),
-]);
-export type MinedBaseEvent = z.infer<typeof MinedBaseEvent>;
-
-export const MinedPrReviewData = z.object({
-  author: githubAuthor,
-  baseRefOid: CommitSha,
-  reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(MinedReviewThread) }),
-  reviews: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(MinedReview) }),
-  timelineItems: z.object({ pageInfo: z.object({ hasNextPage: z.boolean() }), nodes: z.array(MinedBaseEvent) }),
-});
-export type MinedPrReviewData = z.infer<typeof MinedPrReviewData>;
-
-export const CommitComparison = z.object({
-  mergeBaseSha: CommitSha,
-  changedFiles: z.array(nonEmptyText),
-  isFileListComplete: z.boolean(),
-});
-export type CommitComparison = z.infer<typeof CommitComparison>;

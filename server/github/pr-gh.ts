@@ -8,8 +8,8 @@ import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github
 import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, PostedReviewEvent, ReviewComment } from '../../shared/contracts/team-review.ts';
-import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/benchmark.ts';
-import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/benchmark.ts';
+import { CommitComparison, MergedPrListing, MinedPrReviewData } from '../../shared/contracts/review-case.ts';
+import type { CommitComparison as CommitComparisonType, MergedPrListing as MergedPrListingType, MinedPrReviewData as MinedPrReviewDataType } from '../../shared/contracts/review-case.ts';
 import { PrThreadReplyResponse, PrThreadUnresolveResponse } from '../../shared/contracts/pr-flows.ts';
 import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
