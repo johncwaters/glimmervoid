@@ -673,6 +673,7 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
       return { ok: true, text: docText, hash: media.asset };
     },
     save: (_docPath, docText, loadedAsset) => saveBoardDoc(boardId, boxId, docText, loadedAsset),
+    previewsBlocksOnOpen: true,
   };
 }
 

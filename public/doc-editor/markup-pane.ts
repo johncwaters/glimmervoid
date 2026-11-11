@@ -694,6 +694,10 @@ export function forgetBlockPreviews(editor: MarkupHost) {
   editor.markup.previewedBlockKeys.clear();
 }
 
+export function previewEveryBlockOf(editor: MarkupHost, source: string) {
+  for (const block of previewBlocksOf(source)) editor.markup.previewedBlockKeys.add(block.key);
+}
+
 export function forgetPreviewImages(editor: MarkupHost) {
   forgetImageUrls(editor.markup);
 }

@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, previewEveryBlockOf, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -21,11 +21,13 @@ export interface DocSource {
   read: (docPath: string) => Promise<DocReadOutcome>;
   save: (docPath: string, text: string, baseHash: string) => Promise<DocSaveOutcome>;
   readImage?: (docPath: string, imageSource: string) => Promise<Blob | null>;
+  previewsBlocksOnOpen?: boolean;
 }
 
 interface OpenEditor extends MarkupHost {
   source: DocSource;
   docPath: string;
+  openedDocPath: string | null;
   hasUnsavedChanges: boolean;
   needsReload: boolean;
   title: HTMLElement;
@@ -194,6 +196,8 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   }
   editor.textarea.value = read.text;
   editor.baseHash = read.hash;
+  if (editor.source.previewsBlocksOnOpen && editor.openedDocPath !== docPath) previewEveryBlockOf(editor, editor.textarea.value);
+  editor.openedDocPath = docPath;
   editor.hasUnsavedChanges = false;
   renderMarkup(editor);
   setStatus(editor, '');
@@ -268,7 +272,7 @@ export function openDocEditorOn(source: DocSource) {
   applyDialogAria(modal.dialog, titleId);
 
   const currentEditor: OpenEditor = {
-    source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
+    source, docPath: firstDoc.path, openedDocPath: null, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
     title, select, textarea, markup, status, btnReload, autosaveTimer: null, pendingSave: null,
     readImage: (imageSource) => source.readImage?.(currentEditor.docPath, imageSource) ?? Promise.resolve(null),
     close: () => {
