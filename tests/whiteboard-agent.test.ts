@@ -1331,7 +1331,7 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.equal(remote.status, 409);
 });
 
-test('a linked card follows its file in the code session worktree on each read, refuses a path outside it, and keeps its last text with the reason once the file or session is gone', async () => {
+test('a linked card follows its file in the code session worktree on each read, writes it on an operator save unless either side moved, refuses a path outside it, and keeps its last text with the reason once the file or session is gone', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-'));
   const worktree = path.join(boardsRoot, 'worktree');
   fs.mkdirSync(path.join(worktree, 'docs'), { recursive: true });
@@ -1367,6 +1367,38 @@ test('a linked card follows its file in the code session worktree on each read, 
   const shotMedia = BoxMedia.parse('media' in attachedShot.body ? attachedShot.body.media : null);
   const relabeledAsImage = await wiring.handleAgent(linker, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'shown-1', fields: { media: { ...shotMedia, link: followedMedia?.link } } }]) });
   assert.equal(relabeledAsImage.status, 400, JSON.stringify(relabeledAsImage.body));
+
+  const planPath = path.join(worktree, 'docs', 'plan.md');
+  const saved = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', '# Plan\n\nedited on the board\n', followedMedia?.asset ?? '');
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  assert.equal(fs.readFileSync(planPath, 'utf8'), '# Plan\n\nedited on the board\n');
+  const savedMedia = await linkedMediaOf();
+  assert.equal(savedMedia?.asset, saved.savedMedia?.asset);
+  assert.equal(savedMedia?.link?.syncedHash, savedMedia?.asset);
+  const staleSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', '# Plan\n\nfrom a stale editor\n', followedMedia?.asset ?? '');
+  assert.deepEqual([staleSave.ok, staleSave.isConflict], [false, true]);
+  const svgLedSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n\n# Plan\n', savedMedia?.asset ?? '');
+  assert.equal(svgLedSave.ok, false);
+  assert.equal(fs.readFileSync(planPath, 'utf8'), '# Plan\n\nedited on the board\n');
+
+  fs.writeFileSync(planPath, '# Plan\n\nedited by the agent\n', 'utf8');
+  const behindSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', '# Plan\n\nfrom the editor\n', savedMedia?.asset ?? '');
+  assert.deepEqual([behindSave.ok, behindSave.isConflict], [false, true]);
+  const queried = await wiring.handleAgent(linker, { sub: 'query', board: boardId, ids: ['shown-1'] });
+  assert.ok(!JSON.stringify(queried.body).includes(savedMedia?.asset ?? ''), 'a save refused for a file change pulls the file into the card, so the editor reload shows it');
+  fs.writeFileSync(planPath, '# Plan\n\nedited on the board\n', 'utf8');
+  await wiring.handleOperator.get(boardId);
+
+  const undone = await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: 'shown-1', fields: { media: followedMedia } }]));
+  assert.equal(undone.ok, true, JSON.stringify(undone));
+  const undoneReview = (await wiring.handleOperator.review(boardId)).review;
+  assert.deepEqual(undoneReview?.linkStates.map(({ state, text }) => [state, text]), [['card-ahead', 'Not saved to file']]);
+  assert.equal(fs.readFileSync(planPath, 'utf8'), '# Plan\n\nedited on the board\n');
+
+  fs.writeFileSync(planPath, '# Plan\n\nedited in the repo\n', 'utf8');
+  const divergedSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', '# Plan\n\nboard wins\n', followedMedia?.asset ?? '');
+  assert.deepEqual([divergedSave.ok, divergedSave.isConflict], [false, true]);
+  assert.equal(fs.readFileSync(planPath, 'utf8'), '# Plan\n\nedited in the repo\n');
 
   fs.rmSync(path.join(worktree, 'docs', 'plan.md'));
   const missingReview = (await wiring.handleOperator.review(boardId)).review;

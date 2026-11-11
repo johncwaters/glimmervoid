@@ -119,7 +119,7 @@ export const BoxMedia = z.object({
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
   dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
-  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read'),
+  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read, and an operator save of a doc writes it'),
 }).strict().meta({ id: 'BoxMedia' });
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
@@ -409,7 +409,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     sub: z.literal('show'),
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
-    link: z.boolean().optional().describe('link a Markdown or HTML card to the file, so the card follows it when the board is read'),
+    link: z.boolean().optional().describe('link a Markdown or HTML card to the file, so the card follows it when the board is read and an operator save writes it'),
   }).strict(),
 ], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach or show' });
 

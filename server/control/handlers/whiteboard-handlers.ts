@@ -41,6 +41,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     }),
     'whiteboard-disconnect': (msg: ClientMessageOf<'whiteboard-disconnect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.disconnect(msg.boardId, msg.sessionId)),
     'whiteboard-detach': (msg: ClientMessageOf<'whiteboard-detach'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.detach(msg.boardId, msg.sessionId)),
+    'whiteboard-linked-doc-save': (msg: ClientMessageOf<'whiteboard-linked-doc-save'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.saveLinkedDoc(msg.boardId, msg.boxId, msg.text, msg.baseAsset)),
     'whiteboard-view': (msg: ClientMessageOf<'whiteboard-view'>, ws: ControlSocket) => {
       if (!whiteboards) return;
       void whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, knownVersion: msg.knownVersion });
@@ -56,6 +57,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-connect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-disconnect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-detach': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-linked-doc-save': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-view': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 

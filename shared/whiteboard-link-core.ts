@@ -1,6 +1,11 @@
-import type { LinkState, MediaLink } from './contracts/whiteboard.ts';
+import { z } from 'zod';
+
+import { MediaLink } from './contracts/whiteboard.ts';
+import type { LinkState, Op } from './contracts/whiteboard.ts';
 
 type FileReading = { ok: true; hash: string } | { ok: false; problem: string };
+
+const MediaWithLink = z.looseObject({ link: MediaLink });
 
 const LINKABLE_MEDIA_KINDS: ReadonlySet<string> = new Set(['doc', 'page']);
 
@@ -34,9 +39,18 @@ function linkPathProblem(linkPath: string): string | null {
   return null;
 }
 
+function withServerSyncedHash(op: Op, currentLinkOf: (boxId: string) => MediaLink | null): Op {
+  if (op.op !== 'set') return op;
+  const sent = MediaWithLink.safeParse(op.fields.media);
+  if (!sent.success || sent.data.link.syncedHash === null) return op;
+  const currentLink = currentLinkOf(op.id);
+  if (currentLink === null || currentLink.path !== sent.data.link.path) return op;
+  return { ...op, fields: { ...op.fields, media: { ...sent.data, link: { ...sent.data.link, syncedHash: currentLink.syncedHash } } } };
+}
+
 function isLinkableMediaKind(kind: string): boolean {
   return LINKABLE_MEDIA_KINDS.has(kind);
 }
 
-export { isLinkableMediaKind, linkPathProblem, linkStateOf, linkStateText };
+export { isLinkableMediaKind, linkPathProblem, linkStateOf, linkStateText, withServerSyncedHash };
 export type { FileReading };

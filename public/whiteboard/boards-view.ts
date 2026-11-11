@@ -32,7 +32,7 @@ import type { MediaZoomControl } from './media-zoom.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -185,16 +185,20 @@ function undoEntryOf(patch: WhiteboardPatch | null): Op[] | null {
   return fitsOnePut(entry) ? entry : null;
 }
 
+function recordPatch(boardId: string, patch: WhiteboardPatch | null): boolean {
+  const entry = undoEntryOf(patch);
+  if (!entry) {
+    historyByBoardId.set(boardId, EMPTY_HISTORY);
+    return false;
+  }
+  historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, entry));
+  return true;
+}
+
 async function sendAndRecord(boardId: string, ops: Op[]): Promise<RecordedSend> {
   const outcome = await sendBoardOps(boardId, ops);
   if (!outcome.ok) return outcome;
-  const entry = undoEntryOf(outcome.patch);
-  if (!entry) {
-    historyByBoardId.set(boardId, EMPTY_HISTORY);
-    return { ok: true, isUndoable: false };
-  }
-  historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, entry));
-  return { ok: true, isUndoable: true };
+  return { ok: true, isUndoable: recordPatch(boardId, outcome.patch) };
 }
 
 function stepHistory(direction: UndoDirection): Promise<void> {
@@ -607,18 +611,34 @@ function boardDocKey(boardId: string): string {
   return `whiteboard:${boardId}`;
 }
 
+function keepOpenDocMedia(boardId: string, boxId: string, savedMedia: BoxMedia): void {
+  const savedBox = docBoxOf(boardId, boxId);
+  if (savedBox && savedBox.shape !== 'icon' && savedBox.shape !== 'text' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
+}
+
+async function saveLinkedDocText(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
+  const saved = await inHistoryOrder(async () => {
+    const outcome = await saveLinkedBoardDoc(boardId, boxId, docText, loadedAsset);
+    if (outcome.ok) recordPatch(boardId, outcome.patch);
+    return outcome;
+  });
+  if (!saved.ok) return { ok: false, isConflict: saved.isConflict, error: saved.isConflict ? null : saved.error };
+  keepOpenDocMedia(boardId, boxId, saved.savedMedia);
+  return { ok: true, hash: saved.savedMedia.asset };
+}
+
 async function saveBoardDoc(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
   const media = docMediaOf(boardId, boxId);
   if (!media || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  if (media.link) return saveLinkedDocText(boardId, boxId, docText, loadedAsset);
   const stored = await uploadBoardMedia(new File([docText], `${boxId}.md`, { type: 'text/markdown' }));
   if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
   if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
   if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
-  const savedMedia = { ...stored.media, alt: media.alt, link: media.link };
+  const savedMedia = { ...stored.media, alt: media.alt };
   const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
   if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
-  const savedBox = docBoxOf(boardId, boxId);
-  if (savedBox && savedBox.shape !== 'icon' && savedBox.shape !== 'text' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
+  keepOpenDocMedia(boardId, boxId, savedMedia);
   return { ok: true, hash: stored.media.asset };
 }
 

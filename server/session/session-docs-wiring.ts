@@ -233,5 +233,5 @@ function createSessionDocsWiring({ broadcastControl, now = Date.now }: {
   return { surface, read, readImage, save, snapshotMessage };
 }
 
-export { createSessionDocsWiring, openVerifiedDoc };
+export { createSessionDocsWiring, openVerifiedDoc, overwriteIfUnchanged };
 export type { SessionDocsPort };

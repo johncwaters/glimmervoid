@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Board, BoardHead, BoardReview, BoardSummary, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
+import { Board, BOARD_DOC_CAP_BYTES, BoardHead, BoardReview, BoardSummary, BoxMedia, Element, Op, WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { BoardChrome, LayoutRect, Tile, TileDiff, TILE_LODS } from '../whiteboard-tiles.ts';
 import { requestId, loose, optionalError } from './control-fields.ts';
 
@@ -45,6 +45,7 @@ export const whiteboardClientVariants = [
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-detach', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
+  loose('whiteboard-linked-doc-save', { boardId: Board.shape.id, boxId: z.string().min(1), text: z.string().max(BOARD_DOC_CAP_BYTES), baseAsset: BoxMedia.shape.asset, requestId }),
   loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), knownVersion: z.number().int().nullable(), requestId }),
 ] as const;
 
@@ -53,5 +54,5 @@ export const whiteboardServerVariants = [
   loose('whiteboard-removed', { boardId: z.string() }),
   loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
   loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
 ] as const;

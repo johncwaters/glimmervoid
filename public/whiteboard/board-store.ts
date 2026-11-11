@@ -6,7 +6,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from '../action-status.ts';
 import { SESSION_CLOSE_UNDO_WINDOW_MS } from '../session-actions.ts';
 
-type BoardCommandOutcome = { ok: true; reply: ServerMessageOf<'whiteboard-result'> } | { ok: false; error: string };
+type BoardCommandOutcome = { ok: true; reply: ServerMessageOf<'whiteboard-result'> } | { ok: false; error: string; isConflict: boolean };
 type BoardListener = (boardId: string) => void;
 
 const listListeners: (() => void)[] = [];
@@ -31,11 +31,11 @@ function isWhiteboardResult(message: ServerMessage): message is ServerMessageOf<
 async function runBoardCommand(type: string, payload: Record<string, unknown>): Promise<BoardCommandOutcome> {
   try {
     const reply = await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if (!isWhiteboardResult(reply)) return { ok: false, error: 'The server answered with something other than a whiteboard reply.' };
-    if (!reply.ok) return { ok: false, error: reply.error ?? 'The server refused the change.' };
+    if (!isWhiteboardResult(reply)) return { ok: false, error: 'The server answered with something other than a whiteboard reply.', isConflict: false };
+    if (!reply.ok) return { ok: false, error: reply.error ?? 'The server refused the change.', isConflict: reply.isConflict === true };
     return { ok: true, reply };
   } catch (reason) {
-    return { ok: false, error: requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS) };
+    return { ok: false, error: requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS), isConflict: false };
   }
 }
 
@@ -138,6 +138,14 @@ export async function createBoard(title: string): Promise<{ ok: true; boardId: s
 export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true; patch: WhiteboardPatch | null } | { ok: false; error: string }> {
   const outcome = await runBoardCommand('whiteboard-op', { boardId, ops });
   return outcome.ok ? { ok: true, patch: outcome.reply.patch ?? null } : outcome;
+}
+
+export async function saveLinkedBoardDoc(boardId: string, boxId: string, text: string, baseAsset: string): Promise<{ ok: true; patch: WhiteboardPatch | null; savedMedia: BoxMedia } | { ok: false; error: string; isConflict: boolean }> {
+  const outcome = await runBoardCommand('whiteboard-linked-doc-save', { boardId, boxId, text, baseAsset });
+  if (!outcome.ok) return outcome;
+  const { savedMedia } = outcome.reply;
+  if (!savedMedia) return { ok: false, error: 'The server saved the file but did not return the card.', isConflict: false };
+  return { ok: true, patch: outcome.reply.patch ?? null, savedMedia };
 }
 
 export async function uploadBoardMedia(file: File): Promise<{ ok: true; media: BoxMedia } | { ok: false; error: string }> {

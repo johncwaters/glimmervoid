@@ -37,8 +37,8 @@ import { createKeyedSerialQueue, createSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
-import { syncLinkedBoxes } from './linked-media.ts';
-import { isLinkableMediaKind, linkPathProblem } from '../../shared/whiteboard-link-core.ts';
+import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
+import { isLinkableMediaKind, linkPathProblem, withServerSyncedHash } from '../../shared/whiteboard-link-core.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 import { createBoardStore } from './board-store-client.ts';
 import { BOARD_STORE_FILENAME } from './board-store-core.ts';
@@ -104,6 +104,8 @@ type OperatorReply = {
   summary?: BoardSummary;
   review?: BoardReview;
   patch?: WhiteboardPatch;
+  isConflict?: boolean;
+  savedMedia?: BoxMedia;
 };
 
 const RENDERS_FOLDER_NAME = 'renders';
@@ -157,6 +159,7 @@ interface WhiteboardPort {
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
     detach(boardId: string, sessionId: string): Promise<OperatorReply>;
+    saveLinkedDoc(boardId: string, boxId: string, text: string, baseAsset: string): Promise<OperatorReply>;
   };
   retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
@@ -480,7 +483,8 @@ function createWhiteboardWiring({
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
     return changeRecord(boardId, async (record) => {
-      const applied = await applyOpsToRecord(record, ops, author);
+      const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
+      const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
         const warnings = layout?.warnings ?? [UNREADABLE_LAYOUT_WARNING];
@@ -523,8 +527,7 @@ function createWhiteboardWiring({
   }
 
   function mediaJsonOf(board: Board, boxId: string): string {
-    const element = board.elements.get(boxId);
-    return JSON.stringify(element?.kind === 'box' ? mediaOfBox(element) : null);
+    return JSON.stringify(mediaOfBoxIn(board, boxId));
   }
 
   async function syncLinks(boardId: string): Promise<LinkStateOfBox[]> {
@@ -545,6 +548,34 @@ function createWhiteboardWiring({
     });
     if (!reply.body.ok && reply.status !== 409) logger.warn(`[whiteboard] linked cards on board ${boardId} could not follow their files: ${reply.body.error}`);
     return synced.linkStates;
+  }
+
+  async function saveLinkedDocOf(boardId: string, boxId: string, text: string, baseAsset: string): Promise<OperatorReply> {
+    await loaded;
+    const found = findBoardId(boardId, null);
+    if (!found.ok) return operatorReplyOf(found.reply);
+    let isConflict = false;
+    let savedMedia: BoxMedia | null = null;
+    const reply = await changeRecord(found.boardId, async (record) => {
+      const saved = await saveLinkedDoc(record.board, boxId, linkRootOf(record.board), text, baseAsset, assets);
+      if (!saved.ok) {
+        isConflict = saved.isConflict;
+        return { ok: false, reply: refusal(isConflict ? 409 : 400, saved.error) };
+      }
+      const applied = await applyOpsToRecord(record, [saved.op], OPERATOR_AUTHOR);
+      if (!applied.ok) return { ok: false, reply: refusal(400, `the file was saved, but the card could not take it: ${applied.error}`) };
+      savedMedia = saved.media;
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
+    });
+    const operatorReply = operatorReplyOf(reply);
+    if (isConflict) await syncLinks(found.boardId);
+    if (!operatorReply.ok) return { ...operatorReply, isConflict };
+    return savedMedia ? { ...operatorReply, savedMedia } : operatorReply;
+  }
+
+  function mediaOfBoxIn(board: Board, boxId: string): BoxMedia | null {
+    const element = board.elements.get(boxId);
+    return element?.kind === 'box' ? mediaOfBox(element) : null;
   }
 
   async function linkedReviewFor(boardId: string, board: Board, options: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }, linkStates: LinkStateOfBox[]): Promise<BoardReview> {
@@ -893,6 +924,7 @@ function createWhiteboardWiring({
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
+    saveLinkedDoc: saveLinkedDocOf,
     detach: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => detachBoard(foundBoardId, sessionId)),
   };
 
@@ -1044,7 +1076,7 @@ function createWhiteboardWiring({
       const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
-      const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read` : '';
+      const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
       const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`;
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
