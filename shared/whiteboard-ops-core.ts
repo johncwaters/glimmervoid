@@ -245,10 +245,12 @@ function isBoxShape(value: unknown): value is Box['shape'] {
   return BOX_SHAPES.some((shape) => shape === value);
 }
 
+const FIELDS_DEFAULTED_PER_SHAPE: ReadonlySet<string> = new Set(['borderless']);
+
 function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>): Record<string, unknown> {
   if (existing.kind !== 'box' || fields.shape === undefined || fields.shape === existing.shape || !isBoxShape(fields.shape)) return existing;
   const fieldNames = fieldNamesOfShape(fields.shape);
-  return Object.fromEntries(Object.entries(existing).filter(([fieldName]) => fieldNames.has(fieldName)));
+  return Object.fromEntries(Object.entries(existing).filter(([fieldName]) => fieldNames.has(fieldName) && !FIELDS_DEFAULTED_PER_SHAPE.has(fieldName)));
 }
 
 function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {

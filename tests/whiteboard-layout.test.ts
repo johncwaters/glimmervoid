@@ -769,6 +769,25 @@ test('a board keeps a box height, dial values, page dials and a collapsed frame 
   assert.deepEqual(dialValuesOfBox(page), { hue: 200, dark: true, toString: false }, 'a dial named like an object method reads its default');
 });
 
+test('a device draws borderless unless set false, and a shape change takes the new shape default', () => {
+  const author = { id: 'operator', name: 'operator' };
+  const deviceBoard = boardWithNearPinned({
+    id: 'devices', title: 'devices', version: 1, caption: null, createdAt: 0, updatedAt: 0,
+    elements: {
+      phone: { kind: 'box', id: 'phone', title: 'Phone', shape: 'device', device: 'phone', at: { x: 0, y: 0 } },
+      carded: { kind: 'box', id: 'carded', title: 'Carded', shape: 'device', device: 'phone', borderless: false, at: { x: 400, y: 0 } },
+      plain: { kind: 'box', id: 'plain', title: 'Plain', at: { x: 800, y: 0 } },
+    },
+  });
+  const reshaped = applyOps(deviceBoard, [
+    { op: 'set', id: 'plain', fields: { shape: 'device', device: 'phone' } },
+    { op: 'set', id: 'phone', fields: { shape: 'box' } },
+  ], author, 0);
+  assert.ok(reshaped.ok);
+  const isBorderlessById = new Map(layoutBoard(reshaped.board).elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element.isBorderless]] : [])));
+  assert.deepEqual(Object.fromEntries(isBorderlessById), { phone: false, carded: false, plain: true });
+});
+
 test('a sticky note draws in its tone and a text box draws borderless and refuses media', () => {
   const noteBoard = boardWithNearPinned({
     id: 'notes', title: 'notes', version: 1, caption: null, createdAt: 0, updatedAt: 0,
