@@ -79,6 +79,18 @@ function dropRetiredBenchmarks(config: GlimmervoidConfig): string | null {
   return '[config] Removed benchmarks: Benchmarks folded into Arena, which races on review cases with no setting.';
 }
 
+function dropRetiredHintCards(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'hintCards')) return null;
+  delete config.hintCards;
+  return '[config] Removed hintCards: hint cards folded into Usage, Your day, which usage.yourDay turns on and off.';
+}
+
+function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'planReview')) return null;
+  delete config.planReview;
+  return '[config] Removed planReview: the plan view is gone and plans go through boards.';
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -162,4 +174,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

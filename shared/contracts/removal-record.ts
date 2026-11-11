@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const REMOVAL_CAUSES = [
   'branch-gc', 'boot-reconcile', 'owned-paths', 'host-scratch', 'guardrails-temp', 'session-temp', 'guardrails-leftovers', 'aged-files',
-  'update-apply', 'team-review', 'benchmark', 'radar', 'session', 'session-create', 'merge',
+  'update-apply', 'team-review', 'benchmark', 'plan-review', 'radar', 'session', 'session-create', 'merge',
 ] as const;
 
 export const RemovalRecord = z.object({

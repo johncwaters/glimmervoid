@@ -210,6 +210,7 @@ export const MACHINE_USAGE: SettingsSection = {
       id: 'usage-your-day', path: 'usage.yourDay', title: 'Your day',
       description: 'Recap yesterday and suggest a pace for today when usage tracking is on.',
       control: 'toggle', keywords: ['burnout', 'breaks', 'pace', 'wellbeing'], defaultValue: true, ...MACHINE_NOW,
+      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'hint-cards' }],
     },
     {
       id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail',

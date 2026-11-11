@@ -24,7 +24,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `notify-dedupe-core.ts` | Pure cross-tab claim (short-TTL localStorage) so exactly one open tab raises each notification |
 | `alert-sound.ts` / `alert-sound-core.ts` | Alert sounds: synthesized built-ins plus the operator's own files from `GET /custom-sounds`; any id no longer present resolves to the default |
 | `health-monitor.ts` | Footer panel rendering server memory/leak telemetry from `health-snapshot` messages |
-| `hooks-panel.ts` / `hooks-view-core.ts` | Hooks tab: operator Claude Code hooks (`request-hooks-report`, `save-hook`, `delete-hook`) over a pure core owning every string and draft rule |
+| `hooks-panel.ts` / `hooks-view-core.ts` | Settings Hooks page: operator Claude Code hooks (`request-hooks-report`, `save-hook`, `delete-hook`) over a pure core owning every string and draft rule |
 | `trace-panel.ts` / `trace-view-core.ts` | Trace tab: one session's recorded trace paged over `session-trace`, over a pure core owning turn grouping and row labels |
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
 | `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail width, Focus pane layout), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each |

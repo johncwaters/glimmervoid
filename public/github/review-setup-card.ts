@@ -36,7 +36,7 @@ export function createReviewSetupCard() {
   const stepsList = el('ol', 'first-run-steps');
   const loadStatus = createActionStatus();
   const foot = el('p', 'first-run-step-hint review-setup-foot', 'Team review drafts a review of each pull request that requests your review or your team\'s. Nothing posts until you choose Approve or Comment. ');
-  foot.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'All team review settings'));
+  foot.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'All Reviews settings'));
   element.append(el('span', 'first-run-eyebrow', 'SET UP REVIEWS'), heading, stepsList, loadStatus.element, foot);
 
   let listing: GithubTeamsListing = { viewer: null, teams: [], orgs: [], error: null };

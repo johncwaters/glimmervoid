@@ -88,7 +88,7 @@ export function enabledWorkflowRules(rules: readonly WorkflowRule[]): WorkflowRu
 
 export function workflowsShouldStart(resolution: WorkflowsSettingsResolution): { start: boolean; reason?: string } {
   if (!resolution.ok) return { start: false, reason: `workflows are not run because the config is invalid: ${resolution.reason}` };
-  if (!resolution.enabled) return { start: false, reason: 'Workflows are turned off in Settings' };
+  if (!resolution.enabled) return { start: false, reason: 'Run workflows is off in Settings, My pull requests' };
   if (enabledWorkflowRules(resolution.rules).length === 0) return { start: false };
   return { start: true };
 }

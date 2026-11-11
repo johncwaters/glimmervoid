@@ -709,6 +709,13 @@
     {
       "name": "secret manager",
       "definition": "Google Cloud Secret Manager, where the GitHub App private key lives; the doorman reads its current alias at runtime"
+    },
+    {
+      "name": "hint card",
+      "definition": "The retired Sessions setting (hintCards) that showed feature tips on the dashboard; folded into Usage, Your day, and a config migration drops the key; the name survives in the changelog and the old settings link that now opens Your day (also: hint)",
+      "aliases": [
+        "hint"
+      ]
     }
   ],
   "retired": [

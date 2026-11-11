@@ -58,7 +58,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Operator Hooks
 
-- The Hooks tab's records (`config.hooks`) are appended to the per-session settings file AFTER Glimmervoid's own entries for the same event, never merged into `~/.claude/settings.json`: a session with none configured writes a byte-identical file, and no operator hook can displace a status callback.
+- The Settings Hooks page's records (`config.hooks`) are appended to the per-session settings file AFTER Glimmervoid's own entries for the same event, never merged into `~/.claude/settings.json`: a session with none configured writes a byte-identical file, and no operator hook can displace a status callback.
 - The core (`session/core/user-hooks-core.ts`) is the one validator; the control handler, the spawn path and a hand edit of config.json all pass through it, and an unreadable record is dropped there rather than failing the spawn.
 
 ### Session Recording

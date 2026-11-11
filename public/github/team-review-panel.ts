@@ -82,7 +82,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
 
 function teamReviewEmptyState(): HTMLElement {
   const empty = el('p', 'pr-empty', emptyStateText(_view));
-  if (_view && !_view.configured) empty.append(' ', createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'Open Team review settings'));
+  if (_view && !_view.configured) empty.append(' ', createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'Open Reviews settings'));
   return empty;
 }
 
