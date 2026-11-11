@@ -190,6 +190,16 @@ export const ClientLogReport = z.object({
 const INSTALL_FAILURE_KINDS = Object.freeze(['tool-missing', 'folder-missing', 'failed', 'timed-out'] as const);
 export const InstallFailureKind = z.enum(INSTALL_FAILURE_KINDS);
 export type InstallFailureKind = z.infer<typeof InstallFailureKind>;
+export const INSTALL_DETAIL_MAX_FOLDERS = 20;
+export const INSTALL_DETAIL_MAX_OUTPUT_LINES = 20;
+export const InstallDetail = z.object({
+  folder: z.string(),
+  command: z.string(),
+  kind: InstallFailureKind,
+  searchedPath: z.string(),
+  outputTail: z.array(z.string()).max(INSTALL_DETAIL_MAX_OUTPUT_LINES),
+});
+export type InstallDetail = z.infer<typeof InstallDetail>;
 
 export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'settings'] as const);

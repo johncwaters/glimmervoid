@@ -2,8 +2,9 @@ import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
+import type { InstallDetail } from '#shared/contracts/control-messages.ts';
 import { agentLoginOf, agentLoginSummary, applyAgentLogins, CONNECTABLE_AGENT_NAMES, onAgentLoginsChanged, refreshAgentLogins } from './agent-logins.ts';
-import { el, query, queryTag } from './dom-helpers.ts';
+import { el, query, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
@@ -187,6 +188,49 @@ export function createRadarReportDialog({
     bodyEl = el('pre', error ? 'dialog-report-body dialog-report-error' : 'dialog-report-body', error || message || content || '');
   }
   dialog.append(metaEl, bodyEl, actions);
+  btnClose.addEventListener('click', close);
+  requestAnimationFrame(() => btnClose.focus());
+}
+
+const INSTALL_KIND_TEXT: Record<InstallDetail['kind'], string> = {
+  'tool-missing': 'package manager not found',
+  'folder-missing': 'folder no longer exists',
+  failed: 'install failed',
+  'timed-out': 'timed out after 10 minutes',
+};
+
+function installDetailsText(sessionName: string, installDetails: readonly InstallDetail[]): string {
+  const sections = installDetails.map((detail) => [
+    `Folder: ${detail.folder}`,
+    `Result: ${INSTALL_KIND_TEXT[detail.kind]}`,
+    `Command: ${detail.command}`,
+    `PATH searched: ${detail.searchedPath || '(empty)'}`,
+    'Last output:',
+    ...(detail.outputTail.length ? detail.outputTail.map((line) => `  ${line}`) : ['  (no output)']),
+  ].join('\n'));
+  return [`Session: ${sessionName}`, ...sections].join('\n\n');
+}
+
+export function openInstallDetailsDialog(sessionName: string, installDetails: readonly InstallDetail[]) {
+  const { dialog, close, actions, btnCancel: btnClose } = buildDialogShell({
+    title: 'Dependency install details',
+    dialogClass: 'dialog dialog-report',
+    cancelLabel: 'Close',
+  });
+  const detailsText = installDetailsText(sessionName, installDetails);
+  const copyStatus = el('span', 'dialog-report-meta');
+  copyStatus.setAttribute('role', 'status');
+  const btnCopy = button({ variant: 'secondary', label: 'Copy' });
+  btnCopy.addEventListener('click', () => {
+    const copied = writeClipboardText(detailsText);
+    if (!copied) {
+      copyStatus.textContent = 'Copying is not available here; select the text instead.';
+      return;
+    }
+    void copied.then(() => { copyStatus.textContent = 'Copied.'; }, () => { copyStatus.textContent = 'Could not copy; select the text instead.'; });
+  });
+  actions.prepend(copyStatus, btnCopy);
+  dialog.append(el('pre', 'dialog-report-body', detailsText), actions);
   btnClose.addEventListener('click', close);
   requestAnimationFrame(() => btnClose.focus());
 }

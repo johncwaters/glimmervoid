@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import type { InstallFailureKind } from '../../../shared/contracts/control/control-fields.ts';
+import { INSTALL_DETAIL_MAX_FOLDERS, INSTALL_DETAIL_MAX_OUTPUT_LINES } from '../../../shared/contracts/control/control-fields.ts';
+import type { InstallDetail, InstallFailureKind } from '../../../shared/contracts/control/control-fields.ts';
 
 export type LockKind = 'npm' | 'pnpm';
 
@@ -335,10 +336,10 @@ export function toolCandidatePaths(toolName: string, dirs: readonly string[], pl
   return dirs.flatMap((dir) => executableNames.map((executableName) => join(dir, executableName)));
 }
 
-const INSTALL_OUTPUT_TAIL_LINES = 20;
+const INSTALL_OUTPUT_LINE_MAX_CHARS = 500;
 
 export function outputTailOf(...outputs: readonly string[]): string[] {
-  return outputs.join('\n').split(/\r?\n/).map((line) => line.trimEnd()).filter((line) => line.trim()).slice(-INSTALL_OUTPUT_TAIL_LINES);
+  return outputs.join('\n').split(/\r?\n/).map((line) => line.trimEnd().slice(0, INSTALL_OUTPUT_LINE_MAX_CHARS)).filter((line) => line.trim()).slice(-INSTALL_DETAIL_MAX_OUTPUT_LINES);
 }
 
 export function lastOutputLineOf(output: string): string {
@@ -380,7 +381,7 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
 }
 
 type InstallFailure = Extract<InstallResult, { ok: false }>;
-type InstallNotice = { notice: string | null; failureKind: InstallFailureKind | null };
+type InstallNotice = { notice: string | null; failureKind: InstallFailureKind | null; installDetails: InstallDetail[] };
 
 const MAX_NAMED_FOLDERS = 3;
 const SHORT_REASON_MAX_CHARS = 120;
@@ -399,7 +400,14 @@ export function describeInstallNotice(outcome: DependencyInstallOutcome): Instal
   ];
   const shownKinds = new Set<InstallFailureKind>([...(showsMissingTools ? ['tool-missing' as const] : []), ...failedInstalls.map((failure) => failure.kind)]);
   const failureKind = FAILURE_KIND_PRIORITY.find((kind) => shownKinds.has(kind)) ?? null;
-  return { notice: parts.length ? parts.join(' ') : null, failureKind };
+  const installDetails = reportedFailures.slice(0, INSTALL_DETAIL_MAX_FOLDERS).map((failure) => ({
+    folder: failure.dir === '.' ? 'the worktree root' : failure.dir,
+    command: failure.command,
+    kind: failure.kind,
+    searchedPath: failure.searchedPath,
+    outputTail: failure.outputTail,
+  }));
+  return { notice: parts.length ? parts.join(' ') : null, failureKind, installDetails };
 }
 
 function describeMissingTools(toolNames: readonly string[]): string {

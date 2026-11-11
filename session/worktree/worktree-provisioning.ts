@@ -236,9 +236,9 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     const { clone, install } = outcome;
     logCloneOutcome(clone, worktreeDir);
     logInstallOutcome(install, worktreeDir);
-    const { notice, failureKind } = describeInstallNotice(install);
+    const { notice, failureKind, installDetails } = describeInstallNotice(install);
     if (!notice) return;
-    port.emit("worktree-warning", { id, branch, notice, ...(failureKind ? { failureKind } : {}) });
+    port.emit("worktree-warning", { id, branch, notice, ...(failureKind ? { failureKind } : {}), ...(installDetails.length ? { installDetails } : {}) });
   }
 
   function logCloneOutcome(clone: DependencySeedOutcome["clone"], worktreeDir: string): void {

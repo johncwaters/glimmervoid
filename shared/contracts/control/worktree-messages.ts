@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, loose, openObject, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind } from './control-fields.ts';
+import { sessionId, loose, openObject, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
 export const worktreeClientVariants = [
   loose('watch-session-changes', { id: sessionId.nullable() }),
@@ -28,6 +28,7 @@ export const worktreeServerVariants = [
     branch: nullableString,
     notice: nullableString,
     failureKind: InstallFailureKind.optional(),
+    installDetails: z.array(InstallDetail).max(INSTALL_DETAIL_MAX_FOLDERS).optional(),
     timestamp,
   }),
   loose('session-worktree-ready', {
