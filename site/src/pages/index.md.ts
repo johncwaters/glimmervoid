@@ -31,7 +31,7 @@ export const GET: APIRoute = ({ site }) => {
       '- Worktrees: every session in a git repo runs in its own git worktree, so parallel agents never collide. One click merges a session\'s work back; a conflict goes back to the agent that wrote the code.',
       '- Arena: run one prompt on 2 to 5 agent setups at once (agent, model, effort and extra instructions), each in its own session and worktree from the same commit. A judge ranks the contestants that changed something, with one reason each; you pick the winner, and the other sessions and their worktrees are removed without pushing.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
-      `- Guardrails: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
+      `- Sane YOLO: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
       '- Notifications: browser notifications, or Telegram when no dashboard tab is open.',
       '- Plan review: approve an agent\'s plan from any device.',

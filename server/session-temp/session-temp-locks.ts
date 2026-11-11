@@ -156,30 +156,39 @@ function moveFolderToTrash(sessionTempFolder: string, sessionId: string): string
   }
 }
 
-function trashFolderIfEveryLockIsFree(locks: FileLocks, policyDir: string, sessionId: string, sessionTempFolder: string, { keepWhenNoLockFiles }: UnheldSessionTrashOptions): string | null {
+interface TrashedSessionTempFolder {
+  sessionTempFolder: string;
+  trashFolder: string;
+}
+
+function trashFoldersIfEveryLockIsFree(locks: FileLocks, policyDir: string, sessionId: string, sessionTempFolders: readonly string[], { keepWhenNoLockFiles }: UnheldSessionTrashOptions): TrashedSessionTempFolder[] {
   const lockPaths = sessionLockPathsIn(policyDir, sessionId);
-  if (keepWhenNoLockFiles && lockPaths.length === 0) return null;
+  if (keepWhenNoLockFiles && lockPaths.length === 0) return [];
   const claimedLockDescriptors = lockPaths.map((lockPath) => lockIfUnheld(locks, lockPath)).filter((lockDescriptor) => lockDescriptor !== null);
   try {
-    if (claimedLockDescriptors.length !== lockPaths.length) return null;
-    const trashFolder = moveFolderToTrash(sessionTempFolder, sessionId);
+    if (claimedLockDescriptors.length !== lockPaths.length) return [];
+    const trashedFolders: TrashedSessionTempFolder[] = [];
+    for (const sessionTempFolder of sessionTempFolders) {
+      const trashFolder = moveFolderToTrash(sessionTempFolder, sessionId);
+      if (trashFolder !== null) trashedFolders.push({ sessionTempFolder, trashFolder });
+    }
     for (const lockPath of lockPaths) rmSync(lockPath, { force: true });
-    return trashFolder;
+    return trashedFolders;
   } finally {
     releaseLockDescriptors(locks, claimedLockDescriptors);
   }
 }
 
-function trashSessionTempFolderOnceUnheld(policyDir: string, sessionId: string, sessionTempFolder: string, options: UnheldSessionTrashOptions): string | null {
+function trashSessionTempFoldersOnceUnheld(policyDir: string, sessionId: string, sessionTempFolders: readonly string[], options: UnheldSessionTrashOptions): TrashedSessionTempFolder[] {
   const locks = loadFileLocks();
-  if (locks === null) return null;
+  if (locks === null) return [];
   const gateDescriptor = openSessionTempGate(policyDir);
   try {
-    if (!locks.tryLock(gateDescriptor)) return null;
-    return trashFolderIfEveryLockIsFree(locks, policyDir, sessionId, sessionTempFolder, options);
+    if (!locks.tryLock(gateDescriptor)) return [];
+    return trashFoldersIfEveryLockIsFree(locks, policyDir, sessionId, sessionTempFolders, options);
   } finally {
     closeSessionTempGate(locks, gateDescriptor);
   }
 }
 
-export { createHeldSessionTempFolder, loadFileLocks, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFolderOnceUnheld };
+export { createHeldSessionTempFolder, loadFileLocks, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFoldersOnceUnheld };

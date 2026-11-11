@@ -6,7 +6,7 @@ The session domain: spawning, supervising, resuming and shutting down agent sess
 - pty output: an agent process writes to its terminal, and the bytes reach the screen keeper, the recorder and the dashboard
   handler: Session in sessions.ts
   trust: agent-session
-  control: none -- guardrails guard against accidents, not a hostile agent; links open only on an operator click and link previews refuse private addresses, the clipboard needs focus plus user activation or an operator-confirmed prompt, color replies return to the same agent, and the task title refiner reads agent text by design
+  control: none -- Sane YOLO guards against accidents, not a hostile agent; links open only on an operator click and link previews refuse private addresses, the clipboard needs focus plus user activation or an operator-confirmed prompt, color replies return to the same agent, and the task title refiner reads agent text by design
 
 ## invariants
 - checkouts survive restart: A checkout a session made is found again from the owned-paths ledger after a restart or a session rebuild, so closing the session still refuses on its unsaved work and removes it once discard is confirmed.

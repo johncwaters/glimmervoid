@@ -33,10 +33,9 @@
       "definition": "The session status meaning the agent stopped and needs the operator, derived from hook events or the OSC-0 title"
     },
     {
-      "name": "guardrails",
-      "definition": "Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox",
+      "name": "sane yolo",
+      "definition": "Glimmervoid's session protection: the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox",
       "aliases": [
-        "sane yolo",
         "sane"
       ]
     },
@@ -694,6 +693,10 @@
     {
       "name": "vault",
       "definition": "The feature that keeps the secrets agents may read: Settings, Vault lists each project's approved secrets with revoke, the vault companion address and port, and the GitHub read token lanes use; glimmervoid need, the MCP secrets tool and the glimmervoid vault companion are its other surfaces"
+    },
+    {
+      "name": "guardrails",
+      "definition": "The retired name of Sane YOLO, kept only where old data still carries it: the legacy guardrails config key and its migrations, the guardrails-temp folder and the retired guardrails folders swept at startup"
     }
   ],
   "retired": [

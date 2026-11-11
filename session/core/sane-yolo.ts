@@ -60,7 +60,7 @@ function saneYoloHostPayload(agentFlavor: string, body: Buffer): Buffer {
   return hostPayload ? Buffer.from(JSON.stringify(hostPayload), 'utf8') : body;
 }
 
-function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
+function saneYoloPolicy(sessionTempRoots: readonly string[], unreadablePaths: readonly string[]) {
   return {
     version: 1,
     destructive_command_protection: {
@@ -71,7 +71,7 @@ function saneYoloPolicy(guardrailsTempRoot: string, unreadablePaths: readonly st
         'git.rebase-abort': 'off',
         'rm.recursive-force-dynamic-target': 'on',
       },
-      allow_paths: [guardrailsTempRoot],
+      allow_paths: [...sessionTempRoots],
     },
     secret_protection: { enabled: true, deny_paths: [...unreadablePaths] },
   };
@@ -114,9 +114,9 @@ const SANE_YOLO_GLIMMERVOID_RULEBOOK = {
   rules: [{ name: 'settings-set-file', command: 'glimmervoid', subcommand: 'settings', block_args: ['--file'], reason: SETTINGS_FILE_REASON }],
 };
 
-function saneYoloFiles(guardrailsTempRoot: string, unreadablePaths: readonly string[]) {
+function saneYoloFiles(sessionTempRoots: readonly string[], unreadablePaths: readonly string[]) {
   return {
-    'policy.json': saneYoloPolicy(guardrailsTempRoot, unreadablePaths),
+    'policy.json': saneYoloPolicy(sessionTempRoots, unreadablePaths),
     'rules/rule.json': SANE_YOLO_RULES,
     'rules/infra/rulebook.json': SANE_YOLO_INFRA_RULEBOOK,
     'rules/git/rulebook.json': SANE_YOLO_GIT_RULEBOOK,

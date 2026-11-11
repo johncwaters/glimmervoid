@@ -17,7 +17,7 @@ const CAUGHT_COMMANDS = COMMANDS_IN_ORDER.filter(({ reason }) => reason !== null
 const describedCommands = (commands: typeof COMMANDS_IN_ORDER) => commands.map(({ command }) => command).join(', ');
 const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permission prompts. ${describedCommands(RAN_COMMANDS)} run. ${CAUGHT_COMMANDS.map(({ command, reason }) => `${command} (${reason?.toLowerCase()})`).join(', ')} drop into the net.`;
 ---
-<section id="guardrails">
+<section id="sane-yolo">
   <div class="yolo reveal">
     <div class="yolo-copy">
       <h2>You only live once.<br>Your repo gets a net.</h2>

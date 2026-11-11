@@ -26,8 +26,8 @@ headingCase: sentence
 vocabulary:
   banned:
     - term: sandbox
-      insteadUse: guardrails
-      why: Guardrails are accident protection, not isolation; calling them a sandbox promises a boundary that does not exist.
+      insteadUse: Sane YOLO
+      why: Sane YOLO is accident protection, not isolation; calling it a sandbox promises a boundary that does not exist.
     - term: terminal multiplexer
       why: Glimmervoid positions against multiplexers; the phrase appears only in the negation "Not a terminal multiplexer".
     - term: AI-powered

@@ -41,9 +41,9 @@ glossary:
   - term: waiting
     definition: The session status meaning the agent stopped and needs the operator.
     forbiddenAliases: [blocked, paused]
-  - term: guardrails
-    definition: Sane YOLO, the Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox.
-    forbiddenAliases: [sandbox, sandboxed]
+  - term: Sane YOLO
+    definition: The Safety Net hooks that refuse risky commands and credential reads in sessions and lanes; accident protection, never a sandbox.
+    forbiddenAliases: [guardrails, sandbox, sandboxed]
   - term: boards
     definition: The whiteboard view, where sessions and the operator draw diagrams and plan units together.
     forbiddenAliases: [canvas]

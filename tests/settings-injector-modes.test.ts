@@ -37,7 +37,7 @@ test('allow rules are written beside deny rules and the mode, and no permissions
 });
 
 test('a clean home carries the operator deny and ask rules, sandbox, env and key helper but none of their hooks, plugins or allow rules', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-guardrails-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-operator-permissions-'));
   const userSettingsPath = path.join(directory, 'settings.json');
   fs.writeFileSync(userSettingsPath, JSON.stringify({
     permissions: { allow: ['Bash(*)'], deny: ['Read(~/.ssh/**)'], ask: ['Bash(git push:*)'] },
@@ -46,7 +46,7 @@ test('a clean home carries the operator deny and ask rules, sandbox, env and key
   }));
   try {
     const base = { port: 3000, glimmervoidId: 'clean', token: 'tok', userSettingsPath, permissions: { deny: ['WebFetch'] } };
-    const clean = buildHookSettings({ ...base, carryOperatorGuardrails: true });
+    const clean = buildHookSettings({ ...base, carryOperatorPermissions: true });
     assert.deepEqual(clean.permissions, { deny: ['WebFetch', 'Read(~/.ssh/**)'], ask: ['Bash(git push:*)'] });
     assert.deepEqual(clean.sandbox, { enabled: true });
     assert.deepEqual(clean.env, { HTTPS_PROXY: 'http://proxy.example:3128' });

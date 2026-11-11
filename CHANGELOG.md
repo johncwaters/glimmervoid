@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hosts is now Remote.** Settings, Remote gathers everything that runs sessions on another machine: linked hosts, remote host setup, and the Remote Coder sessions toggle, which moved there from Sessions. Old links to Hosts still open it.
 - **Your day tips follow Usage.** Your day tip cards now show whenever Usage, Your day is on, so the separate Hint cards setting is gone, along with the feature suggestion cards it also showed. The GitHub star card is unchanged.
 - **Hooks moved into Settings.** The Hooks tab left the main navigation; the same page, with built-in hooks per agent and your own hooks editor, is now Settings, Hooks.
+- **Sane YOLO is the one name for session protection.** The README, website and brand now say Sane YOLO where they said guardrails, and session temp folders live under `~/.glimmervoid/sane-yolo-temp`. Sessions already running keep their folder under `guardrails-temp`, which Glimmervoid clears like any other session temp folder once they end and removes when it is empty.
 
 ### Fixed
 

@@ -775,7 +775,7 @@ async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Prom
   return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
 }
 
-test('closing a clean child discards its worktree and deletes its guardrails temp folder only after the killed tree is reaped and its Coherence readings settle, and posts the closing parent no end note', async () => {
+test('closing a clean child discards its worktree and deletes its Sane YOLO temp folder only after the killed tree is reaped and its Coherence readings settle, and posts the closing parent no end note', async () => {
   let worktree: StubbedWorktree | null = null;
   const fixture = wiringFixture({ settleSessionCoherence: async () => { worktree?.log.push('coherence-settled'); } });
   const attentionNotes: string[] = [];
@@ -784,7 +784,7 @@ test('closing a clean child discards its worktree and deletes its guardrails tem
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the slice' });
     const childId = String(spawned.body.sessionId);
     worktree = stubChildWorktree(fixture.created[0], { dirty: false });
-    const childTempFolder = path.join(glimmervoidHomeDir(), 'guardrails-temp', childId);
+    const childTempFolder = path.join(glimmervoidHomeDir(), 'sane-yolo-temp', childId);
     ensureSessionTempFolder(childId);
     fs.mkdirSync(path.join(childTempFolder, 'scratchpad'));
     assert.match(String(spawned.body.note), /--discard/);
