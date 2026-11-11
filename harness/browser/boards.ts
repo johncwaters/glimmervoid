@@ -23,6 +23,8 @@ const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
 const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n';
+const LINKED_DOC_BOX_ID = 'linked-doc';
+const LINKED_DOC_PATH = 'docs/linked-card.md';
 
 interface OpenBoard {
   page: Page;
@@ -333,6 +335,75 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
   await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+}
+
+async function uploadBoardDoc(page: Page, docText: string, uploadName: string) {
+  const uploadReply: unknown = await page.evaluate(async ({ assetRoute, text, name }) => {
+    const response = await fetch(assetRoute, { method: 'POST', body: text, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': name } });
+    const reply: unknown = await response.json();
+    return reply;
+  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, text: docText, name: uploadName });
+  return BoardMediaUploadReply.parse(uploadReply).media;
+}
+
+async function selectBoxByTitle(open: OpenBoard, boxId: string): Promise<void> {
+  const boxRect = await screenRectOf(open, boxId);
+  await open.page.mouse.click(boxRect.x + boxRect.width / 2, boxRect.y + 8);
+}
+
+async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const linkedFilePath = path.join(worktreePath, LINKED_DOC_PATH);
+  const linkedFileText = () => fs.promises.readFile(linkedFilePath, 'utf8');
+  fs.mkdirSync(path.dirname(linkedFilePath), { recursive: true });
+  fs.writeFileSync(linkedFilePath, '# Linked\n\nFrom the repo.\n');
+  const boardCopyMedia = await uploadBoardDoc(page, '# Board copy\n', 'linked-card.md');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_DOC_BOX_ID, title: 'Linked card', at: { x: 40, y: 700 }, media: boardCopyMedia } }] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  const linkedCard = panel.locator(`.wb-media[data-box-id="${LINKED_DOC_BOX_ID}"]`);
+  await linkedCard.locator('.plan-heading', { hasText: 'Board copy' }).waitFor();
+  await selectBoxByTitle(open, LINKED_DOC_BOX_ID);
+  const inspect = panel.locator('.wb-inspect');
+  const linkStatus = inspect.locator('.wb-inspect-link-status');
+  await linkStatus.filter({ hasText: 'Not linked' }).waitFor();
+  assert.equal(await inspect.getByRole('button', { name: 'Unlink this card from its file', exact: true }).isDisabled(), true, 'Unlink is off for a card with no link');
+  await inspect.getByRole('textbox', { name: 'Linked file path, relative to the code session worktree', exact: true }).fill(LINKED_DOC_PATH);
+  await inspect.getByRole('button', { name: 'Link this card to the file', exact: true }).click();
+  await linkedCard.locator('.plan-heading', { hasText: /^Linked$/ }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await linkStatus.filter({ hasText: 'In sync with the file' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  assert.equal(await linkedCard.locator('.wb-media-link-chip').count(), 0, 'a card in sync with its file carries no chip');
+  await clickElement(open, LINKED_DOC_BOX_ID);
+  const editor = page.locator('.doc-editor');
+  const paper = editor.locator('.doc-markup-paper');
+  await paper.locator('.doc-markup-text', { hasText: 'From the repo.' }).click();
+  await page.keyboard.press(LINE_END_KEY);
+  await page.keyboard.type(' Saved here.');
+  await editor.locator('.doc-editor-status-text', { hasText: /^Saved$/ }).waitFor();
+  await page.keyboard.press('Escape');
+  await editor.waitFor({ state: 'detached' });
+  await pollFor('the editor save reaches the linked file', BOARD_TIMEOUT_MS, async () => ((await linkedFileText()).includes('Saved here.') ? true : null));
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await linkedCard.locator('.wb-media-link-chip[data-link-state="card-ahead"]', { hasText: 'Not saved to file' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  assert.ok((await linkedFileText()).includes('Saved here.'), 'undo changes the card, never the file');
+  fs.rmSync(linkedFilePath);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: LINKED_DOC_BOX_ID, fields: { title: 'Linked card, file gone' } }] });
+  const brokenChip = linkedCard.locator('.wb-media-link-chip[data-link-state="broken"]', { hasText: 'File missing' });
+  await brokenChip.waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await linkedCard.locator('.plan-heading', { hasText: /^Linked$/ }).waitFor();
+  await clickElement(open, LINKED_DOC_BOX_ID);
+  await paper.locator('.doc-markup-text', { hasText: 'From the repo.' }).click();
+  await page.keyboard.type(' Lost.');
+  await editor.locator('.doc-editor-status-text', { hasText: 'read-only' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await editor.waitFor({ state: 'detached' });
+  assert.equal(fs.existsSync(linkedFilePath), false, 'a broken link never writes the file');
+  await selectBoxByTitle(open, LINKED_DOC_BOX_ID);
+  await inspect.getByRole('button', { name: 'Unlink this card from its file', exact: true }).click();
+  await brokenChip.waitFor({ state: 'detached' });
+  await linkStatus.filter({ hasText: 'Not linked' }).waitFor();
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: LINKED_DOC_BOX_ID }] });
+  await linkedCard.waitFor({ state: 'detached' });
 }
 
 function drawnMediaUrlOf(element: BoardElement): string {
@@ -1147,6 +1218,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await clickElement(open, bandStep.id);
   await inspect.getByRole('checkbox', { name: 'Plan step', exact: true }).uncheck();
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && element.at !== null);
+  await verifyLinkedBoardDoc(open, worktreePath);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
 }

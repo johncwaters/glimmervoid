@@ -1,5 +1,5 @@
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
-import type { BoxMedia, DialValue } from '#shared/contracts/whiteboard.ts';
+import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
@@ -171,6 +171,17 @@ function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<s
   return placed;
 }
 
+function paintLinkChip(node: HTMLElement, linkState: LinkStateOfBox | undefined): void {
+  const shownChip = node.querySelector<HTMLElement>('.wb-media-link-chip');
+  if (!linkState) {
+    shownChip?.remove();
+    return;
+  }
+  const chip = shownChip ?? node.appendChild(el('span', 'wb-media-link-chip'));
+  chip.textContent = linkState.text;
+  chip.dataset.linkState = linkState.state;
+}
+
 interface ShownPage {
   boxId: string;
   media: PageMedia;
@@ -196,6 +207,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
   let liveArea: Rect | null = null;
   let interactiveBoxId: string | null = null;
   let pageListening: AbortController | null = null;
+  let linkStateByBoxId = new Map<string, LinkStateOfBox>();
 
   function latestDialValuesOf(boxId: string): Readonly<Record<string, DialValue>> {
     return shownPages.find((page) => page.boxId === boxId)?.media.dialValues ?? {};
@@ -273,11 +285,13 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
         placeNode(placed.node, page.media, page.viewportWidth);
         applyMask(placed.node, page.maskImage);
         postChangedDialValues(page, placed);
+        paintLinkChip(placed.node, linkStateByBoxId.get(page.boxId));
         continue;
       }
       const replacement = placedPageOf(page, () => latestDialValuesOf(page.boxId));
       applyMask(replacement.node, page.maskImage);
       markInteractive(page.boxId, replacement);
+      paintLinkChip(replacement.node, linkStateByBoxId.get(page.boxId));
       if (placed) placed.node.replaceWith(replacement.node);
       if (!placed) layer.append(replacement.node);
       placedByBoxId.set(page.boxId, replacement);
@@ -304,6 +318,11 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     placeLivePages();
   }
 
+  function setLinkStates(linkStates: readonly LinkStateOfBox[]): void {
+    linkStateByBoxId = new Map(linkStates.map((linkState) => [linkState.boxId, linkState]));
+    placeLivePages();
+  }
+
   function clear(): void {
     for (const placed of placedByBoxId.values()) placed.node.remove();
     placedByBoxId.clear();
@@ -311,7 +330,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     setInteractiveBox(null);
   }
 
-  return { element: layer, sync, showArea, clear, setInteractiveBox };
+  return { element: layer, sync, showArea, clear, setInteractiveBox, setLinkStates };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

@@ -1,5 +1,5 @@
 import './whiteboard.css';
-import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, Op, WorthALookPath } from '#shared/contracts/whiteboard.ts';
+import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, LinkStateOfBox, Op, WorthALookPath } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
@@ -27,6 +27,7 @@ import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './board-media-layer.ts';
+import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
 import type { MediaZoomControl } from './media-zoom.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
@@ -88,6 +89,7 @@ interface BoardsViewParts {
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
+  mediaLayer: BoardMediaLayer;
 }
 
 let selectedBoardId: string | null = null;
@@ -436,6 +438,11 @@ function shownReviewOf(board: Board | null): BoardReview | null {
   return board && shownReview?.boardId === board.id ? shownReview.review : null;
 }
 
+function linkStateOf(boardId: string, boxId: string): LinkStateOfBox | null {
+  if (shownReview?.boardId !== boardId) return null;
+  return shownReview.review.linkStates.find((linkState) => linkState.boxId === boxId) ?? null;
+}
+
 function worthALookReasonOf(ref: string): string | null {
   const refPath = refPathOf(ref);
   return shownReviewOf(selectedBoard())?.worthALook.find((worth) => worth.path === refPath)?.reason ?? null;
@@ -463,6 +470,7 @@ function paintReview(): void {
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALook) : new Set(),
     flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
   });
+  parts.mediaLayer.setLinkStates(review?.linkStates ?? []);
 }
 
 function requestReviewOf(board: Board): void {
@@ -646,9 +654,12 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
   return {
     key: boardDocKey(boardId),
     docs: () => [{ path: boxId, name: title }],
-    isSaveable: () => docMediaOf(boardId, boxId) !== null,
+    isSaveable: () => docMediaOf(boardId, boxId) !== null && linkStateOf(boardId, boxId)?.state !== 'broken',
     conflictText: BOARD_DOC_CONFLICT_TEXT,
-    unsaveableText: BOARD_DOC_GONE_TEXT,
+    get unsaveableText() {
+      const linkState = linkStateOf(boardId, boxId);
+      return linkState?.state === 'broken' ? `${linkState.text}, so this card is read-only until it is linked again or unlinked.` : BOARD_DOC_GONE_TEXT;
+    },
     read: async () => {
       const media = docMediaOf(boardId, boxId);
       if (!media) return { ok: false, error: BOARD_DOC_GONE_TEXT };
@@ -1072,7 +1083,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
@@ -1085,7 +1096,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,

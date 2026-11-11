@@ -1,4 +1,4 @@
-import type { Board, Box, BoxLine, Dial, DialValue, Element as BoardElement, Frame, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
@@ -25,6 +25,7 @@ interface BoardInspectorOptions {
   codeSessionChoices: () => readonly Choice[];
   openRef: (ref: string) => void;
   worthALookReasonOf: (ref: string) => string | null;
+  linkStateOf: (boxId: string) => LinkStateOfBox | null;
   linkedBoardChoices: () => readonly Choice[];
   addNoteOn: (boxId: string) => void;
   frameSelectedBoxes: () => void;
@@ -189,6 +190,44 @@ function refsEditor(owner: string, refs: readonly string[], latestRefs: LatestIt
   return listSection('Refs', rows, addRef);
 }
 
+function linkedFileStatusText(media: BoxMedia, linkState: LinkStateOfBox | null): string {
+  if (linkState) return linkState.text;
+  return media.link ? 'In sync with the file' : 'Not linked: the card is a board copy';
+}
+
+function linkedFileSection(media: BoxMedia, linkState: LinkStateOfBox | null, latestMedia: () => BoxMedia | null, set: FieldCommit): HTMLElement {
+  const pathInput = el('input', 'wb-inspect-input');
+  pathInput.type = 'text';
+  pathInput.value = media.link?.path ?? '';
+  pathInput.maxLength = MAX_REF;
+  pathInput.placeholder = 'docs/plan.md';
+  pathInput.dataset.field = 'link-path';
+  pathInput.setAttribute('aria-label', 'Linked file path, relative to the code session worktree');
+  const status = el('p', 'wb-inspect-hint wb-inspect-link-status', linkedFileStatusText(media, linkState));
+  status.dataset.linkState = linkState?.state ?? (media.link ? 'in-sync' : 'unlinked');
+  status.setAttribute('role', 'status');
+  const linkButton = actionButton('link-file', 'Link', () => {
+    const linkPath = pathInput.value.trim();
+    const current = latestMedia();
+    if (!current) return;
+    if (!linkPath) {
+      status.textContent = 'Give the file path relative to the code session worktree.';
+      return;
+    }
+    set({ media: { ...current, link: { path: linkPath, syncedHash: null } } });
+  }, 'Link this card to the file');
+  const unlinkButton = actionButton('unlink-file', 'Unlink', () => {
+    const current = latestMedia();
+    if (current?.link) set({ media: { ...current, link: null } });
+  }, 'Unlink this card from its file');
+  unlinkButton.disabled = !media.link;
+  const buttons = el('div', 'wb-inspect-row');
+  buttons.append(linkButton, unlinkButton);
+  const section = el('div', 'wb-inspect-list');
+  section.append(el('span', 'wb-inspect-label', 'Linked file'), pathInput, buttons, status);
+  return section;
+}
+
 function lineWithStyle(line: BoxLine, style: BoxLine['style']): BoxLine {
   if (style === 'kv') return { ...line, style, key: line.key || 'key' };
   return { ...line, style };
@@ -245,7 +284,12 @@ function outputsEditor(box: DecisionBox, latestOutputs: LatestItems<DecisionOutp
   return listSection('Outputs', rows, addOutput);
 }
 
-function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], set: FieldCommit): HTMLElement[] {
+function linkableMediaOf(box: Box | null): BoxMedia | null {
+  const media = box ? mediaOfBox(box) : null;
+  return media?.kind === 'doc' || media?.kind === 'page' ? media : null;
+}
+
+function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], linkState: LinkStateOfBox | null, set: FieldCommit): HTMLElement[] {
   const latestBox = () => {
     const element = latest();
     return element?.kind === 'box' ? element : null;
@@ -309,6 +353,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...(box.shape === 'box' || box.shape === 'device' ? [checkboxField('borderless', 'Borderless', box.borderless, (borderless) => set({ borderless }))] : []),
     ...(box.shape === 'sticky' ? [fieldRow('Tone', selectField('tone', STICKY_TONE_CHOICES, box.tone, (tone) => set({ tone })))] : []),
     ...dialSections(box, latestBox, set),
+    ...linkedFileSections(box, linkState, () => linkableMediaOf(latestBox()), set),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
     checkboxField('is-step', 'Plan step', box.step !== null, commitIsStep),
@@ -457,11 +502,16 @@ function selectionActionsRow(selected: readonly BoardElement[], actions: Selecti
   return row;
 }
 
-function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], send: (ops: Op[]) => void): HTMLElement[] {
+function linkedFileSections(box: Box, linkState: LinkStateOfBox | null, latestMedia: () => BoxMedia | null, set: FieldCommit): HTMLElement[] {
+  const media = linkableMediaOf(box);
+  return media ? [linkedFileSection(media, linkState, latestMedia, set)] : [];
+}
+
+function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], linkState: LinkStateOfBox | null, send: (ops: Op[]) => void): HTMLElement[] {
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
   const latest = () => latestBoard()?.elements.get(element.id);
   switch (element.kind) {
-    case 'box': return boxSections(element, latest, layout, linkedBoardChoices, set);
+    case 'box': return boxSections(element, latest, layout, linkedBoardChoices, linkState, set);
     case 'wire': return wireSections(board, element, set);
     case 'frame': return frameSections(element, set);
     case 'stroke': return [heading('Ink')];
@@ -527,7 +577,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
+    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), options.linkStateOf(element.id), send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {
