@@ -4,16 +4,18 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import { formatDate } from '../lib/format-date.ts';
 import { sitePath } from '../lib/site-path.ts';
+import { AUTHOR } from '../lib/product-facts.ts';
 
 type Props = {
   slug: string;
   title: string;
   description: string;
   pubDate: Date;
+  updatedDate: Date;
   tags: string[];
 };
 
-const { slug, title, description, pubDate, tags } = Astro.props;
+const { slug, title, description, pubDate, updatedDate, tags } = Astro.props;
 const socialImagePath = `blog/${slug}.png`;
 const postStructuredData = {
   '@type': 'BlogPosting',
@@ -21,7 +23,8 @@ const postStructuredData = {
   description,
   image: new URL(sitePath(socialImagePath), Astro.site).href,
   datePublished: pubDate.toISOString(),
-  author: { '@type': 'Person', name: 'John C. Waters', url: 'https://github.com/johncwaters' },
+  dateModified: updatedDate.toISOString(),
+  author: AUTHOR,
   mainEntityOfPage: new URL(Astro.url.pathname, Astro.site).href,
 };
 ---

@@ -52,6 +52,10 @@ export const PRODUCT_VERSION = rootPackage.version;
 
 export const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
 
+export const AUTHOR = { '@type': 'Person', name: 'John C. Waters', url: 'https://github.com/johncwaters' } as const;
+
 export const CODING_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.id !== 'shell');
 
 export const PRODUCT_SUMMARY = 'Open-source agentic development environment (ADE) for terminal coding agents. Your agent shows its prototypes, architecture and plans on a whiteboard beside its terminal, each session runs in its own worktree, and you see which one needs you.';
+
+export const HOME_DESCRIPTION = 'Open-source orchestrator for Claude Code, Codex and other terminal coding agents: a worktree per session, plans on a whiteboard, and which one needs you.';

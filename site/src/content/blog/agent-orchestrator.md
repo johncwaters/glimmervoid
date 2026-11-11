@@ -1,5 +1,5 @@
 ---
-title: "My coding agents kept waiting on me, so I built an agent orchestrator"
+title: "My coding agents kept waiting, so I built an orchestrator"
 description: "Why I built Glimmervoid: it runs Claude Code and Codex side by side, gives every agent its own git worktree, and tells you the moment one needs you."
 pubDate: 2026-09-14
 tags: ["glimmervoid", "agents", "claude-code"]

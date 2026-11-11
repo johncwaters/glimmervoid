@@ -15,12 +15,14 @@ import Install from '../components/Install.astro';
 import Faq from '../components/Faq.astro';
 import Footer from '../components/Footer.astro';
 import { FAQ_ENTRIES } from '../lib/faq.ts';
-import { PRODUCT_SUMMARY, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { AUTHOR, HOME_DESCRIPTION, PRODUCT_SUMMARY, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
 const HOME_URL = new URL('/', Astro.site).href;
+const AUTHOR_ID = `${HOME_URL}#author`;
 const HOME_STRUCTURED_DATA = {
   '@graph': [
-    { '@type': 'WebSite', name: 'Glimmervoid', url: HOME_URL },
+    { '@type': 'WebSite', name: 'Glimmervoid', url: HOME_URL, publisher: { '@id': AUTHOR_ID } },
+    { ...AUTHOR, '@id': AUTHOR_ID },
     {
       '@type': 'SoftwareApplication',
       name: 'Glimmervoid',
@@ -31,6 +33,7 @@ const HOME_STRUCTURED_DATA = {
       softwareVersion: PRODUCT_VERSION,
       license: 'https://opensource.org/licenses/MIT',
       sameAs: REPOSITORY_URL,
+      author: { '@id': AUTHOR_ID },
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
     },
     {
@@ -40,7 +43,7 @@ const HOME_STRUCTURED_DATA = {
   ],
 };
 ---
-<Base title="Glimmervoid: open-source orchestrator for terminal coding agents" structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
+<Base title="Glimmervoid: orchestrator for terminal coding agents" description={HOME_DESCRIPTION} structuredData={HOME_STRUCTURED_DATA} markdownPath="index.md">
   <Nav />
   <Hero />
   <UsedBy />
