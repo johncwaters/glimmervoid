@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from '../link/core/link-signing-core.ts';
-import { CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
-import type { GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
 
 const LOOPBACK_HOST = '127.0.0.1';
@@ -37,11 +37,12 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), now = Date.now, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), awakeUsage = () => null, now = Date.now, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
   stopHost?: () => Promise<HostStopOutcome>;
   mintGithubToken?: () => Promise<GithubTokenAnswer | null>;
+  awakeUsage?: () => AwakeUsage | null;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
 }) {
@@ -62,6 +63,7 @@ function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-
       return { status: 200, payload: {} };
     }
     if (method === 'GET' && path === STATUS_PATH) return { status: 200, payload: runner.status() };
+    if (method === 'GET' && path === AWAKE_USAGE_PATH) return { status: 200, payload: { awakeUsage: awakeUsage() } };
     if (method === 'POST' && path === HOST_STOP_PATH) {
       const outcome = await stopHost();
       return { status: outcome === 'stopping' ? 202 : 200, payload: { outcome } };

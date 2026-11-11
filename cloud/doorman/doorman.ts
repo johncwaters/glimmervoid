@@ -16,8 +16,8 @@ import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } fr
 import { isMissingFileError } from '../../shared/text.ts';
 import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
-import type { AwakeUsage, DoormanGithubApp, DoormanTenant, DoormanTenantTableInput } from '../../shared/contracts/doorman.ts';
-import type { GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput } from '../../shared/contracts/doorman.ts';
+import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
 import { headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs } from './doorman-core.ts';
@@ -97,11 +97,11 @@ function causeOf(error: unknown): unknown {
   return error instanceof Error && error.cause !== undefined ? error.cause : error;
 }
 
-async function createTenantWatcher(tenant: DoormanTenant, linkSecret: Buffer, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; stopHost: () => Promise<HostStopOutcome>; githubTokenFallback: () => string | null; mintGithubToken: () => Promise<GithubTokenAnswer | null>; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
+async function createTenantWatcher(tenant: DoormanTenant, linkSecret: Buffer, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken, awakeUsage, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; stopHost: () => Promise<HostStopOutcome>; githubTokenFallback: () => string | null; mintGithubToken: () => Promise<GithubTokenAnswer | null>; awakeUsage: () => AwakeUsage | null; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
   const home = createWatcherHome({ homeDir: tenant.watcherHome, credentialKey: credentialStoreKey(linkSecret), log });
   const nudges = createNudgeSender({ serverUrl: tenant.serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), fetchFn: forwardFetch, now, log });
   const runner = createProbeRunner({ home, nudges, fetchFn: probeFetch, now, log, githubTokenFallback });
-  const listener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), stopHost, mintGithubToken, now, log });
+  const listener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), stopHost, mintGithubToken, awakeUsage, now, log });
   await runner.start();
   return {
     handle: listener.handle,
@@ -401,7 +401,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
       return held !== null && now() < held.expiresAtMs ? held.token : null;
     };
     await mintGithubToken(entry);
-    const watcher = await createTenantWatcher(entry.tenant, Buffer.from(secretHex, 'hex'), { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken: () => githubTokenForServer(entry), now, log }).catch((startError: unknown) => {
+    const watcher = await createTenantWatcher(entry.tenant, Buffer.from(secretHex, 'hex'), { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken: () => githubTokenForServer(entry), awakeUsage: () => entry.meter?.usage(entry.tenant.awakeHoursPerMonth) ?? null, now, log }).catch((startError: unknown) => {
       log.warn(`[doorman] tenant ${entry.tenant.slug} watcher did not start: ${errorMessage(startError)}`);
       return null;
     });

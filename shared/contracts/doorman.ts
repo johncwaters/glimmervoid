@@ -37,14 +37,6 @@ export const AwakeEvent = z.strictObject({
 });
 export type AwakeEvent = z.infer<typeof AwakeEvent>;
 
-export const AwakeUsage = z.strictObject({
-  usedMs: z.number().int().nonnegative(),
-  capMs: z.number().int().positive().nullable(),
-  periodStartAt: z.iso.datetime(),
-  periodEndsAt: z.iso.datetime(),
-});
-export type AwakeUsage = z.infer<typeof AwakeUsage>;
-
 export const DOORMAN_LOCK_FILE_NAME = 'doorman.lock';
 export const DOORMAN_PORT_FILE_NAME = 'port';
 export type DoormanTenantTableInput = z.input<typeof DoormanTenantTable>;

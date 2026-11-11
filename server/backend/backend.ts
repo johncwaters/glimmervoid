@@ -39,6 +39,7 @@ import {
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { startIdleStop } from '../idle-stop-wiring.ts';
+import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
@@ -678,6 +679,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     requestHostStop: watcherLink.requestHostStop,
     reportStopRequested: (properties) => telemetry.capture('idle_stop_requested', properties),
   });
+  const awakeUsageAlerts = startAwakeUsageAlerts({
+    readAwakeUsage: watcherLink.readAwakeUsage,
+    notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
+    statePath: configSiblingPath(configStore.configPath, 'awake-usage-alerts.json'),
+  });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
@@ -722,6 +728,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hostLinks,
     watcherLink,
     idleStop,
+    awakeUsageAlerts,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,

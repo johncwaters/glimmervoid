@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { CREDENTIALS_PATH, GITHUB_TOKEN_PATH, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { GithubTokenGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
+import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
 import type { WatcherStarter } from './remote-watcher-starter.ts';
@@ -303,6 +304,26 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     }
   }
 
+  async function readAwakeUsage(): Promise<AwakeUsage | null> {
+    if (watcherUrl === null) return null;
+    try {
+      const response = await fetchFn(new URL(AWAKE_USAGE_PATH, watcherUrl), {
+        method: 'GET',
+        headers: signedHeaders(commandKey, { method: 'GET', path: AWAKE_USAGE_PATH, body: '' }, now()),
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return null;
+      }
+      const answer = AwakeUsageAnswer.safeParse(await response.json());
+      return answer.success ? answer.data.awakeUsage : null;
+    } catch (usageError) {
+      log.warn(`[watcher] could not read awake usage: ${(usageError as Error).message}`);
+      return null;
+    }
+  }
+
   async function adoptWatcherStatus(): Promise<boolean> {
     const status = await readWatcherStatus();
     if (status === null) return false;
@@ -484,7 +505,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

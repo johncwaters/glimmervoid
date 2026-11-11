@@ -1,7 +1,7 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { AwakeEvent } from '../../shared/contracts/doorman.ts';
-import type { AwakeUsage } from '../../shared/contracts/doorman.ts';
+import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 import { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, isMeteredAwake } from './doorman-core.ts';
 import type { MeterTotal } from './doorman-core.ts';
 

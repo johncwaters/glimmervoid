@@ -23,6 +23,7 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/changes-watch.ts': { awakeOnly: 'local worktree changes for the session a dashboard is watching' },
   'server/awake-timer.ts': { awakeOnly: 'counts awake time; reads nothing outside' },
   'server/idle-stop-wiring.ts': { awakeOnly: 'decides when to ask the doorman to stop this host' },
+  'server/awake-usage-wiring.ts': { awakeOnly: 'reads this host\'s awake hours from its doorman; asleep, no hours accrue' },
   'server/telemetry.ts': { awakeOnly: 'flushes usage data out; reads nothing to act on' },
   'server/outcomes-wiring.ts': { awakeOnly: 'summarizes local event loop and outcome counters' },
   'server/pairings-store.ts': { awakeOnly: 'reloads a local file' },

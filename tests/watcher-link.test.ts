@@ -23,9 +23,11 @@ import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts
 import { createPrGh } from '../server/github/pr-gh.ts';
 import { startIdleStop } from '../server/idle-stop-wiring.ts';
 import { laneAccessConfigOf } from '../server/lanes/core/lane-permissions-core.ts';
+import { startAwakeUsageAlerts } from '../server/awake-usage-wiring.ts';
+import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -725,11 +727,11 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
   assert.deepEqual(stopCalls, ['hostedtenant0001']);
 });
 
-test('a hosted doorman meters awake time in the tenant ledger, stops a host that reaches its monthly awake hours even when the first stop call hangs, and refuses to wake it again, even after a doorman restart', async (t) => {
+test('a hosted doorman meters awake time in the tenant ledger, stops a host that reaches its monthly awake hours even when the first stop call hangs, and refuses to wake it again, even after a doorman restart, while its server notifies the operator once at 100 percent', async (t) => {
   const tenantServer = http.createServer((_request, response) => response.end('awake'));
   const tenantPort = await listenOnLoopback(tenantServer);
   await new Promise((resolve) => tenantServer.close(resolve));
-  const { tenant } = await doormanTenant(t, 'cappedtenant0001', `http://127.0.0.1:${tenantPort}`);
+  const { linkSecret, tenant } = await doormanTenant(t, 'cappedtenant0001', `http://127.0.0.1:${tenantPort}`);
   const cappedTenant = { ...tenant, awakeHoursPerMonth: 0.0001 };
   const wakeCalls: string[] = [];
   const stopCalls: string[] = [];
@@ -768,6 +770,34 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   t.after(() => restartedDoorman.close());
   assert.equal((await requestThroughDoorman(restartedPort, { host: tenantHost, path: '/' })).status, 503);
   assert.deepEqual(wakeCalls, ['cappedtenant0001']);
+
+  const serverKey = directionKey(linkSecret, 'server-to-watcher');
+  const readAwakeUsage = async () => {
+    const answer = await requestThroughDoorman(restartedPort, { host: tenantHost, path: AWAKE_USAGE_PATH, headers: signedHeaders(serverKey, { method: 'GET', path: AWAKE_USAGE_PATH, body: '' }, Date.now()) });
+    return AwakeUsageAnswer.parse(JSON.parse(answer.body)).awakeUsage;
+  };
+  const notifications: string[] = [];
+  const statePath = path.join(path.dirname(tenant.watcherHome), 'awake-usage-alerts.json');
+  for (let serverStart = 0; serverStart < 2; serverStart += 1) {
+    const alerts = startAwakeUsageAlerts({ readAwakeUsage, notify: (_name, _category, message) => notifications.push(message), statePath, log: QUIET_LOG });
+    await alerts.checked();
+    alerts.stop();
+  }
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0], /used all .* awake hours for this month/);
+});
+
+test('a server sends the 100 percent awake-hours alert while the cap is still within its lookahead, and alerts again when the cap changes mid-month', () => {
+  const hour = 3_600_000;
+  const usageAt = (usedMs: number, capMs: number) => ({ usedMs, capMs, periodStartAt: '2026-11-01T00:00:00.000Z', periodEndsAt: '2026-12-01T00:00:00.000Z' });
+  const lookaheadMs = 30 * 60_000;
+  const nearCap = newlyCrossedAlert(usageAt(10 * hour - 20 * 60_000, 10 * hour), null, lookaheadMs);
+  assert.ok(nearCap !== null);
+  assert.equal(nearCap.threshold, 100);
+  assert.match(awakeUsageAlertText(nearCap), /within 20 awake minutes/);
+  const notified = notifiedAfter(usageAt(10 * hour, 10 * hour), nearCap);
+  assert.equal(newlyCrossedAlert(usageAt(10 * hour, 10 * hour), notified, lookaheadMs), null);
+  assert.equal(newlyCrossedAlert(usageAt(31 * hour, 40 * hour), notified, lookaheadMs)?.threshold, 75);
 });
 
 test('a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its whole home is deleted', async (t) => {

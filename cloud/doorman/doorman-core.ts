@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
-import type { AwakeEvent, AwakeUsage, DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { AwakeEvent, DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 
 type DoormanRoute =
   | { kind: 'watcher'; tenant: DoormanTenant }

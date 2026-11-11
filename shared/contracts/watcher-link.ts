@@ -9,6 +9,7 @@ export const STATUS_PATH = `${WATCHER_PATH_PREFIX}status`;
 export const HEALTH_PATH = `${WATCHER_PATH_PREFIX}healthz`;
 export const HOST_STOP_PATH = `${WATCHER_PATH_PREFIX}host-stop`;
 export const GITHUB_TOKEN_PATH = `${WATCHER_PATH_PREFIX}github-token`;
+export const AWAKE_USAGE_PATH = `${WATCHER_PATH_PREFIX}awake-usage`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
@@ -60,6 +61,23 @@ export type Nudge = z.infer<typeof Nudge>;
 
 export const ProbeStatus = z.enum(['unknown', 'ok', 'failing']);
 export type ProbeStatus = z.infer<typeof ProbeStatus>;
+
+export const AwakeUsage = z.strictObject({
+  usedMs: z.number().int().nonnegative(),
+  capMs: z.number().int().positive().nullable(),
+  periodStartAt: z.iso.datetime(),
+  periodEndsAt: z.iso.datetime(),
+});
+export type AwakeUsage = z.infer<typeof AwakeUsage>;
+
+export const AwakeUsageAnswer = z.strictObject({ awakeUsage: AwakeUsage.nullable() });
+
+export const AwakeUsageNotified = z.strictObject({
+  periodStartAt: z.iso.datetime(),
+  capMs: z.number().int().positive(),
+  threshold: z.number().int().positive(),
+});
+export type AwakeUsageNotified = z.infer<typeof AwakeUsageNotified>;
 
 export const WatcherStatus = z.strictObject({
   probeSetRevision: z.string().nullable(),
