@@ -99,7 +99,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ## Dependencies
 
-Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`.
+Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`, and `@pierre/diffs` (the Changes diff, lazy-loaded).
 
 `@xterm/headless` with `@xterm/addon-serialize` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
 

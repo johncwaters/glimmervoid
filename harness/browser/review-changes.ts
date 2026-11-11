@@ -38,12 +38,48 @@ export async function commitFile(repositoryPath: string, fileName: string, conte
   await git(repositoryPath, ['commit', '-m', message]);
 }
 
+const ADDED_DIFF_LINE = '.review-reader-diff [data-line][data-line-type="change-addition"]';
+
+const CONTEXT_FILE_NAME = 'review-context.txt';
+const CONTEXT_LINE_COUNT = 40;
+const EDITED_CONTEXT_LINE = 'line 20 edited in the worktree';
+
+async function editPushedFile(worktreePath: string): Promise<void> {
+  const lines = Array.from({ length: CONTEXT_LINE_COUNT }, (_, index) => `line ${index + 1}`);
+  await commitFile(worktreePath, CONTEXT_FILE_NAME, `${lines.join('\n')}\n`, 'test: a file the base already has');
+  await git(worktreePath, ['push', 'origin', 'HEAD:main']);
+  lines[19] = EDITED_CONTEXT_LINE;
+  await fs.writeFile(path.join(worktreePath, CONTEXT_FILE_NAME), `${lines.join('\n')}\n`, 'utf8');
+}
+
+async function verifyModifiedFileDiff(page: Page, worktreePath: string): Promise<void> {
+  await editPushedFile(worktreePath);
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  const reader = page.locator('.review-reader[data-placement="overlay"]');
+  const contextRow = reader.locator(`.review-reader-file[data-path="${CONTEXT_FILE_NAME}"]`);
+  await contextRow.waitFor({ timeout: READER_TIMEOUT_MS });
+  assert.equal(await contextRow.locator('.review-file-status').textContent(), 'M', 'a file the base has reads as modified');
+  await contextRow.click();
+  await reader.locator(ADDED_DIFF_LINE, { hasText: EDITED_CONTEXT_LINE }).waitFor({ timeout: READER_TIMEOUT_MS });
+  const layoutGroup = reader.getByRole('group', { name: 'Diff layout' });
+  await layoutGroup.getByRole('button', { name: 'Split', exact: true }).click();
+  await reader.locator('.review-reader-diff pre[data-diff-type="split"]').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('glimmervoid-review-diff-layout')), '"split"', 'the chosen layout is remembered');
+  assert.equal(await layoutGroup.getByRole('button', { name: 'Split', exact: true }).getAttribute('aria-pressed'), 'true');
+  await layoutGroup.getByRole('button', { name: 'Unified', exact: true }).click();
+  await reader.locator('.review-reader-diff pre[data-diff-type="single"]').waitFor();
+  const firstLine = reader.locator('.review-reader-diff [data-line]', { hasText: /^line 1$/ });
+  assert.equal(await firstLine.count(), 0, 'unchanged lines far from the edit start collapsed');
+  await reader.locator('.review-reader-diff [data-expand-button]').first().click();
+  await firstLine.first().waitFor({ timeout: READER_TIMEOUT_MS });
+}
+
 async function openChangesReader(page: Page): Promise<void> {
   await page.locator('.session-page-bar').getByRole('button', { name: 'Changes', exact: true }).click();
   const reader = page.locator('.review-reader[data-placement="overlay"]');
   await reader.waitFor();
   await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: READER_TIMEOUT_MS });
-  await reader.locator('.review-reader-diff .review-line-add', { hasText: REVIEWED_FILE_CONTENT.trim() }).waitFor();
+  await reader.locator(ADDED_DIFF_LINE, { hasText: REVIEWED_FILE_CONTENT.trim() }).waitFor({ timeout: READER_TIMEOUT_MS });
   assert.equal(await page.locator('#focus-rail').isVisible(), true, 'the rail stays beside the change reader');
 }
 
@@ -91,6 +127,9 @@ export async function verifyReviewChanges(page: Page, projectDirectory: string):
   await verifyChangesButtonCloses(page);
   await openChangesReader(page);
   await closeChangesReader(page, sessionId);
+  await verifyModifiedFileDiff(page, worktreePath);
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Changes', exact: true }).click();
+  await page.locator('.review-reader').waitFor({ state: 'detached' });
   await verifySwitchToFinishedSessionClosesChanges(page, sessionId);
 }
 
@@ -118,7 +157,7 @@ export async function verifyPhoneChanges(page: Page, projectDirectory: string): 
   await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"]`).waitFor({ timeout: READER_TIMEOUT_MS });
   assert.equal(await reader.getAttribute('data-level'), 'list', 'Changes opens on the file list');
   await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"]`).click();
-  await reader.locator('.review-reader-diff .review-line-add', { hasText: REVIEWED_FILE_CONTENT.trim() }).waitFor();
+  await reader.locator(ADDED_DIFF_LINE, { hasText: REVIEWED_FILE_CONTENT.trim() }).waitFor({ timeout: READER_TIMEOUT_MS });
   assert.equal(await reader.getAttribute('data-level'), 'diff');
   assert.equal(await reader.locator('.review-reader-files').isVisible(), false, 'the file list hides while a diff is open');
   await page.evaluate(() => history.back());

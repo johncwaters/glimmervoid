@@ -93,6 +93,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
+  { type: 'diff-file', requestId: 'request-diff-file-1', id: 'session-1', path: 'a.ts', ok: true, oldContents: 'old', newContents: null },
   { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
   { type: 'session-diff-error', id: 'session-1', message: 'git diff HEAD timed out after 15000ms' },
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },

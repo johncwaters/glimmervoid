@@ -6,6 +6,7 @@ import path from "node:path";
 import type { z } from "zod";
 import type { DiffBase } from "../../shared/contracts/control/control-fields.ts";
 import { diffHeaderPathsOf } from "../../shared/git-text.ts";
+import { openContainedFile } from "../../server/contained-file.ts";
 import { decideDiffSelfHeal } from "../core/merge-gate.ts";
 import type { WorkspaceMember } from "../core/workspace-core.ts";
 import { branchFromHeadRef, branchFromRemoteRef, isOwnRemoteCopy, prefixRenameAndCopyHeaders } from "./worktree-lifecycle-context.ts";
@@ -15,6 +16,7 @@ const DIFF_TIMEOUT_MS = 15000;
 const CHECK_ATTR_BATCH_SIZE = 200;
 const MISSING_BLOB_ID = /^0+$/;
 const NUL = String.fromCharCode(0);
+const DIFF_FILE_CAP_BYTES = 1024 * 1024;
 const LOCKFILE_NAMES = new Set([
   "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb", "deno.lock",
   "Cargo.lock", "Gemfile.lock", "composer.lock", "poetry.lock", "Pipfile.lock", "uv.lock", "pdm.lock", "go.sum",
@@ -45,8 +47,30 @@ function isGeneratedPath(changedPath: string, generatedAttribute: string): boole
   return LOCKFILE_NAMES.has(path.posix.basename(changedPath));
 }
 
+interface DiffFileRoot {
+  root: string;
+  pathPrefix: string;
+}
+
+interface DiffFileRequest {
+  path: string;
+  oldBlobId: string | null;
+  newBlobId: string;
+}
+
+type DiffFileContents =
+  | { ok: true; oldContents: string | null; newContents: string | null }
+  | { ok: false; error: string };
+
+const STALE_DIFF_FILE_ERROR = "This file changed after Changes read it; the next diff refresh shows the new version";
+
+function textOrNull(contents: string): string | null {
+  return contents.includes(NUL) ? null : contents;
+}
+
 interface PatchFileSection {
   path: string;
+  oldBlobId: string | null;
   blobId: string | null | undefined;
 }
 
@@ -55,7 +79,7 @@ function patchFileSectionsOf(patch: string): PatchFileSection[] {
   for (const line of patch.split("\n")) {
     const headerPaths = diffHeaderPathsOf(line);
     if (headerPaths) {
-      sections.push({ path: headerPaths.path, blobId: undefined });
+      sections.push({ path: headerPaths.path, oldBlobId: null, blobId: undefined });
       continue;
     }
     const section = sections.at(-1);
@@ -64,8 +88,10 @@ function patchFileSectionsOf(patch: string): PatchFileSection[] {
       section.path = line.slice("rename to ".length);
       continue;
     }
-    const index = /^index [0-9a-f]+\.\.([0-9a-f]+)/.exec(line);
-    if (index) section.blobId = MISSING_BLOB_ID.test(index[1] ?? "") ? null : index[1] ?? null;
+    const index = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/.exec(line);
+    if (!index) continue;
+    section.oldBlobId = MISSING_BLOB_ID.test(index[1] ?? "") ? null : index[1] ?? null;
+    section.blobId = MISSING_BLOB_ID.test(index[2] ?? "") ? null : index[2] ?? null;
   }
   return sections;
 }
@@ -231,7 +257,7 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
   async function readChanges(target: string, memberName: string | null, options: RunGitOptions): Promise<WorktreeChanges> {
     const pathPrefix = memberName ? `${memberName}/` : "";
     const prefixArgs = [`--src-prefix=a/${pathPrefix}`, `--dst-prefix=b/${pathPrefix}`];
-    const rawPatch = await gitOut(["-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-color", "--full-index", "-M", ...prefixArgs, target], options);
+    const rawPatch = await gitOut(["-c", "core.quotePath=false", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-ext-diff", "--no-color", "--full-index", "-M", ...prefixArgs, target], options);
     const patch = memberName ? prefixRenameAndCopyHeaders(rawPatch, memberName) : rawPatch;
     const changedPaths = (await gitOut(["diff", "--name-only", "-z", "-M", target], options)).split(NUL).filter(Boolean);
     const generatedPaths = (await readGeneratedPaths(changedPaths, options)).map((generatedPath) => `${pathPrefix}${generatedPath}`);
@@ -250,6 +276,49 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     return readChanges(target, memberName, options);
   }
 
+  function diffFileRoots(): DiffFileRoot[] {
+    const members = lifecycleState.provisionedMembers;
+    if (members) return members.map((member) => ({ root: member.dir, pathPrefix: `${member.name}/` }));
+    const worktreeDir = lifecycleState.worktreeDir;
+    return worktreeDir ? [{ root: worktreeDir, pathPrefix: "" }] : [];
+  }
+
+  async function readBaseBlob(fileRoot: DiffFileRoot, blobId: string | null): Promise<string | null> {
+    if (blobId === null) return null;
+    try {
+      const sizeBytes = Number((await gitOut(["cat-file", "-s", blobId], diffGitOptions(fileRoot.root))).trim());
+      if (!(sizeBytes <= DIFF_FILE_CAP_BYTES)) return null;
+      return textOrNull(await gitOut(["cat-file", "blob", blobId], { ...diffGitOptions(fileRoot.root), trim: false }));
+    } catch {
+      return null;
+    }
+  }
+
+  async function readWorktreeFile(fileRoot: DiffFileRoot, repoPath: string): Promise<string | null> {
+    const opened = await openContainedFile(path.join(fileRoot.root, repoPath), fileRoot.root);
+    if (!opened.ok) return null;
+    try {
+      if (opened.file.stat.size > DIFF_FILE_CAP_BYTES) return null;
+      return textOrNull(await opened.file.handle.readFile("utf8"));
+    } finally {
+      await opened.file.handle.close().catch(() => {});
+    }
+  }
+
+  async function getDiffFileContents(request: DiffFileRequest): Promise<DiffFileContents> {
+    const changes = await getDiff();
+    const currentSection = patchFileSectionsOf(changes.patch).find((section) => section.path === request.path);
+    if (!currentSection) return { ok: false, error: "This file is no longer in the session's changes" };
+    if (changes.contentHashByPath[request.path] !== request.newBlobId || currentSection.oldBlobId !== request.oldBlobId) return { ok: false, error: STALE_DIFF_FILE_ERROR };
+    const fileRoot = diffFileRoots().find((candidate) => request.path.startsWith(candidate.pathPrefix));
+    if (!fileRoot) return { ok: false, error: "This file is no longer in the session's changes" };
+    const [oldContents, newContents] = await Promise.all([
+      readBaseBlob(fileRoot, request.oldBlobId),
+      readWorktreeFile(fileRoot, request.path.slice(fileRoot.pathPrefix.length)),
+    ]);
+    return { ok: true, oldContents, newContents };
+  }
+
   async function getDiff(): Promise<SessionChanges> {
     if (lifecycleState.provisionedMembers) return getWorkspaceDiff(lifecycleState.provisionedMembers);
     if (!lifecycleState.worktreeDir) return { patch: "", contentHashByPath: {}, generatedPaths: [], hasCommits: false, bases: [] };
@@ -262,7 +331,7 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     return { ...changes, hasCommits, bases };
   }
 
-  return { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff };
+  return { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff, getDiffFileContents };
 }
 
 export { createWorktreeDiffScopes };

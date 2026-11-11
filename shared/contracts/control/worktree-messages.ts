@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, loose, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
+import { sessionId, requestId, loose, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
+
+const diffFilePath = z.string().min(1).max(4096);
+const blobId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
 
 export const worktreeClientVariants = [
   loose('watch-session-changes', { id: sessionId.nullable() }),
+  loose('request-diff-file', { id: sessionId, requestId, path: diffFilePath, oldBlobId: blobId.nullable(), newBlobId: blobId }),
 ] as const;
 
 export const worktreeServerVariants = [
@@ -47,6 +51,15 @@ export const worktreeServerVariants = [
     bases: z.array(DiffBase),
   }),
   loose('session-diff-error', { id: sessionId, message: z.string() }),
+  loose('diff-file', {
+    requestId,
+    id: sessionId,
+    path: z.string(),
+    ok: z.boolean(),
+    oldContents: z.string().nullable(),
+    newContents: z.string().nullable(),
+    error: optionalError,
+  }),
   loose('change-map', { id: sessionId, map: ChangeMap }),
   loose('branch-sync-status', {
     id: sessionId,

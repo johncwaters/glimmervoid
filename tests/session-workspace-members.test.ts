@@ -122,6 +122,15 @@ test('workspace session diff prefixes member paths, shows an untracked file with
     assert.equal(git(['status', '--porcelain', '--', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')), '?? added.txt\n');
     assert.equal(diff.contentHashByPath['second/added.txt'], git(['hash-object', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')).trim());
     assert.deepEqual(diff.generatedPaths, ['first/package-lock.json']);
+    const readmeBlobIds = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(diff.patch.slice(diff.patch.indexOf('a/first/README.md')));
+    const oldBlobId = readmeBlobIds?.[1] ?? null;
+    const newBlobId = readmeBlobIds?.[2] ?? '';
+    assert.deepEqual(await session.getDiffFileContents({ path: 'first/README.md', oldBlobId, newBlobId }), { ok: true, oldContents: 'first', newContents: 'edited' });
+    fs.writeFileSync(path.join(firstScope.root, '.gitignore'), 'ignored.txt\n');
+    fs.writeFileSync(path.join(firstScope.root, 'ignored.txt'), 'kept out of the diff');
+    assert.equal((await session.getDiffFileContents({ path: 'first/ignored.txt', oldBlobId: null, newBlobId })).ok, false);
+    fs.writeFileSync(path.join(firstScope.root, 'README.md'), 'edited again');
+    assert.equal((await session.getDiffFileContents({ path: 'first/README.md', oldBlobId, newBlobId })).ok, false);
     assert.deepEqual(diff.bases.map((base) => [base.member, base.ref, base.sha]), [
       ['first', 'main', git(['rev-parse', 'main'], first).trim()],
       ['second', 'main', git(['rev-parse', 'main'], second).trim()],

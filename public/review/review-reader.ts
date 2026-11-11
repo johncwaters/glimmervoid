@@ -3,12 +3,16 @@ import { createPressable } from '../ui/pressable.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
 import { announceSessionPageChange } from '../session-pages/session-pages.ts';
+import { getJSON, setJSON } from '../local-store.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { CHANGES_ICON_PATH } from '../svg-dom.ts';
 import { renderFileHints, renderWorthALook } from './change-map-view.ts';
-import type { ReaderFile } from './review-reader-core.ts';
-import { findReaderFile, stepReaderFile } from './review-reader-core.ts';
+import type { DiffFileContents, MountedFileDiff } from './diff-view.ts';
+import { mountFileDiff, preloadDiffRenderer } from './diff-view.ts';
+import type { DiffLayout, ReaderFile } from './review-reader-core.ts';
+import { effectiveDiffLayout, findReaderFile, stepReaderFile } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { onReviewChange, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
+import { onReviewChange, refreshReview, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 
 const CHANGES_PAGE_ID = 'changes';
@@ -21,7 +25,17 @@ interface ReaderParts {
 
 const STATUS_NAME_BY_LETTER: Record<ReaderFile['status'], string> = { A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' };
 
-const GUTTER_BY_LINE_TYPE: Record<string, string> = { add: '+', del: '-', meta: '\\' };
+const DIFF_LAYOUT_KEY = 'glimmervoid-review-diff-layout';
+
+const DIFF_LAYOUTS: readonly { layout: DiffLayout; label: string }[] = [
+  { layout: 'unified', label: 'Unified' },
+  { layout: 'split', label: 'Split' },
+];
+
+interface ShownDiff {
+  key: string;
+  mounted: Promise<MountedFileDiff | null>;
+}
 
 let parts: ReaderParts | null = null;
 let placement: SessionPagePlacement | null = null;
@@ -29,6 +43,9 @@ let shownSessionId: string | null = null;
 let selectedPath: string | null = null;
 let requestedPath: string | null = null;
 let isWorthALookShowingAll = false;
+let shownDiff: ShownDiff | null = null;
+let diffWidthPx = 0;
+let chosenLayout: DiffLayout = getJSON<unknown>(DIFF_LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified';
 
 function buildReader(): ReaderParts {
   const root = el('section', 'review-reader');
@@ -51,7 +68,14 @@ function buildReader(): ReaderParts {
     announceLevel();
   });
   watchReviewSurface(root);
+  new ResizeObserver(() => onDiffResize(diff)).observe(diff);
   return { root, fileColumn, diff };
+}
+
+function onDiffResize(diff: HTMLElement) {
+  const couldSplit = effectiveDiffLayout('split', diffWidthPx) === 'split';
+  diffWidthPx = diff.clientWidth;
+  if ((effectiveDiffLayout('split', diffWidthPx) === 'split') !== couldSplit) render();
 }
 
 function readerParts() {
@@ -109,14 +133,16 @@ function render() {
 function renderNoSession(readerPartsToPaint: ReaderParts) {
   readerPartsToPaint.root.dataset.level = 'list';
   readerPartsToPaint.fileColumn.replaceChildren(el('p', 'review-empty-title', 'No session selected'));
-  readerPartsToPaint.diff.replaceChildren();
+  renderDiff(readerPartsToPaint.diff, null);
 }
 
 function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   const scrollTop = fileColumn.scrollTop;
   fileColumn.replaceChildren();
   if (review.diffError) {
-    fileColumn.append(el('p', 'review-diff-error', review.diffError));
+    const reloadButton = createPressable('review-reload', 'Reload changes');
+    reloadButton.addEventListener('click', () => refreshReview(shownSessionId));
+    fileColumn.append(el('p', 'review-diff-error', review.diffError), reloadButton);
     return;
   }
   if (review.isEmpty || review.files.length === 0) {
@@ -193,32 +219,83 @@ function fileCounts(file: ReaderFile) {
   return counts;
 }
 
+function destroyShownDiff() {
+  const previous = shownDiff;
+  shownDiff = null;
+  void previous?.mounted.then((mounted) => mounted?.destroy());
+}
+
+function chooseLayout(layout: DiffLayout) {
+  chosenLayout = layout;
+  setJSON(DIFF_LAYOUT_KEY, layout);
+  render();
+}
+
+function layoutSwitch(shownLayout: DiffLayout) {
+  const layoutGroup = el('div', 'review-layout-switch');
+  layoutGroup.setAttribute('role', 'group');
+  layoutGroup.setAttribute('aria-label', 'Diff layout');
+  for (const { layout, label } of DIFF_LAYOUTS) {
+    const layoutButton = createPressable('review-layout-option', label);
+    layoutButton.setAttribute('aria-pressed', String(layout === shownLayout));
+    layoutButton.addEventListener('click', () => chooseLayout(layout));
+    layoutGroup.append(layoutButton);
+  }
+  return layoutGroup;
+}
+
+async function loadDiffFileContents(sessionId: string, file: ReaderFile): Promise<DiffFileContents> {
+  if (!file.contentHash) throw new Error('Changes has no saved copy of this file to compare');
+  const reply = await sendControlRequest('request-diff-file', { id: sessionId, path: file.path, oldBlobId: file.oldBlobId, newBlobId: file.contentHash }, { timeoutMs: 15000 });
+  if (reply.type !== 'diff-file') throw new Error('Could not read the file');
+  if (!reply.ok) throw new Error(reply.error ?? 'Could not read the file');
+  return { oldContents: reply.oldContents, newContents: reply.newContents };
+}
+
+function mountDiffBody(body: HTMLElement, loadError: HTMLElement, sessionId: string, file: ReaderFile, layout: DiffLayout): Promise<MountedFileDiff | null> {
+  return mountFileDiff(body, {
+    patch: file.patch,
+    layout,
+    loadContents: () => loadDiffFileContents(sessionId, file),
+    onLoadError: (message) => {
+      loadError.textContent = `Could not show the hidden lines: ${message}`;
+      loadError.hidden = false;
+    },
+  }).catch((error: unknown) => {
+    body.replaceChildren(el('p', 'review-diff-error', `Could not show this diff: ${error instanceof Error ? error.message : String(error)}`));
+    return null;
+  });
+}
+
 function renderDiff(diff: HTMLElement, file: ReaderFile | null) {
-  const isSameFile = diff.dataset.path === file?.path;
-  const scrollTop = isSameFile ? diff.scrollTop : 0;
-  diff.replaceChildren();
-  if (!file) {
+  if (!file || !shownSessionId) {
+    destroyShownDiff();
+    diff.replaceChildren();
     delete diff.dataset.path;
     return;
   }
+  const isWideEnoughForSplit = effectiveDiffLayout('split', diffWidthPx) === 'split';
+  const shownLayout = effectiveDiffLayout(chosenLayout, diffWidthPx);
+  const key = [shownSessionId, file.path, file.patch, file.contentHash, chosenLayout, isWideEnoughForSplit].join(String.fromCharCode(0));
+  if (shownDiff?.key === key) return;
+  const isSameFile = diff.dataset.path === file.path;
+  const scrollTop = isSameFile ? diff.scrollTop : 0;
+  destroyShownDiff();
+  diff.replaceChildren();
   diff.dataset.path = file.path;
   const head = el('div', 'review-reader-diff-head');
   head.append(el('span', 'review-file-path', file.path), fileCounts(file));
+  if (isWideEnoughForSplit && file.status !== 'A' && file.status !== 'D' && !file.binary) head.append(layoutSwitch(shownLayout));
   diff.append(head);
   if (file.binary) {
     diff.append(el('div', 'review-file-binary', 'Binary file not shown'));
     return;
   }
-  const body = el('div', 'review-file-body');
-  for (const hunk of file.hunks) {
-    body.append(el('div', 'review-hunk-head', hunk.header));
-    for (const line of hunk.lines) {
-      const row = el('div', `review-line review-line-${line.type}`);
-      row.append(el('span', 'review-line-gutter', GUTTER_BY_LINE_TYPE[line.type] ?? ' '), el('span', 'review-line-text', line.text));
-      body.append(row);
-    }
-  }
-  diff.append(body);
+  const loadError = el('p', 'review-diff-error');
+  loadError.hidden = true;
+  const body = el('div', 'review-diff-body');
+  diff.append(loadError, body);
+  shownDiff = { key, mounted: mountDiffBody(body, loadError, shownSessionId, file, shownLayout) };
   diff.scrollTop = scrollTop;
 }
 
@@ -243,6 +320,8 @@ function place(host: HTMLElement, nextPlacement: SessionPagePlacement) {
 
 function unplace() {
   if (!parts) return;
+  destroyShownDiff();
+  delete parts.diff.dataset.path;
   parts.root.hidden = true;
   parts.root.remove();
   placement = null;
@@ -255,8 +334,14 @@ function closeReviewFile() {
   announceLevel();
 }
 
+function preloadQuietly() {
+  void preloadDiffRenderer().catch(() => {});
+}
+
 function watchPageButton(pageButton: HTMLElement, style: ButtonStyle) {
   if (style !== 'header') return;
+  pageButton.addEventListener('pointerenter', preloadQuietly);
+  pageButton.addEventListener('focus', preloadQuietly);
   watchReviewSurface(pageButton);
   new MutationObserver(syncWatch).observe(pageButton, { attributes: true, attributeFilter: ['data-slot-held'] });
 }

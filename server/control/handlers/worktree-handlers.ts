@@ -7,7 +7,7 @@ import { createChangesWatch } from '../../changes-watch.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
 import type { ControlContext } from '../control-context.ts';
-import type { ControlHandlerGroup, ControlHandlerTable } from '../core/control-dispatch-core.ts';
+import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const { sessions, agentSessions, findSession } = context;
@@ -30,6 +30,18 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       } catch (error) {
         console.warn(`[control] request-session-diff failed: id=${s.id}: ${errorMessage(error)}`);
         ws.send(JSON.stringify({ type: 'session-diff-error', id: s.id, message: firstGitErrorLine(error) }));
+      }
+    },
+    'request-diff-file': async (msg: ClientMessageOf<'request-diff-file'>, ws: ControlSocket) => {
+      const reply = { type: 'diff-file', requestId: msg.requestId ?? null, id: msg.id, path: msg.path };
+      const s = findSession(msg);
+      if (!s) return ws.send(JSON.stringify({ ...reply, ok: false, oldContents: null, newContents: null, error: 'Session not found' }));
+      try {
+        const contents = await s.getDiffFileContents({ path: msg.path, oldBlobId: msg.oldBlobId, newBlobId: msg.newBlobId });
+        if (!contents.ok) return ws.send(JSON.stringify({ ...reply, ok: false, oldContents: null, newContents: null, error: contents.error }));
+        ws.send(JSON.stringify({ ...reply, ...contents }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, oldContents: null, newContents: null, error: firstGitErrorLine(error) }));
       }
     },
     'watch-session-changes': (msg: ClientMessageOf<'watch-session-changes'>, ws: ControlSocket) => changesWatch.request(ws, msg.id),
@@ -59,7 +71,11 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
     },
   } satisfies ControlHandlerTable;
 
-  return { handlers, genericErrorTypes: ['request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch'] };
+  const invalidReplies = {
+    'request-diff-file': (msg, requestId, message) => ({ type: 'diff-file', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, oldContents: null, newContents: null, error: message }),
+  } satisfies InvalidReplyTable;
+
+  return { handlers, invalidReplies, genericErrorTypes: ['request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch'] };
 }
 
 export { createWorktreeHandlers };

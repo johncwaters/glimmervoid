@@ -292,7 +292,7 @@ function createSessionWorktreeLifecycle({
     id, projectPath, integrationBranch, startSha, gitWorkspace, syncOnStart, worktreeRoot, worktreeShare, seedDependencies, port, workspaceMembers, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, readBranchUpstreamOf, effectiveIntegrationBranch, setMergeStatus,
   };
   const { provision, stopSeeding } = createWorktreeProvisioning(context, { adoptWorktree, resolveCommonGitDir, runAutoRebase, api: { computeWorktreeSignature: () => api.computeWorktreeSignature() } });
-  const { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff } = createWorktreeDiffScopes(context);
+  const { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff, getDiffFileContents } = createWorktreeDiffScopes(context);
   const { getBranchSync, resyncBranch } = createWorktreeBranchSync(context);
 
   async function hasUnmergedWork(): Promise<boolean> {
@@ -687,6 +687,7 @@ function createSessionWorktreeLifecycle({
     hasWorkspaceMembers,
     confirmWorkspaceWorkDiscard,
     getDiff,
+    getDiffFileContents,
     getChangeScopes,
     resolveEffectiveBase,
     getBranchSync,

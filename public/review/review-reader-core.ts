@@ -6,7 +6,7 @@ import type { SessionDiffPayload } from './review-copy-core.ts';
 
 type ReaderFileStatus = 'A' | 'M' | 'D' | 'R';
 
-export type ReaderFile = Pick<DiffFile, 'path' | 'oldPath' | 'added' | 'removed' | 'binary' | 'hunks'> & {
+export type ReaderFile = Pick<DiffFile, 'path' | 'oldPath' | 'added' | 'removed' | 'binary' | 'oldBlobId' | 'patch'> & {
   status: ReaderFileStatus;
   contentHash: string | null;
   isGenerated: boolean;
@@ -23,6 +23,14 @@ interface ReviewInput {
   isWorkspace: boolean;
   state: string;
   files: readonly ReaderFile[];
+}
+
+export type DiffLayout = 'unified' | 'split';
+
+const SPLIT_MIN_WIDTH_PX = 600;
+
+export function effectiveDiffLayout(chosenLayout: DiffLayout, diffWidthPx: number): DiffLayout {
+  return diffWidthPx < SPLIT_MIN_WIDTH_PX ? 'unified' : chosenLayout;
 }
 
 export interface ReviewView {
@@ -42,7 +50,8 @@ export function readerFilesOf(payload: SessionDiffPayload | null | undefined): R
     added: file.added,
     removed: file.removed,
     binary: file.binary,
-    hunks: file.hunks,
+    oldBlobId: file.oldBlobId,
+    patch: file.patch,
     contentHash: payload.contentHashByPath[file.path] ?? null,
     isGenerated: generatedPaths.has(file.path),
   }));

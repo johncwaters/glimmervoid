@@ -1380,6 +1380,7 @@ class Session extends EventEmitter {
   hasUnmergedWork() { return this.worktreeLifecycle.hasUnmergedWork(); }
 
   getDiff() { return this.worktreeLifecycle.getDiff(); }
+  getDiffFileContents(request: { path: string; oldBlobId: string | null; newBlobId: string }) { return this.worktreeLifecycle.getDiffFileContents(request); }
 
   getChangeScopes() { return this.worktreeLifecycle.getChangeScopes(); }
 

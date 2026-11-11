@@ -723,7 +723,7 @@
     },
     {
       "name": "reload",
-      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file"
+      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file; also reading a session's changes again from its worktree after Changes failed to read them, through the Reload changes button"
     },
     {
       "name": "merged",
