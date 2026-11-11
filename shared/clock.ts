@@ -137,5 +137,5 @@ function setOperatorTimezoneSource(source: () => string | null | undefined): voi
 
 const clock: Clock = createClock({ timezone: () => operatorTimezoneSource() ?? systemTimezone() });
 
-export { clock, createClock, isKnownTimezone, setOperatorTimezoneSource, systemTimezone };
+export { clock, isKnownTimezone, setOperatorTimezoneSource, systemTimezone };
 export type { Clock };
