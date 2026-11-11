@@ -1,16 +1,12 @@
 import { z } from 'zod';
 import { YourDay } from '../your-day.ts';
-import { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from '../benchmark.ts';
 import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, opaqueObject, opaqueArray, PlanLimitsVendor } from './control-fields.ts';
 
 export const laneClientVariants = [
-  loose('benchmark-action', { ...BenchmarkActionRequest.shape, requestId }),
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
 ] as const;
 
 export const laneServerVariants = [
-  loose('benchmark-action-result', { ...BenchmarkActionResult.shape, requestId }),
-  BenchmarkStatus,
   loose('usage-sessions', {
     ts: timestamp,
     pricingSource: nullableString,

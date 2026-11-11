@@ -19,7 +19,7 @@ type MineOutcome = { ok: true; mined: number; refused: number } | { ok: false; e
 interface ReviewCaseLibraryDependencies {
   minedRoot: string;
   legacySuitesRoot: string;
-  store: Pick<GithubLaneStore, 'requestMergedPrs' | 'requestBenchmarkReviewData' | 'requestCompareCommits'>;
+  store: Pick<GithubLaneStore, 'requestMergedPrs' | 'requestReviewCaseData' | 'requestCompareCommits'>;
   now?: () => number;
   log: Pick<Console, 'warn'>;
 }
@@ -104,7 +104,7 @@ function createReviewCaseLibrary({ minedRoot, legacySuitesRoot, store, now = Dat
     const mined = await mineCandidates({
       repo, limit: MINED_PULL_REQUEST_LIMIT, minBodies: MIN_REVIEW_BODIES, knownCaseIds, now,
       listMergedPrs: (slug, limit) => miningRead(() => store.requestMergedPrs(slug, limit, 'no-wait'), { ok: false, reason: 'gh graphql search failed' }),
-      reviewData: (slug, numbers) => miningRead(() => store.requestBenchmarkReviewData(slug, numbers, 'no-wait'), new Map()),
+      reviewData: (slug, numbers) => miningRead(() => store.requestReviewCaseData(slug, numbers, 'no-wait'), new Map()),
       compareCommits: (slug, base, head) => miningRead(() => store.requestCompareCommits(slug, base, head, 'no-wait'), null),
     });
     if (rateLimitWaitMs !== null) return { ok: false, error: githubStoreRateLimitedError(rateLimitWaitMs, 'merged pull requests') };

@@ -20,7 +20,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { notificationSubjectPrKey } from './core/github-store-core.ts';
 import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
-import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
+import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, reviewCaseDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
 import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
 import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
@@ -59,7 +59,7 @@ interface PrGh {
   teamReviewCompare(repo: string, base: string, head: string): Promise<{ ok: true; comparison: CompareFiles | null } | { ok: false; err: string }>;
   reviewThreadsBatch(prs: readonly PrReference[]): Promise<Map<string, MyPrThreadNodeType[]>>;
   listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
-  benchmarkReviewData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
+  reviewCaseData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
   compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
   searchIssues(query: string): Promise<IssuesFetchResult>;
   listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
@@ -97,7 +97,7 @@ const MAX_CHECK_CONTEXT_PAGES = 10;
 const MAX_GITHUB_PR_SEARCH_PAGES = 20;
 
 const MERGED_PRS_PAGE_SIZE = 50;
-const BENCHMARK_REVIEW_BATCH_SIZE = 10;
+const REVIEW_CASE_BATCH_SIZE = 10;
 const COMPARE_FILE_LIST_CAP = 300;
 
 const SEARCH_PAGE_SIZE = 100;
@@ -469,16 +469,16 @@ function createPrGh(cwd: string, commandRunner: typeof run = run): PrGh {
       return { ok: true, prs: prs.slice(0, limit) };
     },
 
-    async benchmarkReviewData(repo, numbers) {
+    async reviewCaseData(repo, numbers) {
       const dataByNumber = new Map<number, MinedPrReviewDataType>();
       const prs = uniqueValidPrs(numbers.map((number) => ({ repo, number })));
-      await forEachAliasedPr(prs, benchmarkReviewDataQuery, (pr, repository) => {
+      await forEachAliasedPr(prs, reviewCaseDataQuery, (pr, repository) => {
         const pullRequest = z.object({ pullRequest: z.unknown() }).safeParse(repository);
         const parsed = MinedPrReviewData.safeParse(pullRequest.success ? pullRequest.data.pullRequest : null);
         if (!parsed.success) return 'unreadable';
         dataByNumber.set(pr.number, parsed.data);
         return 'found';
-      }, BENCHMARK_REVIEW_BATCH_SIZE);
+      }, REVIEW_CASE_BATCH_SIZE);
       return dataByNumber;
     },
 

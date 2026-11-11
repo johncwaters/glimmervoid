@@ -28,7 +28,7 @@ interface BackendShutdownDependencies {
   taskTitleSessions?: Map<string, ShutdownSession>;
   questionManagerSessions?: Map<string, ShutdownSession>;
   taskTitleRefiner?: Stoppable | null;
-  benchmarkSessions?: Map<string, ShutdownSession>;
+  raceSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
   coderActivity: Stoppable;
   posthog: { stopPoller: () => unknown };
@@ -38,7 +38,6 @@ interface BackendShutdownDependencies {
   issues?: { stopPoller: () => unknown } | null;
   community?: { stopPoller: () => unknown } | null;
   workflows?: { stopPoller: () => unknown } | null;
-  benchmarks?: Stoppable | null;
   races?: { stopWatching: () => unknown } | null;
   usage: Stoppable;
   starHint?: Stoppable | null;
@@ -115,8 +114,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (dependencies.community) stoppers.add('community', () => dependencies.community?.stopPoller());
     const workflows = dependencies.workflows;
     if (workflows) stoppers.add('workflows', () => workflows.stopPoller());
-    const benchmarks = dependencies.benchmarks;
-    if (benchmarks) stoppers.add('benchmarks', () => benchmarks.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
     const starHint = dependencies.starHint;
     if (starHint) stoppers.add('star-hint', () => starHint.stop());
@@ -134,7 +131,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
 
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());
-    destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.questionManagerSessions ?? new Map(), dependencies.benchmarkSessions ?? new Map()], pendingReaps);
+    destroySessions([dependencies.taskTitleSessions ?? new Map(), dependencies.questionManagerSessions ?? new Map(), dependencies.raceSessions ?? new Map()], pendingReaps);
     const outcomes = dependencies.outcomes;
     if (outcomes) stoppers.add('outcomes', () => outcomes.stop());
     const telemetry = dependencies.telemetry;

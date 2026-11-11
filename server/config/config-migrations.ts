@@ -73,6 +73,12 @@ function dropRetiredUpdateChannel(config: GlimmervoidConfig): string | null {
   return '[config] Removed updateChannel: Glimmervoid now updates only to published releases.';
 }
 
+function dropRetiredBenchmarks(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'benchmarks')) return null;
+  delete config.benchmarks;
+  return '[config] Removed benchmarks: Benchmarks folded into Arena, which races on review cases with no setting.';
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -156,4 +162,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

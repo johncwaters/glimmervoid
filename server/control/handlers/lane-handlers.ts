@@ -1,36 +1,18 @@
-import { configIssueMessage } from '../../../shared/contracts/index.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
-import { BenchmarkActionRequest } from '../../../shared/contracts/benchmark.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import type { ControlContext } from '../control-context.ts';
-import { replyTo } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 const USAGE_REPORT_MAX_DAYS = 3650;
 
 function createLaneHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const {
-    getBenchmarkStatus = null,
-    benchmarks = null,
     getUsageSessions = null,
     getUsageReport = null,
     requestUsageReport = null,
     getPlanLimits = null,
   } = deps;
-
-  async function handleBenchmarkAction(msg: ClientMessageOf<'benchmark-action'>, ws: ControlSocket): Promise<void> {
-    const parsed = BenchmarkActionRequest.safeParse(msg);
-    if (!parsed.success) {
-      replyTo(ws, msg, 'benchmark-action-result', { suiteId: String(msg.suiteId ?? ''), action: msg.action, ok: false, error: configIssueMessage(parsed.error) });
-      return;
-    }
-    if (!benchmarks) {
-      replyTo(ws, msg, 'benchmark-action-result', { ...parsed.data, ok: false, error: 'Benchmarks are not running' });
-      return;
-    }
-    replyTo(ws, msg, 'benchmark-action-result', await benchmarks.submitAction(parsed.data));
-  }
 
   async function handleRequestUsageReport(msg: ClientMessageOf<'request-usage-report'>, ws: ControlSocket): Promise<void> {
     if (!requestUsageReport) {
@@ -45,8 +27,6 @@ function createLaneHandlers(_context: ControlContext, deps: ControlHandlerDeps):
 
   function connectFrames(): readonly unknown[] {
     const frames: unknown[] = [];
-    const benchmarkStatus = typeof getBenchmarkStatus === 'function' ? getBenchmarkStatus() : null;
-    if (benchmarkStatus) frames.push(benchmarkStatus);
     const usageSessions = typeof getUsageSessions === 'function' ? getUsageSessions() : null;
     if (usageSessions) frames.push(usageSessions);
     const usageReport = typeof getUsageReport === 'function' ? getUsageReport() : null;
@@ -59,12 +39,10 @@ function createLaneHandlers(_context: ControlContext, deps: ControlHandlerDeps):
   }
 
   const handlers = {
-    'benchmark-action': handleBenchmarkAction,
     'request-usage-report': handleRequestUsageReport,
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
-    'benchmark-action': (msg, requestId, message) => ({ type: 'benchmark-action-result', requestId, suiteId: typeof msg?.suiteId === 'string' ? msg.suiteId : '', action: typeof msg?.action === 'string' ? msg.action : 'run', ok: false, error: message }),
     'request-usage-report': (_msg, requestId, message) => ({ type: 'usage-report', requestId, error: message }),
   } satisfies InvalidReplyTable;
 

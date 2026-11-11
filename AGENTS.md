@@ -76,7 +76,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | Agent Adapters | `session/adapters/AGENTS.md` |
 | Session Spawning, Auto-Resume and Shutdown | `session/AGENTS.md` |
 | Notifications | `notifications/AGENTS.md` |
-| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Benchmarks, Held Questions, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
+| Worktree Auto-Rebase, Worktree Base Branch, Remote Branch GC, Review Cases and Claude Tokens, Held Questions, Security: Trust Boundary, Transport and Session Identity | `server/AGENTS.md` |
 | Ephemeral Lane Write Boundaries, Lane PostHog MCP | `server/lanes/AGENTS.md` |
 | Usage Tracking | `server/usage/AGENTS.md` |
 | Team PR Review, Shared GitHub Store | `server/github/AGENTS.md` |

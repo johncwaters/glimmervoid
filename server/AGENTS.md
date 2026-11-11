@@ -27,8 +27,7 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` |
 | `update-check.ts` | Startup release-tag check, advisory only |
-| `benchmark-wiring.ts` | Benchmark lane: suites under `~/.glimmervoid/benchmarks`, mining, one serial run (pure rules in `core/review-score-core.ts`, `core/review-case-mining-core.ts`) |
-| `claude-credentials.ts` | The operator's Claude Code access token for benchmark arms (decisions in `core/claude-credentials-core.ts`) |
+| `claude-credentials.ts` | The operator's Claude Code access token for remote sessions (decisions in `core/claude-credentials-core.ts`) |
 | `github/core/team-review-core.ts` | Pure team review decisions |
 | `core/branch-sync-core.ts` | Pure ahead/behind decisions for the branch-sync indicator |
 | `core/restart-strategy.ts` | Pure restart strategy, keyed on systemd's `INVOCATION_ID` or `GLIMMERVOID_SUPERVISOR=launchd` |
@@ -62,10 +61,9 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Deletion needs ancestry or tree-containment proof (`server/core/merge-proof-core.ts`) or staleness, any probe failure keeps it, and the push is a leased qualified refspec on that listed tip, so cleanup cannot lose a branch; `dryRun` traces would-delete.
 
-### Benchmarks (opt-in)
+### Review Cases and Claude Tokens
 
-- An arm's token rides only that cell's spawn env and never reaches a run record, status push or log; an arm that fails preflight fails the run, never scores zero recall.
-- Arms never get the operator's refresh token: an arm's refresh could rotate it and log the operator out.
+- A remote session never gets the operator's refresh token: its refresh could rotate it and log the operator out.
 - The reviewed commit is the mode of the inline comments' commits and the base is the base tip at review time, so a stacked or force-pushed PR replays what reviewers saw.
 
 ### Held Questions

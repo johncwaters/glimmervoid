@@ -33,7 +33,7 @@ glossary:
     definition: The git worktree glimmervoid creates for one session from the integration branch, so concurrent sessions never share a working tree.
     forbiddenAliases: [workspace, sandbox]
   - term: lane
-    definition: A background job glimmervoid runs beside operator sessions on its own schedule, such as team review, Radar, benchmarks or usage.
+    definition: A background job glimmervoid runs beside operator sessions on its own schedule, such as team review, Radar or usage.
     forbiddenAliases: [worker, daemon]
   - term: attention
     definition: Which sessions need the operator now, ranked from their status, and the surfaces that show it.

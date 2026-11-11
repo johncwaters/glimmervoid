@@ -37,7 +37,7 @@ export const ISSUES_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z 
 export const RADAR_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z M8 8L11.5 4.5';
 export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
-export const BENCH_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';
+export const ARENA_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';
 export const SETTINGS_ICON_PATH = 'M2.5 5h11 M2.5 11h11 M6 3v4 M10 9v4';
 
 export function createLineIcon(strokePath: string, strokeWidth = '2'): SVGSVGElement {

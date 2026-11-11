@@ -1,4 +1,3 @@
-export * from './benchmark.ts';
 export * from './change-map.ts';
 export * from './coherence.ts';
 export * from './config.ts';

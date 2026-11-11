@@ -11,7 +11,7 @@
     },
     {
       "name": "lane",
-      "definition": "A background job glimmervoid runs beside operator sessions on its own schedule (team review, Radar, benchmarks, usage), built as a pure core, an IO-free poller and a thin wiring shell"
+      "definition": "A background job glimmervoid runs beside operator sessions on its own schedule (team review, Radar, usage), built as a pure core, an IO-free poller and a thin wiring shell"
     },
     {
       "name": "view",
@@ -489,7 +489,7 @@
     },
     {
       "name": "benchmarks",
-      "definition": "The opt-in benchmarks lane and its Arena tab (formerly Bench) that run one prompt on several agent setups, each an arm in its own session and worktree, and score them",
+      "definition": "The retired benchmarks lane (formerly the Bench tab), folded into Arena: review cases and recall scoring replace it; the name survives only in the changelog, the benchmarks config key a migration drops, the old suite folders under ~/.glimmervoid/benchmarks whose cases Arena still lists, and the Arena view's internal id",
       "aliases": [
         "bench"
       ]

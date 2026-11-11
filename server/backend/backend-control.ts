@@ -8,7 +8,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
-import type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
@@ -99,7 +99,6 @@ interface BackendControlDependencies {
   community: CommunityControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsSnapshot };
   issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void>; setIssueState: (change: { repo: string; number: number; state: 'closed' | 'open' }) => Promise<{ ok: boolean; err: string }> };
-  benchmarks: BenchmarkControl;
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs: SessionDocsPort;
@@ -126,7 +125,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     community,
     myPrs,
     issues,
-    benchmarks,
     usage,
     logger,
   } = dependencies;
@@ -167,8 +165,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getMyPrsStatus: () => myPrs.getStatus(),
     getIssuesStatus: () => issues.getStatus(),
     issueProjectRepos: (projectId) => issues.projectRepoSlugs(projectId),
-    getBenchmarkStatus: () => benchmarks.getStatus(),
-    benchmarks,
     teamReview,
     community,
     myPrs,

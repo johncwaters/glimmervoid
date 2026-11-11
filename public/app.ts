@@ -1,6 +1,5 @@
 import './tailwind.css';
 
-import { setBenchmarkRequestSender } from './benchmark-store.ts';
 import { describeFailure } from './client-error-core.ts';
 import { isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals } from './coherence/journal-drawer.ts';
 import { superviseConnection } from './connection-supervisor.ts';
@@ -63,7 +62,6 @@ void import('./your-day-tip.ts').then(
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setIssuesRequestSender(sendControlMsg);
-setBenchmarkRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrRows);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals, 'links');

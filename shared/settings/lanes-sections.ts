@@ -189,21 +189,6 @@ export const LANES_MY_PRS: SettingsSection = {
   ],
 };
 
-export const LANES_BENCHMARKS: SettingsSection = {
-  id: 'lanes-benchmarks',
-  level: 'lanes',
-  title: 'Benchmarks',
-  description: 'Compare agent setups on frozen benchmark cases.',
-  legacyIds: ['benchmarks'],
-  settings: [
-    {
-      id: 'benchmarks-enabled', path: 'benchmarks.enabled', title: 'Enable benchmarks',
-      description: 'Show the Bench tab, where nothing runs until you start it.',
-      control: 'toggle', keywords: ['eval', 'arms', 'recall', 'compare'], defaultValue: false, ...MACHINE_NOW,
-    },
-  ],
-};
-
 export const LANES_COHERENCE: SettingsSection = {
   id: 'lanes-coherence',
   level: 'lanes',

@@ -243,7 +243,6 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     reviews: 'lanes-team-review',
     workflows: 'lanes-my-prs',
     'lanes-workflows': 'lanes-my-prs',
-    benchmarks: 'lanes-benchmarks',
     privacy: 'machine-privacy',
     telemetry: 'machine-privacy',
     shortcuts: 'browser-shortcuts',

@@ -11,7 +11,6 @@ import type { PrFlowsWiring } from './github/pr-flows-wiring.ts';
 import type { UpdateJournal } from '../shared/contracts/update-journal.ts';
 import type { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import type { CommunityActionRequest, CommunityActionResult } from '../shared/contracts/community.ts';
-import type { BenchmarkActionRequest, BenchmarkActionResult, BenchmarkStatus } from '../shared/contracts/benchmark.ts';
 import type { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult, MyPrsSnapshot } from '../shared/contracts/my-prs.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
@@ -88,11 +87,6 @@ interface MyPrMergeControl {
   setMergeWhenReady?: (request: MyPrMergeWhenReadyRequest) => Promise<Omit<MyPrMergeWhenReadyResult, 'key'>>;
 }
 
-interface BenchmarkControl {
-  getStatus(): BenchmarkStatus;
-  submitAction(request: BenchmarkActionRequest): Promise<BenchmarkActionResult>;
-}
-
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
@@ -136,8 +130,6 @@ interface ControlHandlerDeps {
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
   packData?: PackData | null;
-  getBenchmarkStatus?: (() => BenchmarkStatus | null) | null;
-  benchmarks?: BenchmarkControl | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];
   requestViewer?: GithubLaneStore['requestViewer'];
@@ -280,4 +272,4 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
 export {
   registerControlHandlers,
 };
-export type { BenchmarkControl, CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl };
+export type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl };

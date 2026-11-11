@@ -67,7 +67,7 @@ function decideArmToken({ login, nowMs, cellTimeoutSeconds, hasRefreshed, expire
 }): ArmTokenDecision {
   if (login && login.expiresAt >= requiredValidUntil(nowMs, cellTimeoutSeconds)) return { kind: 'use', token: login.accessToken };
   if (!hasRefreshed) return { kind: 'refresh' };
-  if (!login) return { kind: 'unavailable', reason: 'no Claude Code login was found for the benchmark arms; run claude and log in, or set GLIMMERVOID_CLAUDE_OAUTH_TOKEN' };
+  if (!login) return { kind: 'unavailable', reason: 'no Claude Code login was found for remote sessions; run claude and log in, or set GLIMMERVOID_CLAUDE_OAUTH_TOKEN' };
   const hasRefreshLeftTokenUnchanged = expiresAtBeforeRefresh !== null && login.expiresAt <= expiresAtBeforeRefresh;
   if (hasRefreshLeftTokenUnchanged && !hasWaitedForExpiry) return { kind: 'wait', untilMs: login.expiresAt + EXPIRY_WAIT_GRACE_MS };
   return { kind: 'unavailable', reason: exhaustedLoginReason(login, nowMs, cellTimeoutSeconds, expiresAtBeforeRefresh, hasWaitedForExpiry) };

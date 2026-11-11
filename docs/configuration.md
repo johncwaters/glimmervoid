@@ -172,14 +172,6 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 | `prFlows.rules` | PR flows rules | `[]` | Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>. **File-only.** Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends. |
 | `prFlows.repoRules` | PR flows repository rules | `{}` | Deprecated: put repos on each rule in prFlows.rules instead. Rules per repository (owner/name to a list of rules), still checked before prFlows.rules for that repository. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
-### Benchmarks
-
-Compare agent setups on frozen benchmark cases.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `benchmarks.enabled` | Enable benchmarks | `false` | Show the Bench tab, where nothing runs until you start it. |
-
 ### Coherence
 
 Coherence hook status and decision journal per session.
@@ -305,7 +297,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_POSTHOG_READ_API_KEY` | operator | Supplies `posthog.readApiKey`, the read-only PostHog key the watcher uses, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_VAULT_TOKEN` | operator | Supplies `vault.token`, the bearer token a vault companion sends to this server's vault companion listener; set the same value where `glimmervoid vault` runs. Unset, the server makes one per boot and hands it to a companion on this machine. A companion on another machine (`glimmervoid vault --server <url>`) also needs the listener reachable there: a fixed `vault.port`, and either a non-loopback `vault.host` (which this token permits) or an ssh tunnel to the loopback port, behind https. Stripped from every write and from every agent session's environment. |
-| `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that benchmark arms authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to benchmark sessions, never stored. |
+| `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` | operator | A long-lived Claude Code token (`claude setup-token`) that remote Claude Code sessions authenticate with instead of the login token Glimmervoid reads from the keychain or `~/.claude/.credentials.json`. Passed only to those sessions, never stored. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |
 | `GLIMMERVOID_TELEMETRY_PROJECT_TOKEN` | internal | Sends telemetry to another PostHog project instead of the Glimmervoid one, so end-to-end checks of a development build stay out of real usage data. Not an operator setting. |
 | `GLIMMERVOID_DEBUG_SPAWN` | operator | Any non-empty value logs which executable each agent command resolved to at spawn. |

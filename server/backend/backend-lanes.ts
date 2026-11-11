@@ -9,7 +9,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
-import { createBenchmarkWiring } from '../benchmark-wiring.ts';
+import { deleteRetiredBenchmarkRuns } from './retired-benchmarks.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
 import { contestantDiff } from '../race/race-diff.ts';
 import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
@@ -27,7 +27,6 @@ import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
 import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
-import type { createClaudeCredentials } from '../claude-credentials.ts';
 import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
@@ -51,7 +50,6 @@ import { createTeamReviewWiring } from '../github/team-review-wiring.ts';
 import { sweepLeftoverCheckouts } from '../github/team-review-checkouts.ts';
 import { createPrGh } from '../github/pr-gh.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
-import { commandFor } from '../../session/adapters/index.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packsStatePath } from '../packs/pack-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
@@ -87,7 +85,6 @@ interface BackendLaneOptions {
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
   appVersion: string;
-  claudeCredentials: ReturnType<typeof createClaudeCredentials>;
   configStore: ConfigStore;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
@@ -113,7 +110,6 @@ interface BackendLaneDependencies {
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
-    claudeCredentials,
     config,
     configStore,
     sessions,
@@ -156,8 +152,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   void laneLedger.load();
   const recordLane = laneLedger.record;
+  const raceSessions = new Map<string, Session>();
   const liveSessionMaps = (): Map<string, Session>[] => [
-    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, benchmarkSessions, questionManagerSessions,
+    sessions, agentSessions, reviewSessions, investigationSessions, taskTitleSessions, raceSessions, questionManagerSessions,
   ];
   const allLiveSessions = (): Session[] => liveSessionMaps().flatMap((sessionsById) => [...sessionsById.values()]);
   const findLiveSession = (id: string): Session | null => {
@@ -369,7 +366,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return checkOutcomeOf(check, run, Date.now() - startedAt, worktreeDir);
     },
     spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
-      sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      sessions: raceSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       allowTools: RACE_JUDGE_TOOLS,
     })({
@@ -379,28 +376,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
         ...selectionArgs({ agent: setup.agent, model: null, options: setup.options }),
       ],
     }),
-  });
-  const benchmarkSessions = new Map<string, Session>();
-  const claudeCommand = () => commandFor('claude-code').path;
-  const benchmarks = createBenchmarkWiring({
-    benchmarksRoot: path.join(glimmervoidHome, 'benchmarks'),
-    runsRoot: path.join(glimmervoidHome, 'benchmark-runs'),
-    isEnabled: () => configStore.config.benchmarks?.enabled === true,
-    broadcast: broadcastControl,
-    store: githubStore.laneStore,
-    repoCache: sharedRepoCache,
-    gitWorkspace,
-    spawnSubject: createTeamReviewSpawn({
-      reviewSessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', hookToolConfig: config,
-    }),
-    spawnJudge: createLaneSpawn({
-      sessions: benchmarkSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'benchmark', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
-    }),
-    credentials: claudeCredentials,
-    claudeCommand,
-    log: logger,
   });
 
   const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
@@ -495,7 +470,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       },
       () => issues.startPoller(),
       () => workflows.startPoller(),
-      () => void benchmarks.sweepLeftovers().then(() => { void benchmarks.refreshStatus(); }),
+      () => void deleteRetiredBenchmarkRuns(glimmervoidHome, gitWorkspace, logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
@@ -515,7 +490,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => issues.restartIfConfigChanged(),
       () => workflows.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
-      () => void benchmarks.refreshStatus(),
     ];
     for (const restart of restartSteps) restart();
   }
@@ -523,8 +497,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   return {
     allLiveSessions,
     findLiveSession,
-    benchmarks,
-    benchmarkSessions,
+    raceSessions,
     races,
     branchGc,
     coderActivity,

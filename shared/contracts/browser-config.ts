@@ -96,10 +96,6 @@ const TeamReviewSettings = optionalObject('teamReview', {
   skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });
 
-const BenchmarksSettings = optionalObject('benchmarks', {
-  enabled: optionalBoolean('benchmarks.enabled'),
-});
-
 const IssuesSettings = optionalObject('issues', {
   enabled: optionalBoolean('issues.enabled'),
 });
@@ -265,7 +261,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   github: GithubSettings,
   lanes: LanesSettings,
   teamReview: TeamReviewSettings,
-  benchmarks: BenchmarksSettings,
   coherence: CoherenceSettings,
   issues: IssuesSettings,
   community: CommunitySettings,

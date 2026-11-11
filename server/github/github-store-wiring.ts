@@ -121,7 +121,7 @@ export function createGithubStoreWiring({ github, clock, now = Date.now, isDashb
     requestTeamMembers: poller.requestTeamMembers,
     requestIssue: poller.requestIssue,
     requestMergedPrs: poller.requestMergedPrs,
-    requestBenchmarkReviewData: poller.requestBenchmarkReviewData,
+    requestReviewCaseData: poller.requestReviewCaseData,
     requestCompareCommits: poller.requestCompareCommits,
     rateLimitWaitMs: poller.rateLimitWaitMs,
     requestPrView: poller.requestPrView,

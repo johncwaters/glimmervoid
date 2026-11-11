@@ -106,7 +106,7 @@ const MERGED_PRS_QUERY = `query($searchQuery: String!, $first: Int!, $cursor: St
   } }
 }`;
 
-function benchmarkReviewDataQuery(prs: readonly PrReference[]): string {
+function reviewCaseDataQuery(prs: readonly PrReference[]): string {
   return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) {
       author { __typename login } baseRefOid
       reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { path line originalLine
@@ -127,5 +127,5 @@ function behindCountsQuery(prs: readonly PrHeadReference[]): string {
   return aliasedRepositoriesQuery(prs, (pr) => `pullRequest(number: ${pr.number}) { baseRef { compare(headRef: "${pr.headSha}") { behindBy } } }`);
 }
 
-export { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, benchmarkReviewDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery };
+export { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, reviewCaseDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery };
 export type { PrHeadReference, PrReference };

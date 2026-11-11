@@ -4,7 +4,6 @@ import type { CheckOutcome, ContestantMetrics, JudgeRow, PanelStanding, RaceChec
 import { RACE_CRITERIA, RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { REMOVED_CONTESTANT, raceProgress, recallStanding, seriesKey, seriesStanding, winnerNotesOf } from '#shared/race-core.ts';
 import { BADGE_LABELS } from '#shared/states.ts';
-import { benchmarkSnapshot, subscribeBenchmarks } from '../benchmark-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import './arena-panel.css';
 import { el } from '../dom-helpers.ts';
@@ -782,18 +781,12 @@ function mountArenaView(parent: HTMLElement): void {
   if (!isPhoneLayout()) root.append(buildNewRace());
   historyEl = el('section', 'arena-history');
   root.append(historyEl);
-  const benchEl = el('section', 'arena-bench');
-  root.append(benchEl);
-  const paintBenchVisibility = () => { benchEl.hidden = benchmarkSnapshot().status?.configured !== true; };
-  subscribeBenchmarks(paintBenchVisibility);
-  paintBenchVisibility();
   parent.append(root);
   subscribeRaces(renderRaces);
   subscribeRaces(renderHistory);
   onSessionTick(renderRaces);
   renderRaces();
   renderHistory();
-  void import('../benchmark-panel.ts').then((panel) => panel.view.mount(benchEl));
 }
 
 export const view: ViewModule<HTMLElement> = { mount: mountArenaView };

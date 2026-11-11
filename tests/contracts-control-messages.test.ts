@@ -169,14 +169,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     draft: { body: 'Use the capture endpoint.', publicLinks: ['https://posthog.com/docs'] }, attempts: 1, seenAt: '2026-10-28T12:05:00Z', finishedAt: '2026-10-28T12:06:00Z',
   }] },
   { type: 'github-polling-refresh-result', requestId: 'refresh-1', ok: true },
-  { type: 'benchmark-action-result', requestId: 'bench-1', suiteId: 'review-ladder', action: 'run', ok: true, runId: 'run-1' },
-  { type: 'benchmark-status', ts: NOW, configured: true, reason: null, suites: [{
-    id: 'review-ladder', title: 'Review ladder', error: null, caseCount: 5, candidateCount: 2,
-    armIds: ['baseline', 'candidate'], baselineArm: 'baseline', latestReport: null,
-  }], inFlight: {
-    suiteId: 'review-ladder', runId: 'run-1', caseId: '464', armId: 'candidate', trial: 1,
-    phase: 'subject', cellIndex: 3, cellCount: 10, startedAt: NOW,
-  } },
   { type: 'my-pr-merge-result', requestId: 'merge-1', key: 'PostHog/wizard#1350', ok: false, error: 'Checks are failing' },
   { type: 'my-pr-keep-mergeable-result', requestId: 'toggle-1', key: 'PostHog/wizard#1350', ok: true },
   { type: 'my-pr-merge-when-ready-result', requestId: 'queue-1', key: 'PostHog/wizard#1350', ok: true },

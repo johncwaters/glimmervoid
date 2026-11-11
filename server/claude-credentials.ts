@@ -138,5 +138,5 @@ function createClaudeCredentials({
   return { loginSource, resolveArmToken };
 }
 
-export { OVERRIDE_TOKEN_ENV, createClaudeCredentials };
+export { createClaudeCredentials };
 export type { CommandRunner, Sleeper };

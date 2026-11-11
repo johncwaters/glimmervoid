@@ -24,7 +24,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'benchmarkReviewData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -524,8 +524,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return requestRead(() => github.listMergedPrs?.(repo, limit) ?? Promise.resolve(fallback), fallback, () => false, mode, ['graphql']);
   }
 
-  function requestBenchmarkReviewData(repo: string, numbers: readonly number[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['benchmarkReviewData']>>>> {
-    return requestRead(() => github.benchmarkReviewData?.(repo, numbers) ?? Promise.resolve(new Map()), new Map(), () => false, mode, ['graphql']);
+  function requestReviewCaseData(repo: string, numbers: readonly number[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['reviewCaseData']>>>> {
+    return requestRead(() => github.reviewCaseData?.(repo, numbers) ?? Promise.resolve(new Map()), new Map(), () => false, mode, ['graphql']);
   }
 
   function requestCompareCommits(repo: string, base: string, head: string, mode: GithubStoreReadMode = 'wait') {
@@ -587,7 +587,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
 
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot, probeInputs, setCoveredProbes,
-    requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestBenchmarkReviewData, requestCompareCommits,
+    requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestReviewCaseData, requestCompareCommits,
     rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
     requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,
