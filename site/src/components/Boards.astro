@@ -145,7 +145,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 14px; border: 1px solid var(--border); border-radius: 999px;
     background: color-mix(in oklab, var(--bg-card) 85%, var(--accent)); color: var(--text-dim); font-size: 13px; cursor: pointer;
   }
-  .dial-pill:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .dial-pill:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   .dial-pill select { font: inherit; color: var(--text-head); background: transparent; border: 0; padding: 6px 4px; cursor: pointer; }
   .dial-pill select:focus-visible, .dial-toggle input:focus-visible { outline: none; }
   .dial-toggle { padding: 0 14px; }
@@ -166,7 +166,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .mini-line.is-short { width: 55%; }
   .mini-base { width: 124px; height: 6px; border-radius: 0 0 6px 6px; background: var(--border-hover); }
   .mini-slider { position: relative; width: 110px; height: 4px; border-radius: 2px; background: var(--border); }
-  .mini-knob { position: absolute; top: 50%; left: 100%; width: 14px; height: 14px; translate: -50% -50%; border-radius: 50%; background: var(--text-head); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .mini-knob { position: absolute; top: 50%; left: 100%; width: 14px; height: 14px; translate: -50% -50%; border-radius: 50%; background: var(--text-head); box-shadow: 0 0 0 2px var(--accent); }
   .board-beats[data-on-screen="true"] .mini-knob { animation: sweep-knob 6s var(--ease-out-expo) infinite; }
   .board-beats[data-on-screen="true"] .mini-bar { animation: retheme-bar 6s steps(1) infinite; }
   .scene-architecture { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
