@@ -6,8 +6,8 @@ durationsMs:
   status-spin: 2600
   status-ping: 1600
   status-look: 5600
-  waiting-breathe: 2000
-  failure-glow: 1400
+  waiting-settle: 600
+  failure-flash: 1400
   flash: 900
   shimmer: 1200
   fade-out: 2000
@@ -20,7 +20,7 @@ logoAnimation: While connecting the brackets scan; when the dashboard is ready t
 rules:
   - rule: Motion only answers a real state change (running, waiting, failed, connecting) or direct input.
     why: Motion that means nothing teaches the operator to ignore the motion that does.
-  - rule: Signature animations (the brand mark, the status icons, the waiting card breathe and the failed card glow) keep their pinned durations; never retune one for consistency with the rest.
+  - rule: Signature animations (the brand mark, the status icons, the waiting card settle and the failed card flash) keep their pinned durations; never retune one for consistency with the rest.
     why: Each was tuned on its own to read at a glance, and flattening them to a shared value loses that read.
   - rule: Generic chrome motion (row cues, loading, rows leaving) uses the flash, shimmer or fade-out duration, or a transition token; never a new one-off value.
     why: One-off timings drift until no two parts of the dashboard move alike.

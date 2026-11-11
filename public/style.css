@@ -108,9 +108,6 @@
   --state-dormant:      #5a527a;
   --state-dormant-bg:   color-mix(in oklab, var(--state-dormant) 6%, transparent);
 
-  --state-waiting-glow:  color-mix(in oklab, var(--state-waiting) 25%, transparent);
-  --state-failed-glow:   color-mix(in oklab, var(--state-failed) 25%, transparent);
-  --state-done-glow:     color-mix(in oklab, var(--state-done) 25%, transparent);
 
   --perms-warn: #d97706;
 
@@ -220,8 +217,8 @@ body {
 }
 
 @keyframes header-reconnected-pulse {
-  0%, 100% { fill: var(--accent); filter: none; }
-  50%      { fill: var(--state-running); filter: drop-shadow(0 0 6px color-mix(in oklab, var(--state-running) 45%, transparent)); }
+  0%, 100% { fill: var(--accent); }
+  50%      { fill: var(--state-running); }
 }
 
 @media (prefers-reduced-motion: reduce) {

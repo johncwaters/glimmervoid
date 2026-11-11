@@ -77,7 +77,6 @@
 
 .pr-severity-meter { display: inline-flex; align-items: center; gap: 2px; }
 .pr-severity-meter svg { flex: 0 0 auto; }
-.pr-severity-halo { filter: drop-shadow(0 0 4px var(--state-failed)); }
 
 .pr-detail-team { container: review-detail / inline-size; }
 html:not([data-layout="phone"]) .review-queue-detail { min-height: 100%; }

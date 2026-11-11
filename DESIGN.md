@@ -6,7 +6,7 @@ Values (colors, type, radius, shadows, motion) live in `brand-bible/`; this file
 
 **Creative North Star: "The Phyrexian Console"**
 
-Glimmervoid is a machine intelligence watching its constructs through the night. The surface is graphite tinted violet; a single vivid violet accent is the only chromatic voice in the chrome. State surfaces as cold, exact glints, a glow here, a flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
+Glimmervoid is a machine intelligence watching its constructs through the night. The surface is graphite tinted violet; a single vivid violet accent is the only chromatic voice in the chrome. State surfaces as cold, exact marks, a tinted card here, a single flash there, only when something actually changes. The console is precise, unsentimental, and a little uncanny: it never blinks and never raises its voice. The operator should feel in command of a board of live agents, not entertained by it.
 
 Everything is monospace. Type is the voice of the interface, and the voice is even, technical, and quiet. Density is welcome where it pays for itself: the operator is watching several terminals at 2am and the layout must reward sustained attention, not a glance. Chrome recedes so the terminal output (the real product) holds the eye. Ornament is treated as suspicious. If a pixel does not carry data or guide the eye to data, it is cut.
 
@@ -91,17 +91,19 @@ Each role names a `--type-*` size token in `public/style.css`, and Tailwind expo
 
 Flat by default. Surfaces sit on the canvas and are separated by tonal layering (canvas to card to inset surface) plus 1px borders, not by resting shadows. Cards and panels carry no shadow at rest; hover shifts the border color, not the elevation.
 
-Shadows and glows exist for exactly two jobs: lifting true overlays (dialogs, menus, tooltips) off the plane, and signalling state. Both shadow color and glow color are brand-tinted, never neutral grey: the shadow base is a violet-tinted near-black, and state glows are mixed from the relevant state color.
+Shadows exist for one job: lifting true overlays (dialogs, menus, tooltips) off the plane. Their color is brand-tinted, never neutral grey: the shadow base is a violet-tinted near-black. State never glows; it reads through the surface itself, because a blurred halo spends emphasis on empty space around the thing that changed.
 
 ### Shadow Vocabulary
 - **shadow-sm** (`0 2px 8px` violet-tinted): subtle lift, small popovers.
 - **shadow-md** (`0 4px 12px` violet-tinted): raised controls.
 - **shadow-lg** (`0 8px 24px` violet-tinted): menus, tooltips, status popovers.
 - **shadow-xl** (`0 8px 24px` denser violet-tinted): modal dialogs.
-- **State glows**: rings and blooms mixed from a state color (for example the WAITING card's amber ring and outer bloom, the DONE/FAILED completion flash, the connected dot's green glow). These are inset or tight outer shadows, always a response to state.
+- **State emphasis** (no blur): a tonal fill mixed from the state color, a border stepped up in tint or weight (a solid inset ring adds weight without shifting layout), and one motion on entry that settles and stops. WAITING takes all three; FAILED and COMPLETE take only the border tint.
 
 ### Named Rules
-**The Flat-By-Default Rule.** Surfaces are flat at rest. A shadow or glow appears only as a response to state (hover, focus, elevation off the plane, or a live status). If a card has a resting drop shadow, it is wrong.
+**The Flat-By-Default Rule.** Surfaces are flat at rest. A shadow appears only to lift a true overlay off the plane. If a card has a resting drop shadow, it is wrong.
+
+**The No-Glow Rule.** Nothing blurs an accent or state color into a glow: no blurred box-shadow, drop-shadow, text-shadow or radial haze, on the dashboard or the site. `tests/gates/no-glow.test.ts` fails on one that reads an accent or state token directly or through a custom property.
 
 **The Tinted Shadow Rule.** Shadows are violet-tinted near-black (mix the accent into the shadow), never raw rgba black. Pure-black shadows read as a 2014 app.
 
@@ -128,7 +130,7 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 - **Corner style:** `--radius-lg` (the large step).
 - **Background:** Card Graphite on the Graphite canvas.
 - **Border:** 1px Rule at rest, shifting to Lifted Rule on hover. No resting shadow.
-- **State:** session cards drive their entire treatment from a `data-state` attribute, layering state-colored border and glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
+- **State:** session cards drive their entire treatment from a `data-state` attribute, layering a state-colored border and, for WAITING, a tinted fill, never a glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Navigation
@@ -142,12 +144,6 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 
 ### Terminal Pane (signature, the product)
 - An xterm.js surface filling each card on the Card Graphite background. The server is a dumb pipe; xterm renders all ANSI. The terminal theme is derived from the active CSS-variable palette at runtime, so it stays in lockstep with the chrome. Chrome around it must never compete with it for contrast or color.
-
-### Minimized Session Bar
-The collapsed dock at the bottom of the screen. It sits in-flow below the sessions grid (which shrinks to make room) so open terminals are never overlapped. The bar is Header Graphite with a 1px dim top border, 8px padding, and a 6px gap, and it wraps; it caps at 30vh and scrolls past that so a long dock never squeezes the live terminals.
-- **Minimized card:** a 120px chip at `--radius` and 0.85 opacity (1 on hover). The terminal is hidden; the header collapses to a centered name flanked by a single state dot.
-- **State at a glance:** badges are dropped; state rides the border color and the dot. Only two states get a loud treatment, RUNNING (saturated green border, a steady green dot with a soft glow) and WAITING (full amber border, amber-tinted fill, a breathing inset glow and a pulsing dot). Everything else is a quiet neutral dot at 0.45 opacity.
-- **Color-blind safe by construction:** amber-plus-motion versus green-plus-steady differ on hue, saturation, and animation at once. This is the Earned Signal and Flat-By-Default rules at miniature scale.
 
 ### Permissions Badge
 A small uppercase warning chip on any session spawned with skip-permissions. `--type-meta`, 700, 0.08em uppercase in the perms-warn amber-orange (`--perms-warn`), with a full 1px border at 55% and a 14% tinted fill at 2px radius, the same box weight as every other header tag so it never reads larger than its neighbors. Quiet but unmistakable. The chip reads SANE YOLO when the guard is active, retaining amber to signal skipped permission prompts. Note the full border: it deliberately replaced an earlier colored `border-left`, per the side-stripe ban.
@@ -171,7 +167,7 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 - **Do** carry state with an icon plus shape plus color, never hue alone. State must read for a color-blind operator.
 - **Do** speak in monospace (CommitMono) for all UI text, and build hierarchy from weight, tracking, color, and case rather than size.
 - **Do** keep surfaces flat at rest; convey depth with the canvas/card/surface tonal ramp and 1px borders.
-- **Do** reserve glow and motion for genuine state changes (running, waiting, failed, connecting).
+- **Do** reserve tinted surfaces and motion for genuine state changes (running, waiting, failed, connecting).
 - **Do** tint every neutral toward violet; use Paper (`--text-head`), never #fff, and Graphite (`--bg`), never #000.
 - **Do** give every interactive element a visible 2px lavender focus ring with offset; the tool is keyboard-first.
 - **Do** let the terminal output be the loudest thing on screen. Chrome recedes.

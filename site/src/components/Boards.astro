@@ -102,16 +102,14 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     position: relative; display: grid; place-items: center; min-height: 480px; padding: 36px 24px; overflow: hidden;
     border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border)); border-radius: 18px;
     background:
-      radial-gradient(ellipse 60% 55% at 50% 45%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%),
       radial-gradient(circle, color-mix(in oklab, var(--accent) 18%, var(--border-dim)) 1px, transparent 1.5px) 0 0 / 20px 20px,
-      var(--bg-card);
-    box-shadow: 0 30px 80px -30px color-mix(in oklab, var(--accent) 45%, transparent), inset 0 0 120px color-mix(in oklab, var(--bg) 70%, transparent);
+      color-mix(in oklab, var(--accent) 6%, var(--bg-card));
   }
   .phone-stage { position: relative; perspective: 1200px; }
   .phone-frame {
     position: relative; width: 224px; height: 404px; padding: 12px; border: 2px solid color-mix(in oklab, var(--accent) 30%, var(--border-hover)); border-radius: 32px; background: var(--bg);
     transform: rotateY(-10deg) rotateX(4deg) rotateZ(-3deg);
-    box-shadow: 24px 32px 50px -18px rgb(0 0 0 / 0.7), 0 0 40px -6px color-mix(in oklab, var(--accent) 35%, transparent);
+    box-shadow: 10px 12px 0 0 color-mix(in oklab, var(--accent) 30%, var(--bg-card));
   }
   .phone-frame::before { content: ''; position: absolute; top: 6px; left: 50%; translate: -50% 0; width: 54px; height: 6px; border-radius: 3px; background: var(--border); }
   .prototype {
@@ -129,9 +127,9 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .prototype-row-name { color: var(--text-head); }
   .prototype-row-detail { color: var(--text-dim); font-size: 11px; }
   .prototype[data-compact="true"] .prototype-row-detail { display: none; }
-  .prototype-save { margin-top: auto; padding: 8px; border-radius: 6px; text-align: center; font-weight: 700; color: var(--bg); background: var(--prototype-accent); box-shadow: 0 6px 18px -6px var(--prototype-accent); transition: background 240ms var(--ease-out-expo); }
+  .prototype-save { margin-top: auto; padding: 8px; border-radius: 6px; text-align: center; font-weight: 700; color: var(--bg); background: var(--prototype-accent); transition: background 240ms var(--ease-out-expo); }
   .pen-circle { position: absolute; left: -10px; bottom: -6px; width: calc(100% + 20px); height: auto; overflow: visible; pointer-events: none; }
-  .pen-stroke { fill: none; stroke: var(--state-failed); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1; filter: drop-shadow(0 0 4px color-mix(in oklab, var(--state-failed) 60%, transparent)); }
+  .pen-stroke { fill: none; stroke: var(--state-failed); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1; }
   .board-demo[data-on-screen="true"] .pen-stroke { animation: draw-stroke 900ms var(--ease-out-expo) 300ms both; }
   .sticky-note {
     position: absolute; top: 46px; right: -96px; width: 128px; margin: 0; padding: 12px; rotate: 6deg; border-radius: 3px;

@@ -375,8 +375,8 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   background:
     linear-gradient(to right, var(--bg) 40%, transparent) left center / 34px 100% no-repeat local,
     linear-gradient(to left, var(--bg) 40%, transparent) right center / 34px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--accent) 30%, transparent), transparent) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--accent) 30%, transparent), transparent) right center / 12px 100% no-repeat scroll;
+    linear-gradient(var(--border-hover), var(--border-hover)) left center / 1px 100% no-repeat scroll,
+    linear-gradient(var(--border-hover), var(--border-hover)) right center / 1px 100% no-repeat scroll;
 }
 
 .usage-table {
@@ -558,8 +558,8 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   background:
     linear-gradient(to right, var(--bg) 40%, transparent) left center / 34px 100% no-repeat local,
     linear-gradient(to left, var(--bg) 40%, transparent) right center / 34px 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, color-mix(in oklab, var(--accent) 30%, transparent), transparent) left center / 12px 100% no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--accent) 30%, transparent), transparent) right center / 12px 100% no-repeat scroll;
+    linear-gradient(var(--border-hover), var(--border-hover)) left center / 1px 100% no-repeat scroll,
+    linear-gradient(var(--border-hover), var(--border-hover)) right center / 1px 100% no-repeat scroll;
 }
 
 .usage-heatmap-days {

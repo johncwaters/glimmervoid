@@ -122,7 +122,7 @@ const FEATURES = [
   }
   .radar-sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(transparent 0 270deg, color-mix(in oklab, var(--accent) 45%, transparent) 356deg, var(--accent) 359deg 360deg); animation: radar-spin var(--sweep-ms) linear infinite; }
   .radar-arm { position: absolute; inset: 0; rotate: calc(var(--turn) * 1turn); }
-  .radar-blip { position: absolute; left: calc(50% - 3.5px); top: calc(50% - var(--distance) * 50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: var(--state-failed); box-shadow: 0 0 8px var(--state-failed); opacity: 0.15; animation: radar-ping var(--sweep-ms) linear infinite; animation-delay: calc((var(--turn) - 1) * var(--sweep-ms)); }
+  .radar-blip { position: absolute; left: calc(50% - 3.5px); top: calc(50% - var(--distance) * 50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: var(--state-failed); opacity: 0.15; animation: radar-ping var(--sweep-ms) linear infinite; animation-delay: calc((var(--turn) - 1) * var(--sweep-ms)); }
   @keyframes radar-spin { to { rotate: 360deg; } }
   @keyframes radar-ping {
     0% { opacity: 1; scale: 1.5; }
@@ -134,7 +134,7 @@ const FEATURES = [
   .issue-number { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
   .issue-title, .issue-session-line { display: block; flex: 1; height: 5px; border-radius: 3px; background: var(--border); }
   .issue-session-line { max-width: 70%; }
-  .issue-session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-running); box-shadow: 0 0 6px var(--state-running); }
+  .issue-session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-running); }
   .branch-merge { display: block; width: 100%; max-width: 180px; height: auto; overflow: visible; }
   .branch-main { fill: none; stroke: var(--border-hover); stroke-width: 2; }
   .branch-fork { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 1; }

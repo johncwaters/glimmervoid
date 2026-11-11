@@ -47,7 +47,7 @@ principles:
     rule: Chrome recedes so live output holds the eye; a pixel that carries no data and guides no eye to data is cut.
     why: The interface earns its keep by disappearing behind the agent output the operator actually reads.
   - name: Quiet by default, loud only on change
-    rule: The resting state is calm and still; a glow, pulse or notification appears only when a session needs a carbon unit.
+    rule: The resting state is calm and still; a tinted surface, a one-time motion or a notification appears only when a session needs a carbon unit.
     why: An operator watching many sessions can only notice change against a still surface.
   - name: State is structural, never guessed
     rule: Status comes from agent hooks with an OSC-0 title fallback, never from scraping the rendered screen; an unknown shows as unknown.

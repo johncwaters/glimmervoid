@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A calmer view tab bar.** The tabs across the top now sit bare in the header, and the open view gets a flat violet box instead of a glowing, bold pill, the same look the Settings sections use. Switching views no longer nudges the other tabs sideways.
+- **No more glows.** A session waiting on you now shows an amber-tinted card with a firm amber edge that settles once when it starts waiting, instead of a glowing halo that pulsed three times. Failed and finished sessions keep only a tinted border. The phone attention dot, the critical severity marker, the reconnect pulse, the merge celebration and the Usage table scroll hints lost their glow too, as did the website's board demo and screenshots.
 
 ### Fixed
 

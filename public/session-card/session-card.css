@@ -22,20 +22,20 @@
 }
 
 .session-card.completion-flash[data-state="DONE"] {
-  animation: completion-glow 900ms ease-out;
+  animation: completion-flash 900ms ease-out;
 }
 
 .session-card.completion-flash[data-state="FAILED"] {
-  animation: failure-glow 1.4s ease-out;
+  animation: failure-flash 1.4s ease-out;
 }
 
-@keyframes completion-glow {
+@keyframes completion-flash {
   0%   { box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--state-complete) 80%, transparent); border-color: var(--state-complete); }
   25%  { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--state-complete) 90%, transparent); border-color: var(--state-complete); }
   100% { box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--state-complete) 0%, transparent); }
 }
 
-@keyframes failure-glow {
+@keyframes failure-flash {
   0%   { box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--state-failed) 70%, transparent); border-color: var(--state-failed); }
   40%  { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--state-failed) 85%, transparent); border-color: var(--state-failed); }
   100% { box-shadow: inset 0 0 0 0 color-mix(in oklab, var(--state-failed) 0%, transparent); }
@@ -51,25 +51,13 @@
 
 .session-card[data-state="WAITING"] {
   border-color: var(--state-waiting);
-  box-shadow: 0 0 0 1px var(--state-waiting-glow), 0 0 20px color-mix(in oklab, var(--state-waiting) 8%, transparent);
-  position: relative;
-}
-
-.session-card[data-state="WAITING"]::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--state-waiting) 35%, transparent), 0 0 30px color-mix(in oklab, var(--state-waiting) 15%, transparent);
-  opacity: 0;
-  animation: waiting-pulse 2s ease-in-out 3;
-  pointer-events: none;
+  background: color-mix(in oklab, var(--state-waiting) 9%, var(--bg-card));
+  box-shadow: inset 0 0 0 1px var(--state-waiting);
+  animation: waiting-settle 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .session-card[data-state="FAILED"] {
-  border-color: color-mix(in oklab, var(--state-failed) 50%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--state-failed) 18%, transparent),
-              0 0 16px color-mix(in oklab, var(--state-failed) 7%, transparent);
+  border-color: color-mix(in oklab, var(--state-failed) 60%, var(--border));
 }
 
 .session-failure-reason {
@@ -196,21 +184,15 @@
 }
 
 .session-card[data-state="COMPLETE"] {
-  border-color: color-mix(in oklab, var(--state-complete) 30%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--state-complete) 15%, transparent), 0 0 16px color-mix(in oklab, var(--state-complete) 8%, transparent);
+  border-color: color-mix(in oklab, var(--state-complete) 55%, var(--border));
 }
 
 .session-card[data-state="DORMANT"] {
   border-color: color-mix(in oklab, var(--state-dormant) 30%, transparent);
 }
 
-@keyframes waiting-pulse {
-  0%, 100% {
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
+@keyframes waiting-settle {
+  from { box-shadow: inset 0 0 0 3px var(--state-waiting); }
 }
 
 @media (hover: hover) {

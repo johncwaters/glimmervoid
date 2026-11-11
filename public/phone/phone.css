@@ -284,7 +284,6 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 .phone-nav-dot[data-attention="hand"] {
   width: 9px;
   height: 9px;
-  box-shadow: 0 0 6px var(--state-waiting);
 }
 
 .phone-nav-dot[data-attention="hand"]:not(.phone-nav-menu-dot) { top: 3px; }
