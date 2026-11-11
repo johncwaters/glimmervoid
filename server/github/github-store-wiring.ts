@@ -138,7 +138,7 @@ export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, 
       return () => { poller.events.off(event, listener); };
     },
   };
-  return { snapshotMessage, getFreshness, laneStore, probeSource, onProbesMayHaveChanged };
+  return { snapshotMessage, getFreshness, laneStore, probeSource, onProbesMayHaveChanged, readAccountRateLimit: github.rateLimitResources };
 }
 
 export type GithubLaneStore = ReturnType<typeof createGithubStoreWiring>['laneStore'];

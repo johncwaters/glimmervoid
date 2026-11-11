@@ -16,7 +16,7 @@ The job it serves is triage, per `brand-bible/strategy.yaml`: scan the board, fi
 | `phone-panels-core.ts` | Pure derivation of the More screens from the desktop tabs; Focus is left out because Board and Terminal serve it |
 | `board-screen.ts` | The default screen: name-ordered project groups under the shared Needs you banner + the phone top bar (which adopts the desktop header's connection chip, "+ Session", help, and hamburger) |
 | `terminal-screen.ts` | One session's full-bleed terminal: back control, name, state badge, the card's adopted action cluster, and the touch key strip |
-| `mobile-key-strip.ts` | Sticky Ctrl / Esc / Tab / arrows / Paste / Attach, the keys and uploads a soft keyboard cannot produce (catalog in `../mobile-keys.ts`); shown whenever the Terminal screen is |
+| `mobile-key-strip.ts` | Sticky Ctrl / Esc / Tab / arrows / Paste / Attach, the keys and uploads a soft keyboard cannot produce (catalog in `../mobile-keys.ts`), plus the Keyboard key that opens and closes the soft keyboard, since iOS offers no way to close it a carbon unit recognizes; shown whenever the Terminal screen is |
 
 The More screens have no phone-only module: each screen is a mount container that re-parents the real desktop panel in.
 

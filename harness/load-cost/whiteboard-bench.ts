@@ -22,6 +22,7 @@ import { LAYOUT_CACHE_FILENAME } from '../../server/whiteboard/layout-cache.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
+import { SHAPE_TRAITS } from '../../shared/whiteboard-shapes.ts';
 import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../../shared/whiteboard-layout-engine.ts';
 import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
@@ -65,6 +66,9 @@ const PAN_FRAMES = 120;
 const ZOOM_FRAMES = 40;
 const DRAG_STEPS = 60;
 const BOX_SEARCH_STEP_PX = 40;
+const READABLE_BOARD_SCALE = 10 / 12;
+const MAX_ZOOM_IN_NOTCHES = 80;
+const WORLD_SCALE_PATTERN = /scale\(([\d.e+-]+)\)/;
 const FRAME_BUDGET_MS = 1000 / 60;
 const DROPPED_FRAME_FACTOR = 1.5;
 const CONTROL_REPLY_TIMEOUT_MS = 120_000;
@@ -164,7 +168,7 @@ async function withBenchMedia(board: Board, assetsRoot: string): Promise<number>
   let mediaCount = 0;
   for (const boxId of boxIdsOf(board).filter((_, boxIndex) => boxIndex % MEDIA_EVERY_NTH_BOX === 0)) {
     const box = board.elements.get(boxId);
-    if (box?.kind !== 'box' || box.shape === 'icon' || box.shape === 'text') continue;
+    if (box?.kind !== 'box' || !SHAPE_TRAITS[box.shape].holdsMedia) continue;
     const picture = pictures[mediaCount % pictures.length];
     const media = mediaCount % PAGE_EVERY_NTH_MEDIA === PAGE_EVERY_NTH_MEDIA - 1 ? page : picture;
     if (!media) continue;
@@ -399,8 +403,26 @@ async function openBoardInFocus(page: Page, port: number): Promise<number> {
   await boardRow.waitFor({ timeout: OPEN_TIMEOUT_MS });
   const startedAt = performance.now();
   await boardRow.click();
-  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.drawnElements ?? 0) > 0, null, { timeout: OPEN_TIMEOUT_MS, polling: 50 });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl');
+    return Number(canvas?.dataset.drawnElements ?? 0) + Number(canvas?.dataset.drawnBlocks ?? 0) > 0;
+  }, null, { timeout: OPEN_TIMEOUT_MS, polling: 50 });
   return performance.now() - startedAt;
+}
+
+async function boardScaleOf(page: Page): Promise<number> {
+  const transform = await page.locator('.wb-viewport .wb-world').evaluate((world) => (world instanceof HTMLElement ? world.style.transform : ''));
+  return Number(WORLD_SCALE_PATTERN.exec(transform)?.[1] ?? 1);
+}
+
+async function zoomToReadableScale(page: Page): Promise<void> {
+  const viewport = await page.locator('.wb-viewport').boundingBox();
+  if (!viewport) throw new Error('the board viewport has no bounds');
+  await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
+  await page.keyboard.down('Control');
+  for (let notch = 0; notch < MAX_ZOOM_IN_NOTCHES && (await boardScaleOf(page)) < READABLE_BOARD_SCALE; notch += 1) await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.drawnElements ?? 0) > 0, null, { timeout: OPEN_TIMEOUT_MS, polling: 50 });
 }
 
 async function boxBodyPoint(page: Page): Promise<{ x: number; y: number } | null> {
@@ -429,6 +451,7 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
     const page = await context.newPage();
     const openMs = await openBoardInFocus(page, port);
     logStep('browser: board drawn');
+    await zoomToReadableScale(page);
     await sleep(500);
     const pan = await sampleFrames(page, 'pan', 'Pan', () => wheelEveryFrame(page, PAN_FRAMES, { deltaX: 14, deltaY: 9, ctrlKey: false }));
     logStep('browser: pan sampled');
@@ -448,7 +471,7 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
       heapBytes: Number(Reflect.get(Reflect.get(performance, 'memory') ?? {}, 'usedJSHeapSize')) || null,
     }));
     return [
-      metricOf('open', 'Open the board, first element drawn', 'ms', openMs),
+      metricOf('open', 'Open the board, first draw', 'ms', openMs),
       ...pan, ...zoom, ...drag,
       metricOf('media-textures', 'Picture textures held after the run', 'count', pageFacts.mediaTextures),
       metricOf('live-pages', 'Live page frames after the run', 'count', pageFacts.livePages),

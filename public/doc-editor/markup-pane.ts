@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { openExternalUrl } from '../external-link.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { isStreamerMode } from '../streamer-mode.ts';
@@ -6,7 +7,7 @@ import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, 
 import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
-import type { BlockStyle, InlineStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
+import type { BlockStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
 import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
@@ -76,6 +77,7 @@ interface MarkupPane {
   run: SuggestRun | null;
   history: DocHistory;
   tip: string;
+  revealedLinkParts: HTMLElement[];
   marks: MarkSegment[];
   elementsByMarkIndex: HTMLElement[][];
   selectedMarkIndex: number | null;
@@ -85,6 +87,7 @@ type PaperSelection = SourceSelection | 'crosses-mark' | null;
 type InPlaceEdit = { mark: MarkSegment; part: RevisablePart; element: HTMLElement };
 
 const PILCROW = String.fromCharCode(0xb6);
+const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 const MARGIN_CODE_LABELS: Record<string, string> = { unclear: '?', para: PILCROW };
 const MARK_KIND_DESCRIPTIONS: Record<MarkSegment['markKind'], string> = {
   deletion: 'Cut', insertion: 'Add', substitution: 'Change', highlight: 'Note', comment: 'Note',
@@ -182,7 +185,7 @@ export function buildMarkupPane(): MarkupPane {
     root, paper, endNotes, markCard, btnAccept, btnReject, btnAddNote, formatButtons, blockButtons, formatDivider, blockDivider, btnUndo, btnRedo, btnPreviewAll, previewBlocks: [], previewedBlockKeys: new Set(), imageUrlsBySource: new Map(), missingImageSources: new Set(), noteComposer, noteInput, hint,
     marginResizeObserver: new ResizeObserver(() => placeRowNotes([...pane.visibleRows])),
     rowObserver: null, listeners: new AbortController(), rowsByElement: new Map(), visibleRows: new Set(), paintedRows: [],
-    selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '',
+    selection: null, noteSelection: null, inPlaceEdit: null, compositionSelection: null, run: null, history: EMPTY_DOC_HISTORY, tip: '', revealedLinkParts: [],
     marks: [], elementsByMarkIndex: [], selectedMarkIndex: null,
   };
   pane.marginResizeObserver.observe(paper);
@@ -258,6 +261,7 @@ function buildSubstitutionContent(mark: MarkSegment): Node[] {
     const newLetters = [...mark.newText];
     return [...mark.oldText].map((oldLetter, letterIndex) => caseLetterElement(oldLetter, newLetters[letterIndex]));
   }
+  if (/\s/.test(mark.oldText.trim())) return [el('del', null, mark.oldText), revisable(el('ins', 'doc-markup-inserted', mark.newText), 'suggestion')];
   const caret = el('span', 'doc-markup-caret', '^');
   caret.append(revisable(el('span', 'doc-markup-caret-label', mark.newText), 'suggestion'));
   return [el('del', null, mark.oldText), caret];
@@ -305,11 +309,17 @@ function buildEndNote(mark: MarkSegment, markIndex: number) {
   return note;
 }
 
-function buildTextElement(text: string, sourceStart: number, segmentStart: number, inlineStyle?: InlineStyle) {
+type InlineRun = ReturnType<typeof inlineRunsOf>[number];
+
+function buildTextElement(text: string, sourceStart: number, segmentStart: number, run?: InlineRun) {
   const textElement = el('span', 'doc-markup-text', text);
   textElement.dataset.start = String(sourceStart);
   textElement.dataset.segmentStart = String(segmentStart);
-  if (inlineStyle) textElement.dataset.inline = inlineStyle;
+  if (run) textElement.dataset.inline = run.style;
+  if (run?.link) {
+    textElement.dataset.link = String(sourceStart - run.start + run.link.start);
+    textElement.dataset.href = run.link.href;
+  }
   return textElement;
 }
 
@@ -318,7 +328,7 @@ function buildStyledTextElements(text: string, sourceStart: number, segmentStart
   let styledUpTo = 0;
   for (const run of inlineRunsOf(text, block, startsLine)) {
     if (run.start > styledUpTo) textElements.push(buildTextElement(text.slice(styledUpTo, run.start), sourceStart + styledUpTo, segmentStart));
-    textElements.push(buildTextElement(text.slice(run.start, run.end), sourceStart + run.start, segmentStart, run.style));
+    textElements.push(buildTextElement(text.slice(run.start, run.end), sourceStart + run.start, segmentStart, run));
     styledUpTo = run.end;
   }
   if (styledUpTo < text.length) textElements.push(buildTextElement(text.slice(styledUpTo), sourceStart + styledUpTo, segmentStart));
@@ -349,6 +359,15 @@ function buildRow(lineStart: number, block: BlockStyle): MarkupRow & { row: HTML
 }
 
 type PaperRow = ReturnType<typeof buildRow>;
+
+function giveMarkLedLinesACaretStop(rows: readonly PaperRow[]) {
+  for (const { line } of rows) {
+    if (!(line.firstChild instanceof HTMLElement) || line.firstChild.dataset.markIndex === undefined) continue;
+    const caretStop = el('span', 'doc-markup-caret-stop', ZERO_WIDTH_SPACE);
+    caretStop.dataset.start = line.dataset.start;
+    line.prepend(caretStop);
+  }
+}
 
 function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStart: Map<number, BlockStyle>) {
   let sourceOffset = segment.start;
@@ -563,6 +582,7 @@ function paintPaper(editor: MarkupHost) {
     currentRow.margin.append(marginNote);
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
+  giveMarkLedLinesACaretStop(rows);
   pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
   const shownRows = previewedRows(editor, source, rows);
   carryNotePlacement(pane.paintedRows, rows);
@@ -632,7 +652,8 @@ function placeFloatAbove(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRe
   const topAbove = anchorRect.top - rootRect.top - float.offsetHeight - 6;
   const widestLeft = Math.max(0, rootRect.width - float.offsetWidth);
   float.style.top = `${topAbove >= 0 ? topAbove : anchorRect.bottom - rootRect.top + 4}px`;
-  float.style.left = `${Math.min(Math.max(0, anchorRect.left - rootRect.left), widestLeft)}px`;
+  const centeredLeft = anchorRect.left + anchorRect.width / 2 - float.offsetWidth / 2 - rootRect.left;
+  float.style.left = `${Math.min(Math.max(0, centeredLeft), widestLeft)}px`;
 }
 
 function placeFloat(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
@@ -693,6 +714,10 @@ function isEveryBlockPreviewed(pane: MarkupPane) {
 
 export function forgetBlockPreviews(editor: MarkupHost) {
   editor.markup.previewedBlockKeys.clear();
+}
+
+export function previewEveryBlockOf(editor: MarkupHost, source: string) {
+  for (const block of previewBlocksOf(source)) editor.markup.previewedBlockKeys.add(block.key);
 }
 
 export function forgetPreviewImages(editor: MarkupHost) {
@@ -761,7 +786,7 @@ type SourcePoint = { sourceOffset: number; segmentStart: string | undefined };
 
 function pointAfterChild(pane: MarkupPane, child: ChildNode | undefined, line: HTMLElement): SourcePoint {
   const lineStart = { sourceOffset: Number(line.dataset.start), segmentStart: undefined };
-  if (!(child instanceof HTMLElement)) return lineStart;
+  if (!(child instanceof HTMLElement) || child.classList.contains('doc-markup-caret-stop')) return lineStart;
   const markIndex = markIndexOf(child);
   if (markIndex !== null) return { sourceOffset: caretOffsetBeside(pane.marks[markIndex]) ?? lineStart.sourceOffset, segmentStart: undefined };
   return { sourceOffset: Number(child.dataset.start) + (child.textContent?.length ?? 0), segmentStart: child.dataset.segmentStart };
@@ -793,6 +818,8 @@ function sourcePointAt(pane: MarkupPane, node: Node, offset: number): SourcePoin
     const sourceOffset = caretOffsetBeside(pane.marks[markIndex]);
     return sourceOffset === undefined ? null : { sourceOffset, segmentStart: undefined };
   }
+  const caretStop = element?.closest<HTMLElement>('.doc-markup-caret-stop');
+  if (caretStop) return { sourceOffset: Number(caretStop.dataset.start), segmentStart: undefined };
   const textSpan = element?.closest<HTMLElement>('.doc-markup-text');
   if (textSpan) {
     const isTextNode = node.nodeType === Node.TEXT_NODE;
@@ -832,6 +859,8 @@ function caretPointFor(pane: MarkupPane, sourceOffset: number): { node: Node; of
     const textNode = textSpan.firstChild;
     if (textNode && spanStart <= sourceOffset && sourceOffset <= spanStart + (textSpan.textContent?.length ?? 0)) return { node: textNode, offset: sourceOffset - spanStart };
   }
+  const caretStop = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-caret-stop')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
+  if (caretStop?.firstChild) return { node: caretStop.firstChild, offset: 1 };
   const line = [...pane.paper.querySelectorAll<HTMLElement>('.doc-markup-line')].find((candidate) => Number(candidate.dataset.start) === sourceOffset);
   if (line) return { node: line, offset: 0 };
   const markIndex = pane.marks.findIndex((mark) => mark.end === sourceOffset);
@@ -946,8 +975,27 @@ function prefixSelectedLines(editor: MarkupHost, prefixOf: (lineNumber: number) 
   paintMarkupTools(editor);
 }
 
+function withoutCaretStops(text: string) {
+  return text.replaceAll(ZERO_WIDTH_SPACE, '');
+}
+
 function typedTextOf(event: InputEvent) {
-  return event.data ?? event.dataTransfer?.getData('text/plain') ?? '';
+  return withoutCaretStops(event.data ?? event.dataTransfer?.getData('text/plain') ?? '');
+}
+
+function selectedTextWithLinkSources(paper: HTMLElement) {
+  paper.classList.add('doc-markup-copying');
+  const selectedText = window.getSelection()?.toString() ?? '';
+  paper.classList.remove('doc-markup-copying');
+  return selectedText;
+}
+
+function copySourceText(paper: HTMLElement, event: ClipboardEvent) {
+  const shownText = window.getSelection()?.toString() ?? '';
+  const sourceText = selectedTextWithLinkSources(paper);
+  if ((sourceText === shownText && !sourceText.includes(ZERO_WIDTH_SPACE)) || !event.clipboardData) return;
+  event.preventDefault();
+  event.clipboardData.setData('text/plain', withoutCaretStops(sourceText));
 }
 
 function editFor(event: InputEvent, selection: SourceSelection): SuggestEdit | null {
@@ -999,6 +1047,44 @@ function onCompositionEnd(editor: MarkupHost, event: CompositionEvent) {
   applySuggestion(editor, { kind: 'type', selection, text: event.data });
 }
 
+function linkPartAtCaret(range: AbstractRange): HTMLElement | null {
+  const caretElement = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+  const textSpan = caretElement?.closest<HTMLElement>('.doc-markup-text');
+  if (!textSpan) return null;
+  if (textSpan.dataset.link) return textSpan;
+  const isAtSpanStart = range.startOffset === 0;
+  const isAtSpanEnd = range.startOffset === (textSpan.textContent?.length ?? 0);
+  const previousSpan = textSpan.previousElementSibling;
+  const nextSpan = textSpan.nextElementSibling;
+  if (isAtSpanStart && previousSpan instanceof HTMLElement && previousSpan.dataset.link) return previousSpan;
+  if (isAtSpanEnd && nextSpan instanceof HTMLElement && nextSpan.dataset.link) return nextSpan;
+  return null;
+}
+
+function linkPartsBeside(linkPart: HTMLElement) {
+  const linkParts = [linkPart];
+  const linkId = linkPart.dataset.link;
+  for (let sibling = linkPart.previousElementSibling; sibling instanceof HTMLElement && sibling.dataset.link === linkId; sibling = sibling.previousElementSibling) linkParts.push(sibling);
+  for (let sibling = linkPart.nextElementSibling; sibling instanceof HTMLElement && sibling.dataset.link === linkId; sibling = sibling.nextElementSibling) linkParts.push(sibling);
+  return linkParts;
+}
+
+function revealLinkAtCaret(pane: MarkupPane, range: AbstractRange) {
+  const linkPart = range.collapsed ? linkPartAtCaret(range) : null;
+  if (linkPart && pane.revealedLinkParts.includes(linkPart)) return;
+  for (const revealedPart of pane.revealedLinkParts) delete revealedPart.dataset.revealed;
+  pane.revealedLinkParts = linkPart ? linkPartsBeside(linkPart) : [];
+  for (const revealedPart of pane.revealedLinkParts) revealedPart.dataset.revealed = 'true';
+}
+
+function openLinkOnModifierPress(event: MouseEvent) {
+  if (!event.metaKey && !event.ctrlKey) return;
+  const linkLabel = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-inline="link"][data-href]') : null;
+  if (!linkLabel?.dataset.href) return;
+  event.preventDefault();
+  openExternalUrl(linkLabel.dataset.href);
+}
+
 function trackPaperSelection(editor: MarkupHost) {
   const pane = editor.markup;
   const range = currentRange();
@@ -1008,6 +1094,7 @@ function trackPaperSelection(editor: MarkupHost) {
   const isCaretAtRunEnd = pane.selection !== null && pane.selection.start === pane.run?.markEnd && pane.selection.end === pane.run.markEnd;
   if (!isCaretAtRunEnd) pane.run = null;
   pane.tip = '';
+  revealLinkAtCaret(pane, range);
   const isTypingInPaper = document.activeElement === pane.paper && pane.selection !== null;
   if (isTypingInPaper) selectMarkIndex(pane, null);
   paintMarkupTools(editor);
@@ -1321,6 +1408,7 @@ export function wireMarkupPane(editor: MarkupHost) {
     surface.addEventListener('keydown', (event) => onSurfaceKeydown(editor, event));
     surface.addEventListener('focusout', (event) => { if (isInsideInPlaceEdit(pane, event.target)) saveInPlaceEdit(editor); });
   }
+  pane.paper.addEventListener('mousedown', openLinkOnModifierPress);
   pane.paper.addEventListener('mousedown', (event) => {
     if (event.target instanceof Element && event.target.closest('.doc-preview-toggle')) event.preventDefault();
   });
@@ -1330,6 +1418,7 @@ export function wireMarkupPane(editor: MarkupHost) {
   });
   pane.btnPreviewAll.addEventListener('click', () => toggleEveryBlockPreview(editor));
   pane.paper.addEventListener('beforeinput', (event) => onBeforeInput(editor, event));
+  pane.paper.addEventListener('copy', (event) => copySourceText(pane.paper, event));
   pane.paper.addEventListener('compositionstart', (event) => {
     if (isInsideInPlaceEdit(pane, event.target)) return;
     const selection = readPaperSelection(pane, currentRange());

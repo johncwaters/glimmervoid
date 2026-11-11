@@ -82,6 +82,7 @@ async function verifyRows(page: Page): Promise<void> {
     ref: button.querySelector('.pr-queue-ref')?.textContent,
     bottom: button.querySelector('.pr-queue-bottom')?.textContent,
     stateWord: button.querySelector('.pr-queue-state')?.textContent,
+    groupTitle: button.closest('.pr-queue-section')?.querySelector('.review-group-heading > span')?.textContent?.trim(),
     stateTone: button.querySelector('.pr-queue-state')?.getAttribute('data-tone'),
     findings: button.querySelector('.pr-queue-findings')?.textContent,
     actionWords: button.querySelectorAll('.review-queue-action').length,
@@ -106,8 +107,12 @@ async function verifyRows(page: Page): Promise<void> {
     assert.equal(row.authorAvatars, 1);
     assert.equal(row.title, null);
     assert.equal(row.ref, row.key?.replace('Acme/app', ''));
+    if (row.stateWord === undefined) {
+      assert.ok(['Queued', 'Merged', 'Parked'].includes(row.groupTitle ?? ''), `${row.key} lost its state chip in ${row.groupTitle}`);
+      continue;
+    }
     assert.equal(row.stateTone, row.glyphTone);
-    assert.ok(row.stateWord);
+    assert.notEqual(row.stateWord, row.groupTitle);
   }
   const nits = rows.find((row) => row.key === 'Acme/app#2');
   assert.ok(nits);
@@ -692,34 +697,6 @@ async function storedReviewsLayout(page: Page): Promise<unknown> {
   return page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsLayout?: unknown }).reviewsLayout);
 }
 
-async function verifyClosedBoardDetailIgnoresActionKeys(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const captureWindow = window as ActionCaptureWindow;
-    const originalSend = WebSocket.prototype.send;
-    captureWindow.teamReviewOriginalSend = originalSend;
-    WebSocket.prototype.send = function(message) {
-      if (typeof message === 'string' && (JSON.parse(message) as { type?: string }).type === 'team-review-action') {
-        document.documentElement.dataset.teamReviewAction = message;
-        return;
-      }
-      originalSend.call(this, message);
-    };
-  });
-  try {
-    await page.keyboard.press('a');
-    await page.keyboard.press('Control+Enter');
-    assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
-    assert.equal(await page.locator('.review-queue').getAttribute('data-detail-open'), 'false');
-  } finally {
-    await page.evaluate(() => {
-      const captureWindow = window as ActionCaptureWindow;
-      if (captureWindow.teamReviewOriginalSend) WebSocket.prototype.send = captureWindow.teamReviewOriginalSend;
-      delete captureWindow.teamReviewOriginalSend;
-      delete document.documentElement.dataset.teamReviewAction;
-    });
-  }
-}
-
 async function verifyAgeTones(page: Page): Promise<void> {
   const tones = await page.locator('.review-board-column').evaluateAll((columns) => columns.map((column) => ({
     group: column.getAttribute('data-group'),
@@ -738,11 +715,19 @@ async function verifyAgeTones(page: Page): Promise<void> {
 async function verifyBoardCardBottomRowsFit(page: Page): Promise<void> {
   const overflowingCardKeys = await page.locator('.review-board-cards .pr-queue-row').evaluateAll((cards) => cards.flatMap((card) => {
     const cardRight = card.getBoundingClientRect().right;
-    const shownBottomRowItems = [...card.querySelector('.pr-queue-bottom')?.children ?? []].map((child) => child.getBoundingClientRect()).filter((box) => box.width > 0);
-    const itemCenters = shownBottomRowItems.map((box) => box.top + box.height / 2);
-    const isOneLine = itemCenters.length === 0 || Math.max(...itemCenters) - Math.min(...itemCenters) < 4;
-    const isInsideCard = shownBottomRowItems.every((box) => box.right <= cardRight);
-    return isOneLine && isInsideCard ? [] : [card.getAttribute('data-review-key')];
+    const shownBottomRowItems = [...card.querySelector('.pr-queue-bottom')?.children ?? []].filter((child) => child.getBoundingClientRect().width > 0);
+    const textLineCount = (item: Element) => {
+      const ownTextNodes = [...item.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE);
+      const lineTops = ownTextNodes.flatMap((textNode) => {
+        const range = document.createRange();
+        range.selectNodeContents(textNode);
+        return [...range.getClientRects()].map((lineBox) => Math.round(lineBox.top));
+      });
+      return new Set(lineTops).size;
+    };
+    const isEachItemOneLine = shownBottomRowItems.every((item) => textLineCount(item) <= 1);
+    const isInsideCard = shownBottomRowItems.every((item) => item.getBoundingClientRect().right <= cardRight);
+    return isEachItemOneLine && isInsideCard ? [] : [card.getAttribute('data-review-key')];
   }));
   assert.deepEqual(overflowingCardKeys, []);
   const orgDot = page.locator('.review-board-cards .pr-queue-row[data-review-key="Acme/app#7"] .pr-queue-author > .author-org-tag');
@@ -848,6 +833,18 @@ async function verifyDragReorder(page: Page): Promise<void> {
   await writeUiPrefs(page, { reviewsCardOrder: [] });
 }
 
+async function verifyDragToWaiting(page: Page): Promise<void> {
+  const columnOf = (reviewKey: string) => page.locator(`.review-board .pr-queue-row[data-review-key="${reviewKey}"]`).evaluate((card) => card.closest<HTMLElement>('.review-board-column')?.dataset.group);
+  const movedEntries = () => page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsMovedToWaiting?: string[] }).reviewsMovedToWaiting ?? []);
+  assert.equal(await columnOf('Acme/app#1'), 'turn');
+  assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'waiting'), true);
+  assert.equal(await columnOf('Acme/app#1'), 'waiting');
+  assert.equal((await movedEntries()).length, 1);
+  assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'turn'), true);
+  assert.equal(await columnOf('Acme/app#1'), 'turn');
+  assert.deepEqual(await movedEntries(), []);
+}
+
 async function verifyDragToParked(page: Page): Promise<void> {
   await page.evaluate(() => {
     const captureWindow = window as ActionCaptureWindow;
@@ -862,7 +859,6 @@ async function verifyDragToParked(page: Page): Promise<void> {
     };
   });
   try {
-    assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'waiting'), false);
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'merged'), false);
     assert.equal(await page.evaluate(() => document.documentElement.dataset.teamReviewAction), undefined);
     const highlightedLanes = await page.evaluate(() => {
@@ -876,7 +872,7 @@ async function verifyDragToParked(page: Page): Promise<void> {
       card?.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
       return lanes;
     });
-    assert.deepEqual(highlightedLanes, ['queued', 'turn', 'now', 'parked']);
+    assert.deepEqual(highlightedLanes, ['queued', 'turn', 'now', 'waiting', 'parked']);
     assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'parked'), true);
     const sent = JSON.parse(await page.evaluate(() => document.documentElement.dataset.teamReviewAction ?? '{}')) as { action?: string; key?: string };
     assert.deepEqual({ action: sent.action, key: sent.key }, { action: 'discard', key: 'Acme/app#1' });
@@ -947,13 +943,12 @@ async function boardDetailGeometry(page: Page) {
     const boardPane = queue.querySelector('.pr-queue-pane');
     const detail = queue.querySelector('.pr-detail-host');
     const separator = queue.querySelector('.pr-detail-resizer');
-    const close = queue.querySelector('[data-action="close-review-detail"]');
-    if (!board || !boardPane || !detail || !separator || !close) throw new Error('Missing board detail parts');
+    if (!board || !boardPane || !detail || !separator) throw new Error('Missing board detail parts');
     return {
       boardWidth: boardPane.getBoundingClientRect().width,
       boardScrolls: board.scrollWidth > board.clientWidth,
       detailWidth: Math.round(detail.getBoundingClientRect().width),
-      closeRight: close.getBoundingClientRect().right,
+      detailRight: detail.getBoundingClientRect().right,
       viewportWidth: window.innerWidth,
       valueNow: separator.getAttribute('aria-valuenow'),
       storedWidth: (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsBoardDetailWidth?: unknown }).reviewsBoardDetailWidth,
@@ -990,7 +985,7 @@ async function verifyWideDetailKeepsBoard(page: Page): Promise<void> {
   await waitForDetailWidthSettled(page);
   const widest = await boardDetailGeometry(page);
   assert.ok(widest.boardWidth >= BOARD_RESERVE_PX - 1, JSON.stringify(widest));
-  assert.ok(widest.closeRight <= widest.viewportWidth, JSON.stringify(widest));
+  assert.ok(widest.detailRight <= widest.viewportWidth, JSON.stringify(widest));
   assert.equal(Number(widest.valueNow), widest.detailWidth, JSON.stringify(widest));
   assert.ok(widest.boardScrolls, JSON.stringify(widest));
   const originalViewport = page.viewportSize();
@@ -1009,7 +1004,7 @@ async function verifyWideDetailKeepsBoard(page: Page): Promise<void> {
   await waitForDetailWidthSettled(page);
   const narrowed = await boardDetailGeometry(page);
   assert.equal(narrowed.storedWidth, 960, JSON.stringify(narrowed));
-  assert.ok(narrowed.closeRight <= narrowed.viewportWidth, JSON.stringify(narrowed));
+  assert.ok(narrowed.detailRight <= narrowed.viewportWidth, JSON.stringify(narrowed));
   await verifyHeldDragMovesDetail(page);
   await separator.dblclick();
 }
@@ -1047,28 +1042,14 @@ async function verifyBoardReadable(page: Page): Promise<void> {
   assert.ok(readability.turnKeysChrome === null || readability.turnKeysChrome === '0px 0px 0px', readabilityText);
 }
 
-async function verifyCloseBarStaysVisible(page: Page): Promise<void> {
-  const closeBar = await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
-    const bar = detailHost.querySelector('.review-board-detail-bar');
-    if (!bar) throw new Error('Missing close bar');
-    detailHost.scrollTop = detailHost.scrollHeight;
-    return { scrolled: detailHost.scrollTop, barTop: bar.getBoundingClientRect().top, hostTop: detailHost.getBoundingClientRect().top };
-  });
-  assert.ok(closeBar.scrolled > 0, JSON.stringify(closeBar));
-  assert.ok(Math.abs(closeBar.barTop - closeBar.hostTop) <= 1, JSON.stringify(closeBar));
-  await page.locator('.review-queue .pr-detail-host').evaluate((detailHost) => {
-    detailHost.scrollTop = 0;
-  });
-}
-
 async function verifyParkedToggleControlsColumn(page: Page): Promise<void> {
   const controlledId = await page.locator('.review-board-parked-toggle').getAttribute('aria-controls');
   assert.ok(controlledId, 'Parked toggle names no controlled element');
   assert.equal(await page.locator(`#${controlledId}`).getAttribute('data-group'), 'parked');
 }
 
-async function verifyEscapeClosesBoardFromNote(page: Page, card: Locator): Promise<void> {
-  const root = page.locator('.review-queue');
+async function verifyEscapeKeepsBoardDetailFromNote(page: Page, card: Locator): Promise<void> {
+  const detail = page.locator('.review-queue .pr-detail-host');
   const noteInput = page.locator('.pr-detail .pr-note-input');
   const pickedCount = () => page.locator('.pr-detail .pr-decision-bar > button[aria-pressed="true"]').count();
   await page.keyboard.press('c');
@@ -1077,10 +1058,9 @@ async function verifyEscapeClosesBoardFromNote(page: Page, card: Locator): Promi
   await page.keyboard.type('keep this note');
   await page.keyboard.press('Escape');
   assert.equal(await pickedCount(), 0);
-  assert.equal(await root.getAttribute('data-detail-open'), 'true');
   await noteInput.focus();
   await page.keyboard.press('Escape');
-  assert.equal(await root.getAttribute('data-detail-open'), 'false');
+  assert.equal(await detail.isVisible(), true);
   await card.click();
   await noteInput.waitFor({ state: 'visible' });
   assert.equal(await noteInput.inputValue(), 'keep this note');
@@ -1095,22 +1075,17 @@ async function verifyBoard(page: Page): Promise<void> {
   assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
   const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
   assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Merged', 'Parked']);
-  assert.equal(await detail.isVisible(), false);
+  await detail.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('[data-action="close-review-detail"]').count(), 0);
   await verifyBoardReadable(page);
   await verifyParkedToggleControlsColumn(page);
   await card.click();
-  assert.equal(await root.getAttribute('data-detail-open'), 'true');
-  await detail.waitFor({ state: 'visible' });
   await verifyBoardReadable(page);
-  await verifyCloseBarStaysVisible(page);
-  await verifyEscapeClosesBoardFromNote(page, card);
+  await verifyEscapeKeepsBoardDetailFromNote(page, card);
   await page.keyboard.press('Escape');
-  await detail.waitFor({ state: 'hidden' });
+  assert.equal(await detail.isVisible(), true);
   await page.keyboard.press('j');
   await detail.waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: 'Close review detail', exact: true }).click();
-  await detail.waitFor({ state: 'hidden' });
-  await verifyClosedBoardDetailIgnoresActionKeys(page);
   const parkedCard = page.locator('.review-board .pr-queue-tile[data-queue-key="team:Acme/app#6"]');
   assert.equal(await parkedCard.count(), 0);
   const parkedToggle = page.locator('.review-board-parked-toggle');
@@ -1124,6 +1099,7 @@ async function verifyBoard(page: Page): Promise<void> {
   await verifyBoardCardBottomRowsFit(page);
   await verifyColumnSteps(page);
   await verifyDragReorder(page);
+  await verifyDragToWaiting(page);
   await verifyDragToParked(page);
   await verifyReviewingNowPull(page);
   assert.equal(await root.getAttribute('data-reviews-layout'), 'list');

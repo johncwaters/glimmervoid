@@ -306,14 +306,10 @@ button.my-pr-stack-row:focus-visible { outline: 2px solid var(--accent); outline
 .review-layout-option[aria-pressed="true"] { color: var(--text-head); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 html[data-layout="phone"] .review-layout-switch { display: none; }
 
-.pr-detail-resizer,
-.review-board-detail-bar { display: none; }
+.pr-detail-resizer { display: none; }
 .review-queue[data-reviews-layout="board"] > .pr-columns { grid-template-columns: minmax(0, 1fr) 7px var(--pr-detail-width, minmax(360px, 40%)); }
 .review-queue[data-reviews-layout="board"] > .pr-columns > .pr-queue-resizer:not(.pr-detail-resizer) { display: none; }
 .review-queue[data-reviews-layout="board"] > .pr-columns > .pr-detail-resizer { display: block; }
-.review-queue[data-reviews-layout="board"] .review-board-detail-bar { position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 8px 16px; border-bottom: 1px solid var(--border-dim); background: var(--bg); }
-.review-queue[data-reviews-layout="board"]:not([data-detail-open="true"]) > .pr-columns { grid-template-columns: minmax(0, 1fr); }
-.review-queue[data-reviews-layout="board"]:not([data-detail-open="true"]) > .pr-columns > :is(.pr-detail-resizer, .pr-detail-host) { display: none; }
 .review-queue[data-reviews-layout="board"] .pr-queue-pane { border-right: 0; }
 
 .review-board { display: flex; align-items: stretch; gap: 12px; flex: 1 0 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 8px; }
@@ -325,8 +321,9 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .review-queue .review-board-cards .pr-queue-row:not(.pr-queue-row-compact) { column-gap: 8px; row-gap: 6px; padding: 10px 12px; }
 .review-board-cards .pr-queue-top { grid-column: 1 / -1; grid-row: 1; }
 .review-board-cards .pr-queue-glyph { grid-column: 1; grid-row: 2; }
-.review-board-cards .pr-queue-bottom { grid-row: 2; min-height: 20px; }
-.review-board-cards .pr-queue-findings, .review-board-cards .pr-phase-label { flex: 1 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-board-cards .pr-queue-bottom { flex-wrap: wrap; row-gap: 2px; grid-row: 2; min-height: 20px; }
+.review-board-cards .pr-queue-bottom > .my-pr-stage { white-space: nowrap; }
+.review-board-cards .pr-queue-findings, .review-board-cards .pr-phase-label { flex: 1 100 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-board-cards .pr-queue-author { position: relative; flex: 0 0 auto; order: 1; margin-left: auto; overflow: visible; }
 .review-board-cards .pr-queue-author > .author-org-tag { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--text-muted); box-shadow: 0 0 0 2px var(--bg-card); overflow: hidden; text-indent: 100%; }
 .review-board-cards .pr-queue-author > .author-org-tag[data-org-member="false"] { background: var(--accent); }

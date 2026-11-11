@@ -3,7 +3,8 @@ import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Fr
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -50,18 +51,25 @@ const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html'])
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
-const TOOL_BUTTONS: readonly { tool: BoardTool; label: string; key: string; iconPath: string; hint: string | null }[] = [
-  { tool: 'select', label: 'Select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
-  { tool: 'box', label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
-  { tool: 'decision', label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
-  { tool: 'panel', label: 'Panel', key: 'P', iconPath: 'M2.5 3h11v10h-11z M2.5 6h11', hint: 'Click the board to place a panel. Esc to cancel.' },
-  { tool: 'sticky', label: 'Sticky note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click the board to place a sticky note. Esc to cancel.' },
-  { tool: 'text', label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click the board to place text. Esc to cancel.' },
-  { tool: 'icon', label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
-  { tool: 'device', label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
-  { tool: 'wire', label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
-  { tool: 'pen', label: 'Pen', key: 'B', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
-];
+interface ToolDetails {
+  label: string;
+  key: string;
+  iconPath: string;
+  hint: string | null;
+}
+
+const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
+  select: { label: 'Select', key: 'V', iconPath: 'M4 2.5l8.5 5.8l-4 0.7l2.2 4.3l-1.5 0.8l-2.2-4.3L4 12.5z', hint: null },
+  box: { label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click the board to place a box. Esc to cancel.' },
+  note: { label: 'Note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click the board to place a note. Esc to cancel.' },
+  text: { label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click the board to place text. Esc to cancel.' },
+  wire: { label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
+  pen: { label: 'Pen', key: 'B', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
+  decision: { label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
+  icon: { label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
+  device: { label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
+};
+const TOOLBAR_TOOLS: readonly BoardTool[] = ['select', 'box', 'note', 'text', 'wire', 'pen'];
 
 interface TextDialogOptions {
   title: string;
@@ -260,10 +268,6 @@ function codeSessionChoices(): { value: string; text: string }[] {
   const codeSessionId = selectedBoard()?.codeSessionId;
   const sessionIds = codeSessionId && !connectedSessionIds.includes(codeSessionId) ? [codeSessionId, ...connectedSessionIds] : connectedSessionIds;
   return sessionIds.map((sessionId) => ({ value: sessionId, text: sessionLabel(sessionId) }));
-}
-
-function linkedBoardChoices(): { value: string; text: string }[] {
-  return boardSummariesOf().filter((summary) => summary.id !== selectedBoardId).map((summary) => ({ value: summary.id, text: summary.title }));
 }
 
 function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extract<Element, { kind: Kind }>[] {
@@ -509,7 +513,7 @@ function paintBoard(): void {
   editor?.pruneSelection(board);
   if (parts) parts.emptyBoardHint.hidden = tiled.elementCount > 0;
   paintReview();
-  editor?.openPendingTitleEdit();
+  editor?.afterBoardPaint();
   if (shouldFitOnNextRender) {
     editor?.fit();
     shouldFitOnNextRender = false;
@@ -534,7 +538,7 @@ function selectBoard(boardId: string): void {
   selectedBoardId = boardId;
   shouldFitOnNextRender = true;
   editor?.clearSelection();
-  editor?.closeTitleInput();
+  editor?.closeInlineEditor();
   inspector?.closeBoardSettings();
   renderer?.clear();
   status.clear();
@@ -547,7 +551,7 @@ function livePageBoxIdOf(selectedIds: ReadonlySet<string>): string | null {
   if (selectedIds.size !== 1) return null;
   const [selectedId] = selectedIds;
   const selected = selectedId === undefined ? undefined : selectedBoard()?.elements.get(selectedId);
-  if (selected?.kind !== 'box' || mediaOfBox(selected)?.kind !== 'page') return null;
+  if (selected?.kind !== 'box' || selected.media?.kind !== 'page') return null;
   return selected.id;
 }
 
@@ -558,7 +562,7 @@ function pressedDialValuesOf({ boxId }: PressedImage): Record<string, DialValue>
 
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements.get(boxId) : undefined;
-  return pressedBox?.kind === 'box' ? mediaOfBox(pressedBox) : null;
+  return pressedBox?.kind === 'box' ? pressedBox.media : null;
 }
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
@@ -617,7 +621,7 @@ function docBoxOf(boardId: string, boxId: string): Extract<Element, { kind: 'box
 
 function docMediaOf(boardId: string, boxId: string): BoxMedia | null {
   const box = docBoxOf(boardId, boxId);
-  const media = box ? mediaOfBox(box) : null;
+  const media = box?.media ?? null;
   return media?.kind === 'doc' ? media : null;
 }
 
@@ -627,7 +631,7 @@ function boardDocKey(boardId: string): string {
 
 function keepOpenDocMedia(boardId: string, boxId: string, savedMedia: BoxMedia): void {
   const savedBox = docBoxOf(boardId, boxId);
-  if (savedBox && savedBox.shape !== 'icon' && savedBox.shape !== 'text' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
+  if (savedBox && SHAPE_TRAITS[savedBox.shape].holdsMedia && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
 }
 
 async function saveLinkedDocText(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
@@ -682,7 +686,7 @@ function openBoardDoc(boardId: string, boxId: string): void {
   if (box?.kind !== 'box') return;
   openDocBox = { boardId, box };
   const board = heldBoardOf(boardId);
-  if (board && mediaOfBox(box)?.link) refreshReviewOf(board);
+  if (board && box.media?.link) refreshReviewOf(board);
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 
@@ -731,7 +735,7 @@ function addNoteOn(boxId: string): void {
       const noteBoxId = newElementId('box');
       const { title, lines } = noteBoxTextOf(text);
       return sendOpsFromDialog([
-        { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), at: noteAt }) },
+        { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), place: { at: noteAt } }) },
         { op: 'add', element: ElementInput.parse({ kind: 'wire', id: newElementId('wire'), from: noteBoxId, to: boxId, dashed: true }) },
       ]);
     },
@@ -743,7 +747,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null } }]);
 }
 
 function stackTitleOf(board: Board, boxIds: readonly string[]): string {
@@ -755,7 +759,7 @@ function stackTitleOf(board: Board, boxIds: readonly string[]): string {
 }
 
 function addStack(board: Board, contains: string[]): Promise<boolean> {
-  return sendOps([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title: stackTitleOf(board, contains), contains, loop: false, collapsed: true } }]);
+  return sendOps([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title: stackTitleOf(board, contains), contains, collapsed: true } }]);
 }
 
 function stackBoxes(targetBoxId: string, droppedBoxId: string, targetStack: Frame | null): void {
@@ -839,7 +843,7 @@ function addFrame(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add frame',
     onSubmit: async (title) => {
-      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, loop: false, collapsed: false } }]);
+      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, collapsed: false } }]);
       if (!error) editor?.clearSelection();
       return error;
     },
@@ -906,7 +910,8 @@ function iconButton(label: string, iconPath: string, action: string, onClick: ()
   return button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
 }
 
-function toolButton(tool: BoardTool, label: string, key: string, iconPath: string): HTMLButtonElement {
+function toolButton(tool: BoardTool): HTMLButtonElement {
+  const { label, key, iconPath } = TOOL_DETAILS[tool];
   const toolOption = createPressable('wb-tool');
   toolOption.setAttribute('aria-label', label);
   const keyHint = el('span', 'wb-tool-key', key);
@@ -932,7 +937,7 @@ function island(className: string, label: string, ...children: HTMLElement[]): H
 function paintActiveTool(activeTool: BoardTool): void {
   if (!parts) return;
   for (const [tool, button] of parts.toolButtons) button.setAttribute('aria-pressed', String(tool === activeTool));
-  const hint = TOOL_BUTTONS.find(({ tool }) => tool === activeTool)?.hint ?? null;
+  const { hint } = TOOL_DETAILS[activeTool];
   parts.toolHint.textContent = hint ?? '';
   parts.toolHint.hidden = hint === null;
 }
@@ -1027,7 +1032,7 @@ export function mountBoardHost(): HTMLElement {
   const presence = el('div', 'wb-presence');
   const boardIsland = island('wb-island-board', 'Board', boardMenu.menuRoot, boardTitle, boardMeta, presence, status.element);
 
-  const toolButtons = new Map(TOOL_BUTTONS.map(({ tool, label, key, iconPath }) => [tool, toolButton(tool, label, key, iconPath)]));
+  const toolButtons = new Map(TOOLBAR_TOOLS.map((tool) => [tool, toolButton(tool)]));
   const toolGroup = el('div', 'wb-tools');
   toolGroup.setAttribute('role', 'group');
   toolGroup.setAttribute('aria-label', 'Drawing tools');
@@ -1066,7 +1071,7 @@ export function mountBoardHost(): HTMLElement {
   const glNotice = el('p', 'wb-gl-notice');
   glNotice.setAttribute('role', 'status');
   glNotice.hidden = true;
-  viewport.append(glCanvas, world, glNotice);
+  viewport.append(glCanvas, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const agentIsland = island('wb-island-agent', 'Session', queuedForSession);
@@ -1085,7 +1090,7 @@ export function mountBoardHost(): HTMLElement {
     el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
   );
   emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
-  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack);
+  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack, glNotice);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
@@ -1104,7 +1109,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,
@@ -1120,7 +1125,6 @@ export function mountBoardHost(): HTMLElement {
       settleClickOpenedStacks(true);
     },
     onPhoneTapBox: addNoteOn,
-    onOpenLinkedBoard: selectBoard,
     onOpenImage: (pressedImage) => {
       editor?.clearSelection();
       openImageViewer(pressedImage);
@@ -1128,6 +1132,7 @@ export function mountBoardHost(): HTMLElement {
     onConnectBoxes: connectBoxes,
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
+    isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),
     onToolChange: paintActiveTool,
   });
 

@@ -27,6 +27,7 @@ test('doctor reports every builtin agent and a loading node-pty', () => {
     assert.match(stdout, /inactive unless Codex trusts/);
     assert.match(stdout, /inactive; run glimmervoid agent setup grok/);
     assert.match(stdout, /node-pty\s+loads OK/);
+    assert.match(stdout, /PACKAGE MANAGERS[\s\S]*npm\s+(\S+ \((on PATH|from your login shell PATH|in a usual install folder)\)|not found)/);
   } finally {
     fs.rmSync(npmPrefix, { recursive: true, force: true });
   }

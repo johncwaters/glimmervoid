@@ -1,7 +1,8 @@
+import { normalizedHttpUrl } from '#shared/http-url.ts';
 import { parseAtxHeading } from '../plan/plan-markdown-core.ts';
 
 export type BlockStyle = 'h1' | 'h2' | 'h3' | 'quote' | 'list' | 'fence' | 'table' | 'plain';
-export type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code';
+type InlineStyle = 'syntax' | 'strong' | 'emphasis' | 'code' | 'link' | 'link-syntax';
 export type PreviewBlockKind = 'table' | 'fence' | 'image';
 
 export interface PreviewBlock {
@@ -15,6 +16,7 @@ interface InlineRun {
   start: number;
   end: number;
   style: InlineStyle;
+  link?: { start: number; href: string };
 }
 
 const FENCE_MARKER = /^ {0,3}(`{3,}|~{3,})/;
@@ -24,7 +26,9 @@ const LIST_MARKER = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/;
 const TABLE_ROW = /^[ \t]*\|/;
 const IMAGE_ONLY_LINE = /^[ \t]*!\[([^\]\n]*)\]\(\s*<?([^\s)<>]+)>?(?:\s+"[^"\n]*")?\s*\)[ \t]*$/;
 const TABLE_DIVIDER_ROW = /^[ \t]*\|?(?:[ \t]*:?-{3,}:?[ \t]*\|)*[ \t]*:?-{3,}:?[ \t]*\|?[ \t]*$/;
-const INLINE_SPAN = /(`+)(?!`)(.+?)(?<!`)\1(?!`)|(\*\*|__)(?=\S)(.+?)(?<=\S)\3|(?<![\w*])([*_])(?=[^\s*_])(.+?)(?<=[^\s*_])\5(?![\w*])/g;
+const HTTP_LINK_PATTERN = String.raw`(?<!!)\[([^\]\n]+)\]\((https?:\/\/[^\s()]+)\)`;
+const HTTP_LINK_SPAN = new RegExp(HTTP_LINK_PATTERN, 'g');
+const INLINE_SPAN = new RegExp(String.raw`(${'`'}+)(?!${'`'})(.+?)(?<!${'`'})\1(?!${'`'})|(\*\*|__)(?=\S)(.+?)(?<=\S)\3|(?<![\w*])([*_])(?=[^\s*_])(.+?)(?<=[^\s*_])\5(?![\w*])|${HTTP_LINK_PATTERN}`, 'g');
 const HEADING_STYLES: readonly BlockStyle[] = ['plain', 'h1', 'h2', 'h3', 'h3', 'h3', 'h3'];
 const BLOCK_MARKERS: Partial<Record<BlockStyle, RegExp>> = { h1: HEADING_MARKER, h2: HEADING_MARKER, h3: HEADING_MARKER, quote: QUOTE_MARKER, list: LIST_MARKER };
 
@@ -55,11 +59,45 @@ export function blockStylesOf(source: string): BlockStyle[] {
   });
 }
 
-function wrappedRuns(start: number, end: number, markerLength: number, style: InlineStyle): InlineRun[] {
+function linkRunsAt(start: number, end: number, label: string | undefined, target: string | undefined): InlineRun[] {
+  const href = target ? normalizedHttpUrl(target) : null;
+  if (!label || !href) return [];
+  return linkRuns(start, end, label.length, href);
+}
+
+function innerRuns(text: string, start: number, end: number, style: InlineStyle): InlineRun[] {
+  if (style === 'code') return [{ start, end, style }];
+  const runs: InlineRun[] = [];
+  let styledUpTo = start;
+  for (const match of text.slice(start, end).matchAll(HTTP_LINK_SPAN)) {
+    const linkStart = start + match.index;
+    const linkEnd = linkStart + match[0].length;
+    const linkParts = linkRunsAt(linkStart, linkEnd, match[1], match[2]);
+    if (linkParts.length === 0) continue;
+    if (linkStart > styledUpTo) runs.push({ start: styledUpTo, end: linkStart, style });
+    runs.push(...linkParts);
+    styledUpTo = linkEnd;
+  }
+  if (styledUpTo < end) runs.push({ start: styledUpTo, end, style });
+  return runs;
+}
+
+function wrappedRuns(text: string, start: number, end: number, markerLength: number, style: InlineStyle): InlineRun[] {
   return [
     { start, end: start + markerLength, style: 'syntax' },
-    { start: start + markerLength, end: end - markerLength, style },
+    ...innerRuns(text, start + markerLength, end - markerLength, style),
     { start: end - markerLength, end, style: 'syntax' },
+  ];
+}
+
+function linkRuns(start: number, end: number, labelLength: number, href: string): InlineRun[] {
+  const link = { start, href };
+  const labelStart = start + 1;
+  const labelEnd = labelStart + labelLength;
+  return [
+    { start, end: labelStart, style: 'link-syntax', link },
+    { start: labelStart, end: labelEnd, style: 'link', link },
+    { start: labelEnd, end, style: 'link-syntax', link },
   ];
 }
 
@@ -71,10 +109,11 @@ export function inlineRunsOf(text: string, block: BlockStyle, startsLine: boolea
   for (const match of text.matchAll(INLINE_SPAN)) {
     const start = match.index;
     const end = start + match[0].length;
-    const [, codeFence, , strongMarker, , emphasisMarker] = match;
-    if (codeFence) runs.push(...wrappedRuns(start, end, codeFence.length, 'code'));
-    if (strongMarker) runs.push(...wrappedRuns(start, end, strongMarker.length, 'strong'));
-    if (emphasisMarker) runs.push(...wrappedRuns(start, end, emphasisMarker.length, 'emphasis'));
+    const [, codeFence, , strongMarker, , emphasisMarker, , linkLabel, linkTarget] = match;
+    if (codeFence) runs.push(...wrappedRuns(text, start, end, codeFence.length, 'code'));
+    if (strongMarker) runs.push(...wrappedRuns(text, start, end, strongMarker.length, 'strong'));
+    if (emphasisMarker) runs.push(...wrappedRuns(text, start, end, emphasisMarker.length, 'emphasis'));
+    runs.push(...linkRunsAt(start, end, linkLabel, linkTarget));
   }
   return runs;
 }

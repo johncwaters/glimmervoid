@@ -14,7 +14,7 @@ import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotice
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
-import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsPulledKeys } from '../ui-prefs.ts';
+import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsMovedToWaiting, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsMovedToWaiting, setReviewsPulledKeys } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
 import { createReviewSetupCard } from './review-setup-card.ts';
 import { createReviewSkillNotice } from './review-skill-notice.ts';
@@ -81,16 +81,6 @@ function markSeen(item: QueueItem, row: HTMLButtonElement): void {
 function setDetailScreenOpen(isOpen: boolean): void {
   if (root) root.dataset.detailOpen = String(isOpen);
   setReviewDetailScreenOpen(isOpen);
-}
-
-function isBoardDetailClosed(): boolean {
-  return isBoardShown() && root?.dataset.detailOpen !== 'true';
-}
-
-function closeBoardDetail(): boolean {
-  if (!isBoardShown() || isBoardDetailClosed()) return false;
-  returnToQueue();
-  return true;
 }
 
 function returnToQueue(): void {
@@ -216,14 +206,32 @@ function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
   return true;
 }
 
+function isMovedToWaiting(item: QueueItem): boolean {
+  return getReviewsMovedToWaiting().includes(queueItemActivityEntry(item));
+}
+
+function moveToWaiting(item: QueueItem, isMoved: boolean, shouldBePulled: boolean): void {
+  const entry = queueItemActivityEntry(item);
+  const otherEntries = getReviewsMovedToWaiting().filter((movedEntry) => movedEntry !== entry);
+  setReviewsMovedToWaiting(isMoved ? [...otherEntries, entry] : otherEntries);
+  renderedSignature = null;
+  render();
+  if (shouldBePulled) movePulled(item.key, true);
+  rowsByKey.get(item.key)?.focus({ preventScroll: true });
+}
+
 function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId): void {
   const sourceGroup = displayGroups.find((group) => group.items.some((item) => item.key === queueKey));
   const item = sourceGroup?.items.find((groupItem) => groupItem.key === queueKey);
   if (!sourceGroup || !item) return;
-  const drop = boardDropOf(item, sourceGroup.id, targetGroupId);
+  const drop = boardDropOf(item, sourceGroup.id, targetGroupId, isMovedToWaiting(item));
   if (!drop) return;
   if (drop.kind === 'pull') {
     movePulled(queueKey, drop.shouldBePulled);
+    return;
+  }
+  if (drop.kind === 'wait') {
+    moveToWaiting(item, drop.isMoved, drop.shouldBePulled);
     return;
   }
   selectItem(queueKey, { isFromQueue: true });
@@ -249,9 +257,7 @@ function runReviewKey(action: ReviewKeyAction): boolean {
   if (action === 'toggle-pulled') return toggleSelectedPulled();
   if (action === 'next-column') return stepColumn(1);
   if (action === 'previous-column') return stepColumn(-1);
-  if (isBoardDetailClosed()) return false;
-  if (runTeamReviewKey(action)) return true;
-  return action === 'cancel' && closeBoardDetail();
+  return runTeamReviewKey(action);
 }
 
 function isReviewNoteFocused(): boolean {
@@ -305,10 +311,16 @@ function itemAgeTone(item: QueueItem, groupId: DisplayGroupId) {
   return ageToneOf(groupId, queueItemWaitStartMs(item), clock.nowMs());
 }
 
-function createItemRow(item: QueueItem, groupId: DisplayGroupId, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
-  const isTurn = groupId === 'turn' || groupId === 'now';
+function hideChipEchoingGroupTitle(row: HTMLElement, groupTitle: string): void {
+  const stateChip = row.querySelector('.pr-queue-bottom > .my-pr-stage');
+  if (stateChip?.textContent === groupTitle) stateChip.remove();
+}
+
+function createItemRow(item: QueueItem, group: DisplayGroup, hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
+  const isTurn = group.id === 'turn' || group.id === 'now';
   const { container, row } = rowFor(item, hasMultipleRepos, sessionsByPrKey);
-  const ageTone = itemAgeTone(item, groupId);
+  hideChipEchoingGroupTitle(row, group.title);
+  const ageTone = itemAgeTone(item, group.id);
   if (ageTone) row.dataset.ageTone = ageTone;
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
@@ -520,7 +532,7 @@ function createGroupSection(group: DisplayGroup, hasMultipleRepos: boolean, sess
     section.append(tiles);
     return section;
   }
-  for (const item of group.items) section.append(createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey));
+  for (const item of group.items) section.append(createItemRow(item, group, hasMultipleRepos, sessionsByPrKey));
   return section;
 }
 
@@ -541,7 +553,7 @@ function rowsSignature(groups: readonly DisplayGroup[], sessionsByPrKey: Readonl
 function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): HTMLElement {
   const hasReadyItems = turnItems(currentGroups).length > 0;
   return createReviewBoard(displayGroups, {
-    createCard: (item, group) => createItemRow(item, group.id, hasMultipleRepos, sessionsByPrKey),
+    createCard: (item, group) => createItemRow(item, group, hasMultipleRepos, sessionsByPrKey),
     createTile: (item, group) => createItemTile(item, group.id),
     createCount: createGroupCount,
     createHeadingExtras: headingExtrasOf,
@@ -552,7 +564,7 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
       renderedSignature = null;
       render();
     },
-    dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id),
+    dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id, isMovedToWaiting(item)),
     onDropCard: dropCardOnLane,
     onReorderCard: reorderCard,
   });
@@ -685,11 +697,7 @@ function mountReviewQueue(parent: HTMLElement): void {
   const back = button({ variant: 'secondary', label: 'Back to queue', action: 'back-to-queue', onClick: returnToReviewQueue });
   turnPosition = el('span', 'review-queue-position');
   phoneBar.append(back, turnPosition);
-  const boardBar = el('div', 'review-board-detail-bar');
-  const closeDetail = button({ variant: 'secondary', label: 'Close', action: 'close-review-detail', onClick: returnToQueue });
-  closeDetail.setAttribute('aria-label', 'Close review detail');
-  boardBar.append(closeDetail);
-  shell.detail.append(phoneBar, boardBar, detailHost);
+  shell.detail.append(phoneBar, detailHost);
   skillNotice = createReviewSkillNotice();
   shell.queue.before(skillNotice.element);
   pollingControls = createGithubPollingControls(['team-review', 'my-prs'], root);

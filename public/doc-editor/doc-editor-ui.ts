@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
+import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, previewEveryBlockOf, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
 type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
@@ -26,6 +26,7 @@ export interface DocSource {
 interface OpenEditor extends MarkupHost {
   source: DocSource;
   docPath: string;
+  openedDocPath: string | null;
   hasUnsavedChanges: boolean;
   needsReload: boolean;
   title: HTMLElement;
@@ -194,6 +195,8 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   }
   editor.textarea.value = read.text;
   editor.baseHash = read.hash;
+  if (editor.openedDocPath !== docPath) previewEveryBlockOf(editor, editor.textarea.value);
+  editor.openedDocPath = docPath;
   editor.hasUnsavedChanges = false;
   renderMarkup(editor);
   setStatus(editor, '');
@@ -248,7 +251,7 @@ export function openDocEditorOn(source: DocSource) {
   const requestClose = () => { void whenChangesAreSaved(currentEditor, 'Close this doc?', () => currentEditor.close()); };
   const modal = createModalOverlay({ dialogClass: 'doc-editor', closeOnBackdrop: false, onEscape: requestClose });
   const titleId = 'doc-editor-title';
-  const title = el('h3', 'doc-editor-title', firstDoc.name);
+  const title = el('h3', 'sr-only', firstDoc.name);
   title.id = titleId;
   const select = el('select', 'plan-control doc-editor-picker');
   select.setAttribute('aria-label', 'Doc');
@@ -257,18 +260,18 @@ export function openDocEditorOn(source: DocSource) {
   const btnReload = button({ variant: 'secondary', size: 'small', label: 'Reload', action: 'reload-doc' });
   const btnClose = button({ variant: 'icon', size: 'small', label: 'Close', icon: createLineIcon(CLOSE_ICON_PATH), action: 'close-doc-editor' });
   const markup = buildMarkupPane();
-  const statusLine = el('div', 'doc-editor-status');
-  statusLine.append(markup.hint, status, markup.btnUndo, markup.btnRedo, markup.btnPreviewAll, btnReload);
-  const header = el('div', 'doc-editor-header');
-  header.append(title, select, statusLine, btnClose);
+  const controls = el('div', 'doc-editor-controls');
+  controls.append(select, markup.btnUndo, markup.btnRedo, markup.btnPreviewAll, btnReload, btnClose);
+  const footer = el('div', 'doc-editor-footer');
+  footer.append(markup.hint, status);
   const textarea = el('textarea');
   const body = el('div', 'doc-editor-body');
   body.append(markup.root);
-  modal.dialog.append(header, body);
+  modal.dialog.append(title, controls, body, footer);
   applyDialogAria(modal.dialog, titleId);
 
   const currentEditor: OpenEditor = {
-    source, docPath: firstDoc.path, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
+    source, docPath: firstDoc.path, openedDocPath: null, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
     title, select, textarea, markup, status, btnReload, autosaveTimer: null, pendingSave: null,
     readImage: (imageSource) => source.readImage?.(currentEditor.docPath, imageSource) ?? Promise.resolve(null),
     close: () => {
@@ -312,6 +315,12 @@ export function openDocEditorOn(source: DocSource) {
     confirmDiscard('Reload this doc?', reload);
   });
   btnClose.addEventListener('click', requestClose);
+  let pressStartTarget: EventTarget | null = null;
+  modal.overlay.addEventListener('pointerdown', (event) => { pressStartTarget = event.target; });
+  modal.overlay.addEventListener('click', (event) => {
+    if (event.target !== modal.overlay || pressStartTarget !== modal.overlay) return;
+    requestClose();
+  });
 
   void loadDoc(currentEditor, firstDoc.path);
 }

@@ -1,7 +1,7 @@
 import type { IconName } from '#shared/contracts/whiteboard.ts';
 import { ICON_CATALOG, ICON_CATEGORIES, ICON_NAMES } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
-import { createSvgIcon } from '../svg-dom.ts';
+import { createLineIcon, createSvgIcon, PLUS_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 
 const GLYPH_SIZE_PX = 16;
@@ -14,7 +14,7 @@ interface IconPickerOptions {
   commit: (icon: IconName | null) => void;
 }
 
-function iconGlyph(name: IconName): SVGSVGElement {
+export function iconGlyph(name: IconName): SVGSVGElement {
   const glyph = createSvgIcon(24, 24);
   glyph.setAttribute('width', String(GLYPH_SIZE_PX));
   glyph.setAttribute('height', String(GLYPH_SIZE_PX));
@@ -25,16 +25,6 @@ function iconGlyph(name: IconName): SVGSVGElement {
   glyph.setAttribute('stroke-linejoin', 'round');
   glyph.innerHTML = ICON_CATALOG[name].elements.join('');
   return glyph;
-}
-
-function currentIconMarker(icon: IconName | null): HTMLElement {
-  const marker = el('span', 'wb-icon-current');
-  if (!icon) {
-    marker.append(el('span', 'wb-icon-current-label', 'none'));
-    return marker;
-  }
-  marker.append(iconGlyph(icon), el('span', 'wb-icon-current-label', ICON_CATALOG[icon].label));
-  return marker;
 }
 
 function matchesQuery(name: IconName, query: string): boolean {
@@ -62,7 +52,7 @@ export function iconPicker({ field, icon, isRequired, accessibleName, commit }: 
     if (name !== icon) commit(name);
   };
   const trigger = button({
-    variant: 'quiet', size: 'small', label: 'icon', action: 'icon-pick',
+    variant: 'icon', size: 'small', label: accessibleName, icon: icon ? iconGlyph(icon) : createLineIcon(PLUS_ICON_PATH, '1.5'), action: 'icon-pick',
     onClick: () => {
       const isOpening = popover.hidden;
       popover.hidden = !isOpening;
@@ -70,7 +60,7 @@ export function iconPicker({ field, icon, isRequired, accessibleName, commit }: 
       if (isOpening) search.focus();
     },
   });
-  trigger.setAttribute('aria-label', accessibleName);
+  trigger.classList.add('wb-icon-trigger');
   trigger.setAttribute('aria-expanded', 'false');
   trigger.setAttribute('aria-haspopup', 'true');
   const groups = ICON_CATEGORIES.map((category) => {
@@ -107,6 +97,6 @@ export function iconPicker({ field, icon, isRequired, accessibleName, commit }: 
   });
   const clear = button({ variant: 'quiet', size: 'small', label: 'no icon', action: 'icon-clear', onClick: () => pick(null), disabled: isRequired || icon === null });
   popover.append(search, ...groups.map(({ group }) => group), clear);
-  picker.append(currentIconMarker(icon), trigger, popover);
+  picker.append(trigger, popover);
   return picker;
 }

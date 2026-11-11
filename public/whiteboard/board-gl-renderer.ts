@@ -1,5 +1,5 @@
-import { boardMediaDrawnFilename, STICKY_TONE_HEX, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
-import type { StickyTone } from '#shared/contracts/whiteboard.ts';
+import { boardMediaDrawnFilename, NOTE_TONE_HEX, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import type { NoteTone } from '#shared/contracts/whiteboard.ts';
 import { BLOCK_RASTER_PX } from '#shared/contracts/whiteboard-tiles.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
@@ -16,7 +16,12 @@ import {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
   boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
 } from './board-gl-scene.ts';
-import type { BoardPalette, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
+import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
+import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, movedBoxesAt, stackFrameOfTopCard, stackMovesBetween } from './stack-motion-core.ts';
+import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
+import type { StackMove } from './stack-motion-core.ts';
+import { prefersReducedMotion } from '../attention-banner.ts';
+import { button } from '../ui/button.ts';
 
 interface Camera {
   x: number;
@@ -29,14 +34,14 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'port' | 'resize' | 'link' | 'media';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media';
 
 interface BoardHit {
   id: string;
   kind: LaidOutElement['kind'];
   part: HitPart;
+  lineIndex: number | null;
   port: Point | null;
-  linkedBoardId: string | null;
   media: { href: string; alt: string } | null;
 }
 
@@ -48,6 +53,7 @@ interface BoardRenderer {
   setCamera(camera: Camera): void;
   hitTest(point: Point): BoardHit | null;
   boundsOf(elementId: string): Rect | null;
+  boxTextRectsOf(boxId: string): BoxTextRects | null;
   elementsInRect(area: Rect): string[];
   boxIdsAt(point: Point): string[];
   setSelection(selectedIds: ReadonlySet<string>): void;
@@ -128,6 +134,13 @@ interface ScenePreview {
 
 const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
 const CULL_CELL_SIZE = 512;
+const CONTEXT_RETRY_MS = 5000;
+const NOTICES = {
+  redrawing: { text: 'The board is redrawing after the graphics card reset.', hasReloadButton: false },
+  paused: { text: 'The browser paused graphics for this page after a graphics card reset. The board keeps retrying.', hasReloadButton: true },
+  unsupported: { text: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.', hasReloadButton: false },
+} as const;
+type NoticeKind = keyof typeof NOTICES;
 const GATHER_MARGIN_FACTOR = 0.75;
 const LOD_STEPS_PER_OCTAVE = 4;
 const HIT_TOLERANCE_PX = 7;
@@ -480,7 +493,7 @@ function createColorReader(host: HTMLElement): { colorOf: (expression: string) =
   };
 }
 
-function toneColorsOf(colorOfTone: (tone: StickyTone) => Rgba): Record<StickyTone, Rgba> {
+function toneColorsOf(colorOfTone: (tone: NoteTone) => Rgba): Record<NoteTone, Rgba> {
   return { yellow: colorOfTone('yellow'), pink: colorOfTone('pink'), green: colorOfTone('green'), blue: colorOfTone('blue'), violet: colorOfTone('violet') };
 }
 
@@ -500,9 +513,8 @@ function resolvePalette(host: HTMLElement): BoardPalette {
     noteStroke: reader.colorOf('var(--wb-note)'),
     noteCard: reader.colorOf('#2a2213'),
     codeBand: reader.colorOf('color-mix(in oklab, var(--accent) 14%, var(--wb-board))'),
-    panelFill: reader.colorOf('color-mix(in oklab, var(--wb-board) 80%, var(--bg))'),
-    stickyFillByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${STICKY_TONE_HEX[tone]} 30%, var(--wb-board))`)),
-    stickyEdgeByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${STICKY_TONE_HEX[tone]} 70%, var(--wb-board))`)),
+    fillByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${NOTE_TONE_HEX[tone]} 30%, var(--wb-board))`)),
+    edgeByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${NOTE_TONE_HEX[tone]} 70%, var(--wb-board))`)),
     frameFill: reader.colorOf('color-mix(in srgb, var(--accent) 4%, transparent)'),
     placeholderFill: reader.colorOf('color-mix(in oklab, var(--accent) 8%, var(--wb-board))'),
     metaSize: reader.sizeOf('var(--type-meta)'),
@@ -529,7 +541,8 @@ function emptyRange(): LayerRange {
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { canvas, viewport, mediaLayer, notice, onViewChange } = options;
+  const { viewport, mediaLayer, notice, onViewChange } = options;
+  let canvas = options.canvas;
   const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
   let gl: WebGL2RenderingContext | null = canvas.getContext('webgl2', contextAttributes);
   let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram; block: PrimitiveProgram } | null = null;
@@ -556,6 +569,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let decorationStart: LayerRange = emptyRange();
   let previewStart: LayerRange = emptyRange();
   let preview: ScenePreview | null = null;
+  let stackMotion: { moves: readonly StackMove[]; startMs: number; frameRequest: number } | null = null;
+  let stackFan: { frameId: string; fromSpread: number; toSpread: number; spread: number; startMs: number; frameRequest: number | null } | null = null;
   let baseDrawnMediaCount = 0;
   const previewRanges: LayerRange[] = Array.from({ length: LAYER_COUNT }, emptyRange);
   let visibleDrawnMedia: DrawnMedia[] = [];
@@ -569,10 +584,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   const mediaTextures = new Map<string, MediaTexture>();
   let gatherNumber = 0;
   let sceneBuildCount = 0;
+  let contextRetryTimer: number | null = null;
+  const noticeText = document.createElement('span');
+  const reloadPageButton = button({ variant: 'secondary', size: 'small', label: 'Reload page', action: 'reload-page', onClick: () => location.reload() });
 
-  function showNotice(text: string | null): void {
-    notice.hidden = text === null;
-    notice.textContent = text ?? '';
+  function showNotice(kind: NoticeKind | null): void {
+    notice.hidden = kind === null;
+    if (!kind) return;
+    noticeText.textContent = NOTICES[kind].text;
+    notice.replaceChildren(...(NOTICES[kind].hasReloadButton ? [noticeText, reloadPageButton] : [noticeText]));
   }
 
   function ensureAtlas(): GlyphAtlas {
@@ -648,7 +668,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function createGlOrNotice(): void {
     if (!gl) {
-      showNotice('This browser cannot draw boards: WebGL2 is turned off or unavailable.');
+      showNotice('unsupported');
       return;
     }
     setUpGl(gl);
@@ -1111,6 +1131,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     upload(programs.glyph, glyphs);
     for (let layer = 0; layer <= LAYER_COUNT; layer += 1) drawLayer(context, programs, glyphSource, layer);
     canvas.dataset.drawnElements = String(current.geometries.length);
+    canvas.dataset.drawnBlocks = String(blocks.length);
     canvas.dataset.mediaTextures = String(mediaTextures.size);
   }
 
@@ -1162,11 +1183,87 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function renderLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
     const current = scene;
     if (lastRendered?.source === layout && lastRendered.blocks === nextBlocks && current?.layout === layout) {
-      dropPreview(current);
+      if (!stackMotion) dropPreview(current);
       return;
     }
+    const previousById = current?.elementById ?? null;
     drawLayout(layout, nextBlocks);
     lastRendered = { source: layout, layout, blocks: nextBlocks };
+    if (previousById) startStackMotion(stackMovesBetween(previousById, layout));
+  }
+
+  function hoveredStackFrameId(boxId: string | null): string | null {
+    const current = scene;
+    const hovered = boxId === null ? undefined : current?.elementById.get(boxId);
+    if (!current || hovered?.kind !== 'box') return null;
+    return stackFrameOfTopCard(current.layout, hovered)?.id ?? null;
+  }
+
+  function fanStack(frameId: string | null): void {
+    if (stackMotion || (preview && !stackFan)) return;
+    const restingFan = stackFan;
+    const targetFrameId = frameId ?? restingFan?.frameId ?? null;
+    if (targetFrameId === null) return;
+    if (restingFan && restingFan.frameId !== targetFrameId) dropStackFan();
+    const fromSpread = stackFan?.spread ?? STACK_SPREAD;
+    const toSpread = frameId === null ? STACK_SPREAD : FANNED_STACK_SPREAD;
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = { frameId: targetFrameId, fromSpread, toSpread, spread: fromSpread, startMs: performance.now(), frameRequest: null };
+    if (prefersReducedMotion()) {
+      paintStackFan(stackFan.startMs + STACK_FAN_MS);
+      return;
+    }
+    stackFan.frameRequest = requestAnimationFrame(paintStackFan);
+  }
+
+  function dropStackFan(): void {
+    if (!stackFan) return;
+    if (stackFan.frameRequest !== null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
+    if (scene) dropPreview(scene);
+  }
+
+  function paintStackFan(nowMs: number): void {
+    const fan = stackFan;
+    const frame = fan ? scene?.elementById.get(fan.frameId) : undefined;
+    if (!fan || frame?.kind !== 'frame') {
+      dropStackFan();
+      return;
+    }
+    const progress = easedProgress(nowMs - fan.startMs, STACK_FAN_MS);
+    fan.spread = fan.fromSpread + (fan.toSpread - fan.fromSpread) * progress;
+    fan.frameRequest = null;
+    if (progress >= 1 && fan.toSpread === STACK_SPREAD) {
+      dropStackFan();
+      return;
+    }
+    paintElements([frame], () => fan.spread);
+    if (progress < 1) fan.frameRequest = requestAnimationFrame(paintStackFan);
+  }
+
+  function stopStackMotion(): void {
+    if (!stackMotion) return;
+    cancelAnimationFrame(stackMotion.frameRequest);
+    stackMotion = null;
+  }
+
+  function startStackMotion(moves: readonly StackMove[]): void {
+    if (moves.length === 0 || prefersReducedMotion()) return;
+    stackMotion = { moves, startMs: performance.now(), frameRequest: requestAnimationFrame(paintStackMotion) };
+    paintElements(movedBoxesAt(moves, 0));
+  }
+
+  function paintStackMotion(nowMs: number): void {
+    const motion = stackMotion;
+    if (!motion) return;
+    const progress = easedProgress(nowMs - motion.startMs, STACK_MOTION_MS);
+    if (progress >= 1) {
+      stackMotion = null;
+      if (scene) dropPreview(scene);
+      return;
+    }
+    paintElements(movedBoxesAt(motion.moves, progress));
+    motion.frameRequest = requestAnimationFrame(paintStackMotion);
   }
 
   function isSameIdSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
@@ -1177,13 +1274,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return true;
   }
 
-  function paintElements(elements: readonly LaidOutElement[]): void {
+  function paintElements(elements: readonly LaidOutElement[], stackSpreadOf?: (frameId: string) => number): void {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
     const current = scene;
     if (!current) return;
     const currentPalette = ensurePalette();
     const glyphSource = ensureAtlasInBoardFont();
-    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
+    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable, ...(stackSpreadOf ? { stackSpreadOf } : {}) };
     const built = sceneOf({ ...current.layout, elements: [...elements], legend: [], caption: null, plan: null }, context, () => null);
     const geometries = built.elements.map((geometry) => ({ ...geometry, paintRank: current.geometries[current.geometryIndexById.get(geometry.id) ?? -1]?.paintRank ?? 0 }));
     const hiddenIds = new Set(elements.map((element) => element.id));
@@ -1196,6 +1293,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function drawLayout(layout: BoardLayout, nextBlocks: readonly BlockTile[]): void {
+    stopStackMotion();
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
     preview = null;
     if (atlas?.isFull()) {
       atlas.forgetUnusedGlyphs();
@@ -1238,7 +1338,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', port: null, linkedBoardId: null, media: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1261,11 +1361,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (port) return { ...hit, part: 'port', port };
     }
     if (!isInside(point, shape.rect)) return null;
-    if (shape.linkRect && isInside(point, shape.linkRect)) return { ...hit, part: 'link', linkedBoardId: shape.linkRect.linkedBoardId };
     if (shape.mediaRect && element.kind === 'box' && element.media && isInside(point, shape.mediaRect)) {
       const href = element.media.kind === 'image' ? servedAssetHref(element.media) ?? '' : '';
       return { ...hit, part: 'media', media: { href, alt: element.media.alt } };
     }
+    const lineIndex = shape.text.lines.findIndex((lineRect) => isInside(point, lineRect));
+    if (lineIndex >= 0) return { ...hit, part: 'line', lineIndex };
+    if (shape.text.emptyBody && isInside(point, shape.text.emptyBody)) return { ...hit, part: 'emptyBody' };
     return hit;
   }
 
@@ -1302,6 +1404,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return index === undefined ? null : (current.geometries[index]?.bounds ?? null);
   }
 
+  function boxTextRectsOf(boxId: string): BoxTextRects | null {
+    const current = scene;
+    const index = current?.geometryIndexById.get(boxId);
+    const hitShape = index === undefined ? null : current?.geometries[index]?.hitShape;
+    return hitShape?.kind === 'rect' ? hitShape.text : null;
+  }
+
   function boxIdsAt(point: Point): string[] {
     const current = scene;
     if (!current) return [];
@@ -1330,6 +1439,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function clear(): void {
+    stopStackMotion();
+    if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+    stackFan = null;
     scene = null;
     preview = null;
     lastRendered = null;
@@ -1346,26 +1458,77 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   }
 
-  canvas.addEventListener('webglcontextlost', (event) => {
+  function adoptContext(context: WebGL2RenderingContext | null): void {
+    gl = context;
+    createGlOrNotice();
+    if (!gl) return;
+    for (const entry of mediaTextures.values()) uploadMediaTexture(entry);
+    showNotice(null);
+    requestDraw();
+  }
+
+  function scheduleContextRetry(): void {
+    if (contextRetryTimer !== null) clearTimeout(contextRetryTimer);
+    contextRetryTimer = window.setTimeout(retryWithFreshCanvas, CONTEXT_RETRY_MS);
+  }
+
+  function cancelContextRetry(): void {
+    if (contextRetryTimer === null) return;
+    clearTimeout(contextRetryTimer);
+    contextRetryTimer = null;
+  }
+
+  function retryWithFreshCanvas(): void {
+    contextRetryTimer = null;
+    const freshCanvas = canvas.cloneNode(false);
+    if (!(freshCanvas instanceof HTMLCanvasElement)) return;
+    const freshContext = freshCanvas.getContext('webgl2', contextAttributes);
+    if (!freshContext) {
+      showNotice('paused');
+      scheduleContextRetry();
+      return;
+    }
+    unwatchCanvas(canvas);
+    canvas.replaceWith(freshCanvas);
+    canvas = freshCanvas;
+    watchCanvas(freshCanvas);
+    adoptContext(freshContext);
+  }
+
+  function onContextLost(event: Event): void {
     event.preventDefault();
     primitives = null;
     atlas?.forgetTexture();
     for (const entry of mediaTextures.values()) entry.texture = null;
     blockTextures.clear();
-    showNotice('The board is redrawing after the graphics card reset.');
-  });
-  canvas.addEventListener('webglcontextrestored', () => {
-    gl = canvas.getContext('webgl2', contextAttributes);
-    createGlOrNotice();
-    for (const entry of mediaTextures.values()) uploadMediaTexture(entry);
-    showNotice(null);
-    requestDraw();
-  });
-  new ResizeObserver(() => {
+    showNotice('redrawing');
+    scheduleContextRetry();
+  }
+
+  function onContextRestored(): void {
+    cancelContextRetry();
+    adoptContext(canvas.getContext('webgl2', contextAttributes));
+  }
+
+  const canvasResizeObserver = new ResizeObserver(() => {
     reportView();
     isGatherDirty = true;
     requestDraw();
-  }).observe(canvas);
+  });
+
+  function watchCanvas(target: HTMLCanvasElement): void {
+    target.addEventListener('webglcontextlost', onContextLost);
+    target.addEventListener('webglcontextrestored', onContextRestored);
+    canvasResizeObserver.observe(target);
+  }
+
+  function unwatchCanvas(target: HTMLCanvasElement): void {
+    target.removeEventListener('webglcontextlost', onContextLost);
+    target.removeEventListener('webglcontextrestored', onContextRestored);
+    canvasResizeObserver.unobserve(target);
+  }
+
+  watchCanvas(canvas);
   const requestDrawOnThemeChange = (): void => {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) requestDraw();
   };
@@ -1377,7 +1540,12 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     render,
     renderLayout,
     layout: () => lastRendered?.layout ?? null,
-    paintElements,
+    paintElements: (elements) => {
+      stopStackMotion();
+      if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
+      stackFan = null;
+      paintElements(elements);
+    },
     setCamera: (nextCamera) => {
       camera = nextCamera;
       reportView();
@@ -1385,6 +1553,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     },
     hitTest,
     boundsOf,
+    boxTextRectsOf,
     elementsInRect,
     boxIdsAt,
     setSelection: (nextSelectedIds) => {
@@ -1404,6 +1573,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (hoveredBoxId === boxId) return;
       hoveredBoxId = boxId;
       refreshDecorations();
+      fanStack(hoveredStackFrameId(boxId));
     },
     clear,
   };

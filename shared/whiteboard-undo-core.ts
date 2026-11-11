@@ -1,4 +1,3 @@
-import { elementInputOf } from './contracts/whiteboard.ts';
 import type { Board, Element, Op } from './contracts/whiteboard.ts';
 import type { BoardDiff, DiffBefore } from './contracts/control/whiteboard-messages.ts';
 import { applyBoardDiff } from './whiteboard-ops-core.ts';
@@ -45,9 +44,9 @@ function restoringOps(current: Board, target: Board): Op[] {
   });
   return [
     ...removed.map((element): Op => ({ op: 'remove', id: element.id })),
-    ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element: elementInputOf(element) })),
+    ...added.filter((element) => EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
     ...setOps,
-    ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element: elementInputOf(element) })),
+    ...added.filter((element) => !EARLY_ADD_KINDS.has(element.kind)).map((element): Op => ({ op: 'add', element })),
     ...boardFieldOps(current, target),
   ];
 }

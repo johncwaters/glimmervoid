@@ -49,6 +49,7 @@ import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { createTeamReviewWiring } from '../github/team-review-wiring.ts';
 import { sweepLeftoverCheckouts } from '../github/team-review-checkouts.ts';
 import { createPrGh } from '../github/pr-gh.ts';
+import { createGithubUsageLedger } from '../github/github-usage-ledger.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packsStatePath } from '../packs/pack-files.ts';
@@ -241,7 +242,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const githubStatus = createGithubStatus({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();
-  const github = createPrGh(glimmervoidHome);
+  const githubUsage = createGithubUsageLedger({ homeDir: glimmervoidHome, readAccountPool: () => githubStore.readAccountRateLimit(), log: logger });
+  const github = createPrGh(glimmervoidHome, undefined, githubUsage.recorder);
+  githubUsage.start(githubClock);
   const githubStore = createGithubStoreWiring({
     github,
     clock: githubClock,

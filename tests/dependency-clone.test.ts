@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
 import type { DependencySeedOutcome } from '../server/git/dependency-clone.ts';
-import { describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
+import { describeInstallNotice, describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
 import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
@@ -249,6 +249,9 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
+  const { notice, failureKind } = describeInstallNotice(install);
+  assert.match(notice ?? '', /^Dependencies did not install in the worktree root \(.+\)\. The session works; Details has the full output\. Dependencies in site were not installed because there is no package-lock\.json or pnpm-lock\.yaml there\.$/);
+  assert.equal(failureKind, 'failed');
 });
 
 test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {
@@ -268,6 +271,34 @@ test('a pnpm lockfile the local pnpm cannot read is skipped quietly while anothe
   assert.deepEqual(describeInstallWarnings(install), [
     'Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --fetch-timeout=30000 --fetch-retries=1` in outdated.',
   ]);
+});
+
+test('a server started with a PATH that lacks npm still installs a worktree with npm found in a usual folder', { skip: !CAN_INSTALL }, async () => {
+  const { root, mainCheckout } = makeMainCheckout('gv-dependency-minimal-path-');
+  writeJson(path.join(mainCheckout, 'package.json'), { name: 'fixture', version: '1.0.0' });
+  writeJson(path.join(mainCheckout, 'package-lock.json'), { name: 'fixture', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'fixture', version: '1.0.0' } } });
+  git(['add', '-A'], mainCheckout);
+  git(['commit', '-m', 'init'], mainCheckout);
+  const worktreeDir = path.join(root, 'session-worktree');
+  git(['worktree', 'add', '-b', 'session', worktreeDir], mainCheckout);
+  const launcherHome = path.join(root, 'home');
+  const npmInUsualFolder = path.join(launcherHome, '.local', 'bin', 'npm');
+  fs.mkdirSync(path.dirname(npmInUsualFolder), { recursive: true });
+  fs.writeFileSync(npmInUsualFolder, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const seedScript = [
+    `const { seedWorktreeDependencies } = await import(${JSON.stringify(path.resolve('server/git/dependency-clone.ts'))});`,
+    `const outcome = await seedWorktreeDependencies({ mainCheckout: ${JSON.stringify(mainCheckout)}, worktreeDir: ${JSON.stringify(worktreeDir)}, signal: new AbortController().signal, hookConfigRelPaths: [] }).completion;`,
+    'console.log(JSON.stringify(outcome.install.results.map((result) => [result.dir, result.ok])));',
+  ].join('\n');
+
+  const seeded = await runCommand(process.execPath, ['--input-type=module', '-e', seedScript], {
+    cwd: process.cwd(),
+    timeoutMs: 120_000,
+    replaceEnv: { PATH: '/usr/bin:/bin', HOME: launcherHome, SHELL: '/usr/bin/false', GLIMMERVOID_HOME: process.env.GLIMMERVOID_HOME },
+  });
+
+  assert.ok(seeded.ok, seeded.err);
+  assert.deepEqual(JSON.parse(seeded.out.trim().split('\n').at(-1) ?? ''), [['.', true]]);
 });
 
 test('a seed whose session closes before it starts installs nothing and frees the queue', { skip: !CAN_INSTALL }, async () => {

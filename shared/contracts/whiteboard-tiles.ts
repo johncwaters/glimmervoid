@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { DEVICE_FITS } from '../whiteboard-devices.ts';
-import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, DialValue, Element, IconName, STEP_STATUSES, STICKY_TONES, STROKE_TONES, Wire } from './whiteboard.ts';
+import { BOX_SHAPES } from '../whiteboard-shapes.ts';
+import { BOX_CHANGES, BoxMedia, DeviceName, DialValue, Element, IconName, LINE_STYLES, NOTE_TONES, STEP_STATUSES, STROKE_TONES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
 export const BLOCK_RASTER_PX = 64;
-
-const LINE_STYLES = ['text', 'code', 'item', 'numbered', 'kv'] as const;
 
 const LayoutPoint = z.object({ x: z.number(), y: z.number() });
 const rectShape = { x: z.number(), y: z.number(), width: z.number(), height: z.number() };
@@ -18,7 +17,6 @@ export const LaidOutLine = z.object({
   marker: z.string().nullable(),
   indentChars: z.number(),
   isFirstRow: z.boolean(),
-  icon: IconName.nullable(),
 });
 
 export const LaidOutMedia = z.object({
@@ -34,8 +32,6 @@ export const LaidOutMedia = z.object({
 
 export const LaidOutDevice = z.object({ ...rectShape, name: DeviceName, scale: z.number(), screen: LayoutRect });
 
-const LaidOutOutput = z.object({ id: z.string(), label: z.string(), port: LayoutPoint });
-
 export const LaidOutBox = z.object({
   ...rectShape,
   kind: z.literal('box'),
@@ -46,16 +42,15 @@ export const LaidOutBox = z.object({
   change: z.enum(BOX_CHANGES),
   wasLines: z.array(z.string()),
   shape: z.enum(BOX_SHAPES),
-  tone: z.enum(STICKY_TONES).nullable().default(null),
+  tone: z.enum(NOTE_TONES).nullable().default(null),
   isBorderless: z.boolean().default(false),
   headerHeight: z.number(),
-  outputs: z.array(LaidOutOutput),
   media: LaidOutMedia.nullable(),
   device: LaidOutDevice.nullable(),
-  step: z.object({ label: z.string(), status: z.enum(STEP_STATUSES), linkedBoardId: z.string().nullable() }).nullable(),
+  step: z.object({ label: z.string(), status: z.enum(STEP_STATUSES) }).nullable(),
 });
 
-export const LaidOutFrame = z.object({ ...rectShape, kind: z.literal('frame'), id: z.string(), title: z.string(), isLoop: z.boolean(), stackedBoxCount: z.number().int().nullable().default(null) });
+export const LaidOutFrame = z.object({ ...rectShape, kind: z.literal('frame'), id: z.string(), title: z.string(), stackedBoxCount: z.number().int().nullable().default(null) });
 
 export const LaidOutWire = z.object({
   kind: z.literal('wire'),
@@ -66,7 +61,6 @@ export const LaidOutWire = z.object({
   label: z.string().nullable(),
   labelAt: LayoutPoint,
   isDashed: z.boolean(),
-  isBack: z.boolean(),
   tone: Wire.shape.tone.unwrap(),
   hasArrowhead: z.boolean(),
   joinAt: LayoutPoint.nullable(),
@@ -79,7 +73,7 @@ export const PlacedBox = LaidOutBox.omit({ titleLines: true, bodyLines: true, wa
 export const PlacedElement = z.discriminatedUnion('kind', [PlacedBox, LaidOutFrame, LaidOutWire, LaidOutStroke]);
 
 const LegendSwatch = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('wire'), tone: Wire.shape.tone.unwrap(), isDashed: z.boolean(), isBack: z.boolean() }),
+  z.object({ kind: z.literal('wire'), tone: Wire.shape.tone.unwrap(), isDashed: z.boolean() }),
   z.object({ kind: z.literal('change'), change: z.enum(['added', 'removed', 'relabeled']) }),
   z.object({ kind: z.literal('status'), status: z.enum(STEP_STATUSES) }),
 ]);

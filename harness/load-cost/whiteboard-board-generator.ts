@@ -1,4 +1,4 @@
-import { Element } from '../../shared/contracts/whiteboard.ts';
+import { Element, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
 
@@ -84,7 +84,7 @@ function elementOfKind(kind: (typeof GROUP_PATTERN)[number], context: ElementCon
     return {
       kind: 'box', id, title: `${phraseOf(nextRandom, 2)} ${groupIndex}`,
       lines: [{ text: phraseOf(nextRandom, 4) }, { text: phraseOf(nextRandom, 3), style: 'item' }],
-      at: { x: origin.x + cellX * CELL_WIDTH, y: origin.y + cellY * CELL_HEIGHT },
+      place: { at: { x: origin.x + cellX * CELL_WIDTH, y: origin.y + cellY * CELL_HEIGHT } },
     };
   }
   if (kind === 'wire') {
@@ -97,7 +97,7 @@ function elementOfKind(kind: (typeof GROUP_PATTERN)[number], context: ElementCon
     const emptyCellIndex = BOXES_PER_GROUP + noteInGroup;
     return {
       kind: 'box', id, shape: 'note', title: phraseOf(nextRandom, 8),
-      at: { x: origin.x + (emptyCellIndex % GROUP_COLUMNS) * CELL_WIDTH, y: origin.y + Math.floor(emptyCellIndex / GROUP_COLUMNS) * CELL_HEIGHT },
+      place: { at: { x: origin.x + (emptyCellIndex % GROUP_COLUMNS) * CELL_WIDTH, y: origin.y + Math.floor(emptyCellIndex / GROUP_COLUMNS) * CELL_HEIGHT } },
     };
   }
   const contains = boxIds.slice(8, 12);
@@ -122,7 +122,7 @@ function generateBoardRecord(options: GeneratedBoardOptions): BoardRecord {
 }
 
 function boxIdsOf(board: Board): string[] {
-  return [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element.id] : []));
+  return [...board.elements.values()].flatMap((element) => (element.kind === 'box' && pointOfBox(element) ? [element.id] : []));
 }
 
 export { boxIdsOf, generateBoardRecord, seededRandom };

@@ -334,7 +334,7 @@
     },
     {
       "name": "link",
-      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a plan step linked to a board holding it in detail"
+      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a board card linked to a file in the code session worktree"
     },
     {
       "name": "model",
@@ -346,11 +346,11 @@
     },
     {
       "name": "element",
-      "definition": "One drawn thing on a whiteboard (a box, frame, wire or note), counted against a board's element limit; a plan step and a panel are boxes"
+      "definition": "One drawn thing on a whiteboard (a box, frame, wire or stroke), counted against a board's element limit; a plan step and a note are boxes"
     },
     {
       "name": "frame",
-      "definition": "A whiteboard element that encloses a set of boxes under a title, optionally marked as a loop"
+      "definition": "A whiteboard element that encloses a set of boxes under a title"
     },
     {
       "name": "wire",
@@ -477,7 +477,7 @@
     },
     {
       "name": "note",
-      "definition": "A whiteboard note pinned to an element with an author and a resolved state; also the git note Glimmervoid attaches to a session commit under refs/notes/glimmervoid"
+      "definition": "A whiteboard box with shape note: a note card in an optional tone, whose author field names the agent or operator that wrote it so the card shows from <author>; also the git note Glimmervoid attaches to a session commit under refs/notes/glimmervoid"
     },
     {
       "name": "ephemeral",
@@ -561,7 +561,7 @@
         "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
       },
       "name": "box",
-      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (near another box or at a point), a shape (box, decision, panel, icon or device) and optionally outputs, media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a note box, a remote box) ordinary English"
+      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a point, near another box, aside in the stack right of the drawing, or plan in the build-order band), one of five shapes (box, decision, note, icon or device) and optionally media, a width and a step; borderless null takes the shape default, so an icon or device box draws bare; a plan step is a box with a step, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a remote box) ordinary English"
     },
     {
       "name": "transitions",
@@ -716,6 +716,34 @@
       "aliases": [
         "hint"
       ]
+    },
+    {
+      "name": "keyboard",
+      "definition": "The phone's on-screen soft keyboard that types into a session's terminal, opened by tapping the terminal and opened or closed by the Keyboard key in the phone key strip"
+    },
+    {
+      "name": "reload",
+      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file"
+    },
+    {
+      "name": "merged",
+      "definition": "A pull request's GitHub state once it lands on its base branch; the Reviews Merged column and an own pull request's Merged stage"
+    },
+    {
+      "name": "end",
+      "definition": "One of a wire's two attachment points on a whiteboard, its from end or its to end; the properties panel's Ends section picks the side of its box each attaches to, or auto"
+    },
+    {
+      "name": "backspace",
+      "definition": "The keyboard key that deletes the character before the cursor; pressed on an empty line in a whiteboard box's line editor it removes that line and moves to the line above"
+    },
+    {
+      "name": "text",
+      "definition": "On a whiteboard, the Text tool (T) that places a borderless box, and the plain line style of a box line beside Code, Bullet and Key and value; elsewhere ordinary English"
+    },
+    {
+      "name": "arrow",
+      "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, or the Arrow box icon"
     }
   ],
   "retired": [

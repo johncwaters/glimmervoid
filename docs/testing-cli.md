@@ -50,6 +50,7 @@ Commands:
   packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
   pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
   pr-action report    Report a PR action run's outcome from the command it ran (--outcome, --message)
+  github-usage        Show the GitHub calls and rate-limit points Glimmervoid spent in the last hour beside the account pool (--json)
   pair                Mint a single-use pairing link for a remote device
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device

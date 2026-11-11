@@ -5,12 +5,31 @@ import Nav from '../../components/Nav.astro';
 import Footer from '../../components/Footer.astro';
 import { formatDate } from '../../lib/format-date.ts';
 import { sitePath } from '../../lib/site-path.ts';
+import { AUTHOR } from '../../lib/product-facts.ts';
+
+const BLOG_TITLE = 'Glimmervoid blog: building an agent orchestrator';
+const BLOG_DESCRIPTION = 'Notes from building Glimmervoid, an agentic development environment for terminal coding agents: why each piece exists, what broke and what shipped.';
 
 const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
   (left, right) => right.data.pubDate.valueOf() - left.data.pubDate.valueOf(),
 );
+const blogStructuredData = {
+  '@type': 'Blog',
+  name: BLOG_TITLE,
+  description: BLOG_DESCRIPTION,
+  url: new URL(sitePath('blog/'), Astro.site).href,
+  publisher: AUTHOR,
+  blogPost: posts.map((post) => ({
+    '@type': 'BlogPosting',
+    headline: post.data.title,
+    url: new URL(sitePath(`blog/${post.id}/`), Astro.site).href,
+    datePublished: post.data.pubDate.toISOString(),
+    dateModified: post.data.updatedDate.toISOString(),
+    author: AUTHOR,
+  })),
+};
 ---
-<Base title="Blog | Glimmervoid" description="Notes from building Glimmervoid, an agentic development environment for terminal coding agents: why each piece exists, what broke and what shipped.">
+<Base title={BLOG_TITLE} description={BLOG_DESCRIPTION} structuredData={blogStructuredData}>
   <Nav />
   <section class="blog-index">
     <h1>Blog</h1>

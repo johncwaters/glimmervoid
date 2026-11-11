@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const RateLimitResource = z.object({ remaining: z.number(), reset: z.number() });
+const RateLimitResource = z.object({ remaining: z.number(), reset: z.number(), used: z.number().optional(), limit: z.number().optional() });
 export const GithubRateLimitResources = z.record(z.string(), RateLimitResource);
 export type GithubRateLimitResources = z.infer<typeof GithubRateLimitResources>;
 

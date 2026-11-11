@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Near, Op } from '../../shared/contracts/whiteboard.ts';
-import { isStackedPanel, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
+import { isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
+import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
 import { noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
@@ -20,7 +21,7 @@ function elementWithMediaForImage(element: unknown): unknown {
 function stepBoxForUnit(unit: Record<string, unknown>): Record<string, unknown> {
   return {
     kind: 'box', id: unit.id, title: unit.title, lines: unit.lines ?? [], refs: unit.refs ?? [],
-    step: { status: unit.status ?? 'planned', linkedBoardId: unit.linkedBoardId ?? null },
+    step: { status: unit.status ?? 'planned' },
   };
 }
 
@@ -29,11 +30,29 @@ function boxForPanel(element: unknown): unknown {
   return { kind: 'box', id: element.id, title: element.title, lines: element.lines ?? [], order: element.order ?? 0, shape: 'panel' };
 }
 
-function boxWithOutputsOnlyOnDecision(element: unknown): unknown {
-  if (!isRecord(element) || element.kind !== 'box' || element.shape === 'decision' || !Array.isArray(element.outputs)) return element;
-  if (element.outputs.length > 0) return { ...element, shape: 'decision' };
-  const { outputs, ...elementWithoutOutputs } = element;
-  return elementWithoutOutputs;
+function withoutRetiredFields(element: unknown): unknown {
+  if (!isRecord(element)) return element;
+  if (element.kind === 'wire') {
+    const { fromOutput: _fromOutput, back: _back, ...keptWire } = element;
+    return keptWire;
+  }
+  if (element.kind !== 'frame') return element;
+  const { loop: _loop, ...keptFrame } = element;
+  return keptFrame;
+}
+
+function withoutRetiredLegend(legend: unknown): unknown {
+  if (!Array.isArray(legend)) return legend;
+  return legend.flatMap((entry) => {
+    if (!isRecord(entry)) return [entry];
+    if (entry.back === true) return [];
+    const { back: _back, ...keptEntry } = entry;
+    return [keptEntry];
+  });
+}
+
+function currentElementsOf(elements: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(elements).map(([elementId, element]) => [elementId, isRecord(element) && element.kind === 'box' ? currentStoredBox(element) : element]));
 }
 
 function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
@@ -145,7 +164,7 @@ function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string
   if (!Object.values(elements).some(hasNearKey)) return elements;
   const nearById = unpinnedNearById(elements);
   const placeholderElements = elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? PLACEHOLDER_PIN : null));
-  const placeholderBoard = BoardSchema.safeParse({ ...board, elements: withoutStoredNotes(placeholderElements) });
+  const placeholderBoard = BoardSchema.safeParse({ ...board, elements: currentElementsOf(withoutStoredNotes(placeholderElements)) });
   if (!placeholderBoard.success) return elementsWithNearReplaced(elements, (boxId) => (nearById.has(boxId) ? UNANCHORED_PIN : null));
   const drawnRectById = storedRectsOfBoxes(placeholderBoard.data);
   const pinById = new Map<string, { x: number; y: number }>();
@@ -158,7 +177,7 @@ function pinnedNearBoxes(board: Record<string, unknown>, elements: Record<string
     if (visitingIds.has(boxId)) return null;
     visitingIds.add(boxId);
     const target = placeholderBoard.data.elements.get(near.of);
-    const targetRect = target?.kind === 'box' && !isStackedPanel(target) ? rectOf(near.of, visitingIds) : null;
+    const targetRect = target?.kind === 'box' && !isAsideBox(target) ? rectOf(near.of, visitingIds) : null;
     const position = targetRect ? nearPosition(targetRect, near, drawnRect) : UNANCHORED_PIN;
     const pin = { x: Math.round(position.x), y: Math.round(position.y) };
     pinById.set(boxId, pin);
@@ -194,12 +213,10 @@ const BLANK_NOTE_TITLE = 'Note';
 
 function noteBoxOf(note: StoredNote, at: { x: number; y: number }): Record<string, unknown> {
   const { title, lines } = noteBoxTextOf(note.text);
-  const signatureLines = [
-    ...(note.resolvedBy ? [mutedLine(`resolved by ${note.resolvedBy}`)] : []),
-    ...(note.author ? [mutedLine(`from ${note.author}`)] : []),
-  ];
-  const textLines = lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - signatureLines.length).map((line) => ({ text: line }));
-  return { kind: 'box', id: note.id, shape: 'note', title: title || BLANK_NOTE_TITLE, lines: [...textLines, ...signatureLines], refs: note.ref ? [note.ref] : [], at };
+  const resolvedLines = note.resolvedBy ? [mutedLine(`resolved by ${note.resolvedBy}`)] : [];
+  const textLines = lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - resolvedLines.length).map((line) => ({ text: line }));
+  const author = note.author.slice(0, WHITEBOARD_LIMITS.title) || null;
+  return { kind: 'box', id: note.id, shape: 'note', title: title || BLANK_NOTE_TITLE, lines: [...textLines, ...resolvedLines], refs: note.ref ? [note.ref] : [], at, author };
 }
 
 function noteWireIdOf(note: StoredNote, takenIds: Set<string>): string {
@@ -212,11 +229,11 @@ function noteWireIdOf(note: StoredNote, takenIds: Set<string>): string {
 }
 
 function noteWireOf(wireId: string, note: StoredNote): Record<string, unknown> {
-  return { kind: 'wire', id: wireId, from: note.id, to: note.on, fromOutput: null, dashed: true, tone: 'plain', label: null, fromSide: null, toSide: null, back: false };
+  return { kind: 'wire', id: wireId, from: note.id, to: note.on, dashed: true, tone: 'plain', label: null, fromSide: null, toSide: null };
 }
 
 function drawnRectsOf(board: Record<string, unknown>, elements: Record<string, unknown>): Map<string, PlacedBox> {
-  const parsed = BoardSchema.safeParse({ ...board, elements });
+  const parsed = BoardSchema.safeParse({ ...board, elements: currentElementsOf(elements) });
   return parsed.success ? storedRectsOfBoxes(parsed.data) : new Map();
 }
 
@@ -251,11 +268,11 @@ function boxesForNotes(board: Record<string, unknown>, elements: Record<string, 
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxWithOutputsOnlyOnDecision(boxForPanel(elementWithMediaForImage(element)))]));
-  const freeBoard = freeCanvasBoard(board, elements);
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, withoutRetiredFields(boxForPanel(elementWithMediaForImage(element)))]));
+  const freeBoard = freeCanvasBoard('legend' in board ? { ...board, legend: withoutRetiredLegend(board.legend) } : board, elements);
   if (!isRecord(freeBoard.elements)) return { ...raw, board: freeBoard };
   const pinnedElements = pinnedNearBoxes(freeBoard, freeBoard.elements);
-  return { ...raw, board: { ...freeBoard, elements: boxesForNotes(freeBoard, pinnedElements) } };
+  return { ...raw, board: { ...freeBoard, elements: currentElementsOf(boxesForNotes(freeBoard, pinnedElements)) } };
 }
 
 function lowestCursor(record: BoardRecord): number {
@@ -450,7 +467,7 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
     lines: caption ? [{ text: caption }] : [],
     media: { ...card.media, alt: caption ?? card.title.slice(0, WHITEBOARD_LIMITS.line) },
     width: SHOWN_BOX_WIDTH,
-    ...placement,
+    place: placement,
   });
   if (!box.success) return { ok: false, error: `box ${boxId} could not be built: ${box.error.issues[0]?.message ?? 'invalid box'}` };
   return { ok: true, op: { op: 'add', element: box.data }, boxId };

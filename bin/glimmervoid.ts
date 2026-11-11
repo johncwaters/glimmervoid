@@ -36,6 +36,7 @@ Commands:
   packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
   pr-flows check      Check PR flows sources, actions and rules; --pr <url> runs each approved source once
   pr-action report    Report a PR action run's outcome from the command it ran (--outcome, --message)
+  github-usage        Show the GitHub calls and rate-limit points Glimmervoid spent in the last hour beside the account pool (--json)
   pair                Mint a single-use pairing link for a remote device
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
@@ -119,6 +120,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   packs: async (parsed) => {
     const { runPacksCli } = await import('../server/packs/packs-cli.ts');
     return runPacksCli(parsed);
+  },
+  'github-usage': async ({ values }) => {
+    const { runGithubUsageCli } = await import('../server/github-usage-cli.ts');
+    return runGithubUsageCli({ isJson: values.json === true });
   },
   'pr-action': async (parsed) => {
     const { runPrActionReportCli } = await import('../server/pr-flows-cli.ts');
@@ -294,6 +299,16 @@ async function runDoctor(): Promise<boolean> {
   for (const command of glimmervoidCommands) {
     const target = command.installPath === command.commandPath ? '' : ` -> ${command.installPath}`;
     line('glimmervoid on PATH', `${command.commandPath}${target}`);
+  }
+
+  switchSection('Package managers');
+  try {
+    const { resolveInstallPath } = await import('../server/install-path.ts');
+    const { tools } = await resolveInstallPath(['npm', 'pnpm']);
+    const INSTALL_PATH_SOURCE_TEXT = { server: 'on PATH', 'login-shell': 'from your login shell PATH', 'known-dir': 'in a usual install folder' } as const;
+    for (const tool of tools) line(tool.name, tool.path ? `${tool.path} (${INSTALL_PATH_SOURCE_TEXT[tool.source ?? 'server']})` : 'not found; new worktrees start without its dependencies');
+  } catch (err) {
+    line('package managers', `probe failed: ${firstLine(errorText(err))}`);
   }
 
   switchSection('Agents');

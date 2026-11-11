@@ -238,8 +238,8 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   assert.equal(JSON.stringify(created).includes('glimmervoid whiteboard put'), false);
   const ops = [
     { op: 'board', title: 'mcp plan renamed' },
-    { op: 'add', element: { kind: 'box', id: 'schema', title: 'Add the schema', step: {} } },
-    { op: 'add', element: { kind: 'box', id: 'route', title: 'Serve the route', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'schema', title: 'Add the schema', place: 'plan', step: {} } },
+    { op: 'add', element: { kind: 'box', id: 'route', title: 'Serve the route', place: 'plan', step: {} } },
     { op: 'add', element: { kind: 'wire', id: 'schema-to-route', from: 'schema', to: 'route' } },
   ];
   const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'mcp plan', ops } }, credential));
@@ -263,8 +263,8 @@ test('whiteboard view pictures only a named region at twice its size, and render
   const { credential, projectDir } = bootedBackend();
   await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'sharp board' } }, credential));
   const ops = [
-    { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', at: { x: 0, y: 0 } } },
-    { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', at: { x: 900, y: 600 } } },
+    { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', place: { at: { x: 0, y: 0 } } } },
+    { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', place: { at: { x: 900, y: 600 } } } },
   ];
   assert.notEqual((await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'sharp board', ops } }, credential))).isError, true);
   const pixelSizeOf = (png: Buffer) => [png.readUInt32BE(16), png.readUInt32BE(20)];
@@ -309,7 +309,7 @@ test('whiteboard view pictures only a named region at twice its size, and render
 test('whiteboard view pictures a board with a far-off box at a capped size', async () => {
   const { credential } = bootedBackend();
   await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'far board' } }, credential));
-  const farBox = { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', at: { x: 0, y: 100_000 } } };
+  const farBox = { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', place: { at: { x: 0, y: 100_000 } } } };
   const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'far board', ops: [farBox] } }, credential));
   assert.notEqual(put.isError, true, JSON.stringify(put));
   const viewed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'view', board: 'far board' } }, credential));
@@ -322,7 +322,7 @@ test('whiteboard view pictures a board with a far-off box at a capped size', asy
 test('every board just past the picture width still pictures instead of being refused', () => {
   const refusedOffsets: number[] = [];
   for (let boxOffset = 1400; boxOffset <= 1800; boxOffset += 1) {
-    const box = { kind: 'box', id: 'edge', title: 'Edge', at: { x: boxOffset, y: 0 } };
+    const box = { kind: 'box', id: 'edge', title: 'Edge', place: { at: { x: boxOffset, y: 0 } } };
     const board = Board.parse({ id: 'edge-board', title: 'edge', version: 1, caption: null, elements: { edge: box }, createdAt: 0, updatedAt: 0 });
     if (!boardPicture(board, layoutBoard(board)).ok) refusedOffsets.push(boxOffset);
   }

@@ -2,7 +2,7 @@ import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import { isSameDirectoryPath } from "../../shared/canonical-paths.ts";
 import { SPAWN_GAP_TRIGGER } from "../core/rebase-gate.ts";
-import { describeDependencyCloneSkip, describeInstallWarnings, describeInstalledDirs } from "../../server/git/core/dependency-clone-core.ts";
+import { describeDependencyCloneSkip, describeInstallNotice, describeInstallWarnings, describeInstalledDirs } from "../../server/git/core/dependency-clone-core.ts";
 import type { DependencySeedOutcome } from "../../server/git/dependency-clone.ts";
 import type { AdoptWorktreeOptions, GitWorkspace, IntegrationSyncResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeSignature } from "./worktree-lifecycle-context.ts";
 import { clock } from '../../shared/clock.ts';
@@ -236,9 +236,10 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     if (!outcome) return;
     const { clone, install } = outcome;
     logCloneOutcome(clone, worktreeDir);
-    const notices = installNotices(install, worktreeDir);
-    if (!notices.length) return;
-    port.emit("worktree-warning", { id, branch, notice: notices.join(" ") });
+    logInstallOutcome(install, worktreeDir);
+    const { notice, failureKind, installDetails } = describeInstallNotice(install);
+    if (!notice) return;
+    port.emit("worktree-warning", { id, branch, notice, ...(failureKind ? { failureKind } : {}), ...(installDetails.length ? { installDetails } : {}) });
   }
 
   function logCloneOutcome(clone: DependencySeedOutcome["clone"], worktreeDir: string): void {
@@ -249,12 +250,10 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     console.log(`[session ${id}] did not clone node_modules into ${worktreeDir}: ${describeDependencyCloneSkip(clone.reason)}`);
   }
 
-  function installNotices(install: DependencySeedOutcome["install"], worktreeDir: string): string[] {
+  function logInstallOutcome(install: DependencySeedOutcome["install"], worktreeDir: string): void {
     const installedSummary = describeInstalledDirs(install);
     if (installedSummary) console.log(`[session ${id}] ${installedSummary} into ${worktreeDir}`);
-    const warnings = describeInstallWarnings(install);
-    for (const warning of warnings) console.log(`[session ${id}] ${warning}`);
-    return warnings;
+    for (const warning of describeInstallWarnings(install)) console.log(`[session ${id}] ${warning}`);
   }
 
   return { provision, stopSeeding };

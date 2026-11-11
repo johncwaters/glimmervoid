@@ -7,7 +7,7 @@ import type { MyPrStage } from '../shared/contracts/my-prs.ts';
 import { TeamReviewStatus, ReviewDraft } from '../shared/contracts/team-review.ts';
 import { groupDrafts, stackBadgeOf } from '../public/github/github-store-core.ts';
 import { settledLineText } from '../public/github/team-review-view-core.ts';
-import { ageToneOf, attentionTilesOf, buildReviewQueue, chooseQueueSelection, orderDisplayGroups, placeCardBefore, queueItemWaitStartMs, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
+import { ageToneOf, attentionTilesOf, buildReviewQueue, chooseQueueSelection, orderDisplayGroups, placeCardBefore, queueItemWaitStartMs, splitMovedToWaiting, splitReviewingNow, togglePulledKey, turnItems, turnPositionText } from '../public/github/review-queue-core.ts';
 
 const NO_TEAM_REVIEWS = { ready: [], noReviewNeeded: [], inReview: [], queued: [], attention: [], posted: [], discarded: [] };
 
@@ -101,6 +101,15 @@ test('Reviewing now holds the pulled Your turn reviews in turn order, up to the 
     ['turn', 'Ready', ['team:acme/app#1']],
   ]);
   assert.equal(turnPositionText(split.groups, 'team:acme/app#2'), '1 of 1 in Reviewing now');
+});
+
+test('a card moved to Waiting on others stays moved through a frame that briefly drops it, and returns to Ready once its stage changes', () => {
+  const movedEntries = ['mine:acme/app#1@checks-failing'];
+  const queueOf = (stage: MyPrStage) => buildReviewQueue(NO_TEAM_REVIEWS, [myPr(1, stage, '2026-10-01T00:00:00Z')], new Set(), true);
+  const moved = splitMovedToWaiting(queueOf('checks-failing'), movedEntries);
+  assert.deepEqual(moved.groups.find((group) => group.id === 'waiting')?.items.map((item) => item.key), ['mine:acme/app#1']);
+  assert.deepEqual(splitMovedToWaiting(buildReviewQueue(NO_TEAM_REVIEWS, [], new Set(), true), movedEntries).movedEntries, movedEntries);
+  assert.deepEqual(splitMovedToWaiting(queueOf('needs-approval'), movedEntries).movedEntries, []);
 });
 
 test('queued reviews sit in Queued, merged pull requests in Merged, settled reviews leave the queue but stay open when held and name who settled them, drafts and discarded reviews in Parked, and posted reviews keep waiting on others', () => {

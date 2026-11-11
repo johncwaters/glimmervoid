@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 
 import { execFileAsync } from '../server/child-process-safe.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
-import { Element, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Element, pointOfBox, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
@@ -60,7 +60,7 @@ export function benchmarkBoard(elementCount: number): Board {
     const place = isStacked
       ? stackedPlaceOf(boxIndex)
       : { at: { x: atGridLeft + (boxIndex % boxesPerRow) * BOX_SPACING_X, y: AT_GRID_TOP + Math.floor(boxIndex / boxesPerRow) * BOX_SPACING_Y } };
-    elements.put(Element.parse({ kind: 'box', id: `b${boxIndex}`, title: `box ${boxIndex}`, lines: [{ text: 'a line' }], ...place }));
+    elements.put(Element.parse({ kind: 'box', id: `b${boxIndex}`, title: `box ${boxIndex}`, lines: [{ text: 'a line' }], place }));
   }
   for (let wireIndex = 0; wireIndex < elementCount - boxCount; wireIndex += 1) {
     const fromIndex = Math.floor(nextRandom() * boxCount);
@@ -99,12 +99,13 @@ function bestLayoutMs(layout: LayoutBoard, board: Board): { layoutMs: number; bo
 
 function movedBoxesBoard(board: Board): Board {
   const nextRandom = seededRandom(11);
-  const placedBoxes = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && element.at ? [element] : []));
+  const placedBoxes = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && pointOfBox(element) ? [element] : []));
   const elements = board.elements.copy();
   for (let moved = 0; moved < EDITED_BOX_COUNT; moved += 1) {
     const box = placedBoxes[Math.floor(nextRandom() * placedBoxes.length)];
-    if (!box?.at) continue;
-    elements.put({ ...box, at: { x: box.at.x + EDIT_OFFSET.x, y: box.at.y + EDIT_OFFSET.y } });
+    const point = box ? pointOfBox(box) : null;
+    if (!box || !point) continue;
+    elements.put({ ...box, place: { at: { x: point.x + EDIT_OFFSET.x, y: point.y + EDIT_OFFSET.y } } });
   }
   return { ...board, elements };
 }

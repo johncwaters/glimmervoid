@@ -9,10 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, elementInputOf, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
@@ -22,7 +23,8 @@ const RESIZE_TIMEOUT_MS = 5000;
 const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
-const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n';
+const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n\nSee [the spec](https://example.com/spec) here.\n';
+const BOARD_DOC_LINK_URL = 'https://example.com/spec';
 const LINKED_DOC_BOX_ID = 'linked-doc';
 const LINKED_DOC_PATH = 'docs/linked-card.md';
 
@@ -131,18 +133,39 @@ async function cursorAt(open: OpenBoard, point: { x: number; y: number }): Promi
   return open.panel.locator('.wb-viewport').evaluate((viewport) => (viewport instanceof HTMLElement ? viewport.style.cursor : ''));
 }
 
+async function isMoreOpenIn(inspect: Locator): Promise<boolean> {
+  return inspect.locator('details[data-disclosure="more"]').evaluate((details) => details instanceof HTMLDetailsElement && details.open);
+}
+
+async function openMoreIn(inspect: Locator): Promise<void> {
+  if (await isMoreOpenIn(inspect)) return;
+  await inspect.locator('details[data-disclosure="more"] > summary').click();
+}
+
+async function waitForPressedShape(inspect: Locator, shape: string): Promise<void> {
+  await inspect.locator(`[data-field="shape-${shape}"][aria-pressed="true"]`).waitFor();
+}
+
+function drawingTools(panel: Locator): Locator {
+  return panel.getByRole('group', { name: 'Drawing tools', exact: true });
+}
+
+function drawingTool(panel: Locator, name: string): Locator {
+  return drawingTools(panel).getByRole('button', { name, exact: true });
+}
+
 async function addPlanStep(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
-  await open.panel.getByRole('button', { name: 'Box', exact: true }).click();
+  await drawingTool(open.panel, 'Box').click();
   const box = await placeBoxWithTool(open, offset, title);
-  await open.panel.locator('.wb-inspect').getByRole('checkbox', { name: 'Plan step', exact: true }).check();
+  await open.panel.locator('.wb-inspect').getByRole('combobox', { name: 'Step', exact: true }).selectOption('planned');
   return elementWhere(open, `${title} as a planned step`, (element) => element.id === box.id && element.kind === 'box' && element.step?.status === 'planned');
 }
 
-async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string, titleInputName = 'Box title'): Promise<BoardElement> {
+async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   await open.page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
-  const titleInput = open.page.getByRole('textbox', { name: titleInputName, exact: true });
+  const titleInput = open.page.getByRole('textbox', { name: 'Box title', exact: true });
   await titleInput.fill(title);
   await open.page.keyboard.press('Enter');
   return elementWhere(open, `a box titled ${title}`, titled(title));
@@ -203,16 +226,16 @@ async function verifyBoxStaysWhereDropped(open: OpenBoard, boxId: string, boxNam
 async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<void> {
   const { page, boardId } = open;
   const anchor = (await boardOf(open)).elements.get(anchorBoxId);
-  assert.ok(anchor?.kind === 'box' && anchor.at, 'the anchor box has a place');
-  const origin = anchor.at;
+  const origin = anchor?.kind === 'box' ? pointOfBox(anchor) : null;
+  assert.ok(origin, 'the anchor box has a point');
   const fromId = 'stack-from';
   const cardId = 'stack-card';
   const droppedId = 'stack-dropped';
   const wireId = 'stack-wire';
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
-    { op: 'add', element: { kind: 'box', id: fromId, title: 'Stack source', at: { x: origin.x, y: origin.y + 100 } } },
-    { op: 'add', element: { kind: 'box', id: cardId, title: 'Stack card', at: { x: origin.x, y: origin.y + 200 } } },
-    { op: 'add', element: { kind: 'box', id: droppedId, title: 'Stack dropped', at: { x: origin.x + 240, y: origin.y + 200 } } },
+    { op: 'add', element: { kind: 'box', id: fromId, title: 'Stack source', place: { at: { x: origin.x, y: origin.y + 100 } } } },
+    { op: 'add', element: { kind: 'box', id: cardId, title: 'Stack card', place: { at: { x: origin.x, y: origin.y + 200 } } } },
+    { op: 'add', element: { kind: 'box', id: droppedId, title: 'Stack dropped', place: { at: { x: origin.x + 240, y: origin.y + 200 } } } },
     { op: 'add', element: { kind: 'wire', id: wireId, from: fromId, to: droppedId } },
   ] });
   await laidOutOf(open, droppedId);
@@ -260,14 +283,14 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('s');
-  const sticky = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
-  await panel.locator('.wb-inspect').getByRole('combobox', { name: 'Tone', exact: true }).selectOption('green');
-  await elementWhere(open, 'a sticky note takes the picked tone', (element) => element.id === sticky.id && element.kind === 'box' && element.shape === 'sticky' && element.tone === 'green');
+  const placedNote = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
+  await panel.locator('.wb-inspect').getByRole('group', { name: 'Tone', exact: true }).getByRole('button', { name: 'Green', exact: true }).click();
+  await elementWhere(open, 'the note tool places a note that takes the picked tone', (element) => element.id === placedNote.id && element.kind === 'box' && element.shape === 'note' && element.tone === 'green');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('t');
   const looseWords = await placeBoxWithTool(open, { x: 40, y: 420 }, 'Loose words');
-  assert.ok(looseWords.kind === 'box' && looseWords.shape === 'text', 'the text tool places a text box');
+  assert.ok(looseWords.kind === 'box' && looseWords.shape === 'box' && looseWords.borderless === true, 'the text tool places a borderless box');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('b');
@@ -284,8 +307,69 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await clickElement(open, ink.id);
   await page.keyboard.press('Delete');
   await boardWithout(open, 'a selected stroke erases with Delete', (element) => element.id === ink.id);
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [sticky.id, looseWords.id].map((id) => ({ op: 'remove', id })) });
-  await boardWithout(open, 'the note and text check cleans up', (element) => element.id === sticky.id);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [placedNote.id, looseWords.id].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the note and text check cleans up', (element) => element.id === placedNote.id);
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
+function lineTextsOf(element: BoardElement): string[] {
+  return element.kind === 'box' ? element.lines.map((line) => line.text) : [];
+}
+
+async function lineCenterOf(open: OpenBoard, boxId: string, lineIndex: number): Promise<{ x: number; y: number }> {
+  const laidOut = await laidOutOf(open, boxId);
+  assert.ok(laidOut.kind === 'box', `${boxId} is a box`);
+  const firstRowIndexes = laidOut.bodyLines.flatMap((line, rowIndex) => (line.isFirstRow ? [rowIndex] : []));
+  const rowIndex = firstRowIndexes[lineIndex];
+  assert.ok(rowIndex !== undefined, `${boxId} draws line ${lineIndex}`);
+  const baseline = laidOut.y + TITLE_BASELINE + (laidOut.wasLines.length + laidOut.titleLines.length) * TITLE_LINE_HEIGHT + rowIndex * BODY_LINE_HEIGHT;
+  const camera = await cameraOf(open);
+  return { x: camera.left + camera.translateX + (laidOut.x + 40) * camera.scale, y: camera.top + camera.translateY + (baseline - 4) * camera.scale };
+}
+
+async function verifyLineEditing(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('r');
+  const card = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Line card');
+  const cardRect = await screenRectOf(open, card.id);
+  await page.mouse.dblclick(cardRect.x + 40, cardRect.y + cardRect.height - 5);
+  const lineInput = page.getByRole('textbox', { name: 'Box line', exact: true });
+  await lineInput.fill('first');
+  await page.keyboard.press('Enter');
+  await lineInput.fill('second');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await elementWhere(open, 'double-clicking the empty body and pressing Enter adds lines', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first|second');
+  assert.equal(await lineInput.count(), 0, 'Enter on an empty new line closes the line editor');
+  const firstLine = await lineCenterOf(open, card.id, 0);
+  await page.mouse.dblclick(firstLine.x, firstLine.y);
+  assert.equal(await lineInput.inputValue(), 'first', 'double-clicking a line edits that line');
+  await lineInput.fill('discarded');
+  await page.keyboard.press('Escape');
+  assert.equal(await lineInput.count(), 0, 'Escape closes the line editor');
+  await page.mouse.dblclick(firstLine.x, firstLine.y);
+  const styleButton = page.getByRole('button', { name: 'Line style', exact: true });
+  await styleButton.click();
+  await page.getByRole('menuitemradio', { name: 'Code', exact: true }).click();
+  await styleButton.click();
+  await page.getByRole('menuitemcheckbox', { name: 'Muted', exact: true }).click();
+  assert.equal(await lineInput.inputValue(), 'first', 'the style menu keeps the line editor open');
+  await lineInput.fill('first code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  const styled = await elementWhere(open, 'the style menu sets the line style and muted', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first code|second');
+  assert.ok(styled.kind === 'box' && styled.lines[0]?.style === 'code' && styled.lines[0].muted, 'the first line is muted code');
+  const secondLine = await lineCenterOf(open, card.id, 1);
+  await page.mouse.dblclick(secondLine.x, secondLine.y);
+  await lineInput.fill('');
+  await page.keyboard.press('Backspace');
+  assert.equal(await lineInput.inputValue(), 'first code', 'Backspace on an empty line edits the line above');
+  await page.keyboard.press('Escape');
+  await elementWhere(open, 'Backspace on an empty line removes it', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first code');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: card.id }] });
+  await boardWithout(open, 'the line editing check cleans up', (element) => element.id === card.id);
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
 }
@@ -302,7 +386,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
   const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
   assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 40, y: 160 }, media: firstDraftMedia } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, place: { at: { x: 40, y: 160 } }, media: firstDraftMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
   await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
@@ -314,7 +398,35 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   assert.deepEqual((await editor.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent))).sort(), ['Close', 'Redo', 'Undo'], 'a document opens on the red pen paper with only its Close, Undo and Redo buttons');
   await paper.locator('.doc-markup-line[data-block="h1"] .doc-markup-text[data-inline="syntax"]', { hasText: '#' }).waitFor();
   await paper.locator('.doc-markup-text[data-inline="strong"]', { hasText: /^Bold$/ }).waitFor();
+  const linkLabel = paper.locator('.doc-markup-text[data-inline="link"]', { hasText: /^the spec$/ });
+  const linkTarget = paper.locator('.doc-markup-text[data-inline="link-syntax"]', { hasText: `](${BOARD_DOC_LINK_URL})` });
+  await linkLabel.waitFor();
+  assert.equal(await linkTarget.isVisible(), false, 'a valid Markdown link shows only its label');
+  await page.evaluate(() => {
+    const openedUrls: string[] = [];
+    Reflect.set(window, 'openedUrls', openedUrls);
+    window.open = (url) => {
+      openedUrls.push(String(url));
+      return null;
+    };
+  });
+  await linkLabel.click({ modifiers: ['ControlOrMeta'] });
+  assert.deepEqual(await page.evaluate(() => Reflect.get(window, 'openedUrls')), [BOARD_DOC_LINK_URL], 'a modifier click on a link label opens its URL');
+  await linkLabel.click();
+  await linkTarget.waitFor({ state: 'visible' });
   await paper.locator('.doc-markup-text', { hasText: 'First draft.' }).click();
+  await linkTarget.waitFor({ state: 'hidden' });
+  const copiedText = await paper.evaluate((paperElement) => {
+    const linkLine = paperElement.querySelector('[data-inline="link"]')?.closest('.doc-markup-line');
+    const lineRange = document.createRange();
+    if (linkLine) lineRange.selectNodeContents(linkLine);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(lineRange);
+    const copyEvent = new ClipboardEvent('copy', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
+    paperElement.dispatchEvent(copyEvent);
+    return copyEvent.clipboardData?.getData('text/plain') ?? '';
+  });
+  assert.ok(copiedText.includes(`[the spec](${BOARD_DOC_LINK_URL})`), `copying a line keeps its link source, got ${JSON.stringify(copiedText)}`);
   await page.keyboard.press(LINE_END_KEY);
   await page.keyboard.type(' Again.');
   await paper.locator('.doc-markup-insertion').waitFor();
@@ -358,12 +470,13 @@ async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Prom
   fs.mkdirSync(path.dirname(linkedFilePath), { recursive: true });
   fs.writeFileSync(linkedFilePath, '# Linked\n\nFrom the repo.\n');
   const boardCopyMedia = await uploadBoardDoc(page, '# Board copy\n', 'linked-card.md');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_DOC_BOX_ID, title: 'Linked card', at: { x: 40, y: 700 }, media: boardCopyMedia } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_DOC_BOX_ID, title: 'Linked card', place: { at: { x: 40, y: 700 } }, media: boardCopyMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   const linkedCard = panel.locator(`.wb-media[data-box-id="${LINKED_DOC_BOX_ID}"]`);
   await linkedCard.locator('.plan-heading', { hasText: 'Board copy' }).waitFor();
   await selectBoxByTitle(open, LINKED_DOC_BOX_ID);
   const inspect = panel.locator('.wb-inspect');
+  await openMoreIn(inspect);
   const linkStatus = inspect.locator('.wb-inspect-link-status');
   await linkStatus.filter({ hasText: 'Not linked' }).waitFor();
   assert.equal(await inspect.getByRole('button', { name: 'Unlink this card from its file', exact: true }).isDisabled(), true, 'Unlink is off for a card with no link');
@@ -552,7 +665,7 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
     slider.value = '7';
     slider.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.shape !== 'text' && element.params.speed === 7);
+  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.params.speed === 7);
   await postedDialValues(JSON.stringify({ speed: 7, loud: false }));
   await verifyCtrlWheelOverInteractivePageZoomsBoard(open, dialsMedia);
   await page.frameLocator(`.wb-media[data-box-id="${dialsBox.id}"] iframe`).getByLabel('dials field').focus();
@@ -960,14 +1073,14 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await renameOpenBoard(page, panel, boardTitle, renamedTitle, 'Enter');
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');
     await renameOpenBoard(page, panel, renamedTitle, boardTitle, 'Enter');
-    const boxTool = panel.getByRole('button', { name: 'Box', exact: true });
+    const boxTool = drawingTool(panel, 'Box');
     assert.equal(await boxTool.getAttribute('title'), null, 'a board tool has no native tooltip');
     await boxTool.click();
     assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
     const toolHint = panel.locator('.wb-tool-hint');
     await toolHint.filter({ hasText: 'Click the board to place a box' }).waitFor();
     const parseFeed = await placeBoxWithTool(open, { x: 60, y: 60 }, 'Parse feed');
-    assert.equal(await panel.getByRole('button', { name: 'Select', exact: true }).getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
+    assert.equal(await drawingTool(panel, 'Select').getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('Escape');
@@ -975,6 +1088,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
+    await verifyLineEditing(open);
     await verifyPageDials(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
@@ -997,9 +1111,11 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    await page.keyboard.press('p');
-    const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art', 'Panel title');
-    await verifyBoxStaysWhereDropped(open, priorArt.id, 'a panel');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Select', 'Box', 'Note', 'Text', 'Wire', 'Pen'], 'the toolbar shows six tools');
+    await page.keyboard.press('d');
+    const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
+    assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key still places a decision with no toolbar button');
+    await verifyBoxStaysWhereDropped(open, priorArt.id, 'a decision placed with the D key');
     await selectBoxes(open, [sourceBox.id, targetBox.id]);
     await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);
     await page.keyboard.press('Escape');
@@ -1042,6 +1158,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await openBoardMenuItem(page, panel, 'Board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Code session', exact: true }).waitFor();
+    assert.equal(await inspect.locator('[data-field="board-title"]').count(), 0, 'board settings carry no title field; rename stays on the board menu and the title click');
+    assert.equal(await inspect.getByRole('textbox', { name: 'Legend label for plain wires', exact: true }).getAttribute('placeholder'), 'not shown', 'the legend offers one label per wire style the board uses, its default as the placeholder');
+    assert.equal(await inspect.locator('[data-field^="legend-"]').count(), 1, 'a board with only plain wires offers one legend label');
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
@@ -1049,20 +1168,19 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     assert.equal(await page.getByRole('menuitemradio').count(), 0, 'the board menu holds only board actions, never a board list');
     await page.keyboard.press('Escape');
     await clickElement(open, targetBox.id);
-    await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
+    await waitForPressedShape(inspect, 'box');
     const isTargetWith = (isMatch: (box: Extract<BoardElement, { kind: 'box' }>) => boolean) => (element: BoardElement) => element.id === targetBox.id && element.kind === 'box' && isMatch(element);
     await inspect.getByRole('checkbox', { name: 'Borderless', exact: true }).check();
-    await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless));
-    await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
-    await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision' && box.outputs.length > 0));
-    await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
-    await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
+    await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless === true));
+    await inspect.getByRole('group', { name: 'Shape', exact: true }).getByRole('button', { name: 'Decision', exact: true }).click();
+    await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision'));
+    await waitForPressedShape(inspect, 'decision');
+    await inspect.getByRole('combobox', { name: 'Step', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
     await elementWhere(open, 'undo right after a panel change takes the decision back', isTargetWith((box) => box.shape !== 'decision'));
-    await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
+    await waitForPressedShape(inspect, 'box');
     await page.keyboard.press('ControlOrMeta+Shift+z');
-    await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
-    assert.equal(await inspect.getByRole('textbox', { name: 'Output yes label', exact: true }).inputValue(), 'yes');
+    await waitForPressedShape(inspect, 'decision');
     const titleField = inspect.getByRole('textbox', { name: 'Title', exact: true });
     await titleField.fill('Index first');
     await page.keyboard.press('Enter');
@@ -1070,7 +1188,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await titleField.fill('Index second');
     await page.keyboard.press('Enter');
     await elementWhere(open, 'the second panel title edit', titled('Index second'));
-    await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
+    await inspect.getByRole('combobox', { name: 'Step', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
     await page.keyboard.press('ControlOrMeta+z');
     await elementWhere(open, 'two undos take both title edits back', titled('Index rows'));
@@ -1078,7 +1196,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await elementWhere(open, 'redo brings the first title back', titled('Index first'));
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await elementWhere(open, 'redo brings the second title back', titled('Index second'));
-    await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption('relabeled');
+    assert.equal(await isMoreOpenIn(inspect), false, 'More stays closed while none of its fields is set');
+    await openMoreIn(inspect);
+    await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption({ label: 'Renamed' });
     await elementWhere(open, 'a relabeled box keeps its old title', isTargetWith((box) => box.change === 'relabeled' && box.was === 'Index second'));
     await titleField.fill('Index rows by day');
     await page.keyboard.press('Enter');
@@ -1096,7 +1216,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
     await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).waitFor();
-    const hasLine = (text: string) => isTargetWith((box) => linesOfBox(box).some((line) => line.text === text));
+    const hasLine = (text: string) => isTargetWith((box) => box.lines.some((line) => line.text === text));
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).fill('first edited');
     await page.keyboard.press('Enter');
     await elementWhere(open, 'the first line edit', hasLine('first edited'));
@@ -1108,8 +1228,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await clickElement(open, step.id);
-    await inspect.getByRole('heading', { name: 'Step', exact: true }).waitFor();
-    await inspect.getByRole('combobox', { name: 'Status', exact: true }).selectOption('landed');
+    await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('.boards-view .wb-inspect [data-field="step"]')?.value === 'planned');
+    await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Landed' });
     await elementWhere(open, 'the landed step', (element) => element.id === step.id && element.kind === 'box' && element.step?.status === 'landed');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('Escape');
@@ -1190,6 +1310,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
   assert.equal(await agentIsland.getByRole('button').count(), 0, 'the session island holds no send control, since board changes reach the agent with its next prompt');
   const inspect = panel.locator('.wb-inspect');
+  await openMoreIn(inspect);
   await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
   await inspect.getByRole('textbox', { name: 'Ref 1', exact: true }).fill(UNCOVERED_FILE_NAME);
   await page.keyboard.press('Enter');
@@ -1211,12 +1332,12 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await inspect.getByRole('button', { name: 'Delete', exact: true }).click();
   await boardWithout(open, 'the deleted step', (element) => element.id === step.id);
   await inspect.waitFor({ state: 'hidden' });
-  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', step: { status: 'building', linkedBoardId: null } } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', place: 'plan', step: { status: 'building' } } }] });
   const bandStep = await elementWhere(open, 'the step in the build-order band', (element) => element.id === 'band-step');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   await clickElement(open, bandStep.id);
-  await inspect.getByRole('checkbox', { name: 'Plan step', exact: true }).uncheck();
-  await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && element.at !== null);
+  await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Not a step' });
+  await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
@@ -1363,6 +1484,8 @@ const SCALE_FIRST_DRAW_BUDGET_MS = 1500;
 const SCALE_FRAME_BUDGET_MS = 100;
 const SCALE_DRAGGED_BOX_COUNT = 8;
 const SCALE_DRAG_OFFSET = { x: 120, y: 0 };
+const SCALE_DRAG_ZOOM = 0.55;
+const SCALE_MAX_ZOOM_IN_NOTCHES = 80;
 const SCALE_PUT_BYTES_SHARE = 0.9;
 const SCALE_SAVE_TIMEOUT_MS = 30000;
 const STACKED_BOX_EVERY = 10;
@@ -1372,7 +1495,7 @@ function scaleBoardPuts(): Op[][] {
   const puts: Op[][] = [[]];
   let putBytes = 0;
   for (const element of board.elements.values()) {
-    const op: Op = { op: 'add', element: elementInputOf(element) };
+    const op: Op = { op: 'add', element };
     const opBytes = JSON.stringify(op).length + 1;
     const current = puts[puts.length - 1] ?? [];
     const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || putBytes + opBytes > WHITEBOARD_LIMITS.putBytes * SCALE_PUT_BYTES_SHARE;
@@ -1390,7 +1513,8 @@ function scaleBoardPuts(): Op[][] {
 function placesOf(board: Board, boxIds: readonly string[]): Record<string, string> {
   return Object.fromEntries(boxIds.map((boxId) => {
     const element = board.elements.get(boxId);
-    return [boxId, element?.kind === 'box' && element.at ? `${element.at.x},${element.at.y}` : ''];
+    const point = element?.kind === 'box' ? pointOfBox(element) : null;
+    return [boxId, point ? `${point.x},${point.y}` : ''];
   }));
 }
 
@@ -1469,10 +1593,14 @@ async function panToAtGrid(open: OpenBoard, board: Board): Promise<Map<string, S
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   const start = { x: canvasBox.x + canvasBox.width * 0.8, y: canvasBox.y + canvasBox.height * 0.5 };
-  await page.mouse.move(start.x, start.y);
+  const camera = await cameraOf(open);
+  const boxesOnScreen = layoutBoard(board).elements.filter((laidOut) => laidOut.kind === 'box').map((laidOut) => centerOf(screenRectOn(camera, laidOut))).filter((center) => center.x > canvasBox.x && center.y > canvasBox.y && center.x < canvasBox.x + canvasBox.width && center.y < canvasBox.y + canvasBox.height);
+  const zoomAnchor = boxesOnScreen[Math.floor(boxesOnScreen.length / 2)] ?? start;
+  await page.mouse.move(zoomAnchor.x, zoomAnchor.y);
   await page.keyboard.down('Control');
-  for (let notch = 0; notch < 4; notch += 1) await page.mouse.wheel(0, 400);
+  for (let notch = 0; notch < SCALE_MAX_ZOOM_IN_NOTCHES && (await cameraOf(open)).scale < SCALE_DRAG_ZOOM; notch += 1) await page.mouse.wheel(0, -400);
   await page.keyboard.up('Control');
+  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const visible = await visibleAtBoxRects(open, board, SCALE_DRAGGED_BOX_COUNT);
     if (visible.size === SCALE_DRAGGED_BOX_COUNT) return visible;
@@ -1495,12 +1623,19 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   const openStartedAt = Date.now();
   const panel = await showBoardInFocus(page, sessionId, SCALE_BOARD_TITLE);
   const open: OpenBoard = { page, panel, boardId };
-  await page.waitForFunction(() => Number(document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]')?.dataset.drawnElements ?? 0) > 0, null, { timeout: 60000 });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#focus-center canvas[data-drawn-elements]');
+    return Number(canvas?.dataset.drawnElements ?? 0) + Number(canvas?.dataset.drawnBlocks ?? 0) > 0;
+  }, null, { timeout: 60000 });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const firstDrawMs = Date.now() - openStartedAt;
 
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  const fittedBoard = screenRectOn(await cameraOf(open), layoutBoard(await shownBoardOf(open)).bounds);
+  const isWholeBoardInView = fittedBoard.x >= canvasBox.x - 1 && fittedBoard.y >= canvasBox.y - 1 && fittedBoard.x + fittedBoard.width <= canvasBox.x + canvasBox.width + 1 && fittedBoard.y + fittedBoard.height <= canvasBox.y + canvasBox.height + 1;
+  assert.ok(isWholeBoardInView, `Fit brings the whole large board into view, board ${JSON.stringify(fittedBoard)} canvas ${JSON.stringify(canvasBox)}`);
   await startFrameRecorder(page);
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.5);
   await page.mouse.down({ button: 'right' });
@@ -1550,8 +1685,10 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   for (const boxId of draggedBoxIds) {
     const beforeBox = before.elements.get(boxId);
     const savedBox = saved.elements.get(boxId);
-    assert.ok(beforeBox?.kind === 'box' && beforeBox.at && savedBox?.kind === 'box' && savedBox.at);
-    assert.ok(Math.abs(savedBox.at.x - beforeBox.at.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedBox.at.x - beforeBox.at.x} of ${droppedDeltaX}`);
+    const beforePoint = beforeBox?.kind === 'box' ? pointOfBox(beforeBox) : null;
+    const savedPoint = savedBox?.kind === 'box' ? pointOfBox(savedBox) : null;
+    assert.ok(beforePoint && savedPoint);
+    assert.ok(Math.abs(savedPoint.x - beforePoint.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedPoint.x - beforePoint.x} of ${droppedDeltaX}`);
   }
 
   const undoStartedAt = Date.now();

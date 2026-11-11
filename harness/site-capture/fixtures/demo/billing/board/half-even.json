@@ -41,9 +41,11 @@
       "id": "rule",
       "shape": "note",
       "title": "Chosen: half-even, no bias over many invoices",
-      "at": {
-        "x": 400,
-        "y": 460
+      "place": {
+        "at": {
+          "x": 400,
+          "y": 460
+        }
       }
     }
   },

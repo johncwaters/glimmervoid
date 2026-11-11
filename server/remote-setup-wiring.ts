@@ -18,6 +18,12 @@ function remoteSetupPrompt(hubCliCommand: string): string {
   return `Set up a remote host for Glimmervoid. Read ./SKILL.md in this folder first and follow it; ./glimmervoid.service is the unit template it refers to. On this machine, run Glimmervoid as ${hubCliCommand}, wherever ./SKILL.md says to run glimmervoid on this machine. Start by asking me the questions its Ground rules list.`;
 }
 
+async function copySkillFolder(sourceDir: string, targetDir: string): Promise<void> {
+  const fileNames = await fs.promises.readdir(sourceDir);
+  await fs.promises.mkdir(targetDir, { recursive: true });
+  for (const fileName of fileNames) await fs.promises.copyFile(path.join(sourceDir, fileName), path.join(targetDir, fileName));
+}
+
 type RemoteSetupAgent = 'claude-code' | 'codex';
 type RemoteSetupOutcome = { ok: true; sessionId: string; sessionName: string } | { ok: false; error: string };
 
@@ -53,7 +59,7 @@ function createRemoteSetupWiring({
       void removeSetupDir();
     };
     try {
-      await fs.promises.cp(skillSourceDir, setupDir, { recursive: true });
+      await copySkillFolder(skillSourceDir, setupDir);
       const project: ProjectEntry = { id, name: REMOTE_SETUP_SESSION_NAME, path: setupDir, dangerouslySkipPermissions: false, unguarded: true };
       session = makeSession(project, config, { agent, ephemeral: true, gitWorkspace: null, dangerouslySkipPermissions: false, initialPrompt: remoteSetupPrompt(hubCliCommand) });
       const startedSession = session;

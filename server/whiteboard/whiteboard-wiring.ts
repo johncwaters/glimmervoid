@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BoardAttachments, BoardRecord, mediaOfBox, STICKY_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardAttachments, BoardRecord, NOTE_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
@@ -51,26 +52,25 @@ const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-
 
 const PUT_GUIDE = [
   'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, - to read it from stdin, or --file <path> to read it from a file, for example',
-  '\'[{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","at":{"x":40,"y":40},"lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
-  '{"op":"add","element":{"kind":"box","id":"store","title":"Store","near":{"of":"parse","side":"right","gap":60}}},',
+  '\'[{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","place":{"at":{"x":40,"y":40}},"lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
+  '{"op":"add","element":{"kind":"box","id":"store","title":"Store","place":{"near":{"of":"parse","side":"right","gap":60}}}},',
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
-  'Element kinds: box (title, icon, near, at, lines, refs, change none|added|removed|relabeled, was, order, shape box|decision|panel|icon|device|sticky|note|text, tone, width, height, device, fit, borderless, outputs, params, step {status planned|building|landed, linkedBoardId} to make it a plan step), wire (from, to, fromOutput, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom, back), frame (title, contains, loop, collapsed).',
+  `Element kinds: box (title, icon, place, lines, refs, change none|added|removed|relabeled, was, order, shape ${BOX_SHAPES.join('|')}, tone, width, height, device, fit, borderless, params, step {status planned|building|landed} to make it a plan step), wire (from, to, dashed, tone plain|fail|join, label, fromSide and toSide left|right|top|bottom), frame (title, contains, collapsed).`,
   'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
-  `An icon draws before a box title or a line text in the text color, as in "icon":"database" on the box or on a line; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
-  `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe. "borderless":true on a box with shape box or device drops its card fill and outline, so a device or picture stands alone under its title.`,
-  'A line takes style text|code|item|numbered|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}, and numbered lines count up through each run.',
-  'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with no place sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
-  `A box with shape sticky is a sticky note in its tone ${STICKY_TONES.join('|')}, yellow by default; a box with shape note is a pinned note card, signed from its author when added: wire it dashed to the box it is about and remove it once settled; a box with shape text draws its title and lines with no border and holds no media. A box height is a least height the content can still exceed. A box you add with no width is stored at the smallest width, 220 to 480, that fits its title on one line and cuts no word of its lines; a word no width up to 480 fits does not widen the box. A frame with collapsed true draws as one stack card of its first box. A stroke is ink the operator drew: a read gives its bounds, and you may remove one but never add or set one.`,
-  'A box with shape panel is a side note card for text such as prior art: with no place it stacks right of the drawing, lowest order first, until it is given one, and no box can sit near it while it is stacked.',
-  'The board is a free canvas: every box but a plan step or a panel needs one place, near another box with near {"of":"parse","side":"right|left|top|bottom","gap":60} or at {"x","y"} pixels; near only places the box once, so it is stored as the at it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from at positions, frames and text boxes. An align op lines placed boxes up in one step, as in {"op":"align","ids":["parse","check","save"],"as":"row"}: row gives every box the top of the highest and the height of the tallest, column the left of the leftmost and the width of the widest; it is stored as a set of each box, so add the boxes in an earlier op of the same put or before.',
+  `An icon draws before a box title in the text color, as in "icon":"database"; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
+  `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe. A device or icon box draws with no card fill or outline, standing alone with its title, and "borderless":false gives it the card; "borderless":true on a box or decision drops its card the same way, so a picture or plain text stands alone; a note always draws its card.`,
+  'A line takes style text|code|item|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}.',
+  'A plan step is a box with a step; a wire from one step to another means the second is built after the first, cycles allowed. A step with place "plan" sits in the build-order band above the free drawing until moved. glimmervoid whiteboard plan add|after|status|show edits and reads them.',
+  `A box with shape note is a note card, signed from its author, the writer the server records: wire it dashed to the box it is about and remove it once settled; a tone ${NOTE_TONES.join('|')} draws it as a colored sticky note. A box height is a least height the content can still exceed. A box you add with no width is stored at the smallest width, 220 to 480, that fits its title on one line and cuts no word of its lines; a word no width up to 480 fits does not widen the box. A frame with collapsed true draws as one stack card of its first box. A stroke is ink the operator drew: a read gives its bounds, and you may remove one but never add or set one.`,
+  'The board is a free canvas: every box needs a place, {"at":{"x","y"}} pixels, {"near":{"of":"parse","side":"right|left|top|bottom","gap":60}} beside another box, "aside" stacked right of the drawing lowest order first (side notes such as prior art; no box can sit near one), or "plan" in the build-order band for a plan step; near only places the box once, so it is stored as the point it lands on and stays put when that box later moves or grows; build columns, rows or lanes yourself from points, frames and borderless boxes. An align op lines placed boxes up in one step, as in {"op":"align","ids":["parse","check","save"],"as":"row"}: row gives every box the top of the highest and the height of the tallest, column the left of the leftmost and the width of the widest; it is stored as a set of each box, so add the boxes in an earlier op of the same put or before.',
   'A planned step whose ref files already changed, or a landed one whose ref files are unchanged or uncommitted, comes back as a warning.',
-  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default); any line takes one ref. A ref that names no file or runs past the end comes back as a warning.',
+  'Point a box at code with refs ["path", "path#L12", "path#L12-L30"], relative to the board code session worktree (codeSessionId, the creating session by default). A ref that names no file or runs past the end comes back as a warning.',
   'Mark what a change does to a box with change: added and removed for parts it brings or takes away, relabeled with was set to the old title for a rename.',
-  'A decision is a box with shape:"decision" and outputs [{id, label}] drawn as rows in that order; a wire with fromOutput set to an output id leaves from that row, so each branch starts at its own named exit.',
-  'Wires route around every box on their own; set fromSide or toSide to pick where one attaches, back:true for a return edge that loops around the outside, and loop:true on a frame to mark what repeats.',
-  'The legend lists every wire style in use on its own; a board op with legend [{tone, dashed, back, label}] renames an entry or adds one.',
+  'A decision is a box with shape:"decision", drawn as a diamond; label each wire that leaves it with its branch.',
+  'Wires route around every box on their own; set fromSide or toSide to pick where one attaches.',
+  'The legend lists every wire style in use on its own; a board op with legend [{tone, dashed, label}] renames an entry or adds one.',
   'A put is applied whole or refused whole.',
   'glimmervoid whiteboard get <board> returns the board and a one-line summary of each change others made since this session last read it;',
   'add --layout to see where every box, wire and label landed, which refs need fixing, which changed files no ref covers and which referenced files the review tab calls worth a look, or run glimmervoid whiteboard render <board> --out board.svg to draw it as the dashboard does.',
@@ -500,12 +500,9 @@ function createWhiteboardWiring({
     for (const element of afterById.values()) {
       const before = element ? boardBefore.elements.get(element.id) : undefined;
       if (element?.kind !== 'box') continue;
-      const linkedBoardId = element.step?.linkedBoardId ?? null;
-      const isNewLink = before?.kind !== 'box' || (before.step?.linkedBoardId ?? null) !== linkedBoardId;
-      if (isNewLink && linkedBoardId !== null && !recordsByBoardId.has(linkedBoardId)) return `step ${element.id} links to board ${linkedBoardId}, which does not exist`;
-      const media = mediaOfBox(element);
+      const media = element.media;
       if (!media) continue;
-      const mediaBefore = before?.kind === 'box' ? mediaOfBox(before) : null;
+      const mediaBefore = before?.kind === 'box' ? before.media : null;
       if (JSON.stringify(mediaBefore) === JSON.stringify(media)) continue;
       const linkRefusal = linkRefusalOf(element.id, media, mediaBefore);
       if (linkRefusal) return linkRefusal;
@@ -576,7 +573,7 @@ function createWhiteboardWiring({
 
   function mediaOfBoxIn(board: Board, boxId: string): BoxMedia | null {
     const element = board.elements.get(boxId);
-    return element?.kind === 'box' ? mediaOfBox(element) : null;
+    return element?.kind === 'box' ? element.media : null;
   }
 
   async function linkedReviewFor(boardId: string, board: Board, options: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }, linkStates: LinkStateOfBox[]): Promise<BoardReview> {
@@ -640,7 +637,7 @@ function createWhiteboardWiring({
     if (!loading.ok) return loading.reply;
     const { board } = loading.record;
     const element = board.elements.get(boxId);
-    const media = element?.kind === 'box' ? mediaOfBox(element) : null;
+    const media = element?.kind === 'box' ? element.media : null;
     if (media?.kind !== 'doc') {
       return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
     }
@@ -832,36 +829,7 @@ function createWhiteboardWiring({
     return reply;
   }
 
-  async function clearLinksTo(deletedBoardId: string): Promise<void> {
-    const storedLinkingBoardIds = await store.boardsLinkingTo(deletedBoardId).catch((error: unknown) => {
-      logger.warn(`[whiteboard] steps on boards not yet opened may still link to deleted board ${deletedBoardId}: ${errorMessage(error)}`);
-      return [];
-    });
-    const loadedBoardIds = [...recordsByBoardId.keys()].filter((boardId) => !unloadedBoardIds.has(boardId));
-    await Promise.all([...new Set([...loadedBoardIds, ...storedLinkingBoardIds])].map((linkingBoardId) => unlinkStepsTo(linkingBoardId, deletedBoardId)));
-  }
-
-  async function unlinkStepsTo(linkingBoardId: string, deletedBoardId: string): Promise<void> {
-    const loading = await loadedRecordOf(linkingBoardId);
-    if (!loading.ok) {
-      logger.warn(`[whiteboard] steps on board ${linkingBoardId} may still link to deleted board ${deletedBoardId}: ${loading.reply.body.ok ? '' : loading.reply.body.error}`);
-      return;
-    }
-    const ops: Op[] = stepBoxesOf(loading.record.board)
-      .filter((stepBox) => stepBox.step.linkedBoardId === deletedBoardId)
-      .map((stepBox) => ({ op: 'set', id: stepBox.id, fields: { step: { linkedBoardId: null } } }));
-    if (ops.length === 0) return;
-    const reply = await putOps(linkingBoardId, ops, GLIMMERVOID_AUTHOR);
-    if (!reply.body.ok) logger.warn(`[whiteboard] steps on board ${linkingBoardId} still link to deleted board ${deletedBoardId}: ${reply.body.error}`);
-  }
-
-  async function removeBoard(boardId: string): Promise<WhiteboardReply> {
-    const reply = await removeBoardRecord(boardId);
-    if (reply.body.ok) await clearLinksTo(boardId);
-    return reply;
-  }
-
-  function removeBoardRecord(boardId: string): Promise<WhiteboardReply> {
+  function removeBoard(boardId: string): Promise<WhiteboardReply> {
     return writeQueue.run(boardId, async () => {
       const current = recordsByBoardId.get(boardId);
       if (!current) return refusal(404, DELETED_BOARD_TEXT);

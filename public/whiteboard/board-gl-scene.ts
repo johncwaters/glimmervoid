@@ -1,14 +1,15 @@
-import type { IconName, StickyTone } from '#shared/contracts/whiteboard.ts';
+import type { IconName, NoteTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
-import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, LINE_ICON_CHARS, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
+import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
+import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
-  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
-  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, codeBandRectOf, decisionOutlinePoints,
-  ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
+  MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, decisionOutlinePoints,
+  ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
 } from '#shared/whiteboard-svg-core.ts';
 import { firstCodePoints } from '#shared/text.ts';
@@ -35,9 +36,8 @@ interface BoardPalette {
   noteStroke: Rgba;
   noteCard: Rgba;
   codeBand: Rgba;
-  panelFill: Rgba;
-  stickyFillByTone: Readonly<Record<StickyTone, Rgba>>;
-  stickyEdgeByTone: Readonly<Record<StickyTone, Rgba>>;
+  fillByTone: Readonly<Record<NoteTone, Rgba>>;
+  edgeByTone: Readonly<Record<NoteTone, Rgba>>;
   frameFill: Rgba;
   placeholderFill: Rgba;
   metaSize: number;
@@ -89,8 +89,14 @@ interface ElementGeometry {
   hitShape: HitShape;
 }
 
+interface BoxTextRects {
+  title: Rect;
+  lines: readonly Rect[];
+  emptyBody: Rect | null;
+}
+
 type HitShape =
-  | { kind: 'rect'; rect: Rect; linkRect: (Rect & { linkedBoardId: string }) | null; mediaRect: Rect | null; hasDrawnMedia: boolean }
+  | { kind: 'rect'; rect: Rect; mediaRect: Rect | null; hasDrawnMedia: boolean; text: BoxTextRects }
   | { kind: 'outline'; rect: Rect; titleRect: Rect }
   | { kind: 'path'; points: Point[] };
 
@@ -105,6 +111,7 @@ const WIRE_LABEL_LAYER = 3;
 const BOX_LAYER = 4;
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, stroke: 5 };
 const MIN_TEXT_PX = 4;
+const ROW_DESCENT = 5;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
 const MIN_ARROWHEAD_PX = 4;
@@ -116,7 +123,6 @@ const OUTLINE_WIDTH = 1.6;
 const LETTER_SPACING_EM = 0.08;
 const CHAR_WIDTH_EM = MONO_CHAR_WIDTH / 12;
 const LABEL_HALO_PAD = 3;
-const LOOP_ARC_STEPS = 12;
 const CORNER_STEPS = 4;
 const ALWAYS = 0;
 
@@ -227,7 +233,6 @@ interface TextStyle {
   anchor?: 'start' | 'middle' | 'end';
   isUppercase?: boolean;
   isStruckThrough?: boolean;
-  isUnderlined?: boolean;
   minPixels?: number;
 }
 
@@ -263,7 +268,6 @@ function pushText(part: PartBuilder, glyphs: GlyphSource, content: string, x: nu
     column += 1;
   }
   if (style.isStruckThrough) pushPolyline(part, [{ x: left, y: baseline - style.size * 0.3 }, { x: left + width, y: baseline - style.size * 0.3 }], 1, color, SOLID, minScale);
-  if (style.isUnderlined) pushPolyline(part, [{ x: left, y: baseline + 2 }, { x: left + width, y: baseline + 2 }], 1, color, SOLID, minScale);
 }
 
 function pushIcon(part: PartBuilder, name: IconName, x: number, y: number, size: number, color: Rgba, minScale: number): void {
@@ -292,6 +296,7 @@ interface SceneContext {
   palette: BoardPalette;
   glyphs: GlyphSource;
   hasDrawnMedia: (box: LaidOutBox) => boolean;
+  stackSpreadOf?: (frameId: string) => number;
 }
 
 function lineTextColor(line: LaidOutLine, palette: BoardPalette): Rgba {
@@ -304,9 +309,7 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   const meta = palette.metaSize;
   lines.forEach((line, index) => {
     const baseline = top + index * BODY_LINE_HEIGHT;
-    const iconLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
-    const rowLeft = line.icon ? iconLeft + LINE_ICON_CHARS * MONO_CHAR_WIDTH : iconLeft;
-    if (line.icon && line.isFirstRow) pushIcon(part, line.icon, iconLeft, baseline - LINE_ICON_RISE, LINE_ICON_SIZE, faded(palette.inkDim, opacity), detailMinScale);
+    const rowLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
     if (line.style === 'code') pushRect(part, codeBandRectOf(line, rowLeft, baseline), 3, faded(palette.codeBand, opacity), faded(palette.codeBand, opacity), 0, detailMinScale);
     if (line.style === 'item' && line.isFirstRow) pushCircle(part, { x: rowLeft + 4, y: baseline - 4 }, ITEM_DOT_RADIUS, faded(palette.inkDim, opacity), faded(palette.inkDim, opacity), 0, detailMinScale);
     if (line.marker !== null) pushText(part, glyphs, line.marker, rowLeft, baseline, { size: meta, color: faded(palette.inkDim, opacity), isBold: line.style === 'kv' });
@@ -314,31 +317,50 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   });
 }
 
+function lineRectsOf(lines: readonly LaidOutLine[], box: Rect, bodyTop: number): Rect[] {
+  const lineRects: Rect[] = [];
+  lines.forEach((line, rowIndex) => {
+    const lastRect = lineRects.at(-1);
+    if (!line.isFirstRow && lastRect) {
+      lineRects[lineRects.length - 1] = { ...lastRect, height: lastRect.height + BODY_LINE_HEIGHT };
+      return;
+    }
+    lineRects.push({ x: box.x, y: bodyTop + rowIndex * BODY_LINE_HEIGHT - BODY_LINE_HEIGHT + ROW_DESCENT, width: box.width, height: BODY_LINE_HEIGHT });
+  });
+  return lineRects;
+}
+
+function boxTextRectsOf(box: LaidOutBox, titleTop: number, bodyTop: number): BoxTextRects {
+  const title = { x: box.x, y: titleTop - TITLE_LINE_HEIGHT + ROW_DESCENT, width: box.width, height: box.titleLines.length * TITLE_LINE_HEIGHT };
+  const lines = lineRectsOf(box.bodyLines, box, bodyTop);
+  const lastTextRect = lines.at(-1) ?? title;
+  const textBottom = lastTextRect.y + lastTextRect.height;
+  const boxBottom = box.y + box.height;
+  const hasEmptyBody = SHAPE_TRAITS[box.shape].holdsLines && boxBottom > textBottom;
+  return { title, lines, emptyBody: hasEmptyBody ? { x: box.x, y: textBottom, width: box.width, height: boxBottom - textBottom } : null };
+}
+
 type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone' | 'isBorderless'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
-  const isPanel = box.shape === 'panel';
-  const width = isPanel && !box.step ? 1.4 : OUTLINE_WIDTH;
   const stepStroke = box.step ? palette.accent : null;
   const restingFill = restingFillOf(box, palette);
-  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width };
-  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width };
-  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width };
-  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width };
+  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width: OUTLINE_WIDTH };
+  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width: OUTLINE_WIDTH };
 }
 
 function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
-  if (box.tone) return palette.stickyFillByTone[box.tone];
+  if (box.tone) return palette.fillByTone[box.tone];
   if (box.shape === 'note') return palette.noteCard;
-  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
-  return box.shape === 'panel' ? palette.panelFill : palette.board;
+  return box.isBorderless ? TRANSPARENT : palette.board;
 }
 
 function restingStrokeOf(box: OutlinedBox, palette: BoardPalette): Rgba {
-  if (box.tone) return palette.stickyEdgeByTone[box.tone];
+  if (box.tone) return palette.edgeByTone[box.tone];
   if (box.shape === 'note') return palette.noteStroke;
-  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
-  return box.shape === 'panel' ? palette.line : palette.inkDim;
+  return box.isBorderless ? TRANSPARENT : palette.inkDim;
 }
 
 function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): Rgba {
@@ -406,13 +428,6 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     if (firstCorner) pushPolyline(part, [...polygon, firstCorner], outline.width, stroke, outline.dash, ALWAYS);
   }
   if (box.shape !== 'decision') pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
-  for (const output of box.outputs) {
-    const rowHalfHeight = (box.height - box.headerHeight) / box.outputs.length / 2;
-    const rowTop = output.port.y - rowHalfHeight;
-    pushPolyline(part, [{ x: box.x, y: rowTop }, { x: box.x + box.width, y: rowTop }], 1, faded(palette.line, opacity), SOLID, detailMinScale);
-    pushText(part, glyphs, output.label, box.x + BOX_TEXT_INSET, output.port.y + OUTPUT_LABEL_BASELINE_OFFSET, { size: palette.metaSize, color: faded(palette.ink, opacity), isBold: true, isUppercase: true });
-    pushCircle(part, output.port, OUTPUT_DOT_RADIUS, faded(palette.inkDim, opacity), faded(palette.inkDim, opacity), 0, detailMinScale);
-  }
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   if (box.step) {
     pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.accent, opacity), isBold: true });
@@ -436,7 +451,6 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   });
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
-  if (box.shape === 'panel' && box.bodyLines.length > 0) pushPolyline(part, [{ x: box.x + BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }, { x: box.x + box.width - BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }], 1, faded(palette.line, opacity), SOLID, detailMinScale);
   pushBodyLines(part, context, box.bodyLines, box.x, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
@@ -446,28 +460,16 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     pushOutlinedRect(part, box.media, 6, faded(palette.placeholderFill, opacity), faded(palette.inkDim, opacity), 1, { on: 4, off: 4 }, detailMinScale);
     pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, placeholderStyle);
   }
-  const linkedBoardId = box.step?.linkedBoardId ?? null;
-  if (!linkedBoardId) return { part, hitShape: { kind: 'rect', rect: box, linkRect: null, mediaRect: box.media, hasDrawnMedia } };
-  const linkStyle: TextStyle = { size: palette.metaSize, color: faded(palette.accent, opacity), isUnderlined: true };
-  const linkBaseline = bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT;
-  pushText(part, glyphs, LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, linkBaseline, linkStyle);
-  const linkRect = { x: box.x + BOX_TEXT_INSET, y: linkBaseline - palette.metaSize, width: textWidth(LINKED_BOARD_TEXT, linkStyle), height: palette.metaSize + 4, linkedBoardId };
-  return { part, hitShape: { kind: 'rect', rect: box, linkRect, mediaRect: box.media, hasDrawnMedia } };
-}
-
-function arcPoints(center: Point, radius: number, startAngle: number, sweep: number): Point[] {
-  return Array.from({ length: LOOP_ARC_STEPS + 1 }, (_, step) => {
-    const angle = startAngle + (step / LOOP_ARC_STEPS) * sweep;
-    return { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
-  });
+  return { part, hitShape: { kind: 'rect', rect: box, mediaRect: box.media, hasDrawnMedia, text: boxTextRectsOf(box, titleTop, bodyTop) } };
 }
 
 function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
   const { palette, glyphs } = context;
   const part = createPart();
   const card = { x: frame.x, y: frame.y + FRAME_TITLE_HEIGHT, width: frame.width - STACK_SPREAD * 2, height: frame.height - FRAME_TITLE_HEIGHT - STACK_SPREAD * 2 };
+  const ghostSpread = context.stackSpreadOf?.(frame.id) ?? STACK_SPREAD;
   for (const depth of [2, 1]) {
-    const ghostCard = { ...card, x: card.x + STACK_SPREAD * depth, y: card.y + STACK_SPREAD * depth };
+    const ghostCard = { ...card, x: card.x + ghostSpread * depth, y: card.y + ghostSpread * depth };
     pushOutlinedRect(part, ghostCard, 8, palette.cardBackground, palette.line, 1.2, SOLID, ALWAYS);
   }
   const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };
@@ -481,25 +483,16 @@ function frameGeometry(frame: LaidOutFrame, context: SceneContext): { part: Part
   if (frame.stackedBoxCount !== null) return stackGeometry(frame, frame.stackedBoxCount, context);
   const { palette, glyphs } = context;
   const part = createPart();
-  const stroke = frame.isLoop ? palette.accent : palette.line;
-  pushOutlinedRect(part, frame, 12, palette.frameFill, stroke, 1.4, { on: 10, off: 6 }, ALWAYS);
+  pushOutlinedRect(part, frame, 12, palette.frameFill, palette.line, 1.4, { on: 10, off: 6 }, ALWAYS);
   const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };
   pushText(part, glyphs, frame.title, frame.x + 14, frame.y + 18, titleStyle);
-  if (frame.isLoop) {
-    const center = { x: frame.x + frame.width - LOOP_BADGE_INSET, y: frame.y + LOOP_BADGE_RADIUS + 6 };
-    const arc = arcPoints(center, LOOP_BADGE_RADIUS, 0, -Math.PI * 1.5);
-    pushPolyline(part, arc, OUTLINE_WIDTH, palette.accent, SOLID, MIN_DETAIL_BOX_PX / frame.height);
-    const tail = arc[arc.length - 2];
-    const tip = arc[arc.length - 1];
-    if (tail && tip) pushArrowhead(part, tail, tip, palette.accent, MIN_ARROWHEAD_PX / ARROWHEAD_LENGTH);
-  }
   const titleRect = { x: frame.x, y: frame.y, width: 28 + textWidth(frame.title, titleStyle), height: 26 };
   return { part, hitShape: { kind: 'outline', rect: frame, titleRect } };
 }
 
-function wireColor(wire: Pick<LaidOutWire, 'tone' | 'isBack'>, palette: BoardPalette): Rgba {
+function wireColor(wire: Pick<LaidOutWire, 'tone'>, palette: BoardPalette): Rgba {
   if (wire.tone === 'fail') return palette.failed;
-  if (wire.tone === 'join' || wire.isBack) return palette.accent;
+  if (wire.tone === 'join') return palette.accent;
   return palette.inkDim;
 }
 
@@ -539,7 +532,7 @@ function pointsOfStroke(stroke: LaidOutStroke): Point[] {
 }
 
 function strokeColorOf(stroke: LaidOutStroke, palette: BoardPalette): Rgba {
-  return stroke.tone === 'ink' ? palette.ink : palette.stickyEdgeByTone[stroke.tone];
+  return stroke.tone === 'ink' ? palette.ink : palette.edgeByTone[stroke.tone];
 }
 
 function strokeGeometry(stroke: LaidOutStroke, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
@@ -680,4 +673,4 @@ export {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
   boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
 };
-export type { BoardPalette, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };
+export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };

@@ -1,8 +1,9 @@
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { InstallFailureKind, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
+import { button } from './ui/button.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
 import { clock } from '#shared/clock.ts';
@@ -112,8 +113,17 @@ interface HeaderError {
   source: string;
   sessionId?: string;
   message: string;
+  kind?: InstallFailureKind;
+  action?: HeaderErrorAction;
   hidesInStreamerMode?: boolean;
 }
+
+interface HeaderErrorAction {
+  label: string;
+  run: () => void;
+}
+
+const HEADER_STATUS_ACTION = 'header-status-action';
 
 interface ShownHeaderError {
   source: string;
@@ -145,13 +155,22 @@ function paintHeaderErrorAge() {
   if (parts.age.textContent !== ageText) parts.age.textContent = ageText;
 }
 
-export function reportHeaderError({ source, sessionId, message, hidesInStreamerMode = true }: HeaderError) {
-  reportHeaderErrorToServer(source, message);
+function replaceHeaderAction(line: HTMLElement, beforeElement: HTMLElement, action: HeaderErrorAction | undefined) {
+  line.querySelector(`[data-action="${HEADER_STATUS_ACTION}"]`)?.remove();
+  if (!action) return;
+  const actionButton = button({ variant: 'secondary', size: 'small', label: action.label, action: HEADER_STATUS_ACTION, onClick: action.run });
+  actionButton.classList.add('shrink-0');
+  line.insertBefore(actionButton, beforeElement);
+}
+
+export function reportHeaderError({ source, sessionId, message, kind, action, hidesInStreamerMode = true }: HeaderError) {
+  reportHeaderErrorToServer(source, message, kind);
   const parts = headerStatusParts();
   if (!parts) return;
   const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
   const sourceElement = el('strong', 'header-status-source', source);
   parts.text.replaceChildren(sourceElement, ` ${shownMessage}`);
+  replaceHeaderAction(parts.line, parts.age, action);
   shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: clock.nowMs() };
   paintHeaderErrorAge();
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
@@ -177,5 +196,6 @@ function dismissHeaderStatus() {
   if (!parts) return;
   parts.line.hidden = true;
   parts.text.replaceChildren();
+  replaceHeaderAction(parts.line, parts.age, undefined);
   parts.age.textContent = '';
 }

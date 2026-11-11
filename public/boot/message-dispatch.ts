@@ -1,5 +1,6 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { onControlMessage } from '../control-ws.ts';
+import { UNREADABLE_SERVER_MESSAGE_TEXT, onControlMessage, onUnreadableServerMessage } from '../control-ws.ts';
+import { reportHeaderError } from '../action-status.ts';
 import { mergeMessageHandlerGroups } from './core/message-dispatch-core.ts';
 import { faceHandlers } from './handlers/face-handlers.ts';
 import { githubHandlers } from './handlers/github-handlers.ts';
@@ -20,7 +21,17 @@ function dispatchControlMessage<Type extends ServerMessage['type']>(message: { [
   if (handler) handler(message);
 }
 
+const STALE_DASHBOARD_ERROR_SOURCE = 'Dashboard';
+let hasShownStaleDashboardError = false;
+
+function showStaleDashboardError() {
+  if (hasShownStaleDashboardError) return;
+  hasShownStaleDashboardError = true;
+  reportHeaderError({ source: STALE_DASHBOARD_ERROR_SOURCE, message: UNREADABLE_SERVER_MESSAGE_TEXT, hidesInStreamerMode: false });
+}
+
 function wireMessageDispatch() {
+  onUnreadableServerMessage(showStaleDashboardError);
   onControlMessage((msg) => {
     dispatchControlMessage(msg);
     refreshViewsIfVisible(msg.type);

@@ -23,9 +23,11 @@
             "muted": true
           }
         ],
-        "at": {
-          "x": 40,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 60
+          }
         }
       }
     },
@@ -45,9 +47,11 @@
             "style": "item"
           }
         ],
-        "at": {
-          "x": 400,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 400,
+            "y": 60
+          }
         }
       }
     },
@@ -62,9 +66,11 @@
             "text": "sum of rows minus discounts"
           }
         ],
-        "at": {
-          "x": 760,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 760,
+            "y": 60
+          }
         }
       }
     },
@@ -82,19 +88,11 @@
             "style": "kv"
           }
         ],
-        "outputs": [
-          {
-            "id": "domestic",
-            "label": "domestic"
-          },
-          {
-            "id": "export",
-            "label": "export, 0%"
+        "place": {
+          "at": {
+            "x": 760,
+            "y": 300
           }
-        ],
-        "at": {
-          "x": 760,
-          "y": 300
         }
       }
     },
@@ -110,9 +108,11 @@
             "style": "code"
           }
         ],
-        "at": {
-          "x": 40,
-          "y": 300
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 300
+          }
         }
       }
     },
@@ -150,7 +150,6 @@
         "id": "tax-total",
         "from": "tax",
         "to": "total",
-        "fromOutput": "domestic",
         "label": "amount"
       }
     },
@@ -161,8 +160,8 @@
         "id": "export-total",
         "from": "tax",
         "to": "total",
-        "fromOutput": "export",
-        "dashed": true
+        "dashed": true,
+        "label": "export, 0%"
       }
     },
     {
@@ -171,7 +170,6 @@
         "kind": "box",
         "id": "source",
         "title": "src/invoice.js",
-        "shape": "panel",
         "lines": [
           {
             "text": "export function invoiceTotal(rows, rate)",
@@ -181,7 +179,8 @@
             "text": "rounds once, at the very end",
             "muted": true
           }
-        ]
+        ],
+        "place": "aside"
       }
     },
     {
@@ -191,9 +190,11 @@
         "id": "drift",
         "shape": "note",
         "title": "Support: some totals come out one cent high on .5 amounts",
-        "at": {
-          "x": 40,
-          "y": 460
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 460
+          }
         }
       }
     },
@@ -220,7 +221,8 @@
         ],
         "step": {
           "status": "planned"
-        }
+        },
+        "place": "plan"
       }
     }
   ]

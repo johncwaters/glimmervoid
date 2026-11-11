@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
-import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind, jsonOfStored } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
@@ -13,7 +13,7 @@ type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds:
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 const ELEMENT_PAGE_SIZE = 5_000;
-const BOARD_ROWS_VERSION = 4;
+const BOARD_ROWS_VERSION = 6;
 const RETIRED_NOTE_KIND = 'note';
 
 const BOARD_STORE_SCHEMA = `
@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS elements (
   body TEXT NOT NULL,
   kind TEXT,
   asset_id TEXT,
-  linked_board_id TEXT,
   UNIQUE (board_id, element_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS elements_by_revision ON elements (board_id, revision);
@@ -55,7 +54,7 @@ const Rect = z.strictObject({ minX: z.number(), maxX: z.number(), minY: z.number
 
 const ElementKind = z.enum(ELEMENT_KIND_NAMES);
 
-const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), linkedBoardId: z.string().nullable(), text: z.string() });
+const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), text: z.string() });
 
 const BoardDelta = z.strictObject({
   boardId: z.string(),
@@ -74,7 +73,6 @@ const StoreRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('load-heads'), requestId: z.number().int() }),
   z.strictObject({ kind: z.literal('load-board'), requestId: z.number().int(), boardId: z.string(), afterSlot: z.number().int(), limit: z.number().int().positive() }),
   z.strictObject({ kind: z.literal('asset-ids'), requestId: z.number().int() }),
-  z.strictObject({ kind: z.literal('boards-linking-to'), requestId: z.number().int(), boardId: z.string() }),
   z.strictObject({ kind: z.literal('write'), requestId: z.number().int(), deltas: z.array(BoardDelta) }),
   z.strictObject({ kind: z.literal('delete'), requestId: z.number().int(), boardId: z.string() }),
   z.strictObject({ kind: z.literal('set-rects'), requestId: z.number().int(), boardId: z.string(), rectsByElementId: z.record(z.string(), Rect) }),
@@ -123,7 +121,7 @@ const BoardHeadFields = z.record(z.string(), z.unknown());
 const ElementIdentity = z.object({ id: z.string() });
 
 function searchableTextOf(element: Element): string {
-  if (element.kind === 'box') return [element.title, ...linesOfBox(element).map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
+  if (element.kind === 'box') return [element.title, ...element.lines.map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
   if (element.kind === 'wire') return element.label ?? '';
   if (element.kind === 'stroke') return '';
   return element.title;
@@ -135,8 +133,7 @@ function headOf(board: Board): string {
 }
 
 function elementWriteOf(element: Element, body: string): z.infer<typeof ElementWrite> {
-  const linkedBoardId = element.kind === 'box' ? element.step?.linkedBoardId ?? null : null;
-  return { elementId: element.id, kind: element.kind, body, assetId: assetIdOf(element), linkedBoardId, text: searchableTextOf(element) };
+  return { elementId: element.id, kind: element.kind, body, assetId: assetIdOf(element), text: searchableTextOf(element) };
 }
 
 function elementWritesOf(elements: readonly Element[]): z.infer<typeof ElementWrite>[] {
