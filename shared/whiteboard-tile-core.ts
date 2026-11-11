@@ -1,5 +1,5 @@
 import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
-import { sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element, ReadElement } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
 import { dressedElement, laidOutStrokeOf } from './whiteboard-layout-core.ts';
@@ -147,7 +147,7 @@ function paintRankOf(element: PlacedElement, stored: Element | undefined): numbe
   switch (element.kind) {
     case 'frame': return 0;
     case 'wire': return 1;
-    case 'box': return stored?.kind === 'box' && stored.at ? 2 : 3;
+    case 'box': return stored?.kind === 'box' && pointOfBox(stored) ? 2 : 3;
     default: return 4;
   }
 }

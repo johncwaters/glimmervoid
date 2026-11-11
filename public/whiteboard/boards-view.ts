@@ -3,7 +3,8 @@ import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Fr
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, mediaOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -542,7 +543,7 @@ function livePageBoxIdOf(selectedIds: ReadonlySet<string>): string | null {
   if (selectedIds.size !== 1) return null;
   const [selectedId] = selectedIds;
   const selected = selectedId === undefined ? undefined : selectedBoard()?.elements.get(selectedId);
-  if (selected?.kind !== 'box' || mediaOfBox(selected)?.kind !== 'page') return null;
+  if (selected?.kind !== 'box' || selected.media?.kind !== 'page') return null;
   return selected.id;
 }
 
@@ -553,7 +554,7 @@ function pressedDialValuesOf({ boxId }: PressedImage): Record<string, DialValue>
 
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements.get(boxId) : undefined;
-  return pressedBox?.kind === 'box' ? mediaOfBox(pressedBox) : null;
+  return pressedBox?.kind === 'box' ? pressedBox.media : null;
 }
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
@@ -612,7 +613,7 @@ function docBoxOf(boardId: string, boxId: string): Extract<Element, { kind: 'box
 
 function docMediaOf(boardId: string, boxId: string): BoxMedia | null {
   const box = docBoxOf(boardId, boxId);
-  const media = box ? mediaOfBox(box) : null;
+  const media = box?.media ?? null;
   return media?.kind === 'doc' ? media : null;
 }
 
@@ -622,7 +623,7 @@ function boardDocKey(boardId: string): string {
 
 function keepOpenDocMedia(boardId: string, boxId: string, savedMedia: BoxMedia): void {
   const savedBox = docBoxOf(boardId, boxId);
-  if (savedBox && savedBox.shape !== 'icon' && savedBox.shape !== 'text' && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
+  if (savedBox && SHAPE_TRAITS[savedBox.shape].holdsMedia && openDocBox?.box.id === boxId) openDocBox = { boardId, box: { ...savedBox, media: savedMedia } };
 }
 
 async function saveLinkedDocText(boardId: string, boxId: string, docText: string, loadedAsset: string): ReturnType<DocSource['save']> {
@@ -677,7 +678,7 @@ function openBoardDoc(boardId: string, boxId: string): void {
   if (box?.kind !== 'box') return;
   openDocBox = { boardId, box };
   const board = heldBoardOf(boardId);
-  if (board && mediaOfBox(box)?.link) refreshReviewOf(board);
+  if (board && box.media?.link) refreshReviewOf(board);
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 
@@ -726,7 +727,7 @@ function addNoteOn(boxId: string): void {
       const noteBoxId = newElementId('box');
       const { title, lines } = noteBoxTextOf(text);
       return sendOpsFromDialog([
-        { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), at: noteAt }) },
+        { op: 'add', element: ElementInput.parse({ kind: 'box', id: noteBoxId, shape: 'note', title, lines: lines.map((line) => ({ text: line })), place: { at: noteAt } }) },
         { op: 'add', element: ElementInput.parse({ kind: 'wire', id: newElementId('wire'), from: noteBoxId, to: boxId, dashed: true }) },
       ]);
     },

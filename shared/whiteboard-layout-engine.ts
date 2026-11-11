@@ -1,9 +1,9 @@
-import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, Box, Element } from './contracts/whiteboard.ts';
+import { pointOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, Element } from './contracts/whiteboard.ts';
 import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
   placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
@@ -232,10 +232,6 @@ function warningsOf(world: LayoutWorld): string[] {
   }));
 }
 
-function isFloatingShaped(box: Box): boolean {
-  return box.at === null && !isInStepBand(box);
-}
-
 function obstacleRectOf(element: PlacedElement): Rect | null {
   if (element.kind === 'wire') return null;
   if (element.kind === 'frame') return frameTitleStripOf(element);
@@ -375,7 +371,7 @@ function createLayoutWorld(board: Board, previous: LayoutWorld | null = null, mi
 }
 
 function touchesStepBox(element: Element | null | undefined, stepBoxIds: ReadonlySet<string>): boolean {
-  if (element?.kind === 'box') return element.step !== null || isFloatingShaped(element);
+  if (element?.kind === 'box') return element.step !== null || isAsideBox(element);
   if (element?.kind === 'wire') return stepBoxIds.has(element.from) || stepBoxIds.has(element.to);
   return false;
 }
@@ -403,7 +399,7 @@ function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
     if (touchesStack(board, change.before) || touchesStack(board, change.after)) return true;
     const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box';
-    if (isSolidChange && index.floatingBoxCount > 0) return true;
+    if (isSolidChange && index.asideBoxCount > 0) return true;
   }
   return false;
 }
@@ -420,8 +416,9 @@ function placedDirtyBoxes(world: LayoutWorld, board: Board, dirtyIds: ReadonlySe
       placedById.set(id, null);
       continue;
     }
-    if (!box.at) return null;
-    placedById.set(id, laidOutBox(NO_PLAN_STEPS, box, { x: box.at.x, y: box.at.y + world.pinnedOffsetY }));
+    const point = pointOfBox(box);
+    if (!point) return null;
+    placedById.set(id, laidOutBox(NO_PLAN_STEPS, box, { x: point.x, y: point.y + world.pinnedOffsetY }));
   }
   return placedById;
 }
@@ -825,8 +822,8 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
     const laidOut = world.laidOutById.get(element.id);
     if (laidOut?.kind === 'frame') frames.push(laidOut);
     if (laidOut?.kind === 'wire') wires.push(laidOut);
-    if (laidOut?.kind === 'box' && element.kind === 'box' && element.at) pinnedBoxes.push(laidOut);
-    if (laidOut?.kind === 'box' && element.kind === 'box' && !element.at) nearBoxes.push(laidOut);
+    if (laidOut?.kind === 'box' && element.kind === 'box' && pointOfBox(element)) pinnedBoxes.push(laidOut);
+    if (laidOut?.kind === 'box' && element.kind === 'box' && !pointOfBox(element)) nearBoxes.push(laidOut);
     if (laidOut?.kind === 'stroke') strokes.push(laidOut);
   }
   const layout: PlacedLayout = { elements: [...frames, ...wires, ...pinnedBoxes, ...nearBoxes, ...strokes], ...world.chrome, warnings: warningsOf(world) };

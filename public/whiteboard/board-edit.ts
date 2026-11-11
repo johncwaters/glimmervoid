@@ -1,5 +1,5 @@
-import { WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import { filledElement, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Box, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { el } from '../dom-helpers.ts';
@@ -74,7 +74,7 @@ interface MovingBox {
   start: Rect;
 }
 
-type BoxFields = { at: ViewPoint } | { width: number };
+type BoxFields = { place: { at: ViewPoint } } | { width: number };
 
 const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([1, 2]);
 
@@ -107,17 +107,21 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
 
 const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', sticky: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
 
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: PlacementTool): ElementInput {
-  const placed = { kind: 'box' as const, id: newElementId('box'), title, icon: null, refs: [], change: 'none' as const, was: null, near: null, order: 0, at, width: null, height: null, step: null };
-  switch (shape) {
-    case 'icon': return { ...placed, shape, icon: PLACED_ICON, borderless: true };
-    case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', borderless: true, media, params: {} };
-    case 'decision': return { ...placed, shape, lines: [], media, params: {} };
-    case 'sticky': return { ...placed, shape, tone: 'yellow', lines: [], media, params: {} };
-    case 'text': return { ...placed, shape, lines: [] };
-    case 'box': return { ...placed, shape, borderless: false, lines: [], media, params: {} };
-    case 'panel': return { ...placed, shape, lines: [], media, params: {} };
+function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box> {
+  switch (tool) {
+    case 'icon': return { shape: 'icon', icon: PLACED_ICON };
+    case 'device': return { shape: 'device', device: PLACED_DEVICE, media };
+    case 'sticky': return { shape: 'note', tone: 'yellow', media };
+    case 'text': return { shape: 'box', borderless: true };
+    case 'decision': return { shape: 'decision', media };
+    case 'box':
+    case 'panel': return { shape: 'box', media };
   }
+}
+
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, tool: PlacementTool): ElementInput {
+  const sparseBox = { kind: 'box' as const, id: newElementId('box'), title, place: { at }, ...placedShapeOf(tool, media) };
+  return filledElement(sparseBox);
 }
 
 function pressedImageOf(hit: BoardHit | null): PressedImage | null {
@@ -289,7 +293,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return record?.kind === 'box' && isInStepBand(record);
     });
     const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
-    return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { at: { x: at.x, y: at.y + bandShrinkY } } }));
+    return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { place: { at: { x: at.x, y: at.y + bandShrinkY } } } }));
   }
 
   function cancelPreviewFrame(): void {
@@ -324,7 +328,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const box = board.elements.get(boxId);
       const laidOut = laidOutById.get(boxId);
       if (box?.kind !== 'box' || !laidOut) continue;
-      resizedElements.put({ ...box, ...fields, step: null, at: { x: laidOut.x, y: laidOut.y } });
+      resizedElements.put({ ...box, ...fields, step: null, place: { at: { x: laidOut.x, y: laidOut.y } } });
     }
     const resizedById = new Map<string, LaidOutElement>();
     for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
@@ -781,7 +785,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.type = 'text';
     input.value = titled.title;
     input.maxLength = 80;
-    input.setAttribute('aria-label', titled.shape === 'panel' ? 'Panel title' : 'Box title');
+    input.setAttribute('aria-label', 'Box title');
     input.style.left = `${boxRect.left - canvasRect.left}px`;
     input.style.top = `${boxRect.top - canvasRect.top}px`;
     input.style.width = `${Math.max(160, boxRect.width)}px`;

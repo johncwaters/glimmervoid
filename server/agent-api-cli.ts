@@ -275,7 +275,7 @@ async function addStep({ values, positionals }: ParsedArguments, boardRef: strin
   const wireOps = dependencyWireOps(read.board, stepId, commaSeparatedIds(values.after));
   if (typeof wireOps === 'string') return { ok: false, text: wireOps };
   const ops = parsedOps([
-    { op: 'add', element: { kind: 'box', id: stepId, title, step: { status: 'planned' } } },
+    { op: 'add', element: { kind: 'box', id: stepId, title, place: 'plan', step: { status: 'planned' } } },
     ...wireOps,
   ]);
   if (typeof ops === 'string') return { ok: false, text: ops };

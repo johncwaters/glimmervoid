@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
-import { BoardRecord, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
 import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind, jsonOfStored } from '../../shared/whiteboard-element-table.ts';
 import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
@@ -13,7 +13,7 @@ type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds:
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
 const ELEMENT_PAGE_SIZE = 5_000;
-const BOARD_ROWS_VERSION = 5;
+const BOARD_ROWS_VERSION = 6;
 const RETIRED_NOTE_KIND = 'note';
 
 const BOARD_STORE_SCHEMA = `
@@ -121,7 +121,7 @@ const BoardHeadFields = z.record(z.string(), z.unknown());
 const ElementIdentity = z.object({ id: z.string() });
 
 function searchableTextOf(element: Element): string {
-  if (element.kind === 'box') return [element.title, ...linesOfBox(element).map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
+  if (element.kind === 'box') return [element.title, ...element.lines.map((line) => [line.key, line.text].filter(Boolean).join(' '))].join('\n');
   if (element.kind === 'wire') return element.label ?? '';
   if (element.kind === 'stroke') return '';
   return element.title;

@@ -1,5 +1,5 @@
 import { BRAND_ACCENT } from './brand-mark.ts';
-import { STICKY_TONE_HEX, STICKY_TONES } from './contracts/whiteboard.ts';
+import { NOTE_TONE_HEX, NOTE_TONES } from './contracts/whiteboard.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
@@ -27,7 +27,6 @@ const CODE_BAND_RISE = 13;
 const CODE_BAND_HEIGHT = 17;
 const CODE_BAND_PAD = 4;
 const ITEM_DOT_RADIUS = 2.2;
-const TITLE_RULE_RISE = 12;
 const LEGEND_SAMPLE_WIDTH = 28;
 const TITLE_CHAR_WIDTH = 9.6;
 const TITLE_ICON_SIZE = 14;
@@ -47,10 +46,9 @@ svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospac
 .wb-backdrop { fill: #0d0b16; }
 .wb-plan-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
-.wb-panel .wb-box-outline { fill: #110f20; stroke: #4a4268; stroke-width: 1.4; }
-.wb-text .wb-box-outline, .wb-borderless .wb-box-outline { fill: transparent; stroke: transparent; }
+.wb-borderless .wb-box-outline { fill: transparent; stroke: transparent; }
 .wb-note .wb-box-outline { fill: #2a2213; stroke: #f5c26b; stroke-width: 1.2; }
-${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_TONE_HEX[tone]}; fill-opacity: 0.3; stroke: ${STICKY_TONE_HEX[tone]}; }`).join('\n')}
+${NOTE_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${NOTE_TONE_HEX[tone]}; fill-opacity: 0.3; stroke: ${NOTE_TONE_HEX[tone]}; }`).join('\n')}
 .wb-change-added .wb-box-outline { stroke: #22c55e; stroke-dasharray: 7 5; }
 .wb-change-removed { opacity: 0.6; }
 .wb-change-removed .wb-box-outline { fill: transparent; stroke: #ef4444; stroke-dasharray: 7 5; }
@@ -66,7 +64,6 @@ ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_
 .wb-line-marker { fill: #a79fc4; font-size: 12px; }
 .wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-item-dot { fill: #a79fc4; }
-.wb-panel-rule { stroke: #4a4268; stroke-width: 1; }
 .wb-step .wb-box-outline, .wb-step-swatch { stroke: ${BRAND_ACCENT}; }
 .wb-step-label { fill: ${BRAND_ACCENT}; font-size: 12px; font-weight: 700; }
 .wb-step-status { fill: #a79fc4; font-size: 11px; }
@@ -288,12 +285,11 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
     parts.push(text(line, titleLeft, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title', textAnchor));
   });
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
-  if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, bodyTop));
   if (box.device) parts.push(...deviceMarkup(box, box.device, box.titleLines.join(' '), assetHref));
   if (box.media && !box.device) parts.push(...mediaMarkup(box.media, assetHref));
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
-  const shapeClass = box.shape === 'box' || box.shape === 'decision' ? '' : ` wb-${box.shape}`;
+  const shapeClass = box.shape === 'note' ? ' wb-note' : '';
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
   const toneClass = box.tone ? ` wb-tone-${box.tone}` : '';
@@ -323,7 +319,7 @@ function wireMarkup(wire: LaidOutWire): string {
 function strokeMarkup(stroke: LaidOutStroke): string {
   const points: string[] = [];
   for (let index = 0; index + 1 < stroke.points.length; index += 2) points.push(`${stroke.points[index]},${stroke.points[index + 1]}`);
-  const color = stroke.tone === 'ink' ? '#e6e0f5' : STICKY_TONE_HEX[stroke.tone];
+  const color = stroke.tone === 'ink' ? '#e6e0f5' : NOTE_TONE_HEX[stroke.tone];
   const line = tag('polyline', { points: points.join(' '), fill: 'none', stroke: color, 'stroke-width': stroke.strokeWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
   return elementGroup(stroke, 'wb-stroke', [line]);
 }
@@ -415,7 +411,7 @@ export type { AssetHref, PageOccluder };
 export {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
   boardSvgDocument, codeBandRectOf, decisionOutlinePoints, pageMaskImage,

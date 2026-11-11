@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
-import { BOARD_DOC_CAP_BYTES, mediaOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_DOC_CAP_BYTES } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, LinkStateOfBox, MediaLink, Op } from '../../shared/contracts/whiteboard.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import { linkPathProblem, linkStateOf, linkStateText } from '../../shared/whiteboard-link-core.ts';
@@ -36,7 +36,7 @@ function brokenLinkText(reason: DocRefusal): string {
 
 function linkedMediaOf(board: Board, boxId: string): LinkedMedia | null {
   const element = board.elements.get(boxId);
-  const media = element?.kind === 'box' ? mediaOfBox(element) : null;
+  const media = element?.kind === 'box' ? element.media : null;
   if (!media?.link) return null;
   return { ...media, link: media.link };
 }

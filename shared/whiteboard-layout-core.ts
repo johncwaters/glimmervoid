@@ -1,5 +1,6 @@
-import { BOX_CHANGES, dialValuesOfBox, isBorderlessBox, mediaOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxInput, BoxLine, BoxMedia, DialValue, Element, Frame, Stroke, Wire } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, Wire } from './contracts/whiteboard.ts';
+import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
@@ -39,7 +40,6 @@ const ICON_BOX_WIDTH = 160;
 const SOFT_BREAK_CHARS = '_./:,-';
 const FITTED_BOX_WIDTH_MAX = 480;
 const FITTED_BOX_WIDTH_STEP = 20;
-const FITTED_BOX_SHAPES: ReadonlySet<Box['shape']> = new Set(['box', 'decision', 'sticky', 'note', 'text']);
 
 
 interface Rect {
@@ -143,13 +143,15 @@ function laidOutLines(lines: readonly BoxLine[], bodyCharsPerLine = BODY_CHARS_P
   return measuredLines(lines, bodyCharsPerLine).rows;
 }
 
-function defaultBoxWidthOf(box: Box): number {
+type BoxWithoutPlace = Omit<Box, 'place'>;
+
+function defaultBoxWidthOf(box: BoxWithoutPlace): number {
   if (box.shape === 'icon') return ICON_BOX_WIDTH;
-  if (box.shape === 'device') return DEVICE_CATALOG[box.device].defaultBoxWidth;
+  if (box.device) return DEVICE_CATALOG[box.device].defaultBoxWidth;
   return DEFAULT_BOX_WIDTH;
 }
 
-function boxWidthOf(box: Box): number {
+function boxWidthOf(box: BoxWithoutPlace): number {
   return box.width ?? defaultBoxWidthOf(box);
 }
 
@@ -174,12 +176,17 @@ interface ContentArt {
   screen: Rect;
 }
 
-function boxContentOf(box: Box): BoxContent {
+function drawnLinesOf(box: BoxWithoutPlace): readonly BoxLine[] {
+  if (box.shape !== 'note' || box.author === null) return box.lines;
+  return [...box.lines, { text: `${BYLINE_PREFIX}${box.author}`, muted: true, style: 'text', key: null }];
+}
+
+function boxContentOf(box: BoxWithoutPlace): BoxContent {
   const titleIconChars = box.icon ? TITLE_ICON_CHARS : 0;
   if (box.shape === 'icon') return { lines: [], media: null, device: null, fit: 'fit', glyphRoom: ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP, titleIconChars: 0, dialValues: {} };
   const dialValues = dialValuesOfBox(box);
   if (box.shape === 'device') return { lines: [], media: box.media, device: box.device, fit: box.fit, glyphRoom: 0, titleIconChars, dialValues };
-  return { lines: box.lines, media: mediaOfBox(box), device: null, fit: 'fit', glyphRoom: 0, titleIconChars, dialValues };
+  return { lines: drawnLinesOf(box), media: box.media, device: null, fit: 'fit', glyphRoom: 0, titleIconChars, dialValues };
 }
 
 function deviceArtOf(device: DeviceName, artWidth: number): ContentArt {
@@ -230,9 +237,9 @@ function laidOutDevice(content: BoxContent, position: Point, artTop: number, art
 
 type BoxShape = ReturnType<typeof measuredBoxShape>;
 
-const boxShapeCache = new WeakMap<Box, BoxShape>();
+const boxShapeCache = new WeakMap<BoxWithoutPlace, BoxShape>();
 
-function boxShape(box: Box): BoxShape {
+function boxShape(box: BoxWithoutPlace): BoxShape {
   const cached = boxShapeCache.get(box);
   if (cached) return cached;
   const shape = measuredBoxShape(box);
@@ -246,7 +253,7 @@ interface BoxText {
   bodyLines: LaidOutLine[];
 }
 
-function boxTextOf(box: Box, boxWidth: number): BoxText {
+function boxTextOf(box: BoxWithoutPlace, boxWidth: number): BoxText {
   const content = boxContentOf(box);
   const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
   return {
@@ -262,7 +269,7 @@ interface TextFit {
   isBodyCutMidWord: boolean;
 }
 
-function textFitAt(box: Box, boxWidth: number): TextFit {
+function textFitAt(box: BoxWithoutPlace, boxWidth: number): TextFit {
   const content = boxContentOf(box);
   const title = wrappedText(box.title, charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth) - content.titleIconChars);
   return {
@@ -272,15 +279,15 @@ function textFitAt(box: Box, boxWidth: number): TextFit {
   };
 }
 
-function firstWidthWhere(fromWidth: number, toWidth: number, accepts: (fit: TextFit) => boolean, box: Box): number | null {
+function firstWidthWhere(fromWidth: number, toWidth: number, accepts: (fit: TextFit) => boolean, box: BoxWithoutPlace): number | null {
   for (let width = fromWidth; width <= toWidth; width += FITTED_BOX_WIDTH_STEP) {
     if (accepts(textFitAt(box, width))) return width;
   }
   return null;
 }
 
-function fittedBoxWidthOf(box: Box): number | null {
-  if (!FITTED_BOX_SHAPES.has(box.shape) || mediaOfBox(box)) return null;
+function fittedBoxWidthOf(box: BoxWithoutPlace): number | null {
+  if (!SHAPE_TRAITS[box.shape].isFitted || box.media) return null;
   const preferences: ((fit: TextFit) => boolean)[] = [
     (fit) => fit.isTitleOnOneLine && !fit.isBodyCutMidWord,
     (fit) => fit.isTitleOnOneLine,
@@ -292,7 +299,7 @@ function fittedBoxWidthOf(box: Box): number | null {
   return fitted === DEFAULT_BOX_WIDTH ? null : fitted;
 }
 
-function titleCutWarningOf(box: Box): string | null {
+function titleCutWarningOf(box: BoxWithoutPlace): string | null {
   const boxWidth = boxWidthOf(box);
   if (box.shape === 'icon' || box.shape === 'device' || !textFitAt(box, boxWidth).isTitleCutMidWord) return null;
   const fittingWidth = firstWidthWhere(boxWidth + FITTED_BOX_WIDTH_STEP, WHITEBOARD_LIMITS.boxWidthMax, (fit) => !fit.isTitleCutMidWord, box);
@@ -300,7 +307,7 @@ function titleCutWarningOf(box: Box): string | null {
   return fittingWidth === null ? cutText : `${cutText}; set width ${fittingWidth}`;
 }
 
-function measuredBoxShape(box: Box) {
+function measuredBoxShape(box: BoxWithoutPlace) {
   const content = boxContentOf(box);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   const boxWidth = boxWidthOf(box);
@@ -346,22 +353,20 @@ function elementsOfKind<Kind extends Element['kind']>(board: IndexedBoard, kind:
   return board.elementsByKind[kind];
 }
 
-function laidOutStep(planStepById: ReadonlyMap<string, PlanStep>, box: Box): LaidOutStep | null {
+function laidOutStep(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithoutPlace): LaidOutStep | null {
   if (!box.step) return null;
   return { label: planStepById.get(box.id)?.label ?? '', status: box.step.status };
 }
 
-function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, position: Point): PlacedBox {
+function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithoutPlace, position: Point): PlacedBox {
   const shape = boxShape(box);
   const width = boxWidthOf(box);
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, tone: box.shape === 'sticky' ? box.tone : null, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.tone, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
   };
 }
-
-type Near = NonNullable<BoxInput['near']>;
 
 function nearPosition(target: PlacedBox, near: Near, size: { width: number; height: number }): Point {
   const centeredY = target.y + target.height / 2 - size.height / 2;
@@ -374,7 +379,7 @@ function nearPosition(target: PlacedBox, near: Near, size: { width: number; heig
   }
 }
 
-function laidOutNearBox(planStepById: ReadonlyMap<string, PlanStep>, box: Box, near: Near, target: PlacedBox): PlacedBox {
+function laidOutNearBox(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithoutPlace, near: Near, target: PlacedBox): PlacedBox {
   const position = nearPosition(target, near, { width: boxWidthOf(box), height: boxShape(box).height });
   return laidOutBox(planStepById, box, { x: Math.round(position.x), y: Math.round(position.y) });
 }
@@ -384,19 +389,19 @@ function freeOrigin(boxesById: ReadonlyMap<string, PlacedBox>, boxesTop: number)
   return { x: boxesById.size > 0 ? rightmostEdge + FREE_GAP : MARGIN, y: boxesTop };
 }
 
-function isStackedPanel(box: Box): boolean {
-  return box.shape === 'panel' && box.step === null && box.at === null;
+function isAsideBox(box: Box): boolean {
+  return box.place === 'aside';
 }
 
-function placeStackedPanels(board: IndexedBoard, boxesTop: number, boxesById: Map<string, PlacedBox>): void {
-  const stackedPanels = elementsOfKind(board, 'box').filter(isStackedPanel).sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
-  if (stackedPanels.length === 0) return;
+function placeAsideBoxes(board: IndexedBoard, boxesTop: number, boxesById: Map<string, PlacedBox>): void {
+  const asideBoxes = elementsOfKind(board, 'box').filter(isAsideBox).sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  if (asideBoxes.length === 0) return;
   const drawingRight = [...boxesById.values()].reduce((rightmost, box) => Math.max(rightmost, box.x + box.width), -Infinity);
   const stackX = boxesById.size > 0 ? Math.round(drawingRight + FREE_GAP) : MARGIN;
   let nextY = boxesTop;
-  for (const panel of stackedPanels) {
-    const placed = laidOutBox(board.planStepById, panel, { x: stackX, y: nextY });
-    boxesById.set(panel.id, placed);
+  for (const asideBox of asideBoxes) {
+    const placed = laidOutBox(board.planStepById, asideBox, { x: stackX, y: nextY });
+    boxesById.set(asideBox.id, placed);
     nextY += placed.height + BOX_GAP;
   }
 }
@@ -408,9 +413,10 @@ function layoutBoxes(board: IndexedBoard, boxesTop: number, stepBandPositions: R
     if (bandPosition) boxesById.set(box.id, laidOutBox(board.planStepById, box, bandPosition));
   }
   for (const box of elementsOfKind(board, 'box')) {
-    if (box.at) boxesById.set(box.id, laidOutBox(board.planStepById, box, box.at));
+    const point = pointOfBox(box);
+    if (point) boxesById.set(box.id, laidOutBox(board.planStepById, box, point));
   }
-  placeStackedPanels(board, boxesTop, boxesById);
+  placeAsideBoxes(board, boxesTop, boxesById);
   for (const box of elementsOfKind(board, 'box')) {
     if (!boxesById.has(box.id)) boxesById.set(box.id, laidOutBox(board.planStepById, box, freeOrigin(boxesById, boxesTop)));
   }
@@ -555,7 +561,7 @@ function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute:
 }
 
 function isInStepBand(box: Box): boolean {
-  return box.step !== null && box.at === null;
+  return box.step !== null && box.place === 'plan';
 }
 
 interface StepBand {
@@ -632,7 +638,7 @@ function laidOutStrokeOf(stroke: Stroke, pinnedOffsetY: number): LaidOutStroke {
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   if (offsetY === 0) return board;
-  const elements = [...board.elements.values()].map((element) => (element.kind !== 'box' || !element.at ? element : { ...element, at: { x: element.at.x, y: element.at.y + offsetY } }));
+  const elements = [...board.elements.values()].map((element) => (element.kind !== 'box' || typeof element.place !== 'object' ? element : { ...element, place: { at: { x: element.place.at.x, y: element.place.at.y + offsetY } } }));
   return { ...board, elements: elementTableOf(elements) };
 }
 
@@ -778,7 +784,7 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
 
 export {
   FRAME_TITLE_HEIGHT, STACK_SPREAD,
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isInStepBand, isStackedPanel,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
   dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };

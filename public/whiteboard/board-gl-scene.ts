@@ -1,4 +1,4 @@
-import type { IconName, StickyTone } from '#shared/contracts/whiteboard.ts';
+import type { IconName, NoteTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
@@ -7,7 +7,7 @@ import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE, codeBandRectOf, decisionOutlinePoints,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, decisionOutlinePoints,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
 } from '#shared/whiteboard-svg-core.ts';
@@ -35,9 +35,8 @@ interface BoardPalette {
   noteStroke: Rgba;
   noteCard: Rgba;
   codeBand: Rgba;
-  panelFill: Rgba;
-  stickyFillByTone: Readonly<Record<StickyTone, Rgba>>;
-  stickyEdgeByTone: Readonly<Record<StickyTone, Rgba>>;
+  fillByTone: Readonly<Record<NoteTone, Rgba>>;
+  edgeByTone: Readonly<Record<NoteTone, Rgba>>;
   frameFill: Rgba;
   placeholderFill: Rgba;
   metaSize: number;
@@ -313,28 +312,24 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
 type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone' | 'isBorderless'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
-  const isPanel = box.shape === 'panel';
-  const width = isPanel && !box.step ? 1.4 : OUTLINE_WIDTH;
   const stepStroke = box.step ? palette.accent : null;
   const restingFill = restingFillOf(box, palette);
-  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width };
-  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width };
-  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width };
-  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width };
+  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width: OUTLINE_WIDTH };
+  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width: OUTLINE_WIDTH };
 }
 
 function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
-  if (box.tone) return palette.stickyFillByTone[box.tone];
+  if (box.tone) return palette.fillByTone[box.tone];
   if (box.shape === 'note') return palette.noteCard;
-  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
-  return box.shape === 'panel' ? palette.panelFill : palette.board;
+  return box.isBorderless ? TRANSPARENT : palette.board;
 }
 
 function restingStrokeOf(box: OutlinedBox, palette: BoardPalette): Rgba {
-  if (box.tone) return palette.stickyEdgeByTone[box.tone];
+  if (box.tone) return palette.edgeByTone[box.tone];
   if (box.shape === 'note') return palette.noteStroke;
-  if (box.shape === 'text' || box.isBorderless) return TRANSPARENT;
-  return box.shape === 'panel' ? palette.line : palette.inkDim;
+  return box.isBorderless ? TRANSPARENT : palette.inkDim;
 }
 
 function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): Rgba {
@@ -425,7 +420,6 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   });
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
-  if (box.shape === 'panel' && box.bodyLines.length > 0) pushPolyline(part, [{ x: box.x + BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }, { x: box.x + box.width - BOX_TEXT_INSET, y: bodyTop - TITLE_RULE_RISE }], 1, faded(palette.line, opacity), SOLID, detailMinScale);
   pushBodyLines(part, context, box.bodyLines, box.x, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
@@ -507,7 +501,7 @@ function pointsOfStroke(stroke: LaidOutStroke): Point[] {
 }
 
 function strokeColorOf(stroke: LaidOutStroke, palette: BoardPalette): Rgba {
-  return stroke.tone === 'ink' ? palette.ink : palette.stickyEdgeByTone[stroke.tone];
+  return stroke.tone === 'ink' ? palette.ink : palette.edgeByTone[stroke.tone];
 }
 
 function strokeGeometry(stroke: LaidOutStroke, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {

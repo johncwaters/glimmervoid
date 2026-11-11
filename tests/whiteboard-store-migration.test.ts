@@ -7,7 +7,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import { Op } from '../shared/contracts/whiteboard.ts';
+import { Op, pointOfBox } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, nearPosition } from '../shared/whiteboard-layout-core.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
@@ -37,6 +37,11 @@ function damagedStoreRoot(damagedObject: string): string {
   return boardsRoot;
 }
 
+function nearBodyBeforePlace(body: Record<string, unknown>, near: Record<string, unknown>): Record<string, unknown> {
+  const { place: _place, ...unplacedBody } = body;
+  return { ...unplacedBody, at: null, near };
+}
+
 test('a JSON board moves into the board store once, keeps its edits across restarts and answers region and text queries', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-'));
   const legacy = generateBoardRecord({ elementCount: 200, seed: 7, boardId: 'legacy-board', title: 'Legacy plan', createdAt: 0 });
@@ -55,7 +60,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.ok(firstBoxId);
   const renamed = await first.handleOperator.put('legacy-board', z.array(Op).parse([
     { op: 'set', id: firstBoxId, fields: { title: 'Renamed in sqlite' } },
-    { op: 'add', element: { kind: 'box', id: 'fresh-note', shape: 'note', title: 'zebra crossing', at: { x: 9000, y: 40 } } },
+    { op: 'add', element: { kind: 'box', id: 'fresh-note', shape: 'note', title: 'zebra crossing', place: { at: { x: 9000, y: 40 } } } },
   ]));
   assert.equal(renamed.ok, true, renamed.error ?? '');
   const boardBeforeRestart = (await first.handleOperator.get('legacy-board')).board;
@@ -79,7 +84,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   for (const element of boardBeforeRestart?.elements.values() ?? []) {
     const bodyBeforeFreeCanvas = element.id === firstBoxId ? { ...element, lane: null, column: null } : element;
     const targetId = nearOfByBoxId.get(element.id);
-    const storedBody = targetId ? { ...bodyBeforeFreeCanvas, at: null, near: { of: targetId, ...near } } : bodyBeforeFreeCanvas;
+    const storedBody = targetId ? nearBodyBeforePlace(bodyBeforeFreeCanvas, { of: targetId, ...near }) : bodyBeforeFreeCanvas;
     if (element.id === boxIds[3]) {
       const { id: _id, kind: _kind, ...compactBody } = storedBody;
       writeCompactRow.run(JSON.stringify(compactBody), 'legacy-board', element.id);
@@ -102,11 +107,12 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.equal(reloaded.board?.elements.size, legacy.board.elements.size + 1 + oldNoteIds.length + oldNoteWireIds.length);
   const [upgradedNote, upgradedCompactNote, upgradedBlankNote] = oldNoteIds.map((noteId) => reloaded.board?.elements.get(noteId));
   assert.ok(upgradedNote?.kind === 'box' && upgradedCompactNote?.kind === 'box');
-  assert.deepEqual([upgradedNote.shape, upgradedNote.title, (upgradedNote.lines ?? []).map((line) => [line.text, line.muted])], ['note', 'what about retries?', [['resolved by operator', true], ['from agent-a', true]]], 'an old resolved note upgrades to a note box keeping its text, resolver and author');
+  assert.deepEqual([upgradedNote.shape, upgradedNote.title, upgradedNote.lines.map((line) => [line.text, line.muted]), upgradedNote.author], ['note', 'what about retries?', [['resolved by operator', true]], 'agent-a'], 'an old resolved note upgrades to a note box keeping its text, resolver and author');
   assert.equal(upgradedCompactNote.shape, 'note');
   assert.equal(upgradedBlankNote?.kind === 'box' && upgradedBlankNote.title, 'Note', 'an old note of only spaces upgrades to a readable note box');
-  assert.equal(upgradedCompactNote.at?.x, upgradedNote.at?.x);
-  assert.ok((upgradedCompactNote.at?.y ?? 0) > (upgradedNote.at?.y ?? 0), 'old notes on one box stack down beside it');
+  const [notePoint, compactNotePoint] = [pointOfBox(upgradedNote), pointOfBox(upgradedCompactNote)];
+  assert.equal(compactNotePoint?.x, notePoint?.x);
+  assert.ok((compactNotePoint?.y ?? 0) > (notePoint?.y ?? 0), 'old notes on one box stack down beside it');
   assert.deepEqual(oldNoteWireIds.map((wireId) => {
     const wire = reloaded.board?.elements.get(wireId);
     return wire?.kind === 'wire' ? [wire.from, wire.to, wire.dashed] : null;
@@ -120,7 +126,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   assert.deepEqual(chainIds.map((boxId) => drawnAfterRestart.get(boxId)), chainIds.map((boxId) => [expectedRectById.get(boxId)?.x, expectedRectById.get(boxId)?.y]), 'a stored near chain is pinned where it was drawn, from a JSON row and from a compact row alike');
 
   const smallBoardId = (await restarted.handleOperator.create('Order')).summary?.id ?? '';
-  const boxAt = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: id, at: { x: 0, y: 0 } } });
+  const boxAt = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x: 0, y: 0 } } } });
   assert.equal((await restarted.handleOperator.put(smallBoardId, z.array(Op).parse([boxAt('a'), boxAt('b')]))).ok, true);
   const readded = await restarted.handleOperator.put(smallBoardId, z.array(Op).parse([boxAt('n'), { op: 'remove', id: 'b' }, boxAt('b'), { op: 'remove', id: 'a' }, boxAt('a')]));
   assert.equal(readded.ok, true, readded.error ?? '');
@@ -178,19 +184,18 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   }
 });
 
-test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, reads a retired numbered line as a bullet, and a board with a damaged element row refuses only its own reads', async () => {
+test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, reads a sticky an older build wrote after the upgrade as a placed note and its numbered line as a bullet, and a board with a damaged element row refuses only its own reads', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
   const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
-  const boxOf = (id: string) => z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, at: { x: 0, y: 0 } } }]);
+  const boxOf = (id: string) => z.array(Op).parse([{ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x: 0, y: 0 } } } }]);
   const damagedId = (await first.handleOperator.create('Damaged rows')).summary?.id ?? '';
   const healthyId = (await first.handleOperator.create('Healthy rows')).summary?.id ?? '';
   assert.equal((await first.handleOperator.put(damagedId, boxOf('a'))).ok, true);
   assert.equal((await first.handleOperator.put(healthyId, boxOf('b'))).ok, true);
   const database = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
   database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run('{ not json', damagedId);
-  database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run(JSON.stringify({ title: 'b', at: { x: 0, y: 0 }, lines: [{ text: 'first', style: 'numbered' }] }), healthyId);
-  database.exec('PRAGMA user_version = 4');
+  database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run(JSON.stringify({ title: 'b', at: { x: 0, y: 0 }, shape: 'sticky', lines: [{ text: 'first', style: 'numbered' }] }), healthyId);
   database.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
@@ -203,7 +208,7 @@ test('a restart lists stored boards without reading their elements, answers a vi
   assert.match(damagedRead.error ?? '', /cannot be read/);
   assert.equal((await restarted.handleOperator.put(damagedId, boxOf('c'))).ok, false);
   const healthyBox = (await restarted.handleOperator.get(healthyId)).board?.elements.get('b');
-  assert.deepEqual(healthyBox?.kind === 'box' && 'lines' in healthyBox ? healthyBox.lines?.map((line) => line.style) : null, ['item']);
+  assert.deepEqual(healthyBox?.kind === 'box' ? { shape: healthyBox.shape, tone: healthyBox.tone, place: healthyBox.place, styles: healthyBox.lines.map((line) => line.style) } : null, { shape: 'note', tone: 'yellow', place: { at: { x: 0, y: 0 } }, styles: ['item'] });
 });
 
 test('an upgrade that cannot read a board keeps that board listed with its pictures, and a damaged elements page refuses only the boards it holds while the retired linked board column waits to be dropped', async () => {
@@ -216,7 +221,7 @@ test('an upgrade that cannot read a board keeps that board listed with its pictu
   const picturesId = (await first.handleOperator.create('Pictures')).summary?.id ?? '';
   const healthyId = (await first.handleOperator.create('Healthy')).summary?.id ?? '';
   const damagedPageId = (await first.handleOperator.create('Damaged page')).summary?.id ?? '';
-  assert.equal((await first.handleOperator.put(healthyId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'h', title: 'h', at: { x: 0, y: 0 } } }]))).ok, true);
+  assert.equal((await first.handleOperator.put(healthyId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'h', title: 'h', place: { at: { x: 0, y: 0 } } } }]))).ok, true);
   const databasePath = path.join(boardsRoot, 'boards.sqlite');
   const storeWrittenBeforeCompactRows = new DatabaseSync(databasePath);
   storeWrittenBeforeCompactRows.exec('ALTER TABLE elements ADD COLUMN linked_board_id TEXT');
@@ -251,7 +256,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
   const created = await first.handleAgent({ id: 'closing-agent', name: 'closing', project: boardsRoot }, { sub: 'new', title: 'Shared plan' });
   assert.equal(created.body.ok, true);
   const boardId = first.snapshotMessage().boards[0]?.id ?? '';
-  const boxes = Array.from({ length: 2000 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${index}`, title: `box ${index}`, at: { x: index * 300, y: 0 } } }));
+  const boxes = Array.from({ length: 2000 }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${index}`, title: `box ${index}`, place: { at: { x: index * 300, y: 0 } } } }));
   assert.equal((await first.handleOperator.connect(boardId, 'staying-agent')).ok, true);
   assert.equal((await first.handleOperator.put(boardId, z.array(Op).parse(boxes))).ok, true);
 
@@ -275,7 +280,7 @@ test('a restart draws a viewed board from its saved layout and edits it without 
     return sent;
   };
   const restartIn = (root: string) => createWhiteboardWiring({ boardsRoot: root, logger: { warn: () => {} } });
-  const boxesFrom = (first: number, count: number) => z.array(Op).parse(Array.from({ length: count }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${first + index}`, title: `box ${first + index}`, at: { x: (first + index) * 260, y: 0 } } })));
+  const boxesFrom = (first: number, count: number) => z.array(Op).parse(Array.from({ length: count }, (_, index) => ({ op: 'add', element: { kind: 'box', id: `box-${first + index}`, title: `box ${first + index}`, place: { at: { x: (first + index) * 260, y: 0 } } } })));
   const retitle = (id: string, title: string) => z.array(Op).parse([{ op: 'set', id, fields: { title } }]);
   const editCache = (sql: string) => {
     const cache = new DatabaseSync(cachePath, { timeout: 5000 });

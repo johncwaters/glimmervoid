@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DEVICE_FITS } from '../whiteboard-devices.ts';
-import { BOX_CHANGES, BOX_SHAPES, BoxMedia, DeviceName, DialValue, Element, IconName, LINE_STYLES, STEP_STATUSES, STICKY_TONES, STROKE_TONES, Wire } from './whiteboard.ts';
+import { BOX_SHAPES } from '../whiteboard-shapes.ts';
+import { BOX_CHANGES, BoxMedia, DeviceName, DialValue, Element, IconName, LINE_STYLES, NOTE_TONES, STEP_STATUSES, STROKE_TONES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
 export const BLOCK_RASTER_PX = 64;
@@ -41,7 +42,7 @@ export const LaidOutBox = z.object({
   change: z.enum(BOX_CHANGES),
   wasLines: z.array(z.string()),
   shape: z.enum(BOX_SHAPES),
-  tone: z.enum(STICKY_TONES).nullable().default(null),
+  tone: z.enum(NOTE_TONES).nullable().default(null),
   isBorderless: z.boolean().default(false),
   headerHeight: z.number(),
   media: LaidOutMedia.nullable(),

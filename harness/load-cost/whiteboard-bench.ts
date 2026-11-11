@@ -22,6 +22,7 @@ import { LAYOUT_CACHE_FILENAME } from '../../server/whiteboard/layout-cache.ts';
 import { WHITEBOARDS_FOLDER_NAME } from '../../server/whiteboard/whiteboard-wiring.ts';
 import type { Board, BoardRecord, BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
+import { SHAPE_TRAITS } from '../../shared/whiteboard-shapes.ts';
 import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../../shared/whiteboard-layout-engine.ts';
 import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
@@ -167,7 +168,7 @@ async function withBenchMedia(board: Board, assetsRoot: string): Promise<number>
   let mediaCount = 0;
   for (const boxId of boxIdsOf(board).filter((_, boxIndex) => boxIndex % MEDIA_EVERY_NTH_BOX === 0)) {
     const box = board.elements.get(boxId);
-    if (box?.kind !== 'box' || box.shape === 'icon' || box.shape === 'text') continue;
+    if (box?.kind !== 'box' || !SHAPE_TRAITS[box.shape].holdsMedia) continue;
     const picture = pictures[mediaCount % pictures.length];
     const media = mediaCount % PAGE_EVERY_NTH_MEDIA === PAGE_EVERY_NTH_MEDIA - 1 ? page : picture;
     if (!media) continue;

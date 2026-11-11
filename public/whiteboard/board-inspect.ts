@@ -1,15 +1,14 @@
 import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
+import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, NOTE_TONES, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOX_SHAPES, isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { iconPicker } from './board-icon-picker.ts';
 
-type DeviceBox = Extract<Box, { shape: 'device' }>;
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
 type FieldCommit = (fields: Record<string, unknown>) => void;
@@ -50,13 +49,12 @@ const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
 const SHAPE_CHOICES = choicesOf(BOX_SHAPES);
-const HEADING_BY_SHAPE: Readonly<Record<Box['shape'], string>> = { box: 'Box', decision: 'Decision', panel: 'Panel', icon: 'Icon', device: 'Device', sticky: 'Sticky', note: 'Note', text: 'Text' };
 const DEVICE_CHOICES = choicesOf(DEVICE_NAMES);
 const FIT_CHOICES = choicesOf(DEVICE_FITS);
-const STICKY_TONE_CHOICES = choicesOf(STICKY_TONES);
+const NOTE_TONE_CHOICES: readonly Choice[] = [{ value: '', text: 'Plain' }, ...choicesOf(NOTE_TONES)];
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
-const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'Auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
+const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'Auto' }, ...choicesOf(SIDES)];
 const PLANNED_STEP: Step = { status: 'planned' };
 
 function choicesOf(values: readonly string[]): Choice[] {
@@ -239,7 +237,7 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
 }
 
 function linkableMediaOf(box: Box | null): BoxMedia | null {
-  const media = box ? mediaOfBox(box) : null;
+  const media = box?.media ?? null;
   return media?.kind === 'doc' || media?.kind === 'page' ? media : null;
 }
 
@@ -248,26 +246,22 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     const element = latest();
     return element?.kind === 'box' ? element : null;
   };
-  const latestLines = () => {
-    const latestElement = latestBox();
-    return latestElement && 'lines' in latestElement ? latestElement.lines ?? null : null;
-  };
+  const latestLines = () => latestBox()?.lines ?? null;
   const laidOutPlace = () => {
     const laidOut = layout?.elements.find((element) => element.id === box.id);
     if (!layout || laidOut?.kind !== 'box') return null;
     return { x: laidOut.x, y: laidOut.y - layout.pinnedOffsetY };
   };
-  const placeLeavingStack = () => {
-    const stacked = latestBox();
-    const at = stacked && isStackedPanel(stacked) ? laidOutPlace() : null;
-    return at ? { at } : {};
-  };
   const commitShape = (shape: string) => {
-    if (shape === 'decision' || shape === 'box') set({ shape, ...placeLeavingStack() });
-    if (shape === 'panel') set({ shape });
-    if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
-    if (shape === 'device') set({ shape, device: PLACED_DEVICE, ...placeLeavingStack() });
-    if (shape === 'sticky' || shape === 'text') set({ shape, ...placeLeavingStack() });
+    if (shape === 'icon') {
+      set({ shape, icon: latestBox()?.icon ?? PLACED_ICON });
+      return;
+    }
+    if (shape === 'device') {
+      set({ shape, device: PLACED_DEVICE });
+      return;
+    }
+    set({ shape });
   };
   const commitIsStep = (isStep: boolean) => {
     if (isStep) {
@@ -275,9 +269,12 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
       return;
     }
     const stepBox = latestBox();
-    const isInBuildOrderBand = stepBox !== null && stepBox.at === null;
-    const at = isInBuildOrderBand ? laidOutPlace() : null;
-    set({ step: null, ...(at ? { at } : {}) });
+    if (stepBox?.place !== 'plan') {
+      set({ step: null });
+      return;
+    }
+    const at = laidOutPlace();
+    set({ step: null, place: at ? { at } : 'aside' });
   };
   const commitChange = (change: string) => {
     if (change === 'relabeled') {
@@ -287,7 +284,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     set({ change, was: null });
   };
   return [
-    heading(HEADING_BY_SHAPE[box.shape]),
+    heading(SHAPE_TRAITS[box.shape].label),
     fieldRow('Title', textField('title', box.title, WHITEBOARD_LIMITS.title, (title) => {
       if (title.trim()) set({ title: title.trim() });
     })),
@@ -298,12 +295,12 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
       if (was.trim()) set({ was: was.trim() });
     }))] : []),
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
-    ...('borderless' in box ? [checkboxField('borderless', 'Borderless', box.borderless, (borderless) => set({ borderless }))] : []),
-    ...(box.shape === 'sticky' ? [fieldRow('Tone', selectField('tone', STICKY_TONE_CHOICES, box.tone, (tone) => set({ tone })))] : []),
+    ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
+    ...(SHAPE_TRAITS[box.shape].takesTone ? [fieldRow('Tone', selectField('tone', NOTE_TONE_CHOICES, box.tone ?? '', (tone) => set({ tone: tone || null })))] : []),
     ...dialSections(box, latestBox, set),
     ...linkedFileSections(box, linkState, () => linkableMediaOf(latestBox()), set),
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
-    ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
+    ...(SHAPE_TRAITS[box.shape].holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     checkboxField('is-step', 'Plan step', box.step !== null, commitIsStep),
     ...(box.step ? stepSections(box.step, set) : []),
   ];
@@ -336,12 +333,12 @@ function dialInput(field: string, type: 'color' | 'range', value: string, commit
 }
 
 function dialSections(box: Box, latestBox: () => Box | null, set: FieldCommit): HTMLElement[] {
-  const media = mediaOfBox(box);
+  const media = box.media;
   if (media?.kind !== 'page' || media.dials.length === 0) return [];
   const dialValues = dialValuesOfBox(box);
   const commitDial = (dialId: string, value: DialValue) => {
     const latest = latestBox();
-    const latestParams = latest && latest.shape !== 'icon' ? latest.params : {};
+    const latestParams = latest?.params ?? {};
     set({ params: { ...latestParams, [dialId]: value } });
   };
   return [
@@ -350,9 +347,9 @@ function dialSections(box: Box, latestBox: () => Box | null, set: FieldCommit): 
   ];
 }
 
-function deviceSections(box: DeviceBox, set: FieldCommit): HTMLElement[] {
+function deviceSections(box: Box, set: FieldCommit): HTMLElement[] {
   return [
-    fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device, (device) => set({ device }))),
+    fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device }))),
     fieldRow('Fit', selectField('fit', FIT_CHOICES, box.fit, (fit) => set({ fit }))),
   ];
 }

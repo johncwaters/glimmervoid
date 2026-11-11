@@ -1,7 +1,8 @@
-import { BOX_SHAPES, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, fieldNamesOfShape } from './contracts/whiteboard.ts';
-import type { Board, BoardChange, Box, BoxLine, Element, ElementInput, Op } from './contracts/whiteboard.ts';
+import { Box, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, pointOfBox } from './contracts/whiteboard.ts';
+import type { Board, BoardChange, Element, ElementInput, Op } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
-import { fittedBoxWidthOf, isStackedPanel, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
+import { BOX_SHAPES, SHAPE_TRAITS } from './whiteboard-shapes.ts';
+import { fittedBoxWidthOf, isAsideBox, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
@@ -35,8 +36,7 @@ type Draft = {
 };
 
 const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, stroke: Stroke });
-const NOTE_TEXT_FIELDS = ['title', 'lines', 'shape'] as const;
-const BYLINE_PREFIX = 'from ';
+const STORED_ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, stroke: Stroke });
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
@@ -46,18 +46,11 @@ function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
 }
 
-function isBylineLine(line: BoxLine | undefined): boolean {
-  return Boolean(line?.muted && line.text.startsWith(BYLINE_PREFIX));
-}
-
-function signedNoteBox(element: Element, author: Author): { ok: true; element: Element } | { ok: false; error: string } {
-  if (element.kind !== 'box' || element.shape !== 'note') return { ok: true, element };
-  const lastLine = element.lines.at(-1);
-  if (isOperatorAuthor(author) && isBylineLine(lastLine)) return { ok: true, element };
-  const unsignedLines = isBylineLine(lastLine) ? element.lines.slice(0, -1) : element.lines;
-  if (unsignedLines.length >= WHITEBOARD_LIMITS.linesPerBox) return { ok: false, error: `box ${element.id}: a note box holds at most ${WHITEBOARD_LIMITS.linesPerBox - 1} lines, since its last line names who wrote it` };
-  const byline: BoxLine = { text: `${BYLINE_PREFIX}${author.name}`.slice(0, WHITEBOARD_LIMITS.line), muted: true, style: 'text', key: null };
-  return { ok: true, element: { ...element, lines: [...unsignedLines, byline] } };
+function authoredNote(element: Element, previous: Element | undefined, author: Author): Element {
+  if (element.kind !== 'box' || element.shape !== 'note') return element;
+  if (!isOperatorAuthor(author)) return { ...element, author: author.name.slice(0, WHITEBOARD_LIMITS.title) || null };
+  const storedAuthor = previous?.kind === 'box' ? previous.author : null;
+  return { ...element, author: element.author ?? storedAuthor ?? OPERATOR_AUTHOR.name };
 }
 
 function noteBoxTextOf(text: string): { title: string; lines: string[] } {
@@ -78,7 +71,7 @@ function noteBoxTextOf(text: string): { title: string; lines: string[] } {
     }
   }
   const [title = '', ...lines] = wrapped;
-  return { title, lines: lines.slice(0, WHITEBOARD_LIMITS.linesPerBox - 1) };
+  return { title, lines: lines.slice(0, WHITEBOARD_LIMITS.linesPerBox) };
 }
 
 function refuse(error: string): OpOutcome {
@@ -145,16 +138,14 @@ function checkBoxReferences(box: Box): OpOutcome {
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   const dialProblem = dialParamsProblemOf(box);
   if (dialProblem) return refuse(dialProblem);
-  if (box.step === null && box.shape !== 'panel' && box.at === null) {
-    return refuse(`box ${box.id} needs a place: near another box or at a point`);
-  }
   return OK;
 }
 
 function drawnRectOf(draft: Draft, targetId: string): PlacedBox | null {
   const target = elementOf(draft, targetId);
   if (target?.kind !== 'box') return null;
-  if (target.at) return laidOutBox(NO_PLAN_STEPS, target, target.at);
+  const point = pointOfBox(target);
+  if (point) return laidOutBox(NO_PLAN_STEPS, target, point);
   const laidOut = draft.basePinPositions?.laidOutBoxOf(targetId);
   if (!laidOut) return null;
   return { ...laidOut, y: laidOut.y - (draft.basePinPositions?.pinnedOffsetY ?? 0) };
@@ -162,21 +153,17 @@ function drawnRectOf(draft: Draft, targetId: string): PlacedBox | null {
 
 function placedAtNear(draft: Draft, element: ElementInput): { ok: true; element: Element } | { ok: false; error: string } {
   if (element.kind !== 'box') return { ok: true, element };
-  const { near, ...box } = element;
-  if (near === null || box.at !== null) return { ok: true, element: box };
+  const { place, ...box } = element;
+  if (typeof place !== 'object' || !('near' in place)) return { ok: true, element: { ...box, place } };
+  const { near } = place;
   if (near.of === box.id) return { ok: false, error: `box ${box.id} cannot sit near itself` };
   const target = elementOf(draft, near.of);
   if (target?.kind !== 'box') return { ok: false, error: `box ${box.id} sits near ${near.of}, which is not a box` };
-  if (isStackedPanel(target)) return { ok: false, error: `box ${box.id} sits near ${near.of}, a panel with no place yet, so give that panel a near or at first` };
+  if (isAsideBox(target)) return { ok: false, error: `box ${box.id} sits near ${near.of}, which is aside, so give ${near.of} a point first` };
   const targetRect = drawnRectOf(draft, near.of);
-  if (!targetRect) return { ok: false, error: `box ${box.id} sits near ${near.of}, which has no drawn place yet, so give ${near.of} an at first` };
+  if (!targetRect) return { ok: false, error: `box ${box.id} sits near ${near.of}, which has no drawn place yet, so give ${near.of} a point first` };
   const placed = laidOutNearBox(NO_PLAN_STEPS, box, near, targetRect);
-  return { ok: true, element: { ...box, at: { x: placed.x, y: placed.y } } };
-}
-
-function withoutAtUnlessGiven(element: ElementInput, isAtGiven: boolean): ElementInput {
-  if (element.kind !== 'box' || isAtGiven) return element;
-  return { ...element, at: null };
+  return { ok: true, element: { ...box, place: { at: { x: placed.x, y: placed.y } } } };
 }
 
 function withFittedWidth(element: ElementInput): ElementInput {
@@ -191,9 +178,7 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
-  const signed = signedNoteBox(placed.element, author);
-  if (!signed.ok) return signed;
-  const stored = signed.element;
+  const stored = authoredNote(placed.element, undefined, author);
   const references = checkReferences(draft, stored);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -211,12 +196,20 @@ function isBoxShape(value: unknown): value is Box['shape'] {
   return BOX_SHAPES.some((shape) => shape === value);
 }
 
-const FIELDS_DEFAULTED_PER_SHAPE: ReadonlySet<string> = new Set(['borderless']);
-
-function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>): Record<string, unknown> {
-  if (existing.kind !== 'box' || fields.shape === undefined || fields.shape === existing.shape || !isBoxShape(fields.shape)) return existing;
-  const fieldNames = fieldNamesOfShape(fields.shape);
-  return Object.fromEntries(Object.entries(existing).filter(([fieldName]) => fieldNames.has(fieldName) && !FIELDS_DEFAULTED_PER_SHAPE.has(fieldName)));
+function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>): Element {
+  if (existing.kind !== 'box' || fields.shape === existing.shape || !isBoxShape(fields.shape)) return existing;
+  const traits = SHAPE_TRAITS[fields.shape];
+  return {
+    ...existing,
+    borderless: null,
+    lines: traits.holdsLines ? existing.lines : [],
+    media: traits.holdsMedia ? existing.media : null,
+    params: traits.holdsMedia ? existing.params : {},
+    tone: traits.takesTone ? existing.tone : null,
+    device: traits.needsDevice ? existing.device : null,
+    fit: traits.needsDevice ? existing.fit : 'fill',
+    author: fields.shape === 'note' ? existing.author : null,
+  };
 }
 
 function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
@@ -227,11 +220,9 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
-  const placed = placedAtNear(draft, 'near' in fields ? withoutAtUnlessGiven(parsed.data, 'at' in fields) : parsed.data);
+  const placed = placedAtNear(draft, parsed.data);
   if (!placed.ok) return placed;
-  const signed = NOTE_TEXT_FIELDS.some((field) => field in fields) ? signedNoteBox(placed.element, author) : { ok: true as const, element: placed.element };
-  if (!signed.ok) return signed;
-  const stored = signed.element;
+  const stored = authoredNote(placed.element, existing, author);
   const references = checkReferences(draft, stored);
   if (!references.ok) return references;
   writeElement(draft, stored);
@@ -271,18 +262,18 @@ function alignedSetOpsOf(draft: Draft, align: AlignOp): { ok: true; ops: Element
   const rects: PlacedBox[] = [];
   for (const id of align.ids) {
     const element = elementOf(draft, id);
-    const rect = element?.kind === 'box' && element.at !== null ? drawnRectOf(draft, id) : null;
+    const rect = element?.kind === 'box' && pointOfBox(element) ? drawnRectOf(draft, id) : null;
     if (!rect) return { ok: false, error: `align names ${id}, which is not a placed box` };
     rects.push(rect);
   }
   if (align.as === 'row') {
     const top = Math.min(...rects.map((rect) => rect.y));
     const height = Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.ceil(Math.max(...rects.map((rect) => rect.height))));
-    return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { at: { x: rect.x, y: top }, height } })) };
+    return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { place: { at: { x: rect.x, y: top } }, height } })) };
   }
   const left = Math.min(...rects.map((rect) => rect.x));
   const width = Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, Math.ceil(Math.max(...rects.map((rect) => rect.width)))));
-  return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { at: { x: left, y: rect.y }, width } })) };
+  return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { place: { at: { x: left, y: rect.y } }, width } })) };
 }
 
 function applyOne(draft: Draft, op: ElementOp, author: Author): OpOutcome {
@@ -339,17 +330,21 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   return { ok: true, board: { ...draft.head, elements, version, updatedAt: nowMs }, changes, diff, before, afterById: draft.afterById, commit };
 }
 
+function nearTargetIdOfPlace(place: unknown): string | null {
+  if (!isRecord(place) || !isRecord(place.near)) return null;
+  return typeof place.near.of === 'string' ? place.near.of : null;
+}
+
 function nearTargetIdOf(op: Op): string | null {
-  if (op.op === 'add') return op.element.kind === 'box' && op.element.at === null ? op.element.near?.of ?? null : null;
-  if (op.op !== 'set' || 'at' in op.fields || !isRecord(op.fields.near)) return null;
-  return typeof op.fields.near.of === 'string' ? op.fields.near.of : null;
+  if (op.op === 'add') return op.element.kind === 'box' ? nearTargetIdOfPlace(op.element.place) : null;
+  return op.op === 'set' ? nearTargetIdOfPlace(op.fields.place) : null;
 }
 
 function unplacedNearTargetIdsOf(board: Board, ops: readonly Op[]): string[] {
   return ops.flatMap((op) => {
     const targetId = nearTargetIdOf(op);
     const target = targetId === null ? undefined : board.elements.get(targetId);
-    return targetId !== null && target?.kind === 'box' && target.at === null && !isStackedPanel(target) ? [targetId] : [];
+    return targetId !== null && target?.kind === 'box' && target.place === 'plan' ? [targetId] : [];
   });
 }
 
@@ -408,7 +403,7 @@ function diffOf(draft: Draft): BoardDiff {
 function appliedChangeOf(existing: Element | undefined, id: string, change: ElementChange): Element | null {
   if (change[0] === 'put') return change[1].id === id ? change[1] : null;
   if (change[0] === 'remove' || !existing) return null;
-  const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, change[1]), ...change[1] });
+  const parsed = STORED_ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, change[1]), ...change[1] });
   return parsed.success && parsed.data.id === id ? parsed.data : null;
 }
 
@@ -467,7 +462,7 @@ function describeStepChange(name: string, before: Box['step'], after: Box['step'
 function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: ElementLookup): string {
   const fieldNames = Object.keys(op.fields);
   const afterElement = after(op.id);
-  if (fieldNames.length === 1 && fieldNames[0] === 'at') return `moved ${nameOf(after, op.id)}`;
+  if (fieldNames.length === 1 && fieldNames[0] === 'place') return `moved ${nameOf(after, op.id)}`;
   if (fieldNames.length === 1 && fieldNames[0] === 'step' && previous?.kind === 'box' && afterElement?.kind === 'box') return describeStepChange(nameOf(after, op.id), previous.step, afterElement.step);
   if (previous?.kind === 'box' && afterElement?.kind === 'box' && fieldNames.length === 1 && fieldNames[0] === 'title') {
     return `renamed "${previous.title}" to "${afterElement.title}"`;

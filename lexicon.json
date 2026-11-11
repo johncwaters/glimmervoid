@@ -346,7 +346,7 @@
     },
     {
       "name": "element",
-      "definition": "One drawn thing on a whiteboard (a box, frame, wire or note), counted against a board's element limit; a plan step and a panel are boxes"
+      "definition": "One drawn thing on a whiteboard (a box, frame, wire or stroke), counted against a board's element limit; a plan step and a note are boxes"
     },
     {
       "name": "frame",
@@ -477,7 +477,7 @@
     },
     {
       "name": "note",
-      "definition": "A whiteboard note pinned to an element with an author and a resolved state; also the git note Glimmervoid attaches to a session commit under refs/notes/glimmervoid"
+      "definition": "A whiteboard box with shape note: a note card in an optional tone, whose author field names the agent or operator that wrote it so the card shows from <author>; also the git note Glimmervoid attaches to a session commit under refs/notes/glimmervoid"
     },
     {
       "name": "ephemeral",
@@ -561,7 +561,7 @@
         "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
       },
       "name": "box",
-      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (near another box or at a point), a shape (box, decision, panel, icon or device) and optionally media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a note box, a remote box) ordinary English"
+      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a point, near another box, aside in the stack right of the drawing, or plan in the build-order band), one of five shapes (box, decision, note, icon or device) and optionally media, a width and a step; borderless null takes the shape default, so an icon or device box draws bare; a plan step is a box with a step, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a remote box) ordinary English"
     },
     {
       "name": "transitions",

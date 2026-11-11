@@ -1,5 +1,6 @@
-import { filledElement, sparseElement } from './contracts/whiteboard.ts';
+import { Box, filledElement, sparseElement } from './contracts/whiteboard.ts';
 import type { Element } from './contracts/whiteboard.ts';
+import { currentStoredBox, isCurrentStoredBox } from './whiteboard-stored-box.ts';
 
 type ElementKind = Element['kind'];
 
@@ -69,7 +70,8 @@ function elementOfRow(id: string, kindCode: number, body: string): Element {
   const parsed = JSON.parse(jsonOfStored(body));
   parsed.id = id;
   parsed.kind = KIND_NAMES[kindCode];
-  return filledElement(parsed);
+  if (parsed.kind !== 'box' || isCurrentStoredBox(parsed)) return filledElement(parsed);
+  return Box.parse(currentStoredBox(parsed));
 }
 
 function isElementOfKind<Kind extends ElementKind>(element: Element, kind: Kind): element is Extract<Element, { kind: Kind }> {

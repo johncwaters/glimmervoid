@@ -23,9 +23,11 @@
             "muted": true
           }
         ],
-        "at": {
-          "x": 40,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 60
+          }
         }
       }
     },
@@ -45,9 +47,11 @@
             "style": "item"
           }
         ],
-        "at": {
-          "x": 400,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 400,
+            "y": 60
+          }
         }
       }
     },
@@ -62,9 +66,11 @@
             "text": "sum of rows minus discounts"
           }
         ],
-        "at": {
-          "x": 760,
-          "y": 60
+        "place": {
+          "at": {
+            "x": 760,
+            "y": 60
+          }
         }
       }
     },
@@ -82,9 +88,11 @@
             "style": "kv"
           }
         ],
-        "at": {
-          "x": 760,
-          "y": 300
+        "place": {
+          "at": {
+            "x": 760,
+            "y": 300
+          }
         }
       }
     },
@@ -100,9 +108,11 @@
             "style": "code"
           }
         ],
-        "at": {
-          "x": 40,
-          "y": 300
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 300
+          }
         }
       }
     },
@@ -160,7 +170,6 @@
         "kind": "box",
         "id": "source",
         "title": "src/invoice.js",
-        "shape": "panel",
         "lines": [
           {
             "text": "export function invoiceTotal(rows, rate)",
@@ -170,7 +179,8 @@
             "text": "rounds once, at the very end",
             "muted": true
           }
-        ]
+        ],
+        "place": "aside"
       }
     },
     {
@@ -180,9 +190,11 @@
         "id": "drift",
         "shape": "note",
         "title": "Support: some totals come out one cent high on .5 amounts",
-        "at": {
-          "x": 40,
-          "y": 460
+        "place": {
+          "at": {
+            "x": 40,
+            "y": 460
+          }
         }
       }
     },
@@ -209,7 +221,8 @@
         ],
         "step": {
           "status": "planned"
-        }
+        },
+        "place": "plan"
       }
     }
   ]

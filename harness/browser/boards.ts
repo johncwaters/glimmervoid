@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, elementInputOf, linesOfBox } from '../../shared/contracts/whiteboard.ts';
+import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
@@ -139,11 +139,11 @@ async function addPlanStep(open: OpenBoard, offset: { x: number; y: number }, ti
   return elementWhere(open, `${title} as a planned step`, (element) => element.id === box.id && element.kind === 'box' && element.step?.status === 'planned');
 }
 
-async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string, titleInputName = 'Box title'): Promise<BoardElement> {
+async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   await open.page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
-  const titleInput = open.page.getByRole('textbox', { name: titleInputName, exact: true });
+  const titleInput = open.page.getByRole('textbox', { name: 'Box title', exact: true });
   await titleInput.fill(title);
   await open.page.keyboard.press('Enter');
   return elementWhere(open, `a box titled ${title}`, titled(title));
@@ -204,16 +204,16 @@ async function verifyBoxStaysWhereDropped(open: OpenBoard, boxId: string, boxNam
 async function verifyStacking(open: OpenBoard, anchorBoxId: string): Promise<void> {
   const { page, boardId } = open;
   const anchor = (await boardOf(open)).elements.get(anchorBoxId);
-  assert.ok(anchor?.kind === 'box' && anchor.at, 'the anchor box has a place');
-  const origin = anchor.at;
+  const origin = anchor?.kind === 'box' ? pointOfBox(anchor) : null;
+  assert.ok(origin, 'the anchor box has a point');
   const fromId = 'stack-from';
   const cardId = 'stack-card';
   const droppedId = 'stack-dropped';
   const wireId = 'stack-wire';
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
-    { op: 'add', element: { kind: 'box', id: fromId, title: 'Stack source', at: { x: origin.x, y: origin.y + 100 } } },
-    { op: 'add', element: { kind: 'box', id: cardId, title: 'Stack card', at: { x: origin.x, y: origin.y + 200 } } },
-    { op: 'add', element: { kind: 'box', id: droppedId, title: 'Stack dropped', at: { x: origin.x + 240, y: origin.y + 200 } } },
+    { op: 'add', element: { kind: 'box', id: fromId, title: 'Stack source', place: { at: { x: origin.x, y: origin.y + 100 } } } },
+    { op: 'add', element: { kind: 'box', id: cardId, title: 'Stack card', place: { at: { x: origin.x, y: origin.y + 200 } } } },
+    { op: 'add', element: { kind: 'box', id: droppedId, title: 'Stack dropped', place: { at: { x: origin.x + 240, y: origin.y + 200 } } } },
     { op: 'add', element: { kind: 'wire', id: wireId, from: fromId, to: droppedId } },
   ] });
   await laidOutOf(open, droppedId);
@@ -263,12 +263,12 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await page.keyboard.press('s');
   const sticky = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
   await panel.locator('.wb-inspect').getByRole('combobox', { name: 'Tone', exact: true }).selectOption('green');
-  await elementWhere(open, 'a sticky note takes the picked tone', (element) => element.id === sticky.id && element.kind === 'box' && element.shape === 'sticky' && element.tone === 'green');
+  await elementWhere(open, 'a sticky note takes the picked tone', (element) => element.id === sticky.id && element.kind === 'box' && element.shape === 'note' && element.tone === 'green');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('t');
   const looseWords = await placeBoxWithTool(open, { x: 40, y: 420 }, 'Loose words');
-  assert.ok(looseWords.kind === 'box' && looseWords.shape === 'text', 'the text tool places a text box');
+  assert.ok(looseWords.kind === 'box' && looseWords.shape === 'box' && looseWords.borderless === true, 'the text tool places a borderless box');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('b');
@@ -303,7 +303,7 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   }, { assetRoute: WHITEBOARD_ASSET_ROUTE, docText: BOARD_DOC_FIRST_DRAFT });
   const firstDraftMedia = BoardMediaUploadReply.parse(uploadReply).media;
   assert.equal(firstDraftMedia.kind, 'doc', 'the board keeps a Markdown upload as a document');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, at: { x: 40, y: 160 }, media: firstDraftMedia } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: BOARD_DOC_BOX_ID, title: BOARD_DOC_BOX_TITLE, place: { at: { x: 40, y: 160 } }, media: firstDraftMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   const docCard = panel.locator('.wb-media[data-media-kind="doc"] .wb-media-doc');
   await docCard.locator('.plan-heading', { hasText: 'Abstract' }).waitFor();
@@ -387,7 +387,7 @@ async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Prom
   fs.mkdirSync(path.dirname(linkedFilePath), { recursive: true });
   fs.writeFileSync(linkedFilePath, '# Linked\n\nFrom the repo.\n');
   const boardCopyMedia = await uploadBoardDoc(page, '# Board copy\n', 'linked-card.md');
-  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_DOC_BOX_ID, title: 'Linked card', at: { x: 40, y: 700 }, media: boardCopyMedia } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_DOC_BOX_ID, title: 'Linked card', place: { at: { x: 40, y: 700 } }, media: boardCopyMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   const linkedCard = panel.locator(`.wb-media[data-box-id="${LINKED_DOC_BOX_ID}"]`);
   await linkedCard.locator('.plan-heading', { hasText: 'Board copy' }).waitFor();
@@ -581,7 +581,7 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
     slider.value = '7';
     slider.dispatchEvent(new Event('change', { bubbles: true }));
   });
-  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.shape !== 'icon' && element.shape !== 'text' && element.params.speed === 7);
+  await elementWhere(open, 'a dial change stores the value on the box', (element) => element.id === dialsBox.id && element.kind === 'box' && element.params.speed === 7);
   await postedDialValues(JSON.stringify({ speed: 7, loud: false }));
   await verifyCtrlWheelOverInteractivePageZoomsBoard(open, dialsMedia);
   await page.frameLocator(`.wb-media[data-box-id="${dialsBox.id}"] iframe`).getByLabel('dials field').focus();
@@ -1027,8 +1027,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('p');
-    const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art', 'Panel title');
-    await verifyBoxStaysWhereDropped(open, priorArt.id, 'a panel');
+    const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
+    await verifyBoxStaysWhereDropped(open, priorArt.id, 'a box placed with the panel tool');
     await selectBoxes(open, [sourceBox.id, targetBox.id]);
     await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);
     await page.keyboard.press('Escape');
@@ -1081,7 +1081,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     const isTargetWith = (isMatch: (box: Extract<BoardElement, { kind: 'box' }>) => boolean) => (element: BoardElement) => element.id === targetBox.id && element.kind === 'box' && isMatch(element);
     await inspect.getByRole('checkbox', { name: 'Borderless', exact: true }).check();
-    await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless));
+    await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless === true));
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
     await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision'));
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
@@ -1091,7 +1091,6 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('heading', { name: 'Box', exact: true }).waitFor();
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
-    assert.equal(await inspect.getByRole('textbox', { name: 'Output yes label', exact: true }).inputValue(), 'yes');
     const titleField = inspect.getByRole('textbox', { name: 'Title', exact: true });
     await titleField.fill('Index first');
     await page.keyboard.press('Enter');
@@ -1125,7 +1124,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).waitFor();
     await inspect.getByRole('button', { name: 'Add a line to this box', exact: true }).click();
     await inspect.getByRole('textbox', { name: 'Line 2 text', exact: true }).waitFor();
-    const hasLine = (text: string) => isTargetWith((box) => linesOfBox(box).some((line) => line.text === text));
+    const hasLine = (text: string) => isTargetWith((box) => box.lines.some((line) => line.text === text));
     await inspect.getByRole('textbox', { name: 'Line 1 text', exact: true }).fill('first edited');
     await page.keyboard.press('Enter');
     await elementWhere(open, 'the first line edit', hasLine('first edited'));
@@ -1240,12 +1239,12 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await inspect.getByRole('button', { name: 'Delete', exact: true }).click();
   await boardWithout(open, 'the deleted step', (element) => element.id === step.id);
   await inspect.waitFor({ state: 'hidden' });
-  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', step: { status: 'building' } } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', place: 'plan', step: { status: 'building' } } }] });
   const bandStep = await elementWhere(open, 'the step in the build-order band', (element) => element.id === 'band-step');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   await clickElement(open, bandStep.id);
   await inspect.getByRole('checkbox', { name: 'Plan step', exact: true }).uncheck();
-  await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && element.at !== null);
+  await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId, projectDirectory);
@@ -1403,7 +1402,7 @@ function scaleBoardPuts(): Op[][] {
   const puts: Op[][] = [[]];
   let putBytes = 0;
   for (const element of board.elements.values()) {
-    const op: Op = { op: 'add', element: elementInputOf(element) };
+    const op: Op = { op: 'add', element };
     const opBytes = JSON.stringify(op).length + 1;
     const current = puts[puts.length - 1] ?? [];
     const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || putBytes + opBytes > WHITEBOARD_LIMITS.putBytes * SCALE_PUT_BYTES_SHARE;
@@ -1421,7 +1420,8 @@ function scaleBoardPuts(): Op[][] {
 function placesOf(board: Board, boxIds: readonly string[]): Record<string, string> {
   return Object.fromEntries(boxIds.map((boxId) => {
     const element = board.elements.get(boxId);
-    return [boxId, element?.kind === 'box' && element.at ? `${element.at.x},${element.at.y}` : ''];
+    const point = element?.kind === 'box' ? pointOfBox(element) : null;
+    return [boxId, point ? `${point.x},${point.y}` : ''];
   }));
 }
 
@@ -1592,8 +1592,10 @@ export async function verifyBoardScale(page: Page, sessionId: string): Promise<s
   for (const boxId of draggedBoxIds) {
     const beforeBox = before.elements.get(boxId);
     const savedBox = saved.elements.get(boxId);
-    assert.ok(beforeBox?.kind === 'box' && beforeBox.at && savedBox?.kind === 'box' && savedBox.at);
-    assert.ok(Math.abs(savedBox.at.x - beforeBox.at.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedBox.at.x - beforeBox.at.x} of ${droppedDeltaX}`);
+    const beforePoint = beforeBox?.kind === 'box' ? pointOfBox(beforeBox) : null;
+    const savedPoint = savedBox?.kind === 'box' ? pointOfBox(savedBox) : null;
+    assert.ok(beforePoint && savedPoint);
+    assert.ok(Math.abs(savedPoint.x - beforePoint.x - droppedDeltaX) <= 2, `a board update during a drag keeps ${boxId} under the pointer, it moved ${savedPoint.x - beforePoint.x} of ${droppedDeltaX}`);
   }
 
   const undoStartedAt = Date.now();
