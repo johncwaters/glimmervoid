@@ -10,6 +10,7 @@ import { uiState } from '../ui-state-core.ts';
 import { sessionActionStatus } from './card-actions.ts';
 import { findSessionUi } from './card-registry.ts';
 import { reportHeaderError } from '../action-status.ts';
+import { clock } from '#shared/clock.ts';
 
 export function reportSessionProblem(sessionId: unknown, message: string) {
   const ui = findSessionUi(sessionId);
@@ -174,7 +175,7 @@ function buildManagerDecisionLine(sessionId: string): HTMLElement {
 function fillManagerHistory(history: HTMLElement, sessionId: string) {
   const items = [...managerDecisionsFor(sessionId)].reverse().map((decision) => {
     const item = el('li', null, managerDecisionText(decision));
-    const time = el('time', 'session-manager-history-time', new Date(decision.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    const time = el('time', 'session-manager-history-time', clock.format(decision.ts, 'short-time'));
     time.dateTime = new Date(decision.ts).toISOString();
     item.prepend(time);
     return item;

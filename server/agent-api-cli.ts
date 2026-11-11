@@ -20,6 +20,7 @@ import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { needExitCode } from './secrets/core/secrets-broker-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
@@ -456,9 +457,9 @@ function isStillPending(reply: AgentNeedReply | string): boolean {
 }
 
 async function waitedNeedReply(names: readonly string[], { isWaiting }: { isWaiting: boolean }): Promise<AgentNeedReply | string> {
-  const deadlineMs = Date.now() + NEED_WAIT_LIMIT_MS;
+  const deadlineMs = clock.nowMs() + NEED_WAIT_LIMIT_MS;
   let reply = await askNeedOnce(names);
-  while (isWaiting && isStillPending(reply) && Date.now() < deadlineMs) {
+  while (isWaiting && isStillPending(reply) && clock.nowMs() < deadlineMs) {
     await new Promise((resolve) => setTimeout(resolve, NEED_POLL_INTERVAL_MS));
     reply = await askNeedOnce(names);
   }

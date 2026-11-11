@@ -5,9 +5,10 @@ import { reportTerminalColors } from './terminal-color-report.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
 import { closeEveryTerminalUntilShown, reconnectShownTerminals } from './session-card/terminal-data-socket.ts';
+import { clock } from '#shared/clock.ts';
 
 let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false };
-let hiddenSinceMs = document.visibilityState === 'visible' ? null : Date.now();
+let hiddenSinceMs = document.visibilityState === 'visible' ? null : clock.nowMs();
 let heartbeatTimer: number | null = null;
 let handshakeTimer: number | null = null;
 
@@ -18,10 +19,10 @@ function cancelHeartbeat() {
 
 function scheduleHeartbeat(inMs: number) {
   cancelHeartbeat();
-  const dueAtMs = Date.now() + inMs;
+  const dueAtMs = clock.nowMs() + inMs;
   heartbeatTimer = window.setTimeout(() => {
     heartbeatTimer = null;
-    dispatchConnectionEvent({ kind: 'heartbeat-due', lateByMs: Date.now() - dueAtMs });
+    dispatchConnectionEvent({ kind: 'heartbeat-due', lateByMs: clock.nowMs() - dueAtMs });
   }, inMs);
 }
 
@@ -71,11 +72,11 @@ function dispatchConnectionEvent(event: ConnectionEvent) {
 
 function noteVisibilityChange() {
   if (document.visibilityState !== 'visible') {
-    hiddenSinceMs = Date.now();
+    hiddenSinceMs = clock.nowMs();
     dispatchConnectionEvent({ kind: 'hidden' });
     return;
   }
-  const hiddenForMs = hiddenSinceMs === null ? 0 : Date.now() - hiddenSinceMs;
+  const hiddenForMs = hiddenSinceMs === null ? 0 : clock.nowMs() - hiddenSinceMs;
   hiddenSinceMs = null;
   startWakeTimeline('shown', hiddenForMs);
   dispatchConnectionEvent({ kind: 'shown', hiddenForMs });
@@ -96,7 +97,7 @@ function noteControlSocketChange(change: 'connecting' | 'opened' | 'closed') {
 }
 
 function noteResume() {
-  startWakeTimeline('resumed', hiddenSinceMs === null ? 0 : Date.now() - hiddenSinceMs);
+  startWakeTimeline('resumed', hiddenSinceMs === null ? 0 : clock.nowMs() - hiddenSinceMs);
   dispatchConnectionEvent({ kind: 'resumed' });
 }
 

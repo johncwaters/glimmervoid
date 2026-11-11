@@ -50,6 +50,7 @@ import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamReq
 import { servePackFile } from './http/backend-http-pack-files.ts';
 import type { PackFileSource } from './http/backend-http-pack-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
+import { clock } from '../../shared/clock.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
@@ -221,15 +222,15 @@ function holdTouches(){root.style.touchAction=zoomState==="zoomed"?"none":"pan-x
 holdTouches();
 addEventListener("keydown",function(event){if(event.key==="Escape")later(function(){if(!event.defaultPrevented)dashboard.postMessage(${JSON.stringify(BOARD_PAGE_ESCAPE_MESSAGE)},"*")})},true);
 addEventListener("message",function(event){var data=event.data;if(event.source!==dashboard||!data||data.type!==${JSON.stringify(BOARD_PAGE_ZOOMED_MESSAGE)})return;zoomState=data.isZoomed===true?"zoomed":"fit";holdTouches()});
-addEventListener("touchstart",function(event){lastTouchAt=Date.now();if(event.touches.length===2){pinch=fingers(event.touches);press=null;return}if(event.touches.length!==1)return;var touch=event.touches[0];press={screenX:touch.screenX,screenY:touch.screenY,clientX:touch.clientX,clientY:touch.clientY,startX:touch.screenX,startY:touch.screenY,travel:0}},{capture:true,passive:true});
+addEventListener("touchstart",function(event){lastTouchAt=clock.nowMs();if(event.touches.length===2){pinch=fingers(event.touches);press=null;return}if(event.touches.length!==1)return;var touch=event.touches[0];press={screenX:touch.screenX,screenY:touch.screenY,clientX:touch.clientX,clientY:touch.clientY,startX:touch.screenX,startY:touch.screenY,travel:0}},{capture:true,passive:true});
 addEventListener("touchmove",function(event){if(event.touches.length===2&&pinch){event.preventDefault();var next=fingers(event.touches);if(pinch.distance>0&&next.distance>0)post({gesture:"pinch",centerX:next.centerX,centerY:next.centerY,scaleFactor:next.distance/pinch.distance});post({gesture:"pan",deltaX:next.screenX-pinch.screenX,deltaY:next.screenY-pinch.screenY});pinch=next;return}if(event.touches.length!==1||!press)return;var touch=event.touches[0];press.travel=Math.max(press.travel,Math.hypot(touch.screenX-press.startX,touch.screenY-press.startY));if(zoomState!=="zoomed")return;event.preventDefault();post({gesture:"pan",deltaX:touch.screenX-press.screenX,deltaY:touch.screenY-press.screenY});press.screenX=touch.screenX;press.screenY=touch.screenY},{capture:true,passive:false});
-addEventListener("touchend",function(event){lastTouchAt=Date.now();if(event.touches.length<2)pinch=null;if(event.touches.length!==0||!press)return;var tapped=press;press=null;if(tapped.travel>6)return;var now=Date.now();if(lastTap&&now-lastTap.at<300&&Math.hypot(tapped.clientX-lastTap.clientX,tapped.clientY-lastTap.clientY)<30){lastTap=null;post({gesture:"doubleTap",centerX:tapped.clientX,centerY:tapped.clientY});return}lastTap={at:now,clientX:tapped.clientX,clientY:tapped.clientY}},true);
+addEventListener("touchend",function(event){lastTouchAt=clock.nowMs();if(event.touches.length<2)pinch=null;if(event.touches.length!==0||!press)return;var tapped=press;press=null;if(tapped.travel>6)return;var now=clock.nowMs();if(lastTap&&now-lastTap.at<300&&Math.hypot(tapped.clientX-lastTap.clientX,tapped.clientY-lastTap.clientY)<30){lastTap=null;post({gesture:"doubleTap",centerX:tapped.clientX,centerY:tapped.clientY});return}lastTap={at:now,clientX:tapped.clientX,clientY:tapped.clientY}},true);
 addEventListener("touchcancel",function(){pinch=null;press=null},true);
 addEventListener("gesturestart",function(event){event.preventDefault()},true);
-addEventListener("mousedown",function(event){if(event.button!==0||zoomState!=="zoomed"||Date.now()-lastTouchAt<800)return;event.preventDefault();mouseDrag={screenX:event.screenX,screenY:event.screenY}},true);
+addEventListener("mousedown",function(event){if(event.button!==0||zoomState!=="zoomed"||clock.nowMs()-lastTouchAt<800)return;event.preventDefault();mouseDrag={screenX:event.screenX,screenY:event.screenY}},true);
 addEventListener("mousemove",function(event){if(!mouseDrag)return;if((event.buttons&1)===0||zoomState!=="zoomed"){mouseDrag=null;return}event.preventDefault();post({gesture:"pan",deltaX:event.screenX-mouseDrag.screenX,deltaY:event.screenY-mouseDrag.screenY});mouseDrag={screenX:event.screenX,screenY:event.screenY}},true);
 addEventListener("mouseup",function(){mouseDrag=null},true);
-addEventListener("dblclick",function(event){if(Date.now()-lastTouchAt<800)return;post({gesture:"doubleTap",centerX:event.clientX,centerY:event.clientY})},true);
+addEventListener("dblclick",function(event){if(clock.nowMs()-lastTouchAt<800)return;post({gesture:"doubleTap",centerX:event.clientX,centerY:event.clientY})},true);
 addEventListener("wheel",function(event){var isZoom=event.ctrlKey||event.metaKey;if(!isZoom&&zoomState!=="zoomed")return;event.preventDefault();post({gesture:"wheel",centerX:event.clientX,centerY:event.clientY,deltaX:event.deltaX,deltaY:event.deltaY,isZoom:isZoom})},{capture:true,passive:false});
 })(setTimeout,parent,document.documentElement)</script>`.replaceAll('\n', ''));
 const BOARD_PAGE_BASE_STYLE = Buffer.from('<style>:where(html){color-scheme:light dark;background:var(--glimmervoid-background,#15131b);color:var(--glimmervoid-text,#e8e5ef);font:16px/1.5 system-ui,sans-serif}:where(body){margin:0;padding:24px}:where(a){color:var(--glimmervoid-accent,#a78bfa)}:where(h1,h2,h3,h4){line-height:1.2;margin:0 0 .5em}:where(button,input,select,textarea){font:inherit;color:inherit}:where(button){background:var(--glimmervoid-accent,#a78bfa);color:var(--glimmervoid-background,#15131b);border:0;border-radius:5px;padding:6px 14px;cursor:pointer}:where(input,select,textarea){background:transparent;border:1px solid var(--glimmervoid-line,#3b3549);border-radius:5px;padding:4px 8px}:where(hr){border:0;border-top:1px solid var(--glimmervoid-line,#3b3549)}:where(code,pre){font-family:ui-monospace,monospace}</style>');
@@ -638,7 +639,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
     const dir = path.join(uploadsRoot, sess.id);
     const filename = buildUploadFilename({
-      now: Date.now(),
+      now: clock.nowMs(),
       randomSuffix: crypto.randomBytes(4).toString('hex'),
       extension: typeVerdict.extension,
     });

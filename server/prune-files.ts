@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { recordSweptPath } from './removal-journal.ts';
+import { clock } from '../shared/clock.ts';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -26,7 +27,7 @@ async function pruneAgedFiles({
   directory,
   suffixes,
   retainDays,
-  now = Date.now(),
+  now = clock.nowMs(),
   isRetainedId = () => false,
   entryMode = 'file',
   fsPromises = fs.promises,

@@ -14,6 +14,7 @@ import type { ReviewComment, ReviewDraft, TeamReviewActionRequest, TeamReviewAct
 import { errorMessage } from '../../shared/text.ts';
 import { withAutomatedNote } from '../../shared/team-review-markdown.ts';
 import { shortSha } from '../../shared/git-text.ts';
+import { clock } from '../../shared/clock.ts';
 
 const REPLACED_DRAFT_ERROR = 'The draft was replaced after it was shown. Read the new draft before acting on it';
 
@@ -64,7 +65,7 @@ function isDraftedReview(draft: ReviewDraft | null): draft is ReviewDraft {
   return draft !== null && DRAFTED_REVIEW_STATUSES.has(draft.status) && !isThreadPlaceholderDraft(draft);
 }
 
-function createTeamReviewActions({ drafts, github, store, log = console, telemetry = null, requestPrRefresh, now = Date.now }: TeamReviewActionOptions) {
+function createTeamReviewActions({ drafts, github, store, log = console, telemetry = null, requestPrRefresh, now = clock.nowMs }: TeamReviewActionOptions) {
   const actionsInFlight = new Set<string>();
 
   interface ActionTiming {

@@ -5,6 +5,7 @@ import type { CoherenceJournalEntry, CoherenceJournalReading, SessionCoherence }
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { CoherenceAttachment } from './coherence-runtime.ts';
 import { appendJournalWindow, journalEntries, judgeTurnEnd, selectLatestShownEntry, startVerdictWatch, type CoherenceVerdictWatch } from './core/coherence-feed-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 type CoherenceFeedSession = Pick<Session, 'id' | 'resumeSessionId' | 'coherenceHooks' | 'coherenceAttachment' | 'refreshCoherenceHooks' | 'raiseAttention' | 'baseSha'> & Partial<Pick<Session, 'onBeforeWorktreeDiscard'>> & {
   on(event: 'exit', listener: () => void): unknown;
@@ -22,7 +23,7 @@ interface SessionFeedState {
   verdictWatch: CoherenceVerdictWatch | null;
 }
 
-function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now = Date.now, log = console }: {
+function createCoherenceSessionFeed({ broadcastControl, debounceMs = 1500, now = clock.nowMs, log = console }: {
   broadcastControl: (message: ServerMessageOf<'session-coherence'>) => void;
   debounceMs?: number; now?: () => number; log?: Pick<Console, 'warn'>;
 }) {

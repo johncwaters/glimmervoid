@@ -1,5 +1,5 @@
 type Moment = number | Date;
-type ClockStyle = 'hour-minute' | 'hour-minute-second';
+type ClockStyle = 'hour-minute' | 'hour-minute-second' | 'short-time' | 'month-day' | 'date' | 'date-time';
 
 interface WallClockParts {
   year: number;
@@ -8,6 +8,7 @@ interface WallClockParts {
   hour: number;
   minute: number;
   second: number;
+  weekday: number;
 }
 
 interface Clock {
@@ -18,7 +19,7 @@ interface Clock {
   dayKeyOf(moment: Moment, inTimezone?: string): string;
   hourOf(moment: Moment): number;
   startOfDay(ms: number, daysAgo?: number): number;
-  format(moment: Moment, style: ClockStyle): string;
+  format(moment: Moment, style: ClockStyle, inTimezone?: string): string;
 }
 
 interface ClockOptions {
@@ -27,7 +28,16 @@ interface ClockOptions {
 }
 
 const MS_PER_SECOND = 1000;
+const DAY_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const partsFormatterByTimezone = new Map<string, Intl.DateTimeFormat>();
+const styleFormatterByKey = new Map<string, Intl.DateTimeFormat>();
+
+const LOCALE_STYLE_OPTIONS: Record<Exclude<ClockStyle, 'hour-minute' | 'hour-minute-second'>, { locale: string | undefined; options: Intl.DateTimeFormatOptions }> = {
+  'short-time': { locale: undefined, options: { hour: '2-digit', minute: '2-digit' } },
+  'month-day': { locale: 'en-US', options: { month: 'short', day: 'numeric' } },
+  date: { locale: undefined, options: { year: 'numeric', month: 'numeric', day: 'numeric' } },
+  'date-time': { locale: undefined, options: { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' } },
+};
 
 function pad2(value: number): string {
   return String(value).padStart(2, '0');
@@ -65,12 +75,48 @@ function partsFormatterFor(timezone: string): Intl.DateTimeFormat {
   return formatter;
 }
 
+function weekdayOfDate(year: number, month: number, day: number): number {
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
 function wallClockPartsIn(timezone: string, moment: Moment): WallClockParts {
-  const parts: WallClockParts = { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0 };
+  const parts: WallClockParts = { year: 0, month: 0, day: 0, hour: 0, minute: 0, second: 0, weekday: 0 };
   for (const part of partsFormatterFor(timezone).formatToParts(moment)) {
     if (part.type in parts) parts[part.type as keyof WallClockParts] = Number(part.value);
   }
+  parts.weekday = weekdayOfDate(parts.year, parts.month, parts.day);
   return parts;
+}
+
+function styleFormatterFor(timezone: string, style: keyof typeof LOCALE_STYLE_OPTIONS): Intl.DateTimeFormat {
+  const key = `${timezone}|${style}`;
+  const cached = styleFormatterByKey.get(key);
+  if (cached) return cached;
+  const { locale, options } = LOCALE_STYLE_OPTIONS[style];
+  const formatter = new Intl.DateTimeFormat(locale, { ...options, timeZone: timezone });
+  styleFormatterByKey.set(key, formatter);
+  return formatter;
+}
+
+function dayKeyFromUtcDate(date: Date): string {
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
+}
+
+function utcDateOfDayKey(dayKey: string): Date | null {
+  const match = DAY_KEY_PATTERN.exec(dayKey);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function shiftDayKey(dayKey: string, days: number): string | null {
+  const date = utcDateOfDayKey(dayKey);
+  if (!date) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return dayKeyFromUtcDate(date);
+}
+
+function weekdayOfDayKey(dayKey: string): number | null {
+  return utcDateOfDayKey(dayKey)?.getUTCDay() ?? null;
 }
 
 function offsetMsIn(timezone: string, ms: number): number {
@@ -110,8 +156,9 @@ function createClock(options: ClockOptions): Clock {
     return midnightAsUtc - offsetMsIn(zone, firstGuess);
   }
 
-  function format(moment: Moment, style: ClockStyle): string {
-    const parts = partsOf(moment);
+  function format(moment: Moment, style: ClockStyle, inTimezone?: string): string {
+    if (style !== 'hour-minute' && style !== 'hour-minute-second') return styleFormatterFor(zoneOrOperator(inTimezone), style).format(moment);
+    const parts = partsOf(moment, inTimezone);
     const hourMinute = `${pad2(parts.hour)}:${pad2(parts.minute)}`;
     if (style === 'hour-minute') return hourMinute;
     return `${hourMinute}:${pad2(parts.second)}`;
@@ -137,5 +184,5 @@ function setOperatorTimezoneSource(source: () => string | null | undefined): voi
 
 const clock: Clock = createClock({ timezone: () => operatorTimezoneSource() ?? systemTimezone() });
 
-export { clock, isKnownTimezone, setOperatorTimezoneSource, systemTimezone };
+export { clock, isKnownTimezone, setOperatorTimezoneSource, shiftDayKey, systemTimezone, weekdayOfDayKey };
 export type { Clock };

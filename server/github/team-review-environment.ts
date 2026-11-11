@@ -6,6 +6,7 @@ import { cachedAgentResolvability } from '../../session/adapters/index.ts';
 import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
 import type { ReviewAgentOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
 const SKILL_FILE_NAME = 'SKILL.md';
@@ -74,7 +75,7 @@ function agentOffer(scan: AgentScan, nowMs: number): ReviewAgentOffer {
 }
 
 function currentTeamReviewEnvironment(
-  { nowMs = Date.now(), homeDir = os.homedir(), env = process.env }: { nowMs?: number; homeDir?: string; env?: NodeJS.ProcessEnv } = {},
+  { nowMs = clock.nowMs(), homeDir = os.homedir(), env = process.env }: { nowMs?: number; homeDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
   return {

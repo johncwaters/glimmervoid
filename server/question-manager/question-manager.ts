@@ -13,6 +13,7 @@ import {
   buildManagerRequest, decideByRules, MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME,
   MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, mightAnswer, NO_RULE_REASON, parseManagerVerdict, pinByRules, plainLanguageRules, withRulePins,
 } from './core/question-manager-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const QUESTION_MANAGER_LANE_TOOLS = Object.freeze(['Read', 'Write']);
 
@@ -49,7 +50,7 @@ function createQuestionManagerLane(spawn: LaneSpawn): QuestionManagerLane {
     try {
       const resultPath = path.join(workDir, MANAGER_RESULT_FILENAME);
       const { prompt, untrustedItems } = buildManagerRequest(questions, plainRules, task, resultPath);
-      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: MANAGER_UNTRUSTED_SOURCE, fetchedAt: new Date().toISOString(), items: untrustedItems }, MANAGER_ITEM_CHARS);
+      await writeUntrustedPayload(workDir, { trust: 'untrusted', source: MANAGER_UNTRUSTED_SOURCE, fetchedAt: clock.now().toISOString(), items: untrustedItems }, MANAGER_ITEM_CHARS);
       await fs.writeFile(path.join(workDir, MANAGER_PROMPT_FILENAME), prompt, 'utf8');
       await spawn({ id: `question-manager:${randomUUID()}`, name: 'Question manager', cwd: workDir, prompt: MANAGER_BOOTSTRAP_PROMPT, model, signal });
       if (signal.aborted) return { kind: 'escalate', reason: `the manager did not answer within ${MANAGER_TIMEOUT_MS / 1000} s` };

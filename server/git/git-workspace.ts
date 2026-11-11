@@ -29,6 +29,7 @@ import { createOriginOps } from './workspace/origin-ops.ts';
 import { createRebaseOps } from './workspace/rebase-ops.ts';
 import { createProbeOps } from './workspace/probe-ops.ts';
 import { createIntegrationOps } from './workspace/integration-ops.ts';
+import { clock } from '../../shared/clock.ts';
 
 const fsp = fs.promises;
 
@@ -170,9 +171,9 @@ function createGitWorkspace(opts: {
     return keyRead;
   };
   const runInRepositoryQueue = async <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs, admission: { admissionTimeoutMs?: number } = {}): Promise<TResult> => {
-    const admissionDeadlineMs = admission.admissionTimeoutMs === undefined ? undefined : Date.now() + admission.admissionTimeoutMs;
+    const admissionDeadlineMs = admission.admissionTimeoutMs === undefined ? undefined : clock.nowMs() + admission.admissionTimeoutMs;
     const repositoryKey = await keyReadBefore(repositoryKeyOf(args), admission.admissionTimeoutMs);
-    const remainingAdmission = admissionDeadlineMs === undefined ? {} : { admissionTimeoutMs: Math.max(0, admissionDeadlineMs - Date.now()) };
+    const remainingAdmission = admissionDeadlineMs === undefined ? {} : { admissionTimeoutMs: Math.max(0, admissionDeadlineMs - clock.nowMs()) };
     return queueByRepository.run(repositoryKey, isolatedCall(body, args), remainingAdmission);
   };
   const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => runInRepositoryQueue(body, args);
@@ -762,7 +763,7 @@ function resolveRemovalGuard(guard: RemovalGuardOptions | undefined, glimmervoid
   return {
     protectedSessionIds: guard?.protectedSessionIds ?? (() => new Set<string>()),
     journalPath: guard?.journalPath ?? removalsJournalPath(glimmervoidHome),
-    now: guard?.now ?? Date.now,
+    now: guard?.now ?? clock.nowMs,
   };
 }
 

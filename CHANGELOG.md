@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Days follow your timezone, even on a hosted server.** The dashboard now tells the server your browser's timezone, kept as `operatorTimezone` in config, and Usage days and the Your day recap count from your midnight instead of the server's. A server in UTC no longer starts your Yesterday at the wrong hour. Until a dashboard connects, the server uses its own timezone. Times in the session debug overlay now show as 24-hour HH:MM:SS.
+- **Days follow your timezone, even on a hosted server.** The dashboard now tells the server your browser's timezone, kept as `operatorTimezone` in config, and Usage days and the Your day recap count from your midnight instead of the server's. A server in UTC no longer starts your Yesterday at the wrong hour. Until a dashboard connects, the server uses its own timezone. Commit answer times and Your day peak hours use your timezone too, and Radar day labels read as English month and day, like the rest of the dashboard. Times in the session debug overlay now show as 24-hour HH:MM:SS.
 
 ## [0.57.2] - 2026-11-11
 

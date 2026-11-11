@@ -13,6 +13,7 @@ import { hostUpgradeTarget } from '../core/upgrade-route.ts';
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { HostLinkHandle, HubSocketFrameHandlers, OpenHubSocket, OpenTunnel } from './host-link-poller.ts';
+import { clock } from '../../shared/clock.ts';
 
 const HUB_ROLE_HEADERS = Object.freeze({ 'X-Glimmervoid-Role': 'hub' });
 const TUNNEL_READY_TIMEOUT_MS = 20000;
@@ -76,8 +77,8 @@ function canConnect(port: number): Promise<boolean> {
 async function waitUntilListening(port: number, exited: Promise<string>): Promise<void> {
   let exitReason: string | null = null;
   void exited.then((reason) => { exitReason = reason; });
-  const deadline = Date.now() + TUNNEL_READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const deadline = clock.nowMs() + TUNNEL_READY_TIMEOUT_MS;
+  while (clock.nowMs() < deadline) {
     if (exitReason !== null) throw new Error(exitReason);
     if (await canConnect(port)) return;
     await new Promise((resolve) => setTimeout(resolve, TUNNEL_READY_POLL_MS));

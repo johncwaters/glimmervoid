@@ -14,6 +14,7 @@ import { classifyRequestOrigin, decideOwnerAccess, decideRequestAccess, normaliz
 import type { RequestTrust } from './core/request-trust.ts';
 import type { PairedDevice, PairingsStore, SeenStore } from './pairings-store.ts';
 import { escapeMarkup } from '../shared/escape-markup.ts';
+import { clock } from '../shared/clock.ts';
 
 const DEVICE_COOKIE_MAX_AGE_SECONDS = Math.floor(DEFAULT_DEVICE_MAX_AGE_MS / 1000);
 const TAILSCALE_USER_LOGIN_HEADER = 'tailscale-user-login';
@@ -77,7 +78,7 @@ function createRemoteAuth({
   remoteListenerPort,
   pairingsStore,
   seenStore = null,
-  now = Date.now,
+  now = clock.nowMs,
   deviceMaxAgeMs = DEFAULT_DEVICE_MAX_AGE_MS,
   log = console.log,
 }: RemoteAuthOptions): RemoteAuth {

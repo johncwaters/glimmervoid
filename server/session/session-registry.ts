@@ -14,6 +14,7 @@ import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
 import { releaseEveryUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
@@ -78,7 +79,7 @@ function runAutoResume(
   spawnGate: RegistrySpawnGate,
   logger: Pick<Console, 'warn'> = console,
 ): Promise<unknown[]> {
-  const ids = pickAutoResume(config.projects, config, Date.now());
+  const ids = pickAutoResume(config.projects, config, clock.nowMs());
   const runs: Promise<unknown>[] = [];
   for (const id of ids) {
     const session = sessions.get(id);

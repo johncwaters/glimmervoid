@@ -1,4 +1,4 @@
-import { clock } from '#shared/clock.ts';
+import { clock, shiftDayKey, weekdayOfDayKey } from '#shared/clock.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import { formatCount, formatTokens, formatUsd, NO_VALUE, planWindowOf, RANGE_OPTIONS, trimTrailingZeros, usageErrorLine } from './usage-store-core.ts';
@@ -130,7 +130,7 @@ function formatMinutes(minutes: unknown) {
 }
 
 export function yourDayHint(yourDay: YourDay, now: number) {
-  const yesterdayKey = shiftedDayKey(clock.dayKeyOf(now), -1);
+  const yesterdayKey = shiftDayKey(clock.dayKeyOf(now), -1) ?? '';
   const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
   const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
   const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';
@@ -140,10 +140,10 @@ export function yourDayHint(yourDay: YourDay, now: number) {
 export function blockLabel(startTs: unknown) {
   const ts = Number(startTs);
   if (!Number.isFinite(ts) || ts <= 0) return NO_VALUE;
-  const date = new Date(ts);
-  const month = MONTH_NAMES[date.getMonth()];
+  const parts = clock.partsOf(ts);
+  const month = MONTH_NAMES[parts.month - 1];
   if (!month) return NO_VALUE;
-  return `${month} ${date.getDate()} ${clock.format(date, 'hour-minute')}`;
+  return `${month} ${parts.day} ${clock.format(ts, 'hour-minute')}`;
 }
 
 const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
@@ -239,7 +239,7 @@ function overheadWindowOf(
 export function glimmervoidOverhead(
   report: UsageReport | null | undefined,
   planLimits: PlanLimits | null | undefined,
-  now = Date.now(),
+  now = clock.nowMs(),
 ): OverheadWindow[] {
   const windows = report?.planWindowLanes;
   if (!windows || typeof windows !== 'object') return [];
@@ -315,20 +315,12 @@ export const PERIOD_VIEWS = Object.freeze([
 ]);
 export const DEFAULT_PERIOD_VIEW = 'day';
 
-function parseDayKey(day: unknown) {
-  const parts = DAY_KEY_RE.exec(String(day ?? ''));
-  if (!parts) return null;
-
-  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), 12);
-}
-
 function weekStartKey(day: unknown) {
-  const date = parseDayKey(day);
-  if (!date) return '';
-  const dayOfWeek = date.getDay();
+  const dayKey = String(day ?? '');
+  const dayOfWeek = weekdayOfDayKey(dayKey);
+  if (dayOfWeek === null) return '';
   const daysSinceMonday = (dayOfWeek + 6) % 7;
-  date.setDate(date.getDate() - daysSinceMonday);
-  return clock.dayKeyOf(date);
+  return shiftDayKey(dayKey, -daysSinceMonday) ?? '';
 }
 
 export function monthKey(day: unknown) {
@@ -485,20 +477,19 @@ function heatmapTone(tokens: unknown, max: unknown) {
 
 export function heatmapCells(
   daily: unknown,
-  { weeks = HEATMAP_WEEKS, today = new Date() }: { weeks?: number; today?: Date | number | string } = {}
+  { weeks = HEATMAP_WEEKS, today = clock.now() }: { weeks?: number; today?: Date | number | string } = {}
 ): { cells: HeatmapCell[]; max: number; weeks: number } {
   const dailyRows: UsageWireRow[] = Array.isArray(daily) ? daily : [];
   const rows = dailyRows.filter((row) => DAY_KEY_RE.test(String(row?.day ?? '')));
   const byDay = new Map(rows.map((row): [string, UsageWireRow] => [String(row.day), row]));
   const suppliedToday = today instanceof Date ? today : new Date(today);
-  const fallbackToday = Number.isFinite(suppliedToday.getTime()) ? suppliedToday : new Date();
+  const fallbackToday = Number.isFinite(suppliedToday.getTime()) ? suppliedToday : clock.now();
   const todayKey = typeof today === 'string' && DAY_KEY_RE.test(today)
     ? today
     : clock.dayKeyOf(fallbackToday);
-  const anchor = parseDayKey(weekStartKey(todayKey));
-  if (!anchor) return { cells: [], max: 0, weeks: 0 };
-  const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - (weeks - 1) * 7, 12);
-  const startKey = clock.dayKeyOf(start);
+  const anchorKey = weekStartKey(todayKey);
+  if (!anchorKey) return { cells: [], max: 0, weeks: 0 };
+  const startKey = shiftDayKey(anchorKey, -(weeks - 1) * 7) ?? anchorKey;
   const cells: HeatmapCell[] = [];
 
   let max = 0;
@@ -511,8 +502,7 @@ export function heatmapCells(
   }
   for (let week = 0; week < weeks; week += 1) {
     for (let weekday = 0; weekday < 7; weekday += 1) {
-      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + week * 7 + weekday, 12);
-      const key = clock.dayKeyOf(date);
+      const key = shiftDayKey(startKey, week * 7 + weekday) ?? startKey;
       const row = byDay.get(key) || null;
       const beyondToday = key > todayKey;
       const beforeSeries = firstDay !== null && key < firstDay;
@@ -621,20 +611,20 @@ export const PLAN_LIMIT_VENDORS: readonly { vendor: PlanLimitsVendor; label: str
   { vendor: 'kimi', label: 'Kimi Code' },
 ]);
 
-export function planLimitAgeText(ts: unknown, now = Date.now()) {
+export function planLimitAgeText(ts: unknown, now = clock.nowMs()) {
   const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return '';
   const minutes = Math.max(0, Math.round((now - stamped) / 60000));
   return `${minutes}m old`;
 }
 
-function isPlanLimitStale(ts: unknown, now = Date.now()) {
+function isPlanLimitStale(ts: unknown, now = clock.nowMs()) {
   const stamped = numberOr(ts, null);
   if (stamped === null || stamped <= 0) return true;
   return now - stamped > PLAN_LIMIT_STALE_MS;
 }
 
-export function planLimitStaleNote(ts: unknown, now = Date.now()) {
+export function planLimitStaleNote(ts: unknown, now = clock.nowMs()) {
   if (!isPlanLimitStale(ts, now)) return '';
   const age = planLimitAgeText(ts, now);
   if (!age) return 'showing last-known usage';
@@ -863,11 +853,11 @@ export function paceWindows(planLimitsByVendor: Readonly<Record<PlanLimitsVendor
 export function resetClockText(resetsAtMs: unknown, now: number) {
   const resetsAt = numberOr(resetsAtMs, null);
   if (resetsAt === null || resetsAt <= 0) return '';
-  const date = new Date(resetsAt);
-  const hourMinuteText = clock.format(date, 'hour-minute');
+  const hourMinuteText = clock.format(resetsAt, 'hour-minute');
   if (clock.dayKeyOf(resetsAt) === clock.dayKeyOf(now)) return hourMinuteText;
-  if (resetsAt - now < 7 * DAY_MS && date.getDay() !== new Date(now).getDay()) return `${WEEKDAY_NAMES[date.getDay()]} ${hourMinuteText}`;
-  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()} ${hourMinuteText}`;
+  const resetParts = clock.partsOf(resetsAt);
+  if (resetsAt - now < 7 * DAY_MS && resetParts.weekday !== clock.partsOf(now).weekday) return `${WEEKDAY_NAMES[resetParts.weekday]} ${hourMinuteText}`;
+  return `${MONTH_NAMES[resetParts.month - 1]} ${resetParts.day} ${hourMinuteText}`;
 }
 
 function roundedPercentText(pct: number) {
@@ -993,13 +983,8 @@ export function historyDayCount(daily: unknown) {
 }
 
 export function periodDayKeys(todayKey: string, days: number) {
-  const today = parseDayKey(todayKey);
-  if (!today || days <= 0) return [];
-  return Array.from({ length: days }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (days - 1 - index));
-    return clock.dayKeyOf(date);
-  });
+  if (!DAY_KEY_RE.test(todayKey) || days <= 0) return [];
+  return Array.from({ length: days }, (_, index) => shiftDayKey(todayKey, index - (days - 1)) ?? todayKey);
 }
 
 export function rangeDays(rangeValue: string) {
@@ -1043,13 +1028,6 @@ interface RankedRow {
   barPct: number;
 }
 
-function shiftedDayKey(dayKey: string, offsetDays: number) {
-  const date = parseDayKey(dayKey);
-  if (!date) return '';
-  date.setDate(date.getDate() + offsetDays);
-  return clock.dayKeyOf(date);
-}
-
 function valueByDayOf(daily: unknown, field: 'tokens' | 'costUSD') {
   const rows: UsageWireRow[] = Array.isArray(daily) ? daily : [];
   const valueByDay = new Map<string, number>();
@@ -1062,17 +1040,17 @@ function valueByDayOf(daily: unknown, field: 'tokens' | 'costUSD') {
 }
 
 function periodBarLabel(day: string, days: number) {
-  const date = parseDayKey(day);
-  if (!date) return day;
-  if (days <= 7) return WEEKDAY_NAMES[date.getDay()];
-  return String(date.getDate());
+  const weekday = weekdayOfDayKey(day);
+  if (weekday === null) return day;
+  if (days <= 7) return WEEKDAY_NAMES[weekday];
+  return String(Number(day.slice(8)));
 }
 
 export function periodSummary(daily: unknown, days: number, todayKey: string, metric: UsageMetric): PeriodSummary {
   const valueByDay = valueByDayOf(daily, metric === 'cost' ? 'costUSD' : 'tokens');
   const bars = periodDayKeys(todayKey, days).map((day) => ({ day, label: periodBarLabel(day, days), value: valueByDay.get(day) ?? 0, isToday: day === todayKey }));
   const total = bars.reduce((sum, bar) => sum + bar.value, 0);
-  const previousDayKeys = periodDayKeys(shiftedDayKey(todayKey, -days), days);
+  const previousDayKeys = periodDayKeys(shiftDayKey(todayKey, -days) ?? '', days);
   const previousTotal = previousDayKeys.reduce((sum, day) => sum + (valueByDay.get(day) ?? 0), 0);
   const hasPreviousPeriod = previousDayKeys.some((day) => valueByDay.has(day)) && previousTotal > 0;
   return {

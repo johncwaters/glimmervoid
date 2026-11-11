@@ -47,6 +47,7 @@ import type {
   RadarQueue,
   RadarSnapshot,
 } from './radar-core.ts';
+import { clock } from '#shared/clock.ts';
 
 type QueueActionId = QueuePrimaryAction | 'dismiss-fix' | 'resolve' | 'suppress';
 
@@ -435,9 +436,7 @@ function buildQueueRow(item: QueueItem) {
 }
 
 function startOfTodayMs() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today.getTime();
+  return clock.startOfDay(clock.nowMs());
 }
 
 function buildDailyStrip(item: QueueItem) {
@@ -460,7 +459,7 @@ function buildDailyStrip(item: QueueItem) {
     const day = el('span', 'radar-strip-cell');
     day.dataset.level = String(cell.level);
     if (cell.hasInvestigation) day.dataset.investigated = '';
-    const dayText = new Date(cell.dayStartMs).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const dayText = clock.format(cell.dayStartMs, 'month-day');
     readoutCells.push({ element: day, text: `${dayText}: ${cell.occurrences} ${cell.occurrences === 1 ? 'occurrence' : 'occurrences'}${cell.hasInvestigation ? ', investigated' : ''}` });
     strip.append(day);
   }
@@ -479,7 +478,7 @@ function fixDetailLines(item: QueueItem) {
   for (const investigation of item.investigations) {
     if (investigation.pendingFix) {
       const fix = investigation.pendingFix;
-      const expiry = fix.expiresAt > 0 ? `, deleted ${new Date(fix.expiresAt).toLocaleDateString()} unless approved` : '';
+      const expiry = fix.expiresAt > 0 ? `, deleted ${clock.format(fix.expiresAt, 'date')} unless approved` : '';
       lines.push(el('p', 'radar-pane-text', `Fix waiting on local branch ${fix.branch}${expiry}. Agent title: ${fix.agentPrTitle || '(none)'}`));
     }
     if (investigation.prUrl) {
@@ -719,7 +718,7 @@ function render() {
     return;
   }
   const intervalMinutes = Number(latest?.intervalMinutes);
-  const queue = buildRadarQueue(latest, { archivedLocally, nowMs: Date.now(), intervalMs: intervalMinutes > 0 ? intervalMinutes * 60000 : 0 });
+  const queue = buildRadarQueue(latest, { archivedLocally, nowMs: clock.nowMs(), intervalMs: intervalMinutes > 0 ? intervalMinutes * 60000 : 0 });
   for (const tier of queue.tiers) for (const item of tier.items) _itemsByKey.set(item.key, item);
   _orderedKeys = queueItemKeys(queue);
   _root.append(buildQueueSection(queue, intervalMinutes));

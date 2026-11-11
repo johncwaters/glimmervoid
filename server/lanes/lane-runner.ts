@@ -5,6 +5,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 interface TickOutcome {
   failed?: boolean;
@@ -73,7 +74,7 @@ function createTickLoop({
   backoffBaseMs = Math.max(intervalMs, DEFAULT_BASE_MS),
   backoffMaxMs = DEFAULT_MAX_MS,
   minFailureWaitMs = 0,
-  now = Date.now,
+  now = timeClock.nowMs,
   random = Math.random,
   log = console,
 }: TickLoopOptions): TickLoop {

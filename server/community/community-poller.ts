@@ -3,6 +3,7 @@ import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
 import type { CommunityAction, CommunityItem, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { clock } from '../../shared/clock.ts';
 
 type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined };
 type SourceFailure = { error: string; isRateLimited: boolean; retryAfterMs?: number | undefined };
@@ -46,7 +47,7 @@ interface CommunityPoller {
 
 function createCommunityPoller({
   intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
-  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = Date.now, log = console, isCoveredByWatcher = () => false,
+  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = clock.nowMs, log = console, isCoveredByWatcher = () => false,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
   let lastPollOutcome: 'none' | 'ok' | 'failed' = 'none';

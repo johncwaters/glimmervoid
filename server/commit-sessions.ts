@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { appendJsonLines, createJsonStateStore } from './json-file.ts';
 import { createKeyedSerialQueue } from './spawn-gate.ts';
+import { clock } from '../shared/clock.ts';
 
 const COMMIT_SESSIONS_FOLDER_NAME = 'commit-sessions';
 const PROVENANCE_WRITER_FILE_NAME = 'provenance-writer.json';
@@ -106,7 +107,7 @@ function createProvenanceWriterId(filePath: string, logger: Pick<Console, 'warn'
   };
 }
 
-function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = Date.now, writerIdFn = () => Promise.resolve(null) }: {
+function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = clock.nowMs, writerIdFn = () => Promise.resolve(null) }: {
   storeRoot: string;
   runGitFn?: GitRunner;
   logger: Pick<Console, 'warn'>;

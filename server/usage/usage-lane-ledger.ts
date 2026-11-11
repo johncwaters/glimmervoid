@@ -7,6 +7,7 @@ import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
+import { clock } from '../../shared/clock.ts';
 
 type LedgerFileSystem = Pick<typeof nodeFsPromises, 'readFile' | 'mkdir' | 'writeFile' | 'rename' | 'rm' | 'appendFile'>;
 type StoredLedgerEntries = NonNullable<Parameters<typeof pruneLedger>[0]>;
@@ -30,7 +31,7 @@ interface LaneLedger {
 function createLaneLedger({
   ledgerPath = null,
   fsPromises = nodeFsPromises,
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
   retainDays = 365,
   logger = null,
 }: LaneLedgerOptions = {}): LaneLedger {

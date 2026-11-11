@@ -11,6 +11,7 @@ import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
+import { clock } from '../shared/clock.ts';
 
 interface SessionPort {
   state: () => SessionState;
@@ -178,7 +179,7 @@ function createSessionBackgroundTracking({
   function evaluateGateHeldReady(): void {
     const held = gateHeldReady;
     if (!held || port.isDestroyed()) return;
-    const now = Date.now();
+    const now = clock.nowMs();
     const activeAgents = activeAgentCount();
     publishAgentsChange();
 
@@ -280,7 +281,7 @@ function createSessionBackgroundTracking({
     }
 
     if (!name) return;
-    tasks.noteTeammateIdle(name, Date.now());
+    tasks.noteTeammateIdle(name, clock.nowMs());
   }
 
   function noteTaskNotificationsDelivered(prompt: unknown): void {
@@ -302,7 +303,7 @@ function createSessionBackgroundTracking({
       }
     }
     if (agentId && raw.signal === "subagent-start") {
-      const changed = tasks.noteAgentStart(agentId, raw.ts || Date.now());
+      const changed = tasks.noteAgentStart(agentId, raw.ts || clock.nowMs());
       if (changed) emitAgentsChange();
     }
     if (agentId && raw.signal === "subagent-stop") noteAgentStopped(agentId);
@@ -322,7 +323,7 @@ function createSessionBackgroundTracking({
   }
 
   function stashGateHeldReady(signal: ResolvedStatusSignal): void {
-    const now = Date.now();
+    const now = clock.nowMs();
     gateHeldReady = {
       source: signal.source,
       signal: signal.signal,
@@ -346,7 +347,7 @@ function createSessionBackgroundTracking({
   function trackWakeup(raw: HookSignal): void {
     if (!detectScheduledWakeups) return;
     const payload: HookPayload = raw.payload || {};
-    const ts = raw.ts || Date.now();
+    const ts = raw.ts || clock.nowMs();
     if (raw.signal === "wakeup-scheduled") {
       const toolInput = payload.tool_input;
       const input: Record<string, unknown> = isRecord(toolInput)
@@ -380,7 +381,7 @@ function createSessionBackgroundTracking({
 
   function pendingWakeup(): PendingWakeup | null {
     if (!detectScheduledWakeups) return null;
-    wakeupTracker.pruneWakeups(wakeups, Date.now());
+    wakeupTracker.pruneWakeups(wakeups, clock.nowMs());
     const entry = wakeupTracker.earliestWakeup(wakeups);
     if (!entry) return null;
     return { at: entry.fireAt, kind: entry.kind, reason: entry.reason };
@@ -396,11 +397,11 @@ function createSessionBackgroundTracking({
     clearWakeupExpiryTimer();
     const expiresAt = wakeupTracker.nextWakeupExpiry(wakeups);
     if (expiresAt == null) return;
-    const delayUntilExpiryMs = Math.max(0, expiresAt - Date.now());
+    const delayUntilExpiryMs = Math.max(0, expiresAt - clock.nowMs());
     wakeupExpiryTimer = setTimeout(() => {
       wakeupExpiryTimer = null;
       if (port.isDestroyed()) return;
-      if (Date.now() < expiresAt) {
+      if (clock.nowMs() < expiresAt) {
         armWakeupExpiryTimer();
         return;
       }

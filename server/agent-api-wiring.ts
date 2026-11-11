@@ -9,6 +9,7 @@ import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, Channel
 import { createChildChannels } from './agent-api/child-channels.ts';
 import { createAgentSpawner } from './agent-api/agent-spawn.ts';
 import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
+import { clock } from '../shared/clock.ts';
 
 interface AgentWireReply {
   status: number;
@@ -43,7 +44,7 @@ function createAgentApiWiring({
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
-  now = Date.now,
+  now = clock.nowMs,
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,

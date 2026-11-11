@@ -1,3 +1,4 @@
+import { clock } from './clock.ts';
 export function isAutoNameOf(name: string, baseName: string) {
   if (name === baseName) return true;
   const prefix = `${baseName} (`;
@@ -13,5 +14,5 @@ export function nextSuggestedName(baseName: string, names: readonly string[]) {
     const candidate = `${baseName} (${i})`;
     if (!taken.has(candidate)) return candidate;
   }
-  return `${baseName} (${Date.now()})`;
+  return `${baseName} (${clock.nowMs()})`;
 }

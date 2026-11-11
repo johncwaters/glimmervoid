@@ -20,6 +20,7 @@ import {
   traceRecordsForItemEvent,
 } from './core/codex-app-server-core.ts';
 import { coderPortForwardArgs } from './core/remote-launch-core.ts';
+import { clock } from '../shared/clock.ts';
 
 interface CodexRemoteAppServer {
   launch: (appServerArgs: string[]) => { file: string; args: string[] };
@@ -71,7 +72,7 @@ function toError(failure: unknown): Error {
 }
 
 export async function startCodexAppServerBridge(options: CodexAppServerBridgeOptions): Promise<CodexAppServerBridge> {
-  const now = options.now ?? Date.now;
+  const now = options.now ?? clock.nowMs;
   const logger = options.logger ?? console;
   const token = randomBytes(32).toString('hex');
   const privateDirectory = await mkdtemp(join(resolve(options.tokenParentDirectory), 'glimmervoid-codex-app-server-'));
@@ -498,8 +499,8 @@ export async function startCoderPortForward({ workspace, remotePort, readyTimeou
     if (hasExited) return;
     child.kill('SIGTERM');
   };
-  const deadlineMs = Date.now() + readyTimeoutMs;
-  while (!hasExited && Date.now() < deadlineMs) {
+  const deadlineMs = clock.nowMs() + readyTimeoutMs;
+  while (!hasExited && clock.nowMs() < deadlineMs) {
     if (await isLocalPortOpen(localPort)) return { url: `ws://127.0.0.1:${localPort}`, stop };
     await new Promise((resolveDelay) => setTimeout(resolveDelay, PORT_FORWARD_POLL_MS));
   }

@@ -28,6 +28,7 @@ import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
+import { clock } from '../../../shared/clock.ts';
 
 type AddSessionRefusal = { error: string };
 type AddSessionRequest = ClientMessageOf<'add-session'>;
@@ -566,7 +567,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sendError(ws, 'Session not found', { id: msg.id });
       return;
     }
-    const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], Date.now());
+    const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], clock.nowMs());
     if (!link) {
       sendError(ws, `Not a GitHub pull request: ${msg.key}`, { id: msg.id });
       return;

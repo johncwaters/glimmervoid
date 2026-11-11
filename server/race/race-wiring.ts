@@ -15,6 +15,7 @@ import { RACE_JUDGE_RESULT_FILENAME, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESU
 import type { ContestantDiff } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
 import type { ReviewCaseLibrary } from './review-cases.ts';
+import { clock } from '../../shared/clock.ts';
 
 const SETTLE_CHECK_INTERVAL_MS = 15_000;
 const JUDGE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -87,7 +88,7 @@ function shuffled<Item>(items: readonly Item[], random: () => number): Item[] {
 function createRaceWiring({
   store, git, integrationBranch, broadcast, log, sessionStateOf = () => REMOVED_CONTESTANT, sessionWatchOf, worktreeOf = () => null,
   diffOf = async () => ({ ok: false, reason: 'diffs are unavailable' }), spawnJudge = null, runCheck = async () => ({ status: 'unavailable', exitCode: null, reason: 'checks are unavailable', durationMs: 0, outputTail: '' }),
-  transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, reviewCases = null, now = Date.now, random = Math.random,
+  transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, reviewCases = null, now = clock.nowMs, random = Math.random,
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
   const launchBySeries = new Map<string, ContestantLaunch>();

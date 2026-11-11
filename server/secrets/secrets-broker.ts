@@ -9,6 +9,7 @@ import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
 import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, withApprovals, withoutApproval, withoutApprovals } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface NeedingSession {
   id: string;
@@ -64,7 +65,7 @@ const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze
 const REFERENCE_NOT_FOUND_NOTE = 'the vault has no item at the saved reference; the operator was asked for a new one';
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, PendingCard>();

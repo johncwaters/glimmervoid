@@ -16,6 +16,7 @@ import type { AgentSpawner } from './agent-spawn.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
+import { clock } from '../../shared/clock.ts';
 
 const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
@@ -83,7 +84,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function linkPr(session: Session, pullRequestKey: string): AgentReplyOf<'link-pr'> {
-    const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], Date.now());
+    const link = manualPrLink(pullRequestKey, operatorState?.myPrsStatus()?.prs ?? [], clock.nowMs());
     if (!link) return refusal(400, `not a GitHub pull request: ${pullRequestKey}`);
     session.linkPrManually(link);
     return { status: 200, body: { ok: true, key: `${link.repo}#${link.number}`, url: link.url } };
@@ -139,7 +140,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function send(session: Session, { words }: AgentSendRequest): AgentReplyOf<'send'> {
-    const at = Date.now();
+    const at = clock.nowMs();
     if (channelsByChildId.has(session.id)) {
       post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
       return { status: 200, body: { ok: true } };

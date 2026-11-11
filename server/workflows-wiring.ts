@@ -19,6 +19,7 @@ import { makeTeamReviewWorkDir } from './github/team-review-spawn.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
 import { createWorkflowSessionQueue, createWorkflowsPoller } from './workflows-poller.ts';
 import type { SpawnSession, WorkflowsPoller, WorkflowsPollerDependencies } from './workflows-poller.ts';
+import { clock as timeClock } from '../shared/clock.ts';
 
 type SpawnAction = PlannedWorkflowAction & { action: { type: 'spawn'; promptTemplate: string } };
 
@@ -110,7 +111,7 @@ export function createWorkflowsWiring({
     tag: core.WORKFLOWS_LANE_ID,
     gate,
     cfgKey: () => JSON.stringify({ settings: settings(), teamName: teamName() }),
-    emptyStatus: () => ({ type: 'workflows-status', ts: Date.now(), configured: gate().start, reason: gate().reason ?? null }),
+    emptyStatus: () => ({ type: 'workflows-status', ts: timeClock.nowMs(), configured: gate().start, reason: gate().reason ?? null }),
     createPoller: ({ onTickComplete }) => {
       const resolved = settings();
       return createPoller({

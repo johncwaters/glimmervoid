@@ -12,6 +12,7 @@ import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyP
 import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 const MY_PRS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -40,7 +41,7 @@ interface MyPrsPollerDependencies {
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, org, github, store, onTickComplete, now = Date.now, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
+  const { shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, org, github, store, onTickComplete, now = timeClock.nowMs, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
   let viewer: string | null = null;
   let previousPrs: MyPr[] = [];
   let previousTruncatedNote: string | null = null;

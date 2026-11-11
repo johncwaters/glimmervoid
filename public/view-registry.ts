@@ -21,6 +21,7 @@ import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
 import type { PackPanelView } from './packs/pack-views.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
+import { clock } from '#shared/clock.ts';
 
 interface ViewRegistryActions {
   onRestart: () => void;
@@ -70,7 +71,7 @@ export function prefetchViewsWhenIdle(views: readonly DashboardView[]): void {
 }
 
 function reloadOnceWithinWindow(storage: Storage): void {
-  const nowMs = Date.now();
+  const nowMs = clock.nowMs();
   if (!shouldReloadAfterPreloadError(storage.getItem(PRELOAD_RELOAD_KEY), nowMs, PRELOAD_RELOAD_WINDOW_MS)) return;
   storage.setItem(PRELOAD_RELOAD_KEY, String(nowMs));
   location.reload();

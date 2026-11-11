@@ -13,6 +13,7 @@ import { WorkflowsState } from '../shared/contracts/workflows.ts';
 import type { WorkflowRule, WorkflowsState as WorkflowsStateType } from '../shared/contracts/workflows.ts';
 import { errorMessage } from '../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../shared/timer-deps.ts';
+import { clock as timeClock } from '../shared/clock.ts';
 
 const WORKFLOWS_RATE_LIMIT_RESOURCES = ['graphql'] as const;
 
@@ -107,7 +108,7 @@ interface WorkflowsPollerDependencies {
 }
 
 export function createWorkflowsPoller(dependencies: WorkflowsPollerDependencies) {
-  const { rules, teamName, maxActionsPerPoll = core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, github, store, notify, startSession, onTickComplete, now = Date.now, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
+  const { rules, teamName, maxActionsPerPoll = core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, github, store, notify, startSession, onTickComplete, now = timeClock.nowMs, intervalMinutes = core.WORKFLOWS_POLL_INTERVAL_MINUTES, log = console } = dependencies;
   let snapshot: WorkflowsStateType = core.emptyWorkflowsState();
   let stateLoad: Promise<void> | null = null;
   let viewer: string | null = null;

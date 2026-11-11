@@ -51,7 +51,7 @@ function liveTipText(waitingCount: number, stretchMs: number) {
 
 function tryMorningTip(yourDay: YourDay, now: number) {
   const topInsight = yourDay.insights[0];
-  if (!topInsight || new Date(now).getHours() < MORNING_START_HOUR) return false;
+  if (!topInsight || clock.hourOf(now) < MORNING_START_HOUR) return false;
   if (!claim(`morning-${clock.dayKeyOf(now)}`, now, DAY_MS)) return false;
   showHintCard({ text: `Morning. ${topInsight.text}`, ariaLabel: 'Your day tip', onOpen: openUsageView, onDismiss: () => {} });
   return true;
@@ -87,7 +87,7 @@ function requestReportOnce(now: number) {
 
 function checkYourDayTips() {
   if (document.visibilityState !== 'visible') return;
-  const now = Date.now();
+  const now = clock.nowMs();
   if (!isReportFresh(now)) {
     requestReportOnce(now);
     return;

@@ -1,5 +1,6 @@
 
 import { EventEmitter } from 'node:events';
+import { clock } from '../shared/clock.ts';
 
 const DEFAULT_CONFLICT_WINDOW_MS = 750;
 const DEFAULT_DEDUP_WINDOW_MS = 500;
@@ -67,7 +68,7 @@ class StatusSource extends EventEmitter {
   ingest(raw: RawStatusSignal | null | undefined): void {
     if (this._destroyed || !raw || !raw.signal) return;
     const { signal, source } = raw;
-    const ts = raw.ts ?? Date.now();
+    const ts = raw.ts ?? clock.nowMs();
     const confidence = raw.confidence || CONFIDENCE[source ?? ''] || 'low';
 
     if (signal === 'unknown') {

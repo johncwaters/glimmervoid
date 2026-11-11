@@ -21,6 +21,7 @@ import { createTeamReviewHeadPlanning } from './team-review-poller/team-review-h
 import { createTeamReviewAnsweredThreads } from './team-review-poller/team-review-answered-threads.ts';
 import { createTeamReviewRuns } from './team-review-poller/team-review-runs.ts';
 import { createTeamReviewOperatorActions } from './team-review-poller/team-review-operator-actions.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
@@ -28,7 +29,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
-    log = console, telemetry = null, onTickComplete = () => {}, now = () => Date.now(),
+    log = console, telemetry = null, onTickComplete = () => {}, now = () => timeClock.nowMs(),
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;
   const reReviewAfterMs = deps.reReviewAfterMs ?? core.DEFAULT_RE_REVIEW_AFTER_HOURS * 60 * 60 * 1000;

@@ -14,6 +14,7 @@ import {
 } from './core/coder-env-core.ts';
 import type { CoderEnvironmentSettings, CoderWorkspace, ReadinessVerdict, ResolvedCoderEnvironment, WorkspaceMapping } from './core/coder-env-core.ts';
 import { createLaneRunner } from '../lanes/lane-runner.ts';
+import { clock } from '../../shared/clock.ts';
 
 const CODER_UNAVAILABLE_REASON = 'Coder environments are unavailable on this host';
 const REMOTE_SESSIONS_OFF_REFUSAL = { ok: false, reason: 'Remote Coder sessions are off. Turn on Remote Coder sessions (experimental) in Settings.' } as const;
@@ -44,7 +45,7 @@ interface CoderEnvWiringOptions extends Omit<CoderEnvPollerDeps, 'listWorkspaces
 
 function createCoderEnvWiring({
   config, persistMapping, onReconciled = () => {}, loadOwnedWorkspaces, saveOwnedWorkspaces, runCoder: executeCoder, env = process.env, platform = process.platform,
-  fetch: fetchReady = globalThis.fetch, createPoller = createCoderEnvPoller, now = Date.now, log = console,
+  fetch: fetchReady = globalThis.fetch, createPoller = createCoderEnvPoller, now = clock.nowMs, log = console,
   ...pollerDeps
 }: CoderEnvWiringOptions) {
   let binaryProbe: Promise<boolean> | null = null;

@@ -5,6 +5,7 @@ import type { CoderActivityLastReport, CoderActivityState } from './core/coder-a
 import { createTickLoop } from './lanes/lane-runner.ts';
 import type { TickLoopOptions, TickOutcome } from './lanes/lane-runner.ts';
 import { errorMessage } from '../shared/text.ts';
+import { clock } from '../shared/clock.ts';
 
 interface CoderActivityReport {
   state: CoderActivityState;
@@ -16,7 +17,7 @@ type CoderActivityPollerDeps = Pick<TickLoopOptions, 'now' | 'setIntervalFn' | '
   reportStatus: (report: CoderActivityReport) => Promise<void>;
 };
 
-function createCoderActivityPoller({ countRunningSessions, reportStatus, now = Date.now, log = console, ...loopOptions }: CoderActivityPollerDeps) {
+function createCoderActivityPoller({ countRunningSessions, reportStatus, now = clock.nowMs, log = console, ...loopOptions }: CoderActivityPollerDeps) {
   let lastReport: CoderActivityLastReport | null = null;
   let stopping: Promise<void> | null = null;
 

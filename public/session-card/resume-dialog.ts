@@ -12,6 +12,7 @@ import { buildDialogShell, openConfirmDialog } from './modal.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { clock } from '#shared/clock.ts';
 
 const DORMANT = 'DORMANT';
 
@@ -19,7 +20,7 @@ type RestartTarget = { kind: 'this' } | { kind: 'fresh' } | { kind: 'earlier'; c
 
 function relTime(ms: number | null | undefined) {
   if (!ms) return '';
-  return elapsedText(Date.now() - ms, { rounding: 'round', wording: 'compact', suffix: ' ago', justNowBelowSeconds: 60 });
+  return elapsedText(clock.nowMs() - ms, { rounding: 'round', wording: 'compact', suffix: ' ago', justNowBelowSeconds: 60 });
 }
 
 type ResumableConversation = ServerMessageOf<'conversations'>['conversations'][number];

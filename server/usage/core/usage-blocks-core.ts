@@ -1,5 +1,6 @@
 import type { TokenCountsSource, UsageEntryLike, UsageTotals } from './usage-entry-core.ts';
 import { addEntryToTotals, emptyTotals } from './usage-entry-core.ts';
+import { clock } from '../../../shared/clock.ts';
 
 export interface UsageBlock extends UsageTotals {
   startTs: number;
@@ -21,7 +22,7 @@ const HOUR_MS = 60 * 60 * 1000;
 
 function buildBlocks(
   entriesAsc: UsageEntryLike[] | null | undefined,
-  { blockHours = 5, now = Date.now() }: { blockHours?: number; now?: number } = {},
+  { blockHours = 5, now = clock.nowMs() }: { blockHours?: number; now?: number } = {},
 ): { blocks: UsageBlock[]; activeBlock: UsageBlock | null } {
   const duration = blockHours * HOUR_MS;
   const blocks: UsageBlock[] = [];
@@ -76,7 +77,7 @@ function burnRate(
 function projectBlock(
   block: { tokens?: number; costUSD?: number | null; endTs?: number } | null | undefined,
   burn: BurnRate | null | undefined,
-  now: number = Date.now(),
+  now: number = clock.nowMs(),
 ): { projectedTokens: number; projectedCostUSD: number; remainingMinutes: number } | null {
   if (!block || !burn) return null;
   const remainingMinutes = Math.max(0, ((block.endTs ?? 0) - now) / 60000);

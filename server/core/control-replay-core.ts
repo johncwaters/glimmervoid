@@ -1,3 +1,4 @@
+import { clock } from '../../shared/clock.ts';
 type ControlMessageRecord = Record<string, unknown> & { type?: unknown; seq?: number };
 
 interface ReplayEntry {
@@ -18,7 +19,7 @@ function isReplayable(type: unknown): boolean {
   return typeof type === 'string' && REPLAYABLE_EXACT.has(type);
 }
 
-function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = Date.now() }: {
+function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = clock.nowMs() }: {
   maxEntries?: number;
   maxAgeMs?: number;
   firstSeq?: number;
@@ -39,7 +40,7 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = D
     }
   }
 
-  function stamp(msg: ControlMessageRecord, now: number = Date.now()): ControlMessageRecord {
+  function stamp(msg: ControlMessageRecord, now: number = clock.nowMs()): ControlMessageRecord {
     seq += 1;
     msg.seq = seq;
     if (!isReplayable(msg.type)) return msg;
@@ -48,7 +49,7 @@ function createReplayLog({ maxEntries = 500, maxAgeMs = 5 * 60_000, firstSeq = D
     return msg;
   }
 
-  function entriesSince(since: number, now: number = Date.now()): { entries: ControlMessageRecord[]; evicted: boolean } {
+  function entriesSince(since: number, now: number = clock.nowMs()): { entries: ControlMessageRecord[]; evicted: boolean } {
     evictStale(now);
     if (!Number.isFinite(since) || since < 0) return { entries: [], evicted: false };
     const entries = ring.filter((e) => e.seq > since).map((e) => e.msg);

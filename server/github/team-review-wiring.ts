@@ -31,6 +31,7 @@ import type { TeamReviewWiringConfig, TeamReviewRepoCache, TeamReviewGitWorkspac
 import { createTeamReviewDispatcher } from './team-review-dispatcher.ts';
 import { createTeamReviewActions } from './team-review-actions.ts';
 import { laneAccessConfigOf, laneAccessEnvBlocker } from '../lanes/core/lane-permissions-core.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 const TEAM_REVIEW_READ_TOKEN_REQUIRED = 'Team review needs a GitHub read token: set one in Settings, Vault, or GLIMMERVOID_GITHUB_READ_TOKEN';
 
@@ -78,7 +79,7 @@ function teamReviewCfgKey(config: TeamReviewWiringConfig, githubAppToken: string
 }
 
 function emptyTeamReviewStatus(gate: LaneRunnerGate): TeamReviewStatusType {
-  return core.teamReviewStatus({ ts: Date.now(), configured: gate.start, reason: gate.reason ?? null });
+  return core.teamReviewStatus({ ts: timeClock.nowMs(), configured: gate.start, reason: gate.reason ?? null });
 }
 
 function createTeamReviewStateIo(statePath: string, log: Pick<Console, 'warn'>) {

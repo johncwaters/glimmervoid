@@ -9,6 +9,7 @@ import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
 import type { WatcherStarter } from './remote-watcher-starter.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface ProbeSource {
   laneId: string;
@@ -79,7 +80,7 @@ function jsonOrNull(text: string): unknown {
   }
 }
 
-function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Date.now, startWatcher, log = console, telemetry = null, onGithubAppTokenChange = () => {} }: {
+function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clock.nowMs, startWatcher, log = console, telemetry = null, onGithubAppTokenChange = () => {} }: {
   credentials: () => WatcherCredentials;
   linkSecret: Buffer;
   fetchFn?: FetchFn;

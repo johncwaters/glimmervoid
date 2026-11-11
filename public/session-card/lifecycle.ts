@@ -29,6 +29,7 @@ import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 import { paintAgentMark } from './agent-mark.ts';
+import { clock } from '#shared/clock.ts';
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
 
@@ -108,7 +109,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     path: asText(options.path),
     ownerId: options.ownerId ?? null,
 
-    stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : Date.now(),
+    stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : clock.nowMs(),
     sessionMenu: dom.sessionMenu,
     termWrap: dom.termWrap,
     btnDebug: dom.btnDebug,
@@ -281,7 +282,7 @@ export function applyState(sessionId: unknown, nextState: unknown, stateSince: u
 
   if (state !== prevState) {
     cancelWatchedCompletionDismiss(ui);
-    ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : Date.now();
+    ui.stateSince = typeof stateSince === 'number' && Number.isFinite(stateSince) ? stateSince : clock.nowMs();
     setRunningActivity(ui, state === STATES.RUNNING);
   }
 

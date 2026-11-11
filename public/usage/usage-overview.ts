@@ -6,6 +6,7 @@ import { PLAN_LIMIT_VENDORS, PLAN_WINDOWS, USAGE_DISABLED_HINT, budgetRows, budg
 import type { PaceWindow, PlanLimits, UsageDetailScreen } from './usage-view-core.ts';
 import { _detailScreen, _refreshButtonEl, _refreshStatusEl, _ticker, _usage, render, setRefreshButtonEl, setRefreshStatusEl, setReportAgeEl } from './usage-panel-state.ts';
 import { buildSection, clampPct, openScreen, paintReportAge } from './usage-panel-parts.ts';
+import { clock as timeClock } from '#shared/clock.ts';
 
 let _resetRenderTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -198,7 +199,7 @@ function scheduleResetRender(windows: readonly PaceWindow[], now: number) {
 
 function buildOverview() {
   const overview = el('div', 'usage-overview');
-  const now = Date.now();
+  const now = timeClock.nowMs();
   const windows = paceWindows(_usage.planLimitsByVendor, now);
   scheduleResetRender(windows, now);
   if (isUsageUnavailable(_usage.report)) {

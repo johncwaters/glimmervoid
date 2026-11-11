@@ -7,6 +7,7 @@ import { fencedUntrusted } from '../lanes/core/lane-report-core.ts';
 import { acceptReport, branchMovedNote, isCommandStillRunning, newPrActionRun, commandFingerprint, prActionRunAfterExit, prFlowSetup, prFlowsConfig, visibleRun, withInterruptedRuns, withPrActionRun, fixLocallyPrompt, itemLocation, mergeItems, plannedActions, savedRuleFor, scopedToRepo, shouldTellBranchMoved, withRuleRun, sourceCandidates, threadCandidates, withHandled, withOnlyOpenPrs, withReopened } from './core/pr-flows-core.ts';
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 import type { PackOnDisk } from '../../shared/contracts/pack.ts';
+import { clock } from '../../shared/clock.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
 
@@ -47,7 +48,7 @@ type ActionRun = {
 const FAILED_SOURCE_RETRY_MS = 5 * 60 * 1000;
 const BRANCH_MOVED_WINDOW_MS = 10 * 60 * 1000;
 
-function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = async () => ({ packs: [], warnings: [] }), now = Date.now }: PrFlowsWiringOptions) {
+function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile, appendRule, github, external = NO_EXTERNAL_RUNNER, broadcast, log, reportUrlFor = () => null, loadPacks = async () => ({ packs: [], warnings: [] }), now = clock.nowMs }: PrFlowsWiringOptions) {
   let state: PrFlowsState = { handledByPr: {}, reopenedByPr: {}, approvedFingerprints: [], ruleRunsByPr: {}, prActionRunByPr: {} };
   let warnings: string[] = [];
   let approvals: PrFlowPendingApproval[] = [];

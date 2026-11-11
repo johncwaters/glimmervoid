@@ -5,6 +5,7 @@ import { execFileAsync } from './child-process-safe.ts';
 import { decideArmToken, keychainServiceFor, parseStoredCredentials } from './core/claude-credentials-core.ts';
 import type { LoginAccessToken } from './core/claude-credentials-core.ts';
 import type { LoginSource } from './agent-login/core/agent-connect-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const OVERRIDE_TOKEN_ENV = 'GLIMMERVOID_CLAUDE_OAUTH_TOKEN';
 const LOGIN_REFRESH_TIMEOUT_MS = 120_000;
@@ -72,7 +73,7 @@ function createClaudeCredentials({
   homeDir = os.homedir(),
   connectedConfigDir = null,
   env = process.env,
-  now = () => Date.now(),
+  now = () => clock.nowMs(),
   claudeCommand,
   runCommand = runCommandSafely,
   readTextFile = readTextFileOrNull,

@@ -11,6 +11,7 @@ const CODE_FILE = /\.(?:[cm]?ts|[cm]?js)$/;
 const MODULE_LOADER = /\bcreateRequire\b|['"](?:node:)?module['"]/;
 const IMPORT_CALL_WITHOUT_LITERAL = /\b(?:import|require)\s*\(\s*(?!['"][^'"]*['"]\s*\))/g;
 const ALLOWED_IMPORT_PREFIXES = [
+  'shared/clock.ts',
   'shared/contracts/watcher-link.ts',
   'shared/loopback-hosts.ts',
   'cloud/link/core/',

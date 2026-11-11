@@ -9,6 +9,7 @@ import type { QueueRowKind } from './team-review-view-core.ts';
 import { isStreamerMode, onStreamerModeChanged } from '../streamer-mode.ts';
 import { teamWaitStartMs, validTimestampMs } from './review-queue-core.ts';
 import { _ageTicker, _progressTicker, _root, _view } from './team-review-panel-state.ts';
+import { clock } from '#shared/clock.ts';
 
 const SHARD_PATH = 'M4.5 0.5L8.5 5.5L4.5 10.5L0.5 5.5Z';
 
@@ -114,7 +115,7 @@ function trackAges(root: Element | null): void {
     if (readout.dataset.reviewTitle !== undefined) continue;
     const at = Number(readout.dataset.ageAt);
     const label = readout.dataset.ageLabel ?? '';
-    const ageText = readout.dataset.ageFormat === 'duration' ? () => formatDuration(Date.now() - at) : () => formatAgo(at);
+    const ageText = readout.dataset.ageFormat === 'duration' ? () => formatDuration(clock.nowMs() - at) : () => formatAgo(at);
     _ageTicker.track(readout, at, () => `${label}${label ? ' ' : ''}${ageText()}`);
   }
 }
@@ -173,7 +174,7 @@ function createTeamQueueRow(review: ReviewDraft | InFlightReview | QueuedReview,
   if (kind === 'inReview') {
     const inFlight = review as InFlightReview;
     const elapsed = el('span', 'pr-queue-elapsed');
-    _progressTicker.track(elapsed, inFlight.startedAt, () => inFlightElapsedText(inFlight, Date.now()));
+    _progressTicker.track(elapsed, inFlight.startedAt, () => inFlightElapsedText(inFlight, clock.nowMs()));
     top.append(elapsed);
   }
   const waitAge = kind === 'inReview' ? null : createAgeReadout('', teamWaitStartMs(review, kind));

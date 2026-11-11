@@ -22,6 +22,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../../shared/contracts/question-manager.ts';
 import type { ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { answeredSummary } from '../question-manager/core/question-manager-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
 
@@ -138,7 +139,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       const fields = pendingStatus;
       pendingStatus = null;
       if (fields === null || session._destroyed) return;
-      dependencies.broadcastControl({ type: 'session-status', id: session.id, session: session.name, timestamp: Date.now(), ...fields });
+      dependencies.broadcastControl({ type: 'session-status', id: session.id, session: session.name, timestamp: clock.nowMs(), ...fields });
     };
     const noteStatus = (fields: SessionStatusFields) => {
       if (pendingStatus === null) setImmediate(flushStatus);
@@ -154,7 +155,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     };
     const captureSessionEnded = (exitKind: SessionExitKind) => {
       if (spawnedAtMs === null) return;
-      const durationSeconds = Math.max(0, Math.round((Date.now() - spawnedAtMs) / 1000));
+      const durationSeconds = Math.max(0, Math.round((clock.nowMs() - spawnedAtMs) / 1000));
       spawnedAtMs = null;
       dependencies.telemetry?.capture('session_ended', {
         adapter: adapterBucket(session.agentId),
@@ -172,7 +173,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       const hasNoLastWorkedAt = typeof dependencies.config.projects.find((project) => project.id === session.id)?.lastWorkedAt !== 'number';
       lastPersistedWasWorking = wasWorking;
       persistProjectField('wasWorking', wasWorking);
-      if (hasWorkStartedOrEnded || hasNoLastWorkedAt) persistProjectField('lastWorkedAt', Date.now());
+      if (hasWorkStartedOrEnded || hasNoLastWorkedAt) persistProjectField('lastWorkedAt', clock.nowMs());
     };
     const markTurnWorking = () => {
       isTurnWorking = true;
@@ -257,7 +258,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
           .finally(() => dependencies.coherenceFeed?.onTurnEnd(session));
       }
       if (event === 'spawn_success') {
-        spawnedAtMs = Date.now();
+        spawnedAtMs = clock.nowMs();
         dependencies.telemetry?.capture('session_started', { adapter: adapterBucket(session.agentId) });
       }
       dependencies.telegramChannel.noteStateChange(session.id);
@@ -289,7 +290,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, isOwnedByParentSession: session.ownerId !== null, isMachineShell: session.agentId === SHELL_AGENT_ID },
       );
       session.recordNotifyDecision({
-        ts: Date.now(),
+        ts: clock.nowMs(),
         kind: 'notify',
         to,
         event: event || null,
@@ -366,7 +367,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         mergeStatus,
         reason: reason || null,
         parked: !!parked,
-        timestamp: Date.now(),
+        timestamp: clock.nowMs(),
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
     });
@@ -417,7 +418,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         session: session.name,
         branch,
         notice,
-        timestamp: Date.now(),
+        timestamp: clock.nowMs(),
       });
     });
     session.on('worktree-warning', ({ branch, notice, failureKind, installDetails }: { branch: string | null; notice: string; failureKind?: InstallFailureKind; installDetails?: InstallDetail[] }) => {
@@ -429,7 +430,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         notice,
         ...(failureKind ? { failureKind } : {}),
         ...(installDetails ? { installDetails } : {}),
-        timestamp: Date.now(),
+        timestamp: clock.nowMs(),
       });
     });
     session.on('worktree-ready', ({ branch, base }: { branch: string | null; base?: string | null }) => {
@@ -440,7 +441,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         session: session.name,
         branch,
         base,
-        timestamp: Date.now(),
+        timestamp: clock.nowMs(),
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
     });

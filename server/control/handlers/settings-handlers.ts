@@ -32,6 +32,7 @@ import { expandTilde } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
+import { clock } from '../../../shared/clock.ts';
 
 type ScannedProject = { name: string; path: string; lastActivityMs?: number };
 
@@ -330,7 +331,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   function handleRequestHooksReport(msg: ClientMessageOf<'request-hooks-report'>, ws: ControlSocket): void {
     replyTo(ws, msg, 'hooks-report', {
-      ts: Date.now(),
+      ts: clock.nowMs(),
       hooks: readStoredHooks(config.hooks),
       builtinByAgent: builtinHookGroups(),
       agentNotes: [...routeAgentNotes(), BOARD_CONTEXT_NOTE, ATTACHED_BOARD_NOTE, REFOCUS_NOTE],

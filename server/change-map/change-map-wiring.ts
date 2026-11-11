@@ -24,6 +24,7 @@ import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from '../core/workspace-links-core.ts';
 import type { PackageManifest, RepoPackageFacts } from '../core/workspace-links-core.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { clock } from '../../shared/clock.ts';
 
 const GIT_TIMEOUT_MS = 15000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -205,7 +206,7 @@ export type ChangeMapService = ReturnType<typeof createChangeMapService>;
 export function createChangeMapService({
   sessions,
   runGit = runGitAsync,
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
 }: ChangeMapServiceOptions) {
   const specifierCache = createFileFactCache(extractImportSpecifiers, []);
   const pythonSpecifierCache = createFileFactCache(extractPythonImportSpecifiers, []);

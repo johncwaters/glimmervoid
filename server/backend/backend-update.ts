@@ -6,6 +6,7 @@ import { decideFastForward, decidePreflight } from '../core/update-apply-core.ts
 import { decideUpdateStatus, isBinarySwitchFlavor, normalizeUpdateChannel, shortSha } from '../core/update-core.ts';
 import { checkForUpdate as defaultCheckForUpdate } from '../update-check.ts';
 import type { UpdateCheckStatus } from '../update-check.ts';
+import { clock } from '../../shared/clock.ts';
 
 const UPDATE_RECHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -66,7 +67,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   let lastDownloadedIdentity: string | null = null;
   let pendingChannelRefresh = false;
   let stopped = false;
-  const now = dependencies.now || (() => Date.now());
+  const now = dependencies.now || (() => clock.nowMs());
   const platform: string = dependencies.platform || process.platform;
 
   function decideApplyRefusal(

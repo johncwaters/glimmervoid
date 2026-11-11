@@ -13,6 +13,7 @@ import { _detailProgressTicker, _otherDetails, _pendingActions, _readyDetails } 
 import type { ActionDetailHandle, SettleAction } from './team-review-panel-state.ts';
 import { createAgeReadout, createAuthor, pullRequestLink } from './team-review-queue-row.ts';
 import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionButton, createOpenSessionControl, createOpenSessionStatus, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
+import { clock } from '#shared/clock.ts';
 
 const READY_DESK_SHORTCUTS: Partial<Readonly<Record<TeamReviewAction, string>>> = Object.freeze({
   approve: 'A', 'request-changes': 'R', comment: 'C',
@@ -236,7 +237,7 @@ function createInReviewDetail(review: InFlightReview): HTMLElement {
     tracker.append(item);
   }
   const progressText = el('div', 'pr-progress-text');
-  _detailProgressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, Date.now()));
+  _detailProgressTicker.track(progressText, review.startedAt, () => inFlightProgressText(review, clock.nowMs()));
   progress.append(tracker, progressText);
   detail.append(progress);
   const steps = el('section', 'pr-steps');

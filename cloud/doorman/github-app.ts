@@ -4,6 +4,7 @@ import { githubApiOrigin } from '../../shared/contracts/watcher-link.ts';
 import type { DoormanGithubApp, DoormanGithubInstallation } from '../../shared/contracts/doorman.ts';
 import { retryAfterMsFromHeaders } from '../watcher/core/probe-core.ts';
 import { githubAppJwt, installationTokenRequestBody } from './doorman-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 type MintOutcome =
   | { kind: 'minted'; token: string; expiresAtMs: number }
@@ -21,7 +22,7 @@ const MetadataToken = z.object({ access_token: z.string().min(1) });
 const SecretVersionAccess = z.object({ payload: z.object({ data: z.string().min(1) }) });
 const InstallationToken = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() });
 
-function createGithubAppMinter({ app, fetchFn = fetch, now = Date.now }: {
+function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
   app: DoormanGithubApp;
   fetchFn?: typeof fetch;
   now?: () => number;

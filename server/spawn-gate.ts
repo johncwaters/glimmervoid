@@ -1,5 +1,6 @@
 import { MEMORY_RECHECK_MS, shouldAdmitStart, liveReservations } from './core/memory-admission-core.ts';
 import type { MemoryReading, MemoryReservation, MemoryStartKind } from './core/memory-admission-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
 const QUEUE_ADMISSION_TIMED_OUT = 'serial-queue-admission-timed-out';
@@ -125,7 +126,7 @@ function toMegabytes(bytes: number): number {
 }
 
 function createMemoryAdmission({
-  readHeadroom, reserveBytesFor, nowMs = Date.now,
+  readHeadroom, reserveBytesFor, nowMs = clock.nowMs,
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
   warn = (message) => console.warn(message),
 }: MemoryAdmissionOptions): MemoryAdmission {

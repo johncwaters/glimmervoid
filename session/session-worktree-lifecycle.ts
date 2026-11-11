@@ -27,6 +27,7 @@ import type { AdoptWorktreeOptions, GitWorkspace, MergeEngineOutcome, MergeResul
 import { createWorktreeProvisioning } from "./worktree/worktree-provisioning.ts";
 import { createWorktreeDiffScopes } from "./worktree/worktree-diff-scopes.ts";
 import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
+import { clock } from '../shared/clock.ts';
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -240,7 +241,7 @@ function createSessionWorktreeLifecycle({
       teardownPending: session.isTeardownPending,
     });
     if (!verdict.clear) return;
-    port.recordDecision({ kind: "rebase", ts: Date.now(), decision: "cooldown-cleared", reason: verdict.reason });
+    port.recordDecision({ kind: "rebase", ts: clock.nowMs(), decision: "cooldown-cleared", reason: verdict.reason });
     lifecycleState.rebaseConflictKey = null;
     scheduleCheck();
   }
@@ -522,7 +523,7 @@ function createSessionWorktreeLifecycle({
     });
     if (verdict.action !== "rebase") {
       if (trigger === SPAWN_GAP_TRIGGER) {
-        port.recordDecision({ kind: "rebase", ts: Date.now(), decision: "skipped", trigger, reason: verdict.reason });
+        port.recordDecision({ kind: "rebase", ts: clock.nowMs(), decision: "skipped", trigger, reason: verdict.reason });
       }
       return;
     }
@@ -537,7 +538,7 @@ function createSessionWorktreeLifecycle({
       });
       const currentSession = port.state();
       if (trigger !== SPAWN_GAP_TRIGGER && !AUTO_REBASE_STATES.includes(currentSession.state)) {
-        port.recordDecision({ kind: "rebase", ts: Date.now(), decision: "state-moved", state: currentSession.state });
+        port.recordDecision({ kind: "rebase", ts: clock.nowMs(), decision: "state-moved", state: currentSession.state });
       }
       if (rebase?.ok && rebase.rebased) {
         lifecycleState.rebaseConflictKey = null;
@@ -547,7 +548,7 @@ function createSessionWorktreeLifecycle({
         }
         port.recordDecision({
           kind: "rebase",
-          ts: Date.now(),
+          ts: clock.nowMs(),
           decision: "auto-rebased",
           trigger,
           from: signature.headSha || null,
@@ -558,7 +559,7 @@ function createSessionWorktreeLifecycle({
       }
       if (rebase?.reason === "rebase-conflict") {
         lifecycleState.rebaseConflictKey = currentKey;
-        port.recordDecision({ kind: "rebase", ts: Date.now(), decision: "conflict", trigger, conflicts: rebase.conflicts || [] });
+        port.recordDecision({ kind: "rebase", ts: clock.nowMs(), decision: "conflict", trigger, conflicts: rebase.conflicts || [] });
       }
     } catch (error) {
       console.warn(`[session ${id}] auto-rebase failed: ${errorMessage(error)}`);

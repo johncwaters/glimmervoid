@@ -1,3 +1,4 @@
+import { clock } from '../../shared/clock.ts';
 interface LaneGate {
   start: boolean;
   reason?: string | null;
@@ -12,7 +13,7 @@ type EmptyLaneStatus = {
 };
 
 function emptyLaneStatus(type: string, gate: LaneGate): EmptyLaneStatus {
-  return { type, ts: Date.now(), configured: gate.start, reason: gate.reason, projects: [] };
+  return { type, ts: clock.nowMs(), configured: gate.start, reason: gate.reason, projects: [] };
 }
 
 export { emptyLaneStatus };

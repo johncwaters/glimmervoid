@@ -11,6 +11,7 @@ import { createBoardStore } from './whiteboard/board-store-client.ts';
 import { createLayoutClient } from './whiteboard/layout-client.ts';
 import { createBoard } from '../shared/whiteboard-ops-core.ts';
 import { errorText } from '../shared/text.ts';
+import { clock } from '../shared/clock.ts';
 
 type NativeProbeRow = [label: string, outcome: string];
 
@@ -55,7 +56,7 @@ async function openSqliteInBoardStoreWorker(): Promise<void> {
 
 async function layOutBoardInLayoutWorker(): Promise<void> {
   const layoutClient = createLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });
-  await layoutClient.refresh(createBoard({ id: 'doctor-probe', title: 'Doctor probe', nowMs: Date.now() }), []);
+  await layoutClient.refresh(createBoard({ id: 'doctor-probe', title: 'Doctor probe', nowMs: clock.nowMs() }), []);
 }
 
 async function probeFfmpeg(): Promise<string> {

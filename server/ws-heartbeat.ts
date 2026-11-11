@@ -2,6 +2,7 @@ import { DEFAULT_DEADLINE_MS, DEFAULT_INTERVAL_MS, planHeartbeatSweep } from './
 import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
+import { clock } from '../shared/clock.ts';
 
 interface HeartbeatSocket {
   glimmervoidLastSeenAt?: number;
@@ -36,7 +37,7 @@ function createHeartbeat({
   servers = [],
   intervalMs = DEFAULT_INTERVAL_MS,
   deadlineMs = DEFAULT_DEADLINE_MS,
-  now = Date.now,
+  now = clock.nowMs,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
   clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
   onTerminate = () => {},

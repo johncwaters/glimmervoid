@@ -8,6 +8,7 @@ import { writeTextAtomicSync } from './json-file.ts';
 import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
+import { clock } from '../shared/clock.ts';
 
 const AGENT_LISTING_TIMEOUT_MS = 5000;
 const SIGNING_TIMEOUT_MS = 60_000;
@@ -73,13 +74,13 @@ function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSea
 
   async function agentEnvBefore(publicKey: SshPublicKey, deadlineMs: number): Promise<{ SSH_AUTH_SOCK: string } | null> {
     const agentEnv = await agentEnvFor(publicKey);
-    if (agentEnv || Date.now() >= deadlineMs) return agentEnv;
+    if (agentEnv || clock.nowMs() >= deadlineMs) return agentEnv;
     await new Promise((resolve) => { setTimeout(resolve, agentRescanIntervalMs); });
     return agentEnvBefore(publicKey, deadlineMs);
   }
 
   async function signWithAgent({ publicKey, namespace, payload }: { publicKey: SshPublicKey; namespace: string; payload: Buffer }): Promise<SignOutcome> {
-    const agentEnv = await agentEnvBefore(publicKey, Date.now() + agentWaitMs);
+    const agentEnv = await agentEnvBefore(publicKey, clock.nowMs() + agentWaitMs);
     if (!agentEnv) return { ok: false, error: NO_AGENT_HOLDS_KEY };
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-sign-'));
     try {

@@ -1,3 +1,4 @@
+import { clock } from '../../shared/clock.ts';
 const DEFAULT_MAX_ENTRIES = 50;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -67,7 +68,7 @@ function recordFailure(
 
 function planReplay(
   entries: OutboxEntry[],
-  { now = Date.now(), maxAgeMs = DEFAULT_MAX_AGE_MS, maxAttempts = DEFAULT_MAX_ATTEMPTS }:
+  { now = clock.nowMs(), maxAgeMs = DEFAULT_MAX_AGE_MS, maxAttempts = DEFAULT_MAX_ATTEMPTS }:
     { now?: number; maxAgeMs?: number; maxAttempts?: number } = {},
 ): { send: OutboxEntry[]; expired: OutboxEntry[] } {
   const send: OutboxEntry[] = [];

@@ -1,6 +1,7 @@
 
 import { elapsedText } from '#shared/display-text.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
+import { clock } from '#shared/clock.ts';
 
 export function formatDuration(ms: unknown) {
   return elapsedText(Number(ms) || 0, { rounding: 'round', wording: 'compact', suffix: '', justNowBelowSeconds: 0 });
@@ -8,7 +9,7 @@ export function formatDuration(ms: unknown) {
 
 export function formatAgo(ts: number | null | undefined) {
   if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return 'never';
-  return `${formatDuration(Date.now() - ts)} ago`;
+  return `${formatDuration(clock.nowMs() - ts)} ago`;
 }
 
 const polledText = (ts: number | null | undefined) => `polled ${formatAgo(ts)}`;

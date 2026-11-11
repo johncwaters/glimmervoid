@@ -6,6 +6,7 @@ import { el } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
+import { clock } from '#shared/clock.ts';
 
 export type ActionStatusTone = 'busy' | 'ok' | 'error';
 
@@ -150,7 +151,7 @@ function headerStatusParts() {
 function paintHeaderErrorAge() {
   const parts = headerStatusParts();
   if (!parts || !shownHeaderError) return;
-  const ageText = elapsedText(Date.now() - shownHeaderError.raisedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: 60 });
+  const ageText = elapsedText(clock.nowMs() - shownHeaderError.raisedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: 60 });
   if (parts.age.textContent !== ageText) parts.age.textContent = ageText;
 }
 
@@ -170,7 +171,7 @@ export function reportHeaderError({ source, sessionId, message, kind, action, hi
   const sourceElement = el('strong', 'header-status-source', source);
   parts.text.replaceChildren(sourceElement, ` ${shownMessage}`);
   replaceHeaderAction(parts.line, parts.age, action);
-  shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: Date.now() };
+  shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: clock.nowMs() };
   paintHeaderErrorAge();
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
   parts.line.hidden = false;

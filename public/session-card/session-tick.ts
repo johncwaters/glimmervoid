@@ -3,12 +3,13 @@ import { STATES } from '#shared/states.ts';
 import { refreshSessionActivity } from './activity.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
+import { clock } from '#shared/clock.ts';
 
 const ELAPSED_STATES = new Set<string>([STATES.RUNNING, STATES.WAITING, STATES.STARTING, STATES.INITIALIZING]);
 const showsElapsed = (state: string) => ELAPSED_STATES.has(state);
 
 export function sessionElapsedText(ui: SessionUi) {
-  return showsElapsed(ui.currentState) ? clockDurationText(Date.now() - (ui.stateSince || Date.now()), { rounding: 'floor', showsHours: true }) : '';
+  return showsElapsed(ui.currentState) ? clockDurationText(clock.nowMs() - (ui.stateSince || clock.nowMs()), { rounding: 'floor', showsHours: true }) : '';
 }
 
 const tickSubscribers = new Set<() => void>();

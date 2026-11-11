@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { clock } from '../../shared/clock.ts';
 
 const SQLITE_FILE_MODE = 0o600;
 const UNREADABLE_DATABASE_CODES = new Set([11, 26]);
@@ -56,7 +57,7 @@ function isUnreadableDatabase(error: unknown): boolean {
 }
 
 function setAside(databasePath: string): void {
-  const setAsidePath = `${databasePath}.corrupt-${Date.now()}`;
+  const setAsidePath = `${databasePath}.corrupt-${clock.nowMs()}`;
   for (const suffix of ['', '-wal', '-shm']) {
     if (fs.existsSync(`${databasePath}${suffix}`)) fs.renameSync(`${databasePath}${suffix}`, `${setAsidePath}${suffix}`);
   }

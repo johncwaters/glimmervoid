@@ -5,6 +5,7 @@ import { SPAWN_GAP_TRIGGER } from "../core/rebase-gate.ts";
 import { describeDependencyCloneSkip, describeInstallNotice, describeInstallWarnings, describeInstalledDirs } from "../../server/git/core/dependency-clone-core.ts";
 import type { DependencySeedOutcome } from "../../server/git/dependency-clone.ts";
 import type { AdoptWorktreeOptions, GitWorkspace, IntegrationSyncResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeSignature } from "./worktree-lifecycle-context.ts";
+import { clock } from '../../shared/clock.ts';
 
 type WorktreeProvisioningDeps = {
   adoptWorktree(options: AdoptWorktreeOptions): void;
@@ -45,7 +46,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
       });
       port.recordDecision({
         kind: "integration-sync",
-        ts: Date.now(),
+        ts: clock.nowMs(),
         decision: trigger,
         outcome: sync.outcome,
         from: sync.from,

@@ -5,6 +5,7 @@ import { CommitSessionRecord } from '../../shared/contracts/commit-session.ts';
 import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import { TraceRecord } from '../../shared/contracts/trace.ts';
 import { adapterBucket } from './telemetry-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const COMMIT_LOG_FORMAT = '%H %ct';
 const REPO_KEY_HASH_LENGTH = 12;
@@ -142,28 +143,14 @@ function lastPromptBefore(traceText: string, committedAtMs: number): { text: str
   return latest;
 }
 
-function twoDigits(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-function localDay(ms: number): string {
-  const date = new Date(ms);
-  return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}`;
-}
-
-function localTime(ms: number): string {
-  const date = new Date(ms);
-  return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
-}
-
 function formatWhy(answer: WhyAnswer): string {
-  const heading = `${answer.location}  ${answer.sha.slice(0, SHORT_SHA_LENGTH)}  ${localDay(answer.committedAt)} ${localTime(answer.committedAt)}`;
+  const heading = `${answer.location}  ${answer.sha.slice(0, SHORT_SHA_LENGTH)}  ${clock.dayKeyOf(answer.committedAt)} ${clock.format(answer.committedAt, 'hour-minute')}`;
   const { record, sharedNote } = answer;
   if (!record && sharedNote) return `${heading}\nsession  ${sharedNote.agent}  ${sharedNote.sessionId.slice(0, 8)}  (shared record; task and prompt stay on the machine that made it)`;
   if (!record) return `${heading}\nno Glimmervoid session made this commit`;
   const lines = [heading, `session  ${record.sessionName} (${record.agent})  ${opaqueSessionIdOf(record.sessionId).slice(0, 8)}`];
   if (record.taskTitle) lines.push(`task     ${record.taskTitle}`);
-  if (answer.prompt) lines.push(`asked    ${JSON.stringify(answer.prompt.text)} (${localTime(answer.prompt.ts)})`);
+  if (answer.prompt) lines.push(`asked    ${JSON.stringify(answer.prompt.text)} (${clock.format(answer.prompt.ts, 'hour-minute')})`);
   return lines.join('\n');
 }
 

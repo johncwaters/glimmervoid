@@ -3,6 +3,7 @@ import claudeCode from '../session/adapters/claude-code.ts';
 import type { OutcomeRecorder } from '../shared/outcome-names.ts';
 import { HookEnvelope } from '../shared/contracts/index.ts';
 import type { HookPayload } from '../shared/contracts/index.ts';
+import { clock } from '../shared/clock.ts';
 
 const { mapHookToSignal, mapHookConfidence, mapHookPromptKind } = claudeCode;
 
@@ -134,7 +135,7 @@ class HookRouter {
         ...(confidence ? { confidence } : {}),
         ...(promptKind ? { promptKind } : {}),
         ...(promptToolName ? { promptToolName } : {}),
-        ts: Date.now(), event, payload: mappedPayload,
+        ts: clock.nowMs(), event, payload: mappedPayload,
       });
     } catch (err) {
       console.warn(`[hook-source] onSignal threw for ${glimmervoidId}: ${errorMessage(err)}`);

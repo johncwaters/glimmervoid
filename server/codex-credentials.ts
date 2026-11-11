@@ -6,6 +6,7 @@ import type { CodexAppServerCommand } from './codex-app-server-request.ts';
 import { codexHomeDir, decideCodexLogin, parseCodexAuth } from './core/codex-credentials-core.ts';
 import type { CodexLogin } from './core/codex-credentials-core.ts';
 import type { LoginSource } from './agent-login/core/agent-connect-core.ts';
+import { clock } from '../shared/clock.ts';
 
 const HOST_REFRESH_TIMEOUT_MS = 60_000;
 
@@ -41,7 +42,7 @@ function createCodexCredentials({
   homeDir = os.homedir(),
   connectedCodexHome = null,
   env = process.env,
-  now = () => Date.now(),
+  now = () => clock.nowMs(),
   codexCommand,
   refreshHostLogin = refreshHostLoginOverAppServer,
   readTextFile = readTextFileOrNull,

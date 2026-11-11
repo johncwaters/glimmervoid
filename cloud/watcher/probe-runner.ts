@@ -6,6 +6,7 @@ import { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcom
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
 import { NO_CREDENTIALS } from './watcher-home.ts';
 import type { WatcherHome } from './watcher-home.ts';
+import { clock } from '../../shared/clock.ts';
 
 type FetchFn = typeof fetch;
 
@@ -80,7 +81,7 @@ async function answerOf(response: Response, probe: Probe): Promise<{ bodySha256:
   return { bodySha256: crypto.createHash('sha256').update(hashedText).digest('hex'), errorInAnswer: isGraphql ? graphqlErrorOf(answerText) : null };
 }
 
-function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.now, log = console }: {
+function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = clock.nowMs, log = console }: {
   serverUrl: string;
   signingKey: Buffer;
   fetchFn?: FetchFn;
@@ -154,7 +155,7 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
 
 type NudgeSender = ReturnType<typeof createNudgeSender>;
 
-function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log = console, githubTokenFallback = () => null }: {
+function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, log = console, githubTokenFallback = () => null }: {
   home: WatcherHome;
   nudges: Pick<NudgeSender, 'send' | 'failingForMs'>;
   fetchFn?: FetchFn;

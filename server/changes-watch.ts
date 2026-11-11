@@ -3,6 +3,7 @@ import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn, TimerHandle } from '../shared/timer-deps.ts';
 import { decidePollTick, decideWatchRequest } from './core/changes-watch-core.ts';
 import type { ChangesWatch } from './core/changes-watch-core.ts';
+import { clock } from '../shared/clock.ts';
 
 type WatchedSession = { worktreeLifecycle: { scheduleCheck(): void } };
 
@@ -11,7 +12,7 @@ function createChangesWatch<Holder>({
   isHolderOpen,
   setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn,
   clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
-  nowFn = Date.now,
+  nowFn = clock.nowMs,
 }: {
   findSession: (sessionId: string) => WatchedSession | null;
   isHolderOpen: (holder: Holder) => boolean;

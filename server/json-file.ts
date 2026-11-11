@@ -4,6 +4,7 @@ import path from 'node:path';
 import { errorMessage, isMissingFileError } from '../shared/text.ts';
 import { nextBackoffMs } from '../shared/backoff.ts';
 import { createKeyedSerialQueue, createSerialQueue } from './spawn-gate.ts';
+import { clock } from '../shared/clock.ts';
 
 interface AtomicWriteFileOptions {
   encoding: BufferEncoding;
@@ -117,7 +118,7 @@ function decodeJsonState<T>(text: string, parse: (raw: unknown) => T | null): { 
   }
 }
 
-async function loadJsonStateFile<T>({ filePath, fsPromises = fs.promises, parse, nowMs = Date.now, quarantine = true, includeNotDir = true }: JsonStateLoadPolicy & {
+async function loadJsonStateFile<T>({ filePath, fsPromises = fs.promises, parse, nowMs = clock.nowMs, quarantine = true, includeNotDir = true }: JsonStateLoadPolicy & {
   filePath: string;
   fsPromises?: JsonStateLoadFileSystem;
   parse: (raw: unknown) => T | null;
@@ -144,7 +145,7 @@ async function loadJsonStateFile<T>({ filePath, fsPromises = fs.promises, parse,
   return { status: 'quarantined', movedTo };
 }
 
-function loadJsonStateFileSync<T>({ filePath, fsSync = fs, parse, nowMs = Date.now, quarantine = true, includeNotDir = true }: JsonStateLoadPolicy & {
+function loadJsonStateFileSync<T>({ filePath, fsSync = fs, parse, nowMs = clock.nowMs, quarantine = true, includeNotDir = true }: JsonStateLoadPolicy & {
   filePath: string;
   fsSync?: JsonStateLoadSyncFileSystem;
   parse: (raw: unknown) => T | null;
@@ -370,7 +371,7 @@ function createJsonStateStore<T>({
   fsPromises = fs.promises,
   parse,
   adopt,
-  nowMs = Date.now,
+  nowMs = clock.nowMs,
   warn = () => {},
 }: {
   name: string;

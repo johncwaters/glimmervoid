@@ -6,6 +6,7 @@ import { IDLE_UPDATE_REQUEST, NOT_CONNECTED_TEXT, reduceUpdateRequest, updateErr
 import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
 import type { PrimaryViewDefinition } from '../view-registry-core.ts';
 import type { SettingsPayload } from './settings-view-core.ts';
+import { clock } from '#shared/clock.ts';
 
 export type SettingsChange =
   | { kind: 'broadcast' }
@@ -74,7 +75,7 @@ export function requestUpdateApply(): void {
 }
 
 export function requestUpdateCheck(): void {
-  lastAutoUpdateCheckAt = Date.now();
+  lastAutoUpdateCheckAt = clock.nowMs();
   const isSent = sendControlMsg({ type: 'update-check' });
   isUpdateCheckInFlight = isSent;
   updateCheckSendFailure = isSent ? null : NOT_CONNECTED_TEXT;

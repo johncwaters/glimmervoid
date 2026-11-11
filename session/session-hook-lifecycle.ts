@@ -21,6 +21,7 @@ import type {
   HookedAgentHome,
   ProjectConfigCandidate,
 } from "./adapters/index.ts";
+import { clock } from '../shared/clock.ts';
 
 interface HookInjectionResult {
   args: readonly string[];
@@ -160,7 +161,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     const found = findProjectAgentConfig(candidates, injection.userConfigFolders(options.agentEnv()), injection.mayContributeHooks);
     if (!found) return true;
     console.warn(`[session:${options.name}] hook-trust bypass refused: ${found} could contribute hooks Glimmervoid did not write - falling back to OSC title only`);
-    options.recordDecision({ kind: "hook-trust", ts: Date.now(), decision: "bypass-refused", reason: "project agent config could contribute hooks" });
+    options.recordDecision({ kind: "hook-trust", ts: clock.nowMs(), decision: "bypass-refused", reason: "project agent config could contribute hooks" });
     return false;
   }
 
@@ -255,7 +256,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       console.warn(`[session:${options.name}] home hook injection refused: ${contributingConfig} could contribute hooks Glimmervoid did not write - falling back to OSC title only`);
       options.recordDecision({
         kind: "hook-trust",
-        ts: Date.now(),
+        ts: clock.nowMs(),
         decision: "injection-refused",
         reason: "Claude compatibility settings could contribute hooks",
       });
@@ -290,7 +291,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);
     if (hooksOffConfig) {
       console.warn(`[session:${options.name}] ${hooksOffConfig} turns ${options.agentId} hooks off, so Sane YOLO and hook status are off for this session`);
-      options.recordDecision({ kind: "hook-trust", ts: Date.now(), decision: "hooks-off-by-project", reason: "project agent config turns hooks off" });
+      options.recordDecision({ kind: "hook-trust", ts: clock.nowMs(), decision: "hooks-off-by-project", reason: "project agent config turns hooks off" });
     }
     const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined && !hooksOffConfig);
     if (relayHooks === NO_HOOK_INJECTION) {

@@ -13,6 +13,7 @@ import type { DecisionEntry } from "./core/decision-log.ts";
 import type { SessionState } from "../shared/states.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { projectHookPayload } from "./core/hook-payload-projection.ts";
+import { clock } from '../shared/clock.ts';
 
 function defaultRecordingsDir(): string {
   return path.join(glimmervoidHomeDir(os.homedir(), process.env), "recordings");
@@ -126,7 +127,7 @@ class SessionRecorder {
       records: this._recordData ? "full" : "signals",
       session: this._name,
       agent,
-      startedAt: Date.now(),
+      startedAt: clock.nowMs(),
       config: rest,
       cols: rest.cols || 80,
       rows: rest.rows || 24,
@@ -153,35 +154,35 @@ class SessionRecorder {
 
   _writeDataRecord(data: string): void {
     if (!data) return;
-    this._write({ type: "data", ts: Date.now(), len: data.length, data });
+    this._write({ type: "data", ts: clock.nowMs(), len: data.length, data });
   }
 
   writeHook(event: string, payload: HookPayload | null | undefined): void {
-    this._write({ type: "hook", ts: Date.now(), event, payload: projectHookPayload(payload) });
+    this._write({ type: "hook", ts: clock.nowMs(), event, payload: projectHookPayload(payload) });
   }
 
   writeState(from: SessionState, to: SessionState, event: string, detail: unknown): void {
-    this._write({ type: "state", ts: Date.now(), from, to, event, detail: detail || null });
+    this._write({ type: "state", ts: clock.nowMs(), from, to, event, detail: detail || null });
   }
 
   writeDecision(entry: DecisionEntry | null | undefined): void {
     const e = entry || {};
-    this._write({ type: "decision", ts: e.ts || Date.now(), ...e });
+    this._write({ type: "decision", ts: e.ts || clock.nowMs(), ...e });
   }
 
   writeInput(data: string): void {
     if (!this._recordData) return;
-    this._write({ type: "input", ts: Date.now(), data });
+    this._write({ type: "input", ts: clock.nowMs(), data });
   }
 
   writeResize(cols: number, rows: number): void {
     if (!this._recordData) return;
-    this._write({ type: "resize", ts: Date.now(), cols, rows });
+    this._write({ type: "resize", ts: clock.nowMs(), cols, rows });
   }
 
   writeFooter(reason: string, exitCode: number | null | undefined): void {
     this._flushHeldBackData();
-    const record = { type: "footer", ts: Date.now(), reason, exitCode: exitCode != null ? exitCode : null };
+    const record = { type: "footer", ts: clock.nowMs(), reason, exitCode: exitCode != null ? exitCode : null };
     this._write(record);
   }
 
@@ -242,7 +243,7 @@ class SessionRecorder {
 
   _openNewFile(): void {
     this._releaseOpenPath();
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const ts = clock.now().toISOString().replace(/[:.]/g, "-");
     this._filepath = path.join(this._baseDir, `${this._safeName}-${ts}.jsonl`);
     openRecordingPaths.add(this._filepath);
     this._stream = fs.createWriteStream(this._filepath, { flags: "a" });
@@ -284,7 +285,7 @@ class SessionRecorder {
     }
 
     if (this._retainDays > 0) {
-      const cutoff = Date.now() - (this._retainDays * 24 * 60 * 60 * 1000);
+      const cutoff = clock.nowMs() - (this._retainDays * 24 * 60 * 60 * 1000);
       for (const entry of recordings) {
         if (doomed.has(entry)) continue;
         try {

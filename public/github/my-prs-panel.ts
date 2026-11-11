@@ -26,6 +26,7 @@ import { openConfirmDialog } from '../session-card/modal.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { emptyStateText, isKeepMergeableFeatureEnabled, isMergeQueueFeatureEnabled, keepMergeableControlState, keepMergeableRowLabel, mergeConfirmMessage, mergeControlState, mergeWhenReadyControlState, parseMyPrMergeResult, readinessRows, reviewRows, actionRunText, fixLocallyBlocker, handledRows, stageIcon, stageLabel, stageTone, threadRows } from './my-prs-view-core.ts';
 import type { LinkedLiveSession, MergeAttempt, ToggleControlState } from './my-prs-view-core.ts';
+import { clock } from '#shared/clock.ts';
 
 let detail: HTMLElement | null = null;
 let queueHooks: { onChange: () => void } | null = null;
@@ -80,7 +81,7 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
   let countdownTimer: number | null = null;
 
   function updateCountdown(): void {
-    const nowMs = Date.now();
+    const nowMs = clock.nowMs();
     const errorNotice = githubPollingErrorNotice(currentStatus, nowMs);
     const ageText = githubPollingAgeText(currentStatus, nowMs);
     notice.textContent = errorNotice ? [errorNotice, ageText].filter(Boolean).join(' ') : '';
@@ -649,7 +650,7 @@ export function createMyPrQueueRow(pr: MyPr, stackRow: MyPrStackRow, linkedSessi
   }
   const mergedAt = pr.state === 'MERGED' ? pr.mergedAt : null;
   const ageAtMs = mergedAt ? Date.parse(mergedAt) : pr.stageSinceMs ?? Date.parse(pr.updatedAt);
-  const ageReadout = el('span', 'pr-queue-elapsed', mergedAt ? formatAgo(ageAtMs) : `for ${formatDuration(Date.now() - ageAtMs)}`);
+  const ageReadout = el('span', 'pr-queue-elapsed', mergedAt ? formatAgo(ageAtMs) : `for ${formatDuration(clock.nowMs() - ageAtMs)}`);
   ageReadout.dataset.ageAt = String(ageAtMs);
   ageReadout.dataset.ageLabel = mergedAt ? '' : 'for';
   if (!mergedAt) ageReadout.dataset.ageFormat = 'duration';

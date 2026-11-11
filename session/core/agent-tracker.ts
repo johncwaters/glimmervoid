@@ -1,3 +1,4 @@
+import { clock } from '../../shared/clock.ts';
 
 const DEFAULT_AGENT_TTL_MS = 30 * 60 * 1000;
 
@@ -267,7 +268,7 @@ function createTaskRegistry({
   shellTaskTtlMs = DEFAULT_SHELL_TASK_TTL_MS,
   teammateTaskTtlMs = DEFAULT_TEAMMATE_TASK_TTL_MS,
   notificationDeliveryWindowMs = DEFAULT_NOTIFICATION_DELIVERY_WINDOW_MS,
-  now = Date.now,
+  now = clock.nowMs,
 }: TaskRegistryOptions = {}): TaskRegistry {
   const countedAgents: TimestampMap = new Map();
   const observedAgentIdsThisTurn = new Set<string>();

@@ -5,6 +5,7 @@ import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateSt
 import { installedUpdateText, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
 import type { UpdateActionId } from '../updates-view-core.ts';
 import { setAutoUpdateCheckAwaitingStatus, settingsPayload } from './settings-panel-state.ts';
+import { clock } from '#shared/clock.ts';
 
 function buildUpdateActionStatus(reason: string | null) {
   const status = el('span', 'settings-update-action-status', reason ?? '');
@@ -28,7 +29,7 @@ function checkUpdatesIfStale() {
   const isStale = shouldAutoCheckUpdates({
     status: updateStatus,
     checkForUpdates: settingsPayload.checkForUpdates,
-    now: Date.now(),
+    now: clock.nowMs(),
     lastAutoCheckAt,
   });
   if (isStale) requestUpdateCheck();
@@ -129,7 +130,7 @@ function buildUpdateStatusBlock() {
   const lastChecked = buildUpdateFact('Last checked', lastUpdateCheckText({
     status: updateStatus,
     checkForUpdates: settingsPayload.checkForUpdates,
-    relativeTime: lastCheckedAt ? `${formatAgo(lastCheckedAt)}, ${new Date(lastCheckedAt).toLocaleString()}` : formatAgo(lastCheckedAt),
+    relativeTime: lastCheckedAt ? `${formatAgo(lastCheckedAt)}, ${clock.format(lastCheckedAt, 'date-time')}` : formatAgo(lastCheckedAt),
   }));
   block.appendChild(lastChecked);
   block.appendChild(buildUpdateActions());

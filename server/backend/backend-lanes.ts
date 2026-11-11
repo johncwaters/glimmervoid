@@ -74,6 +74,7 @@ import { createUploadsWiring } from '../uploads-wiring.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { repoNotesRefFor } from '../commit-sessions.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 const RACE_JUDGE_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Write']);
 const RACE_CHECK_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -366,9 +367,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     judgeRoot: path.join(glimmervoidHome, 'race-judges'),
     reviewCases: createReviewCaseLibrary({ minedRoot: path.join(glimmervoidHome, 'review-cases'), legacySuitesRoot: path.join(glimmervoidHome, 'benchmarks'), store: githubStore.laneStore, log: logger }),
     runCheck: async ({ worktreeDir, check }) => {
-      const startedAt = Date.now();
+      const startedAt = timeClock.nowMs();
       const run = await runCommandSafely(check.program, check.args, { cwd: worktreeDir, env: buildAllowlistedChildEnv(process.env, process.platform), timeoutMs: check.timeoutSeconds * 1000, maxBufferBytes: RACE_CHECK_MAX_BUFFER_BYTES });
-      return checkOutcomeOf(check, run, Date.now() - startedAt, worktreeDir);
+      return checkOutcomeOf(check, run, timeClock.nowMs() - startedAt, worktreeDir);
     },
     spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
       sessions: raceSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,

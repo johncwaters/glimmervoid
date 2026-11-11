@@ -2,6 +2,7 @@
 import { EventEmitter } from 'node:events';
 
 import claudeCode from '../session/adapters/claude-code.ts';
+import { clock } from '../shared/clock.ts';
 
 const DEFAULT_STABILIZATION_MS = 1500;
 
@@ -180,7 +181,7 @@ class OscTitleSource extends EventEmitter {
       signal,
       char,
       codepoint: char ? char.codePointAt(0) : null,
-      ts: Date.now(),
+      ts: clock.nowMs(),
       source: 'title',
     });
   }
