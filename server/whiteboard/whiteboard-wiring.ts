@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BoardAttachments, BoardRecord, mediaOfBox, STICKY_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -37,6 +37,8 @@ import { createKeyedSerialQueue, createSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
+import { syncLinkedBoxes } from './linked-media.ts';
+import { isLinkableMediaKind, linkPathProblem } from '../../shared/whiteboard-link-core.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 import { createBoardStore } from './board-store-client.ts';
 import { BOARD_STORE_FILENAME } from './board-store-core.ts';
@@ -500,10 +502,54 @@ function createWhiteboardWiring({
       if (!media) continue;
       const mediaBefore = before?.kind === 'box' ? mediaOfBox(before) : null;
       if (JSON.stringify(mediaBefore) === JSON.stringify(media)) continue;
+      const linkRefusal = linkRefusalOf(element.id, media, mediaBefore);
+      if (linkRefusal) return linkRefusal;
       const mismatch = assets.mismatchOf(media);
       if (mismatch) return `box ${element.id} names ${mismatch}`;
     }
     return null;
+  }
+
+  function linkRefusalOf(boxId: string, media: BoxMedia, mediaBefore: BoxMedia | null): string | null {
+    if (media.link === null) return null;
+    if (!isLinkableMediaKind(media.kind)) return `box ${boxId} links its ${media.kind} to a file, but only a Markdown doc or an HTML page can be linked`;
+    if (media.link.path === mediaBefore?.link?.path) return null;
+    const pathProblem = linkPathProblem(media.link.path);
+    return pathProblem ? `box ${boxId}: ${pathProblem}` : null;
+  }
+
+  function linkRootOf(board: Board): string | null {
+    return board.codeSessionId ? codeContextOf(board.codeSessionId)?.root ?? null : null;
+  }
+
+  function mediaJsonOf(board: Board, boxId: string): string {
+    const element = board.elements.get(boxId);
+    return JSON.stringify(element?.kind === 'box' ? mediaOfBox(element) : null);
+  }
+
+  async function syncLinks(boardId: string): Promise<LinkStateOfBox[]> {
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return [];
+    const syncedBoard = loading.record.board;
+    const linkedBoxIds = [...boardIndexOf(syncedBoard.elements).linkedBoxIds];
+    if (linkedBoxIds.length === 0) return [];
+    const mediaJsonReadByBoxId = new Map(linkedBoxIds.map((boxId) => [boxId, mediaJsonOf(syncedBoard, boxId)]));
+    const synced = await syncLinkedBoxes(syncedBoard, linkedBoxIds, linkRootOf(syncedBoard), assets);
+    if (synced.ops.length === 0) return synced.linkStates;
+    const reply = await changeRecord(boardId, async (record) => {
+      const freshOps = synced.ops.filter((op) => op.op === 'set' && mediaJsonOf(record.board, op.id) === mediaJsonReadByBoxId.get(op.id));
+      if (freshOps.length === 0) return { ok: false, reply: refusal(409, 'the linked cards changed while their files were read') };
+      const applied = await applyOpsToRecord(record, freshOps, GLIMMERVOID_AUTHOR);
+      if (!applied.ok) return { ok: false, reply: refusal(400, applied.error) };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
+    });
+    if (!reply.body.ok && reply.status !== 409) logger.warn(`[whiteboard] linked cards on board ${boardId} could not follow their files: ${reply.body.error}`);
+    return synced.linkStates;
+  }
+
+  async function linkedReviewFor(boardId: string, board: Board, options: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }, linkStates: LinkStateOfBox[]): Promise<BoardReview> {
+    const review = await reviewFor(recordsByBoardId.get(boardId)?.board ?? board, options);
+    return { ...review, linkStates };
   }
 
   function holdReleasedAssets(board: Board, releasedAssetIds: ReadonlySet<string>): void {
@@ -557,6 +603,7 @@ function createWhiteboardWiring({
   }
 
   async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
+    await syncLinks(boardId);
     const loading = await loadedRecordOf(boardId);
     if (!loading.ok) return loading.reply;
     const { board } = loading.record;
@@ -596,6 +643,7 @@ function createWhiteboardWiring({
   }
 
   async function readBoard(boardId: string, readerId: string, request: Extract<WhiteboardAgentRequest, { sub: 'get' }>): Promise<WhiteboardReply> {
+    const linkStates = await syncLinks(boardId);
     const reply = await changeRecord(boardId, async (record) => {
       const changes = changesForReader(record, readerId);
       const next = request.peek === true || record.cursorBySessionId[readerId] === record.board.version ? record : markRead(record, readerId);
@@ -619,7 +667,7 @@ function createWhiteboardWiring({
     if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
     const board = recordsByBoardId.get(boardId)?.board;
     if (!board) return reply;
-    return { status: reply.status, body: { ...reply.body, review: await reviewFor(board, { readsChanges: true }) } };
+    return { status: reply.status, body: { ...reply.body, review: await linkedReviewFor(boardId, board, { readsChanges: true }, linkStates) } };
   }
 
   async function queryBoard(boardId: string, query: Extract<WhiteboardAgentRequest, { sub: 'query' }>): Promise<WhiteboardReply> {
@@ -831,6 +879,7 @@ function createWhiteboardWiring({
     put: (boardId, ops) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR)),
     remove: (boardId) => operatorBoardCommand(boardId, removeBoard),
     get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
+      await syncLinks(foundBoardId);
       const loading = await loadedRecordOf(foundBoardId);
       if (!loading.ok) return loading.reply;
       return { status: 200, body: { ok: true, board: boardSnapshotOf(loading.record.board), changes: [] } };
@@ -839,7 +888,8 @@ function createWhiteboardWiring({
       await loaded;
       const loading = await loadedRecordOf(boardId);
       if (!loading.ok) return operatorReplyOf(loading.reply);
-      return { ok: true, error: null, review: await reviewFor(loading.record.board, { readsChanges: true }) };
+      const linkStates = await syncLinks(boardId);
+      return { ok: true, error: null, review: await linkedReviewFor(boardId, loading.record.board, { readsChanges: true }, linkStates) };
     },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
@@ -949,16 +999,30 @@ function createWhiteboardWiring({
     return reply.status === 200;
   }
 
-  async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null): Promise<WhiteboardReply> {
+  async function linkedPathFor(boardId: string, sourcePath: string): Promise<{ ok: true; linkPath: string } | { ok: false; reply: WhiteboardReply }> {
+    const board = recordsByBoardId.get(boardId)?.board;
+    const root = board ? linkRootOf(board) : null;
+    if (root === null) return { ok: false, reply: refusal(409, 'show links a file inside the board code session worktree, and this board has no running code session; set one with {"op":"board","codeSessionId":"<session id>"} or show without link') };
+    const [realRoot, realSource] = await Promise.all([fsp.realpath(root).catch(() => null), fsp.realpath(sourcePath).catch(() => null)]);
+    const linkPath = realRoot && realSource ? path.relative(realRoot, realSource) : '';
+    if (!linkPath || linkPath.startsWith('..') || path.isAbsolute(linkPath)) return { ok: false, reply: refusal(409, `show links a file inside the board code session worktree ${root}, and ${sourcePath} is not in it, so nothing was shown`) };
+    return { ok: true, linkPath: linkPath.split(path.sep).join('/') };
+  }
+
+  async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean): Promise<WhiteboardReply> {
     if (caller.remoteWorkspace) return refusal(409, `show reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
     const ingested = await assets.ingestFile(sourcePath);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
+    if (isLinked && !isLinkableMediaKind(ingested.media.kind)) return refusal(400, `show links only a Markdown doc or an HTML page, and ${requestedPath} is a ${ingested.media.kind}, so nothing was shown`);
     const pageTitle = ingested.media.kind === 'page' ? await pageTitleOf(sourcePath) : null;
     const fileName = path.basename(sourcePath);
     const target = await showBoardIdFor(caller, pageTitle ?? (path.parse(fileName).name || fileName));
     if (!target.ok) return target.reply;
-    const card = { media: ingested.media, title: pageTitle ?? fileName, caption };
+    const linked = isLinked ? await linkedPathFor(target.boardId, sourcePath) : null;
+    if (linked && !linked.ok) return linked.reply;
+    const media = linked ? { ...ingested.media, link: { path: linked.linkPath, syncedHash: ingested.media.asset } } : ingested.media;
+    const card = { media, title: pageTitle ?? fileName, caption };
     const author: Author = { id: caller.id, name: caller.name };
     const reply = await placeShownCard(target.boardId, card, author);
     if (reply.status === 200 && target.provisionalTitle !== null) {
@@ -980,7 +1044,8 @@ function createWhiteboardWiring({
       const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
-      const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id}), where the operator sees it; change it with whiteboard put`;
+      const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read` : '';
+      const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`;
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
   }
@@ -996,7 +1061,7 @@ function createWhiteboardWiring({
     await loaded;
     if (request.sub === 'new') return createUnlessAttached(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
-    if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null);
+    if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null, request.link === true);
     if (request.sub === 'list') {
       const nowMs = now();
       const listed = [...recordsByBoardId.values()].filter((record) => request.all === true || isListedFor(record, caller.project, nowMs));

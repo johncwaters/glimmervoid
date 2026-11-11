@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxLine, Element, mediaOfBox, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxLine, BoxMedia, Element, mediaOfBox, Op, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -494,7 +494,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   ] });
   assert.equal(put.status, 200, JSON.stringify(put.body));
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [] });
+  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [], link: null });
   const assetUrl = (filename: string) => `${running().base}/whiteboards/assets/${filename}`;
   const served = await fetch(assetUrl(`${media.asset}.png`));
   assert.equal(served.status, 200);
@@ -710,7 +710,7 @@ test('refs are checked in the code session worktree: a missing file, a line past
   const laidOut = await runPlannerCli(context, ['whiteboard', 'get', boardId, '--layout']);
   assert.equal(laidOut.exitCode, 0);
   const { review } = JSON.parse(laidOut.printed) as { review: unknown };
-  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALook: [], flaggedStepIds: [], notChecked: null });
+  assert.deepEqual(review, { codeSessionId: PLANNER_ID, anchorWarnings: expectedWarnings, stepWarnings: [], uncoveredPaths: [], worthALook: [], flaggedStepIds: [], notChecked: null, linkStates: [] });
 });
 
 test('a board with no code session takes the first session of its project that connects, a session of another project leaves it, and the other sessions hear of it', async () => {
@@ -1329,6 +1329,54 @@ test('show puts each file on a board the session is connected to, creating one n
 
   const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
   assert.equal(remote.status, 409);
+});
+
+test('a linked card follows its file in the code session worktree on each read, refuses a path outside it, and keeps its last text with the reason once the file or session is gone', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-'));
+  const worktree = path.join(boardsRoot, 'worktree');
+  fs.mkdirSync(path.join(worktree, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'docs', 'plan.md'), '# Plan\n\nfirst draft\n', 'utf8');
+  fs.writeFileSync(path.join(boardsRoot, 'outside.md'), '# Outside\n', 'utf8');
+  const liveSessionIds = new Set(['link-agent']);
+  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: (sessionId) => (liveSessionIds.has(sessionId) ? { root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null) });
+  const linker = { id: 'link-agent', name: 'linker', project: worktree, cwd: worktree };
+
+  const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'docs/plan.md', link: true });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  assert.match(String((shown.body as { note: string }).note), /linked to docs\/plan\.md/);
+  const boardId = (shown.body as { board: { id: string } }).board.id;
+  const linkedMediaOf = async () => {
+    const card = (await wiring.handleOperator.get(boardId)).board?.elements.get('shown-1');
+    return card?.kind === 'box' ? mediaOfBox(card) : null;
+  };
+  assert.equal((await linkedMediaOf())?.link?.path, 'docs/plan.md');
+
+  fs.writeFileSync(path.join(worktree, 'docs', 'plan.md'), '# Plan\n\nsecond draft\n', 'utf8');
+  const followed = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-1' });
+  assert.equal((followed.body as { text: string }).text, '# Plan\n\nsecond draft\n');
+  const followedMedia = await linkedMediaOf();
+  assert.equal(followedMedia?.link?.syncedHash, followedMedia?.asset);
+
+  const outside = await wiring.handleAgent(linker, { sub: 'show', path: '../outside.md', link: true });
+  assert.equal(outside.status, 409, JSON.stringify(outside.body));
+  const climbing = await wiring.handleAgent(linker, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'shown-1', fields: { media: { ...followedMedia, link: { path: '../outside.md', syncedHash: null } } } }]) });
+  assert.equal(climbing.status, 400, JSON.stringify(climbing.body));
+  const { default: sharp } = await import('sharp');
+  fs.writeFileSync(path.join(worktree, 'shot.png'), await sharp({ create: { width: 4, height: 4, channels: 3, background: '#c084fc' } }).png().toBuffer());
+  const attachedShot = await wiring.handleAgent(linker, { sub: 'attach', path: 'shot.png' });
+  const shotMedia = BoxMedia.parse('media' in attachedShot.body ? attachedShot.body.media : null);
+  const relabeledAsImage = await wiring.handleAgent(linker, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'shown-1', fields: { media: { ...shotMedia, link: followedMedia?.link } } }]) });
+  assert.equal(relabeledAsImage.status, 400, JSON.stringify(relabeledAsImage.body));
+
+  fs.rmSync(path.join(worktree, 'docs', 'plan.md'));
+  const missingReview = (await wiring.handleOperator.review(boardId)).review;
+  assert.deepEqual(missingReview?.linkStates, [{ boxId: 'shown-1', state: 'broken', text: 'File missing in the code session worktree' }]);
+  const keptText = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-1' });
+  assert.equal((keptText.body as { text: string }).text, '# Plan\n\nsecond draft\n');
+
+  liveSessionIds.clear();
+  const goneReview = (await wiring.handleOperator.review(boardId)).review;
+  assert.deepEqual(goneReview?.linkStates.map(({ state, text }) => [state, text]), [['broken', 'The board code session is not running, so the linked file cannot be read']]);
 });
 
 test('a board show creates is renamed once by the title lane, never over a rename the operator made first', async () => {

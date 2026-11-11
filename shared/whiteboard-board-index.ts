@@ -11,6 +11,7 @@ interface BoardIndex {
   dependentIdsByBoxId: Map<string, readonly string[] | Set<string>>;
   stepBoxIds: Set<string>;
   anchoredIds: Set<string>;
+  linkedBoxIds: Set<string>;
   wireCountByStyleSlot: number[];
   boxCountByChangeSlot: number[];
   floatingBoxCount: number;
@@ -88,6 +89,16 @@ function trackAnchor(index: BoardIndex, element: Element): void {
     return;
   }
   index.anchoredIds.delete(element.id);
+  index.linkedBoxIds.delete(element.id);
+}
+
+function trackLink(index: BoardIndex, element: Element): void {
+  const isLinked = element.kind === 'box' && (mediaOfBox(element)?.link ?? null) !== null;
+  if (isLinked) {
+    index.linkedBoxIds.add(element.id);
+    return;
+  }
+  index.linkedBoxIds.delete(element.id);
 }
 
 function linkDependent(index: BoardIndex, element: Element, elements: Board['elements']): void {
@@ -138,6 +149,7 @@ function addToIndex(index: BoardIndex, element: Element, elements: Board['elemen
   linkDependent(index, element, elements);
   trackStep(index, element, true);
   trackAnchor(index, element);
+  trackLink(index, element);
 }
 
 function removeFromIndex(index: BoardIndex, element: Element): void {
@@ -151,7 +163,7 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
 }
 
 function emptyIndex(): BoardIndex {
-  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), floatingBoxCount: 0 };
+  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), linkedBoxIds: new Set(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), floatingBoxCount: 0 };
 }
 
 function boardIndexOf(elements: Board['elements']): BoardIndex {
@@ -186,6 +198,7 @@ function copyOfIndex(index: BoardIndex): BoardIndex {
     dependentIdsByBoxId: new Map([...index.dependentIdsByBoxId].map(([boxId, dependentIds]) => [boxId, dependentIds instanceof Set ? new Set(dependentIds) : dependentIds])),
     stepBoxIds: new Set(index.stepBoxIds),
     anchoredIds: new Set(index.anchoredIds),
+    linkedBoxIds: new Set(index.linkedBoxIds),
     wireCountByStyleSlot: [...index.wireCountByStyleSlot],
     boxCountByChangeSlot: [...index.boxCountByChangeSlot],
     floatingBoxCount: index.floatingBoxCount,
@@ -222,6 +235,7 @@ function storeElement(elements: Board['elements'], element: Element): void {
   trackStep(index, previous, false);
   trackStep(index, stored, true);
   trackAnchor(index, stored);
+  trackLink(index, stored);
 }
 
 function appendElement(elements: Board['elements'], element: Element): void {

@@ -208,6 +208,7 @@ test('a step status that disagrees with the code session changes warns, changed 
     worthALook: [{ path: 'src/parse.ts', reason: 'Also being changed in "planner"' }],
     flaggedStepIds: ['early', 'shipped', 'quiet'],
     notChecked: null,
+    linkStates: [],
   });
   assert.equal(reviewBoard(reviewedBoard, { fileFactByPath, changes: { ...changes, error: 'git diff failed' } }).notChecked, 'the code session changes could not be read: git diff failed');
   assert.equal(reviewBoard(reviewedBoard, null).notChecked, 'code session builder is not running');

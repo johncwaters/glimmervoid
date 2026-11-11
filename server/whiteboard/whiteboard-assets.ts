@@ -343,7 +343,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = Date.n
       if (sized.hasPreview && !isOriginalStored) await fsp.rename(draftPreviewPath, previewPath);
       const { hasPreview } = sized;
       await fsp.rename(incomingPath, finalPath);
-      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials };
+      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, link: null };
       storedByAssetId.set(assetId, { extension, hasPreview, dials, media });
       hold(assetId, ATTACH_HOLD_MS);
       return { ok: true, media };

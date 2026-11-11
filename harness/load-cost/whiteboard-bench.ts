@@ -152,11 +152,11 @@ async function writeBenchMedia(assetsRoot: string): Promise<{ pictures: BoxMedia
     const preview = await sharp(png).resize({ width: PREVIEW_WIDTH_PX }).webp().toBuffer();
     await fs.promises.writeFile(path.join(assetsRoot, `${asset}.png`), png);
     await fs.promises.writeFile(path.join(assetsRoot, `${asset}.preview.webp`), preview);
-    pictures.push({ kind: 'image', asset, mime: 'image/png', width: PICTURE_WIDTH_PX, height: PICTURE_HEIGHT_PX, alt: `picture ${pictureIndex}`, hasPreview: true, dials: [] });
+    pictures.push({ kind: 'image', asset, mime: 'image/png', width: PICTURE_WIDTH_PX, height: PICTURE_HEIGHT_PX, alt: `picture ${pictureIndex}`, hasPreview: true, dials: [], link: null });
   }
   const pageAsset = assetIdOf(BENCH_PAGE_HTML);
   await fs.promises.writeFile(path.join(assetsRoot, `${pageAsset}.html`), BENCH_PAGE_HTML);
-  return { pictures, page: { kind: 'page', asset: pageAsset, mime: 'text/html', width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, alt: 'bench page', hasPreview: false, dials: [] } };
+  return { pictures, page: { kind: 'page', asset: pageAsset, mime: 'text/html', width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, alt: 'bench page', hasPreview: false, dials: [], link: null } };
 }
 
 async function withBenchMedia(board: Board, assetsRoot: string): Promise<number> {

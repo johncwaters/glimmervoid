@@ -216,20 +216,22 @@ const SECRETS_TOOL: GroupedTool = {
 
 function showPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {
   const caption = typeof toolArguments.caption === 'string' ? { caption: toolArguments.caption } : {};
-  if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption };
-  return { sub: 'show', path: context.resolveSessionPath(toolArguments.path), ...caption };
+  const link = typeof toolArguments.link === 'boolean' ? { link: toolArguments.link } : {};
+  if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption, ...link };
+  return { sub: 'show', path: context.resolveSessionPath(toolArguments.path), ...caption, ...link };
 }
 
 const SHOW_TOOL: GroupedTool = {
   name: 'show',
   title: 'Glimmervoid show',
-  description: 'Show the operator an image, video, HTML page or Markdown document you made (a screenshot, a rendered chart, a report, a mockup, a demo clip, a draft they should edit) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one titled after the file when there is none (to pick the board title, create it with whiteboard new first), and returns the board and the box id so whiteboard put can change it. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown on this machine, up to 200 MB, a Markdown document up to 256 KiB; the operator can edit a Markdown document on the board.',
+  description: 'Show the operator an image, video, HTML page or Markdown document you made (a screenshot, a rendered chart, a report, a mockup, a demo clip, a draft they should edit) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one titled after the file when there is none (to pick the board title, create it with whiteboard new first), and returns the board and the box id so whiteboard put can change it. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown on this machine, up to 200 MB, a Markdown document up to 256 KiB; the operator can edit a Markdown document on the board. With link, a Markdown or HTML file in the board code session worktree stays tied to the file: the card follows it when the board is read.',
   loadsUpfront: true,
   fields: {
     path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),
     caption: z.string().min(1).max(WHITEBOARD_LIMITS.line).optional().describe('A short line shown under the file on its card'),
+    link: z.boolean().optional().describe('Tie a Markdown or HTML card to the file in the board code session worktree, so the card follows the file when the board is read'),
   },
-  actions: { show: { verb: 'whiteboard', required: ['path'], accepts: ['path', 'caption'], hints: WRITES, toPayload: showPayload } },
+  actions: { show: { verb: 'whiteboard', required: ['path'], accepts: ['path', 'caption', 'link'], hints: WRITES, toPayload: showPayload } },
 };
 
 const SETTINGS_TOOL: GroupedTool = {

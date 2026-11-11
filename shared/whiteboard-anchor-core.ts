@@ -175,13 +175,13 @@ function reviewBoard(board: Board, facts: AnchorFacts | null, elementIds: Readon
   if (!facts) {
     const hasAnythingToCheck = sites.length > 0 || stepBoxesOf(board).length > 0;
     const notChecked = hasAnythingToCheck ? missingCodeSessionText(codeSessionId) : null;
-    return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW, notChecked };
+    return { codeSessionId, anchorWarnings: sites.length === 0 ? [] : [unreviewedWarning(codeSessionId)], ...NO_CHANGE_REVIEW, notChecked, linkStates: [] };
   }
   const anchorWarnings = sites.flatMap((site) => {
     const problem = siteProblem(site, facts);
     return problem ? [`ref ${site.ref} on ${site.where}: ${problem}`] : [];
   });
-  return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings), ...changeReviewOf(board, sites, facts.changes) };
+  return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings), ...changeReviewOf(board, sites, facts.changes), linkStates: [] };
 }
 
 export { referencedPaths, refPathOf, refsOfElement, reviewBoard };

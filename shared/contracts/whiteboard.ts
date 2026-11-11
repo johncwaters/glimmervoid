@@ -102,6 +102,14 @@ export const DialManifest = z.array(Dial).max(WHITEBOARD_LIMITS.dialsPerPage, { 
 export const DialValue = z.union([z.number(), z.boolean(), DialChoice]);
 const DialParams = z.record(DialId, DialValue).default({}).describe('dial values for a page box, by dial id; a value must suit the dial its page declares');
 
+const LINK_STATES = ['in-sync', 'file-ahead', 'card-ahead', 'diverged', 'broken'] as const;
+const LinkPath = z.string().min(1, { error: 'a linked file path is not empty' }).max(4096, { error: 'a linked file path is at most 4096 characters' })
+  .describe('a file path relative to the board code session worktree, with no .. segment');
+export const MediaLink = z.object({
+  path: LinkPath,
+  syncedHash: AssetId.nullable().default(null).describe('the sha256 of the file at the last sync; leave null to take the file content on the next read'),
+}).strict().meta({ id: 'MediaLink' });
+
 export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
@@ -111,6 +119,7 @@ export const BoxMedia = z.object({
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
   dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
+  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read'),
 }).strict().meta({ id: 'BoxMedia' });
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
@@ -400,10 +409,13 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     sub: z.literal('show'),
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
+    link: z.boolean().optional().describe('link a Markdown or HTML card to the file, so the card follows it when the board is read'),
   }).strict(),
 ], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach or show' });
 
 export const WorthALookPath = z.object({ path: z.string(), reason: z.string() }).strict();
+
+export const LinkStateOfBox = z.object({ boxId: ElementId, state: z.enum(LINK_STATES), text: z.string() }).strict();
 
 export const BoardReview = z.object({
   codeSessionId: z.string().nullable(),
@@ -413,6 +425,7 @@ export const BoardReview = z.object({
   worthALook: z.array(WorthALookPath).max(WHITEBOARD_LIMITS.layoutWarnings),
   flaggedStepIds: z.array(ElementId).max(WHITEBOARD_LIMITS.elements),
   notChecked: z.string().nullable(),
+  linkStates: z.array(LinkStateOfBox).max(WHITEBOARD_LIMITS.elements).default([]),
 }).strict();
 
 export const BoardOutline = z.object({
@@ -522,7 +535,7 @@ function filledLine(line: z.input<typeof BoxLine>): BoxLine {
 
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
   if (!media) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [] };
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null };
 }
 
 function filledBoxBase(box: SparseBox) {
@@ -574,6 +587,9 @@ export type Box = z.infer<typeof Box>;
 export type Near = z.infer<typeof Near>;
 export type BoxLine = z.infer<typeof BoxLine>;
 export type BoxMedia = z.infer<typeof BoxMedia>;
+export type MediaLink = z.infer<typeof MediaLink>;
+export type LinkState = (typeof LINK_STATES)[number];
+export type LinkStateOfBox = z.infer<typeof LinkStateOfBox>;
 export type Dial = z.infer<typeof Dial>;
 export type DialValue = z.infer<typeof DialValue>;
 export type IconName = z.infer<typeof IconName>;

@@ -614,7 +614,7 @@ async function saveBoardDoc(boardId: string, boxId: string, docText: string, loa
   if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
   if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
   if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
-  const savedMedia = { ...stored.media, alt: media.alt };
+  const savedMedia = { ...stored.media, alt: media.alt, link: media.link };
   const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
   if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
   const savedBox = docBoxOf(boardId, boxId);
