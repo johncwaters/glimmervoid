@@ -24,7 +24,7 @@ import { createPrGh } from '../server/github/pr-gh.ts';
 import { startIdleStop } from '../server/idle-stop-wiring.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, PROBE_SET_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -757,4 +757,82 @@ test('a server starts one local doorman found by its port file, replaces it when
 
   await fsp.rm(glimmervoidHome, { recursive: true, force: true });
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
+});
+
+function postSignedThroughDoorman(doormanPort: number, host: string, key: Buffer, requestPath: string, payload: unknown): Promise<{ status: number; body: string }> {
+  const body = JSON.stringify(payload);
+  return new Promise((resolve, reject) => {
+    const headers = { host, 'content-type': 'application/json', ...signedHeaders(key, { method: 'POST', path: requestPath, body }, Date.now()) };
+    const request = http.request({ host: '127.0.0.1', port: doormanPort, method: 'POST', path: requestPath, headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    request.on('error', reject).end(body);
+  });
+}
+
+function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' });
+  const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
+  const mints: { claims: { iat: number; exp: number; iss: string }; body: { repositories?: string[]; permissions: Record<string, string> }; atMs: number }[] = [];
+  const secretReads: string[] = [];
+  const appFetch: typeof fetch = async (input, init) => {
+    const url = String(input);
+    const headers = new Headers(init?.headers);
+    if (url.startsWith('http://metadata.google.internal/')) {
+      assert.equal(headers.get('metadata-flavor'), 'Google');
+      return Response.json({ access_token: 'metadata-token', expires_in: 3599 });
+    }
+    if (url.startsWith('https://secretmanager.googleapis.com/')) {
+      assert.equal(headers.get('authorization'), 'Bearer metadata-token');
+      secretReads.push(url);
+      return Response.json({ name: `${secretName}/versions/3`, payload: { data: Buffer.from(privateKeyPem).toString('base64') } });
+    }
+    assert.equal(url, 'https://api.github.com/app/installations/4242/access_tokens');
+    const [header, payload, signature] = (headers.get('authorization') ?? '').replace('Bearer ', '').split('.');
+    assert.ok(crypto.verify('sha256', Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, 'base64url')), 'the JWT is signed with the App key');
+    mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: JSON.parse(String(init?.body)), atMs: clock.nowMs });
+    const lifetimeMs = tokenLifetimesMs[mints.length - 1] ?? 60 * 60_000;
+    return Response.json({ token: `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
+  };
+  return { appFetch, mints, secretReads, githubApp: { clientId: 'Iv23liTestClient', privateKeySecret: secretName } };
+}
+
+test('a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, and leaves an operator read token in charge', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, [10 * 60_000 + 200]);
+  const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', 'http://127.0.0.1:9');
+  const probeAuthorizations: string[] = [];
+  const probeFetch: typeof fetch = async (_input, init) => {
+    probeAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '');
+    return Response.json({ data: { viewer: { login: 'tenant' } } });
+  };
+  const doorman = createDoorman({
+    table: { tenantDomain: 'tenants.example', githubApp: app.githubApp, tenants: [{ ...tenant, githubInstallation: { installationId: 4242, repositories: ['glimmervoid', 'site'] } }] },
+    probeFetch, githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
+  });
+  const doormanPort = await doorman.listen(0);
+  t.after(() => doorman.close());
+  const tenantHost = 'apptenant000001.tenants.example';
+  const serverKey = directionKey(linkSecret, 'server-to-watcher');
+
+  assert.equal((await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: null, posthog: null })).status, 200);
+  assert.equal((await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, PROBE_SET_PATH, { revision: 'r1', probes: [LIGHT_PROBE] })).status, 200);
+  await eventually(() => (app.mints.length >= 2 ? true : undefined));
+  clock.nowMs += 61_000;
+  await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: null, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } });
+  await eventually(() => (probeAuthorizations.includes('Bearer ghs_minted2') ? true : undefined));
+
+  assert.deepEqual(app.mints[0].body, { repositories: ['glimmervoid', 'site'], permissions: { actions: 'read', checks: 'read', contents: 'read', issues: 'read', metadata: 'read', pull_requests: 'read', statuses: 'read' } });
+  for (const mint of app.mints) {
+    assert.equal(mint.claims.iss, 'Iv23liTestClient');
+    assert.ok(mint.claims.iat <= Math.floor(mint.atMs / 1000) - 60 && mint.claims.exp - mint.claims.iat <= 600, 'the JWT is backdated a minute and lives at most ten');
+  }
+  assert.deepEqual(app.secretReads, ['https://secretmanager.googleapis.com/v1/projects/glimmervoid-test/secrets/github-app-private-key/versions/current:access'], 'the key is read once and kept for ten minutes');
+
+  clock.nowMs += 61_000;
+  await postSignedThroughDoorman(doormanPort, tenantHost, serverKey, CREDENTIALS_PATH, { github: 'operator-read-token', posthog: null });
+  await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
 });

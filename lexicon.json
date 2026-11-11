@@ -701,6 +701,14 @@
     {
       "name": "review case",
       "definition": "A frozen pull request review Arena can race on: the reviewed and base commits, the changed files, and the reviewers' comments as reference defects, mined from a repository's merged pull requests into ~/.glimmervoid/review-cases/<owner>/<repo>, or kept from an old benchmarks suite's cases folder"
+    },
+    {
+      "name": "app",
+      "definition": "The Glimmervoid GitHub App whose private key only the doorman holds; it mints read-only installation tokens scoped to a hosted tenant's repositories"
+    },
+    {
+      "name": "secret manager",
+      "definition": "Google Cloud Secret Manager, where the GitHub App private key lives; the doorman reads its current alias at runtime"
     }
   ],
   "retired": [

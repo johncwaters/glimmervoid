@@ -154,15 +154,17 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = Date.
 
 type NudgeSender = ReturnType<typeof createNudgeSender>;
 
-function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log = console }: {
+function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log = console, githubTokenFallback = () => null }: {
   home: WatcherHome;
   nudges: Pick<NudgeSender, 'send' | 'failingForMs'>;
   fetchFn?: FetchFn;
   now?: () => number;
   log?: Pick<Console, 'log' | 'warn'>;
+  githubTokenFallback?: () => string | null;
 }) {
   let probeSet: ProbeSet | null = null;
   let credentials: WatcherCredentials = NO_CREDENTIALS;
+  let effectiveCredentials: WatcherCredentials = NO_CREDENTIALS;
   let memoryByProbeId = new Map<string, ProbeMemory>();
   let wakeTimer: NodeJS.Timeout | null = null;
   let checkInTimer: NodeJS.Timeout | null = null;
@@ -178,7 +180,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
   }
 
   async function responseOf(probe: Probe, memory: ProbeMemory): Promise<ProbeResponse> {
-    const authorization = authorizationFor(probe, credentials);
+    const authorization = authorizationFor(probe, effectiveCredentials);
     if (typeof authorization !== 'string') return { kind: 'unreachable', error: authorization.refusal };
     const headers: Record<string, string> = { authorization, 'user-agent': USER_AGENT, accept: 'application/json' };
     if (probe.method === 'GET' && memory.etag !== null) headers['if-none-match'] = memory.etag;
@@ -237,10 +239,10 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     scheduleWake();
   }
 
-  async function applyCredentials(nextCredentials: WatcherCredentials): Promise<void> {
-    await home.saveCredentials(nextCredentials);
-    const changedCredentialKinds = credentialKindsChanged(credentials, nextCredentials);
-    credentials = nextCredentials;
+  function adoptEffectiveCredentials(): void {
+    const nextEffectiveCredentials = credentials.github !== null ? credentials : { ...credentials, github: githubTokenFallback() };
+    const changedCredentialKinds = credentialKindsChanged(effectiveCredentials, nextEffectiveCredentials);
+    effectiveCredentials = nextEffectiveCredentials;
     const credentialByProbeId = new Map((probeSet?.probes ?? []).map((probe) => [probe.id, probe.credential]));
     memoryByProbeId = new Map([...memoryByProbeId].map(([probeId, memory]) => {
       const credential = credentialByProbeId.get(probeId);
@@ -249,10 +251,16 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     scheduleWake();
   }
 
+  async function applyCredentials(nextCredentials: WatcherCredentials): Promise<void> {
+    await home.saveCredentials(nextCredentials);
+    credentials = nextCredentials;
+    adoptEffectiveCredentials();
+  }
+
   async function start(): Promise<void> {
     credentials = await home.loadCredentials();
     probeSet = await home.loadProbeSet();
-    scheduleWake();
+    adoptEffectiveCredentials();
     checkInTimer = setInterval(() => nudges.send('check-in', null, null), CHECK_IN_EVERY_MS);
   }
 
@@ -266,7 +274,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     return {
       probeSetRevision: probeSet?.revision ?? null,
       nudgesFailingForMs: nudges.failingForMs(),
-      hasCredentials: { github: credentials.github !== null, posthog: credentials.posthog !== null },
+      hasCredentials: { github: effectiveCredentials.github !== null, posthog: effectiveCredentials.posthog !== null },
       probes: (probeSet?.probes ?? []).map((probe) => {
         const memory = memoryOf(probe);
         return { probeId: probe.id, status: memory.status, lastRunAt: memory.lastRunAtMs === null ? null : new Date(memory.lastRunAtMs).toISOString(), failure: memory.failure };
@@ -274,7 +282,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = Date.now, log 
     };
   }
 
-  return { applyProbeSet, applyCredentials, start, stop, status };
+  return { applyProbeSet, applyCredentials, githubTokenFallbackChanged: adoptEffectiveCredentials, start, stop, status };
 }
 
 type ProbeRunner = ReturnType<typeof createProbeRunner>;

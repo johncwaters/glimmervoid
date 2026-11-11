@@ -56,11 +56,13 @@ function localWatcherHome(glimmervoidHome: string, localPort: number): string {
 function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListenerPort }: { glimmervoidHome: string; localPort: number; bindHost: string; remoteListenerPort: number }): DoormanTenantTable {
   return {
     tenantDomain: null,
+    githubApp: null,
     tenants: [{
       slug: `local${String(localPort).padStart(7, '0')}`,
       serverUrl: remoteListenerUrl(bindHost, remoteListenerPort),
       linkSecretPath: watcherLinkKeyPath(glimmervoidHome),
       watcherHome: localWatcherHome(glimmervoidHome, localPort),
+      githubInstallation: null,
     }],
   };
 }

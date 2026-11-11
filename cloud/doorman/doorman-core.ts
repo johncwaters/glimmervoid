@@ -1,6 +1,8 @@
+import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
+import { nextBackoffMs } from '../../shared/backoff.ts';
 import { NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
-import type { DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 
 type DoormanRoute =
   | { kind: 'watcher'; tenant: DoormanTenant }
@@ -62,5 +64,43 @@ function isConnectFailure(error: unknown): boolean {
   return code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'ETIMEDOUT';
 }
 
-export { headersAtEdge, isConnectFailure, isWakeAllowed, nextForwardState, routeRequest };
+const INSTALLATION_TOKEN_PERMISSIONS = Object.freeze({
+  actions: 'read',
+  checks: 'read',
+  contents: 'read',
+  issues: 'read',
+  metadata: 'read',
+  pull_requests: 'read',
+  statuses: 'read',
+});
+const JWT_BACKDATE_SECONDS = 60;
+const JWT_LIFETIME_SECONDS = 540;
+const TOKEN_REFRESH_LEAD_MS = 10 * 60_000;
+const MINT_RETRY_BASE_MS = 60_000;
+const MINT_RETRY_MAX_MS = 10 * 60_000;
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function githubAppJwt(clientId: string, privateKey: crypto.KeyObject, nowMs: number): string {
+  const issuedAtSeconds = Math.floor(nowMs / 1000) - JWT_BACKDATE_SECONDS;
+  const signedPart = `${base64UrlJson({ alg: 'RS256', typ: 'JWT' })}.${base64UrlJson({ iat: issuedAtSeconds, exp: issuedAtSeconds + JWT_BACKDATE_SECONDS + JWT_LIFETIME_SECONDS, iss: clientId })}`;
+  return `${signedPart}.${crypto.sign('sha256', Buffer.from(signedPart), privateKey).toString('base64url')}`;
+}
+
+function installationTokenRequestBody(installation: DoormanGithubInstallation): string {
+  const repositoryScope = installation.repositories.length === 0 ? {} : { repositories: installation.repositories };
+  return JSON.stringify({ ...repositoryScope, permissions: INSTALLATION_TOKEN_PERMISSIONS });
+}
+
+function tokenRefreshDelayMs(expiresAtMs: number, nowMs: number): number {
+  return Math.max(0, expiresAtMs - TOKEN_REFRESH_LEAD_MS - nowMs);
+}
+
+function mintRetryDelayMs(attempt: number, retryAfterMs: number | null): number {
+  return Math.max(retryAfterMs ?? 0, nextBackoffMs({ attempt, baseMs: MINT_RETRY_BASE_MS, maxMs: MINT_RETRY_MAX_MS, jitter: 'none' }));
+}
+
+export { githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
 export type { DoormanRoute, ForwardState };
