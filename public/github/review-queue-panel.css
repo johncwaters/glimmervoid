@@ -278,7 +278,6 @@ html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1f
 .review-queue-action[data-tone="muted"] { color: var(--text-muted); }
 .pr-queue-findings { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .pr-queue-owner { padding: 0 6px; border-radius: var(--radius); background: color-mix(in oklch, var(--accent) 22%, transparent); color: var(--text); font-weight: 700; }
-.pr-queue-row:has(.pr-queue-owner) { box-shadow: inset 3px 0 0 var(--accent); }
 .my-pr-stack-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--type-meta); font-weight: 700; font-variant-numeric: tabular-nums; }
 .my-pr-stack-badge > .line-icon { width: 12px; height: 12px; }
 .my-pr-stack { display: flex; flex-direction: column; gap: 2px; }

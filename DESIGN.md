@@ -179,7 +179,7 @@ A primary view with a 220px sidebar of nine theme-first sections and one scrolli
 - **Don't** fall back to safe corporate enterprise design (IBM-blue committee look).
 - **Don't** use gradient text (`background-clip: text` over a gradient). Emphasis comes from weight and color.
 - **Don't** use glassmorphism or decorative blur. Chrome surfaces are opaque; backdrop-filter was deliberately removed from them. The one sanctioned exception is the full-screen loading / shutdown overlay (a true overlay moment, not chrome), which may blur its scrim.
-- **Don't** apply a side-stripe accent (`border-left`/`border-right` > 1px as a colored stripe). Use full borders, background tints, or a leading glyph.
+- **Don't** apply a side-stripe accent (`border-left`/`border-right` > 1px as a colored stripe). Use full borders, background tints, or a leading glyph. `tests/gates/no-glow.test.ts` fails on one.
 - **Don't** give resting surfaces a drop shadow, and never a raw rgba(0,0,0) shadow. Shadows are violet-tinted and state- or overlay-driven only.
 - **Don't** add a second decorative accent hue, or spend a state color on anything that is not that state (the Markup pen's red ink is the one exception, per the Earned Signal Rule).
 

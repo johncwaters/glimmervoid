@@ -137,8 +137,9 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 }
 
 .add-session-row[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 42%, var(--border));
 }
 
 @media (hover: hover) {

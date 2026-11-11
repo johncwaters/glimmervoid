@@ -24,7 +24,6 @@ function createSeverityMeter(severity: FindingSeverity): HTMLElement {
   meter.style.color = `var(${presentation.colorToken})`;
   if (severity === 'CRITICAL') {
     const halo = svgIcon(14, 17);
-    halo.classList.add('pr-severity-halo');
     halo.setAttribute('viewBox', '0 0 9 11');
     halo.append(svgShape('path', { d: SHARD_PATH, fill: 'currentColor' }));
     meter.append(halo);

@@ -290,7 +290,7 @@ html:not([data-layout="phone"]) .pr-queue-row:not(.pr-queue-row-compact) { min-h
   html:not([data-layout="phone"]) .pr-decision-bar { position: static; }
   html:not([data-layout="phone"]) .pr-decision-bar > .pr-action-status { order: 0; }
 }
-.pr-diff-excerpt .review-line[data-cited="true"] { box-shadow: inset 2px 0 0 var(--accent); }
+.pr-diff-excerpt .review-line[data-cited="true"] { background: color-mix(in oklab, var(--accent) 14%, transparent); }
 
 .pr-footer {
   position: sticky;

@@ -44,10 +44,10 @@
 }
 .session-row-item:has(> .session-row.focused) {
   z-index: 1;
-  outline: 1px solid var(--accent);
+  outline: 1px solid color-mix(in oklab, var(--accent) 42%, var(--border));
   outline-offset: -1px;
 }
-.session-row.focused .session-row-name { font-weight: 700; }
+.session-row.focused .session-row-name { color: var(--accent); }
 
 .session-row[data-manager-answered] .session-row-glyph { position: relative; }
 .session-row[data-manager-answered] .session-row-glyph::after {
@@ -273,8 +273,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row:is([data-state="WAITING"], [data-state="FAILED"], [data-state="COMPLETE"], [data-merge="parked"]) {
   --tint: color-mix(in oklch, var(--st) 12%, transparent);
 }
-.session-row.focused { --tint: color-mix(in oklab, var(--accent) 10%, var(--bg-surface)); }
-.session-row.focused::before { box-shadow: inset 2px 0 0 var(--accent); }
+.session-row.focused { --tint: color-mix(in oklab, var(--accent) 8%, var(--bg-surface)); }
 .session-row.focused .session-row-agent { color: var(--agent-brand, var(--text-head)); }
 @media (hover: hover) {
   .session-row:hover .session-row-agent { color: var(--agent-brand, var(--text-head)); }
