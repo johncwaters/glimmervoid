@@ -275,7 +275,7 @@
     },
     {
       "name": "settings",
-      "definition": "The dashboard's Settings view, whose sections (Hosts, Appearance, Sane YOLO, Packs, Lane GitHub access and others) edit the operator config"
+      "definition": "The dashboard's Settings view, whose sections (Hosts, Appearance, Sane YOLO, Packs, Vault and others) edit the operator config"
     },
     {
       "name": "focus",
@@ -687,6 +687,10 @@
     {
       "name": "secrets",
       "definition": "Credentials a session needs by name (API keys, tokens): the operator approves each on the session's secret request card, the vault companion reads its value from the operator's vault through a saved reference, and Glimmervoid writes it to the session's env file and masks it everywhere it shows; Settings > Secrets lists the approvals (also: secret)"
+    },
+    {
+      "name": "vault",
+      "definition": "The feature that keeps the secrets agents may read: Settings, Vault lists each project's approved secrets with revoke, the vault companion address and port, and the GitHub read token lanes use; glimmervoid need, the MCP secrets tool and the glimmervoid vault companion are its other surfaces"
     }
   ],
   "retired": [

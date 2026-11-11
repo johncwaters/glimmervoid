@@ -55,6 +55,16 @@ What agents may do without asking, and what Sane YOLO blocks.
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and credential reads in every session that supports it. Applies to new sessions. |
 | `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra files and folders agents may not read, where ~ is your home folder. Applies to new sessions. |
 
+### Vault
+
+Approved secrets, the vault companion, and the tokens Glimmervoid itself holds.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
+| `vault.host` | Vault companion address | `"127.0.0.1"` | Address the vault companion listener binds. Any address other than this machine needs GLIMMERVOID_VAULT_TOKEN and a fixed vault port. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `vault.port` | Vault companion port | `null` | Port the vault companion listener binds; empty picks any free port. Set one for a companion on another machine. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+
 ### Updates
 
 Which version is running, and updating to the newest.
@@ -116,15 +126,6 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.repoPath` | Repository path | `""` | Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.projectMap` | Project map | `{}` | PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
-### Lane GitHub access
-
-What background lanes may read on GitHub and the web.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
-| `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
-
 ### Reviews
 
 Team review drafts reviews of teammates' pull requests for you to post; My pull requests keeps your own moving.
@@ -142,6 +143,7 @@ Team review drafts reviews of teammates' pull requests for you to post; My pull 
 | `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. |
 | `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. |
 | `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the review agent your own MCP servers. |
+| `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
 | `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 
 ### My pull requests
@@ -235,8 +237,6 @@ Config-file-only detection, timing, worktree and process settings.
 | `worktree.integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.root` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.share` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
-| `vault.host` | Vault companion address | `"127.0.0.1"` | Address the vault companion listener binds. Any address other than this machine needs GLIMMERVOID_VAULT_TOKEN and a fixed vault port. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `vault.port` | Vault companion port | `null` | Port the vault companion listener binds; empty picks any free port. Set one for a companion on another machine. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |

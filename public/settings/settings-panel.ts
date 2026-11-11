@@ -27,7 +27,7 @@ import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settings
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentLoginsChanged } from '../dialogs.ts';
-import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, PACKS_PAGE_ID, SECRETS_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, syncSettingsViewMapToBuild, viewMap, websiteUrl } from './settings-panel-state.ts';
+import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, syncSettingsViewMapToBuild, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
 import { appendCopyControl, buildChip, buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksPage } from '../packs/packs-settings.ts';
@@ -216,6 +216,19 @@ function renderPart(stack: HTMLElement, part: SettingsSection) {
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings));
 }
 
+function renderFileOnlyPart(stack: HTMLElement, groupId: string) {
+  for (const setting of SETTINGS_REGISTRY.fileOnly.filter((entry) => entry.group === groupId)) {
+    const card = el('div', 'settings-view-search-result settings-view-search-file-only');
+    card.append(
+      el('span', 'settings-view-setting-title', setting.title),
+      el('p', 'settings-view-setting-description', setting.description),
+      el('code', 'settings-view-key-path', setting.path),
+    );
+    appendFileOnlyDetails(card, setting);
+    stack.appendChild(card);
+  }
+}
+
 function renderContent() {
   syncPhoneSettingsScreen();
   if (searchQuery) {
@@ -268,20 +281,14 @@ function renderContent() {
     return;
   }
 
-  if (selectedPage.id === PACKS_PAGE_ID) {
-    renderPacksPage(contentEl);
-    return;
-  }
-
-  if (selectedPage.id === SECRETS_PAGE_ID) {
-    renderSecretsPage(contentEl);
-    return;
-  }
+  if (selectedPage.id === PACKS_PAGE_ID) renderPacksPage(contentEl);
+  if (selectedPage.id === VAULT_PAGE_ID) renderSecretsPage(contentEl);
 
   const stack = el('div', 'settings-view-stack');
   for (const part of pageParts(selectedPage)) {
     if (part.id !== selectedPage.id) stack.appendChild(renderSubsectionHeader(part));
     renderPart(stack, part);
+    renderFileOnlyPart(stack, part.id);
   }
   contentEl.appendChild(stack);
 }
@@ -350,12 +357,12 @@ function highlightedSearchText(
   return element;
 }
 
-function appendFileOnlyDetails(row: HTMLElement, result: SettingsSearchResult) {
-  const { currentText, defaultText, jsonFragment } = fileOnlySearchCard(result.setting, settingsPayload);
+function appendFileOnlyDetails(row: HTMLElement, setting: SettingsSetting) {
+  const { currentText, defaultText, jsonFragment } = fileOnlySearchCard(setting, settingsPayload);
   if (currentText !== null) row.appendChild(el('span', 'settings-view-search-current', currentText));
   row.append(
     el('span', 'settings-view-search-default', defaultText),
-    renderChips(result.setting, null),
+    renderChips(setting, null),
     el('p', 'settings-view-list-hint', 'Edit in config.json or with glimmervoid settings set.'),
   );
   if (jsonFragment === null) return;
@@ -406,7 +413,7 @@ function renderSearchContent() {
       const match = result.matches.find((entry) => entry.field === 'options') ?? result.matches.find((entry) => entry.field === 'keywords');
       if (match) row.appendChild(highlightedSearchText('p', 'settings-view-list-hint', match.text, result, match.field));
     }
-    if (!hasSection(result)) appendFileOnlyDetails(row, result);
+    if (!hasSection(result)) appendFileOnlyDetails(row, result.setting);
     list.appendChild(row);
   }
   contentEl.appendChild(list);

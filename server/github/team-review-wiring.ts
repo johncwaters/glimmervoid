@@ -32,7 +32,7 @@ import { createTeamReviewDispatcher } from './team-review-dispatcher.ts';
 import { createTeamReviewActions } from './team-review-actions.ts';
 import { laneAccessConfigOf, laneAccessEnvBlocker } from '../lanes/core/lane-permissions-core.ts';
 
-const TEAM_REVIEW_READ_TOKEN_REQUIRED = 'Team review needs a GitHub read token: set one in Settings, Lane GitHub access, or GLIMMERVOID_GITHUB_READ_TOKEN';
+const TEAM_REVIEW_READ_TOKEN_REQUIRED = 'Team review needs a GitHub read token: set one in Settings, Vault, or GLIMMERVOID_GITHUB_READ_TOKEN';
 
 type PrSessionCheckout =
   | { ok: true; repo: string; detail: PrDetail; draft: ReviewDraft | null; checkoutPath: string; baseBranch: string; isConfiguredProject: boolean }

@@ -36,15 +36,7 @@ const PACKS_SECTION: SettingsSection = Object.freeze({
   settings: [],
 });
 
-const SECRETS_PAGE_ID = 'machine-secrets';
-
-const SECRETS_SECTION: SettingsSection = Object.freeze({
-  id: SECRETS_PAGE_ID,
-  level: 'machine',
-  title: 'Secrets',
-  description: 'Vault secrets each project allows agents to read, with revoke.',
-  settings: [],
-});
+const VAULT_PAGE_ID = 'machine-vault';
 
 const SHORTCUTS_PAGE_ID = 'browser-shortcuts';
 const STATUS_KEY_PAGE_ID = 'browser-status-key';
@@ -97,7 +89,7 @@ function buildSettingsViewMap(): readonly SettingsSection[] {
   const statusKeyIndex = sections.findIndex((section) => section.id === SHORTCUTS_PAGE_ID) + 1;
   const withStatusKey = [...sections.slice(0, statusKeyIndex), STATUS_KEY_SECTION, ...sections.slice(statusKeyIndex)];
   const firstLaneIndex = withStatusKey.findIndex((section) => section.level === 'lanes');
-  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), PACKS_SECTION, SECRETS_SECTION, FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex), ABOUT_SECTION]);
+  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), PACKS_SECTION, FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex), ABOUT_SECTION]);
 }
 
 const saveStatusById = new Map<string, SaveStatus>();
@@ -215,5 +207,5 @@ function panelRefresher(): PanelRefresher {
   return installedRefresher;
 }
 
-export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, PACKS_PAGE_ID, SECRETS_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, syncSettingsViewMapToBuild, websiteUrl };
+export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, syncSettingsViewMapToBuild, websiteUrl };
 export type { SaveStatus };

@@ -125,6 +125,21 @@ export const MACHINE_SAFETY: SettingsSection = {
   ],
 };
 
+export const MACHINE_VAULT: SettingsSection = {
+  id: 'machine-vault',
+  level: 'machine',
+  title: 'Vault',
+  description: 'Approved secrets, the vault companion, and the tokens Glimmervoid itself holds.',
+  legacyIds: ['machine-secrets', 'lanes-github-access'],
+  settings: [
+    {
+      id: 'github-read-token', path: 'github.readToken', title: 'GitHub read token',
+      description: 'Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it.',
+      control: 'password', keywords: ['credential', 'token', 'gh', 'pull requests'], defaultValue: '', ...MACHINE_NOW,
+    },
+  ],
+};
+
 export const MACHINE_HOSTS: SettingsSection = {
   id: 'machine-hosts',
   level: 'machine',

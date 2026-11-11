@@ -44,7 +44,7 @@ type SettingsNavigationHeading = typeof SETTINGS_NAVIGATION_HEADINGS[number];
 const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHeading> = new Map([
   ['machine-sessions', 'Sessions'],
   ['machine-safety', 'Sessions'],
-  ['machine-secrets', 'Sessions'],
+  ['machine-vault', 'Sessions'],
   ['machine-packs', 'Sessions'],
   ['browser-about', 'Machine'],
 ]);

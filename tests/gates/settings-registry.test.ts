@@ -230,6 +230,8 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     repos: 'machine-sessions',
     repositories: 'machine-sessions',
     'machine-guardrails': 'machine-safety',
+    'machine-secrets': 'machine-vault',
+    'lanes-github-access': 'machine-vault',
     'lanes-unattended': 'machine-safety',
     unattended: 'machine-safety',
     updates: 'machine-updates',
@@ -250,6 +252,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
     'machine-sessions': { 'remote-setup': 'machine-hosts' },
+    'machine-vault': { 'lanes-fetch-domains': 'lanes-team-review' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));
@@ -514,6 +517,7 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],
     ['team-review-stamp-reviewer-effort', 'teamReview.stampReviewer.effort', 'text'],
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
+    ['lanes-fetch-domains', 'lanes.fetchDomains', 'list'],
   ]);
   assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path).slice(0, 4), [
     'teamReview.autoRebaseMyPrs', 'teamReview.keepMergeableEnabled', 'teamReview.keepMergeableTimeoutMinutes', 'teamReview.mergeQueueEnabled',
