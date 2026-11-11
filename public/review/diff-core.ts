@@ -1,3 +1,5 @@
+import { diffHeaderPathsOf } from '#shared/git-text.ts';
+
 interface DiffLine {
   type: string;
   text: string;
@@ -56,8 +58,8 @@ export function parseUnifiedDiff(diff: string | null | undefined): DiffFile[] {
     const file: DiffFile = { path: '', oldPath: null, status: 'modified', added: 0, removed: 0, binary: false, hunks: [] };
     files.push(file);
     hunk = null;
-    const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(header);
-    if (m) { file.oldPath = m[1] ?? null; file.path = m[2] ?? ''; }
+    const headerPaths = diffHeaderPathsOf(header);
+    if (headerPaths) { file.oldPath = headerPaths.oldPath; file.path = headerPaths.path; }
     return file;
   };
 

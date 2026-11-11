@@ -112,13 +112,16 @@ test('workspace session diff prefixes member paths, shows an untracked file with
     const [firstScope] = await session.getChangeScopes();
     fs.writeFileSync(path.join(firstScope.root, 'README.md'), 'edited');
     fs.writeFileSync(path.join(path.dirname(firstScope.root), 'second', 'added.txt'), 'new');
+    fs.writeFileSync(path.join(firstScope.root, 'package-lock.json'), '{}');
     await session.checkWorktreeChange();
     assert.equal(changes.length, 2);
 
     const diff = await session.getDiff();
-    assert.match(diff.uncommitted.diff, /^diff --git a\/first\/README\.md b\/first\/README\.md$/m);
-    assert.match(diff.uncommitted.diff, /^diff --git a\/second\/added\.txt b\/second\/added\.txt$/m);
+    assert.match(diff.patch, /^diff --git a\/first\/README\.md b\/first\/README\.md$/m);
+    assert.match(diff.patch, /^diff --git a\/second\/added\.txt b\/second\/added\.txt$/m);
     assert.equal(git(['status', '--porcelain', '--', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')), '?? added.txt\n');
+    assert.equal(diff.contentHashByPath['second/added.txt'], git(['hash-object', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')).trim());
+    assert.deepEqual(diff.generatedPaths, ['first/package-lock.json']);
     assert.deepEqual(diff.bases.map((base) => [base.member, base.ref, base.sha]), [
       ['first', 'main', git(['rev-parse', 'main'], first).trim()],
       ['second', 'main', git(['rev-parse', 'main'], second).trim()],
@@ -130,7 +133,7 @@ test('workspace session diff prefixes member paths, shows an untracked file with
   }
 });
 
-test('workspace session diff prefixes member paths on rename headers', { skip: !hasGit() }, async () => {
+test('workspace session diff keys renamed, spaced and non-ASCII paths the way the patch names them, whatever the diff prefix config', { skip: !hasGit() }, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-rename-'));
   const first = makeRepo(root, 'first');
   const second = makeRepo(root, 'second');
@@ -144,11 +147,22 @@ test('workspace session diff prefixes member paths on rename headers', { skip: !
   try {
     assert.equal(await session._provisionWorktree(), true);
     const [firstScope] = await session.getChangeScopes();
+    git(['config', 'diff.mnemonicPrefix', 'true'], first);
     git(['mv', 'README.md', 'GUIDE.md'], firstScope.root);
+    fs.mkdirSync(path.join(firstScope.root, 'my b'));
+    fs.writeFileSync(path.join(firstScope.root, 'my b', 'notes.txt'), 'spaced');
+    fs.mkdirSync(path.join(firstScope.root, 'web-\u00fc'));
+    fs.writeFileSync(path.join(firstScope.root, 'web-\u00fc', 'package-lock.json'), '{}');
 
     const diff = await session.getDiff();
-    assert.match(diff.uncommitted.diff, /^rename from first\/README\.md$/m);
-    assert.match(diff.uncommitted.diff, /^rename to first\/GUIDE\.md$/m);
+    assert.match(diff.patch, /^rename from first\/README\.md$/m);
+    assert.match(diff.patch, /^rename to first\/GUIDE\.md$/m);
+    assert.deepEqual(diff.contentHashByPath, {
+      'first/GUIDE.md': git(['hash-object', 'GUIDE.md'], firstScope.root).trim(),
+      'first/my b/notes.txt': git(['hash-object', 'my b/notes.txt'], firstScope.root).trim(),
+      'first/web-\u00fc/package-lock.json': git(['hash-object', 'web-\u00fc/package-lock.json'], firstScope.root).trim(),
+    });
+    assert.deepEqual(diff.generatedPaths, ['first/web-\u00fc/package-lock.json']);
   } finally {
     session.destroy();
     fs.rmSync(root, { recursive: true, force: true });

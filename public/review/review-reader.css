@@ -7,6 +7,12 @@
 .review-reader-files { min-height: 0; overflow-y: auto; padding: 10px 0; border-right: 1px solid var(--border-dim); --review-row-pad: 12px; --review-stat-gap: 8px; }
 .review-reader-totals { display: flex; gap: var(--review-stat-gap); margin: 0 0 8px; padding: 0 var(--review-row-pad); font: var(--type-meta) var(--font-mono); }
 .review-reader-file-list { display: grid; margin-bottom: 16px; }
+.review-reader-group { margin: 0; padding: 0 var(--review-row-pad) 4px; color: var(--text-muted); font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.review-file-status { flex: 0 0 1ch; color: var(--text-muted); }
+.review-reader-file[data-status="A"] .review-file-status { color: color-mix(in oklab, var(--state-running) 70%, var(--text-muted)); }
+.review-reader-file[data-status="D"] .review-file-status { color: color-mix(in oklab, var(--state-failed) 70%, var(--text-muted)); }
+.review-reader-file[data-status="D"] .review-file-path { text-decoration: line-through; text-decoration-color: var(--text-muted); }
+.review-reader-file[data-generated] .review-file-path { color: var(--text-muted); font-weight: 400; font-style: italic; }
 .review-reader-file { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px var(--review-row-pad); border: 0; background: transparent; color: var(--text); font: var(--type-meta)/1.5 var(--font-mono); text-align: left; cursor: pointer; }
 .review-reader-file[aria-current="true"] { background: var(--bg-card); box-shadow: inset 0 -1px 0 var(--border-dim), inset 0 1px 0 var(--border-dim); }
 .review-reader-file[aria-current="true"] .review-file-path { color: var(--accent); }
@@ -26,7 +32,7 @@
 .review-diff-error { margin: 8px 0; color: var(--state-failed); font-size: var(--type-meta); overflow-wrap: anywhere; }
 
 .review-look { margin-bottom: 18px; }
-.review-group-label { margin: 0 0 6px; color: var(--text-dim); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.review-group-label { margin: 0 0 6px; color: var(--text-muted); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .review-look-list { display: grid; gap: 6px; }
 .review-look-group { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--border-dim); border-radius: var(--radius); }
 .review-look-group[data-kind="collision"] { border-color: color-mix(in oklab, var(--state-failed) 45%, var(--border)); background: color-mix(in oklab, var(--state-failed) 6%, transparent); }
@@ -34,7 +40,7 @@
 .review-look-group[data-kind="link"] { border-color: color-mix(in oklab, var(--accent) 42%, var(--border)); background: color-mix(in oklab, var(--accent) 6%, transparent); }
 .review-look-group[data-kind="link"] > .review-look-text { color: var(--accent); }
 .review-look-text { margin: 0 0 2px; color: var(--text); font-size: var(--type-meta); line-height: 1.45; }
-.review-look-risk { display: inline-block; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
+.review-look-risk { display: inline-block; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-muted); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
 .review-look-risk[data-risk="high"] { border-color: var(--state-failed); color: var(--state-failed); }
 .review-look-risk[data-risk="medium"] { color: var(--text); }
 .review-look-line {
@@ -58,7 +64,7 @@
 .review-look-more { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-left: 10px; color: var(--text-muted); font-size: var(--type-meta); }
 .review-look-detail { display: block; color: var(--text-muted); font-weight: 400; font-family: var(--font-ui); line-height: 1.5; }
 .review-look-error { margin: 0; color: var(--text-muted); font-size: var(--type-meta); line-height: 1.5; }
-.review-file-hint { flex: 0 0 auto; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-dim); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
+.review-file-hint { flex: 0 0 auto; padding: 0 4px; border: 1px solid var(--border-dim); border-radius: 3px; color: var(--text-muted); font-size: var(--type-meta); line-height: 1.5; white-space: nowrap; }
 .review-repo-label { padding: 6px var(--review-row-pad) 3px; color: var(--text-muted); font: 700 var(--type-meta) var(--font-mono); background: var(--bg-header); }
 
 .review-empty-title { font-size: var(--type-body); font-weight: 700; color: var(--text-head); margin-bottom: 6px; }

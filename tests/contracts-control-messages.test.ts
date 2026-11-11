@@ -93,7 +93,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
   { type: 'session-worktree-blocked', id: 'session-1', session: 'glimmervoid', branch: 'develop', notice: 'missing branch', timestamp: NOW },
   { type: 'session-worktree-ready', id: 'session-1', session: 'glimmervoid', branch: 'glimmervoid/session/1', base: 'develop', timestamp: NOW },
-  { type: 'session-diff', id: 'session-1', committed: { stat: '1 file', diff: 'patch' }, uncommitted: { stat: '', diff: '' }, hasCommits: true, bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
+  { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
   { type: 'session-diff-error', id: 'session-1', message: 'git diff HEAD timed out after 15000ms' },
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
@@ -366,19 +366,15 @@ test('the control WebSocket server is built with that budget, never a hand-writt
 
 test('nested open objects retain declared field types and passthrough fields', () => {
   const expected = {
-    type: 'session-diff',
-    id: 'session',
-    committed: { stat: 'one file', diff: 'committed diff', extra: 'preserved' },
-    uncommitted: { stat: '', diff: '' },
-    hasCommits: true,
-    bases: [],
+    type: 'usage-sessions',
+    ts: 1,
+    pricingSource: null,
+    sessions: [{ id: 'session', tokens: 12, costUSD: 0.5, extra: 'preserved' }],
     extra: 'preserved',
-  } satisfies ServerMessageOf<'session-diff'>;
+  } satisfies ServerMessageOf<'usage-sessions'>;
   const message = ServerMessage.parse(expected);
-  if (message.type !== 'session-diff') assert.fail('Expected session diff');
-  const stat: string = message.committed.stat;
-  const diff: string = message.uncommitted.diff;
-  assert.equal(stat, 'one file');
-  assert.equal(diff, '');
+  if (message.type !== 'usage-sessions') assert.fail('Expected usage sessions');
+  const tokens: number = message.sessions[0]?.tokens ?? 0;
+  assert.equal(tokens, 12);
   assert.deepEqual(message, expected);
 });

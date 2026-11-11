@@ -3,12 +3,72 @@ import { withScratchIndex } from "../../server/git/scratch-index.ts";
 import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import path from "node:path";
+import type { z } from "zod";
+import type { DiffBase } from "../../shared/contracts/control/control-fields.ts";
+import { diffHeaderPathsOf } from "../../shared/git-text.ts";
 import { decideDiffSelfHeal } from "../core/merge-gate.ts";
 import type { WorkspaceMember } from "../core/workspace-core.ts";
 import { branchFromHeadRef, branchFromRemoteRef, isOwnRemoteCopy, prefixRenameAndCopyHeaders } from "./worktree-lifecycle-context.ts";
-import type { ChangeScope, DiffSection, MemberDiff, WorktreeLifecycleContext } from "./worktree-lifecycle-context.ts";
+import type { ChangeScope, WorktreeLifecycleContext } from "./worktree-lifecycle-context.ts";
 
 const DIFF_TIMEOUT_MS = 15000;
+const CHECK_ATTR_BATCH_SIZE = 200;
+const MISSING_BLOB_ID = /^0+$/;
+const NUL = String.fromCharCode(0);
+const LOCKFILE_NAMES = new Set([
+  "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb", "deno.lock",
+  "Cargo.lock", "Gemfile.lock", "composer.lock", "poetry.lock", "Pipfile.lock", "uv.lock", "pdm.lock", "go.sum",
+  "mix.lock", "pubspec.lock", "Podfile.lock", "Package.resolved", "flake.lock", "packages.lock.json", "gradle.lockfile",
+]);
+
+interface WorktreeChanges {
+  patch: string;
+  contentHashByPath: Record<string, string | null>;
+  generatedPaths: string[];
+}
+
+interface SessionChanges extends WorktreeChanges {
+  hasCommits: boolean;
+  bases: z.infer<typeof DiffBase>[];
+}
+
+interface MemberChanges extends WorktreeChanges {
+  name: string;
+  hasCommits: boolean;
+  baseRef: string | null;
+  baseSha: string;
+}
+
+function isGeneratedPath(changedPath: string, generatedAttribute: string): boolean {
+  if (generatedAttribute === "set" || generatedAttribute === "true") return true;
+  if (generatedAttribute === "unset" || generatedAttribute === "false") return false;
+  return LOCKFILE_NAMES.has(path.posix.basename(changedPath));
+}
+
+interface PatchFileSection {
+  path: string;
+  blobId: string | null | undefined;
+}
+
+function patchFileSectionsOf(patch: string): PatchFileSection[] {
+  const sections: PatchFileSection[] = [];
+  for (const line of patch.split("\n")) {
+    const headerPaths = diffHeaderPathsOf(line);
+    if (headerPaths) {
+      sections.push({ path: headerPaths.path, blobId: undefined });
+      continue;
+    }
+    const section = sections.at(-1);
+    if (!section || section.blobId !== undefined) continue;
+    if (line.startsWith("rename to ")) {
+      section.path = line.slice("rename to ".length);
+      continue;
+    }
+    const index = /^index [0-9a-f]+\.\.([0-9a-f]+)/.exec(line);
+    if (index) section.blobId = MISSING_BLOB_ID.test(index[1] ?? "") ? null : index[1] ?? null;
+  }
+  return sections;
+}
 
 function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
   const { id, lifecycleState, currentProjectPath, gitOut, gitLookup, readUpstreamOf, effectiveIntegrationBranch, setMergeStatus } = context;
@@ -63,16 +123,15 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
 
   async function readChangeScope(name: string, root: string, base: string, sessionPathPrefix: string): Promise<ChangeScope> {
     const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(root));
-    const nul = String.fromCharCode(0);
     const trackedNameStatus = await run(["diff", "-z", "--name-status", "-M", "HEAD"]);
-    const untrackedPaths = (await run(["ls-files", "-z", "--others", "--exclude-standard"])).split(nul).filter(Boolean);
+    const untrackedPaths = (await run(["ls-files", "-z", "--others", "--exclude-standard"])).split(NUL).filter(Boolean);
     return {
       name,
       root,
       sessionPathPrefix,
       base: base || null,
       committedNameStatus: base ? await run(["diff", "-z", "--name-status", "-M", `${base}..HEAD`]) : "",
-      uncommittedNameStatus: trackedNameStatus + untrackedPaths.map((untrackedPath) => `?${nul}${untrackedPath}${nul}`).join(""),
+      uncommittedNameStatus: trackedNameStatus + untrackedPaths.map((untrackedPath) => `?${NUL}${untrackedPath}${NUL}`).join(""),
     };
   }
 
@@ -103,45 +162,34 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     return [await readChangeScope(path.basename(currentProjectPath()), worktreeDir, base, "")];
   }
 
-  async function readMemberDiff(member: WorkspaceMember): Promise<MemberDiff> {
-    const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(member.dir));
-    const prefixArgs = [`--src-prefix=a/${member.name}/`, `--dst-prefix=b/${member.name}/`];
-    const readPrefixedDiff = async (range: string, options: RunGitOptions): Promise<string> => prefixRenameAndCopyHeaders(await gitOut(["diff", ...prefixArgs, range], options), member.name);
+  async function readMemberChanges(member: WorkspaceMember): Promise<MemberChanges> {
     const { ref: baseRef, sha: base } = await memberMergeBase(member);
-    const aheadCount = base ? (await run(["rev-list", "--count", `${base}..HEAD`])).trim() : "0";
+    const aheadCount = base ? (await gitOut(["rev-list", "--count", `${base}..HEAD`], diffGitOptions(member.dir))).trim() : "0";
+    const changes = await readChangesWithUntracked(member.dir, base || "HEAD", member.name);
     return {
       name: member.name,
-      committed: base
-        ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await readPrefixedDiff(`${base}..HEAD`, diffGitOptions(member.dir)) }
-        : { stat: "", diff: "" },
-      uncommitted: await readUncommittedWithUntracked(member.dir, async (options) => ({
-        stat: (await gitOut(["diff", "--stat", "HEAD"], options)).trim(),
-        diff: await readPrefixedDiff("HEAD", options),
-      })),
+      ...changes,
       hasCommits: aheadCount !== "" && aheadCount !== "0",
       baseRef,
       baseSha: base,
     };
   }
 
-  async function getWorkspaceDiff(members: WorkspaceMember[]) {
-    const memberDiffs: MemberDiff[] = [];
+  async function getWorkspaceDiff(members: WorkspaceMember[]): Promise<SessionChanges> {
+    const memberChanges: MemberChanges[] = [];
     for (const member of members) {
       const memberDirStats = await fs.promises.stat(member.dir).catch(() => null);
       if (!memberDirStats?.isDirectory()) continue;
-      memberDiffs.push(await readMemberDiff(member));
+      memberChanges.push(await readMemberChanges(member));
     }
-    const joinSection = (section: "committed" | "uncommitted"): DiffSection => ({
-      stat: memberDiffs.filter((memberDiff) => memberDiff[section].stat).map((memberDiff) => `${memberDiff.name}/\n${memberDiff[section].stat}`).join("\n"),
-      diff: memberDiffs.map((memberDiff) => memberDiff[section].diff).join(""),
-    });
     return {
-      committed: joinSection("committed"),
-      uncommitted: joinSection("uncommitted"),
-      hasCommits: memberDiffs.some((memberDiff) => memberDiff.hasCommits),
-      bases: memberDiffs
-        .filter((memberDiff) => memberDiff.baseSha)
-        .map((memberDiff) => ({ member: memberDiff.name, ref: memberDiff.baseRef, sha: memberDiff.baseSha, verified: true })),
+      patch: memberChanges.map((member) => member.patch).join(""),
+      contentHashByPath: Object.assign({}, ...memberChanges.map((member) => member.contentHashByPath)),
+      generatedPaths: memberChanges.flatMap((member) => member.generatedPaths),
+      hasCommits: memberChanges.some((member) => member.hasCommits),
+      bases: memberChanges
+        .filter((member) => member.baseSha)
+        .map((member) => ({ member: member.name, ref: member.baseRef, sha: member.baseSha, verified: true })),
     };
   }
 
@@ -153,36 +201,65 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     }
   }
 
-  async function readUncommittedWithUntracked(dir: string, readUncommitted: (options: RunGitOptions) => Promise<DiffSection>): Promise<DiffSection> {
+  async function readGeneratedPaths(changedPaths: string[], options: RunGitOptions): Promise<string[]> {
+    const generatedAttributeByPath = new Map<string, string>();
+    for (let start = 0; start < changedPaths.length; start += CHECK_ATTR_BATCH_SIZE) {
+      const fields = (await gitOut(["check-attr", "-z", "linguist-generated", "--", ...changedPaths.slice(start, start + CHECK_ATTR_BATCH_SIZE)], options)).split(NUL);
+      for (let field = 0; field + 2 < fields.length; field += 3) generatedAttributeByPath.set(fields[field] ?? "", fields[field + 2] ?? "");
+    }
+    return changedPaths.filter((changedPath) => isGeneratedPath(changedPath, generatedAttributeByPath.get(changedPath) ?? "unspecified"));
+  }
+
+  async function readWorktreeBlobIds(repoPaths: string[], options: RunGitOptions): Promise<string[]> {
+    if (repoPaths.length === 0) return [];
+    try {
+      return (await gitOut(["hash-object", "--stdin-paths"], { ...options, input: `${repoPaths.join("\n")}\n` })).split("\n").filter(Boolean);
+    } catch (error) {
+      console.warn(`[session ${id}] hashing renamed files failed: ${errorMessage(error)}`);
+      return [];
+    }
+  }
+
+  async function contentHashesOf(patch: string, pathPrefix: string, options: RunGitOptions): Promise<Record<string, string | null>> {
+    const sections = patchFileSectionsOf(patch);
+    const unhashedPaths = sections.filter((section) => section.blobId === undefined).map((section) => section.path);
+    const worktreeBlobIds = await readWorktreeBlobIds(unhashedPaths.map((unhashedPath) => unhashedPath.slice(pathPrefix.length)), options);
+    const worktreeBlobIdByPath = new Map(unhashedPaths.map((unhashedPath, position) => [unhashedPath, worktreeBlobIds[position] ?? null]));
+    return Object.fromEntries(sections.map((section) => [section.path, section.blobId === undefined ? worktreeBlobIdByPath.get(section.path) ?? null : section.blobId]));
+  }
+
+  async function readChanges(target: string, memberName: string | null, options: RunGitOptions): Promise<WorktreeChanges> {
+    const pathPrefix = memberName ? `${memberName}/` : "";
+    const prefixArgs = [`--src-prefix=a/${pathPrefix}`, `--dst-prefix=b/${pathPrefix}`];
+    const rawPatch = await gitOut(["-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-color", "--full-index", "-M", ...prefixArgs, target], options);
+    const patch = memberName ? prefixRenameAndCopyHeaders(rawPatch, memberName) : rawPatch;
+    const changedPaths = (await gitOut(["diff", "--name-only", "-z", "-M", target], options)).split(NUL).filter(Boolean);
+    const generatedPaths = (await readGeneratedPaths(changedPaths, options)).map((generatedPath) => `${pathPrefix}${generatedPath}`);
+    return { patch, contentHashByPath: await contentHashesOf(patch, pathPrefix, options), generatedPaths };
+  }
+
+  async function readChangesWithUntracked(dir: string, target: string, memberName: string | null): Promise<WorktreeChanges> {
     const options = diffGitOptions(dir);
     const scratchRun = await withScratchIndex(dir, DIFF_TIMEOUT_MS, async (scratchIndexEnv) => {
       const scratchOptions = { ...options, env: scratchIndexEnv };
       await markUntrackedIntentToAdd(dir, scratchOptions);
-      return readUncommitted(scratchOptions);
+      return readChanges(target, memberName, scratchOptions);
     });
     if (scratchRun.ok) return scratchRun.value;
     console.warn(`[session ${id}] diff in ${dir} leaves out untracked files: ${scratchRun.reason}`);
-    return readUncommitted(options);
+    return readChanges(target, memberName, options);
   }
 
-  async function getDiff() {
-    const empty = { stat: "", diff: "" };
+  async function getDiff(): Promise<SessionChanges> {
     if (lifecycleState.provisionedMembers) return getWorkspaceDiff(lifecycleState.provisionedMembers);
-    if (!lifecycleState.worktreeDir) return { committed: empty, uncommitted: empty, hasCommits: false, bases: [] };
-    const opts = diffGitOptions(lifecycleState.worktreeDir);
-    const run = (args: string[]): Promise<string> => gitOut(args, opts);
-    const { base, aheadCount, ref, verified } = await resolveDiffBase(opts);
-    const committed = base
-      ? { stat: (await run(["diff", "--stat", `${base}..HEAD`])).trim(), diff: await run(["diff", `${base}..HEAD`]) }
-      : empty;
-    const uncommitted = await readUncommittedWithUntracked(lifecycleState.worktreeDir, async (options) => ({
-      stat: (await gitOut(["diff", "--stat", "HEAD"], options)).trim(),
-      diff: await gitOut(["diff", "HEAD"], options),
-    }));
-    const healed = decideDiffSelfHeal(lifecycleState.mergeStatus, committed.diff, uncommitted.diff);
+    if (!lifecycleState.worktreeDir) return { patch: "", contentHashByPath: {}, generatedPaths: [], hasCommits: false, bases: [] };
+    const { base, aheadCount, ref, verified } = await resolveDiffBase(diffGitOptions(lifecycleState.worktreeDir));
+    const changes = await readChangesWithUntracked(lifecycleState.worktreeDir, base || "HEAD", null);
+    const hasCommits = aheadCount !== "" && aheadCount !== "0";
+    const healed = decideDiffSelfHeal(lifecycleState.mergeStatus, changes.patch, hasCommits);
     if (healed) setMergeStatus(healed);
     const bases = base ? [{ member: null, ref, sha: base, verified }] : [];
-    return { committed, uncommitted, hasCommits: aheadCount !== "" && aheadCount !== "0", bases };
+    return { ...changes, hasCommits, bases };
   }
 
   return { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff };

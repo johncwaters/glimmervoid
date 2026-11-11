@@ -166,20 +166,6 @@ interface ChangeScope {
   uncommittedNameStatus: string;
 }
 
-interface DiffSection {
-  stat: string;
-  diff: string;
-}
-
-interface MemberDiff {
-  name: string;
-  committed: DiffSection;
-  uncommitted: DiffSection;
-  hasCommits: boolean;
-  baseRef: string | null;
-  baseSha: string;
-}
-
 interface AdoptWorktreeOptions {
   worktreeDir: string;
   branch: string | null;
@@ -238,4 +224,4 @@ type WorktreeLifecycleContext = Required<Pick<WorktreeLifecycleOptions, "id" | "
 };
 
 export { branchFromHeadRef, branchFromRemoteRef, isOwnRemoteCopy, prefixRenameAndCopyHeaders };
-export type { AdoptWorktreeOptions, BranchSyncResult, BranchSyncStatus, ChangeScope, DiffSection, GitWorkspace, IntegrationSyncResult, MemberDiff, MergeEngineOutcome, MergeResult, SessionPort, SessionSnapshot, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeLifecycleOptions, WorktreeLifecycleState, WorktreeSignature };
+export type { AdoptWorktreeOptions, BranchSyncResult, BranchSyncStatus, ChangeScope, GitWorkspace, IntegrationSyncResult, MergeEngineOutcome, MergeResult, SessionPort, SessionSnapshot, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeLifecycleOptions, WorktreeLifecycleState, WorktreeSignature };

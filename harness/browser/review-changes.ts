@@ -7,6 +7,7 @@ import { git } from '../site-capture/isolated-glimmervoid.ts';
 
 const REVIEWED_FILE_NAME = 'review-changes.txt';
 const REVIEWED_FILE_CONTENT = 'read in the change reader\n';
+const LOCKFILE_NAME = 'package-lock.json';
 const POLL_INTERVAL_MS = 100;
 const WORKTREE_TIMEOUT_MS = 15000;
 const READER_TIMEOUT_MS = 20000;
@@ -44,8 +45,19 @@ async function openChangesReader(page: Page): Promise<void> {
   await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: READER_TIMEOUT_MS });
   await reader.locator('.review-reader-diff .review-line-add', { hasText: REVIEWED_FILE_CONTENT.trim() }).waitFor();
   assert.equal(await page.locator('#focus-rail').isVisible(), true, 'the rail stays beside the change reader');
+}
+
+async function verifyFileGroups(page: Page): Promise<void> {
+  const reader = page.locator('.review-reader');
+  const newGroup = reader.getByRole('list', { name: 'New', exact: true });
+  const generatedGroup = reader.getByRole('list', { name: 'Generated', exact: true });
+  assert.equal(await newGroup.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"] .review-file-status`).textContent(), 'A', 'a new file sits in New with the letter A');
+  assert.equal(await generatedGroup.locator(`.review-reader-file[data-path="${LOCKFILE_NAME}"] .review-file-status`).textContent(), 'A', 'a lockfile sits in Generated with the letter A');
+  assert.equal(await newGroup.locator(`.review-reader-file[data-path="${LOCKFILE_NAME}"]`).count(), 0, 'a lockfile stays out of New');
   await page.keyboard.press('j');
-  await reader.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"][aria-current="true"]`).waitFor();
+  await generatedGroup.locator(`.review-reader-file[data-path="${LOCKFILE_NAME}"][aria-current="true"]`).waitFor();
+  await page.keyboard.press('k');
+  await newGroup.locator(`.review-reader-file[data-path="${REVIEWED_FILE_NAME}"][aria-current="true"]`).waitFor();
 }
 
 async function closeChangesReader(page: Page, sessionId: string): Promise<void> {
@@ -65,6 +77,8 @@ async function verifyChangesButtonCloses(page: Page): Promise<void> {
 
 export async function verifyReviewChanges(page: Page, projectDirectory: string): Promise<void> {
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
+  await fs.writeFile(path.join(worktreePath, LOCKFILE_NAME), '{}\n', 'utf8');
+  await git(worktreePath, ['add', LOCKFILE_NAME]);
   await commitFile(worktreePath, REVIEWED_FILE_NAME, REVIEWED_FILE_CONTENT, 'test: read a file in the change reader');
   const sessionId = await page.locator('#focus-pane-terminal .session-card').getAttribute('data-id');
   assert.ok(sessionId, 'a session is centered in Focus');
@@ -73,6 +87,7 @@ export async function verifyReviewChanges(page: Page, projectDirectory: string):
   const reader = page.locator('.review-reader');
   assert.equal(await reader.getByRole('button', { name: 'Merge', exact: true }).count(), 0, 'the change reader offers no Merge');
   assert.equal(await reader.getByRole('button', { name: 'Discard', exact: true }).count(), 0, 'the change reader offers no Discard');
+  await verifyFileGroups(page);
   await verifyChangesButtonCloses(page);
   await openChangesReader(page);
   await closeChangesReader(page, sessionId);

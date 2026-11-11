@@ -4,7 +4,15 @@ import { parseUnifiedDiff, summarizeFiles } from './diff-core.ts';
 import { parkedStatusText, reviewHeadline } from './review-copy-core.ts';
 import type { SessionDiffPayload } from './review-copy-core.ts';
 
-export type ReaderFile = Pick<DiffFile, 'path' | 'oldPath' | 'added' | 'removed' | 'binary' | 'hunks'>;
+type ReaderFileStatus = 'A' | 'M' | 'D' | 'R';
+
+export type ReaderFile = Pick<DiffFile, 'path' | 'oldPath' | 'added' | 'removed' | 'binary' | 'hunks'> & {
+  status: ReaderFileStatus;
+  contentHash: string | null;
+  isGenerated: boolean;
+};
+
+const STATUS_LETTER_BY_DIFF_STATUS: Record<string, ReaderFileStatus> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R' };
 
 interface ReviewInput {
   status: string;
@@ -26,19 +34,19 @@ export interface ReviewView {
 
 export function readerFilesOf(payload: SessionDiffPayload | null | undefined): ReaderFile[] {
   if (!payload) return [];
-  const fileByPath = new Map<string, ReaderFile>();
-  for (const file of [...parseUnifiedDiff(payload.committed?.diff), ...parseUnifiedDiff(payload.uncommitted?.diff)]) {
-    const known = fileByPath.get(file.path);
-    if (!known) {
-      fileByPath.set(file.path, { path: file.path, oldPath: file.oldPath, added: file.added, removed: file.removed, binary: file.binary, hunks: [...file.hunks] });
-      continue;
-    }
-    known.added += file.added;
-    known.removed += file.removed;
-    known.binary = known.binary || file.binary;
-    known.hunks.push(...file.hunks);
-  }
-  return [...fileByPath.values()];
+  const generatedPaths = new Set(payload.generatedPaths);
+  const files = parseUnifiedDiff(payload.patch).map((file): ReaderFile => ({
+    path: file.path,
+    oldPath: file.oldPath,
+    status: STATUS_LETTER_BY_DIFF_STATUS[file.status] ?? 'M',
+    added: file.added,
+    removed: file.removed,
+    binary: file.binary,
+    hunks: file.hunks,
+    contentHash: payload.contentHashByPath[file.path] ?? null,
+    isGenerated: generatedPaths.has(file.path),
+  }));
+  return [...files.filter((file) => !file.isGenerated), ...files.filter((file) => file.isGenerated)];
 }
 
 export function findReaderFile(files: readonly ReaderFile[], path: string | null): ReaderFile | null {

@@ -32,11 +32,11 @@ function decideBaseSyncDemotion(
 
 function decideDiffSelfHeal(
   mergeStatus: MergeStatus,
-  committedDiff: string,
-  uncommittedDiff: string,
+  patch: string,
+  hasCommits: boolean,
 ): MergeStatus | null {
   if (!REVIEWABLE.includes(mergeStatus)) return null;
-  if (committedDiff.trim() !== "" || uncommittedDiff.trim() !== "") return null;
+  if (hasCommits || patch.trim() !== "") return null;
   return "none";
 }
 

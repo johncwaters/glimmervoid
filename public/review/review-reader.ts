@@ -19,6 +19,8 @@ interface ReaderParts {
   diff: HTMLElement;
 }
 
+const STATUS_NAME_BY_LETTER: Record<ReaderFile['status'], string> = { A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' };
+
 const GUTTER_BY_LINE_TYPE: Record<string, string> = { add: '+', del: '-', meta: '\\' };
 
 let parts: ReaderParts | null = null;
@@ -123,22 +125,30 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   }
   if (review.statusLine) fileColumn.append(el('p', 'review-reader-status', review.statusLine));
   if (review.totals.files > 0) fileColumn.append(totalsLine(review.totals));
+  appendFileGroup(fileColumn, 'New', review.files.filter((file) => !file.isGenerated), review);
+  appendFileGroup(fileColumn, 'Generated', review.files.filter((file) => file.isGenerated), review);
+  const worthALook = review.changeMapView
+    ? renderWorthALook(review.changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
+    : null;
+  if (worthALook) fileColumn.append(worthALook);
+  fileColumn.scrollTop = scrollTop;
+}
+
+function appendFileGroup(fileColumn: HTMLElement, groupName: string, files: readonly ReaderFile[], review: SessionReview) {
+  if (files.length === 0) return;
+  fileColumn.append(el('p', 'review-reader-group', `${groupName} ${String.fromCharCode(183)} ${files.length}`));
   const list = el('div', 'review-reader-file-list');
   list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', groupName);
   const repos = review.changeMapView && review.changeMapView.repos.length > 1 ? review.changeMapView.repos : [];
   let previousRepoName: string | null = null;
-  for (const file of review.files) {
+  for (const file of files) {
     const repoName = repos.length > 0 ? repoNameForPath(repos, file.path) : null;
     if (repoName && repoName !== previousRepoName) list.append(el('div', 'review-repo-label', repoName));
     previousRepoName = repoName;
     list.append(fileRow(file, review));
   }
   fileColumn.append(list);
-  const worthALook = review.changeMapView
-    ? renderWorthALook(review.changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
-    : null;
-  if (worthALook) fileColumn.append(worthALook);
-  fileColumn.scrollTop = scrollTop;
 }
 
 function totalsLine(totals: SessionReview['totals']) {
@@ -154,6 +164,8 @@ function totalsLine(totals: SessionReview['totals']) {
 function fileRow(file: ReaderFile, review: SessionReview) {
   const row = createPressable('review-reader-file');
   row.dataset.path = file.path;
+  row.dataset.status = file.status;
+  if (file.isGenerated) row.dataset.generated = '';
   row.setAttribute('role', 'listitem');
   row.setAttribute('aria-current', String(file.path === selectedPath));
   const name = el('span', 'review-file-name');
@@ -164,7 +176,9 @@ function fileRow(file: ReaderFile, review: SessionReview) {
     hintRow.append(...hints);
     name.append(hintRow);
   }
-  row.append(name, fileCounts(file));
+  const statusLetter = el('span', 'review-file-status', file.status);
+  statusLetter.setAttribute('aria-label', STATUS_NAME_BY_LETTER[file.status]);
+  row.append(statusLetter, name, fileCounts(file));
   row.addEventListener('click', () => selectFile(file.path));
   return row;
 }
