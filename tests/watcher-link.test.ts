@@ -21,6 +21,9 @@ import { createGithubStorePoller } from '../server/github/github-store-poller.ts
 import { githubStoreProbes, watchProbeId } from '../server/github/github-store-probes.ts';
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
+import { startIdleStop } from '../server/idle-stop-wiring.ts';
+import { STATES } from '../shared/states.ts';
+import type { SessionState } from '../shared/states.ts';
 import { githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
@@ -290,6 +293,76 @@ test('the server refuses a nudge that is forged, stale, replayed or signed with 
 
   const health = await fetch(new URL(HEALTH_PATH, watcher.url ?? ''));
   assert.equal(health.status, 200);
+});
+
+test('a server asks its doorman to stop its host once, after 20 awake minutes with no agent working, running background work or waiting on a wakeup, and never counts suspended time', async (t) => {
+  const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-idle-stop-'));
+  const linkSecret = crypto.randomBytes(32);
+  const stopRequests: string[] = [];
+  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const sender = createNudgeSender({ serverUrl: 'http://127.0.0.1:9', signingKey: directionKey(linkSecret, 'watcher-to-server'), log: QUIET_LOG });
+  const runner = createProbeRunner({ home, nudges: sender, log: QUIET_LOG });
+  const watcherListener = createWatcherListener({
+    runner,
+    signingKey: directionKey(linkSecret, 'server-to-watcher'),
+    stopHost: async () => {
+      stopRequests.push('stop');
+      return 'stopping';
+    },
+    log: QUIET_LOG,
+  });
+  await runner.start();
+  const watcherPort = await watcherListener.listen(0);
+  const link = createWatcherLink({
+    linkSecret,
+    log: QUIET_LOG,
+    credentials: () => ({ github: null, posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, statusCheckMs: 50 }),
+  });
+  t.after(async () => {
+    link.stop();
+    runner.stop();
+    sender.stop();
+    await watcherListener.close();
+    await fsp.rm(watcherHome, { recursive: true, force: true });
+  });
+  await link.start();
+  await eventually(async () => (await link.requestHostStop()) === 'stopping' ? true : undefined);
+  stopRequests.length = 0;
+
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const clock = { nowMs: 0 };
+  let liveSessions: { state: SessionState; hasBackgroundWork: boolean }[] = [];
+  const idleStop = startIdleStop({ liveSessions: () => liveSessions, requestHostStop: link.requestHostStop, now: () => clock.nowMs, log: QUIET_LOG });
+  try {
+    const passAwakeMinutes = (minutes: number) => {
+      for (let quarter = 0; quarter < minutes * 4; quarter += 1) {
+        clock.nowMs += 15_000;
+        t.mock.timers.tick(15_000);
+      }
+    };
+
+    liveSessions = [{ state: STATES.RUNNING, hasBackgroundWork: false }, { state: STATES.IDLE, hasBackgroundWork: false }];
+    passAwakeMinutes(30);
+    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: true }];
+    passAwakeMinutes(30);
+    liveSessions = [{ state: STATES.STARTING, hasBackgroundWork: false }];
+    passAwakeMinutes(1);
+    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: false }];
+    passAwakeMinutes(19.75);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(stopRequests, []);
+
+    passAwakeMinutes(0.25);
+    await eventually(() => stopRequests.length === 1 ? true : undefined);
+    clock.nowMs += 3 * 60 * 60_000;
+    passAwakeMinutes(19.5);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } finally {
+    idleStop.stop();
+    t.mock.timers.reset();
+  }
+  assert.deepEqual(stopRequests, ['stop']);
 });
 
 test('a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers', async (t) => {

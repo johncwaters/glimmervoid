@@ -86,5 +86,5 @@ export function githubApiOrigin(environment: Readonly<Record<string, string | un
   return loopbackOverrideOrigin(environment[GITHUB_API_BASE_ENV], GITHUB_API_ORIGIN);
 }
 
-const HostStopAnswer = z.strictObject({ outcome: z.enum(['stopping', 'no-adapter']) });
+export const HostStopAnswer = z.strictObject({ outcome: z.enum(['stopping', 'no-adapter']) });
 export type HostStopOutcome = z.infer<typeof HostStopAnswer>['outcome'];

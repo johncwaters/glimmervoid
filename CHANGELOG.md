@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Delete a board from the Focus rail.** Each board row now has the same remove button a session row has. Pressing it dims the row and gives you Undo with the same countdown as closing a session; when the countdown ends the board is deleted for good. If the server refuses, the row comes back and the header says why.
+- **A hosted server asks to be put to sleep when nothing is working.** Once no session has been starting, working, running background work or waiting on a scheduled wakeup for 20 minutes of awake time, the server asks its doorman to stop its host, so a cloud machine stops costing money while you are away. Dashboards left open and lane polls never keep it awake, and time spent asleep never counts. A local install has no host to stop: the server notes that once in its log and keeps running.
 
 ### Changed
 

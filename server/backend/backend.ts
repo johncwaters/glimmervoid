@@ -38,6 +38,7 @@ import {
 } from '../session/session-registry.ts';
 import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
+import { startIdleStop } from '../idle-stop-wiring.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
@@ -673,6 +674,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       prepareWatcher: prepareLocalDoorman,
     }),
   });
+  const idleStop = startIdleStop({ liveSessions: allLiveSessions, requestHostStop: watcherLink.requestHostStop });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
@@ -718,6 +720,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry,
     hostLinks,
     watcherLink,
+    idleStop,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,

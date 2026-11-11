@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { CREDENTIALS_PATH, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import type { Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { CREDENTIALS_PATH, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
@@ -19,6 +19,7 @@ interface ProbeSource {
 }
 
 type FetchFn = typeof fetch;
+type HostStopRequestOutcome = HostStopOutcome | 'failed';
 
 const MISSING_CREDENTIAL_NAMES = { github: 'GitHub read token', posthog: 'PostHog read connection' } as const;
 
@@ -187,6 +188,27 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     } catch (postError) {
       log.warn(`[watcher] could not reach the watcher at ${path}: ${(postError as Error).message}`);
       return false;
+    }
+  }
+
+  async function requestHostStop(): Promise<HostStopRequestOutcome> {
+    if (watcherUrl === null) return 'failed';
+    try {
+      const response = await fetchFn(new URL(HOST_STOP_PATH, watcherUrl), {
+        method: 'POST',
+        headers: signedHeaders(commandKey, { method: 'POST', path: HOST_STOP_PATH, body: '' }, now()),
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        log.warn(`[watcher] ${HOST_STOP_PATH} answered ${response.status}`);
+        return 'failed';
+      }
+      const answer = HostStopAnswer.safeParse(await response.json());
+      return answer.success ? answer.data.outcome : 'failed';
+    } catch (stopError) {
+      log.warn(`[watcher] could not ask the doorman to stop this host: ${(stopError as Error).message}`);
+      return 'failed';
     }
   }
 
@@ -388,10 +410,10 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest };
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;
 
 export { createWatcherLink };
-export type { ProbeSource, WatcherLink };
+export type { HostStopRequestOutcome, ProbeSource, WatcherLink };
