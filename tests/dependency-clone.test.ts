@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
 import type { DependencySeedOutcome } from '../server/git/dependency-clone.ts';
-import { describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
+import { describeInstallNotice, describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
 import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
@@ -249,6 +249,9 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
+  const { notice, failureKind } = describeInstallNotice(install);
+  assert.match(notice ?? '', /^Dependencies did not install in the worktree root \(.+\)\. The session works; Details has the full output\. Dependencies in site were not installed because there is no package-lock\.json or pnpm-lock\.yaml there\.$/);
+  assert.equal(failureKind, 'failed');
 });
 
 test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {

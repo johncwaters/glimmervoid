@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, loose, openObject, nullableString, DiffBase, timestamp, optionalError } from './control-fields.ts';
+import { sessionId, loose, openObject, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind } from './control-fields.ts';
 
 export const worktreeClientVariants = [
   loose('watch-session-changes', { id: sessionId.nullable() }),
@@ -27,6 +27,7 @@ export const worktreeServerVariants = [
     session: z.string(),
     branch: nullableString,
     notice: nullableString,
+    failureKind: InstallFailureKind.optional(),
     timestamp,
   }),
   loose('session-worktree-ready', {

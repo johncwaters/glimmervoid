@@ -3,7 +3,7 @@ import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { LateFinish } from '../../session/core/agent-tracker.ts';
 import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
 import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
-import type { SessionStatusFields } from '../../shared/contracts/control-messages.ts';
+import type { InstallFailureKind, SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
 import type { AttentionNote } from '../../shared/contracts/session.ts';
@@ -420,13 +420,14 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         timestamp: Date.now(),
       });
     });
-    session.on('worktree-warning', ({ branch, notice }: { branch: string | null; notice: string }) => {
+    session.on('worktree-warning', ({ branch, notice, failureKind }: { branch: string | null; notice: string; failureKind?: InstallFailureKind }) => {
       dependencies.broadcastControl({
         type: 'session-worktree-warning',
         id: session.id,
         session: session.name,
         branch,
         notice,
+        ...(failureKind ? { failureKind } : {}),
         timestamp: Date.now(),
       });
     });

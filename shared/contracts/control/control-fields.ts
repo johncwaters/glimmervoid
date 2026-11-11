@@ -187,6 +187,10 @@ export const ClientLogReport = z.object({
   text: z.string().min(1).max(CLIENT_LOG_TEXT_MAX_CHARS),
 }).strict();
 
+const INSTALL_FAILURE_KINDS = Object.freeze(['tool-missing', 'folder-missing', 'failed', 'timed-out'] as const);
+export const InstallFailureKind = z.enum(INSTALL_FAILURE_KINDS);
+export type InstallFailureKind = z.infer<typeof InstallFailureKind>;
+
 export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({

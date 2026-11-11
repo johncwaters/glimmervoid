@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
+import type { InstallFailureKind } from '../../../shared/contracts/control/control-fields.ts';
+
 export type LockKind = 'npm' | 'pnpm';
 
 export type DependencyLock = {
@@ -225,7 +227,7 @@ type DependencyInstallPlan = { installs: PlannedInstall[]; unsupportedDirs: stri
 export type InstallResult =
   | { dir: string; command: string; ok: true; unbuiltPackages: string[] }
   | { dir: string; command: string; ok: false; kind: InstallFailureKind; lastOutputLine: string; outputTail: string[]; searchedPath: string };
-export type InstallFailureKind = 'tool-missing' | 'folder-missing' | 'failed' | 'timed-out';
+export type { InstallFailureKind };
 export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDirs: string[]; elapsedMs: number };
 
 export const INSTALL_TIMEOUT_MS = 10 * 60_000;
@@ -375,6 +377,58 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
     warnings.push(`node_modules in ${outcome.unsupportedDirs.join(', ')} was not installed because the worktree has no package-lock.json or pnpm-lock.yaml there; install dependencies there`);
   }
   return warnings;
+}
+
+type InstallFailure = Extract<InstallResult, { ok: false }>;
+type InstallNotice = { notice: string | null; failureKind: InstallFailureKind | null };
+
+const MAX_NAMED_FOLDERS = 3;
+const SHORT_REASON_MAX_CHARS = 120;
+const FAILURE_KIND_PRIORITY: readonly InstallFailureKind[] = ['tool-missing', 'timed-out', 'failed'];
+
+export function describeInstallNotice(outcome: DependencyInstallOutcome): InstallNotice {
+  const reportedFailures = outcome.results.filter((result): result is InstallFailure => !result.ok && result.kind !== 'folder-missing' && !isUnreadablePnpmLockfileFailure(result));
+  const missingToolNames = [...new Set(reportedFailures.filter((failure) => failure.kind === 'tool-missing').map((failure) => failure.command.split(' ')[0] ?? failure.command))];
+  const failedInstalls = reportedFailures.filter((failure) => failure.kind !== 'tool-missing');
+  const showsMissingTools = missingToolNames.length > 0;
+  const parts = [
+    ...(showsMissingTools ? [describeMissingTools(missingToolNames)] : []),
+    ...(failedInstalls.length ? [describeFailedInstalls(failedInstalls)] : []),
+    ...outcome.results.flatMap((result) => (result.ok && result.unbuiltPackages.length ? [`${describeUnbuiltPackages(result.dir, result.unbuiltPackages)}.`] : [])),
+    ...(outcome.unsupportedDirs.length ? [`Dependencies in ${namedFolders(outcome.unsupportedDirs)} were not installed because there is no package-lock.json or pnpm-lock.yaml there.`] : []),
+  ];
+  const shownKinds = new Set<InstallFailureKind>([...(showsMissingTools ? ['tool-missing' as const] : []), ...failedInstalls.map((failure) => failure.kind)]);
+  const failureKind = FAILURE_KIND_PRIORITY.find((kind) => shownKinds.has(kind)) ?? null;
+  return { notice: parts.length ? parts.join(' ') : null, failureKind };
+}
+
+function describeMissingTools(toolNames: readonly string[]): string {
+  const pronoun = toolNames.length > 1 ? 'them' : 'it';
+  return `Glimmervoid could not find ${joinedWithAnd(toolNames)}, so new worktrees start without their dependencies. Install ${pronoun}, then start a new session; \`glimmervoid doctor\` shows where Glimmervoid looks.`;
+}
+
+function describeFailedInstalls(failures: readonly InstallFailure[]): string {
+  return `Dependencies did not install in ${namedFolders(failures.map((failure) => failure.dir))} (${shortReasonOf(failures[0])}). The session works; Details has the full output.`;
+}
+
+function shortReasonOf(failure: InstallFailure | undefined): string {
+  if (!failure) return 'unknown error';
+  if (failure.kind === 'timed-out') return 'timed out after 10 minutes';
+  const reason = (failure.lastOutputLine || 'the command printed no output').replace(/[.:;]+$/, '');
+  if (reason.length <= SHORT_REASON_MAX_CHARS) return reason;
+  return `${reason.slice(0, SHORT_REASON_MAX_CHARS).trimEnd()}...`;
+}
+
+function namedFolders(dirs: readonly string[]): string {
+  const places = dirs.map((dir) => (dir === '.' ? 'the worktree root' : dir));
+  if (places.length <= MAX_NAMED_FOLDERS) return joinedWithAnd(places);
+  const otherCount = places.length - (MAX_NAMED_FOLDERS - 1);
+  return `${places.slice(0, MAX_NAMED_FOLDERS - 1).join(', ')} and ${otherCount} other folders`;
+}
+
+function joinedWithAnd(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
 function describeInstallFailure(result: Extract<InstallResult, { ok: false }>): string {

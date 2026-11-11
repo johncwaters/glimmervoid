@@ -1,4 +1,4 @@
-import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import type { InstallFailureKind, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
@@ -111,6 +111,7 @@ interface HeaderError {
   source: string;
   sessionId?: string;
   message: string;
+  kind?: InstallFailureKind;
   hidesInStreamerMode?: boolean;
 }
 
@@ -144,8 +145,8 @@ function paintHeaderErrorAge() {
   if (parts.age.textContent !== ageText) parts.age.textContent = ageText;
 }
 
-export function reportHeaderError({ source, sessionId, message, hidesInStreamerMode = true }: HeaderError) {
-  reportHeaderErrorToServer(source, message);
+export function reportHeaderError({ source, sessionId, message, kind, hidesInStreamerMode = true }: HeaderError) {
+  reportHeaderErrorToServer(source, message, kind);
   const parts = headerStatusParts();
   if (!parts) return;
   const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
