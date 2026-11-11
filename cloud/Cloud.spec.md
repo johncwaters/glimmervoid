@@ -22,7 +22,7 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   kinds: none
 - one local doorman per server: With no watcher URL, a server starts at most one local doorman, finds it again by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its tenant table is deleted.
   over: a first start, a second start at the same version, a start at a new version, and a deleted tenant table
-  via: a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its tenant table is deleted
+  via: a server starts one local doorman found by its port file, replaces it when Glimmervoid changes version, and the doorman stops once its whole home is deleted
   because: the local doorman outlives the server, so without the lock, version check and table exit a restart would stack doormen, an update would keep running old code, and a removed home would leave a daemon behind
   kinds: none
 - the watcher stands alone: The watcher's code, and everything it imports, reaches only the link contract, the signing core and its own files.
