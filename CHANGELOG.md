@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The Reviews board keeps its detail panel open.** On desktop the Board layout now shows the review detail beside the board as soon as you open the tab, and it stays there: the Close button is gone and Escape no longer hides it. Escape still clears a decision you picked in the note. The phone keeps its separate queue and detail screens.
+- **A doc opens as a sheet over the board, and a click outside closes it.** On desktop, opening a Markdown doc now shows it as a centered sheet at reading width with the board dimmed around it, instead of covering the whole screen. The title bar is gone: Undo, Redo, Close and the doc picker float at the sheet's top right, and the save status sits under the text. Clicking the board outside the sheet saves your edits and closes the doc, the same as Escape. If the save fails, it asks before discarding. On the phone the doc still fills the screen.
+
 - **Card stacks on a board open and close with motion.** Opening a stack now slides its cards out from the top card to their places, and closing one slides them back onto it, so you can see where each card went. Hovering a closed stack fans its cards apart a little to show there is more than one card under the top one. With reduced motion set in your system, the cards jump straight to their places.
 - **Device mockups and icons on a board stand alone.** A phone, tablet, laptop, desktop or browser box, and an icon box, now draws without the card around it by default, so it no longer reads as a box inside a box. Devices and icons already on your boards change too. Untick Borderless in the properties panel, or have an agent set `"borderless": false`, to bring the card back.
 
