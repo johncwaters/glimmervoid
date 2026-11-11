@@ -12,6 +12,7 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import type { AgentApiWiringOptions } from '../server/agent-api/agent-api-context.ts';
 import { createRaceLauncher } from '../server/race/race-launch.ts';
+import { createReviewWiring } from '../server/review/review-wiring.ts';
 import { RaceRecord } from '../shared/contracts/race.ts';
 import type { RaceSpec } from '../shared/contracts/race.ts';
 import { ensureSessionTempFolder } from '../server/session-temp/session-temp.ts';
@@ -21,7 +22,7 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
-import { AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
+import { AGENT_REPLY_SCHEMAS, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
@@ -209,6 +210,7 @@ interface WiringFixtureOptions {
   teamReviewStatus?: TeamReviewStatus;
   settleSessionCoherence?: (id: string) => Promise<void>;
   arena?: Pick<AgentApiWiringOptions, 'races' | 'startRace'>;
+  reviewComments?: AgentApiWiringOptions['reviewComments'];
 }
 
 interface ManualClock {
@@ -245,7 +247,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena,
+  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena, reviewComments,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -322,6 +324,7 @@ function wiringFixture({
       },
     } : {}),
     ...arena,
+    reviewComments,
     logger: { warn: () => {} },
     ...clock,
   });
@@ -606,13 +609,13 @@ test('limits tells a session which commands answer and its boundary', async () =
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'show'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -629,6 +632,7 @@ test('limits tells a session which commands answer and its boundary', async () =
       [ephemeralLane, laneLimits, 'settings', { command: 'list' }],
       [ephemeralLane, laneLimits, 'checkout', { repo: 'dotfiles' }],
       [ephemeralLane, laneLimits, 'arena', { sub: 'races' }],
+      [ephemeralLane, laneLimits, 'comments', { command: 'list' }],
       [contestant, await limitsOf(contestant), 'arena', { sub: 'diff', race: 'race-1', contestant: 'c2' }],
     ];
     await fixture.spawn(contestant, { prompt: 'read the other diffs' });
@@ -647,6 +651,37 @@ test('limits tells a session which commands answer and its boundary', async () =
     remote.destroy();
     contestant.destroy();
     fixture.destroyAll();
+  }
+});
+
+test('an agent lists, answers and resolves the review comments the operator sent it, and a resolved comment takes no reply', async () => {
+  const reviewsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-reviews-'));
+  const pastedTexts: string[] = [];
+  const reviews = createReviewWiring({
+    reviewsRoot,
+    broadcastControl: () => {},
+    findSession: (sessionId) => (sessionId === 'parent' ? { pasteTextWhenReady: (text) => { pastedTexts.push(text); return { ok: true }; } } : null),
+  });
+  const fixture = wiringFixture({ reviewComments: reviews });
+  try {
+    assert.deepEqual(await reviews.sendComment('parent', { path: 'a.ts', side: 'new', line: 3, lineText: 'const a = 1;', text: 'Name this after what it holds' }), { ok: true });
+    const listed = await fixture.wiring.handle(fixture.parent, 'comments', { command: 'list' });
+    assert.equal(listed.status, 200);
+    const listedBody = AGENT_REPLY_SCHEMAS.comments.parse(listed.body);
+    const [comment] = 'comments' in listedBody ? listedBody.comments : [];
+    assert.deepEqual(comment && { ...comment, id: 'id' }, { id: 'id', path: 'a.ts', line: 3, side: 'new', text: 'Name this after what it holds' });
+    assert.ok(pastedTexts[0]?.includes(comment.id), 'the pasted comment names the id the agent answers with');
+    assert.deepEqual((await fixture.wiring.handle(fixture.parent, 'comments', { command: 'reply', commentId: comment.id, text: 'Renamed it to totalCards' })).body, { ok: true });
+    assert.deepEqual((await fixture.wiring.handle(fixture.parent, 'comments', { command: 'resolve', commentId: comment.id })).body, { ok: true });
+    assert.deepEqual((await fixture.wiring.handle(fixture.parent, 'comments', { command: 'list' })).body, { ok: true, comments: [] });
+    const stored = await reviews.read('parent');
+    assert.deepEqual(stored?.comments.map(({ status, resolvedBy, replies }) => [status, resolvedBy, replies.map(({ text }) => text)]), [['resolved', 'agent', ['Renamed it to totalCards']]]);
+    const lateReply = await fixture.wiring.handle(fixture.parent, 'comments', { command: 'reply', commentId: comment.id, text: 'one more thing' });
+    assert.equal(lateReply.body.ok, false);
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'comments', { command: 'reply', commentId: comment.id })).body.ok, false, 'a reply needs its text');
+  } finally {
+    fixture.destroyAll();
+    fs.rmSync(reviewsRoot, { recursive: true, force: true });
   }
 });
 

@@ -15,6 +15,7 @@ import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import type { RaceWiring } from '../race/race-wiring.ts';
 import type { WhyLookup } from '../why-lookup.ts';
+import type { ReviewPort } from '../review/review-wiring.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
@@ -56,6 +57,7 @@ interface AgentApiWiringOptions {
   secrets?: Pick<SecretsBroker, 'need'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   startRace?: RaceLauncher['start'] | null;
+  reviewComments?: Pick<ReviewPort, 'read' | 'reply' | 'resolve'> | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;

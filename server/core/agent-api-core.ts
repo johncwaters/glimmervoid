@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentPacksRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentCommentsRequest, AgentPacksRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -72,6 +72,7 @@ interface AgentRequestByVerb {
   packs: AgentPacksRequest;
   need: AgentNeedRequest;
   arena: AgentArenaRequest;
+  comments: AgentCommentsRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -215,6 +216,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   packs: bodyParser(AgentPacksRequest),
   need: bodyParser(AgentNeedRequest),
   arena: bodyParser(AgentArenaRequest),
+  comments: bodyParser(AgentCommentsRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -529,6 +531,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it to race one prompt across agent setups in this session\'s project, follow a race, judge it, or read a contestant\'s diff',
     summary: 'Start an Arena race, list races, read one race, start judging it, or read one contestant\'s diff (arena start <spec json>, arena race <race>, arena judge <race>, arena diff <race> <contestant>)',
     missingArgumentHint: 'this command needs an action, for example "glimmervoid arena races", and arena start needs the race spec as one JSON object argument',
+    isPassthrough: true,
+  },
+  comments: {
+    usage: 'comments list|reply|resolve',
+    whenToUse: 'Use it when the operator leaves a review comment on your changes, to answer it and close it',
+    summary: 'List the open review comments the operator left on this session\'s changes, reply to one (comments reply <id> <text>), or resolve one (comments resolve <id>)',
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid comments list" or "glimmervoid comments reply c-0123abcd Renamed it"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

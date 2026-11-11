@@ -147,6 +147,13 @@ test('a session without its own worktree lists every grouped tool but push and r
   assert.match(firstTextOf(packChecked.content), /^Checked pack half-pack v1 at .*half-pack: fix the problems below, then check it again\nerror: pack\.json ui\.panels\.0: missing\.html is not a file in the pack/);
   assert.match(firstTextOf(packChecked.content), /error: .*missing\.html/);
   assert.equal(spawnReplyForMcp({ ok: true, sessionId: 'child-1', name: 'child' }).note?.toString().includes('glimmervoid '), false);
+
+  const reviewComments = await resultOf(await callMcp('tools/call', { name: 'review', arguments: { action: 'comments' } }, credential));
+  assert.notEqual(reviewComments.isError, true, JSON.stringify(reviewComments));
+  assert.deepEqual(reviewComments.structuredContent, { ok: true, comments: [] });
+  const unknownResolve = await resultOf(await callMcp('tools/call', { name: 'review', arguments: { action: 'resolve', commentId: 'c-0123abcd' } }, credential));
+  assert.equal(unknownResolve.isError, true);
+  assert.match(JSON.stringify(unknownResolve.content), /c-0123abcd/);
 });
 
 test('a refused verb comes back as a tool error the agent can read', async () => {

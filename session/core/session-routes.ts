@@ -91,6 +91,11 @@ function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
 }
 
+function commentsRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session has no Changes view, so the operator leaves it no review comments' };
+}
+
 function channelRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session has no parent or spawned sessions to message' };
@@ -151,6 +156,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   need: needRoute,
   limits: () => ANSWERS,
   arena: arenaRoute,
+  comments: commentsRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';

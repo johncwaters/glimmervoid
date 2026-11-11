@@ -79,6 +79,7 @@ Inside a Glimmervoid session:
   checkout <repo>     Make a worktree of a configured project or a local git repository, owned by this session and removed when it closes. Use it instead of git worktree add or git clone when this session must change a repository it was not started in
   need <NAME>...      Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 companion offline, 1 failed. Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat
   arena start|races|race|judge|diff Start an Arena race, list races, read one race, start judging it, or read one contestant's diff (arena start <spec json>, arena race <race>, arena judge <race>, arena diff <race> <contestant>). Use it to race one prompt across agent setups in this session's project, follow a race, judge it, or read a contestant's diff
+  comments list|reply|resolve List the open review comments the operator left on this session's changes, reply to one (comments reply <id> <text>), or resolve one (comments resolve <id>). Use it when the operator leaves a review comment on your changes, to answer it and close it
   limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
 

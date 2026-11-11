@@ -6,6 +6,7 @@ import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
+import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
 export const MergeStatus = z.enum(['none', 'pending-review', 'merging', 'parked', 'merged']);
@@ -131,7 +132,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -224,6 +225,18 @@ export const AgentPacksRequest = z.object({
   command: z.enum(AGENT_PACKS_COMMANDS, { error: 'command must be guide, check or list' }),
   path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(4096, { error: 'path must be at most 4096 characters' }).optional(),
 }).strict().refine((request) => request.command !== 'check' || request.path !== undefined, { error: 'check needs the path of a pack folder' });
+
+const AGENT_COMMENTS_COMMANDS = ['list', 'reply', 'resolve'] as const;
+
+export const AgentCommentsRequest = z.object({
+  command: z.enum(AGENT_COMMENTS_COMMANDS, { error: 'command must be list, reply or resolve' }),
+  commentId: ReviewCommentId.optional(),
+  text: z.string({ error: 'text must be a string' }).trim().min(1, { error: 'text must not be empty' }).max(REVIEW_TEXT_MAX_CHARS, { error: `text must be at most ${REVIEW_TEXT_MAX_CHARS} characters` }).optional(),
+}).strict()
+  .refine((request) => request.command === 'list' || request.commentId !== undefined, { error: 'reply and resolve need the comment id, for example c-0123abcd' })
+  .refine((request) => request.command !== 'reply' || request.text !== undefined, { error: 'reply needs the text of the answer' });
+
+const AgentReviewCommentRow = z.object({ id: z.string(), path: z.string(), line: z.number(), side: z.enum(['old', 'new']), text: z.string() }).strict();
 
 export const AgentWhyRequest = z.object({
   target: z.string({ error: 'target must be a string' }).min(1, { error: 'target must not be empty' }).max(4200, { error: 'target must be at most 4200 characters' }),
@@ -333,6 +346,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
   arena: z.union([AgentArenaReply, AgentRefusal]),
+  comments: z.union([z.object({ ok: z.literal(true), comments: z.array(AgentReviewCommentRow) }).strict(), AgentOkReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
 
 export type AgentRefusal = z.infer<typeof AgentRefusal>;
@@ -354,6 +368,7 @@ export type AgentPullRequestRequest = z.infer<typeof AgentPullRequestRequest>;
 export type AgentSettingsRequest = z.infer<typeof AgentSettingsRequest>;
 export type AgentPacksRequest = z.infer<typeof AgentPacksRequest>;
 export type AgentWhyRequest = z.infer<typeof AgentWhyRequest>;
+export type AgentCommentsRequest = z.infer<typeof AgentCommentsRequest>;
 export type AgentCheckoutRequest = z.infer<typeof AgentCheckoutRequest>;
 export type AgentSettingsReply = z.infer<typeof AgentSettingsReply>;
 export type AgentReviewsRequest = z.infer<typeof AgentReviewsRequest>;

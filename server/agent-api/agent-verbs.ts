@@ -3,9 +3,10 @@ import path from 'node:path';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
+import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
+import { openComments } from '../review/review-state-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
@@ -19,7 +20,7 @@ import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
 const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -100,6 +101,21 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const packPath = request.path === undefined ? undefined : path.resolve(session.effectiveCwd(), request.path);
     const reply = await operatorState.readPacks({ command: request.command, ...(packPath === undefined ? {} : { path: packPath }) });
     return { status: 200, body: { ok: true, ...reply } };
+  }
+
+  async function comments(session: Session, request: AgentCommentsRequest): Promise<AgentReplyOf<'comments'>> {
+    if (!reviewComments) return refusal(503, 'review comments are not available in this Glimmervoid');
+    if (request.command === 'list') {
+      const state = await reviewComments.read(session.id);
+      if (!state) return refusal(503, 'the saved review for this session could not be read');
+      const rows = openComments(state).map(({ id, path, line, side, text }) => ({ id, path, line, side, text }));
+      return { status: 200, body: { ok: true, comments: rows } };
+    }
+    const commentId = request.commentId ?? '';
+    const outcome = request.command === 'reply'
+      ? await reviewComments.reply(session.id, commentId, request.text ?? '')
+      : await reviewComments.resolve(session.id, commentId, 'agent');
+    return outcome.ok ? { status: 200, body: { ok: true } } : refusal(409, outcome.error);
   }
 
   async function why(session: Session, target: string): Promise<AgentReplyOf<'why'>> {
@@ -291,6 +307,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     'link-pr': (session, { pullRequestKey }) => linkPr(session, pullRequestKey),
     settings: (_session, request) => settings(request),
     why: (session, { target }) => why(session, target),
+    comments,
     checkout,
     packs,
     need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),

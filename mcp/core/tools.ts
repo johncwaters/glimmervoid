@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
 } from '../../shared/contracts/session.ts';
 import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
@@ -175,16 +175,21 @@ const WHITEBOARD_TOOL: GroupedTool = {
 const REVIEW_TOOL: GroupedTool = {
   name: 'review',
   title: 'Glimmervoid pull request reviews',
-  description: 'Team pull request reviews. review queues a review of a pull request whose draft waits in the Reviews tab for the operator to post; reviews lists queued and finished reviews, or one review\'s detail; prs lists the operator\'s own open pull requests; link-pr links a pull request to this session\'s card.',
+  description: 'Team pull request reviews and the operator\'s review comments on this session\'s changes. review queues a review of a pull request whose draft waits in the Reviews tab for the operator to post; reviews lists queued and finished reviews, or one review\'s detail; prs lists the operator\'s own open pull requests; link-pr links a pull request to this session\'s card. comments lists the open comments the operator left in Changes; reply answers one by commentId, shown under it in Changes; resolve closes one by commentId.',
   loadsUpfront: false,
   fields: {
     pr: AgentPullRequestRequest.shape.pr.optional().describe('A GitHub pull request url or owner/repo#number'),
+    commentId: AgentCommentsRequest.shape.commentId.describe('reply, resolve: the review comment id, for example c-0123abcd'),
+    text: AgentCommentsRequest.shape.text.describe('reply: the answer to show under the comment'),
   },
   actions: {
     review: routeTo('review', ['pr'], { required: ['pr'], hints: { ...WRITES, openWorld: true } }),
     reviews: routeTo('reviews', ['pr'], { hints: READS }),
     prs: routeTo('prs', [], { hints: { ...READS, openWorld: true } }),
     'link-pr': routeTo('link-pr', ['pr'], { required: ['pr'], hints: REWRITES }),
+    comments: { verb: 'comments', required: [], accepts: [], hints: READS, toPayload: () => ({ command: 'list' }) },
+    reply: { verb: 'comments', required: ['commentId', 'text'], accepts: ['commentId', 'text'], hints: WRITES, toPayload: (toolArguments) => ({ command: 'reply', ...definedEntries(toolArguments, ['commentId', 'text']) }) },
+    resolve: { verb: 'comments', required: ['commentId'], accepts: ['commentId'], hints: { ...WRITES, idempotent: true }, toPayload: (toolArguments) => ({ command: 'resolve', ...definedEntries(toolArguments, ['commentId']) }) },
   },
 };
 

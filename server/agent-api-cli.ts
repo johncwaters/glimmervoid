@@ -137,6 +137,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
   arena: arenaBody,
+  comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 

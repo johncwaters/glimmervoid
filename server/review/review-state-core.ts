@@ -39,8 +39,12 @@ function resolveComment(state: ReviewState, commentId: string, by: 'operator' | 
 
 function commentPasteText(comment: ReviewComment): string {
   const sideNote = comment.side === 'old' ? ' (old side)' : '';
-  return `Review comment ${comment.id} on ${comment.path}:${comment.line}${sideNote}:\n${comment.text}\nAnswer it in your reply.`;
+  return `Review comment ${comment.id} on ${comment.path}:${comment.line}${sideNote}:\n${comment.text}\nAnswer it with the review tool's reply action for comment ${comment.id} (or glimmervoid comments reply ${comment.id} <text>), then resolve it once it is done.`;
 }
 
-export { addComment, commentPasteText, emptyReviewState, markViewed, replyToComment, resolveComment };
+function openComments(state: ReviewState): ReviewComment[] {
+  return state.comments.filter((comment) => comment.status === 'open');
+}
+
+export { addComment, commentPasteText, openComments, emptyReviewState, markViewed, replyToComment, resolveComment };
 export type { ReviewCommentDraft };
