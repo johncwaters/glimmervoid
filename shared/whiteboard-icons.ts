@@ -26,7 +26,6 @@ export const PLACED_ICON: IconName = 'component';
 export const ICON_BOX_GLYPH_SIZE = 48;
 export const ICON_BOX_GLYPH_GAP = 8;
 export const TITLE_ICON_CHARS = 2;
-export const LINE_ICON_CHARS = 3;
 
 export const ICON_CATALOG: Readonly<Record<IconName, IconSpec>> = Object.freeze({
   database: { category: 'infra', label: 'Database', elements: ['<ellipse cx="12" cy="5" rx="9" ry="3"/>', '<path d="M3 5V19A9 3 0 0 0 21 19V5"/>', '<path d="M3 12A9 3 0 0 0 21 12"/>'] },

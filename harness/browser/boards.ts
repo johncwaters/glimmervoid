@@ -1083,7 +1083,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await inspect.getByRole('checkbox', { name: 'Borderless', exact: true }).check();
     await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless));
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).selectOption('decision');
-    await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision' && box.outputs.length > 0));
+    await elementWhere(open, 'the box turned into a decision', isTargetWith((box) => box.shape === 'decision'));
     await inspect.getByRole('heading', { name: 'Decision', exact: true }).waitFor();
     await inspect.getByRole('combobox', { name: 'Shape', exact: true }).focus();
     await page.keyboard.press('ControlOrMeta+z');
@@ -1240,7 +1240,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await inspect.getByRole('button', { name: 'Delete', exact: true }).click();
   await boardWithout(open, 'the deleted step', (element) => element.id === step.id);
   await inspect.waitFor({ state: 'hidden' });
-  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', step: { status: 'building', linkedBoardId: null } } }] });
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'band-step', title: 'Band step', step: { status: 'building' } } }] });
   const bandStep = await elementWhere(open, 'the step in the build-order band', (element) => element.id === 'band-step');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   await clickElement(open, bandStep.id);

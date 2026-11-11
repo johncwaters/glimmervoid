@@ -124,8 +124,8 @@ test('wires run at right angles around boxes, and same-style wires into one box 
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });
 
-function stepBox(id: string, title: string, linkedBoardId: string | null = null) {
-  return { kind: 'box', id, title, step: { linkedBoardId } };
+function stepBox(id: string, title: string) {
+  return { kind: 'box', id, title, step: {} };
 }
 
 function dependency(fromId: string, toId: string) {
@@ -138,7 +138,7 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
     elements: {
       ...wiredBoard.elements.toJSON(),
       diff: stepBox('diff', 'Diff index'), endpoint: stepBox('endpoint', 'Search endpoint'),
-      backfill: stepBox('backfill', 'Index backfill', 'backfill-board'), searchbox: stepBox('searchbox', 'Search box'),
+      backfill: stepBox('backfill', 'Index backfill'), searchbox: stepBox('searchbox', 'Search box'),
       ...Object.fromEntries([dependency('diff', 'endpoint'), dependency('diff', 'backfill'), dependency('endpoint', 'searchbox'), dependency('diff', 'searchbox')].map((wire) => [wire.id, wire])),
       pinned: { ...box('pinned'), at: { x: 40, y: 900 } },
     },
@@ -150,7 +150,6 @@ test('unplaced step boxes draw as a plan band above the free drawing, one level 
   const [diff, endpoint, backfill, searchbox] = ['diff', 'endpoint', 'backfill', 'searchbox'].map((id) => stepById.get(id));
   assert.ok(diff && endpoint && backfill && searchbox);
   assert.ok(diff.x < endpoint.x && endpoint.x === backfill.x && endpoint.x < searchbox.x, 'each level is its own column, left to right');
-  assert.equal(backfill.step?.linkedBoardId, 'backfill-board');
   const bandBottom = Math.max(...steps.map((laidOut) => laidOut.y + laidOut.height));
   for (const laidOut of layout.elements) {
     if (laidOut.kind === 'box' && !laidOut.step) assert.ok(laidOut.y > bandBottom, `box ${laidOut.id} starts inside the plan band`);
@@ -261,16 +260,16 @@ test('a stored near box is pinned beside its target and one whose target is miss
   assert.ok(layoutBoard(farFlung).elements.some((element) => element.id === 'w2'), 'a wire to a box a billion units away lays out without walking every cell between');
 });
 
-test('wires keep their named sides, a back wire returns around the outside of the flow, and overlaps and crowding warn by name', () => {
+test('wires keep their named sides, and overlaps and crowding warn by name', () => {
   const loopBoard = boardWithNearPinned({
     id: 'loop', title: 'loop', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([[box('read')], [box('check')], [box('write')]]),
       aside: { kind: 'box', id: 'aside', title: 'Aside', near: { of: 'write', side: 'bottom' } },
       first: { kind: 'box', id: 'first', title: 'First', at: { x: 900, y: 600 } }, second: { kind: 'box', id: 'second', title: 'Second', at: { x: 920, y: 610 } },
-      f1: { kind: 'frame', id: 'f1', title: 'each page', contains: ['read', 'check', 'write'], loop: true },
+      f1: { kind: 'frame', id: 'f1', title: 'each page', contains: ['read', 'check', 'write'] },
       w1: wire('w1', 'read', 'check'), w2: wire('w2', 'check', 'write'),
-      w3: wire('w3', 'write', 'read', { back: true, label: 'next page' }),
+      w3: wire('w3', 'write', 'read', { label: 'next page' }),
       w4: wire('w4', 'read', 'check', { fromSide: 'bottom', toSide: 'bottom' }),
       w5: wire('w5', 'read', 'aside'),
       low: { kind: 'box', id: 'low', title: 'Low', at: { x: 1300, y: 900 } }, w6: wire('w6', 'write', 'low'),
@@ -286,10 +285,9 @@ test('wires keep their named sides, a back wire returns around the outside of th
   const wireById = new Map(layout.elements.flatMap((element) => (element.kind === 'wire' ? [[element.id, element] as const] : [])));
   const [read, check, write] = ['read', 'check', 'write'].map((id) => boxById.get(id));
   const sided = wireById.get('w4');
-  const back = wireById.get('w3');
   const low = boxById.get('low');
   const downward = wireById.get('w6');
-  assert.ok(read && check && write && sided && back && low && downward);
+  assert.ok(read && check && write && sided && low && downward);
   assert.deepEqual([downward.end.y, segmentsOfPath(downward.path).length], [low.y, 2], `a wire to a box wholly below it turns once into its top: ${downward.path}`);
   const level = wireById.get('w7');
   assert.ok(level);
@@ -299,13 +297,6 @@ test('wires keep their named sides, a back wire returns around the outside of th
   assert.ok(segmentsOfPath(walled.path).length <= 3, `a wire whose facing side is walled off leaves from the side that turns least: ${walled.path}`);
   assert.equal(sided.start.y, read.y + read.height);
   assert.equal(sided.end.y, check.y + check.height);
-  assert.ok(back.isBack && back.isDashed);
-  const flowBottom = Math.max(read.y + read.height, check.y + check.height, write.y + write.height);
-  const flowTop = Math.min(read.y, check.y, write.y);
-  const innerPoints = segmentsOfPath(back.path).flatMap((segment) => [{ x: segment.x1, y: segment.y1 }, { x: segment.x2, y: segment.y2 }])
-    .filter((point) => point.y !== back.start.y && point.y !== back.end.y);
-  assert.ok(innerPoints.every((point) => point.y > flowBottom || point.y < flowTop), `the back wire cuts through the forward flow: ${back.path}`);
-  assert.ok(layout.elements.some((element) => element.kind === 'frame' && element.isLoop));
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
   assert.ok(layout.warnings.includes('box first overlaps box second'), layout.warnings.join('; '));
 });
@@ -348,7 +339,7 @@ test('a decision fanning out to a stack of boxes draws its wires without crossin
     id: 'fan', title: 'fan', version: 1, caption: null, createdAt: 0, updatedAt: 0,
     elements: {
       ...stacked([
-        [{ kind: 'box', id: 'pick', title: 'Disposition', shape: 'decision', outputs: [{ id: 'local', label: 'fix locally' }, { id: 'dismiss', label: 'dismiss w/ reason' }, { id: 'remote', label: 'fix remotely' }, { id: 'escalate', label: 'escalate' }] }],
+        [{ kind: 'box', id: 'pick', title: 'Disposition', shape: 'decision' }],
         [
           { kind: 'box', id: 'session', title: 'Session on branch', lines: [{ text: 'spawn / message PR session', style: 'item' }, { text: 'new push re-enters Sources', muted: true, style: 'item' }] },
           { kind: 'box', id: 'reply', title: 'Reply + resolve', lines: [{ text: 'post operator reason', style: 'item' }, { text: 'resolve thread', style: 'item' }] },
@@ -356,71 +347,35 @@ test('a decision fanning out to a stack of boxes draws its wires without crossin
           { kind: 'box', id: 'waiting', title: 'Waiting card', lines: [{ text: 'dashboard + Telegram', style: 'item' }] },
         ],
       ], { stackGap: 260, boxGap: 30 }),
-      w10: { kind: 'wire', id: 'w10', from: 'pick', to: 'session', fromOutput: 'local' },
-      w11: { kind: 'wire', id: 'w11', from: 'pick', to: 'reply', fromOutput: 'dismiss' },
-      w12: { kind: 'wire', id: 'w12', from: 'pick', to: 'resolve', fromOutput: 'remote', dashed: true },
-      w13: { kind: 'wire', id: 'w13', from: 'pick', to: 'waiting', fromOutput: 'escalate', tone: 'fail' },
+      w10: { kind: 'wire', id: 'w10', from: 'pick', to: 'session', label: 'fix locally' },
+      w11: { kind: 'wire', id: 'w11', from: 'pick', to: 'reply', label: 'dismiss' },
+      w12: { kind: 'wire', id: 'w12', from: 'pick', to: 'resolve', label: 'fix remotely', dashed: true },
+      w13: { kind: 'wire', id: 'w13', from: 'pick', to: 'waiting', label: 'escalate', tone: 'fail' },
     },
   });
   const crossings = layoutBoard(fanBoard).warnings.filter((warning) => warning.includes('crosses wire'));
   assert.deepEqual(crossings, []);
 });
 
-test('a decision draws its outputs as rows in order and each output wire leaves from its own row, while a stray output is refused', () => {
-  const decisionBoard = boardWithNearPinned({
-    id: 'decide', title: 'decide', version: 1, caption: null, createdAt: 0, updatedAt: 0,
-    elements: {
-      ...stacked([
-        [{ kind: 'box', id: 'classify', title: 'Classify', shape: 'decision', outputs: [{ id: 'failed', label: 'failed' }, { id: 'clean', label: 'clean' }] }],
-        [{ kind: 'box', id: 'stop', title: 'Stop' }, { kind: 'box', id: 'go', title: 'Continue' }],
-      ]),
-      w1: { kind: 'wire', id: 'w1', from: 'classify', to: 'go', fromOutput: 'clean' },
-      w2: { kind: 'wire', id: 'w2', from: 'classify', to: 'stop', fromOutput: 'failed', tone: 'fail' },
-    },
-  });
-  const layout = layoutBoard(decisionBoard);
-  const decision = layout.elements.find((element) => element.id === 'classify');
-  assert.ok(decision?.kind === 'box');
-  const [failedOutput, cleanOutput] = decision.outputs;
-  assert.deepEqual(decision.outputs.map((output) => output.id), ['failed', 'clean']);
-  assert.ok(failedOutput && cleanOutput && failedOutput.port.y < cleanOutput.port.y);
-  const wireStart = (wireId: string) => {
-    const wire = layout.elements.find((element) => element.id === wireId);
-    assert.ok(wire?.kind === 'wire');
-    return wire.start;
-  };
-  assert.deepEqual(wireStart('w2'), failedOutput.port);
-  assert.deepEqual(wireStart('w1'), cleanOutput.port);
-  assert.equal(layout.warnings.filter((warning) => warning.includes('runs through')).length, 0, layout.warnings.join('\n'));
-  const author = { id: 'agent', name: 'agent' };
-  const missingOutput = applyOps(decisionBoard, [{ op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w3', from: 'classify', to: 'stop', fromOutput: 'maybe' }) }], author, 0);
-  assert.equal(missingOutput.ok ? '' : missingOutput.error, 'op 1: wire w3 starts at output maybe, which decision classify does not have');
-  const droppedOutput = applyOps(decisionBoard, [{ op: 'set', id: 'classify', fields: { outputs: [{ id: 'failed', label: 'failed' }] } }], author, 0);
-  assert.equal(droppedOutput.ok ? '' : droppedOutput.error, 'op 1: wire w1 still starts at output clean of classify, so change or remove that wire first');
-  const plainWithOutputs = applyOps(decisionBoard, [{ op: 'set', id: 'stop', fields: { outputs: [{ id: 'x', label: 'x' }] } }], author, 0);
-  assert.equal(plainWithOutputs.ok ? '' : plainWithOutputs.error, 'op 1: stop: only a decision has outputs, so set shape to decision');
-});
-
 test('styled lines carry their markers, a panel with no place stacks clear right of every box until it is given one, and the legend names the wire styles in use with custom labels winning', () => {
   const styledBoard = boardWithNearPinned({
     id: 'styled', title: 'styled', version: 1, caption: null, createdAt: 0, updatedAt: 0,
-    legend: [{ tone: 'fail', label: 'gives up' }, { tone: 'plain', back: true, label: 'retry' }, { tone: 'join', label: 'merges back' }],
+    legend: [{ tone: 'fail', label: 'gives up' }, { tone: 'plain', dashed: true, label: 'retry' }, { tone: 'join', label: 'merges back' }],
     elements: {
       first: { kind: 'box', id: 'first', title: 'First', at: { x: 40, y: 40 }, lines: [
-        { text: 'parse', style: 'numbered' }, { text: 'store', style: 'numbered' }, { text: 'a break' }, { text: 'again', style: 'numbered' },
-        { text: '30s', style: 'kv', key: 'timeout' }, { text: 'npm test', style: 'code' }, { text: 'one point', style: 'item' },
+        { text: 'a break' }, { text: '30s', style: 'kv', key: 'timeout' }, { text: 'npm test', style: 'code' }, { text: 'one point', style: 'item' },
       ] },
       second: { kind: 'box', id: 'second', title: 'Second', at: { x: 700, y: 200 } },
       prior: { kind: 'box', id: 'prior', title: 'Prior art', shape: 'panel', lines: [{ text: 'the old router', style: 'item' }] },
       w1: { kind: 'wire', id: 'w1', from: 'first', to: 'second', tone: 'fail' },
-      w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', back: true },
+      w2: { kind: 'wire', id: 'w2', from: 'second', to: 'first', dashed: true },
     },
   });
   assert.throws(() => boardWithNearPinned({ ...styledBoard, elements: { ...styledBoard.elements.toJSON(), first: { ...styledBoard.elements.get('first'), lines: [{ text: 'x', style: 'kv' }] } } }), /a kv line needs a key/);
   const layout = layoutBoard(styledBoard);
   const first = layout.elements.find((element) => element.id === 'first');
   assert.ok(first?.kind === 'box');
-  assert.deepEqual(first.bodyLines.map((line) => line.marker), ['1.', '2.', null, '1.', 'timeout', null, null]);
+  assert.deepEqual(first.bodyLines.map((line) => line.marker), [null, 'timeout', null, null]);
   const panel = layout.elements.find((element) => element.id === 'prior');
   assert.ok(panel?.kind === 'box' && panel.shape === 'panel');
   const besidePanel = layout.elements.filter((element) => element.kind === 'box' && element.id !== 'prior');
@@ -446,10 +401,10 @@ test('styled lines carry their markers, a panel with no place stacks clear right
 
 test('a dashboard applying an edit diff reaches the server board exactly, and undoing it restores the board it started from, cascades included, a removed box leaving its note box in place, and the history keeps only the newest entries', () => {
   const author = { id: 'operator', name: 'operator' };
-  const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision', outputs: [{ id: 'ok', label: 'ok' }] };
+  const decision = { kind: 'box', id: 'gate', title: 'gate', at: { x: 1200, y: 40 }, shape: 'decision' };
   const before = applyOps(crowdedBoard, [
     { op: 'add', element: ElementInput.parse(decision) },
-    { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', fromOutput: 'ok' }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'w1', from: 'gate', to: 'c1', label: 'ok' }) },
   ], author, 1);
   assert.ok(before.ok);
   const noted = applyOps(before.board, [
@@ -461,9 +416,9 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   const edits: Op[] = [
     { op: 'set', id: 'n3', fields: { title: 'rewritten by the operator' } },
     { op: 'remove', id: 'b1' },
-    { op: 'set', id: 'gate', fields: { outputs: [], shape: 'box', title: 'renamed' } },
+    { op: 'set', id: 'gate', fields: { shape: 'box', title: 'renamed' } },
     { op: 'set', id: 'c2', fields: { near: null, at: { x: 1500, y: 600 } } },
-    { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, back: false, label: 'gives up' }], codeSessionId: 'builder-session' },
+    { op: 'board', title: 'renamed board', legend: [{ tone: 'fail', dashed: false, label: 'gives up' }], codeSessionId: 'builder-session' },
   ];
   const edited = applyOps(start, [{ op: 'remove', id: 'w1' }, ...edits], author, 2);
   assert.ok(edited.ok);
@@ -524,8 +479,7 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
       wide: { ...box('wide'), at: { x: 40, y: 40 }, width: 440, media: picture },
       narrow: { ...box('narrow'), near: { of: 'wide', side: 'bottom', gap: 30 } },
       next: { ...box('next'), near: { of: 'wide', side: 'right', gap: 90 }, height: 300 },
-      tall: { kind: 'box', id: 'tall', title: 'Pick', shape: 'decision', at: { x: 1300, y: 40 }, height: 400, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }] },
-      squat: { ...box('squat'), near: { of: 'next', side: 'bottom', gap: 30 }, width: 160, height: 1, media: picture },
+            squat: { ...box('squat'), near: { of: 'next', side: 'bottom', gap: 30 }, width: 160, height: 1, media: picture },
       free: { kind: 'box', id: 'free', title: 'Free', at: { x: 900, y: 400 }, width: 160, media: picture },
     },
   });
@@ -539,10 +493,6 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
   assert.equal(next.height, 300, 'a box height taller than its content sets the box height');
   assert.equal(squat.y, next.y + 300 + 30, 'a box below the tall one clears its set height');
   assert.ok(squat.height > 68, 'content taller than a box height still fits');
-  const tall = boxById.get('tall');
-  assert.ok(tall);
-  const rowHeight = (tall.height - tall.headerHeight) / 2;
-  assert.deepEqual(tall.outputs.map((output) => output.port.y), [tall.y + tall.headerHeight + rowHeight / 2, tall.y + tall.headerHeight + rowHeight * 1.5], 'a taller decision spreads its output rows over the extra height, matching the row dividers');
   assert.equal(narrow.width, 220, 'a box with no width keeps the default');
   assert.equal(wide.width, 440);
   assert.equal(wide.titleLines.length, 1, 'a wider box wraps its title to its width');

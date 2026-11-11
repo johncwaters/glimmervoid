@@ -159,7 +159,7 @@ test('two writers keep both different fields, the later write of one field wins,
 
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
-  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null, ref: null, icon: null }]);
+  assert.deepEqual(plannerView.board.elements.parse?.lines, [{ text: 'by the builder', muted: false, style: 'text', key: null }]);
   assert.deepEqual(plannerView.changes.map((change) => change.summary), [
     `${BUILDER_ID} changed lines of "Parse feed"; ${BUILDER_ID} renamed "Parse feed" to "Parse and store"`,
   ]);
@@ -383,14 +383,13 @@ async function runPlannerCli(context: test.TestContext, args: string[]): Promise
   }
 }
 
-test('an agent plans steps through the CLI in dependency order, a circular plan keeps every label, and deleting a linked board unlinks its step', async (context) => {
+test('an agent plans steps through the CLI in dependency order and a circular plan keeps every label', async (context) => {
   const boardId = await newBoard('search api');
-  const detailBoardId = await newBoard('backfill design');
   const plan = (...args: string[]) => runPlannerCli(context, ['whiteboard', 'plan', ...args]);
 
   assert.equal((await plan('add', boardId, 'Diff index schema')).exitCode, 0);
   assert.equal((await plan('add', boardId, 'Search endpoint', '--after', 'diff-index-schema')).exitCode, 0);
-  assert.equal((await plan('add', boardId, 'Index backfill', '--after', 'diff-index-schema', '--link', 'backfill design')).exitCode, 0);
+  assert.equal((await plan('add', boardId, 'Index backfill', '--after', 'diff-index-schema')).exitCode, 0);
   assert.equal((await plan('add', boardId, 'Search box')).exitCode, 0);
   assert.equal((await plan('after', boardId, 'search-box', 'search-endpoint')).exitCode, 0);
 
@@ -419,17 +418,11 @@ test('an agent plans steps through the CLI in dependency order, a circular plan 
   assert.deepEqual(planLines, [
     '1a diff-index-schema landed Diff index schema',
     '1b search-box-2 planned Search box',
-    '2a index-backfill building Index backfill after 1a board "backfill design"',
+    '2a index-backfill building Index backfill after 1a',
     '2b search-endpoint planned Search endpoint after 1a',
     '3 search-box planned Search box after 2b',
   ]);
   assert.match(shown.printed, /Builder box/, 'plan commands leave changes others made unread until plan show prints them');
-
-  const deleted = await whiteboard(PLANNER_ID, { sub: 'delete', board: detailBoardId });
-  assert.equal(deleted.status, 200);
-  const { board, changes } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements['index-backfill']?.step, { status: 'building', linkedBoardId: null });
-  assert.ok(changes.some((change) => change.summary === 'Glimmervoid unlinked "Index backfill" from its board'), JSON.stringify(changes));
 
   const removed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'search-endpoint' }] });
   assert.equal(removed.status, 200);
@@ -689,15 +682,15 @@ test('refs are checked in the code session worktree: a missing file, a line past
 
   const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: {
-      kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/feed.ts#L2-L3', 'src/gone.ts', 'src/feed.ts#L9'],
-      lines: [{ text: 'readFeed()', style: 'code', ref: '../outside.ts' }],
+      kind: 'box', id: 'parse', title: 'Parse', at: { x: 40, y: 40 }, refs: ['src/feed.ts#L2-L3', 'src/gone.ts', 'src/feed.ts#L9', '../outside.ts'],
+      lines: [{ text: 'readFeed()', style: 'code' }],
     } },
     { op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'what about drafts?', at: { x: 40, y: 300 }, refs: ['src/escape.ts'] } },
   ] });
   const expectedWarnings = [
     'ref src/gone.ts on box parse: no such file',
     'ref src/feed.ts#L9 on box parse: the file has 3 lines',
-    'ref ../outside.ts on line 1 of box parse: a path with .. is never read; name the file relative to the code session worktree',
+    'ref ../outside.ts on box parse: a path with .. is never read; name the file relative to the code session worktree',
     'ref src/escape.ts on box n1: the path leads outside the code session worktree, so it was not read',
   ];
   assert.equal(put.status, 200);
@@ -1236,27 +1229,27 @@ test('deleting a board sweeps the pictures no live board shows, sparing a pendin
   assert.deepEqual(storedFiles(), filesOf([shared.asset, pending.asset]));
 });
 
-test('a board saved with units, panels, columns and lanes loads them as step boxes, wires, panel boxes and free boxes stacked where their columns stood, and one whose linked board vanished on restart still takes unrelated edits', async () => {
-  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'dangling-link-'));
+test('a board saved with units, panels, columns, lanes and retired fields loads them as step boxes, wires, panel boxes and free boxes stacked where their columns stood, with the retired fields dropped', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'saved-shapes-'));
   const before = createWhiteboardWiring({ boardsRoot });
   const planned = await before.handleOperator.create('planned');
-  const detail = await before.handleOperator.create('detail');
   const plannedId = planned.summary?.id ?? '';
-  const detailId = detail.summary?.id ?? '';
-  const linked = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u1', title: 'Unit', step: { linkedBoardId: detailId } } }]));
-  assert.equal(linked.ok, true, linked.error ?? '');
+  const stepped = await before.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u1', title: 'Unit', step: {} } }]));
+  assert.equal(stepped.ok, true, stepped.error ?? '');
   const plannedPath = path.join(boardsRoot, `${plannedId}.json`);
   const savedPlanned = JSON.parse(JSON.stringify({ board: (await before.handleOperator.get(plannedId)).board, log: [], cursorBySessionId: {}, createdBy: null })) as { board: Record<string, unknown> & { elements: Record<string, unknown> } };
   await createBoardStore(boardsRoot).remove(plannedId);
-  await createBoardStore(boardsRoot).remove(detailId);
   savedPlanned.board.columns = [{ id: 'intake', title: 'Intake' }, { id: 'apply', title: 'Apply' }];
   savedPlanned.board.lanes = [{ id: 'main', label: 'Main', color: 'blue' }];
-  savedPlanned.board.legend = [{ tone: 'lane', label: 'per lane' }];
+  savedPlanned.board.legend = [{ tone: 'lane', label: 'per lane' }, { tone: 'plain', dashed: false, back: true, label: 'retry' }];
+  savedPlanned.board.elements.u1 = { kind: 'box', id: 'u1', title: 'Unit', step: { status: 'planned', linkedBoardId: 'gone-board' } };
   savedPlanned.board.elements.read = { kind: 'box', id: 'read', title: 'Read', column: 'intake', order: 1, lane: 'main', width: 400 };
   savedPlanned.board.elements.queue = { kind: 'box', id: 'queue', title: 'Queue', column: 'intake', order: 0 };
   savedPlanned.board.elements.write = { kind: 'box', id: 'write', title: 'Write', column: 'apply' };
   savedPlanned.board.elements.pinned = { kind: 'box', id: 'pinned', title: 'Pinned', column: 'apply', at: { x: 900, y: 500 } };
-  savedPlanned.board.elements.handoff = { kind: 'wire', id: 'handoff', from: 'read', to: 'write', tone: 'lane' };
+  savedPlanned.board.elements.handoff = { kind: 'wire', id: 'handoff', from: 'read', to: 'write', tone: 'lane', fromOutput: null, back: true };
+  savedPlanned.board.elements['intake-frame'] = { kind: 'frame', id: 'intake-frame', title: 'Intake', contains: ['read', 'queue'], loop: true };
+  savedPlanned.board.elements.pick = { kind: 'box', id: 'pick', title: 'Pick', shape: 'decision', outputs: [{ id: 'yes', label: 'yes' }], lines: [{ text: 'first', style: 'numbered', icon: 'check', ref: 'README.md' }] };
   savedPlanned.board.elements.schema = { kind: 'unit', id: 'schema', title: 'Add the schema', lines: [], refs: [], status: 'landed', after: [], linkedBoardId: null };
   savedPlanned.board.elements.route = { kind: 'unit', id: 'route', title: 'Serve the route', lines: [], refs: [], status: 'building', after: ['schema'], linkedBoardId: null };
   savedPlanned.board.elements.prior = { kind: 'panel', id: 'prior', title: 'Prior art', lines: [{ text: 'the old router', style: 'item', muted: false, ref: null, key: null }], order: 2 };
@@ -1277,7 +1270,11 @@ test('a board saved with units, panels, columns and lanes loads them as step box
     { x: 900, y: 500 },
   ]);
   const handoff = upgraded.elements.get('handoff');
-  assert.deepEqual([handoff?.kind === 'wire' && handoff.tone, upgraded.legend.map((entry) => entry.tone)], ['plain', ['plain']]);
+  assert.deepEqual([handoff?.kind === 'wire' && handoff.tone, upgraded.legend.map((entry) => entry.label)], ['plain', ['per lane']]);
+  const pick = upgraded.elements.get('pick');
+  assert.ok(pick?.kind === 'box');
+  const unit = upgraded.elements.get('u1');
+  assert.deepEqual([pick.shape, pick.lines, unit?.kind === 'box' ? unit.step : null], ['decision', [{ text: 'first', muted: false, style: 'item', key: null }], { status: 'planned' }]);
   const priorPanel = upgraded.elements.get('prior');
   assert.ok(priorPanel?.kind === 'box' && priorPanel.shape === 'panel');
   assert.deepEqual([priorPanel.shape, priorPanel.title, priorPanel.lines.map((line) => line.text), priorPanel.order, priorPanel.at], ['panel', 'Prior art', ['the old router'], 2, null]);
@@ -1287,9 +1284,7 @@ test('a board saved with units, panels, columns and lanes loads them as step box
   const plannedHead = (await store.loadHeads()).records.find((record) => record.board.id === plannedId);
   const storedPlanned = plannedHead ? await store.loadElements(plannedHead) : null;
   assert.ok(storedPlanned);
-  assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"/.test(JSON.stringify(storedPlanned)), false);
-  const relinked = await after.handleOperator.put(plannedId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'u2', title: 'Other', step: { linkedBoardId: detailId } } }]));
-  assert.equal(relinked.ok, false);
+  assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"|"outputs"|"fromOutput"|"back"|"loop"|"linkedBoardId"|"numbered"/.test(JSON.stringify(storedPlanned)), false);
 });
 
 test('show puts each file on a board the session is connected to, creating one named after the first file title, placing later cards right of the last and numbering past an oversized shown id', async () => {

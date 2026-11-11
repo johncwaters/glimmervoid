@@ -27,7 +27,6 @@ const BEND_COST = 30;
 const WIRE_CROSSING_COST = 60;
 const ROUTED_LINE_CELL_SIZE = 512;
 const SOFT_COST_PER_UNIT = 3;
-const BACK_INTERIOR_COST = 400;
 const MAX_BENDS = 6;
 const OFF_FACING_SIDE_COST = 1;
 const SIDE_CHOICE_BEND_COST = 1e6;
@@ -67,7 +66,6 @@ interface RouteInput {
   wires: readonly Wire[];
   boxesById: ReadonlyMap<string, PlacedBox>;
   softObstacles: readonly Rect[];
-  loopFrames: readonly Rect[];
   contentTop: number;
   contextWires?: readonly Wire[];
   obstaclesIn?: (area: Rect) => AreaObstacles;
@@ -130,7 +128,6 @@ interface WirePlan {
   entrySide: Side;
   busKey: string | null;
   exitKey: string;
-  outputPort: Point | null;
   start: Point;
   end: Point;
   found: FoundRoute | null;
@@ -316,9 +313,8 @@ interface SidePair {
   entrySide: Side;
 }
 
-function facingSides(from: PlacedBox, to: PlacedBox, isBack: boolean): SidePair {
+function facingSides(from: PlacedBox, to: PlacedBox): SidePair {
   if (from.id === to.id) return { exitSide: 'right', entrySide: 'top' };
-  if (isBack) return { exitSide: 'bottom', entrySide: 'bottom' };
   const fromCenter = centerOf(from);
   const toCenter = centerOf(to);
   if (hasHorizontalGap(from, to)) return toCenter.x > fromCenter.x ? { exitSide: 'right', entrySide: 'left' } : { exitSide: 'left', entrySide: 'right' };
@@ -328,11 +324,11 @@ function facingSides(from: PlacedBox, to: PlacedBox, isBack: boolean): SidePair 
 const ALL_SIDES: readonly Side[] = ['right', 'left', 'bottom', 'top'];
 
 function probeOf(plan: WirePlan, pair: SidePair): WirePlan {
-  const centeredStart = plan.outputPort ?? portPositions(plan.from, pair.exitSide, 1)[0] ?? centerOf(plan.from);
+  const centeredStart = portPositions(plan.from, pair.exitSide, 1)[0] ?? centerOf(plan.from);
   const centeredEnd = portPositions(plan.to, pair.entrySide, 1)[0] ?? centerOf(plan.to);
   if (!isFacing(pair.exitSide, pair.entrySide)) return { ...plan, ...pair, start: centeredStart, end: centeredEnd };
   const alignedEnd = alignedAlong(centeredEnd, pair.entrySide, plan.to, centeredStart);
-  const start = alignedEnd === centeredEnd && !plan.outputPort ? alignedAlong(centeredStart, pair.exitSide, plan.from, centeredEnd) : centeredStart;
+  const start = alignedEnd === centeredEnd ? alignedAlong(centeredStart, pair.exitSide, plan.from, centeredEnd) : centeredStart;
   return { ...plan, ...pair, start, end: alignedEnd };
 }
 
@@ -355,14 +351,12 @@ function otherSidesFirst(facingSide: Side): Side[] {
 
 function sideChoiceOf(plan: WirePlan, facing: SidePair): SideChoice | null {
   const { wire, from, to } = plan;
-  if (wire.back || from.id === to.id) return null;
-  const exitSides = plan.outputPort || wire.fromSide ? [plan.exitSide] : otherSidesFirst(facing.exitSide);
+  if (from.id === to.id) return null;
+  const exitSides = wire.fromSide ? [plan.exitSide] : otherSidesFirst(facing.exitSide);
   const entrySides = wire.toSide ? [wire.toSide] : otherSidesFirst(facing.entrySide);
   if (exitSides.length < 2 && entrySides.length < 2) return null;
   const facingProbe = probeOf(plan, { exitSide: exitSides[0] ?? facing.exitSide, entrySide: entrySides[0] ?? facing.entrySide });
-  const exits = plan.outputPort
-    ? [{ side: plan.exitSide, point: plan.outputPort, direction: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide], bias: 0 }]
-    : sideTerminalsOf(from, exitSides, exitSides[0] ?? facing.exitSide, facingProbe.start, OUTWARD_DIRECTION_BY_SIDE);
+  const exits = sideTerminalsOf(from, exitSides, exitSides[0] ?? facing.exitSide, facingProbe.start, OUTWARD_DIRECTION_BY_SIDE);
   const entries = sideTerminalsOf(to, entrySides, entrySides[0] ?? facing.entrySide, facingProbe.end, INWARD_DIRECTION_BY_SIDE);
   return { plan, exits, entries };
 }
@@ -511,7 +505,7 @@ function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, r
     const window = windowOf(choice.plan, reuse);
     const obstacles = windowObstaclesOf(input, window);
     const graph = obstacles ? windowGraphOf(choicePortsOf([choice]), input, window, obstacles) : null;
-    const chosen = graph ? searchBetween(graph, choice.exits, choice.entries, null, SIDE_CHOICE_BEND_COST, buffers, crossablesIn(routedLines, window)) : null;
+    const chosen = graph ? searchBetween(graph, choice.exits, choice.entries, SIDE_CHOICE_BEND_COST, buffers, crossablesIn(routedLines, window)) : null;
     resetSearchBuffers(buffers);
     if (!graph || !chosen) continue;
     const points = pointsOfStates(graph, chosen.states);
@@ -540,7 +534,7 @@ function joinFacingBuses(plans: readonly WirePlan[], countedPlans: readonly Wire
     const facing = facingByPlan.get(plan);
     if (!facing || plan.entrySide === facing.entrySide || plan.wire.toSide) continue;
     if ((facingEntryCountByBus.get(busOf(plan, facing.entrySide)) ?? 0) === 0) continue;
-    plan.exitSide = plan.outputPort || plan.wire.fromSide ? plan.exitSide : facing.exitSide;
+    plan.exitSide = plan.wire.fromSide ? plan.exitSide : facing.exitSide;
     plan.entrySide = facing.entrySide;
   }
 }
@@ -549,12 +543,11 @@ function plannedWireOf(wire: Wire, input: RouteInput, remembered: RememberedRout
   const from = input.boxesById.get(wire.from);
   const to = input.boxesById.get(wire.to);
   if (!from || !to) return null;
-  const facing = facingSides(from, to, wire.back);
-  const output = from.outputs.find((candidate) => candidate.id === wire.fromOutput);
+  const facing = facingSides(from, to);
   const plan: WirePlan = {
-    wire, from, to, styleKey: `${wire.dashed || wire.back}|${wire.tone}`,
-    exitSide: output ? 'right' : wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
-    busKey: null, exitKey: '', outputPort: output?.port ?? null, start: output?.port ?? centerOf(from), end: centerOf(to), found: null,
+    wire, from, to, styleKey: `${wire.dashed}|${wire.tone}`,
+    exitSide: wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
+    busKey: null, exitKey: '', start: centerOf(from), end: centerOf(to), found: null,
   };
   if (remembered) {
     plan.exitSide = remembered.exitSide;
@@ -585,10 +578,7 @@ function planWires(input: RouteInput, reuse: RouteReuse): PlannedWires {
   chooseSidesBySearch(plans, facingByPlan, input, reuse);
   joinFacingBuses(plans, [...plans, ...contextPlans], facingByPlan);
   const allPlans = [...plans, ...contextPlans];
-  for (const plan of allPlans) {
-    const outputId = plan.wire.fromOutput;
-    plan.exitKey = plan.outputPort && outputId ? `${plan.from.id}|output ${outputId}|${plan.styleKey}` : `${plan.from.id}|${plan.exitSide}|${plan.styleKey}`;
-  }
+  for (const plan of allPlans) plan.exitKey = `${plan.from.id}|${plan.exitSide}|${plan.styleKey}`;
   const busKeyOf = (plan: WirePlan) => `${plan.to.id}|${plan.entrySide}|${plan.styleKey}`;
   const memberCountByBusKey = new Map<string, number>();
   for (const plan of allPlans) memberCountByBusKey.set(busKeyOf(plan), (memberCountByBusKey.get(busKeyOf(plan)) ?? 0) + 1);
@@ -628,8 +618,8 @@ interface PortRequest {
 
 function portRequestsBySide(plans: readonly WirePlan[], completeBoxIds: ReadonlySet<string> | null = null): Map<string, PortRequest[]> {
   const allRequests: PortRequest[] = plans.flatMap((plan) => [
-    ...(plan.outputPort ? [] : [{ box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, wireId: plan.wire.id, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } }]),
-    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, wireId: plan.wire.id, farPoint: plan.outputPort ?? centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
+    { box: plan.from, side: plan.exitSide, groupKey: `exit|${plan.styleKey}`, wireId: plan.wire.id, farPoint: centerOf(plan.to), assign: (point: Point) => { plan.start = point; } },
+    { box: plan.to, side: plan.entrySide, groupKey: plan.busKey ? `bus|${plan.busKey}` : `entry|${plan.wire.id}`, wireId: plan.wire.id, farPoint: centerOf(plan.from), assign: (point: Point) => { plan.end = point; } },
   ]);
   const requests = completeBoxIds ? allRequests.filter((request) => completeBoxIds.has(request.box.id)) : allRequests;
   return groupedBy(requests, (request) => `${request.box.id}|${request.side}`);
@@ -684,7 +674,7 @@ function alignLonePorts(plans: readonly WirePlan[], groupOrderBySide: ReadonlyMa
       plan.end = alignedEnd;
       continue;
     }
-    if (plan.outputPort === null && isLonePort(plan.from, plan.exitSide) && memberCountByExitKey.get(plan.exitKey) === 1) plan.start = alignedAlong(plan.start, plan.exitSide, plan.from, plan.end);
+    if (isLonePort(plan.from, plan.exitSide) && memberCountByExitKey.get(plan.exitKey) === 1) plan.start = alignedAlong(plan.start, plan.exitSide, plan.from, plan.end);
   }
 }
 
@@ -866,21 +856,12 @@ function resetSearchBuffers(buffers: SearchBuffers): void {
   buffers.heap.size = 0;
 }
 
-function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, backInterior: Rect | null, buffers: SearchBuffers, crossables: Crossables): number[] | null {
+function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, buffers: SearchBuffers, crossables: Crossables): number[] | null {
   const exit = { side: plan.exitSide, point: plan.start, direction: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide], bias: 0 };
   const entry = { side: plan.entrySide, point: plan.end, direction: INWARD_DIRECTION_BY_SIDE[plan.entrySide], bias: 0 };
-  const states = searchBetween(graph, [exit], [entry], backInterior, BEND_COST, buffers, crossables)?.states ?? null;
+  const states = searchBetween(graph, [exit], [entry], BEND_COST, buffers, crossables)?.states ?? null;
   resetSearchBuffers(buffers);
   return states;
-}
-
-function graphEdgeHitsRect(graph: VisibilityGraph, node: number, nextNode: number, rect: Rect): boolean {
-  const fromX = graph.xs[node] ?? 0;
-  const fromY = graph.ys[node] ?? 0;
-  const toX = graph.xs[nextNode] ?? 0;
-  const toY = graph.ys[nextNode] ?? 0;
-  if (fromY === toY) return rect.y < fromY && fromY < rect.y + rect.height && Math.min(fromX, toX) < rect.x + rect.width && Math.max(fromX, toX) > rect.x;
-  return rect.x < fromX && fromX < rect.x + rect.width && Math.min(fromY, toY) < rect.y + rect.height && Math.max(fromY, toY) > rect.y;
 }
 
 function isAlongX(direction: number): boolean {
@@ -959,7 +940,7 @@ function crossingCountOf(crossables: Crossables, graph: VisibilityGraph, node: n
   return crossingCount;
 }
 
-function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], entries: readonly SideTerminal[], backInterior: Rect | null, bendCost: number, buffers: SearchBuffers, crossables: Crossables = NO_CROSSABLES): SearchOutcome | null {
+function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], entries: readonly SideTerminal[], bendCost: number, buffers: SearchBuffers, crossables: Crossables = NO_CROSSABLES): SearchOutcome | null {
   graph.beginSearch();
   const placedEntries = placedTerminalsOf(graph, entries);
   const placedExits = placedTerminalsOf(graph, exits).filter((exit) => placedEntries.some((entry) => entry.component === exit.component));
@@ -1009,12 +990,10 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
       if (nextEntry && nextDirection !== nextEntry.direction) continue;
       ensureStateCapacity(buffers, graph.nodeCount * 4);
       const length = Math.abs((graph.xs[nextNode] ?? 0) - (graph.xs[node] ?? 0)) + Math.abs((graph.ys[nextNode] ?? 0) - (graph.ys[node] ?? 0));
-      const isInsideBackInterior = backInterior !== null && graphEdgeHitsRect(graph, node, nextNode, backInterior);
       const stepCost = length
         + (nextDirection === direction ? 0 : bendCost)
         + crossingCountOf(crossables, graph, node, nextNode) * WIRE_CROSSING_COST
-        + (graph.isSoftStep(node, nextDirection) ? length * SOFT_COST_PER_UNIT : 0)
-        + (isInsideBackInterior ? BACK_INTERIOR_COST : 0);
+        + (graph.isSoftStep(node, nextDirection) ? length * SOFT_COST_PER_UNIT : 0);
       const nextState = nextNode * 4 + nextDirection;
       const nextCost = costSoFar + Math.max(stepCost, 1) + (nextEntry?.bias ?? 0);
       if (nextCost >= (buffers.bestCost[nextState] ?? Infinity)) continue;
@@ -1047,14 +1026,6 @@ function fallbackPoints(plan: WirePlan): Point[] {
   return withoutBends([plan.start, startStub, { x: endStub.x, y: startStub.y }, endStub, plan.end]);
 }
 
-function backInteriorOf(plan: WirePlan, loopFrames: readonly Rect[]): Rect | null {
-  if (!plan.wire.back) return null;
-  const span = unionOf([plan.from, plan.to]);
-  if (!span) return null;
-  const enclosingLoop = loopFrames.find((frame) => frame.x <= span.x && frame.y <= span.y && frame.x + frame.width >= span.x + span.width && frame.y + frame.height >= span.y + span.height);
-  return enclosingLoop ?? span;
-}
-
 function drawnWireOf(graph: VisibilityGraph | null, plan: WirePlan, states: number[] | null): DrawnWire {
   const points = graph && states ? pointsOfStates(graph, states) : fallbackPoints(plan);
   return { plan, points, segments: segmentsOf(points), routedPoints: points, states };
@@ -1077,7 +1048,7 @@ function routedInWindow(plan: WirePlan, input: RouteInput, reuse: RouteReuse, bu
   const obstacles = windowObstaclesOf(input, window);
   if (!obstacles) return null;
   const windowGraph = windowGraphOf(portsOf([plan]), input, window, obstacles);
-  const windowStates = windowGraph ? routeOnGraph(windowGraph, plan, backInteriorOf(plan, input.loopFrames), buffers, crossablesIn(routedLines, window)) : null;
+  const windowStates = windowGraph ? routeOnGraph(windowGraph, plan, buffers, crossablesIn(routedLines, window)) : null;
   return windowStates ? drawnWireOf(windowGraph, plan, windowStates) : null;
 }
 
@@ -1085,7 +1056,7 @@ function routedThroughOtherBoxes(plan: WirePlan, input: RouteInput, reuse: Route
   const window = windowOf(plan, reuse);
   const obstacles = input.obstaclesIn?.(window) ?? null;
   const graph = obstacles ? graphThroughOtherBoxesOf(plan, input, window, obstacles) : null;
-  return drawnWireOf(graph, plan, graph ? routeOnGraph(graph, plan, backInteriorOf(plan, input.loopFrames), buffers, crossablesIn(routedLines, window)) : null);
+  return drawnWireOf(graph, plan, graph ? routeOnGraph(graph, plan, buffers, crossablesIn(routedLines, window)) : null);
 }
 
 function routedInWiderWindows(plan: WirePlan, input: RouteInput, reuse: RouteReuse, buffers: SearchBuffers, routedLines: RoutedLines): DrawnWire {
@@ -1110,9 +1081,8 @@ function routedWireOf(plan: WirePlan, input: RouteInput, reuse: RouteReuse, buff
   return routed;
 }
 
-function portSlackOf(box: PlacedBox, side: Side, port: Point, isFixedPort: boolean): PortSlack {
+function portSlackOf(box: PlacedBox, side: Side, port: Point): PortSlack {
   const along = isSideways(side) ? port.y : port.x;
-  if (isFixedPort) return { low: along, high: along };
   const sideLow = (isSideways(side) ? box.y : box.x) + PORT_INSET;
   const sideHigh = (isSideways(side) ? box.y + box.height : box.x + box.width) - PORT_INSET;
   return { low: Math.max(sideLow, along - PORT_SPACING / 2), high: Math.min(sideHigh, along + PORT_SPACING / 2) };
@@ -1125,7 +1095,7 @@ function routeAll(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReu
   if (reuse.isPreview) return routed;
   const nudgeWires = routed.map((wire) => ({
     points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey,
-    startSlack: portSlackOf(wire.plan.from, wire.plan.exitSide, wire.plan.start, wire.plan.outputPort !== null), endSlack: portSlackOf(wire.plan.to, wire.plan.entrySide, wire.plan.end, false),
+    startSlack: portSlackOf(wire.plan.from, wire.plan.exitSide, wire.plan.start), endSlack: portSlackOf(wire.plan.to, wire.plan.entrySide, wire.plan.end),
   }));
   const nudgedPoints = nudgeSharedLines(nudgeWires, (area) => input.obstaclesIn?.(area).hardRects ?? []);
   return routed.map((wire, index) => {
@@ -1468,7 +1438,6 @@ function obstacleRectsByKey(input: RouteInput): Map<string, Rect> {
   const keyOfRect = (rect: Rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`;
   for (const box of input.boxesById.values()) rectByKey.set(`box ${box.id}`, box);
   for (const soft of input.softObstacles) rectByKey.set(`soft ${keyOfRect(soft)}`, soft);
-  for (const frame of input.loopFrames) rectByKey.set(`loop ${keyOfRect(frame)}`, frame);
   return rectByKey;
 }
 
@@ -1548,7 +1517,7 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
     return {
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
-      isDashed: plan.wire.dashed || plan.wire.back, isBack: plan.wire.back, tone: plan.wire.tone,
+      isDashed: plan.wire.dashed, tone: plan.wire.tone,
       hasArrowhead: leader === undefined || leader === wire, joinAt: joinPointOf(wire, leader),
     };
   });

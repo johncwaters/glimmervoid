@@ -83,7 +83,6 @@ interface LayoutWorld {
   frameGrid: IdGrid;
   wireGrid: IdGrid;
   inkGrid: IdGrid;
-  loopFrameIds: Set<string>;
   routeMemory: RouteMemory;
   changedRouteIds: Set<string>;
   routeWarnings: WarningBook;
@@ -258,7 +257,6 @@ function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   if (element.kind === 'frame') {
     placeId(world.softGrid, element.id, frameTitleStripOf(element));
     placeId(world.frameGrid, element.id, element);
-    if (element.isLoop) world.loopFrameIds.add(element.id);
   }
   const wireExtent = element.kind === 'wire' ? wireExtentOf(element) : null;
   if (wireExtent) placeId(world.wireGrid, element.id, wireExtent);
@@ -271,7 +269,6 @@ function forgetLaidOut(world: LayoutWorld, id: string): void {
   dropId(world.frameGrid, id);
   dropId(world.wireGrid, id);
   dropId(world.inkGrid, id);
-  world.loopFrameIds.delete(id);
 }
 
 function* recomputingAround(world: LayoutWorld, elementsPerSlice: number): Generator<void, Rect | null> {
@@ -297,7 +294,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
   return {
     lineage: lastLineage, version: board.version, board, minIncrementalElements, laidOutById: new Map(),
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE), inkGrid: createIdGrid(SOLID_CELL_SIZE),
-    loopFrameIds: new Set(), routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
+    routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
     routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
     pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
@@ -512,8 +509,7 @@ function commitElement(world: LayoutWorld, commit: Commit, id: string, next: Pla
   }
   const previousObstacle = previous ? obstacleRectOf(previous) : null;
   const nextObstacle = next ? obstacleRectOf(next) : null;
-  const isLoopChange = (previous?.kind === 'frame' && previous.isLoop) || (next?.kind === 'frame' && next.isLoop);
-  if (!isSameGeometry(previousObstacle, nextObstacle) || isLoopChange) {
+  if (!isSameGeometry(previousObstacle, nextObstacle)) {
     if (previous && previous.kind !== 'wire') commit.oldObstacles.push(previous);
     if (next && next.kind !== 'wire') commit.newObstacles.push(next);
   }
@@ -629,17 +625,13 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
       if (obstacle) softById.set(id, obstacle);
     });
   }
-  const loopFrames = [...world.loopFrameIds].flatMap((id) => {
-    const frame = world.laidOutById.get(id);
-    return frame?.kind === 'frame' && areas.some((area) => rectsOverlap(area, frame)) ? [frame] : [];
-  });
   const wiresOf = (ids: ReadonlySet<string>) => [...ids].flatMap((id) => {
     const wire = board.elements.get(id);
     if (wire?.kind !== 'wire') return [];
     return wireEndingAtCard(wire, (boxId) => cardIdOf(board, boxId)) ?? [];
   });
   return {
-    wires: wiresOf(rerouteIds), contextWires: wiresOf(contextIds), boxesById, softObstacles: [...softById.values()], loopFrames, contentTop: world.contentTop,
+    wires: wiresOf(rerouteIds), contextWires: wiresOf(contextIds), boxesById, softObstacles: [...softById.values()], contentTop: world.contentTop,
     obstaclesIn: (area): AreaObstacles => ({ hardRects: boxesTouching(world, area), softRects: softRectsTouching(world, area) }),
     storedWireKeyOf: (wire) => board.elements.bodyOf(wire.id),
   };
@@ -664,9 +656,7 @@ function previousInputOf(input: RouteInput, commit: Commit): RouteInput {
   }
   const newSoftKeys = new Set(softRectsOf(commit.newObstacles).map(rectKeyOf));
   const softObstacles = [...input.softObstacles.filter((rect) => !newSoftKeys.has(rectKeyOf(rect))), ...softRectsOf(commit.oldObstacles)];
-  const loopsOf = (elements: readonly SolidElement[]) => elements.flatMap((element) => (element.kind === 'frame' && element.isLoop ? [element] : []));
-  const newLoopKeys = new Set(loopsOf(commit.newObstacles).map(rectKeyOf));
-  return { ...input, boxesById, softObstacles, loopFrames: [...input.loopFrames.filter((frame) => !newLoopKeys.has(rectKeyOf(frame))), ...loopsOf(commit.oldObstacles)] };
+  return { ...input, boxesById, softObstacles };
 }
 
 function changedSegmentRectsOf(world: LayoutWorld, rerouteIds: ReadonlySet<string>, routedWires: ReadonlyMap<string, LaidOutWire>): Rect[] {
@@ -728,7 +718,6 @@ function obstacleInputOf(contentTop: number, elements: readonly PlacedElement[])
     wires: [], contentTop,
     boxesById: new Map(elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : []))),
     softObstacles: softRectsOf(elements),
-    loopFrames: elements.flatMap((element) => (element.kind === 'frame' && element.isLoop ? [element] : [])),
   };
 }
 
@@ -749,7 +738,7 @@ function rerouteWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
     for (const wireId of wireIdsOn(board, boxId)) seedIds.add(wireId);
   }
   for (const obstacle of [...commit.oldObstacles, ...commit.newObstacles]) {
-    const rect = obstacle.kind === 'frame' && !obstacle.isLoop ? frameTitleStripOf(obstacle) : obstacle;
+    const rect = obstacle.kind === 'frame' ? frameTitleStripOf(obstacle) : obstacle;
     forEachIdTouching(world.wireGrid, inflated(rect, CLEARANCE), (wireId) => seedIds.add(wireId));
   }
   for (const id of removedWireIds) {

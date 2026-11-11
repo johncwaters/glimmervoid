@@ -55,7 +55,6 @@ interface BoardEditorOptions {
   sendOps: (ops: Op[]) => Promise<boolean>;
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
-  onOpenLinkedBoard: (boardId: string) => void;
   onOpenImage: (image: PressedImage) => void;
   onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
@@ -113,7 +112,7 @@ function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, shape: 
   switch (shape) {
     case 'icon': return { ...placed, shape, icon: PLACED_ICON, borderless: true };
     case 'device': return { ...placed, shape, device: PLACED_DEVICE, fit: 'fill', borderless: true, media, params: {} };
-    case 'decision': return { ...placed, shape, lines: [], media, outputs: [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }], params: {} };
+    case 'decision': return { ...placed, shape, lines: [], media, params: {} };
     case 'sticky': return { ...placed, shape, tone: 'yellow', lines: [], media, params: {} };
     case 'text': return { ...placed, shape, lines: [] };
     case 'box': return { ...placed, shape, borderless: false, lines: [], media, params: {} };
@@ -128,7 +127,7 @@ function pressedImageOf(hit: BoardHit | null): PressedImage | null {
 
 const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'nwse-resize', link: 'pointer', media: 'zoom-in' };
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in' };
 
 function hoverCursorOf(hit: BoardHit | null): string {
   if (!hit) return '';
@@ -456,10 +455,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (event.button !== 0) return;
     const hit = hitAt(event.clientX, event.clientY);
-    if (hit?.part === 'link' && hit.linkedBoardId) {
-      options.onOpenLinkedBoard(hit.linkedBoardId);
-      return;
-    }
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     viewport.setPointerCapture(event.pointerId);
     if (activePointers.size === 2) {

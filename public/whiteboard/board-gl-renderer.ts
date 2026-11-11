@@ -34,14 +34,13 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'port' | 'resize' | 'link' | 'media';
+type HitPart = 'body' | 'port' | 'resize' | 'media';
 
 interface BoardHit {
   id: string;
   kind: LaidOutElement['kind'];
   part: HitPart;
   port: Point | null;
-  linkedBoardId: string | null;
   media: { href: string; alt: string } | null;
 }
 
@@ -1338,7 +1337,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', port: null, linkedBoardId: null, media: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', port: null, media: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1361,7 +1360,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (port) return { ...hit, part: 'port', port };
     }
     if (!isInside(point, shape.rect)) return null;
-    if (shape.linkRect && isInside(point, shape.linkRect)) return { ...hit, part: 'link', linkedBoardId: shape.linkRect.linkedBoardId };
     if (shape.mediaRect && element.kind === 'box' && element.media && isInside(point, shape.mediaRect)) {
       const href = element.media.kind === 'image' ? servedAssetHref(element.media) ?? '' : '';
       return { ...hit, part: 'media', media: { href, alt: element.media.alt } };

@@ -82,16 +82,6 @@
             "style": "kv"
           }
         ],
-        "outputs": [
-          {
-            "id": "domestic",
-            "label": "domestic"
-          },
-          {
-            "id": "export",
-            "label": "export, 0%"
-          }
-        ],
         "at": {
           "x": 760,
           "y": 300
@@ -150,7 +140,6 @@
         "id": "tax-total",
         "from": "tax",
         "to": "total",
-        "fromOutput": "domestic",
         "label": "amount"
       }
     },
@@ -161,8 +150,8 @@
         "id": "export-total",
         "from": "tax",
         "to": "total",
-        "fromOutput": "export",
-        "dashed": true
+        "dashed": true,
+        "label": "export, 0%"
       }
     },
     {

@@ -261,10 +261,6 @@ function codeSessionChoices(): { value: string; text: string }[] {
   return sessionIds.map((sessionId) => ({ value: sessionId, text: sessionLabel(sessionId) }));
 }
 
-function linkedBoardChoices(): { value: string; text: string }[] {
-  return boardSummariesOf().filter((summary) => summary.id !== selectedBoardId).map((summary) => ({ value: summary.id, text: summary.title }));
-}
-
 function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extract<Element, { kind: Kind }>[] {
   const board = selectedBoard();
   const selectedIds = editor?.selectedIds() ?? new Set<string>();
@@ -742,7 +738,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, fromOutput: null, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null, back: false } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null } }]);
 }
 
 function stackTitleOf(board: Board, boxIds: readonly string[]): string {
@@ -754,7 +750,7 @@ function stackTitleOf(board: Board, boxIds: readonly string[]): string {
 }
 
 function addStack(board: Board, contains: string[]): Promise<boolean> {
-  return sendOps([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title: stackTitleOf(board, contains), contains, loop: false, collapsed: true } }]);
+  return sendOps([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title: stackTitleOf(board, contains), contains, collapsed: true } }]);
 }
 
 function stackBoxes(targetBoxId: string, droppedBoxId: string, targetStack: Frame | null): void {
@@ -838,7 +834,7 @@ function addFrame(): void {
     maxLength: WHITEBOARD_LIMITS.title,
     confirmLabel: 'Add frame',
     onSubmit: async (title) => {
-      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, loop: false, collapsed: false } }]);
+      const error = await sendOpsFromDialog([{ op: 'add', element: { kind: 'frame', id: newElementId('frame'), title, contains, collapsed: false } }]);
       if (!error) editor?.clearSelection();
       return error;
     },
@@ -1103,7 +1099,7 @@ export function mountBoardHost(): HTMLElement {
     },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), linkedBoardChoices, addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,
@@ -1119,7 +1115,6 @@ export function mountBoardHost(): HTMLElement {
       settleClickOpenedStacks(true);
     },
     onPhoneTapBox: addNoteOn,
-    onOpenLinkedBoard: selectBoard,
     onOpenImage: (pressedImage) => {
       editor?.clearSelection();
       openImageViewer(pressedImage);

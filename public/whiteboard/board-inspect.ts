@@ -1,7 +1,7 @@
 import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, MediaLink, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -9,9 +9,7 @@ import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { iconPicker } from './board-icon-picker.ts';
 
-type DecisionBox = Extract<Box, { shape: 'decision' }>;
 type DeviceBox = Extract<Box, { shape: 'device' }>;
-type DecisionOutput = DecisionBox['outputs'][number];
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
 type FieldCommit = (fields: Record<string, unknown>) => void;
@@ -26,7 +24,6 @@ interface BoardInspectorOptions {
   openRef: (ref: string) => void;
   worthALookReasonOf: (ref: string) => string | null;
   linkStateOf: (boxId: string) => LinkStateOfBox | null;
-  linkedBoardChoices: () => readonly Choice[];
   addNoteOn: (boxId: string) => void;
   frameSelectedBoxes: () => void;
   stackSelectedBoxes: () => void;
@@ -42,16 +39,13 @@ interface SelectionActions {
   removeSelected: () => void;
 }
 
-const MAX_OUTPUTS = 8;
 const MAX_LEGEND_ENTRIES = 12;
-const MAX_OUTPUT_LABEL = 30;
 const MAX_WIRE_LABEL = 40;
 const MAX_LINE_KEY = 40;
 const MAX_CAPTION = 400;
 const MAX_REF = 200;
 const MAX_REFS = 8;
 const NEW_REF = 'README.md';
-const LINE_STYLES: readonly BoxLine['style'][] = ['text', 'code', 'item', 'numbered', 'kv'];
 const TONES: readonly Wire['tone'][] = ['plain', 'fail', 'join'];
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES);
 const TONE_CHOICES = choicesOf(TONES);
@@ -63,8 +57,7 @@ const STICKY_TONE_CHOICES = choicesOf(STICKY_TONES);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES);
 const STEP_STATUS_CHOICES = choicesOf(STEP_STATUSES);
 const SIDE_CHOICES: readonly Choice[] = [{ value: '', text: 'Auto' }, ...choicesOf(['left', 'right', 'top', 'bottom'])];
-const PLANNED_STEP: Step = { status: 'planned', linkedBoardId: null };
-const DEFAULT_OUTPUTS: DecisionBox['outputs'] = [{ id: 'yes', label: 'yes' }, { id: 'no', label: 'no' }];
+const PLANNED_STEP: Step = { status: 'planned' };
 
 function choicesOf(values: readonly string[]): Choice[] {
   return values.map((value) => ({ value, text: value }));
@@ -159,19 +152,6 @@ function validRefOf(text: string): string | null {
   return AnchorRef.safeParse(ref).success ? ref : null;
 }
 
-function optionalRefField(field: string, ref: string | null, commit: (ref: string | null) => void, accessibleName: string): HTMLInputElement {
-  const input = textField(field, ref ?? '', MAX_REF, (text) => {
-    if (!text.trim()) {
-      commit(null);
-      return;
-    }
-    const nextRef = validRefOf(text);
-    if (nextRef) commit(nextRef);
-  }, accessibleName);
-  input.placeholder = 'ref: path#L12';
-  return input;
-}
-
 function refsEditor(owner: string, refs: readonly string[], latestRefs: LatestItems<string>, commitRefs: (refs: string[]) => void): HTMLElement {
   const editing = listEditing(latestRefs, commitRefs);
   const rows = refs.map((ref, index) => {
@@ -248,40 +228,14 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
       }, `Line ${lineNumber} key`));
     }
     row.append(
-      iconPicker({ field: `line-${index}-icon`, icon: line.icon, isRequired: false, accessibleName: `Line ${lineNumber} icon`, commit: (icon) => editing.edit(index, (latestLine) => ({ ...latestLine, icon })) }),
       textField(`line-${index}-text`, line.text, WHITEBOARD_LIMITS.line, (text) => editing.edit(index, (latestLine) => ({ ...latestLine, text })), `Line ${lineNumber} text`),
-      optionalRefField(`line-${index}-ref`, line.ref, (ref) => editing.edit(index, (latestLine) => ({ ...latestLine, ref })), `Line ${lineNumber} ref`),
       actionButton(`line-${index}-remove`, 'Remove', () => editing.remove(index), `Remove line ${lineNumber}`),
     );
     return row;
   });
-  const addLine = actionButton('line-add', 'Add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null, ref: null, icon: null })), `Add a line to ${owner}`);
+  const addLine = actionButton('line-add', 'Add line', () => editing.append(() => ({ text: 'new line', muted: false, style: 'text', key: null })), `Add a line to ${owner}`);
   addLine.disabled = lines.length >= WHITEBOARD_LIMITS.linesPerBox;
   return listSection('Lines', rows, addLine);
-}
-
-function nextOutputId(outputs: readonly DecisionOutput[]): string {
-  const takenIds = new Set(outputs.map((output) => output.id));
-  let suffix = outputs.length + 1;
-  while (takenIds.has(`exit-${suffix}`)) suffix += 1;
-  return `exit-${suffix}`;
-}
-
-function outputsEditor(box: DecisionBox, latestOutputs: LatestItems<DecisionOutput>, set: FieldCommit): HTMLElement {
-  const editing = listEditing(latestOutputs, (outputs) => set({ outputs }));
-  const rows = box.outputs.map((output, index) => {
-    const row = el('div', 'wb-inspect-row');
-    row.append(
-      textField(`output-${output.id}-label`, output.label, MAX_OUTPUT_LABEL, (label) => {
-        if (label.trim()) editing.edit(index, (latestOutput) => ({ ...latestOutput, label: label.trim() }));
-      }, `Output ${output.id} label`),
-      actionButton(`output-${output.id}-remove`, 'Remove', () => editing.remove(index), `Remove output ${output.label}`),
-    );
-    return row;
-  });
-  const addOutput = actionButton('output-add', 'Add output', () => editing.append((outputs) => ({ id: nextOutputId(outputs), label: 'exit' })));
-  addOutput.disabled = box.outputs.length >= MAX_OUTPUTS;
-  return listSection('Outputs', rows, addOutput);
 }
 
 function linkableMediaOf(box: Box | null): BoxMedia | null {
@@ -289,7 +243,7 @@ function linkableMediaOf(box: Box | null): BoxMedia | null {
   return media?.kind === 'doc' || media?.kind === 'page' ? media : null;
 }
 
-function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], linkState: LinkStateOfBox | null, set: FieldCommit): HTMLElement[] {
+function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkState: LinkStateOfBox | null, set: FieldCommit): HTMLElement[] {
   const latestBox = () => {
     const element = latest();
     return element?.kind === 'box' ? element : null;
@@ -297,10 +251,6 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
   const latestLines = () => {
     const latestElement = latestBox();
     return latestElement && 'lines' in latestElement ? latestElement.lines ?? null : null;
-  };
-  const latestOutputs = () => {
-    const latestElement = latestBox();
-    return latestElement?.shape === 'decision' ? latestElement.outputs : null;
   };
   const laidOutPlace = () => {
     const laidOut = layout?.elements.find((element) => element.id === box.id);
@@ -313,8 +263,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     return at ? { at } : {};
   };
   const commitShape = (shape: string) => {
-    if (shape === 'decision') set({ shape, outputs: latestOutputs() ?? DEFAULT_OUTPUTS, ...placeLeavingStack() });
-    if (shape === 'box') set({ shape, ...placeLeavingStack() });
+    if (shape === 'decision' || shape === 'box') set({ shape, ...placeLeavingStack() });
     if (shape === 'panel') set({ shape });
     if (shape === 'icon') set({ shape, icon: latestBox()?.icon ?? PLACED_ICON, ...placeLeavingStack() });
     if (shape === 'device') set({ shape, device: PLACED_DEVICE, ...placeLeavingStack() });
@@ -348,7 +297,6 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
       if (was.trim()) set({ was: was.trim() });
     }))] : []),
-    ...(box.shape === 'decision' ? [outputsEditor(box, latestOutputs, set)] : []),
     ...(box.shape === 'device' ? deviceSections(box, set) : []),
     ...('borderless' in box ? [checkboxField('borderless', 'Borderless', box.borderless, (borderless) => set({ borderless }))] : []),
     ...(box.shape === 'sticky' ? [fieldRow('Tone', selectField('tone', STICKY_TONE_CHOICES, box.tone, (tone) => set({ tone })))] : []),
@@ -357,7 +305,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     refsEditor('this box', box.refs, () => latestBox()?.refs ?? null, (refs) => set({ refs })),
     ...(box.shape === 'icon' || box.shape === 'device' ? [] : [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))]),
     checkboxField('is-step', 'Plan step', box.step !== null, commitIsStep),
-    ...(box.step ? stepSections(box.step, linkedBoardChoices, set) : []),
+    ...(box.step ? stepSections(box.step, set) : []),
   ];
 }
 
@@ -409,21 +357,14 @@ function deviceSections(box: DeviceBox, set: FieldCommit): HTMLElement[] {
   ];
 }
 
-function wireSections(board: Board, wire: Wire, set: FieldCommit): HTMLElement[] {
-  const from = board.elements.get(wire.from);
-  const heldOutputs = from?.kind === 'box' && from.shape === 'decision' ? from.outputs : null;
-  const unloadedOutputs = !from && wire.fromOutput ? [{ id: wire.fromOutput, label: wire.fromOutput }] : [];
-  const outputs = heldOutputs ?? unloadedOutputs;
-  const outputChoices = outputs.length > 0 ? [{ value: '', text: 'None' }, ...outputs.map((output) => ({ value: output.id, text: output.label }))] : [];
+function wireSections(wire: Wire, set: FieldCommit): HTMLElement[] {
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', MAX_WIRE_LABEL, (label) => set({ label: label.trim() || null }))),
     fieldRow('Tone', selectField('tone', TONE_CHOICES, wire.tone, (tone) => set({ tone }))),
     checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
-    checkboxField('back', 'Returns to an earlier step', wire.back, (back) => set({ back })),
     fieldRow('Leaves from', selectField('fromSide', SIDE_CHOICES, wire.fromSide ?? '', (side) => set({ fromSide: side || null }))),
     fieldRow('Arrives at', selectField('toSide', SIDE_CHOICES, wire.toSide ?? '', (side) => set({ toSide: side || null }))),
-    ...(outputChoices.length > 0 ? [fieldRow('From output', selectField('fromOutput', outputChoices, wire.fromOutput ?? '', (output) => set({ fromOutput: output || null })))] : []),
   ];
 }
 
@@ -431,7 +372,6 @@ function frameSections(frame: Frame, set: FieldCommit): HTMLElement[] {
   return [
     heading('Frame'),
     fieldRow('Title', textField('title', frame.title, WHITEBOARD_LIMITS.title, (title) => set({ title: title.trim() }))),
-    checkboxField('loop', 'Repeats as a loop', frame.loop, (loop) => set({ loop })),
     checkboxField('collapsed', 'Stacked as one card', frame.collapsed, (collapsed) => set({ collapsed })),
   ];
 }
@@ -450,27 +390,22 @@ function legendEditor(legend: readonly LegendEntry[], latestLegend: LatestItems<
         if (label.trim()) editing.edit(index, (latestEntry) => ({ ...latestEntry, label: label.trim() }));
       }, `Legend entry ${entryNumber} label`),
       checkboxField(`legend-${index}-dashed`, 'Dashed', entry.dashed, (dashed) => editing.edit(index, (latestEntry) => ({ ...latestEntry, dashed }))),
-      checkboxField(`legend-${index}-back`, 'Returns', entry.back, (back) => editing.edit(index, (latestEntry) => ({ ...latestEntry, back }))),
       actionButton(`legend-${index}-remove`, 'Remove', () => editing.remove(index), `Remove legend entry ${entry.label}`),
     );
     return row;
   });
-  const addEntry = actionButton('legend-add', 'Add entry', () => editing.append(() => ({ tone: 'plain', dashed: false, back: false, label: 'meaning' })));
+  const addEntry = actionButton('legend-add', 'Add entry', () => editing.append(() => ({ tone: 'plain', dashed: false, label: 'meaning' })));
   addEntry.disabled = legend.length >= MAX_LEGEND_ENTRIES;
   return listSection('Legend', rows, addEntry);
 }
 
-function stepSections(step: Step, linkedBoardChoices: readonly Choice[], set: FieldCommit): HTMLElement[] {
-  const isLinkedBoardListed = step.linkedBoardId === null || linkedBoardChoices.some((choice) => choice.value === step.linkedBoardId);
-  const unlistedLinkedBoard = step.linkedBoardId && !isLinkedBoardListed ? [{ value: step.linkedBoardId, text: step.linkedBoardId }] : [];
-  const linkedBoardOptions = [{ value: '', text: 'None' }, ...linkedBoardChoices, ...unlistedLinkedBoard];
+function stepSections(step: Step, set: FieldCommit): HTMLElement[] {
   return [
     heading('Step'),
     fieldRow('Status', selectField('step-status', STEP_STATUS_CHOICES, step.status, (status) => {
       const chosen = STEP_STATUSES.find((candidate) => candidate === status);
       if (chosen) set({ step: { status: chosen } });
     })),
-    fieldRow('Linked board', selectField('step-linked-board', linkedBoardOptions, step.linkedBoardId ?? '', (linkedBoardId) => set({ step: { linkedBoardId: linkedBoardId || null } }))),
     el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.'),
   ];
 }
@@ -507,12 +442,12 @@ function linkedFileSections(box: Box, linkState: LinkStateOfBox | null, latestMe
   return media ? [linkedFileSection(media, linkState, latestMedia, set)] : [];
 }
 
-function elementSections(board: Board, element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkedBoardChoices: readonly Choice[], linkState: LinkStateOfBox | null, send: (ops: Op[]) => void): HTMLElement[] {
+function elementSections(element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkState: LinkStateOfBox | null, send: (ops: Op[]) => void): HTMLElement[] {
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
   const latest = () => latestBoard()?.elements.get(element.id);
   switch (element.kind) {
-    case 'box': return boxSections(element, latest, layout, linkedBoardChoices, linkState, set);
-    case 'wire': return wireSections(board, element, set);
+    case 'box': return boxSections(element, latest, layout, linkState, set);
+    case 'wire': return wireSections(element, set);
     case 'frame': return frameSections(element, set);
     case 'stroke': return [heading('Ink')];
   }
@@ -577,7 +512,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    return [...elementSections(board, element, options.currentBoard, options.layout(), options.linkedBoardChoices(), options.linkStateOf(element.id), send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
+    return [...elementSections(element, options.currentBoard, options.layout(), options.linkStateOf(element.id), send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {

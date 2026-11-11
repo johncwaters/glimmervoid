@@ -10,18 +10,18 @@ import { inTransaction, isUnreadableDatabase, openDatabase, setAside } from './s
 
 type ReplyFields = Partial<Extract<ElementPage, { isDamaged: true }>> & Partial<Extract<ElementPage, { elementIds: string[] }>> & { heads?: StoredHeadRows[]; lastSlot?: number; boardIds?: string[]; assetIds?: string[] };
 
-const COMPACT_ROW_COLUMNS = ['kind', 'asset_id', 'linked_board_id'] as const;
+const COMPACT_ROW_COLUMNS = ['kind', 'asset_id'] as const;
+const RETIRED_ROW_COLUMN = 'linked_board_id';
 const COMPACT_ROW_INDEXES = [
   'CREATE INDEX IF NOT EXISTS elements_by_board ON elements (board_id)',
   'CREATE INDEX IF NOT EXISTS elements_by_asset ON elements (asset_id) WHERE asset_id IS NOT NULL',
-  'CREATE INDEX IF NOT EXISTS elements_by_linked_board ON elements (linked_board_id) WHERE linked_board_id IS NOT NULL',
 ];
 
 const STORE_FOLDER_MODE = 0o700;
 function preparedStatementsOf(database: DatabaseSync) {
   return {
     upsertBoard: database.prepare('INSERT INTO boards (id, head, cursors, created_by, version) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET head = excluded.head, cursors = excluded.cursors, created_by = excluded.created_by, version = excluded.version'),
-    upsertElement: database.prepare('INSERT INTO elements (board_id, element_id, revision, body, kind, asset_id, linked_board_id) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET revision = excluded.revision, body = excluded.body, kind = excluded.kind, asset_id = excluded.asset_id, linked_board_id = excluded.linked_board_id RETURNING slot'),
+    upsertElement: database.prepare('INSERT INTO elements (board_id, element_id, revision, body, kind, asset_id) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(board_id, element_id) DO UPDATE SET revision = excluded.revision, body = excluded.body, kind = excluded.kind, asset_id = excluded.asset_id RETURNING slot'),
     slotOf: database.prepare('SELECT slot FROM elements WHERE board_id = ? AND element_id = ?'),
     removeElement: database.prepare('DELETE FROM elements WHERE slot = ?'),
     removeText: database.prepare('DELETE FROM element_text WHERE rowid = ?'),
@@ -37,8 +37,7 @@ function preparedStatementsOf(database: DatabaseSync) {
     logBodies: database.prepare('SELECT body FROM board_log WHERE board_id = ? ORDER BY seq'),
     boardSlots: database.prepare('SELECT slot FROM elements WHERE board_id = ?'),
     assetIds: database.prepare('SELECT DISTINCT asset_id FROM elements WHERE asset_id IS NOT NULL'),
-    boardsLinkingTo: database.prepare('SELECT DISTINCT board_id FROM elements WHERE linked_board_id = ?'),
-    fillJsonRowColumns: database.prepare("UPDATE elements SET asset_id = json_extract(body, '$.media.asset'), linked_board_id = json_extract(body, '$.step.linkedBoardId') WHERE board_id = ? AND kind IS NULL AND json_valid(body)"),
+    fillJsonRowColumns: database.prepare("UPDATE elements SET asset_id = json_extract(body, '$.media.asset') WHERE board_id = ? AND kind IS NULL AND json_valid(body)"),
     deleteBoard: database.prepare('DELETE FROM boards WHERE id = ?'),
     region: database.prepare('SELECT elements.element_id AS element_id FROM element_rects JOIN elements ON elements.slot = element_rects.slot WHERE elements.board_id = ? AND element_rects.max_x >= ? AND element_rects.min_x <= ? AND element_rects.max_y >= ? AND element_rects.min_y <= ? LIMIT ?'),
     search: database.prepare('SELECT elements.element_id AS element_id FROM element_text JOIN elements ON elements.slot = element_text.rowid WHERE element_text MATCH ? AND elements.board_id = ? ORDER BY rank LIMIT ?'),
@@ -60,6 +59,8 @@ function addCompactRowColumns(database: DatabaseSync): void {
     if (!presentColumns.has(column)) database.exec(`ALTER TABLE elements ADD COLUMN ${column} TEXT`);
   }
   for (const index of COMPACT_ROW_INDEXES) execUnlessUnreadable(database, index);
+  if (!presentColumns.has(RETIRED_ROW_COLUMN)) return;
+  execUnlessUnreadable(database, `DROP INDEX IF EXISTS elements_by_linked_board; ALTER TABLE elements DROP COLUMN ${RETIRED_ROW_COLUMN}`);
 }
 
 function execUnlessUnreadable(database: DatabaseSync, statement: string): void {
@@ -113,7 +114,7 @@ function openStore(databasePath: string) {
       const row = statements.slotOf.get(delta.boardId, elementId);
       if (row) removeSlot(slotNumberOf(row));
     }
-    const slots = delta.writes.map((write) => slotNumberOf(statements.upsertElement.get(delta.boardId, write.elementId, delta.version, write.body, write.kind, write.assetId, write.linkedBoardId)));
+    const slots = delta.writes.map((write) => slotNumberOf(statements.upsertElement.get(delta.boardId, write.elementId, delta.version, write.body, write.kind, write.assetId)));
     for (const [index, slot] of slots.entries()) {
       const text = delta.writes[index]?.text;
       statements.removeText.run(slot);
@@ -197,7 +198,6 @@ function openStore(databasePath: string) {
     if (request.kind === 'load-heads') return { heads: loadHeads() };
     if (request.kind === 'load-board') return elementPageOf(request.boardId, request.afterSlot, request.limit);
     if (request.kind === 'asset-ids') return { assetIds: statements.assetIds.all().map((row) => textColumn(row, 'asset_id')) };
-    if (request.kind === 'boards-linking-to') return { boardIds: statements.boardsLinkingTo.all(request.boardId).map((row) => textColumn(row, 'board_id')) };
     if (request.kind === 'board-ids') return { boardIds: statements.boardIds.all().map((row) => textColumn(row, 'id')) };
     if (request.kind === 'write') {
       inTransaction(database, () => { for (const delta of request.deltas) applyDelta(delta); });

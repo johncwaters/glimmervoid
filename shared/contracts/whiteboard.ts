@@ -23,15 +23,15 @@ export const IconName = z.enum(ICON_NAMES).meta({ id: 'IconName', description: '
 export const DeviceName = z.enum(DEVICE_NAMES).meta({ id: 'DeviceName', description: 'a catalog device drawn around the box media' });
 const DeviceFit = z.enum(DEVICE_FITS).default('fill').describe('fill covers the screen and crops; fit shows all of the media, letterboxed');
 
+export const LINE_STYLES = ['text', 'code', 'item', 'kv'] as const;
+
 const AnchorRefs = z.array(AnchorRef).max(8, { error: 'an element carries at most 8 refs' }).default([]);
 
 export const BoxLine = z.object({
   text: z.string().max(WHITEBOARD_LIMITS.line, { error: `a box line is at most ${WHITEBOARD_LIMITS.line} characters` }),
   muted: z.boolean().default(false),
-  style: z.enum(['text', 'code', 'item', 'numbered', 'kv']).default('text'),
+  style: z.enum(LINE_STYLES).default('text'),
   key: z.string().max(40, { error: 'a line key is at most 40 characters' }).nullable().default(null),
-  ref: AnchorRef.nullable().default(null),
-  icon: IconName.nullable().default(null).describe('drawn before the line text'),
 }).strict().refine((line) => line.style !== 'kv' || Boolean(line.key), { error: 'a kv line needs a key' }).meta({ id: 'BoxLine' });
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
@@ -51,11 +51,6 @@ export const Near = z.object({
   side: Side,
   gap: z.number().int().min(0).default(60),
 }).strict().meta({ id: 'Near' });
-
-const Output = z.object({
-  id: ElementId,
-  label: z.string().min(1, { error: 'an output needs a label' }).max(30, { error: 'an output label is at most 30 characters' }),
-}).strict().meta({ id: 'Output' });
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
 export const WHITEBOARD_PICTURE_ROUTE = '/whiteboards/pictures';
@@ -126,7 +121,6 @@ export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxM
 
 export const Step = z.object({
   status: z.enum(STEP_STATUSES).default('planned'),
-  linkedBoardId: z.string().min(1).max(64).nullable().default(null).describe('a board holding this step in detail'),
 }).strict().meta({ id: 'Step' });
 
 const boxBaseFields = {
@@ -159,16 +153,11 @@ const boxContentFields = {
 const Borderless = z.boolean().default(false).describe('draws the box with no card fill or outline, so its lines, media or device stand alone');
 const StandaloneBorderless = z.boolean().default(true).describe('draws the device or icon with no card fill or outline, so it stands alone with its title; false draws the card');
 
-const Outputs = z.array(Output).max(8, { error: 'a decision has at most 8 outputs' });
-
-const OnlyDecisionOutputs = z.array(Output).max(0, { error: 'only a decision has outputs, so set shape to decision' }).optional()
-  .describe('accepted only empty: outputs belong to a decision');
-
 const NoIconBoxContent = z.never({ error: 'an icon box holds no lines or media, so set shape to box first' }).optional()
   .describe('refused: an icon box holds no lines or media');
 
 const plainBoxFields = { ...boxBaseFields, shape: z.literal('box').default('box'), ...boxContentFields, borderless: Borderless };
-const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond with outputs'), ...boxContentFields, outputs: Outputs.default([]).describe('decision branches; a wire leaves one through fromOutput') };
+const decisionBoxFields = { ...boxBaseFields, shape: z.literal('decision').describe('draws a diamond'), ...boxContentFields };
 const panelBoxFields = { ...boxBaseFields, shape: z.literal('panel').describe('draws a side note card'), ...boxContentFields };
 const stickyBoxFields = {
   ...boxBaseFields, shape: z.literal('sticky').describe('draws a sticky note in its tone'), ...boxContentFields,
@@ -209,14 +198,14 @@ const nearInputField = { near: Near.nullable().default(null).describe('place: be
 
 function boxShapesWith<ExtraFields extends z.ZodRawShape>(extraFields: ExtraFields, placeDescription: string) {
   return z.discriminatedUnion('shape', [
-    z.object({ ...plainBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...plainBoxFields, ...extraFields }).strict(),
     z.object({ ...decisionBoxFields, ...extraFields }).strict(),
-    z.object({ ...panelBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
+    z.object({ ...panelBoxFields, ...extraFields }).strict(),
     z.object({ ...iconBoxFields, ...extraFields, lines: NoIconBoxContent, media: NoIconBoxContent }).strict(),
     z.object({ ...deviceBoxFields, ...extraFields, lines: NoDeviceBoxLines }).strict(),
-    z.object({ ...stickyBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
-    z.object({ ...noteBoxFields, ...extraFields, outputs: OnlyDecisionOutputs }).strict(),
-    z.object({ ...textBoxFields, ...extraFields, outputs: OnlyDecisionOutputs, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
+    z.object({ ...stickyBoxFields, ...extraFields }).strict(),
+    z.object({ ...noteBoxFields, ...extraFields }).strict(),
+    z.object({ ...textBoxFields, ...extraFields, media: NoTextBoxContent, params: NoTextBoxContent }).strict(),
   ], { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).describe(placeDescription);
 }
 
@@ -274,7 +263,6 @@ export const Frame = z.object({
   id: ElementId,
   title: Title,
   contains: z.array(ElementId).min(1, { error: 'a frame contains at least one box' }).describe('the box ids it encloses'),
-  loop: z.boolean().default(false),
   collapsed: z.boolean().default(false).describe('a stack: draws as one card showing its first box, hides the rest, and ends their wires at the card; a box sits in at most one collapsed frame'),
 }).strict();
 
@@ -283,13 +271,11 @@ export const Wire = z.object({
   id: ElementId,
   from: ElementId.describe('the element id it starts at'),
   to: ElementId.describe('the element id it ends at'),
-  fromOutput: ElementId.nullable().default(null).describe('the output id of a decision from'),
   dashed: z.boolean().default(false),
   tone: z.enum(WIRE_TONES).default('plain'),
   label: z.string().max(40, { error: 'a wire label is at most 40 characters' }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
-  back: z.boolean().default(false).describe('a return edge, drawn against the flow'),
 }).strict();
 
 export const STROKE_TONES = ['ink', ...STICKY_TONES] as const;
@@ -311,7 +297,6 @@ export const ElementInput = z.discriminatedUnion('kind', [BoxInput, Frame, Wire,
 const LegendEntries = z.array(z.object({
   tone: Wire.shape.tone,
   dashed: z.boolean().default(false),
-  back: z.boolean().default(false),
   label: z.string().min(1, { error: 'a legend entry needs a label' }).max(40, { error: 'a legend label is at most 40 characters' }),
 }).strict()).max(12, { error: 'a legend has at most 12 entries' });
 
@@ -531,7 +516,7 @@ type SparseElement = z.input<typeof Element>;
 type SparseBox = z.input<typeof Box>;
 
 function filledLine(line: z.input<typeof BoxLine>): BoxLine {
-  return { text: line.text, muted: line.muted ?? false, style: line.style ?? 'text', key: line.key ?? null, ref: line.ref ?? null, icon: line.icon ?? null };
+  return { text: line.text, muted: line.muted ?? false, style: line.style ?? 'text', key: line.key ?? null };
 }
 
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
@@ -543,7 +528,7 @@ function filledBoxBase(box: SparseBox) {
   return {
     kind: 'box' as const, id: box.id, title: box.title, icon: box.icon ?? null, refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     order: box.order ?? 0, at: box.at ?? null, width: box.width ?? null, height: box.height ?? null,
-    step: box.step ? { status: box.step.status ?? 'planned', linkedBoardId: box.step.linkedBoardId ?? null } : null,
+    step: box.step ? { status: box.step.status ?? 'planned' } : null,
   };
 }
 
@@ -551,22 +536,22 @@ function filledBox(box: SparseBox): Box {
   switch (box.shape) {
     case 'icon': return { ...filledBoxBase(box), icon: box.icon, shape: 'icon', borderless: box.borderless ?? true };
     case 'device': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'device', device: box.device, fit: box.fit ?? 'fill', borderless: box.borderless ?? true, media: filledMedia(box.media) };
-    case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), outputs: box.outputs ?? [] };
-    case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    case 'text': return { ...filledBoxBase(box), shape: 'text', lines: (box.lines ?? []).map(filledLine), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    case 'note': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'note', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
-    default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', borderless: box.borderless ?? false, lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), ...(box.outputs ? { outputs: box.outputs } : {}) };
+    case 'decision': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'decision', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media) };
+    case 'sticky': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'sticky', tone: box.tone ?? 'yellow', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media) };
+    case 'text': return { ...filledBoxBase(box), shape: 'text', lines: (box.lines ?? []).map(filledLine) };
+    case 'note': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'note', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media) };
+    case 'panel': return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'panel', lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media) };
+    default: return { ...filledBoxBase(box), params: box.params ?? {}, shape: 'box', borderless: box.borderless ?? false, lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media) };
   }
 }
 
 export function filledElement(element: SparseElement): Element {
   switch (element.kind) {
     case 'box': return filledBox(element);
-    case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, loop: element.loop ?? false, collapsed: element.collapsed ?? false };
+    case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, collapsed: element.collapsed ?? false };
     case 'wire': return {
-      kind: 'wire', id: element.id, from: element.from, to: element.to, fromOutput: element.fromOutput ?? null, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
-      label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null, back: element.back ?? false,
+      kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
+      label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
     };
     case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };
   }

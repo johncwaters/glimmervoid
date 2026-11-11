@@ -1,4 +1,4 @@
-import { BOX_CHANGES, WIRE_TONES, linesOfBox, mediaOfBox } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, WIRE_TONES, mediaOfBox } from './contracts/whiteboard.ts';
 import type { Board, Box, Element, Wire } from './contracts/whiteboard.ts';
 
 type ElementKind = Element['kind'];
@@ -20,10 +20,9 @@ interface BoardIndex {
 interface WireStyle {
   tone: Wire['tone'];
   dashed: boolean;
-  back: boolean;
 }
 
-const WIRE_STYLES: readonly WireStyle[] = WIRE_TONES.flatMap((tone) => [false, true].flatMap((dashed) => [false, true].map((back) => ({ tone, dashed, back }))));
+const WIRE_STYLES: readonly WireStyle[] = WIRE_TONES.flatMap((tone) => [false, true].map((dashed) => ({ tone, dashed })));
 
 const MAX_DEPENDENT_ARRAY_LENGTH = 16;
 const indexByElements = new WeakMap<Board['elements'], BoardIndex>();
@@ -43,7 +42,7 @@ function countAsset(index: BoardIndex, assetId: string | null, step: number): vo
 }
 
 function wireStyleSlotOf(wire: Wire): number {
-  return WIRE_TONES.indexOf(wire.tone) * 4 + (wire.dashed ? 2 : 0) + (wire.back ? 1 : 0);
+  return WIRE_TONES.indexOf(wire.tone) * 2 + (wire.dashed ? 1 : 0);
 }
 
 function countLayoutParts(index: BoardIndex, element: Element, step: number): void {
@@ -80,7 +79,7 @@ function trackStep(index: BoardIndex, element: Element, isPresent: boolean): voi
 }
 
 function hasAnchorRef(element: Element): boolean {
-  return element.kind === 'box' && (element.refs.length > 0 || linesOfBox(element).some((line) => line.ref !== null));
+  return element.kind === 'box' && element.refs.length > 0;
 }
 
 function trackAnchor(index: BoardIndex, element: Element): void {

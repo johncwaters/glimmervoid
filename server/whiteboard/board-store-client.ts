@@ -24,7 +24,6 @@ interface BoardStore {
   loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
   loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null>;
   assetIds(): Promise<Set<string>>;
-  boardsLinkingTo(boardId: string): Promise<string[]>;
   boardIds(): Promise<Set<string>>;
   save(before: BoardRecord | null, after: BoardRecord, staged?: StagedElements | null): Promise<void>;
   saveMany(records: readonly BoardRecord[]): Promise<void>;
@@ -133,7 +132,6 @@ function createBoardStore(boardsRoot: string): BoardStore {
     loadHeads,
     loadElements,
     assetIds: async () => new Set((await request({ kind: 'asset-ids' })).assetIds ?? []),
-    boardsLinkingTo: async (boardId) => (await request({ kind: 'boards-linking-to', boardId })).boardIds ?? [],
     boardIds: async () => new Set((await request({ kind: 'board-ids' })).boardIds ?? []),
     save: async (before, after, staged = null) => { await request({ kind: 'write', deltas: [boardDeltaOf(before, after, staged)] }); },
     saveMany: async (records) => { await request({ kind: 'write', deltas: records.map((record) => boardDeltaOf(null, record)) }); },

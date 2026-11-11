@@ -2,7 +2,7 @@ import type { Board, Box, Step, Wire } from './contracts/whiteboard.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 
 type StepBox = Box & { step: Step };
-type PlanStep = { boxId: string; title: string; status: Step['status']; level: number; label: string; afterLabels: string[]; linkedBoardId: string | null };
+type PlanStep = { boxId: string; title: string; status: Step['status']; level: number; label: string; afterLabels: string[] };
 
 const LETTERS_IN_ALPHABET = 26;
 const MAX_ELEMENT_ID_LENGTH = 40;
@@ -83,7 +83,6 @@ function planSteps(board: Board): PlanStep[] {
     level: levelById.get(step.id) ?? 1,
     label: labelById.get(step.id) ?? '',
     afterLabels: (afterIdsByStepId.get(step.id) ?? []).flatMap((afterId) => labelById.get(afterId) ?? []),
-    linkedBoardId: step.step.linkedBoardId,
   }));
 }
 

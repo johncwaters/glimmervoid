@@ -334,7 +334,7 @@
     },
     {
       "name": "link",
-      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a plan step linked to a board holding it in detail"
+      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a board card linked to a file in the code session worktree"
     },
     {
       "name": "model",
@@ -350,7 +350,7 @@
     },
     {
       "name": "frame",
-      "definition": "A whiteboard element that encloses a set of boxes under a title, optionally marked as a loop"
+      "definition": "A whiteboard element that encloses a set of boxes under a title"
     },
     {
       "name": "wire",
@@ -561,7 +561,7 @@
         "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
       },
       "name": "box",
-      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (near another box or at a point), a shape (box, decision, panel, icon or device) and optionally outputs, media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a note box, a remote box) ordinary English"
+      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (near another box or at a point), a shape (box, decision, panel, icon or device) and optionally media, a width and a step; a plan step is a box with a step, a panel is a box with shape panel, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a note box, a remote box) ordinary English"
     },
     {
       "name": "transitions",

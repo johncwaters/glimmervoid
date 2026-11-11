@@ -62,7 +62,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   const versionBeforeRestart = boardBeforeRestart?.version;
   const storeWrittenBeforeCompactRows = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
   storeWrittenBeforeCompactRows.prepare(`UPDATE boards SET head = json_set(head, '$.columns', json('[]'), '$.lanes', json('[]')) WHERE id = ?`).run('legacy-board');
-  const writeJsonRow = storeWrittenBeforeCompactRows.prepare('UPDATE elements SET body = ?, kind = NULL, asset_id = NULL, linked_board_id = NULL WHERE board_id = ? AND element_id = ?');
+  const writeJsonRow = storeWrittenBeforeCompactRows.prepare('UPDATE elements SET body = ?, kind = NULL, asset_id = NULL WHERE board_id = ? AND element_id = ?');
   const writeCompactRow = storeWrittenBeforeCompactRows.prepare("UPDATE elements SET body = ?, kind = 'box' WHERE board_id = ? AND element_id = ?");
   const boxIds = [...boardBeforeRestart?.elements.values() ?? []].flatMap((element) => (element.kind === 'box' ? [element.id] : []));
   const near = { side: 'bottom', gap: 30 } as const;
@@ -178,7 +178,7 @@ test('a JSON board moves into the board store once, keeps its edits across resta
   }
 });
 
-test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, and a board with a damaged element row refuses only its own reads', async () => {
+test('a restart lists stored boards without reading their elements, answers a view sent before it finished loading, reads a retired numbered line as a bullet, and a board with a damaged element row refuses only its own reads', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-lazy-'));
   const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   await first.loaded;
@@ -189,6 +189,8 @@ test('a restart lists stored boards without reading their elements, answers a vi
   assert.equal((await first.handleOperator.put(healthyId, boxOf('b'))).ok, true);
   const database = new DatabaseSync(path.join(boardsRoot, 'boards.sqlite'));
   database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run('{ not json', damagedId);
+  database.prepare('UPDATE elements SET body = ? WHERE board_id = ?').run(JSON.stringify({ title: 'b', at: { x: 0, y: 0 }, lines: [{ text: 'first', style: 'numbered' }] }), healthyId);
+  database.exec('PRAGMA user_version = 4');
   database.close();
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
@@ -200,10 +202,11 @@ test('a restart lists stored boards without reading their elements, answers a vi
   assert.equal(damagedRead.ok, false);
   assert.match(damagedRead.error ?? '', /cannot be read/);
   assert.equal((await restarted.handleOperator.put(damagedId, boxOf('c'))).ok, false);
-  assert.deepEqual([...(await restarted.handleOperator.get(healthyId)).board?.elements.keys() ?? []], ['b']);
+  const healthyBox = (await restarted.handleOperator.get(healthyId)).board?.elements.get('b');
+  assert.deepEqual(healthyBox?.kind === 'box' && 'lines' in healthyBox ? healthyBox.lines?.map((line) => line.style) : null, ['item']);
 });
 
-test('an upgrade that cannot read a board keeps that board listed with its pictures, and a damaged elements page refuses only the boards it holds', async () => {
+test('an upgrade that cannot read a board keeps that board listed with its pictures, and a damaged elements page refuses only the boards it holds while the retired linked board column waits to be dropped', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-store-upgrade-damage-'));
   const pictureAssetId = 'a'.repeat(64);
   const first = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
@@ -216,6 +219,8 @@ test('an upgrade that cannot read a board keeps that board listed with its pictu
   assert.equal((await first.handleOperator.put(healthyId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'h', title: 'h', at: { x: 0, y: 0 } } }]))).ok, true);
   const databasePath = path.join(boardsRoot, 'boards.sqlite');
   const storeWrittenBeforeCompactRows = new DatabaseSync(databasePath);
+  storeWrittenBeforeCompactRows.exec('ALTER TABLE elements ADD COLUMN linked_board_id TEXT');
+  storeWrittenBeforeCompactRows.exec('CREATE INDEX elements_by_linked_board ON elements (linked_board_id) WHERE linked_board_id IS NOT NULL');
   const insertJsonRow = storeWrittenBeforeCompactRows.prepare('INSERT INTO elements (board_id, element_id, revision, body) VALUES (?, ?, 1, ?)');
   insertJsonRow.run(picturesId, 'pictured', JSON.stringify({ kind: 'box', id: 'pictured', title: 'p', at: { x: 0, y: 0 }, media: { kind: 'image', asset: pictureAssetId, mime: 'image/png', width: 10, height: 10, alt: '', hasPreview: false } }));
   insertJsonRow.run(picturesId, 'unreadable', '{ not json');

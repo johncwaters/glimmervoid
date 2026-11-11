@@ -56,7 +56,7 @@ function signedNoteBox(element: Element, author: Author): { ok: true; element: E
   if (isOperatorAuthor(author) && isBylineLine(lastLine)) return { ok: true, element };
   const unsignedLines = isBylineLine(lastLine) ? element.lines.slice(0, -1) : element.lines;
   if (unsignedLines.length >= WHITEBOARD_LIMITS.linesPerBox) return { ok: false, error: `box ${element.id}: a note box holds at most ${WHITEBOARD_LIMITS.linesPerBox - 1} lines, since its last line names who wrote it` };
-  const byline: BoxLine = { text: `${BYLINE_PREFIX}${author.name}`.slice(0, WHITEBOARD_LIMITS.line), muted: true, style: 'text', key: null, ref: null, icon: null };
+  const byline: BoxLine = { text: `${BYLINE_PREFIX}${author.name}`.slice(0, WHITEBOARD_LIMITS.line), muted: true, style: 'text', key: null };
   return { ok: true, element: { ...element, lines: [...unsignedLines, byline] } };
 }
 
@@ -119,12 +119,12 @@ function currentDependentsOf(draft: Draft, boxId: string): Element[] {
   });
 }
 
-function checkReferences(draft: Draft, element: Element, previous: Element | undefined): OpOutcome {
-  if (element.kind === 'box') return checkBoxReferences(draft, element, previous);
+function checkReferences(draft: Draft, element: Element): OpOutcome {
+  if (element.kind === 'box') return checkBoxReferences(element);
   if (element.kind === 'wire') {
     if (!isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
     if (!isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
-    return checkWireOutput(draft, element);
+    return OK;
   }
   if (element.kind !== 'frame') return OK;
   const strangerId = element.contains.find((id) => !isBox(draft, id));
@@ -141,35 +141,7 @@ function checkStackMembership(draft: Draft, frame: Frame): OpOutcome {
   return OK;
 }
 
-function checkWireOutput(draft: Draft, wire: Wire): OpOutcome {
-  if (wire.fromOutput === null) return OK;
-  const from = elementOf(draft, wire.from);
-  if (from?.kind !== 'box' || from.shape !== 'decision') return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, but ${wire.from} is not a decision`);
-  if (!from.outputs.some((output) => output.id === wire.fromOutput)) return refuse(`wire ${wire.id} starts at output ${wire.fromOutput}, which decision ${wire.from} does not have`);
-  return OK;
-}
-
-type DecisionOutputs = Extract<Box, { shape: 'decision' }>['outputs'];
-
-function decisionOutputsOf(element: Element | undefined): DecisionOutputs {
-  if (element?.kind !== 'box' || element.shape !== 'decision') return [];
-  return element.outputs;
-}
-
-function checkBoxOutputs(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
-  const outputs = decisionOutputsOf(box);
-  const outputIds = new Set(outputs.map((output) => output.id));
-  if (outputIds.size !== outputs.length) return refuse(`box ${box.id} has two outputs with the same id`);
-  const previousOutputs = decisionOutputsOf(previous);
-  if (previousOutputs.every((output) => outputIds.has(output.id))) return OK;
-  const strandedWire = currentDependentsOf(draft, box.id).find((element) => element.kind === 'wire' && element.from === box.id && element.fromOutput !== null && !outputIds.has(element.fromOutput));
-  if (strandedWire?.kind === 'wire') return refuse(`wire ${strandedWire.id} still starts at output ${strandedWire.fromOutput} of ${box.id}, so change or remove that wire first`);
-  return OK;
-}
-
-function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefined): OpOutcome {
-  const outputs = checkBoxOutputs(draft, box, previous);
-  if (!outputs.ok) return outputs;
+function checkBoxReferences(box: Box): OpOutcome {
   if (box.change === 'relabeled' && !box.was) return refuse(`box ${box.id} is relabeled, so give its old title in was`);
   const dialProblem = dialParamsProblemOf(box);
   if (dialProblem) return refuse(dialProblem);
@@ -177,12 +149,6 @@ function checkBoxReferences(draft: Draft, box: Box, previous: Element | undefine
     return refuse(`box ${box.id} needs a place: near another box or at a point`);
   }
   return OK;
-}
-
-function withoutEmptyOutputsOffDecision(element: Element): Element {
-  if (element.kind !== 'box' || element.shape === 'decision' || !('outputs' in element) || element.outputs === undefined) return element;
-  const { outputs, ...elementWithoutOutputs } = element;
-  return elementWithoutOutputs;
 }
 
 function drawnRectOf(draft: Draft, targetId: string): PlacedBox | null {
@@ -225,10 +191,10 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
-  const signed = signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author);
+  const signed = signedNoteBox(placed.element, author);
   if (!signed.ok) return signed;
   const stored = signed.element;
-  const references = checkReferences(draft, stored, undefined);
+  const references = checkReferences(draft, stored);
   if (!references.ok) return references;
   writeElement(draft, stored);
   draft.elementCount += 1;
@@ -263,10 +229,10 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
   const placed = placedAtNear(draft, 'near' in fields ? withoutAtUnlessGiven(parsed.data, 'at' in fields) : parsed.data);
   if (!placed.ok) return placed;
-  const signed = NOTE_TEXT_FIELDS.some((field) => field in fields) ? signedNoteBox(withoutEmptyOutputsOffDecision(placed.element), author) : { ok: true as const, element: withoutEmptyOutputsOffDecision(placed.element) };
+  const signed = NOTE_TEXT_FIELDS.some((field) => field in fields) ? signedNoteBox(placed.element, author) : { ok: true as const, element: placed.element };
   if (!signed.ok) return signed;
   const stored = signed.element;
-  const references = checkReferences(draft, stored, existing);
+  const references = checkReferences(draft, stored);
   if (!references.ok) return references;
   writeElement(draft, stored);
   return OK;
@@ -495,9 +461,7 @@ function nameOf(after: ElementLookup, id: string, element: Element | undefined =
 function describeStepChange(name: string, before: Box['step'], after: Box['step']): string {
   if (after === null) return `made ${name} no longer a plan step`;
   if (before === null) return `made ${name} a plan step`;
-  if (before.status !== after.status) return `marked ${name} ${after.status}`;
-  if (after.linkedBoardId === null) return `unlinked ${name} from its board`;
-  return `linked ${name} to a board`;
+  return `marked ${name} ${after.status}`;
 }
 
 function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefined, after: ElementLookup): string {

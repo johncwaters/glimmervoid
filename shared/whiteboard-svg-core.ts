@@ -3,7 +3,7 @@ import { STICKY_TONE_HEX, STICKY_TONES } from './contracts/whiteboard.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
-import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, LINE_ICON_CHARS, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
+import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -15,16 +15,11 @@ const MUTED_INDENT = 14;
 const STEP_LABEL_BASELINE = 22;
 const STEP_HEADER_HEIGHT = 18;
 const PLAN_TITLE = 'Plan';
-const LINKED_BOARD_TEXT = 'open linked board';
 const PORT_RADIUS = 5;
 const RESIZE_HANDLE_SIZE = 10;
-const LOOP_BADGE_RADIUS = 6;
-const LOOP_BADGE_INSET = 20;
 const OCCLUDER_MARGIN = 6;
 const OCCLUDER_CORNER_RADIUS = 8;
 const DECISION_POINT_INSET = 12;
-const OUTPUT_LABEL_BASELINE_OFFSET = 4;
-const OUTPUT_DOT_RADIUS = 3;
 const MONO_CHAR_WIDTH = 7.2;
 const CUT_TEXT_ENDING = '...';
 const WIDE_CHAR = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}|[\u{20000}-\u{3fffd}]/u;
@@ -37,8 +32,6 @@ const LEGEND_SAMPLE_WIDTH = 28;
 const TITLE_CHAR_WIDTH = 9.6;
 const TITLE_ICON_SIZE = 14;
 const TITLE_ICON_RISE = 12;
-const LINE_ICON_SIZE = 13;
-const LINE_ICON_RISE = 10;
 const ICON_BOX_TOP_INSET = 12;
 const TOOLBAR_DOT_RADIUS = 6;
 const TOOLBAR_DOT_SPACING = 22;
@@ -74,20 +67,14 @@ ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_
 .wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-item-dot { fill: #a79fc4; }
 .wb-panel-rule { stroke: #4a4268; stroke-width: 1; }
-.wb-output-divider { stroke: #4a4268; stroke-width: 1; }
-.wb-output-label { fill: #e6e0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.wb-output-dot { fill: #a79fc4; }
 .wb-step .wb-box-outline, .wb-step-swatch { stroke: ${BRAND_ACCENT}; }
-.wb-step-label, .wb-step-link { fill: ${BRAND_ACCENT}; font-size: 12px; font-weight: 700; }
+.wb-step-label { fill: ${BRAND_ACCENT}; font-size: 12px; font-weight: 700; }
 .wb-step-status { fill: #a79fc4; font-size: 11px; }
 .wb-step-planned { fill: #a79fc4; }
 .wb-step-building { fill: #f59e0b; }
 .wb-step-landed { fill: #22c55e; }
 .wb-frame-outline { fill: ${BRAND_ACCENT}; fill-opacity: 0.04; stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
-.wb-loop .wb-frame-outline { stroke: ${BRAND_ACCENT}; }
-.wb-loop-badge { fill: none; stroke: ${BRAND_ACCENT}; stroke-width: 1.6; }
-.wb-back .wb-wire-line { stroke: ${BRAND_ACCENT}; }
 .wb-wire-hit, .wb-port, .wb-resize-handle { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
@@ -101,7 +88,6 @@ ${STICKY_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${STICKY_
 .wb-image-placeholder { fill: #221d3a; stroke: #4a4268; stroke-width: 1; stroke-dasharray: 4 4; }
 .wb-image-placeholder-text { fill: #a79fc4; font-size: 12px; }
 .wb-title-icon { color: #e6e0f5; }
-.wb-line-icon { color: #a79fc4; }
 .wb-glyph-icon { color: #c4b5fd; }
 .wb-device-body { fill: #2a2440; stroke: #6f6790; stroke-width: 1; }
 .wb-device-screen { fill: #15121f; }
@@ -139,25 +125,14 @@ function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
   const right = box.x + box.width;
   const bottom = box.y + box.height;
   const headerMidY = box.y + box.headerHeight / 2;
-  const top = [{ x: box.x + DECISION_POINT_INSET, y: box.y }, { x: right - DECISION_POINT_INSET, y: box.y }, { x: right, y: headerMidY }];
-  if (box.outputs.length === 0) return [...top, { x: right - DECISION_POINT_INSET, y: bottom }, { x: box.x + DECISION_POINT_INSET, y: bottom }, { x: box.x, y: headerMidY }];
-  return [...top, { x: right, y: bottom }, { x: box.x, y: bottom }, { x: box.x, y: headerMidY }];
+  return [
+    { x: box.x + DECISION_POINT_INSET, y: box.y }, { x: right - DECISION_POINT_INSET, y: box.y }, { x: right, y: headerMidY },
+    { x: right - DECISION_POINT_INSET, y: bottom }, { x: box.x + DECISION_POINT_INSET, y: bottom }, { x: box.x, y: headerMidY },
+  ];
 }
 
 function decisionOutlinePath(box: LaidOutBox): string {
   return `${decisionOutlinePoints(box).map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')} Z`;
-}
-
-function outputRowsMarkup(box: LaidOutBox): string[] {
-  return box.outputs.flatMap((output) => {
-    const rowHalfHeight = (box.height - box.headerHeight) / box.outputs.length / 2;
-    const rowTop = output.port.y - rowHalfHeight;
-    return [
-      tag('line', { x1: box.x, y1: rowTop, x2: box.x + box.width, y2: rowTop, class: 'wb-output-divider' }),
-      text(output.label, box.x + BOX_TEXT_INSET, output.port.y + OUTPUT_LABEL_BASELINE_OFFSET, 'wb-output-label'),
-      tag('circle', { cx: output.port.x, cy: output.port.y, r: OUTPUT_DOT_RADIUS, class: 'wb-output-dot' }),
-    ];
-  });
 }
 
 function lineClassOf(line: LaidOutLine): string {
@@ -179,10 +154,8 @@ function codeBandRectOf(line: LaidOutLine, rowLeft: number, baseline: number): R
 }
 
 function lineRowMarkup(line: LaidOutLine, left: number, baseline: number): string[] {
-  const iconLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
-  const rowLeft = line.icon ? iconLeft + LINE_ICON_CHARS * MONO_CHAR_WIDTH : iconLeft;
+  const rowLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
   const parts: string[] = [];
-  if (line.icon && line.isFirstRow) parts.push(iconMarkup(line.icon, iconLeft, baseline - LINE_ICON_RISE, LINE_ICON_SIZE, 'wb-line-icon'));
   if (line.style === 'code') parts.push(tag('rect', { ...codeBandRectOf(line, rowLeft, baseline), rx: 3, class: 'wb-code-band' }));
   if (line.style === 'item' && line.isFirstRow) parts.push(tag('circle', { cx: rowLeft + 4, cy: baseline - 4, r: ITEM_DOT_RADIUS, class: 'wb-item-dot' }));
   if (line.marker !== null) parts.push(text(line.marker, rowLeft, baseline, line.style === 'kv' ? 'wb-line-key' : 'wb-line-marker'));
@@ -291,7 +264,7 @@ function stepHeaderMarkup(box: LaidOutBox, step: LaidOutStep): string[] {
 }
 
 function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
-  const parts = [boxOutlineMarkup(box), ...outputRowsMarkup(box)];
+  const parts = [boxOutlineMarkup(box)];
   const midX = box.x + box.width / 2;
   const midY = box.y + box.height / 2;
   for (const [cx, cy] of [[midX, box.y], [box.x + box.width, midY], [midX, box.y + box.height], [box.x, midY]] as const) {
@@ -317,9 +290,6 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
   if (box.shape === 'panel' && box.bodyLines.length > 0) parts.push(tag('line', { x1: box.x + BOX_TEXT_INSET, y1: bodyTop - TITLE_RULE_RISE, x2: box.x + box.width - BOX_TEXT_INSET, y2: bodyTop - TITLE_RULE_RISE, class: 'wb-panel-rule' }));
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, bodyTop));
-  if (box.step?.linkedBoardId) {
-    parts.push(text(LINKED_BOARD_TEXT, box.x + BOX_TEXT_INSET, bodyTop + box.bodyLines.length * BODY_LINE_HEIGHT, 'wb-step-link', { 'data-linked-board-id': box.step.linkedBoardId }));
-  }
   if (box.device) parts.push(...deviceMarkup(box, box.device, box.titleLines.join(' '), assetHref));
   if (box.media && !box.device) parts.push(...mediaMarkup(box.media, assetHref));
   parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
@@ -331,20 +301,12 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${stepClass}${changeClass}`, parts);
 }
 
-function loopBadgeMarkup(frame: LaidOutFrame): string {
-  const centerX = frame.x + frame.width - LOOP_BADGE_INSET;
-  const centerY = frame.y + LOOP_BADGE_RADIUS + 6;
-  const arc = `M ${centerX + LOOP_BADGE_RADIUS} ${centerY} A ${LOOP_BADGE_RADIUS} ${LOOP_BADGE_RADIUS} 0 1 1 ${centerX} ${centerY - LOOP_BADGE_RADIUS}`;
-  return tag('path', { d: arc, 'marker-end': 'url(#wb-arrow)', class: 'wb-loop-badge' });
-}
-
 function frameMarkup(frame: LaidOutFrame): string {
   const parts = [
     tag('rect', { x: frame.x, y: frame.y, width: frame.width, height: frame.height, rx: 12, class: 'wb-frame-outline' }),
     text(frame.title, frame.x + 14, frame.y + 18, 'wb-frame-title'),
   ];
-  if (frame.isLoop) parts.push(loopBadgeMarkup(frame));
-  return elementGroup(frame, frame.isLoop ? 'wb-frame wb-loop' : 'wb-frame', parts);
+  return elementGroup(frame, 'wb-frame', parts);
 }
 
 function wireMarkup(wire: LaidOutWire): string {
@@ -355,7 +317,7 @@ function wireMarkup(wire: LaidOutWire): string {
   ];
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));
   if (wire.label) parts.push(text(wire.label, wire.labelAt.x, wire.labelAt.y, 'wb-wire-label'));
-  return elementGroup(wire, wire.isBack ? `wb-wire wb-back wb-tone-${wire.tone}` : `wb-wire wb-tone-${wire.tone}`, parts);
+  return elementGroup(wire, `wb-wire wb-tone-${wire.tone}`, parts);
 }
 
 function strokeMarkup(stroke: LaidOutStroke): string {
@@ -406,7 +368,7 @@ function legendSwatchMarkup(entry: BoardLayout['legend'][number]): string {
   if (swatch.kind === 'status') return tag('rect', { x: entry.x, y: entry.y, width: 14, height: 14, rx: 3, class: `wb-legend-swatch wb-step-swatch wb-step-${swatch.status}` });
   if (swatch.kind === 'change') return tag('g', { class: `wb-change-${swatch.change}` }, tag('rect', { x: entry.x, y: entry.y, width: LEGEND_SAMPLE_WIDTH, height: 14, rx: 3, class: 'wb-legend-swatch wb-box-outline' }));
   const sample = tag('path', { d: `M${entry.x},${entry.y + 7} H${entry.x + LEGEND_SAMPLE_WIDTH}`, 'marker-end': 'url(#wb-arrow)', class: swatch.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' });
-  return tag('g', { class: swatch.isBack ? `wb-back wb-tone-${swatch.tone}` : `wb-tone-${swatch.tone}` }, sample);
+  return tag('g', { class: `wb-tone-${swatch.tone}` }, sample);
 }
 
 function legendRowMarkup(entry: BoardLayout['legend'][number]): string {
@@ -430,9 +392,6 @@ function iconNamesOf(layout: BoardLayout): IconName[] {
   for (const element of layout.elements) {
     if (element.kind !== 'box') continue;
     if (element.icon) iconNames.add(element.icon);
-    for (const line of element.bodyLines) {
-      if (line.icon && line.isFirstRow) iconNames.add(line.icon);
-    }
   }
   return [...iconNames];
 }
@@ -454,10 +413,10 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
 
 export type { AssetHref, PageOccluder };
 export {
-  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH, LINKED_BOARD_TEXT,
-  LOOP_BADGE_INSET, LOOP_BADGE_RADIUS, MONO_CHAR_WIDTH, MUTED_INDENT, OUTPUT_DOT_RADIUS, OUTPUT_LABEL_BASELINE_OFFSET, PLAN_TITLE, PORT_RADIUS,
+  BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
+  MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, TITLE_RULE_RISE,
-  ICON_BOX_TOP_INSET, LINE_ICON_RISE, LINE_ICON_SIZE, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
+  ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
   boardSvgDocument, codeBandRectOf, decisionOutlinePoints, pageMaskImage,
 };

@@ -10,7 +10,7 @@ import { AgentNeedReply } from '../shared/contracts/secrets.ts';
 import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { Op, STEP_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardReview, BoardSummary, Op as BoardOp } from '../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardReview, Op as BoardOp } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
 import { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf } from '../shared/whiteboard-plan-core.ts';
@@ -235,18 +235,6 @@ async function askWhiteboard(body: Record<string, unknown>): Promise<WhiteboardA
   return typeof error === 'string' ? error : 'Glimmervoid gave no usable answer';
 }
 
-async function listBoards(scope: { all: boolean }): Promise<BoardSummary[] | string> {
-  const reply = await askWhiteboard(scope.all ? { sub: 'list', all: true } : { sub: 'list' });
-  if (typeof reply === 'string') return reply;
-  return 'boards' in reply ? reply.boards : 'Glimmervoid did not list the boards';
-}
-
-async function resolveLinkedBoardId(ref: string): Promise<{ boardId: string } | { error: string }> {
-  const reply = await askWhiteboard({ sub: 'get', board: ref, peek: true });
-  if (typeof reply === 'string') return { error: reply };
-  return 'board' in reply ? { boardId: reply.board.id } : { error: `Glimmervoid did not resolve the board ${ref}` };
-}
-
 async function putPlanOps(boardRef: string, ops: BoardOp[], doneText: string): Promise<PlanReply> {
   const reply = await askWhiteboard({ sub: 'put', board: boardRef, ops });
   if (typeof reply === 'string') return { ok: false, text: reply };
@@ -282,15 +270,12 @@ function dependencyWireOps(board: Board, stepId: string, afterIds: readonly stri
 async function addStep({ values, positionals }: ParsedArguments, boardRef: string): Promise<PlanReply> {
   const title = joinedText(positionals.slice(1));
   const stepId = typeof values.id === 'string' ? values.id : stepIdFromTitle(title);
-  const linkRef = typeof values.link === 'string' ? values.link : null;
-  const link = linkRef === null ? { boardId: null } : await resolveLinkedBoardId(linkRef);
-  if ('error' in link) return { ok: false, text: link.error };
   const read = await readBoard(boardRef, { isPeek: true });
   if (typeof read === 'string') return { ok: false, text: read };
   const wireOps = dependencyWireOps(read.board, stepId, commaSeparatedIds(values.after));
   if (typeof wireOps === 'string') return { ok: false, text: wireOps };
   const ops = parsedOps([
-    { op: 'add', element: { kind: 'box', id: stepId, title, step: { status: 'planned', linkedBoardId: link.boardId } } },
+    { op: 'add', element: { kind: 'box', id: stepId, title, step: { status: 'planned' } } },
     ...wireOps,
   ]);
   if (typeof ops === 'string') return { ok: false, text: ops };
@@ -325,18 +310,16 @@ async function setStepStatus(boardRef: string, stepId: string, statusText: strin
   return putPlanOps(boardRef, [{ op: 'set', id: stepId, fields: { step: { status } } }], `${stepId} is now ${status}; run glimmervoid whiteboard get ${boardRef} --layout to check it against the code session changes`);
 }
 
-function formatPlan(board: Board, boards: readonly BoardSummary[], changes: readonly BoardChange[]): string {
+function formatPlan(board: Board, changes: readonly BoardChange[]): string {
   const steps = planSteps(board);
   if (steps.length === 0) return `Board "${board.title}" has no plan yet; add a step with glimmervoid whiteboard plan add ${board.id} <title>`;
-  const titleById = new Map(boards.map((summary) => [summary.id, summary.title]));
   const labelWidth = Math.max(...steps.map((step) => step.label.length));
   const idWidth = Math.max(...steps.map((step) => step.boxId.length));
   const statusWidth = Math.max(...steps.map((step) => step.status.length));
   const lines = [`Plan on "${board.title}" (${steps.length} ${steps.length === 1 ? 'step' : 'steps'})`];
   for (const step of steps) {
     const after = step.afterLabels.length > 0 ? `  after ${step.afterLabels.join(', ')}` : '';
-    const link = step.linkedBoardId === null ? '' : `  board "${titleById.get(step.linkedBoardId) ?? step.linkedBoardId}"`;
-    lines.push(`${step.label.padEnd(labelWidth)}  ${step.boxId.padEnd(idWidth)}  ${step.status.padEnd(statusWidth)}  ${step.title}${after}${link}`);
+    lines.push(`${step.label.padEnd(labelWidth)}  ${step.boxId.padEnd(idWidth)}  ${step.status.padEnd(statusWidth)}  ${step.title}${after}`);
   }
   if (changes.length > 0) lines.push('', 'Changes since this session last read the board:', ...changes.map((change) => `- ${change.summary}`));
   return lines.join('\n');
@@ -345,8 +328,7 @@ function formatPlan(board: Board, boards: readonly BoardSummary[], changes: read
 async function showPlan(boardRef: string): Promise<PlanReply> {
   const read = await readBoard(boardRef, { isPeek: false });
   if (typeof read === 'string') return { ok: false, text: read };
-  const boards = await listBoards({ all: true });
-  return { ok: true, text: formatPlan(read.board, typeof boards === 'string' ? [] : boards, read.changes) };
+  return { ok: true, text: formatPlan(read.board, read.changes) };
 }
 
 function runPlanAction(parsed: ParsedArguments, boardRef: string): Promise<PlanReply> {

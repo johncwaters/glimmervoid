@@ -373,7 +373,6 @@ const PLAN_SUBCOMMANDS: readonly CommandSpec[] = [
     positionals: { usage: '<board> <title>', min: 2, max: null },
     options: [
       { name: 'after', type: 'string', valueName: 'steps', summary: 'Comma-separated ids of the steps this one comes after; each becomes a wire into it' },
-      { name: 'link', type: 'string', valueName: 'board', summary: 'Another board, by id or title, that holds this step\'s detail' },
       { name: 'id', type: 'string', valueName: 'id', summary: 'The step box id, when the one made from its title is taken' },
     ],
     missingArgumentHint: 'plan add needs a board and a title, for example "glimmervoid whiteboard plan add release-plan Diff index schema"',

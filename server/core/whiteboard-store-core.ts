@@ -20,7 +20,7 @@ function elementWithMediaForImage(element: unknown): unknown {
 function stepBoxForUnit(unit: Record<string, unknown>): Record<string, unknown> {
   return {
     kind: 'box', id: unit.id, title: unit.title, lines: unit.lines ?? [], refs: unit.refs ?? [],
-    step: { status: unit.status ?? 'planned', linkedBoardId: unit.linkedBoardId ?? null },
+    step: { status: unit.status ?? 'planned' },
   };
 }
 
@@ -29,11 +29,45 @@ function boxForPanel(element: unknown): unknown {
   return { kind: 'box', id: element.id, title: element.title, lines: element.lines ?? [], order: element.order ?? 0, shape: 'panel' };
 }
 
-function boxWithOutputsOnlyOnDecision(element: unknown): unknown {
-  if (!isRecord(element) || element.kind !== 'box' || element.shape === 'decision' || !Array.isArray(element.outputs)) return element;
-  if (element.outputs.length > 0) return { ...element, shape: 'decision' };
-  const { outputs, ...elementWithoutOutputs } = element;
-  return elementWithoutOutputs;
+function lineWithoutRetiredFields(line: unknown): unknown {
+  if (!isRecord(line)) return line;
+  const { icon: _icon, ref: _ref, ...keptLine } = line;
+  return keptLine.style === 'numbered' ? { ...keptLine, style: 'item' } : keptLine;
+}
+
+function stepWithoutLink(step: unknown): unknown {
+  if (!isRecord(step)) return step;
+  const { linkedBoardId: _linkedBoardId, ...keptStep } = step;
+  return keptStep;
+}
+
+function boxWithoutRetiredFields(box: Record<string, unknown>): Record<string, unknown> {
+  const { outputs: _outputs, ...keptBox } = box;
+  const lines = Array.isArray(box.lines) ? { lines: box.lines.map(lineWithoutRetiredFields) } : {};
+  const step = 'step' in box ? { step: stepWithoutLink(box.step) } : {};
+  return { ...keptBox, ...lines, ...step };
+}
+
+function withoutRetiredFields(element: unknown): unknown {
+  if (!isRecord(element)) return element;
+  if (element.kind === 'box') return boxWithoutRetiredFields(element);
+  if (element.kind === 'wire') {
+    const { fromOutput: _fromOutput, back: _back, ...keptWire } = element;
+    return keptWire;
+  }
+  if (element.kind !== 'frame') return element;
+  const { loop: _loop, ...keptFrame } = element;
+  return keptFrame;
+}
+
+function withoutRetiredLegend(legend: unknown): unknown {
+  if (!Array.isArray(legend)) return legend;
+  return legend.flatMap((entry) => {
+    if (!isRecord(entry)) return [entry];
+    if (entry.back === true) return [];
+    const { back: _back, ...keptEntry } = entry;
+    return [keptEntry];
+  });
 }
 
 function elementsWithStepBoxesForUnits(elements: Record<string, unknown>): Record<string, unknown> {
@@ -212,7 +246,7 @@ function noteWireIdOf(note: StoredNote, takenIds: Set<string>): string {
 }
 
 function noteWireOf(wireId: string, note: StoredNote): Record<string, unknown> {
-  return { kind: 'wire', id: wireId, from: note.id, to: note.on, fromOutput: null, dashed: true, tone: 'plain', label: null, fromSide: null, toSide: null, back: false };
+  return { kind: 'wire', id: wireId, from: note.id, to: note.on, dashed: true, tone: 'plain', label: null, fromSide: null, toSide: null };
 }
 
 function drawnRectsOf(board: Record<string, unknown>, elements: Record<string, unknown>): Map<string, PlacedBox> {
@@ -251,8 +285,8 @@ function boxesForNotes(board: Record<string, unknown>, elements: Record<string, 
 function upgradedBoardRecord(raw: unknown): unknown {
   const board = isRecord(raw) ? raw.board : null;
   if (!isRecord(raw) || !isRecord(board) || !isRecord(board.elements)) return raw;
-  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, boxWithOutputsOnlyOnDecision(boxForPanel(elementWithMediaForImage(element)))]));
-  const freeBoard = freeCanvasBoard(board, elements);
+  const elements = Object.fromEntries(Object.entries(elementsWithStepBoxesForUnits(board.elements)).map(([elementId, element]) => [elementId, withoutRetiredFields(boxForPanel(elementWithMediaForImage(element)))]));
+  const freeBoard = freeCanvasBoard('legend' in board ? { ...board, legend: withoutRetiredLegend(board.legend) } : board, elements);
   if (!isRecord(freeBoard.elements)) return { ...raw, board: freeBoard };
   const pinnedElements = pinnedNearBoxes(freeBoard, freeBoard.elements);
   return { ...raw, board: { ...freeBoard, elements: boxesForNotes(freeBoard, pinnedElements) } };
