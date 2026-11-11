@@ -16,7 +16,7 @@ import { SCOPE_LABELS, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSett
 import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from './settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
-import type { ViewModule } from '../view-registry-core.ts';
+import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { appendShortcutChord, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
@@ -27,11 +27,12 @@ import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settings
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentLoginsChanged } from '../dialogs.ts';
-import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, syncSettingsViewMapToBuild, viewMap, websiteUrl } from './settings-panel-state.ts';
+import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, syncSettingsViewMapToBuild, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
 import { appendCopyControl, buildChip, buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksPage } from '../packs/packs-settings.ts';
 import { renderSecretsPage } from '../secrets/secrets-settings.ts';
+import { refreshHooksPage, renderHooksPage } from '../hooks-panel.ts';
 import { refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
@@ -278,6 +279,11 @@ function renderContent() {
 
   if (selectedPage.id === FEATURES_PAGE_ID) {
     renderFeatureList(contentEl);
+    return;
+  }
+
+  if (selectedPage.id === HOOKS_PAGE_ID) {
+    renderHooksPage(contentEl);
     return;
   }
 
@@ -659,6 +665,10 @@ function refreshShortcutGroups() {
 
 setPanelRefresher({ refreshRow, refreshRowFoot, refreshSettingsStatus, refreshShortcutGroups });
 
-const view: ViewModule<HTMLElement> = { mount: mountSettingsView };
+function refreshSettingsView(reason: ViewRefreshReason) {
+  if (selectedPage.id === HOOKS_PAGE_ID) refreshHooksPage(reason);
+}
+
+const view: ViewModule<HTMLElement> = { mount: mountSettingsView, refresh: refreshSettingsView };
 
 export { view };

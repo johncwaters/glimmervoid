@@ -70,7 +70,7 @@ import {
 import type { AgentHookGroup, AgentNote, InstalledHookRow } from '#shared/contracts/hooks.ts';
 import type { HookDraft, HookEvent, HookProject, HookRecord } from './hooks-view-core.ts';
 import { hooksSnapshot, requestHooksReport, subscribeHooks } from './hooks-store.ts';
-import type { ViewModule, ViewRefreshReason } from './view-registry-core.ts';
+import type { ViewRefreshReason } from './view-registry-core.ts';
 
 let _hooks = hooksSnapshot();
 let _root: HTMLDivElement | null = null;
@@ -573,17 +573,16 @@ function render({ force = false }: { force?: boolean } = {}) {
   if (add instanceof HTMLButtonElement) add.focus();
 }
 
-function mountHooksView(parent: HTMLElement) {
-  if (_root) return;
-  _root = el('div', 'hooks-panel');
-  parent.append(_root);
-  subscribeHooks(() => render());
-  render({ force: true });
-}
+subscribeHooks(() => render());
 
-function refreshHooksView(reason: ViewRefreshReason) {
-  if (reason === 'shown') render({ force: true });
+export function renderHooksPage(container: HTMLElement) {
+  _root = el('div', 'hooks-panel');
+  container.append(_root);
+  render({ force: true });
   requestHooksReport();
 }
 
-export const view: ViewModule<HTMLElement> = { mount: mountHooksView, refresh: refreshHooksView };
+export function refreshHooksPage(reason: ViewRefreshReason) {
+  if (reason === 'shown') render({ force: true });
+  requestHooksReport();
+}

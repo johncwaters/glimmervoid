@@ -16,7 +16,7 @@ import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { setOpenInReview } from './whiteboard/board-store.ts';
-import { BENCH_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, HOOKS_ICON_PATH, ISSUES_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
+import { BENCH_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, ISSUES_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
 import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
 import type { PackPanelView } from './packs/pack-views.ts';
@@ -156,10 +156,9 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'radar', label: 'Radar', iconPath: RADAR_ICON_PATH, panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
     { view: 'community', label: 'Community', iconPath: COMMUNITY_ICON_PATH, panelClass: 'community-view', gate: { fromSettings: FEATURE_SURFACE_RULES.community }, load: () => import('./community/community-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setCommunityActivityCallback, acknowledge: acknowledgeCommunityAttention }, onConnectionChange: applyCommunityConnectionState },
     { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
-    { view: 'hooks', label: 'Hooks', iconPath: HOOKS_ICON_PATH, panelClass: 'hooks-view', load: () => import('./hooks-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
     { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Arena', iconPath: BENCH_ICON_PATH, panelClass: 'bench-view', load: () => import('./arena/arena-panel.ts').then((panel) => panel.view), onConnectionChange: applyBenchmarkConnectionState },
-    { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view) },
+    { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
   ];
 
   const views = definitions.map((definition) => buildDashboardView(definition, createLineIcon(definition.iconPath), actions.setPhoneAttention));

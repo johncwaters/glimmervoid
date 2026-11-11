@@ -46,6 +46,7 @@ const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHe
   ['machine-safety', 'Sessions'],
   ['machine-vault', 'Sessions'],
   ['machine-packs', 'Sessions'],
+  ['machine-hooks', 'Sessions'],
   ['browser-about', 'Machine'],
 ]);
 const NAVIGATION_HEADING_BY_LEVEL: Readonly<Record<SettingsSection['level'], SettingsNavigationHeading>> = {
