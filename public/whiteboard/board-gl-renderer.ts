@@ -16,7 +16,7 @@ import {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
   boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
 } from './board-gl-scene.ts';
-import type { BoardPalette, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
+import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
 import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, movedBoxesAt, stackFrameOfTopCard, stackMovesBetween } from './stack-motion-core.ts';
 import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
@@ -34,12 +34,13 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'port' | 'resize' | 'media';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media';
 
 interface BoardHit {
   id: string;
   kind: LaidOutElement['kind'];
   part: HitPart;
+  lineIndex: number | null;
   port: Point | null;
   media: { href: string; alt: string } | null;
 }
@@ -52,6 +53,7 @@ interface BoardRenderer {
   setCamera(camera: Camera): void;
   hitTest(point: Point): BoardHit | null;
   boundsOf(elementId: string): Rect | null;
+  boxTextRectsOf(boxId: string): BoxTextRects | null;
   elementsInRect(area: Rect): string[];
   boxIdsAt(point: Point): string[];
   setSelection(selectedIds: ReadonlySet<string>): void;
@@ -1336,7 +1338,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', port: null, media: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1363,6 +1365,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       const href = element.media.kind === 'image' ? servedAssetHref(element.media) ?? '' : '';
       return { ...hit, part: 'media', media: { href, alt: element.media.alt } };
     }
+    const lineIndex = shape.text.lines.findIndex((lineRect) => isInside(point, lineRect));
+    if (lineIndex >= 0) return { ...hit, part: 'line', lineIndex };
+    if (shape.text.emptyBody && isInside(point, shape.text.emptyBody)) return { ...hit, part: 'emptyBody' };
     return hit;
   }
 
@@ -1397,6 +1402,13 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (previewGeometry) return previewGeometry.bounds;
     const index = current.geometryIndexById.get(elementId);
     return index === undefined ? null : (current.geometries[index]?.bounds ?? null);
+  }
+
+  function boxTextRectsOf(boxId: string): BoxTextRects | null {
+    const current = scene;
+    const index = current?.geometryIndexById.get(boxId);
+    const hitShape = index === undefined ? null : current?.geometries[index]?.hitShape;
+    return hitShape?.kind === 'rect' ? hitShape.text : null;
   }
 
   function boxIdsAt(point: Point): string[] {
@@ -1541,6 +1553,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     },
     hitTest,
     boundsOf,
+    boxTextRectsOf,
     elementsInRect,
     boxIdsAt,
     setSelection: (nextSelectedIds) => {

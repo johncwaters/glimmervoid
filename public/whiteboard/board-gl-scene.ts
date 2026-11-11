@@ -4,6 +4,7 @@ import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shar
 import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
+import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
@@ -88,8 +89,14 @@ interface ElementGeometry {
   hitShape: HitShape;
 }
 
+interface BoxTextRects {
+  title: Rect;
+  lines: readonly Rect[];
+  emptyBody: Rect | null;
+}
+
 type HitShape =
-  | { kind: 'rect'; rect: Rect; mediaRect: Rect | null; hasDrawnMedia: boolean }
+  | { kind: 'rect'; rect: Rect; mediaRect: Rect | null; hasDrawnMedia: boolean; text: BoxTextRects }
   | { kind: 'outline'; rect: Rect; titleRect: Rect }
   | { kind: 'path'; points: Point[] };
 
@@ -104,6 +111,7 @@ const WIRE_LABEL_LAYER = 3;
 const BOX_LAYER = 4;
 const LAYER_BY_KIND: Record<LaidOutElement['kind'], number> = { frame: 1, wire: 2, box: BOX_LAYER, stroke: 5 };
 const MIN_TEXT_PX = 4;
+const ROW_DESCENT = 5;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
 const MIN_ARROWHEAD_PX = 4;
@@ -309,6 +317,29 @@ function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly
   });
 }
 
+function lineRectsOf(lines: readonly LaidOutLine[], box: Rect, bodyTop: number): Rect[] {
+  const lineRects: Rect[] = [];
+  lines.forEach((line, rowIndex) => {
+    const lastRect = lineRects.at(-1);
+    if (!line.isFirstRow && lastRect) {
+      lineRects[lineRects.length - 1] = { ...lastRect, height: lastRect.height + BODY_LINE_HEIGHT };
+      return;
+    }
+    lineRects.push({ x: box.x, y: bodyTop + rowIndex * BODY_LINE_HEIGHT - BODY_LINE_HEIGHT + ROW_DESCENT, width: box.width, height: BODY_LINE_HEIGHT });
+  });
+  return lineRects;
+}
+
+function boxTextRectsOf(box: LaidOutBox, titleTop: number, bodyTop: number): BoxTextRects {
+  const title = { x: box.x, y: titleTop - TITLE_LINE_HEIGHT + ROW_DESCENT, width: box.width, height: box.titleLines.length * TITLE_LINE_HEIGHT };
+  const lines = lineRectsOf(box.bodyLines, box, bodyTop);
+  const lastTextRect = lines.at(-1) ?? title;
+  const textBottom = lastTextRect.y + lastTextRect.height;
+  const boxBottom = box.y + box.height;
+  const hasEmptyBody = SHAPE_TRAITS[box.shape].holdsLines && boxBottom > textBottom;
+  return { title, lines, emptyBody: hasEmptyBody ? { x: box.x, y: textBottom, width: box.width, height: boxBottom - textBottom } : null };
+}
+
 type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone' | 'isBorderless'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
@@ -429,7 +460,7 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     pushOutlinedRect(part, box.media, 6, faded(palette.placeholderFill, opacity), faded(palette.inkDim, opacity), 1, { on: 4, off: 4 }, detailMinScale);
     pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, placeholderStyle);
   }
-  return { part, hitShape: { kind: 'rect', rect: box, mediaRect: box.media, hasDrawnMedia } };
+  return { part, hitShape: { kind: 'rect', rect: box, mediaRect: box.media, hasDrawnMedia, text: boxTextRectsOf(box, titleTop, bodyTop) } };
 }
 
 function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
@@ -642,4 +673,4 @@ export {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
   boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
 };
-export type { BoardPalette, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };
+export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };

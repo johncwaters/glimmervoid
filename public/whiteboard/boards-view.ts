@@ -512,7 +512,7 @@ function paintBoard(): void {
   editor?.pruneSelection(board);
   if (parts) parts.emptyBoardHint.hidden = tiled.elementCount > 0;
   paintReview();
-  editor?.openPendingTitleEdit();
+  editor?.afterBoardPaint();
   if (shouldFitOnNextRender) {
     editor?.fit();
     shouldFitOnNextRender = false;
@@ -537,7 +537,7 @@ function selectBoard(boardId: string): void {
   selectedBoardId = boardId;
   shouldFitOnNextRender = true;
   editor?.clearSelection();
-  editor?.closeTitleInput();
+  editor?.closeInlineEditor();
   inspector?.closeBoardSettings();
   renderer?.clear();
   status.clear();

@@ -728,6 +728,14 @@
     {
       "name": "merged",
       "definition": "A pull request's GitHub state once it lands on its base branch; the Reviews Merged column and an own pull request's Merged stage"
+    },
+    {
+      "name": "end",
+      "definition": "One of a wire's two attachment points on a whiteboard, its from end or its to end; the properties panel's Ends section picks the side of its box each attaches to, or auto"
+    },
+    {
+      "name": "backspace",
+      "definition": "The keyboard key that deletes the character before the cursor; pressed on an empty line in a whiteboard box's line editor it removes that line and moves to the line above"
     }
   ],
   "retired": [

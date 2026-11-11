@@ -1,8 +1,14 @@
-import { filledElement, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, Box, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import { filledElement, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
+import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
+import { BODY_LINE_HEIGHT } from '#shared/whiteboard-svg-core.ts';
 import { el } from '../dom-helpers.ts';
+import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
+import { menuButton } from '../ui/button.ts';
+import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
+import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
 import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
@@ -130,11 +136,30 @@ function pressedImageOf(hit: BoardHit | null): PressedImage | null {
 
 const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in' };
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in' };
+const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
+const MIN_TITLE_EDITOR_WIDTH_PX = 160;
+const MIN_LINE_EDITOR_WIDTH_PX = 240;
+
+type LineEditing = Extract<LineEditState, { mode: 'editing' }>;
+
+interface InlineEditor {
+  node: HTMLElement;
+  rectOf: () => Rect | null;
+  minWidthPx: number;
+  abort: AbortController;
+}
+
+interface UnconfirmedLines {
+  boardId: string;
+  boxId: string;
+  linesOnTheWay: readonly (readonly BoxLine[])[];
+  lines: readonly BoxLine[];
+}
 
 function hoverCursorOf(hit: BoardHit | null): string {
   if (!hit) return '';
-  if (hit.part === 'body' && hit.kind === 'box') return 'move';
+  if (hit.kind === 'box' && MOVABLE_BOX_PARTS.has(hit.part)) return 'move';
   return CURSOR_BY_HIT_PART[hit.part];
 }
 
@@ -151,7 +176,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let selectedIds = new Set<string>();
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let gesture: Gesture = null;
-  let titleInput: HTMLInputElement | null = null;
+  let inlineEditor: InlineEditor | null = null;
+  let lineEdit: LineEditState = CLOSED_LINE_EDIT;
+  let unconfirmedLines: UnconfirmedLines | null = null;
+  let linesUnderLineEdit: readonly BoxLine[] | null = null;
   let previewFrameId: number | null = null;
   let activeTool: BoardTool = 'select';
   let pendingTitleEditId: string | null = null;
@@ -166,6 +194,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function applyCamera(): void {
     world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
     renderer.setCamera(camera);
+    placeInlineEditor();
   }
 
   function viewWidth(): number {
@@ -451,7 +480,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (titleInput) return;
+    if (inlineEditor) return;
     if (event.pointerType === 'mouse' && MOUSE_PAN_BUTTONS.has(event.button) && !gesture) {
       startButtonPan(event);
       return;
@@ -765,56 +794,276 @@ export function createBoardEditor(options: BoardEditorOptions) {
     panByPixels(-event.deltaX, -event.deltaY);
   }
 
-  function closeTitleInput(): void {
-    const openInput = titleInput;
-    titleInput = null;
-    openInput?.remove();
+  function placeInlineEditor(): void {
+    const rect = inlineEditor?.rectOf();
+    if (!inlineEditor || !rect) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const { style } = inlineEditor.node;
+    style.left = `${viewportRect.left + viewport.clientLeft + (rect.x - camera.x) * camera.scale - canvasRect.left}px`;
+    style.top = `${viewportRect.top + viewport.clientTop + (rect.y - camera.y) * camera.scale - canvasRect.top}px`;
+    style.width = `${Math.max(inlineEditor.minWidthPx, rect.width * camera.scale)}px`;
+  }
+
+  function closeInlineEditor(): void {
+    const openEditor = inlineEditor;
+    inlineEditor = null;
+    lineEdit = CLOSED_LINE_EDIT;
+    linesUnderLineEdit = null;
+    openEditor?.abort.abort();
+    openEditor?.node.remove();
+  }
+
+  function openInlineEditor(node: HTMLElement, rectOf: () => Rect | null, minWidthPx: number): AbortSignal {
+    closeInlineEditor();
+    const abort = new AbortController();
+    inlineEditor = { node, rectOf, minWidthPx, abort };
+    canvas.append(node);
+    placeInlineEditor();
+    return abort.signal;
   }
 
   function editTitle(elementId: string): void {
-    const board = options.currentBoard();
-    const titled = board?.elements.get(elementId);
-    const bounds = renderer.boundsOf(elementId);
-    if (titled?.kind !== 'box' || !bounds) return;
-    closeTitleInput();
-    const canvasRect = canvas.getBoundingClientRect();
-    const viewportRect = viewport.getBoundingClientRect();
-    const boxRect = { left: viewportRect.left + viewport.clientLeft + (bounds.x - camera.x) * camera.scale, top: viewportRect.top + viewport.clientTop + (bounds.y - camera.y) * camera.scale, width: bounds.width * camera.scale };
+    const titled = options.currentBoard()?.elements.get(elementId);
+    if (titled?.kind !== 'box' || !renderer.boxTextRectsOf(elementId)) return;
     const input = el('input', 'wb-title-input');
     input.type = 'text';
     input.value = titled.title;
-    input.maxLength = 80;
+    input.maxLength = WHITEBOARD_LIMITS.title;
     input.setAttribute('aria-label', 'Box title');
-    input.style.left = `${boxRect.left - canvasRect.left}px`;
-    input.style.top = `${boxRect.top - canvasRect.top}px`;
-    input.style.width = `${Math.max(160, boxRect.width)}px`;
-    titleInput = input;
-    canvas.append(input);
+    const signal = openInlineEditor(input, () => renderer.boxTextRectsOf(elementId)?.title ?? null, MIN_TITLE_EDITOR_WIDTH_PX);
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        closeTitleInput();
+        closeInlineEditor();
         viewport.focus();
         return;
       }
       if (event.key !== 'Enter') return;
       event.preventDefault();
       const title = input.value.trim();
-      closeTitleInput();
+      closeInlineEditor();
       viewport.focus();
       if (!title || title === titled.title) return;
       void options.sendOps([{ op: 'set', id: elementId, fields: { title } }]);
-    });
-    input.addEventListener('blur', closeTitleInput);
+    }, { signal });
+    input.addEventListener('blur', closeInlineEditor, { signal });
     input.focus();
     input.select();
+  }
+
+  function editedBox(boxId: string): Box | null {
+    const element = options.currentBoard()?.elements.get(boxId);
+    return element?.kind === 'box' ? element : null;
+  }
+
+  function unconfirmedLinesOf(box: Box): UnconfirmedLines | null {
+    const isThisBox = unconfirmedLines?.boxId === box.id && unconfirmedLines.boardId === options.currentBoard()?.id;
+    return isThisBox ? unconfirmedLines : null;
+  }
+
+  function linesOfBox(box: Box): readonly BoxLine[] {
+    return unconfirmedLinesOf(box)?.lines ?? box.lines;
+  }
+
+  function settleUnconfirmedLines(): void {
+    if (!unconfirmedLines) return;
+    const box = editedBox(unconfirmedLines.boxId);
+    const unconfirmed = box ? unconfirmedLinesOf(box) : null;
+    const isOwnSendStillLanding = box !== null && unconfirmed !== null && !isSameLines(box.lines, unconfirmed.lines) && unconfirmed.linesOnTheWay.some((lines) => isSameLines(box.lines, lines));
+    if (!isOwnSendStillLanding) unconfirmedLines = null;
+  }
+
+  function sendLineOps(lineOps: readonly LineOp[]): void {
+    const [firstOp] = lineOps;
+    const boardId = options.currentBoard()?.id;
+    const box = firstOp ? editedBox(firstOp.boxId) : null;
+    if (!box || !boardId) return;
+    const currentLines = linesOfBox(box);
+    const lines = linesAfter(currentLines, lineOps);
+    if (isSameLines(lines, currentLines)) return;
+    const linesOnTheWay = unconfirmedLinesOf(box)?.linesOnTheWay ?? [box.lines];
+    unconfirmedLines = { boardId, boxId: box.id, linesOnTheWay: [...linesOnTheWay, lines], lines };
+    void options.sendOps([{ op: 'set', id: box.id, fields: { lines } }]).then((isSent) => {
+      if (isSent || unconfirmedLines?.boxId !== box.id || unconfirmedLines.boardId !== boardId) return;
+      unconfirmedLines = null;
+      closeStaleLineEdit();
+    });
+  }
+
+  function lineSlotRect(editing: LineEditing): Rect | null {
+    const textRects = renderer.boxTextRectsOf(editing.boxId);
+    if (!textRects) return null;
+    const drawnIndex = Math.min(editing.isNewLine ? editing.lineIndex - 1 : editing.lineIndex, textRects.lines.length - 1);
+    const drawnRect = textRects.lines[drawnIndex] ?? textRects.title;
+    if (!editing.isNewLine) return drawnRect;
+    return { x: drawnRect.x, y: drawnRect.y + drawnRect.height, width: drawnRect.width, height: BODY_LINE_HEIGHT };
+  }
+
+  function applyLineEdit(event: LineEditEvent): void {
+    const { state, lineOps } = nextLineEdit(lineEdit, event);
+    sendLineOps(lineOps);
+    if (state === lineEdit) return;
+    if (state.mode === 'closed') {
+      closeInlineEditor();
+      return;
+    }
+    editLine(state);
+  }
+
+  function draftLineOf(editing: LineEditing, box: Box): BoxLine {
+    const lines = linesOfBox(box);
+    const editedLine = editing.isNewLine ? null : lines[editing.lineIndex];
+    if (editedLine) return editedLine;
+    const lineAbove = lines[editing.lineIndex - 1];
+    return lineAbove ? lineWithStyle({ ...EMPTY_LINE, muted: lineAbove.muted }, lineAbove.style) : EMPTY_LINE;
+  }
+
+  function lineStyleMenu(chooseStyle: (style: BoxLine['style']) => void, toggleMuted: () => void, signal: AbortSignal) {
+    const menu = el('div', 'popup-menu wb-line-style-menu');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Line style');
+    const isOpen = () => menu.classList.contains('open');
+    const setOpen = (shouldOpen: boolean) => {
+      menu.classList.toggle('open', shouldOpen);
+      trigger.setAttribute('aria-expanded', String(shouldOpen));
+    };
+    const trigger = menuButton({ label: 'Line style', action: 'line-style', onClick: () => setOpen(!isOpen()) });
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    const styleItems = LINE_STYLES.map((style) => {
+      const item = buildMenuItem(LINE_STYLE_LABELS[style], 'wb-line-style-item');
+      item.setAttribute('role', 'menuitemradio');
+      item.addEventListener('click', () => {
+        setOpen(false);
+        chooseStyle(style);
+      }, { signal });
+      return { style, item };
+    });
+    const mutedItem = buildMenuItem('Muted', 'wb-line-style-item');
+    mutedItem.setAttribute('role', 'menuitemcheckbox');
+    mutedItem.addEventListener('click', () => {
+      setOpen(false);
+      toggleMuted();
+    }, { signal });
+    menu.append(...styleItems.map(({ item }) => item), mutedItem);
+    wirePopupMenuKeys({ trigger, menu, menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')], isOpen, open: () => setOpen(true), close: () => setOpen(false), signal });
+    const paint = (line: BoxLine) => {
+      for (const { style, item } of styleItems) item.setAttribute('aria-checked', String(style === line.style));
+      mutedItem.setAttribute('aria-checked', String(line.muted));
+    };
+    return { trigger, menu, paint };
+  }
+
+  function editLine(editing: LineEditing): void {
+    const box = editedBox(editing.boxId);
+    if (!box || !lineSlotRect(editing)) {
+      closeInlineEditor();
+      return;
+    }
+    let draftLine = draftLineOf(editing, box);
+    const storedText = draftLine.text;
+    let shownKey = '';
+    const editor = el('div', 'wb-line-editor');
+    const keyInput = el('input', 'wb-line-key');
+    keyInput.type = 'text';
+    keyInput.maxLength = WHITEBOARD_LIMITS.lineKey;
+    keyInput.setAttribute('aria-label', 'Line key');
+    const textInput = el('input', 'wb-line-text');
+    textInput.type = 'text';
+    textInput.maxLength = WHITEBOARD_LIMITS.line;
+    textInput.value = storedText;
+    const shownText = textInput.value;
+    textInput.setAttribute('aria-label', 'Box line');
+    const signal = openInlineEditor(editor, () => lineSlotRect(editing), MIN_LINE_EDITOR_WIDTH_PX);
+    lineEdit = editing;
+    linesUnderLineEdit = linesOfBox(box);
+    const typedKey = () => {
+      if (draftLine.style !== 'kv' || keyInput.value === shownKey) return draftLine.key;
+      return keyInput.value.trim() || draftLine.key;
+    };
+    const typedLine = (): BoxLine => ({ ...draftLine, text: textInput.value === shownText ? storedText : textInput.value, key: typedKey() });
+    const paintDraft = () => {
+      editor.dataset.lineStyle = draftLine.style;
+      editor.dataset.muted = String(draftLine.muted);
+      keyInput.hidden = draftLine.style !== 'kv';
+      keyInput.value = draftLine.key ?? '';
+      shownKey = keyInput.value;
+      styleMenu.paint(draftLine);
+    };
+    const styleMenu = lineStyleMenu((style) => {
+      draftLine = lineWithStyle(typedLine(), style);
+      paintDraft();
+      textInput.focus();
+    }, () => {
+      draftLine = { ...typedLine(), muted: !draftLine.muted };
+      paintDraft();
+      textInput.focus();
+    }, signal);
+    const onFieldKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        applyLineEdit({ kind: 'escape' });
+        viewport.focus();
+        return;
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        const enteredBox = editedBox(editing.boxId);
+        applyLineEdit({ kind: 'enter', draft: typedLine(), lineCount: enteredBox ? linesOfBox(enteredBox).length : 0 });
+        if (lineEdit.mode === 'closed') viewport.focus();
+        return;
+      }
+      if (event.key !== 'Backspace' || event.target !== textInput || textInput.value) return;
+      event.preventDefault();
+      applyLineEdit({ kind: 'backspaceOnEmptyLine' });
+      if (lineEdit.mode === 'closed') viewport.focus();
+    };
+    keyInput.addEventListener('keydown', onFieldKey, { signal });
+    textInput.addEventListener('keydown', onFieldKey, { signal });
+    editor.addEventListener('mousedown', (event) => {
+      if (event.target !== keyInput && event.target !== textInput) event.preventDefault();
+    }, { signal });
+    editor.addEventListener('focusout', (event) => {
+      if (event.relatedTarget instanceof Node && editor.contains(event.relatedTarget)) return;
+      applyLineEdit({ kind: 'blur', draft: typedLine() });
+    }, { signal });
+    editor.append(keyInput, textInput, styleMenu.trigger, styleMenu.menu);
+    paintDraft();
+    textInput.focus();
+  }
+
+  function closeStaleLineEdit(): void {
+    if (lineEdit.mode !== 'editing') return;
+    const box = editedBox(lineEdit.boxId);
+    if (box && linesUnderLineEdit && isSameLines(linesOfBox(box), linesUnderLineEdit)) return;
+    applyLineEdit({ kind: 'linesChangedUnderEditor' });
+  }
+
+  function afterBoardPaint(): void {
+    settleUnconfirmedLines();
+    closeStaleLineEdit();
+    placeInlineEditor();
+    openPendingTitleEdit();
   }
 
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
     const hit = hitAt(event.clientX, event.clientY);
-    if (hit?.kind !== 'box') return;
-    editTitle(hit.id);
+    const box = hit?.kind === 'box' ? editedBox(hit.id) : null;
+    if (!hit || !box) return;
+    const lineCount = linesOfBox(box).length;
+    const { lineIndex } = hit;
+    if (hit.part === 'line' && lineIndex !== null && lineIndex < lineCount) {
+      applyLineEdit({ kind: 'doubleClickLine', boxId: box.id, lineIndex });
+      return;
+    }
+    const isBelowStoredLines = hit.part === 'emptyBody' || hit.part === 'line';
+    if (isBelowStoredLines && SHAPE_TRAITS[box.shape].holdsLines) {
+      applyLineEdit({ kind: 'doubleClickEmptyBody', boxId: box.id, lineCount });
+      return;
+    }
+    editTitle(box.id);
   }
 
   function removeSelected(): void {
@@ -871,10 +1120,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     clearSelection: () => setSelection(new Set()),
     pruneSelection,
     repaintPreview,
-    closeTitleInput,
+    closeInlineEditor,
     setTool,
     placeMediaBox,
-    openPendingTitleEdit,
+    afterBoardPaint,
     focusCanvas: () => viewport.focus(),
     removeSelected,
     zoomAroundClientPoint: (clientX: number, clientY: number, viewWidthFactor: number) => zoomAround(toViewPoint(clientX, clientY), viewWidthFactor),

@@ -13,6 +13,7 @@ import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHIT
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
 const MERGE_SETTLE_MS = 1500;
@@ -308,6 +309,67 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'a selected stroke erases with Delete', (element) => element.id === ink.id);
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [placedNote.id, looseWords.id].map((id) => ({ op: 'remove', id })) });
   await boardWithout(open, 'the note and text check cleans up', (element) => element.id === placedNote.id);
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
+function lineTextsOf(element: BoardElement): string[] {
+  return element.kind === 'box' ? element.lines.map((line) => line.text) : [];
+}
+
+async function lineCenterOf(open: OpenBoard, boxId: string, lineIndex: number): Promise<{ x: number; y: number }> {
+  const laidOut = await laidOutOf(open, boxId);
+  assert.ok(laidOut.kind === 'box', `${boxId} is a box`);
+  const firstRowIndexes = laidOut.bodyLines.flatMap((line, rowIndex) => (line.isFirstRow ? [rowIndex] : []));
+  const rowIndex = firstRowIndexes[lineIndex];
+  assert.ok(rowIndex !== undefined, `${boxId} draws line ${lineIndex}`);
+  const baseline = laidOut.y + TITLE_BASELINE + (laidOut.wasLines.length + laidOut.titleLines.length) * TITLE_LINE_HEIGHT + rowIndex * BODY_LINE_HEIGHT;
+  const camera = await cameraOf(open);
+  return { x: camera.left + camera.translateX + (laidOut.x + 40) * camera.scale, y: camera.top + camera.translateY + (baseline - 4) * camera.scale };
+}
+
+async function verifyLineEditing(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('r');
+  const card = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Line card');
+  const cardRect = await screenRectOf(open, card.id);
+  await page.mouse.dblclick(cardRect.x + 40, cardRect.y + cardRect.height - 5);
+  const lineInput = page.getByRole('textbox', { name: 'Box line', exact: true });
+  await lineInput.fill('first');
+  await page.keyboard.press('Enter');
+  await lineInput.fill('second');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await elementWhere(open, 'double-clicking the empty body and pressing Enter adds lines', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first|second');
+  assert.equal(await lineInput.count(), 0, 'Enter on an empty new line closes the line editor');
+  const firstLine = await lineCenterOf(open, card.id, 0);
+  await page.mouse.dblclick(firstLine.x, firstLine.y);
+  assert.equal(await lineInput.inputValue(), 'first', 'double-clicking a line edits that line');
+  await lineInput.fill('discarded');
+  await page.keyboard.press('Escape');
+  assert.equal(await lineInput.count(), 0, 'Escape closes the line editor');
+  await page.mouse.dblclick(firstLine.x, firstLine.y);
+  const styleButton = page.getByRole('button', { name: 'Line style', exact: true });
+  await styleButton.click();
+  await page.getByRole('menuitemradio', { name: 'Code', exact: true }).click();
+  await styleButton.click();
+  await page.getByRole('menuitemcheckbox', { name: 'Muted', exact: true }).click();
+  assert.equal(await lineInput.inputValue(), 'first', 'the style menu keeps the line editor open');
+  await lineInput.fill('first code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  const styled = await elementWhere(open, 'the style menu sets the line style and muted', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first code|second');
+  assert.ok(styled.kind === 'box' && styled.lines[0]?.style === 'code' && styled.lines[0].muted, 'the first line is muted code');
+  const secondLine = await lineCenterOf(open, card.id, 1);
+  await page.mouse.dblclick(secondLine.x, secondLine.y);
+  await lineInput.fill('');
+  await page.keyboard.press('Backspace');
+  assert.equal(await lineInput.inputValue(), 'first code', 'Backspace on an empty line edits the line above');
+  await page.keyboard.press('Escape');
+  await elementWhere(open, 'Backspace on an empty line removes it', (element) => element.id === card.id && lineTextsOf(element).join('|') === 'first code');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: card.id }] });
+  await boardWithout(open, 'the line editing check cleans up', (element) => element.id === card.id);
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
 }
@@ -1026,6 +1088,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
+    await verifyLineEditing(open);
     await verifyPageDials(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);

@@ -11,6 +11,7 @@ import { CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape } from '
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { iconGlyph, iconPicker } from './board-icon-picker.ts';
+import { LINE_STYLE_LABELS, lineWithStyle } from './board-line-edit.ts';
 
 type LegendEntry = Board['legend'][number];
 type Choice = { value: string; text: string };
@@ -55,7 +56,6 @@ interface WireStyle {
 }
 
 const NEW_REF = 'README.md';
-const LINE_STYLE_LABELS: Readonly<Record<BoxLine['style'], string>> = { text: 'Text', code: 'Code', item: 'Bullet', kv: 'Key and value' };
 const WIRE_TONE_LABELS: Readonly<Record<Wire['tone'], string>> = { plain: 'Plain', fail: 'Failure', join: 'Join' };
 const CHANGE_LABELS: Readonly<Record<Box['change'], string>> = { none: 'Unchanged', added: 'Added', removed: 'Removed', relabeled: 'Renamed' };
 const STEP_CHOICE_LABELS: Readonly<Record<StepChoice, string>> = { none: 'Not a step', planned: 'Planned', building: 'Building', landed: 'Landed' };
@@ -249,11 +249,6 @@ function linkedFileSection(media: BoxMedia, linkState: LinkStateOfBox | null, la
   const section = el('div', 'wb-inspect-list');
   section.append(el('span', 'wb-inspect-label', 'Linked file'), pathInput, inlineRow(linkButton, unlinkButton), status);
   return section;
-}
-
-function lineWithStyle(line: BoxLine, style: BoxLine['style']): BoxLine {
-  if (style === 'kv') return { ...line, style, key: line.key || 'key' };
-  return { ...line, style };
 }
 
 function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: LatestItems<BoxLine>, commitLines: (lines: BoxLine[]) => void): HTMLElement {
