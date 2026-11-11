@@ -1,6 +1,4 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import { HINT_VIEW_BY_FEATURE } from '#shared/contracts/feature-hints.ts';
-import type { FeatureHint } from '#shared/contracts/feature-hints.ts';
 import { trackedReportNoticeText } from '#shared/post-turn-leftovers.ts';
 import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
@@ -8,13 +6,11 @@ import { queryTag, writeClipboardText } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../radar/radar-core.ts';
-import { createSettingsLink, settingsHash } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings/settings-link.ts';
 import { shouldShowTelemetryNotice } from '../telemetry-notice-core.ts';
 import { getDismissedUpdate, isTelemetryNoticeDismissed, setDismissedUpdate, setTelemetryNoticeDismissed } from '../ui-prefs.ts';
 import { updateBanner } from '../updates-view-core.ts';
-import { activateSettingsHash } from './hash-routes.ts';
 import { confirmServerRestart } from '../server-power.ts';
-import { isViewAvailable, openView } from './view-tabs.ts';
 
 const updateRestartButton = button({ variant: 'primary', size: 'small', label: 'Restart', action: 'restart-to-update', hidden: true });
 const updateCopyButton = button({ variant: 'secondary', size: 'small', label: 'Copy', action: 'copy-update-command' });
@@ -139,17 +135,6 @@ function mountTelemetryBanner() {
   telemetryDismissButton.addEventListener('click', dismissTelemetryBanner);
 }
 
-function showFeatureHintCard(hint: FeatureHint) {
-  void import('../feature-hint.ts').then(
-    (featureHint) => featureHint.showFeatureHint(hint, {
-      isFeatureEnabled: (feature) => isViewAvailable(HINT_VIEW_BY_FEATURE[feature]),
-      openView,
-      openSetting: (sectionId, settingId) => activateSettingsHash(settingsHash(sectionId, settingId)),
-    }),
-    (error: unknown) => reportToServerLog('feature-hint', `hint card failed to load: ${describeFailure(error)}`),
-  );
-}
-
 function showStarHintCard() {
   void import('../feature-hint.ts').then(
     (featureHint) => featureHint.showStarHint(),
@@ -157,4 +142,4 @@ function showStarHintCard() {
   );
 }
 
-export { mountTelemetryBanner, showFeatureHintCard, showPostTurnLeftoversBanner, showStarHintCard, showUpdateBanner, syncTelemetryBanner };
+export { mountTelemetryBanner, showPostTurnLeftoversBanner, showStarHintCard, showUpdateBanner, syncTelemetryBanner };

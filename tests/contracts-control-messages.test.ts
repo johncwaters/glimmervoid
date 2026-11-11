@@ -276,7 +276,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'workspace-repos', requestId: 'r4', id: 'session-1', ok: true, repos: ['/repos/one', '/repos/two'], error: null },
   { type: 'set-workspace-repos-result', requestId: 'r5', id: 'session-1', ok: false, error: 'two has uncommitted changes. Commit or discard them before removing it from the workspace.' },
   { type: 'hooks-updated', count: 1 },
-  { type: 'feature-hint', hint: { feature: 'teamReview', distinctTargetCount: 3, raisedAt: 1761740000000 } },
   { type: 'star-hint' },
   { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: 3000, state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
   { type: 'packs-status', warnings: [], packs: [

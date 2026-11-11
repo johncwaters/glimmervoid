@@ -37,7 +37,7 @@ interface LaneReader {
   githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue' | 'requestViewer' | 'requestViewerTeams'> };
   coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
-  featureHints: NonNullable<ControlHandlerDeps['featureHints']>;
+  starHint: NonNullable<ControlHandlerDeps['starHint']>;
   prFlows: NonNullable<ControlHandlerDeps['prFlows']>;
   packStore: NonNullable<ControlHandlerDeps['packs']>;
   packData: NonNullable<ControlHandlerDeps['packData']>;
@@ -160,7 +160,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getUpdateStatus: dependencies.getUpdateStatus,
     getUpdateJournal: dependencies.getUpdateJournal,
     getPostTurnLeftoversNotice: dependencies.getPostTurnLeftoversNotice,
-    featureHints: laneAssembly.featureHints,
+    starHint: laneAssembly.starHint,
     recheckPostTurnLeftovers: dependencies.recheckPostTurnLeftovers,
     checkNow: dependencies.checkNow,
     applyUpdate: dependencies.applyUpdate,

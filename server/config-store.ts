@@ -270,7 +270,6 @@ function createConfigStore({
       sessionOrder: config.sessionOrder ?? DEFAULT_CONFIG.sessionOrder,
       hiddenAgents: config.hiddenAgents ?? DEFAULT_CONFIG.hiddenAgents,
       remoteSessions: config.remoteSessions ?? effectiveDefaults.remoteSessions,
-      hintCards: config.hintCards ?? effectiveDefaults.hintCards,
       detectBackgroundAgents: config.detectBackgroundAgents ?? effectiveDefaults.detectBackgroundAgents,
       recordSignals: config.recordSignals ?? effectiveDefaults.recordSignals,
       trace: pickBlock('trace', { ...DEFAULT_CONFIG.trace, ...config.trace }),

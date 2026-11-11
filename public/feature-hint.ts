@@ -1,28 +1,15 @@
 import './feature-hint.css';
-import type { FeatureHint, HintFeature } from '#shared/contracts/feature-hints.ts';
-import { HINT_VIEW_BY_FEATURE } from '#shared/contracts/feature-hints.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { openExternalUrl } from './external-link.ts';
-import { featureHintMessage, featureSettingTarget } from './feature-hint-core.ts';
 import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
 import { button } from './ui/button.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 
-interface FeatureHintHost {
-  isFeatureEnabled: (feature: HintFeature) => boolean;
-  openView: (view: string) => void;
-  openSetting: (sectionId: string, settingId: string) => void;
-}
-
 let shownHintCard: HTMLElement | null = null;
 let isStarHintWaiting = false;
-
-function reportHintAction(feature: HintFeature, action: 'shown' | 'open' | 'dismiss') {
-  sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'hints', action, feature } });
-}
 
 function claimCard(category: string, cardKey: string) {
   try {
@@ -30,15 +17,6 @@ function claimCard(category: string, cardKey: string) {
   } catch {
     return true;
   }
-}
-
-function openHintedFeature(feature: HintFeature, host: FeatureHintHost) {
-  if (host.isFeatureEnabled(feature)) {
-    host.openView(HINT_VIEW_BY_FEATURE[feature]);
-    return;
-  }
-  const settingTarget = featureSettingTarget(feature);
-  if (settingTarget) host.openSetting(settingTarget.sectionId, settingTarget.settingId);
 }
 
 interface HintCardActions {
@@ -84,21 +62,6 @@ export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, o
 
   document.body.append(hintCard);
   shownHintCard = hintCard;
-}
-
-export function showFeatureHint(hint: FeatureHint, host: FeatureHintHost) {
-  if (isHintCardShown()) return;
-  if (!claimCard('feature-hint', `${hint.feature}-${hint.raisedAt}`)) return;
-  showHintCard({
-    text: featureHintMessage(hint),
-    ariaLabel: 'Feature tip',
-    onOpen: () => {
-      reportHintAction(hint.feature, 'open');
-      openHintedFeature(hint.feature, host);
-    },
-    onDismiss: () => reportHintAction(hint.feature, 'dismiss'),
-  });
-  reportHintAction(hint.feature, 'shown');
 }
 
 function reportStarHintAction(action: 'shown' | 'open' | 'dismiss') {

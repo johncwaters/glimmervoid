@@ -41,7 +41,7 @@ interface BackendShutdownDependencies {
   benchmarks?: Stoppable | null;
   races?: { stopWatching: () => unknown } | null;
   usage: Stoppable;
-  featureHints?: Stoppable | null;
+  starHint?: Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
   traceChangeBroadcast?: Stoppable | null;
@@ -119,8 +119,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const benchmarks = dependencies.benchmarks;
     if (benchmarks) stoppers.add('benchmarks', () => benchmarks.stop());
     stoppers.add('usage', () => dependencies.usage.stop());
-    const featureHints = dependencies.featureHints;
-    if (featureHints) stoppers.add('feature-hints', () => featureHints.stop());
+    const starHint = dependencies.starHint;
+    if (starHint) stoppers.add('star-hint', () => starHint.stop());
     destroySessions([dependencies.investigationSessions], pendingReaps);
     const traceWiring = dependencies.traceWiring;
     if (dependencies.traceChangeBroadcast) dependencies.traceChangeBroadcast.stop();

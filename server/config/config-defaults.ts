@@ -19,7 +19,6 @@ const DEFAULT_CONFIG = {
   sessionOrder: [] as string[],
   hiddenAgents: [] as string[],
   remoteSessions: false,
-  hintCards: false,
 
   detectBackgroundAgents: true,
 

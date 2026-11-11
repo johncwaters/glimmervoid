@@ -10,9 +10,9 @@ import type { ViteDevServer } from 'vite';
 import type WebSocket from 'ws';
 import { z } from 'zod';
 import { SessionCardFields } from '../../shared/contracts/control-messages.ts';
-import { FeatureHintState } from '../../shared/contracts/feature-hints.ts';
+import { StarHintState } from '../../shared/contracts/star-hint.ts';
 import { Op } from '../../shared/contracts/whiteboard.ts';
-import { emptyFeatureHintState } from '../../server/core/feature-hints-core.ts';
+import { emptyStarHintState } from '../../server/core/star-hint-core.ts';
 import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { configSiblingPath } from '../../server/pairings-store.ts';
@@ -255,7 +255,7 @@ export async function seedWhiteboard(configPath: string, seedPath: string, proje
 }
 
 export async function settleStarHint(configPath: string): Promise<void> {
-  const state = FeatureHintState.parse({ ...emptyFeatureHintState(), starHintOutcome: 'dismissed' });
+  const state = StarHintState.parse({ ...emptyStarHintState(), starHintOutcome: 'dismissed' });
   await writeJsonAtomic(configSiblingPath(configPath, 'feature-hints.json'), state);
 }
 

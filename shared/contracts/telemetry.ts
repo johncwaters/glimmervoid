@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
 import { DASHBOARD_VIEWS, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
-import { HintFeature } from './feature-hints.ts';
 import { SESSION_COMMANDS } from './session.ts';
 import { PROBE_CREDENTIALS, WATCHER_LANE_IDS } from './watcher-link.ts';
 
@@ -116,17 +115,11 @@ function isActionOfSurface({ surface, action }: { surface: OperatorSurface; acti
   return surfaceActions.includes(action);
 }
 
-function isFeatureKeyedOnlyForHints({ surface, feature }: { surface: OperatorSurface; feature?: HintFeature | undefined }): boolean {
-  return (surface === 'hints') === (feature !== undefined);
-}
-
 const OperatorActionProperties = z.object({
   surface: z.enum(OPERATOR_SURFACES),
   action: z.enum(OPERATOR_ACTIONS),
-  feature: HintFeature.optional(),
 }).strict()
-  .refine(isActionOfSurface, { message: 'action does not belong to its surface' })
-  .refine(isFeatureKeyedOnlyForHints, { message: 'feature is required for hints and only for hints' });
+  .refine(isActionOfSurface, { message: 'action does not belong to its surface' });
 
 const HeaderErrorShownProperties = z.object({
   source: boundedText,
@@ -249,7 +242,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'command_hint_shown', description: 'An agent was handed a one-time line naming a Glimmervoid command when its tool call made the command fit, with which command and which kind of agent. Never the tool call.' },
   { name: 'command_hint_followed', description: 'An agent ran a Glimmervoid command it had been handed a one-time line about earlier in the same conversation, with which command and which kind of agent.' },
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
-  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or a feature hint: which surface and which action, from a fixed list, and for a feature hint which tab it pointed at. Never which repository, pull request, issue or session it was taken on.' },
+  { name: 'operator_action', description: 'An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
   { name: 'header_error_shown', description: 'An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },

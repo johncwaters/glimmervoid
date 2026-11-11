@@ -321,7 +321,6 @@ export {
   applyTabOrder,
   clearSettingsHash,
   focusViewTabIfFocused,
-  isViewAvailable,
   mountViewTabs,
   openBoardsSurface,
   openSettings,

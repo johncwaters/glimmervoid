@@ -56,11 +56,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'toggle', keywords: ['links', 'preview', 'title', 'favicon', 'hover', 'privacy'], defaultValue: true, ...MACHINE_NOW,
     },
     {
-      id: 'hint-cards', path: 'hintCards', title: 'Hint cards',
-      description: 'Show tip cards: Your day tips and feature suggestions.',
-      control: 'toggle', keywords: ['experimental', 'hints', 'tips', 'your day'], defaultValue: false, ...MACHINE_NOW,
-    },
-    {
       id: 'repository-roots', path: 'repoRoots', title: 'Repository roots',
       description: 'Folders scanned for projects when adding a session.',
       control: 'list', keywords: ['folders', 'project discovery'], defaultValue: [],

@@ -61,7 +61,7 @@ import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
-import { createFeatureHintsWiring } from '../feature-hints-wiring.ts';
+import { createStarHintWiring } from '../star-hint-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
 import { createGithubStatus } from '../github/github-status.ts';
@@ -270,7 +270,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry: laneTelemetry,
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
-  const featureHints = createFeatureHintsWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, currentConfig: () => configStore.config, controlClientCount: viewerControlClientCount });
+  const starHint = createStarHintWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, controlClientCount: viewerControlClientCount });
   const myPrsWorkRoot = path.join(glimmervoidHome, 'my-prs-work');
   const myPrs = createMyPrsWiring({
     config, github, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -548,7 +548,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     questionManagerLane,
     questionManagerSessions,
     current,
-    featureHints,
+    starHint,
     gitWorkspace,
     gitWorkspaceSync,
     ownedPaths,

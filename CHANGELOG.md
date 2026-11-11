@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One Reviews page in Settings.** Team review and your own pull requests now share a Reviews page: Keep my pull requests rebased, Keep mergeable, Merge when ready, PR flows and workflow rules sit under My pull requests, and the separate Workflows page is gone. Old links to either page still open the right place. The packs setting now belongs to Packs instead of Team review.
 - **Secrets is now Vault.** Settings, Vault holds each project's approved secrets with revoke, the vault companion address and port, and the GitHub read token lanes use. The Lane GitHub access page is gone: Extra fetch domains moved to Reviews. Pages now also show their config-file-only settings, such as PR flows under My pull requests and extra pack directories under Packs, with their current value and a Copy as JSON button.
 - **Hosts is now Remote.** Settings, Remote gathers everything that runs sessions on another machine: linked hosts, remote host setup, and the Remote Coder sessions toggle, which moved there from Sessions. Old links to Hosts still open it.
+- **Your day tips follow Usage.** Your day tip cards now show whenever Usage, Your day is on, so the separate Hint cards setting is gone, along with the feature suggestion cards it also showed. The GitHub star card is unchanged.
 
 ### Fixed
 

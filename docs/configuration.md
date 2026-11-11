@@ -36,7 +36,6 @@ How sessions start, where projects are found, and branch cleanup.
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
-| `hintCards` | Hint cards | `false` | Show tip cards: Your day tips and feature suggestions. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
 | `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |
 | `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
@@ -340,7 +339,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `command_hint_shown` | `command`, `adapter` | An agent was handed a one-time line naming a Glimmervoid command when its tool call made the command fit, with which command and which kind of agent. Never the tool call. |
 | `command_hint_followed` | `command`, `adapter` | An agent ran a Glimmervoid command it had been handed a one-time line about earlier in the same conversation, with which command and which kind of agent. |
 | `view_shown` | `view` | A dashboard tab opened, on desktop or phone, with which tab. Sent on every open. |
-| `operator_action` | `surface`, `action`, `feature` | An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or a feature hint: which surface and which action, from a fixed list, and for a feature hint which tab it pointed at. Never which repository, pull request, issue or session it was taken on. |
+| `operator_action` | `surface`, `action` | An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
 | `onboarding_step` | `step`, `state` | The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open. |
 | `header_error_shown` | `source`, `message` | An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. Each distinct message is sent once per page load. |
 | `team_review_drafted` | `inline_comment_count` | A team review draft became ready, with how many inline comments it drafted. |

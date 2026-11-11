@@ -26,7 +26,7 @@ import { normalizeClientTrust } from './core/request-trust.ts';
 import type * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import type { PrSessionCheckout } from './github/team-review-wiring.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
-import type { FeatureHintsWiring } from './feature-hints-wiring.ts';
+import type { StarHintWiring } from './star-hint-wiring.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { PlanReadRequest, PlanReadResult } from './plan-review-wiring.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
@@ -167,7 +167,7 @@ interface ControlHandlerDeps {
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
-  featureHints?: Pick<FeatureHintsWiring, 'noteViewShown' | 'settle' | 'settleStar' | 'pendingHintMessages'> | null;
+  starHint?: Pick<StarHintWiring, 'settleStar' | 'pendingHintMessages'> | null;
   hostLinks?: Pick<ReturnType<typeof createHostLinksWiring>, 'statusFrame'> | null;
 }
 

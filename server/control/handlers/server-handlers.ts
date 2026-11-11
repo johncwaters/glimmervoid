@@ -21,7 +21,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     getUpdateJournal = null,
     getPostTurnLeftoversNotice = null,
     recheckPostTurnLeftovers = null,
-    featureHints = null,
+    starHint = null,
     checkNow = null,
     applyUpdate = null,
     noteRestartRequested = null,
@@ -32,28 +32,17 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     ws.send(JSON.stringify({ type: 'pong', requestId: msg.requestId }));
   }
 
-  function noteFeatureHintReport(report: DashboardTelemetryReport): void {
-    if (!featureHints) return;
-    if (report.event === 'view_shown') {
-      void featureHints.noteViewShown(report.properties.view);
-      return;
-    }
-    if (report.event !== 'operator_action') return;
-    if (report.properties.surface === 'star') {
-      if (report.properties.action === 'shown') void featureHints.settleStar('shown');
-      if (report.properties.action === 'open') void featureHints.settleStar('starred');
-      if (report.properties.action === 'dismiss') void featureHints.settleStar('dismissed');
-      return;
-    }
-    if (report.properties.surface !== 'hints' || !report.properties.feature) return;
-    if (report.properties.action === 'open') void featureHints.settle(report.properties.feature, 'opened');
-    if (report.properties.action === 'dismiss') void featureHints.settle(report.properties.feature, 'dismissed');
+  function noteStarHintReport(report: DashboardTelemetryReport): void {
+    if (!starHint || report.event !== 'operator_action' || report.properties.surface !== 'star') return;
+    if (report.properties.action === 'shown') void starHint.settleStar('shown');
+    if (report.properties.action === 'open') void starHint.settleStar('starred');
+    if (report.properties.action === 'dismiss') void starHint.settleStar('dismissed');
   }
 
   function captureDashboardTelemetry(msg: ClientMessageOf<'dashboard-telemetry'>): void {
     const report = DashboardTelemetryReport.safeParse(msg);
     if (!report.success) return;
-    noteFeatureHintReport(report.data);
+    noteStarHintReport(report.data);
     if (report.data.event === 'header_error_shown') {
       const { source, message } = report.data.properties;
       deps.telemetry?.capture?.('header_error_shown', { source, message: showHomeAsTilde(message, os.homedir()) });
@@ -106,7 +95,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     if (updateJournal) frames.push({ type: 'update-progress', journal: updateJournal });
     const postTurnLeftoversNotice = getPostTurnLeftoversNotice?.() ?? null;
     if (postTurnLeftoversNotice) frames.push(postTurnLeftoversNotice);
-    frames.push(...(featureHints?.pendingHintMessages() ?? []));
+    frames.push(...(starHint?.pendingHintMessages() ?? []));
     return frames;
   }
 
