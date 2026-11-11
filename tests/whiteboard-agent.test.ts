@@ -22,6 +22,7 @@ import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.t
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { boardIndexOf, copyOfElements, dropElement } from '../shared/whiteboard-board-index.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath, stableLauncherPath } from '../server/runtime-paths.ts';
@@ -1409,6 +1410,11 @@ test('a linked card follows its file in the code session worktree on each read, 
   liveSessionIds.clear();
   const goneReview = (await wiring.handleOperator.review(boardId)).review;
   assert.deepEqual(goneReview?.linkStates.map(({ state, text }) => [state, text]), [['broken', 'The board code session is not running, so the linked file cannot be read']]);
+
+  const linkedElements = copyOfElements((await wiring.handleOperator.get(boardId)).board?.elements ?? assert.fail('the board is readable'));
+  assert.ok(boardIndexOf(linkedElements).linkedBoxIds.has('shown-1'));
+  dropElement(linkedElements, 'shown-1');
+  assert.equal(boardIndexOf(linkedElements).linkedBoxIds.has('shown-1'), false, 'a removed linked card leaves the linked-box index');
 });
 
 test('a board show creates is renamed once by the title lane, never over a rename the operator made first', async () => {

@@ -1,7 +1,7 @@
 import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Step, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, MediaLink, BOX_SHAPES, dialValuesOfBox, mediaOfBox, STEP_STATUSES, STICKY_TONES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import { isStackedPanel } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -199,7 +199,7 @@ function linkedFileSection(media: BoxMedia, linkState: LinkStateOfBox | null, la
   const pathInput = el('input', 'wb-inspect-input');
   pathInput.type = 'text';
   pathInput.value = media.link?.path ?? '';
-  pathInput.maxLength = MAX_REF;
+  pathInput.maxLength = MediaLink.shape.path.maxLength ?? MAX_REF;
   pathInput.placeholder = 'docs/plan.md';
   pathInput.dataset.field = 'link-path';
   pathInput.setAttribute('aria-label', 'Linked file path, relative to the code session worktree');

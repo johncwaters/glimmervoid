@@ -473,6 +473,11 @@ function paintReview(): void {
   parts.mediaLayer.setLinkStates(review?.linkStates ?? []);
 }
 
+function refreshReviewOf(board: Board): void {
+  reviewRequestKey = null;
+  requestReviewOf(board);
+}
+
 function requestReviewOf(board: Board): void {
   const requestKey = `${board.id}@${board.version}`;
   if (reviewRequestKey === requestKey) return;
@@ -675,6 +680,8 @@ function openBoardDoc(boardId: string, boxId: string): void {
   const box = heldBoardOf(boardId)?.elements.get(boxId);
   if (box?.kind !== 'box') return;
   openDocBox = { boardId, box };
+  const board = heldBoardOf(boardId);
+  if (board && mediaOfBox(box)?.link) refreshReviewOf(board);
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 

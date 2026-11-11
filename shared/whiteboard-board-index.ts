@@ -89,7 +89,6 @@ function trackAnchor(index: BoardIndex, element: Element): void {
     return;
   }
   index.anchoredIds.delete(element.id);
-  index.linkedBoxIds.delete(element.id);
 }
 
 function trackLink(index: BoardIndex, element: Element): void {
@@ -160,6 +159,7 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   unlinkDependent(index, element);
   trackStep(index, element, false);
   index.anchoredIds.delete(element.id);
+  index.linkedBoxIds.delete(element.id);
 }
 
 function emptyIndex(): BoardIndex {
