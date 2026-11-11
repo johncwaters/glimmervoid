@@ -21,7 +21,6 @@ export interface DocSource {
   read: (docPath: string) => Promise<DocReadOutcome>;
   save: (docPath: string, text: string, baseHash: string) => Promise<DocSaveOutcome>;
   readImage?: (docPath: string, imageSource: string) => Promise<Blob | null>;
-  previewsBlocksOnOpen?: boolean;
 }
 
 interface OpenEditor extends MarkupHost {
@@ -196,7 +195,7 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
   }
   editor.textarea.value = read.text;
   editor.baseHash = read.hash;
-  if (editor.source.previewsBlocksOnOpen && editor.openedDocPath !== docPath) previewEveryBlockOf(editor, editor.textarea.value);
+  if (editor.openedDocPath !== docPath) previewEveryBlockOf(editor, editor.textarea.value);
   editor.openedDocPath = docPath;
   editor.hasUnsavedChanges = false;
   renderMarkup(editor);
