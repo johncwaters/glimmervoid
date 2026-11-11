@@ -17,19 +17,15 @@
   align-items: stretch;
   min-height: var(--header-control-height);
   gap: 2px;
-  padding: 3px;
+  padding: 3px 0;
   margin-left: clamp(4px, 1vw, 8px);
-  background: color-mix(in oklab, var(--bg-surface) 70%, transparent);
-  border: 1px solid var(--border-dim);
-  border-radius: calc(var(--radius-lg) + 3px);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .header-tab {
   position: relative;
   appearance: none;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--type-meta);
@@ -41,7 +37,7 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  transition: color var(--transition-med), background var(--transition-med), border-color var(--transition-med), box-shadow var(--transition-med);
+  transition: color var(--transition-med), background var(--transition-med), border-color var(--transition-med);
 }
 .header-tab .line-icon { opacity: 0.85; }
 .header-tab[aria-selected="true"] .line-icon { opacity: 1; color: var(--accent); }
@@ -54,11 +50,9 @@
   }
 }
 .header-tab[aria-selected="true"] {
-  color: var(--text-head);
-  font-weight: 700;
-  background: color-mix(in oklab, var(--accent) 14%, var(--bg-card));
-  border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 10px var(--accent-glow);
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 42%, var(--border));
 }
 .header-tab:focus-visible {
   outline: 2px solid var(--accent);
