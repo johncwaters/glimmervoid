@@ -736,6 +736,14 @@
     {
       "name": "backspace",
       "definition": "The keyboard key that deletes the character before the cursor; pressed on an empty line in a whiteboard box's line editor it removes that line and moves to the line above"
+    },
+    {
+      "name": "text",
+      "definition": "On a whiteboard, the Text tool (T) that places a borderless box, and the plain line style of a box line beside Code, Bullet and Key and value; elsewhere ordinary English"
+    },
+    {
+      "name": "arrow",
+      "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, or the Arrow box icon"
     }
   ],
   "retired": [
