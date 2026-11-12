@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
+import { ModelSelection } from '../agent-models.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
 import { ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
@@ -24,6 +25,7 @@ export const sessionClientVariants = [
     accountId: AgentAccountId.nullable().optional(),
     resumeSessionId: z.string().optional(),
     prompt: z.string().max(4000).optional(),
+    setup: ModelSelection.optional(),
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),

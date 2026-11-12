@@ -145,6 +145,13 @@ function selectionArgs(selection: ModelSelection | null): string[] {
   return buildFlags(selection.model, optionValue(selection, EFFORT_OPTION_ID));
 }
 
+const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
+
+function unsafeLaunchValueOf(selections: readonly ModelSelection[]): string | null {
+  const launchValues = selections.flatMap((selection) => [...(selection.model === null ? [] : [selection.model]), ...selection.options.map((option) => option.value)]);
+  return launchValues.find((value) => !SAFE_LAUNCH_ARGUMENT_PATTERN.test(value)) ?? null;
+}
+
 function launchArgs(agent: string, setup: AgentSetup | null): string[] {
   if (setup === null || setup.agent !== agent) return [];
   return selectionArgs({ agent, model: setup.model, options: setup.options });
@@ -162,4 +169,4 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs };
+export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs, unsafeLaunchValueOf };

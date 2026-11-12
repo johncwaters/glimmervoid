@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { unsafeLaunchValueOf } from '../../shared/agent-models-core.ts';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
@@ -22,7 +23,6 @@ import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
 import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 
-const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
 
@@ -320,9 +320,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   function unsafeLaunchArgumentOf(candidateSpec: Record<string, unknown>): string | null {
     const parsed = RaceSpec.safeParse(candidateSpec);
     if (!parsed.success) return null;
-    const setups = [...parsed.data.contestants, ...parsed.data.judges].map((entry) => entry.setup);
-    const launchValues = setups.flatMap((setup) => [...(setup.model === null ? [] : [setup.model]), ...setup.options.map((option) => option.value)]);
-    return launchValues.find((value) => !SAFE_LAUNCH_ARGUMENT_PATTERN.test(value)) ?? null;
+    return unsafeLaunchValueOf([...parsed.data.contestants, ...parsed.data.judges].map((entry) => entry.setup));
   }
 
   function refuseUnfinishedRace(): AgentRefusalReply | null {

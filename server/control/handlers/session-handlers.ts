@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
+import { unsafeLaunchValueOf } from '../../../shared/agent-models-core.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-messages.ts';
 import type { KeptWorkPath } from '../../../shared/contracts/control-messages.ts';
@@ -146,7 +147,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       requireExistingPath: !repos,
       environment: remote?.environment,
       accountId: sessionAccount.accountId,
-      runSettings: runSettingsWithConversation(msg, runSettings),
+      runSettings: requestedRunSettings(msg, runSettings),
     });
     if (!created.ok) {
       refuseAddSession(msg, ws, { error: created.error });
@@ -284,10 +285,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  function runSettingsWithConversation(msg: AddSessionRequest, runSettings: RunSettings): RunSettings {
+  function requestedRunSettings(msg: AddSessionRequest, runSettings: RunSettings): RunSettings {
+    const withSetup = msg.setup ? { ...runSettings, agentSetup: { ...msg.setup, instructions: '' } } : runSettings;
     const resumeSessionId = requestedConversationId(msg.resumeSessionId);
-    if (!resumeSessionId) return runSettings;
-    return { ...runSettings, resumeSessionId };
+    if (!resumeSessionId) return withSetup;
+    return { ...withSetup, resumeSessionId };
   }
 
   function addSessionResumeRefusal(msg: AddSessionRequest, agentId: string): AddSessionRefusal | null {
@@ -308,6 +310,14 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return { error: `No conversation ${resumeSessionId} was found under ${projectsDirs.join(', ')}` };
   }
 
+  function addSessionSetupRefusal(setup: AddSessionRequest['setup'], agentId: string): AddSessionRefusal | null {
+    if (!setup) return null;
+    if (setup.agent !== agentId) return { error: `The model choice is for ${setup.agent}, but the session runs ${agentId}` };
+    const unsafeValue = unsafeLaunchValueOf([setup]);
+    if (unsafeValue !== null) return { error: `The model or option value "${unsafeValue}" reaches the agent's command line, so it may use only letters, digits and . _ : / [ ] -` };
+    return null;
+  }
+
   function addSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
@@ -317,6 +327,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (requestedAgent && !isKnownAgentId(requestedAgent)) return { error: `Unknown agent "${requestedAgent}"` };
     const resumeRefusal = addSessionResumeRefusal(msg, requestedAgent || DEFAULT_AGENT_ID);
     if (resumeRefusal) return resumeRefusal;
+    const setupRefusal = addSessionSetupRefusal(msg.setup, requestedAgent || DEFAULT_AGENT_ID);
+    if (setupRefusal) return setupRefusal;
     const missingRepo = msg.repos?.find((repoPath) => !isExistingDirectory(repoPath));
     if (missingRepo) return { error: missingFolderError(missingRepo) };
     if (msg.repos) return null;

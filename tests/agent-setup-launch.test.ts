@@ -10,6 +10,7 @@ import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts'
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { ProjectConfig } from '../shared/contracts/config.ts';
 import { fakePty } from './helpers/fake-pty.ts';
+import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 const SETUP_CASES = [
   { agent: 'claude-code', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [{ id: 'effort', value: 'high' }], instructions: '' }, flags: ['--model', 'claude-opus-5-5', '--effort', 'high'] },
@@ -55,6 +56,48 @@ for (const { agent, setup, flags } of SETUP_CASES) {
     }
   });
 }
+
+type AddSessionReply = { type: string; requestId?: string; ok?: boolean; error?: string | null };
+
+function addSessionOverControl(config: GlimmervoidConfig, message: Record<string, unknown>): AddSessionReply | undefined {
+  const connection = connectControl<AddSessionReply>(createControlServer(controlDeps(config, { generateProjectId: () => 'added-with-setup' })));
+  connection.send({ type: 'add-session', requestId: 'a1', name: 'with-setup', ...message });
+  return connection.sent.find((frame) => frame.requestId === 'a1');
+}
+
+for (const { agent, setup, flags } of SETUP_CASES) {
+  test(`an add-session carrying a ${agent} model choice starts the session with its model and effort flags`, async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-add-setup-'));
+    try {
+      const config: GlimmervoidConfig = { projects: [] };
+      const { instructions: _instructions, ...modelChoice } = setup;
+      const reply = addSessionOverControl(config, { path: directory, agent, setup: modelChoice });
+      assert.equal(reply?.ok, true, reply?.error ?? '');
+      const [project] = config.projects;
+      assert.ok(project);
+      const launchArgs = await spawnedArgs(project, directory);
+      const flagStart = launchArgs.indexOf(flags[0]);
+      assert.deepEqual(launchArgs.slice(flagStart, flagStart + flags.length), [...flags], launchArgs.join(' '));
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('an add-session refuses a model choice for another agent or with a value unsafe on a command line', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-add-setup-'));
+  try {
+    const config: GlimmervoidConfig = { projects: [] };
+    const otherAgent = addSessionOverControl(config, { path: directory, agent: 'codex', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [] } });
+    assert.equal(otherAgent?.ok, false);
+    const unsafeEffort = addSessionOverControl(config, { path: directory, agent: 'claude-code', setup: { agent: 'claude-code', model: null, options: [{ id: 'effort', value: 'high & calc' }] } });
+    assert.equal(unsafeEffort?.ok, false);
+    assert.match(unsafeEffort?.error ?? '', /command line/);
+    assert.equal(config.projects.length, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('a persisted clean home starts Claude Code on project and local settings only, refuses to start without its hooks, and the operator home keeps every source', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-clean-home-'));
