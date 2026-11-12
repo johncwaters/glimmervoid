@@ -252,7 +252,7 @@ iframe { flex: 1; width: 100%; border: 0; }
 iframe[hidden] { display: none; }
 #swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; padding: 12px; overflow: auto; }
 #swatches[hidden] { display: none; }
-.swatch { padding: 10px; border-radius: 6px; background: var(--swatch); color: #fff; text-shadow: 0 1px 2px #000; font: 12px ui-monospace, monospace; }
+.swatch { padding: 10px; border-radius: 5px; background: var(--swatch); color: #fff; text-shadow: 0 1px 2px #000; font: 12px ui-monospace, monospace; }
 </style></head>
 <body>
 <header><strong>Pack preview</strong><label>Panel <select id="panel"></select></label><label>Theme <select id="theme"></select></label><span id="status"></span><span>Sample data that changes every 5 seconds, not your dashboard. Reload after editing the pack.</span></header>

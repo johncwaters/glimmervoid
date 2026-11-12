@@ -501,7 +501,7 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
 
 .usage-budget .usage-meter {
   height: 6px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .usage-period {
@@ -942,7 +942,7 @@ button.usage-rank-head { cursor: pointer; }
 .usage-rank-bar {
   grid-area: bar;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--border-dim);
   overflow: hidden;
 }

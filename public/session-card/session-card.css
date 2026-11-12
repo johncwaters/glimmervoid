@@ -573,7 +573,7 @@
   min-width: 140px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   padding: 4px 0;
 }

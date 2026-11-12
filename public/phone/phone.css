@@ -303,7 +303,7 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
   min-width: 160px;
   background: var(--bg-header);
   border: 1px solid var(--border-dim);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
   overflow: hidden;
 }

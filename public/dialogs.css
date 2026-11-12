@@ -193,7 +193,7 @@ html[data-streamer] :is(.pr-queue-title, .pr-detail-title h2, .pr-author-login, 
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
   font-weight: 700;

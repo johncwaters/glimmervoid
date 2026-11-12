@@ -328,7 +328,7 @@
 .wb-media {
   position: absolute;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   mask-size: 100% 100%;
   mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
@@ -444,7 +444,7 @@
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
   color: var(--text-head);
   font: 700 var(--type-body) var(--wb-font);
@@ -459,7 +459,7 @@
   height: 28px;
   padding: 0 2px 0 8px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
 }
 

@@ -136,7 +136,7 @@
 
 .radar-stage-segment {
   height: 4px;
-  border-radius: 1px;
+  border-radius: 2px;
   background: var(--border-dim);
 }
 
