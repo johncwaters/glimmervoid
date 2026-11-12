@@ -23,6 +23,7 @@ import { fakePty } from './helpers/fake-pty.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
+import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
 
@@ -113,12 +114,17 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['arena', 'attention', 'packs', 'review', 'secrets', 'session', 'settings', 'show', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['arena', 'attention', 'packs', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
   const showTool = tools.find((tool: { name: string }) => tool.name === 'show');
   assert.equal(showTool.inputSchema.properties.action, undefined);
+
+  const listedWakes = await resultOf(await callMcp('tools/call', { name: 'wake', arguments: { action: 'list' } }, credential));
+  assert.notEqual(listedWakes.isError, true, JSON.stringify(listedWakes));
+  const wakeList = AgentWakeReply.parse(listedWakes.structuredContent);
+  assert.deepEqual('wakes' in wakeList ? wakeList.wakes : null, []);
 
   const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'sessions' } }, credential));
   assert.notEqual(called.isError, true, JSON.stringify(called));

@@ -9,6 +9,7 @@ import { BoardRegion, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/white
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { RaceId } from '../../shared/contracts/race.ts';
+import { MAX_WAKE_TEXT_CHARS, MAX_WAKE_WHEN_CHARS, WakeId } from '../../shared/contracts/wakes.ts';
 
 type ToolArguments = Record<string, unknown>;
 
@@ -274,8 +275,8 @@ const WHY_TOOL: GroupedTool = {
   actions: { why: routeTo('why', ['target'], { required: ['target'], hints: READS }) },
 };
 
-function arenaRoute(sub: string, keys: readonly string[], { required = [], hints }: RouteShape): ActionRoute {
-  return { verb: 'arena', required, accepts: keys, hints, toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
+function subcommandRoute(verb: AgentApiVerb, sub: string, keys: readonly string[], { required = [], hints }: RouteShape): ActionRoute {
+  return { verb, required, accepts: keys, hints, toPayload: (toolArguments) => ({ sub, ...definedEntries(toolArguments, keys) }) };
 }
 
 const ARENA_TOOL: GroupedTool = {
@@ -289,15 +290,34 @@ const ARENA_TOOL: GroupedTool = {
     contestant: RaceId.optional().describe('diff: the contestant id, such as c1'),
   },
   actions: {
-    start: arenaRoute('start', ['spec'], { required: ['spec'], hints: WRITES }),
-    races: arenaRoute('races', [], { hints: READS }),
-    race: arenaRoute('race', ['race'], { required: ['race'], hints: READS }),
-    judge: arenaRoute('judge', ['race'], { required: ['race'], hints: WRITES }),
-    diff: arenaRoute('diff', ['race', 'contestant'], { required: ['race', 'contestant'], hints: READS }),
+    start: subcommandRoute('arena', 'start', ['spec'], { required: ['spec'], hints: WRITES }),
+    races: subcommandRoute('arena', 'races', [], { hints: READS }),
+    race: subcommandRoute('arena', 'race', ['race'], { required: ['race'], hints: READS }),
+    judge: subcommandRoute('arena', 'judge', ['race'], { required: ['race'], hints: WRITES }),
+    diff: subcommandRoute('arena', 'diff', ['race', 'contestant'], { required: ['race', 'contestant'], hints: READS }),
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL]);
+const WAKE_TOOL: GroupedTool = {
+  name: 'wake',
+  title: 'Glimmervoid wake',
+  description: "Have Glimmervoid type a prompt into this session later, to come back to a task (check a rollout, a slow job, a pull request) instead of polling or sleeping. It is typed in once the session is idle and the operator is not typing, framed as Glimmervoid wake <id>. in takes a duration (30s, 15m, 2h, 1h30m); at takes a clock time HH:MM or an ISO date-time; cron takes a five-field pattern such as 0 9 * * 1-5 and fires for up to 7 days. Times use the operator's timezone. list shows this session's pending wakes; cancel removes one by id. After 10 wakes with no operator input, wakes stop until the operator types.",
+  loadsUpfront: false,
+  fields: {
+    when: z.string().min(1).max(MAX_WAKE_WHEN_CHARS).optional().describe('in: a duration such as 15m; at: HH:MM or an ISO date-time; cron: a five-field pattern'),
+    text: z.string().min(1).max(MAX_WAKE_TEXT_CHARS).optional().describe('in, at, cron: the prompt to type into this session, one line'),
+    wake: WakeId.optional().describe('cancel: the wake id, such as w3'),
+  },
+  actions: {
+    in: subcommandRoute('wake', 'in', ['when', 'text'], { required: ['when', 'text'], hints: WRITES }),
+    at: subcommandRoute('wake', 'at', ['when', 'text'], { required: ['when', 'text'], hints: WRITES }),
+    cron: subcommandRoute('wake', 'cron', ['when', 'text'], { required: ['when', 'text'], hints: WRITES }),
+    list: subcommandRoute('wake', 'list', [], { hints: READS }),
+    cancel: subcommandRoute('wake', 'cancel', ['wake'], { required: ['wake'], hints: DESTROYS }),
+  },
+};
+
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

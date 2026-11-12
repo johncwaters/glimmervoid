@@ -101,6 +101,14 @@ function arenaBody({ positionals: [sub, ...actionArguments] }: ParsedArguments):
   return { sub, ...(race === undefined ? {} : { race }), ...(contestant === undefined ? {} : { contestant }) };
 }
 
+function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'list') return { sub };
+  if (sub === 'cancel') return { sub, wake: actionArguments[0] ?? '' };
+  const [when, ...textWords] = actionArguments;
+  return { sub, when: when ?? '', text: joinedText(textWords) };
+}
+
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: ({ positionals }) => {
     const prompt = joinedText(positionals);
@@ -139,6 +147,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
   arena: arenaBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
+  wake: wakeBody,
   checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
 };
 

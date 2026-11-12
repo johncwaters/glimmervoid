@@ -744,6 +744,10 @@
     {
       "name": "arrow",
       "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, or the Arrow box icon"
+    },
+    {
+      "name": "wake",
+      "definition": "A prompt a session schedules with glimmervoid wake (in, at or cron) that Glimmervoid types into that session when due, once it is idle and the operator is not typing; also the line a spawned session's news types into its parent. Both spend one per-session budget of 10 without operator input"
     }
   ],
   "retired": [

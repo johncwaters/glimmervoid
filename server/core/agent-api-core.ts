@@ -10,6 +10,7 @@ import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentRe
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
 import { AgentArenaRequest } from '../../shared/contracts/race.ts';
+import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -73,6 +74,7 @@ interface AgentRequestByVerb {
   need: AgentNeedRequest;
   arena: AgentArenaRequest;
   comments: AgentCommentsRequest;
+  wake: AgentWakeRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -217,6 +219,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   need: bodyParser(AgentNeedRequest),
   arena: bodyParser(AgentArenaRequest),
   comments: bodyParser(AgentCommentsRequest),
+  wake: bodyParser(AgentWakeRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -538,6 +541,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it when the operator leaves a review comment on your changes, to answer it and close it',
     summary: 'List the open review comments the operator left on this session\'s changes, reply to one (comments reply <id> <text>), or resolve one (comments resolve <id>)',
     missingArgumentHint: 'this command needs an action, for example "glimmervoid comments list" or "glimmervoid comments reply c-0123abcd Renamed it"',
+    isPassthrough: true,
+  },
+  wake: {
+    usage: 'wake in|at|cron|list|cancel',
+    whenToUse: 'Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping',
+    summary: "Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron \"0 9 * * 1-5\" <text>, wake list, wake cancel <id>); times use the operator's timezone",
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid wake in 15m check the rollout" or "glimmervoid wake list"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

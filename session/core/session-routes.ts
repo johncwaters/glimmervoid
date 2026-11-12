@@ -133,6 +133,11 @@ function arenaRoute(caller: SessionKindFacts): RouteVerdict {
   return ANSWERS;
 }
 
+function wakeRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot schedule a wake, because a lane runs to a fixed end and has no card to show the wake on' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -157,6 +162,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   limits: () => ANSWERS,
   arena: arenaRoute,
   comments: commentsRoute,
+  wake: wakeRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';

@@ -23,6 +23,7 @@ import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
 import { AGENT_REPLY_SCHEMAS, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
+import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
@@ -609,13 +610,13 @@ test('limits tells a session which commands answer and its boundary', async () =
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'wake', 'show'].map((name) => ({ name, answers: true })),
     ]);
     assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', 'wake', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -1117,6 +1118,70 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
     fixture.parent.noteOperatorInput('r');
     advanceBy(1000);
     assert.deepEqual([pasted.length, written.length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a session wakes itself through the wake verb, malformed wakes are refused with nothing stored, and self-wakes share the child-wake cap', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const pasted: string[] = [];
+  const written: string[] = [];
+  const attentionOrigins: string[] = [];
+  const inputOrder: string[] = [];
+  fixture.parent.pasteText = (text) => { pasted.push(text); inputOrder.push('paste'); return { ok: true }; };
+  fixture.parent.write = (text) => { written.push(text); inputOrder.push('enter'); };
+  fixture.parent.raiseAttention = (origin) => { attentionOrigins.push(origin); return { ok: true, pending: false }; };
+  const wake = (payload: Record<string, unknown>) => fixture.wiring.handle(fixture.parent, 'wake', payload);
+  const listedWakes = async () => {
+    const listed = AgentWakeReply.parse((await wake({ sub: 'list' })).body);
+    return 'wakes' in listed ? listed.wakes.map(({ id }) => id) : null;
+  };
+  try {
+    fixture.parent.transition('user_start');
+    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+    fixture.parent.transition('first_output');
+    for (const malformed of [{ sub: 'in', when: 'soon', text: 'x' }, { sub: 'at', when: '25:00', text: 'x' }, { sub: 'cron', when: 'every day', text: 'x' }, { sub: 'cron', when: '* * * * * *', text: 'x' }, { sub: 'in', when: '5m', text: ' ' }]) {
+      const refused = await wake(malformed);
+      assert.equal(refused.status, 400, JSON.stringify(malformed));
+      assert.match(String(refused.body.error), /\w/);
+    }
+    assert.deepEqual(await listedWakes(), []);
+
+    assert.equal((await wake({ sub: 'in', when: '1m', text: 'check the rollout' })).status, 200);
+    assert.equal((await wake({ sub: 'cron', when: '*/5 * * * *', text: 'poll' })).status, 200);
+    assert.deepEqual(await listedWakes(), ['w1', 'w2']);
+    assert.deepEqual((await wake({ sub: 'cancel', wake: 'w2' })).body, { ok: true, cancelled: 'w2' });
+    assert.equal((await wake({ sub: 'cancel', wake: 'w2' })).status, 404);
+    advanceBy(60_000);
+    advanceBy(200);
+    assert.equal(pasted.length, 1);
+    assert.match(pasted[0] ?? '', /^Glimmervoid wake w1 \(you set it at \d\d:\d\d\): check the rollout$/);
+    assert.deepEqual(written, ['\r']);
+    assert.deepEqual(await listedWakes(), []);
+
+    await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const child = fixture.created[0];
+    await wake({ sub: 'in', when: '1m', text: 'race the child' });
+    advanceBy(60_000);
+    advanceBy(50);
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(1000);
+    advanceBy(1000);
+    assert.deepEqual(inputOrder.slice(-4), ['paste', 'enter', 'paste', 'enter'], 'a child stopping while a self-wake line awaits its Enter types its own line only after that Enter');
+    for (let turn = 0; turn < 7; turn += 1) {
+      child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+      advanceBy(1000);
+    }
+    assert.equal(written.length, 10);
+    await wake({ sub: 'in', when: '30s', text: 'one more' });
+    advanceBy(30_000);
+    advanceBy(1000);
+    assert.deepEqual([pasted.length, attentionOrigins], [10, ['self-wake-cap']], 'two self-wakes and eight child wakes spend the shared cap of ten');
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(1000);
+    assert.equal(pasted.length, 10, 'a child wake stays stopped once a self-wake flagged the operator');
   } finally {
     fixture.destroyAll();
   }

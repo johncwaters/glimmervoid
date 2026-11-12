@@ -58,6 +58,7 @@ interface AgentApiWiringOptions {
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   startRace?: RaceLauncher['start'] | null;
   reviewComments?: Pick<ReviewPort, 'read' | 'reply' | 'resolve'> | null;
+  wakesFilePath?: string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
@@ -70,10 +71,14 @@ interface ChannelLink {
   lastChildMessage: string | null;
   waitingStopNoteText: string | null;
   hasParentRead: boolean;
-  wakesSinceOperatorInput: number;
-  isOperatorFlagged: boolean;
   pendingWakeSides: Set<ChannelSide>;
   retryTimersBySide: Map<ChannelSide, TimerHandle>;
+}
+
+interface SessionWakeBudget {
+  lastOperatorInputAt: number;
+  wakesSinceOperatorInput: number;
+  isOperatorFlagged: boolean;
 }
 
 type AgentVerbHandlers = { readonly [V in AgentApiVerb]: (session: Session, request: AgentRequestOf<V>) => AgentReplyOf<V> | Promise<AgentReplyOf<V>> };
@@ -83,7 +88,7 @@ interface AgentApiCollections {
   linksByChildId: Map<string, ChannelLink>;
   parentsWithChannelCleanup: WeakSet<Session>;
   sessionsWithOperatorWatch: WeakSet<Session>;
-  lastOperatorInputAtBySession: WeakMap<Session, number>;
+  wakeBudgetBySession: WeakMap<Session, SessionWakeBudget>;
   childIdsToDiscard: Set<string>;
   endCauseByChildId: Map<string, ChildEndCause>;
 }
@@ -91,4 +96,4 @@ interface AgentApiCollections {
 type AgentApiRuntime = Required<AgentApiWiringOptions> & AgentApiCollections;
 
 export { AGENT_LANE_TAG };
-export type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink };
+export type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink, SessionWakeBudget };
