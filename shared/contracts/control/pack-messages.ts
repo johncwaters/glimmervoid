@@ -27,7 +27,7 @@ export const PackRow = z.strictObject({
   agent: z.strictObject({
     context: z.strictObject({ path: z.string(), text: z.string() }).nullable(),
     skills: z.array(z.strictObject({ name: z.string(), path: z.string(), text: z.string() })),
-  }).nullable().default(null),
+  }).nullable(),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;
