@@ -8,7 +8,7 @@ import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.
 import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
-import { verifyFullScreenAppRow, verifyKeyStripContexts } from './key-strip.ts';
+import { verifyComposeSubmit, verifyKeyStripContexts, verifyRawTypingInFullScreenApp } from './key-strip.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -608,8 +608,8 @@ async function runTapTerminal(viewer: Viewer, deadlines: Deadlines): Promise<Ste
   await viewer.page.locator(cardSlotSelector(viewer)).first().click();
   const focused = await pollUntil(async () => {
     const inTerminal = await viewer.page.evaluate(readTerminalFocus);
-    if (!inTerminal) return { ok: false, detail: 'focus is outside the terminal wrapper' };
-    return { ok: true, detail: 'the terminal holds focus' };
+    if (!inTerminal) return { ok: false, detail: 'focus is outside the terminal wrapper and the compose bar' };
+    return { ok: true, detail: 'the terminal or its compose bar holds focus' };
   }, { label: `terminal focus for viewer ${viewer.id}`, timeoutMs: deadlines.stepMs, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('terminal-focused', focused);
 }
@@ -1244,8 +1244,11 @@ export async function runCase({
     if (step.kind === 'assert-key-strip-contexts') {
       return passedOutcome('key-strip-contexts', await verifyKeyStripContexts(viewer.page, async (command) => { await runType(viewer, command); }));
     }
-    if (step.kind === 'assert-key-strip-fullscreen-app') {
-      return passedOutcome('key-strip-fullscreen-app', await verifyFullScreenAppRow(viewer.page, async (command) => { await runType(viewer, command); }));
+    if (step.kind === 'assert-raw-typing-in-fullscreen-app') {
+      return passedOutcome('raw-typing-in-fullscreen-app', await verifyRawTypingInFullScreenApp(viewer.page, async (command) => { await runType(viewer, command); }));
+    }
+    if (step.kind === 'assert-compose-submit') {
+      return passedOutcome('compose-submit', await verifyComposeSubmit(viewer.page, async (command) => { await runType(viewer, command); }));
     }
     if (step.kind === 'assert-link-repaint') return runAssertLinkRepaint(viewer, sessionId, deadlines);
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);

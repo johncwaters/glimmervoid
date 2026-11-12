@@ -14,9 +14,14 @@ declare global {
   interface Window { sentTerminalInputs?: string[]; terminalDataSocket?: WebSocket }
 }
 
+const composeBar = '.phone-compose';
+const composeField = '.phone-compose-field';
+
 async function recordTerminalInputs(page: Page) {
   await page.evaluate(() => {
+    const isAlreadyRecording = window.sentTerminalInputs !== undefined;
     window.sentTerminalInputs = [];
+    if (isAlreadyRecording) return;
     const originalSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function recordInput(this: WebSocket, frame) {
       if (typeof frame === 'string' && frame.includes('"type":"input"')) {
@@ -116,12 +121,70 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   return 'working and ready rows; an agent drawing its own alternate screen keeps the ready row; a swipe types no arrow; a held arrow repeats and stops after a rebuild; Ctrl once, locked and released; the More sheet keeps Alt and closes on a key';
 }
 
-export async function verifyFullScreenAppRow(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+async function waitForComposeBar(page: Page, state: 'visible' | 'hidden') {
+  await page.locator(composeBar).waitFor({ state, timeout: CONTEXT_TIMEOUT_MS });
+}
+
+export async function verifyComposeSubmit(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+  await waitForComposeBar(page, 'visible');
+  await typeCommand('stop');
   await waitForContext(page, 'ready');
+  await recordTerminalInputs(page);
+
+  const field = page.locator(composeField);
+  await field.click();
+  await page.locator(`${keyStrip} [data-key="slash"]`).click();
+  await page.keyboard.type('help me');
+  assert.equal(await field.inputValue(), '/help me', 'a strip key types its character into the compose field');
+  assert.deepEqual(await sentInputs(page), [], 'nothing reaches the agent before Send');
+
+  await page.locator(`${composeBar} [data-action="compose-send"]`).click();
+  assert.deepEqual(await sentInputs(page), ['/help me', '\r'], 'Send pastes the text, then presses Enter');
+  assert.equal(await field.inputValue(), '', 'Send clears the field');
+  assert.equal(await field.evaluate((element) => element === document.activeElement), true, 'the field keeps focus so the keyboard stays up');
+
+  await recordTerminalInputs(page);
+  await page.locator(`${keyStrip} [data-key="ctrl"]`).click();
+  await page.keyboard.type('c');
+  assert.deepEqual(await sentInputs(page), ['\x03'], 'a held Ctrl turns a typed character into its control byte');
+  assert.equal(await field.inputValue(), '', 'the chord character stays out of the field');
+
+  await recordTerminalInputs(page);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(() => navigator.clipboard.writeText('line one\r\n\tindented\r\n'));
+  await page.locator('.phone-key-more').click();
+  await page.locator('.phone-key-more-sheet [data-key="paste"]').click();
+  await page.waitForFunction((selector) => (document.querySelector(selector) as HTMLTextAreaElement | null)?.value !== '', composeField);
+  assert.equal(await field.inputValue(), 'line one\n\tindented\n', 'Paste types clipboard text with tabs and CRLF into the field');
+  assert.deepEqual(await sentInputs(page), [], 'pasted text waits for Send');
+  await field.fill('');
+
+  await typeCommand('fullscreen');
+  await page.waitForTimeout(AGENT_ALTERNATE_SCREEN_GRACE_MS);
+  await waitForComposeBar(page, 'visible');
+  await typeCommand('leave-fullscreen');
+  return 'strip keys type into the field; Send pastes then presses Enter and keeps focus; a held Ctrl sends its chord; Paste types tabs and CRLF into the field; an agent drawing its own alternate screen keeps the compose bar';
+}
+
+export async function verifyRawTypingInFullScreenApp(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+  await waitForContext(page, 'ready');
+  await waitForComposeBar(page, 'visible');
   await typeCommand("printf '\\033[?1049h'");
   await waitForContext(page, 'fullscreen');
+  await waitForComposeBar(page, 'hidden');
   assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'tab', 'left', 'up', 'down', 'right', 'q', 'enter'], 'a full-screen app gets Tab and q');
   await typeCommand("printf '\\033[?1049l'");
   await waitForContext(page, 'ready');
-  return 'a full-screen app in a shell gets Tab and q, and leaving it restores the ready row';
+  await waitForComposeBar(page, 'visible');
+  assert.equal(await page.locator(composeField).evaluate((element) => element === document.activeElement), true, 'typing moves to the compose field when the full-screen app exits');
+
+  const rawTyping = page.locator('.phone-key-more-sheet [data-key="raw"]');
+  await page.locator('.phone-key-more').click();
+  await rawTyping.click();
+  await waitForComposeBar(page, 'hidden');
+  assert.equal(await rawTyping.getAttribute('aria-pressed'), 'true', 'Raw shows it is chosen');
+  await page.locator('.phone-key-more').click();
+  await rawTyping.click();
+  await waitForComposeBar(page, 'visible');
+  return 'a full-screen app hides the compose bar and gets Tab and q; leaving it brings both back with typing in the field; Raw hides and restores the compose bar';
 }
