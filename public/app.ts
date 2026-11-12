@@ -37,6 +37,7 @@ import { wireMessageDispatch } from './boot/message-dispatch.ts';
 import { mountLayoutSwitch } from './boot/layout-switch.ts';
 import { wireDashboardShortcuts } from './boot/shortcuts-dispatch.ts';
 import { wireClientErrorReporting } from './boot/client-errors.ts';
+import { holdDashboardTabLock } from './boot/dashboard-tab-lock.ts';
 
 applyTheme(getThemeId());
 onUnicornThemeEntered(() => {
@@ -48,6 +49,7 @@ onUnicornThemeEntered(() => {
 applyFlyingAnimals(isFlyingAnimalsEnabled());
 
 initFormFactor();
+holdDashboardTabLock();
 routeExternalAnchorsThroughHost(document);
 
 mountConnectionScreen();

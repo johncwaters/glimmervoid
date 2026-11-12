@@ -723,7 +723,7 @@
     },
     {
       "name": "reload",
-      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server, as the whiteboard's Reload page button does after a graphics card reset clears Chrome's WebGL block; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file; also reading a session's changes again from its worktree after Changes failed to read them, through the Reload changes button"
+      "definition": "Loading the dashboard browser page again, which starts a fresh page from the server; it does not lift Chrome's graphics block after repeated graphics card resets, which only quitting and reopening the browser does; also a running process reading a watched file again in place, such as config.json, the doorman's tenant table or a linked card's file; also reading a session's changes again from its worktree after Changes failed to read them, through the Reload changes button"
     },
     {
       "name": "merged",
@@ -748,6 +748,10 @@
     {
       "name": "wake",
       "definition": "A prompt a session schedules with glimmervoid wake (in, at or cron) that Glimmervoid types into that session when due, once it is idle and the operator is not typing; also the line a spawned session's news types into its parent. Both spend one per-session budget of 10 without operator input"
+    },
+    {
+      "name": "reset",
+      "definition": "A graphics card reset: the browser takes a board's WebGL context away (lost) and the board gets one back (restored or recreated); after repeated resets Chrome blocks graphics for the site until the browser restarts, and each one is logged as a board-graphics line and a board_graphics_reset event"
     }
   ],
   "retired": [

@@ -21,7 +21,7 @@ import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, move
 import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
-import { button } from '../ui/button.ts';
+import type { BoardGraphicsEvent, BoardGraphicsEventKind } from './board-graphics-report-core.ts';
 
 interface Camera {
   x: number;
@@ -70,6 +70,7 @@ interface RendererOptions {
   mediaLayer: BoardMediaLayer;
   notice: HTMLElement;
   onViewChange?: (view: Rect, scale: number) => void;
+  onGraphicsEvent?: (event: BoardGraphicsEvent) => void;
 }
 
 interface AttributeSpec {
@@ -136,9 +137,9 @@ const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds:
 const CULL_CELL_SIZE = 512;
 const CONTEXT_RETRY_MS = 5000;
 const NOTICES = {
-  redrawing: { text: 'The board is redrawing after the graphics card reset.', hasReloadButton: false },
-  paused: { text: 'The browser paused graphics for this page after a graphics card reset. The board keeps retrying.', hasReloadButton: true },
-  unsupported: { text: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.', hasReloadButton: false },
+  redrawing: 'The board is redrawing after the graphics card reset.',
+  blocked: 'The browser blocked graphics for this site after repeated graphics card resets. Quit and reopen the browser to draw boards again.',
+  unsupported: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.',
 } as const;
 type NoticeKind = keyof typeof NOTICES;
 const GATHER_MARGIN_FACTOR = 0.75;
@@ -540,11 +541,25 @@ function emptyRange(): LayerRange {
   return { rectStart: 0, rectCount: 0, segmentStart: 0, segmentCount: 0, triangleStart: 0, triangleCount: 0, glyphStart: 0, glyphCount: 0 };
 }
 
+function createWebgl2Context(target: HTMLCanvasElement, attributes: WebGLContextAttributes): { context: WebGL2RenderingContext | null; creationError: string | null } {
+  let creationError: string | null = null;
+  target.addEventListener('webglcontextcreationerror', (event) => {
+    if (event instanceof WebGLContextEvent && event.statusMessage) creationError = event.statusMessage;
+  }, { once: true });
+  const context = target.getContext('webgl2', attributes);
+  return { context, creationError };
+}
+
+function isWebgl2Missing(): boolean {
+  return typeof WebGL2RenderingContext === 'undefined';
+}
+
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { viewport, mediaLayer, notice, onViewChange } = options;
+  const { viewport, mediaLayer, notice, onViewChange, onGraphicsEvent } = options;
   let canvas = options.canvas;
   const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
-  let gl: WebGL2RenderingContext | null = canvas.getContext('webgl2', contextAttributes);
+  const initialContext = createWebgl2Context(canvas, contextAttributes);
+  let gl: WebGL2RenderingContext | null = initialContext.context;
   let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram; block: PrimitiveProgram } | null = null;
   let blocks: readonly BlockTile[] = [];
   const blockTextures = new Map<string, { raster: Uint8Array; texture: WebGLTexture }>();
@@ -585,14 +600,48 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let gatherNumber = 0;
   let sceneBuildCount = 0;
   let contextRetryTimer: number | null = null;
-  const noticeText = document.createElement('span');
-  const reloadPageButton = button({ variant: 'secondary', size: 'small', label: 'Reload page', action: 'reload-page', onClick: () => location.reload() });
+  let contextState: 'live' | 'lost' | 'blocked' = 'live';
+  let lossCount = 0;
+  let lastLossAtMs: number | null = null;
+  let contextRetries = 0;
+  let gpuRenderer: string | null = null;
 
   function showNotice(kind: NoticeKind | null): void {
     notice.hidden = kind === null;
     if (!kind) return;
-    noticeText.textContent = NOTICES[kind].text;
-    notice.replaceChildren(...(NOTICES[kind].hasReloadButton ? [noticeText, reloadPageButton] : [noticeText]));
+    notice.textContent = NOTICES[kind];
+  }
+
+  function rememberGpuRenderer(context: WebGL2RenderingContext): void {
+    const debugRendererInfo = context.getExtension('WEBGL_debug_renderer_info');
+    const rendererName: unknown = context.getParameter(debugRendererInfo ? debugRendererInfo.UNMASKED_RENDERER_WEBGL : context.RENDERER);
+    if (typeof rendererName === 'string' && rendererName) gpuRenderer = rendererName;
+  }
+
+  function reportGraphics(kind: BoardGraphicsEventKind, details: { msSinceLastLoss: number | null; blankMs: number | null; creationError: string | null }): void {
+    if (!onGraphicsEvent) return;
+    let mediaTextureBytes = 0;
+    for (const entry of mediaTextures.values()) mediaTextureBytes += entry.textureBytes;
+    onGraphicsEvent({
+      kind,
+      lossCount,
+      ...details,
+      retries: contextRetries,
+      mediaTextureCount: mediaTextures.size,
+      mediaTextureBytes,
+      canvasWidthPx: canvas.width,
+      canvasHeightPx: canvas.height,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      isPageVisible: document.visibilityState === 'visible',
+      gpuRenderer,
+    });
+  }
+
+  function settleContextLive(kind: 'restored' | 'recreated'): void {
+    const blankMs = lastLossAtMs === null ? null : performance.now() - lastLossAtMs;
+    contextState = 'live';
+    reportGraphics(kind, { msSinceLastLoss: null, blankMs, creationError: null });
+    contextRetries = 0;
   }
 
   function ensureAtlas(): GlyphAtlas {
@@ -668,9 +717,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function createGlOrNotice(): void {
     if (!gl) {
-      showNotice('unsupported');
+      showNotice(isWebgl2Missing() ? 'unsupported' : 'blocked');
       return;
     }
+    rememberGpuRenderer(gl);
     setUpGl(gl);
   }
 
@@ -1480,11 +1530,14 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function retryWithFreshCanvas(): void {
     contextRetryTimer = null;
+    contextRetries += 1;
     const freshCanvas = canvas.cloneNode(false);
     if (!(freshCanvas instanceof HTMLCanvasElement)) return;
-    const freshContext = freshCanvas.getContext('webgl2', contextAttributes);
+    const { context: freshContext, creationError } = createWebgl2Context(freshCanvas, contextAttributes);
     if (!freshContext) {
-      showNotice('paused');
+      showNotice('blocked');
+      if (contextState === 'lost') reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError });
+      contextState = 'blocked';
       scheduleContextRetry();
       return;
     }
@@ -1493,10 +1546,17 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     canvas = freshCanvas;
     watchCanvas(freshCanvas);
     adoptContext(freshContext);
+    settleContextLive('recreated');
   }
 
   function onContextLost(event: Event): void {
     event.preventDefault();
+    const lostAtMs = performance.now();
+    lossCount += 1;
+    reportGraphics('lost', { msSinceLastLoss: lastLossAtMs === null ? null : lostAtMs - lastLossAtMs, blankMs: null, creationError: null });
+    lastLossAtMs = lostAtMs;
+    contextState = 'lost';
+    contextRetries = 0;
     primitives = null;
     atlas?.forgetTexture();
     for (const entry of mediaTextures.values()) entry.texture = null;
@@ -1508,6 +1568,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function onContextRestored(): void {
     cancelContextRetry();
     adoptContext(canvas.getContext('webgl2', contextAttributes));
+    if (gl) settleContextLive('restored');
   }
 
   const canvasResizeObserver = new ResizeObserver(() => {
@@ -1535,6 +1596,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   new MutationObserver(requestDrawOnThemeChange).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
   new MutationObserver(requestDrawOnThemeChange).observe(viewport, { attributes: true, attributeFilter: ['class'] });
   createGlOrNotice();
+  if (!gl && !isWebgl2Missing()) {
+    contextState = 'blocked';
+    reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError: initialContext.creationError });
+  }
 
   return {
     render,
