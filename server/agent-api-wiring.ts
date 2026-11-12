@@ -66,6 +66,7 @@ function createAgentApiWiring({
     filePath: wakesFilePath,
     findLiveSession: (sessionId) => listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null,
     budget: channels,
+    spawnGate,
     setTimeoutFn,
     clearTimeoutFn,
     now,

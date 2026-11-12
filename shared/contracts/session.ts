@@ -62,7 +62,7 @@ export const CoherenceHooksState = z.discriminatedUnion('active', [
 
 export const ATTENTION_NOTE_MAX_CHARS = 500;
 const ATTENTION_QUESTION_ORIGINS = ['agent', 'secret'] as const;
-const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'self-wake-cap', 'child-kept'] as const;
+const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'self-wake-cap', 'wake-failed', 'child-kept'] as const;
 export const AttentionOrigin = z.enum([...ATTENTION_QUESTION_ORIGINS, ...ATTENTION_NOTE_ORIGINS]);
 export const AttentionNoteOrigin = z.enum(ATTENTION_NOTE_ORIGINS);
 export const AttentionNote = z.object({ origin: AttentionNoteOrigin, note: z.string().max(ATTENTION_NOTE_MAX_CHARS), at: z.number() }).strict();
