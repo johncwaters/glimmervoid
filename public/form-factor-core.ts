@@ -7,3 +7,9 @@ export function decideLayout({ coarse, narrowWidth }: { coarse?: unknown; narrow
   if (coarse === true && narrowWidth === true) return 'phone';
   return 'desktop';
 }
+
+export const ANY_COARSE_POINTER_QUERY = '(any-pointer: coarse)';
+
+export function decideTouchInput({ layout, hasAnyCoarsePointer }: { layout: string; hasAnyCoarsePointer: boolean }) {
+  return layout === 'phone' || hasAnyCoarsePointer;
+}

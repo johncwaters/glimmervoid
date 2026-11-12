@@ -744,6 +744,14 @@
     {
       "name": "arrow",
       "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, or the Arrow box icon"
+    },
+    {
+      "name": "touch input",
+      "definition": "A dashboard that a finger can drive: the phone layout, or any device with a coarse pointer such as a touch tablet, foldable or touchscreen laptop; stamped as data-touch-input on the page, it turns on the touch controls, while a mouse-only desktop has none"
+    },
+    {
+      "name": "android chrome",
+      "definition": "Google Chrome on an Android phone or tablet, one of the two phone browsers the dashboard's touch features are built and device-tested for, beside Safari on iPhone"
     }
   ],
   "retired": [
