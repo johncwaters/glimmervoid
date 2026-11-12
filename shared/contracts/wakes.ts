@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const MAX_WAKE_TEXT_CHARS = 2000;
 export const MAX_WAKE_WHEN_CHARS = 200;
-export const WAKE_KINDS = ['in', 'at', 'cron'] as const;
-export const WAKE_STATUSES = ['pending', 'fired', 'missed', 'failed', 'cancelled'] as const;
+const WAKE_KINDS = ['in', 'at', 'cron'] as const;
+const WAKE_STATUSES = ['pending', 'fired', 'missed', 'failed', 'cancelled'] as const;
 
 export const WakeId = z.string({ error: 'the wake must be a string' }).regex(/^w[1-9][0-9]{0,8}$/, { error: 'a wake id looks like w3; glimmervoid wake list shows them' });
 export const WakeKind = z.enum(WAKE_KINDS);
