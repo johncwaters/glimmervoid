@@ -10,6 +10,7 @@ import path from 'node:path';
 import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createDoorman } from '../cloud/doorman/doorman.ts';
+import { createGcpHostAdapter } from '../cloud/doorman/gcp-host.ts';
 import { ensureDoorman, localDoormanUrl } from '../cloud/doorman/ensure-doorman.ts';
 import { loadOrCreateLinkSecret } from '../cloud/link/link-secret.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
@@ -580,6 +581,8 @@ function requestHostStop(doormanPort: number, host: string, key: Buffer) {
   return requestThroughDoorman(doormanPort, { host, method: 'POST', path: HOST_STOP_PATH, headers: signedHeaders(key, { method: 'POST', path: HOST_STOP_PATH, body: '' }, Date.now()) });
 }
 
+const TEST_GCP_HOST = { kind: 'gcp', project: 'tenant-project', zone: 'us-central1-a', instance: 'tenant-vm' } as const;
+
 async function doormanTenant(t: test.TestContext, slug: string, serverUrl: string) {
   const tenantHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-doorman-'));
   t.after(() => fsp.rm(tenantHome, { recursive: true, force: true }));
@@ -690,15 +693,15 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
   const wakeCalls: string[] = [];
   const stopCalls: string[] = [];
   const hostAdapter = {
-    wake: async (tenantSlug: string) => {
-      wakeCalls.push(tenantSlug);
+    wake: async ({ slug }: { slug: string }) => {
+      wakeCalls.push(slug);
       await listenOnLoopback(sleepingServer, sleepingPort);
     },
-    stop: async (tenantSlug: string) => {
-      stopCalls.push(tenantSlug);
+    stop: async ({ slug }: { slug: string }) => {
+      stopCalls.push(slug);
     },
   };
-  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [tenant] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000 }, log: QUIET_LOG });
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000 }, log: QUIET_LOG });
   const doormanPort = await doorman.listen(0);
   t.after(async () => {
     await doorman.close();
@@ -732,16 +735,16 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   const tenantPort = await listenOnLoopback(tenantServer);
   await new Promise((resolve) => tenantServer.close(resolve));
   const { linkSecret, tenant } = await doormanTenant(t, 'cappedtenant0001', `http://127.0.0.1:${tenantPort}`);
-  const cappedTenant = { ...tenant, awakeHoursPerMonth: 0.0001 };
+  const cappedTenant = { ...tenant, awakeHoursPerMonth: 0.0001, host: TEST_GCP_HOST };
   const wakeCalls: string[] = [];
   const stopCalls: string[] = [];
   const hostAdapter = {
-    wake: async (tenantSlug: string) => {
-      wakeCalls.push(tenantSlug);
+    wake: async ({ slug }: { slug: string }) => {
+      wakeCalls.push(slug);
       await listenOnLoopback(tenantServer, tenantPort);
     },
-    stop: async (tenantSlug: string) => {
-      stopCalls.push(tenantSlug);
+    stop: async ({ slug }: { slug: string }) => {
+      stopCalls.push(slug);
       if (stopCalls.length === 1) return new Promise<void>(() => {});
       tenantServer.closeAllConnections();
       await new Promise((resolve) => tenantServer.close(resolve));
@@ -785,6 +788,48 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   }
   assert.equal(notifications.length, 1);
   assert.match(notifications[0], /used all .* awake hours for this month/);
+});
+
+test('the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {
+  const instanceUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/tenant-vm';
+  const statusReads: string[] = [];
+  const calls: string[] = [];
+  let refusesWith: number | null = null;
+  const fakeGoogle: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.startsWith('http://metadata.google.internal/')) return Response.json({ access_token: 'metadata-token', expires_in: 3599 });
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer metadata-token');
+    if (refusesWith !== null) return new Response('denied', { status: refusesWith });
+    if (url === instanceUrl) {
+      const status = statusReads.shift() ?? 'RUNNING';
+      return status === 'BUSY' ? new Response('backend error', { status: 503 }) : Response.json({ status });
+    }
+    calls.push(`${init?.method} ${url.slice(instanceUrl.length)}`);
+    return Response.json({ kind: 'compute#operation' });
+  };
+  const adapter = createGcpHostAdapter({ fetchFn: fakeGoogle, settleTimeoutMs: 1000, settlePollMs: 1 });
+  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecretPath: '/unused', watcherHome: '/unused', githubInstallation: null, awakeHoursPerMonth: null, host: TEST_GCP_HOST };
+
+  statusReads.push('SUSPENDED');
+  await adapter.wake(tenant);
+  statusReads.push('TERMINATED');
+  await adapter.wake(tenant);
+  statusReads.push('SUSPENDING', 'SUSPENDING', 'SUSPENDED');
+  await adapter.wake(tenant);
+  statusReads.push('SUSPENDING', 'BUSY', 'SUSPENDED');
+  await adapter.wake(tenant);
+  statusReads.push('RUNNING');
+  await adapter.wake(tenant);
+  statusReads.push('REPAIRING');
+  await assert.rejects(adapter.stop(tenant), /REPAIRING, so it was not suspended/);
+  statusReads.push('SUSPENDED');
+  await adapter.stop(tenant);
+  statusReads.push('RUNNING');
+  await adapter.stop(tenant);
+  assert.deepEqual(calls, ['POST /resume', 'POST /start', 'POST /resume', 'POST /resume', 'POST /suspend']);
+
+  refusesWith = 403;
+  await assert.rejects(adapter.wake(tenant), /answered 403/);
 });
 
 test('a server sends the 100 percent awake-hours alert while the cap is still within its lookahead, and alerts again when the cap changes mid-month', () => {

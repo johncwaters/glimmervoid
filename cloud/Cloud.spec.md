@@ -35,3 +35,8 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge
   because: the tenant server sleeps through most hours, so only the doorman can keep a one-hour token fresh, and an installation token cannot read notifications, so it must never displace a personal read token
   kinds: none
+- hosts wake from their status: A doorman wakes and stops only a tenant whose entry names its host, resumes a suspended host, starts a terminated one, suspends only a running one, and waits out a host that is still changing state.
+  over: every instance status, a tenant with no host, and a stop racing a wake
+  via: a doorman reads a tenant host's status, then resumes it when suspended, starts it when terminated, suspends it only when running, and waits while it is changing state; a tenant with no host is never woken or metered
+  because: a suspended host cannot be suspended again and a host suspended past 60 days comes back terminated, so acting on a stale guess fails the wake, and the local doorman has no host to wake
+  kinds: none

@@ -21,11 +21,12 @@ import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../share
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
 import { headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs } from './doorman-core.ts';
+import { createGcpHostAdapter } from './gcp-host.ts';
+import type { HostAdapter } from './gcp-host.ts';
 import { createGithubAppMinter } from './github-app.ts';
 import type { GithubAppMinter } from './github-app.ts';
 import type { DoormanRoute, ForwardState } from './doorman-core.ts';
 
-type HostAdapter = { wake(tenantSlug: string): Promise<void>; stop(tenantSlug: string): Promise<void> };
 type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number };
 type WakeOutcome = 'answering' | 'no-adapter' | 'cooling-down' | 'unreachable' | 'over-cap';
 type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; stopStartedAtMs: number | null };
@@ -145,8 +146,12 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     return false;
   }
 
+  function adapterFor(entry: TenantEntry): HostAdapter | null {
+    return entry.tenant.host === null ? null : hostAdapter;
+  }
+
   async function runWake(entry: TenantEntry, adapter: HostAdapter): Promise<WakeOutcome> {
-    await adapter.wake(entry.tenant.slug).then(() => entry.meter?.note('woke'), (wakeError: unknown) => {
+    await adapter.wake(entry.tenant).then(() => entry.meter?.note('woke'), (wakeError: unknown) => {
       log.warn(`[doorman] waking ${entry.tenant.slug} failed: ${errorMessage(wakeError)}`);
     });
     const isAnswering = await waitUntilAnswering(entry.tenant.serverUrl, now() + tunables.holdTimeoutMs);
@@ -162,12 +167,13 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
 
   function wakeTenant(entry: TenantEntry): Promise<WakeOutcome> {
     if (entry.gate.wakePromise !== null) return entry.gate.wakePromise;
-    if (hostAdapter === null) return Promise.resolve('no-adapter');
+    const adapter = adapterFor(entry);
+    if (adapter === null) return Promise.resolve('no-adapter');
     if (overCapUsage(entry) !== null) return Promise.resolve('over-cap');
     if (!isWakeAllowed(entry.gate.lastWakeAtMs, now(), tunables.wakeCooldownMs)) return Promise.resolve('cooling-down');
     entry.gate.state = nextForwardState(entry.gate.state, entry.gate.state === 'unreachable' ? 'cooldownPassedAndRequest' : 'connectFailed');
     entry.gate.lastWakeAtMs = now();
-    const wakePromise = runWake(entry, hostAdapter).finally(() => {
+    const wakePromise = runWake(entry, adapter).finally(() => {
       entry.gate.wakePromise = null;
     });
     entry.gate.wakePromise = wakePromise;
@@ -192,19 +198,22 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     const stopStartedAtMs = now();
     if (entry.gate.stopStartedAtMs !== null && stopStartedAtMs - entry.gate.stopStartedAtMs < tunables.meterTickMs) return;
     entry.gate.stopStartedAtMs = stopStartedAtMs;
-    void adapter.stop(entry.tenant.slug)
-      .then(() => noteHostDown(entry), (stopError: unknown) => log.warn(`[doorman] stopping ${entry.tenant.slug} failed: ${errorMessage(stopError)}`))
+    void adapter.stop(entry.tenant)
+      .then(() => {
+        noteHostDown(entry);
+        entry.gate.state = nextForwardState(entry.gate.state, 'hostStopped');
+      }, (stopError: unknown) => log.warn(`[doorman] stopping ${entry.tenant.slug} failed: ${errorMessage(stopError)}`))
       .finally(() => {
         if (entry.gate.stopStartedAtMs === stopStartedAtMs) entry.gate.stopStartedAtMs = null;
       });
   }
 
   function stopHostsOverCap(): void {
-    if (hostAdapter === null) return;
     for (const entry of entriesBySlug.values()) {
-      if (entry.meter === null || !entry.meter.isAwake() || overCapUsage(entry) === null) continue;
+      const adapter = adapterFor(entry);
+      if (adapter === null || entry.meter === null || !entry.meter.isAwake() || overCapUsage(entry) === null) continue;
       log.log(`[doorman] tenant ${entry.tenant.slug} reached its awake hours for this month, stopping its host`);
-      stopTenantHost(entry, hostAdapter);
+      stopTenantHost(entry, adapter);
     }
   }
 
@@ -242,7 +251,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
         log.warn(`[doorman] forwarding to ${entry.tenant.slug} failed: ${errorMessage(forwardError)}`);
         return answerStatus(response, 502);
       }
-      if (hostAdapter === null) return answerStatus(response, 502);
+      if (adapterFor(entry) === null) return answerStatus(response, 502);
       noteHostDown(entry);
       const overCap = overCapUsage(entry);
       if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now() });
@@ -262,7 +271,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     }
     forwardedFor(entry, request);
     await proxy.ws(request, socket, { target: entry.tenant.serverUrl }, head).catch((forwardError: unknown) => {
-      if (isConnectFailure(forwardError) && hostAdapter !== null) {
+      if (isConnectFailure(forwardError) && adapterFor(entry) !== null) {
         noteHostDown(entry);
         void wakeTenant(entry);
       }
@@ -383,6 +392,10 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
       return null;
     }
     const forwardFetch: typeof fetch = async (input, init) => {
+      if (entry.gate.state !== 'answering' && adapterFor(entry) !== null) {
+        const outcome = await wakeTenant(entry);
+        if (outcome !== 'answering') throw new Error(`tenant ${entry.tenant.slug} host did not wake: ${outcome}`);
+      }
       try {
         return await fetch(input, init);
       } catch (fetchError) {
@@ -391,9 +404,10 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
       }
     };
     const stopHost = async (): Promise<HostStopOutcome> => {
-      if (hostAdapter === null) return 'no-adapter';
+      const adapter = adapterFor(entry);
+      if (adapter === null) return 'no-adapter';
       log.log(`[doorman] tenant ${entry.tenant.slug} asked to stop`);
-      stopTenantHost(entry, hostAdapter);
+      stopTenantHost(entry, adapter);
       return 'stopping';
     };
     const githubTokenFallback = () => {
@@ -443,7 +457,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
   }
 
   function meterFor(tenant: DoormanTenant): Promise<AwakeMeter | null> {
-    if (hostAdapter === null) return Promise.resolve(null);
+    if (hostAdapter === null || tenant.host === null) return Promise.resolve(null);
     const existing = metersByWatcherHome.get(tenant.watcherHome);
     if (existing !== undefined) return existing;
     const meter = createAwakeMeter({ watcherHome: tenant.watcherHome, now, log });
@@ -463,8 +477,9 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     }
     for (const tenant of nextTable.tenants) {
       if (entriesBySlug.has(tenant.slug)) continue;
-      const gate: TenantGate = { state: 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: null, stopStartedAtMs: null };
-      entriesBySlug.set(tenant.slug, { tenant, gate, meter: await meterFor(tenant), watcher: null, watcherSecretHex: null, watcherStart: null, github: { held: null, mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 } });
+      const meter = await meterFor(tenant);
+      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: null, stopStartedAtMs: null };
+      entriesBySlug.set(tenant.slug, { tenant, gate, meter, watcher: null, watcherSecretHex: null, watcherStart: null, github: { held: null, mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 } });
     }
     await Promise.all([...entriesBySlug.values()].map(refreshWatcher));
   }
@@ -579,7 +594,7 @@ async function runDoormanCli({ tablePath, rawPort }: { tablePath: string | null;
     return 0;
   }
   if (stateLock === 'unlockable') console.warn('[doorman] file locks are unavailable, so a second doorman for this table is not refused');
-  const doorman = createDoorman({ table });
+  const doorman = createDoorman({ table, hostAdapter: createGcpHostAdapter({ settleTimeoutMs: DEFAULT_TUNABLES.holdTimeoutMs / 2 }) });
   const boundPort = await doorman.listen(port);
   const portPath = path.join(stateDir, DOORMAN_PORT_FILE_NAME);
   await publishBoundPort(portPath, boundPort);

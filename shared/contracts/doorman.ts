@@ -12,6 +12,14 @@ export const DoormanGithubInstallation = z.strictObject({
 });
 export type DoormanGithubInstallation = z.infer<typeof DoormanGithubInstallation>;
 
+export const DoormanGcpHost = z.strictObject({
+  kind: z.literal('gcp'),
+  project: z.string().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/),
+  zone: z.string().regex(/^[a-z]+-[a-z]+[0-9]+-[a-z]$/),
+  instance: z.string().regex(/^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$/),
+});
+export type DoormanGcpHost = z.infer<typeof DoormanGcpHost>;
+
 export const DoormanTenant = z.strictObject({
   slug: z.string().regex(/^[a-z0-9]{12,40}$/),
   serverUrl: z.url({ protocol: /^https?$/ }),
@@ -19,6 +27,7 @@ export const DoormanTenant = z.strictObject({
   watcherHome: z.string().min(1),
   githubInstallation: DoormanGithubInstallation.nullable().default(null),
   awakeHoursPerMonth: z.number().positive().nullable().default(null),
+  host: DoormanGcpHost.nullable().default(null),
 });
 export type DoormanTenant = z.infer<typeof DoormanTenant>;
 

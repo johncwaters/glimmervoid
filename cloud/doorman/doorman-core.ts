@@ -13,15 +13,19 @@ type DoormanRoute =
 type MeterTotal = { periodStartMs: number; closedAwakeMs: number; openSinceMs: number | null };
 
 type ForwardState = 'answering' | 'waking' | 'unreachable';
-type ForwardEvent = 'connectFailed' | 'connected' | 'holdTimedOut' | 'cooldownPassedAndRequest';
+type ForwardEvent = 'connectFailed' | 'connected' | 'holdTimedOut' | 'cooldownPassedAndRequest' | 'hostStopped';
+type GceWakeAction = 'resume' | 'start';
 
 const FORWARD_TRANSITIONS: Readonly<Record<ForwardState, Partial<Record<ForwardEvent, ForwardState>>>> = Object.freeze({
-  answering: { connectFailed: 'waking' },
+  answering: { connectFailed: 'waking', hostStopped: 'unreachable' },
   waking: { connected: 'answering', holdTimedOut: 'unreachable' },
   unreachable: { cooldownPassedAndRequest: 'waking', connected: 'answering' },
 });
 
 const MS_PER_HOUR = 3_600_000;
+
+const GCE_WAKE_ACTION_BY_STATUS: Readonly<Record<string, GceWakeAction>> = Object.freeze({ SUSPENDED: 'resume', TERMINATED: 'start', STOPPED: 'start' });
+const GCE_SETTLING_STATUSES: ReadonlySet<string> = new Set(['SUSPENDING', 'STOPPING', 'PENDING_STOP', 'PROVISIONING', 'STAGING', 'DEPROVISIONING', 'PENDING']);
 
 const TAILSCALE_HEADER_PREFIX = 'tailscale-';
 const FORWARDED_HEADER_NAMES = Object.freeze(['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-port', 'x-forwarded-proto']);
@@ -57,6 +61,14 @@ function isWakeAllowed(lastWakeAtMs: number | null, nowMs: number, wakeCooldownM
   return lastWakeAtMs === null || nowMs - lastWakeAtMs >= wakeCooldownMs;
 }
 
+function gceWakeAction(status: string): GceWakeAction | null {
+  return GCE_WAKE_ACTION_BY_STATUS[status] ?? null;
+}
+
+function isGceSettling(status: string): boolean {
+  return GCE_SETTLING_STATUSES.has(status);
+}
+
 function headersAtEdge(headers: IncomingHttpHeaders, isBehindTlsEdge: boolean): IncomingHttpHeaders {
   const withoutIdentity = Object.fromEntries(Object.entries(headers).filter(([name]) => !name.startsWith(TAILSCALE_HEADER_PREFIX)));
   if (isBehindTlsEdge) return withoutIdentity;
@@ -66,7 +78,7 @@ function headersAtEdge(headers: IncomingHttpHeaders, isBehindTlsEdge: boolean): 
 
 function isConnectFailure(error: unknown): boolean {
   const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
-  return code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'ETIMEDOUT';
+  return code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT';
 }
 
 const INSTALLATION_TOKEN_PERMISSIONS = Object.freeze({
@@ -159,5 +171,5 @@ function isOverCap(usage: AwakeUsage): boolean {
   return usage.capMs !== null && usage.usedMs >= usage.capMs;
 }
 
-export { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
-export type { DoormanRoute, ForwardState, MeterTotal };
+export { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
+export type { DoormanRoute, ForwardState, GceWakeAction, MeterTotal };
