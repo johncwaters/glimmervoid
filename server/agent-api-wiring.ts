@@ -5,10 +5,11 @@ import type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause } f
 import type { AgentChannel } from './core/child-channel-core.ts';
 import { deliveredValueMasker, maskSecretStrings } from '../shared/secret-patterns.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
-import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink } from './agent-api/agent-api-context.ts';
+import type { AgentApiRuntime, AgentApiWiringOptions, AgentVerbHandlers, ChannelLink, SessionWakeBudget } from './agent-api/agent-api-context.ts';
 import { createChildChannels } from './agent-api/child-channels.ts';
 import { createAgentSpawner } from './agent-api/agent-spawn.ts';
 import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
+import { createWakeWiring } from './wakes/wake-wiring.ts';
 import { clock } from '../shared/clock.ts';
 
 interface AgentWireReply {
@@ -25,6 +26,7 @@ interface AgentApiPort {
   handle(session: Session, verb: string, payload: Record<string, unknown>): Promise<AgentWireReply>;
   refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
+  watchSessionWakes(session: Session): void;
 }
 
 function createAgentApiWiring({
@@ -40,6 +42,7 @@ function createAgentApiWiring({
   secrets = null,
   races = null,
   startRace = null,
+  wakesFilePath = null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -47,19 +50,29 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, settleSessionCoherence, secrets, races, startRace,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, settleSessionCoherence, secrets, races, startRace, wakesFilePath,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),
     parentsWithChannelCleanup: new WeakSet<Session>(),
     sessionsWithOperatorWatch: new WeakSet<Session>(),
-    lastOperatorInputAtBySession: new WeakMap<Session, number>(),
+    wakeBudgetBySession: new WeakMap<Session, SessionWakeBudget>(),
     childIdsToDiscard: new Set<string>(),
     endCauseByChildId: new Map<string, ChildEndCause>(),
   };
   const { childIdsToDiscard } = runtime;
   const channels = createChildChannels(runtime);
-  const { handlers, roleFactsOf } = createAgentVerbHandlers(runtime, channels, createAgentSpawner(runtime, channels));
+  const wakes = createWakeWiring({
+    filePath: wakesFilePath,
+    findLiveSession: (sessionId) => listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null,
+    budget: channels,
+    setTimeoutFn,
+    clearTimeoutFn,
+    now,
+    logger,
+  });
+  void wakes.start();
+  const { handlers, roleFactsOf } = createAgentVerbHandlers(runtime, channels, createAgentSpawner(runtime, channels), wakes);
 
   function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentReplyOf<V> | Promise<AgentReplyOf<V>> {
     const handler: AgentVerbHandlers[V] = handlers[verb];
@@ -87,7 +100,7 @@ function createAgentApiWiring({
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 
-  return { handle, refuseRole, markChildWorktreeDiscard };
+  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession };
 }
 
 export { createAgentApiWiring };

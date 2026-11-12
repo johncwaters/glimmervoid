@@ -5,6 +5,7 @@ import { LinkedPr, MyPr } from './my-prs.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
+import { AgentWakeReply } from './wakes.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
@@ -61,7 +62,7 @@ export const CoherenceHooksState = z.discriminatedUnion('active', [
 
 export const ATTENTION_NOTE_MAX_CHARS = 500;
 const ATTENTION_QUESTION_ORIGINS = ['agent', 'secret'] as const;
-const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'child-kept'] as const;
+const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'self-wake-cap', 'child-kept'] as const;
 export const AttentionOrigin = z.enum([...ATTENTION_QUESTION_ORIGINS, ...ATTENTION_NOTE_ORIGINS]);
 export const AttentionNoteOrigin = z.enum(ATTENTION_NOTE_ORIGINS);
 export const AttentionNote = z.object({ origin: AttentionNoteOrigin, note: z.string().max(ATTENTION_NOTE_MAX_CHARS), at: z.number() }).strict();
@@ -131,7 +132,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'wake'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -333,6 +334,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
   arena: z.union([AgentArenaReply, AgentRefusal]),
+  wake: z.union([AgentWakeReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
 
 export type AgentRefusal = z.infer<typeof AgentRefusal>;

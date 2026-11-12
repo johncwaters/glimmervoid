@@ -109,6 +109,8 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 
 `httpxy` forwards the doorman's HTTP and WebSocket traffic to each tenant server, so the doorman owns only routing, the wake hold and its header rule.
 
+`croner` reads wake times and cron patterns in the operator timezone.
+
 `@1password/sdk` lets the `glimmervoid vault` companion read and create 1Password items through the desktop app, so no secret value passes through argv or a CLI's output; only that command loads it.
 
 Dev: the toolchain in `package.json`.

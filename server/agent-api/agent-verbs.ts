@@ -12,6 +12,7 @@ import { AGENT_LANE_TAG } from './agent-api-context.ts';
 import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts';
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
+import type { WakeWiring } from '../wakes/wake-wiring.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
@@ -19,7 +20,7 @@ import { clock } from '../../shared/clock.ts';
 
 const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
-function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner) {
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace } = runtime;
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
@@ -296,6 +297,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     packs,
     need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
+    wake: (session, request) => wakes.handleAgent(session, request),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 

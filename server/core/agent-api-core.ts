@@ -10,6 +10,7 @@ import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentRe
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
 import { AgentArenaRequest } from '../../shared/contracts/race.ts';
+import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -72,6 +73,7 @@ interface AgentRequestByVerb {
   packs: AgentPacksRequest;
   need: AgentNeedRequest;
   arena: AgentArenaRequest;
+  wake: AgentWakeRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -215,6 +217,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   packs: bodyParser(AgentPacksRequest),
   need: bodyParser(AgentNeedRequest),
   arena: bodyParser(AgentArenaRequest),
+  wake: bodyParser(AgentWakeRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -529,6 +532,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it to race one prompt across agent setups in this session\'s project, follow a race, judge it, or read a contestant\'s diff',
     summary: 'Start an Arena race, list races, read one race, start judging it, or read one contestant\'s diff (arena start <spec json>, arena race <race>, arena judge <race>, arena diff <race> <contestant>)',
     missingArgumentHint: 'this command needs an action, for example "glimmervoid arena races", and arena start needs the race spec as one JSON object argument',
+    isPassthrough: true,
+  },
+  wake: {
+    usage: 'wake in|at|cron|list|cancel',
+    whenToUse: 'Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping',
+    summary: "Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron \"0 9 * * 1-5\" <text>, wake list, wake cancel <id>); times use the operator's timezone",
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid wake in 15m check the rollout" or "glimmervoid wake list"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

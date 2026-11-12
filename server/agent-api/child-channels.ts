@@ -9,7 +9,9 @@ import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
-import type { AgentApiRuntime, ChannelLink } from './agent-api-context.ts';
+import type { AgentApiRuntime, ChannelLink, SessionWakeBudget } from './agent-api-context.ts';
+import type { AttentionNoteOrigin } from '../../shared/contracts/session.ts';
+import type { OperatorWakeFacts } from '../core/wake-core.ts';
 
 const WAKE_SUBMIT_DELAY_MS = 150;
 
@@ -24,7 +26,7 @@ interface HookEvent {
 }
 
 function createChildChannels(runtime: AgentApiRuntime) {
-  const { listAllSessions, settleSessionCoherence, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, lastOperatorInputAtBySession, childIdsToDiscard, endCauseByChildId } = runtime;
+  const { listAllSessions, settleSessionCoherence, logger, setTimeoutFn, clearTimeoutFn, now, channelsByChildId, linksByChildId, parentsWithChannelCleanup, sessionsWithOperatorWatch, wakeBudgetBySession, childIdsToDiscard, endCauseByChildId } = runtime;
 
   function noteEndCause(childId: string, cause: ChildEndCause): void {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
@@ -56,18 +58,52 @@ function createChildChannels(runtime: AgentApiRuntime) {
     }, retryInMs)));
   }
 
-  function typeWakeLine(link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
-    if (!recipient.pasteText(describeWakeLine(channel, side)).ok) return;
+  const sessionsWithWakeLineInFlight = new WeakSet<Session>();
+
+  function wakeBudgetOf(session: Session): SessionWakeBudget {
+    const existingBudget = wakeBudgetBySession.get(session);
+    if (existingBudget) return existingBudget;
+    const freshBudget: SessionWakeBudget = { lastOperatorInputAt: Number.NEGATIVE_INFINITY, wakesSinceOperatorInput: 0, isOperatorFlagged: false };
+    wakeBudgetBySession.set(session, freshBudget);
+    return freshBudget;
+  }
+
+  function operatorWakeFactsOf(session: Session): OperatorWakeFacts {
+    const budget = wakeBudgetOf(session);
+    return { isOperatorFlagged: budget.isOperatorFlagged, wakesSinceOperatorInput: budget.wakesSinceOperatorInput, msSinceOperatorInput: now() - budget.lastOperatorInputAt };
+  }
+
+  function flagWakeCap(session: Session, origin: AttentionNoteOrigin, note: string): void {
+    wakeBudgetOf(session).isOperatorFlagged = true;
+    session.raiseAttention(origin, note);
+  }
+
+  function isWakeLineInFlight(session: Session): boolean {
+    return sessionsWithWakeLineInFlight.has(session);
+  }
+
+  function submitPastedWakeLine(recipient: Session, pastedAt: number): boolean {
+    if (recipient._destroyed) return false;
+    const budget = wakeBudgetOf(recipient);
+    if (!canSubmitWake({ recipientState: recipient.state, pastedAt, lastOperatorInputAt: budget.lastOperatorInputAt })) return false;
+    recipient.write('\r');
+    budget.wakesSinceOperatorInput += 1;
+    return true;
+  }
+
+  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void): boolean {
+    if (isWakeLineInFlight(recipient) || !recipient.pasteText(line).ok) return false;
+    sessionsWithWakeLineInFlight.add(recipient);
     const pastedAt = now();
-    link.pendingWakeSides.add(side);
     unrefTimer(setTimeoutFn(() => {
-      link.pendingWakeSides.delete(side);
-      if (recipient._destroyed) return;
-      const lastOperatorInputAt = lastOperatorInputAtBySession.get(recipient) ?? Number.NEGATIVE_INFINITY;
-      if (!canSubmitWake({ recipientState: recipient.state, pastedAt, lastOperatorInputAt })) return;
-      recipient.write('\r');
-      link.wakesSinceOperatorInput += 1;
+      sessionsWithWakeLineInFlight.delete(recipient);
+      onSettled(submitPastedWakeLine(recipient, pastedAt));
     }, WAKE_SUBMIT_DELAY_MS));
+    return true;
+  }
+
+  function typeWakeLine(link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
+    if (submitWakeLine(recipient, describeWakeLine(channel, side), () => link.pendingWakeSides.delete(side))) link.pendingWakeSides.add(side);
   }
 
   function wakeRecipient(childId: string, side: ChannelSide): void {
@@ -76,13 +112,15 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (!link || !channel) return;
     const recipient = recipientOf(link, side);
     if (recipient._destroyed) return;
+    if (isWakeLineInFlight(recipient) && !link.pendingWakeSides.has(side)) {
+      scheduleWakeRetry(childId, link, side, WAKE_SUBMIT_DELAY_MS);
+      return;
+    }
     const decision = decideWake({
       recipientState: recipient.state,
       hasUnread: hasWakingUnread(channel[side]),
       isWakePending: link.pendingWakeSides.has(side),
-      isOperatorFlagged: link.isOperatorFlagged,
-      wakesSinceOperatorInput: link.wakesSinceOperatorInput,
-      msSinceOperatorInput: now() - (lastOperatorInputAtBySession.get(recipient) ?? Number.NEGATIVE_INFINITY),
+      ...operatorWakeFactsOf(recipient),
     });
     switch (decision.kind) {
       case 'none':
@@ -91,8 +129,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
         scheduleWakeRetry(childId, link, side, decision.retryInMs);
         return;
       case 'flag-operator':
-        link.isOperatorFlagged = true;
-        recipient.raiseAttention('child-wake-cap', describeWakeCapNote(channel));
+        flagWakeCap(recipient, 'child-wake-cap', describeWakeCapNote(channel));
         return;
       case 'wake':
         typeWakeLine(link, channel, side, recipient);
@@ -100,19 +137,14 @@ function createChildChannels(runtime: AgentApiRuntime) {
     }
   }
 
-  function linksOf(session: Session): ChannelLink[] {
-    return [...linksByChildId.values()].filter((link) => link.parent === session || link.child === session);
-  }
-
   function watchOperatorInput(session: Session): void {
     if (sessionsWithOperatorWatch.has(session)) return;
     sessionsWithOperatorWatch.add(session);
     session.on('operator-input', () => {
-      lastOperatorInputAtBySession.set(session, now());
-      for (const link of linksOf(session)) {
-        link.wakesSinceOperatorInput = 0;
-        link.isOperatorFlagged = false;
-      }
+      const budget = wakeBudgetOf(session);
+      budget.lastOperatorInputAt = now();
+      budget.wakesSinceOperatorInput = 0;
+      budget.isOperatorFlagged = false;
     });
   }
 
@@ -152,7 +184,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   function openChildChannel(parent: Session, child: Session, childName: string): () => void {
     channelsByChildId.set(child.id, openChannel({ parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
-      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, wakesSinceOperatorInput: 0, isOperatorFlagged: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
+      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
     };
     linksByChildId.set(child.id, link);
     watchChild(link, child.id);
@@ -247,8 +279,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findOwnedChild(ownedChannels(parent), parent.id, target);
   }
 
-
-  return { noteEndCause, forgetLink, openChildChannel, settleChildWorktree, post, drain, ownedChannels, findChildOf };
+  return { noteEndCause, forgetLink, openChildChannel, settleChildWorktree, post, drain, ownedChannels, findChildOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;
