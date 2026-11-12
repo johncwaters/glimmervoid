@@ -756,6 +756,14 @@
     {
       "name": "launcher",
       "definition": "A pack launcher: a button a pack declares under launchers (label, project, agent, optional model, effort and cron schedule, first prompt) that starts a session once the operator approves the pack; also the script or function that starts a process, such as the glimmervoid bin launcher or an agent's launch command"
+    },
+    {
+      "name": "touch input",
+      "definition": "A dashboard that a finger can drive: the phone layout, or any device with a coarse pointer such as a touch tablet, foldable or touchscreen laptop; stamped as data-touch-input on the page, it turns on the touch controls, while a mouse-only desktop has none"
+    },
+    {
+      "name": "android chrome",
+      "definition": "Google Chrome on an Android phone or tablet, one of the two phone browsers the dashboard's touch features are built and device-tested for, beside Safari on iPhone"
     }
   ],
   "retired": [
