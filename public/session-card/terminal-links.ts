@@ -1,9 +1,18 @@
 import type { IBuffer, IBufferCellPosition, IBufferRange, ILink, ILinkHandler, ILinkProvider, Terminal } from '@xterm/xterm';
 import { openExternalUrl } from '../external-link.ts';
+import { packNameOfApprovalUrl } from '#shared/pack-approval.ts';
 import { findUrls } from './link-detect-core.ts';
 import type { TerminalLinkPopup } from './terminal-link-popup.ts';
 
 const MAX_WRAPPED_ROWS = 50;
+
+function activateLink(linkPopup: TerminalLinkPopup, url: string, linkText: string | null, range: IBufferRange) {
+  if (packNameOfApprovalUrl(url, location.host) === null) {
+    openExternalUrl(url);
+    return;
+  }
+  linkPopup.pinLink({ url, linkText, range });
+}
 
 function readSingleRowText(term: Terminal, range: IBufferRange) {
   if (range.start.y !== range.end.y) return null;
@@ -13,8 +22,8 @@ function readSingleRowText(term: Terminal, range: IBufferRange) {
 
 export function osc8LinkHandler(term: Terminal, linkPopup: TerminalLinkPopup): ILinkHandler {
   return {
-    activate(_event: MouseEvent, uri: string) {
-      openExternalUrl(uri);
+    activate(_event: MouseEvent, uri: string, range: IBufferRange) {
+      activateLink(linkPopup, uri, readSingleRowText(term, range), range);
     },
     hover(_event: MouseEvent, uri: string, range: IBufferRange) {
       linkPopup.enterLink({ url: uri, linkText: readSingleRowText(term, range), range });
@@ -71,7 +80,7 @@ export function registerUrlLinkProvider(term: Terminal, linkPopup: TerminalLinkP
           range,
           text: url,
           activate(_event: MouseEvent, matched: string) {
-            openExternalUrl(matched);
+            activateLink(linkPopup, matched, null, range);
           },
           hover() {
             linkPopup.enterLink({ url, linkText: null, range });

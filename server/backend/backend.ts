@@ -450,7 +450,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild, configStore.secretsFileKeys())),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
-        packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint),
+        packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint), dashboardPort: boundDashboardPort,
         sources: laneAssembly.packSources,
       }),
       previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),

@@ -83,7 +83,7 @@ function selfServiceFixture() {
       readSettings: () => ({ ok: false as const, error: 'not in this fixture' }),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir, env: process.env, examplePacksDir: path.resolve('examples/packs'),
-        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint), sources: packSources,
+        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint), dashboardPort: () => 5173, sources: packSources,
       }),
       previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
     },
@@ -124,7 +124,8 @@ test('an agent installs a pack, asks for approval and removes it, while only the
     const asked = await fixture.packs({ command: 'request-approval', name: 'night-shift' });
     assert.equal(asked.status, 200, asked.body.error ?? '');
     assert.equal(fixture.session.toSnapshot().pendingPromptKind, 'agent');
-    assert.match(operatorNotes.join('\n'), /night-shift.*Settings, Packs.*2 themes/);
+    assert.match(operatorNotes.join('\n'), /night-shift.*http:\/\/localhost:5173\/#pack\/night-shift .*Settings, Packs.*2 themes/);
+    assert.match(asked.body.text ?? '', /http:\/\/localhost:5173\/#pack\/night-shift /, 'the agent sees the link it prints for the operator');
 
     for (const command of ['approve', 'pack-approve']) {
       const refused = await fixture.packs({ command, name: 'night-shift' });

@@ -2,9 +2,9 @@ import { findSecretRanges } from '#shared/secret-patterns.ts';
 
 type PopupPhase = 'hidden' | 'pending' | 'shown';
 
-export type PopupState = { phase: PopupPhase; isPointerOnLink: boolean; isPointerOnPopup: boolean };
+export type PopupState = { phase: PopupPhase; isPointerOnLink: boolean; isPointerOnPopup: boolean; isPinned: boolean };
 
-export type PopupEvent = 'enter-link' | 'leave-link' | 'enter-popup' | 'leave-popup' | 'escape' | 'show-timer' | 'hide-timer' | 'dwell-timer';
+export type PopupEvent = 'enter-link' | 'leave-link' | 'enter-popup' | 'leave-popup' | 'escape' | 'pin' | 'show-timer' | 'hide-timer' | 'dwell-timer';
 
 export type PopupEffect = 'schedule-show' | 'cancel-show' | 'schedule-hide' | 'cancel-hide' | 'schedule-dwell' | 'cancel-dwell' | 'fetch-preview' | 'render' | 'remove';
 
@@ -28,7 +28,7 @@ type DisplayUrl = { scheme: string; host: string; rest: string };
 
 type HostMismatch = { textHost: string; targetHost: string };
 
-export const HIDDEN_POPUP: PopupState = { phase: 'hidden', isPointerOnLink: false, isPointerOnPopup: false };
+export const HIDDEN_POPUP: PopupState = { phase: 'hidden', isPointerOnLink: false, isPointerOnPopup: false, isPinned: false };
 
 const SECRET_MASK_CHARACTER = '*';
 const WRAPPING_PUNCTUATION = /^[("'<[{]+|[)"'>\]}.,;:!?]+$/g;
@@ -39,11 +39,12 @@ const ALPHABETIC_TOP_LABEL = /\.[a-z]{2,63}$/i;
 const LEADING_WWW = /^www\./;
 
 function isPointerAway(state: PopupState) {
-  return !state.isPointerOnLink && !state.isPointerOnPopup;
+  return !state.isPinned && !state.isPointerOnLink && !state.isPointerOnPopup;
 }
 
 function enterLink(state: PopupState): PopupTransition {
   const pointed = { ...state, isPointerOnLink: true };
+  if (state.isPinned) return { state: pointed, effects: [] };
   if (state.phase === 'shown') return { state: pointed, effects: ['cancel-hide', 'schedule-dwell', 'render'] };
   if (state.phase === 'pending') return { state: pointed, effects: ['schedule-dwell'] };
   return { state: { ...pointed, phase: 'pending' }, effects: ['schedule-show', 'schedule-dwell'] };
@@ -73,7 +74,9 @@ export function nextPopupState(state: PopupState, event: PopupEvent): PopupTrans
       return leavePopup(state);
     case 'escape':
       if (state.phase === 'hidden') return { state, effects: [] };
-      return { state: { ...state, phase: 'hidden', isPointerOnPopup: false }, effects: ['cancel-show', 'cancel-hide', 'cancel-dwell', 'remove'] };
+      return { state: { ...state, phase: 'hidden', isPointerOnPopup: false, isPinned: false }, effects: ['cancel-show', 'cancel-hide', 'cancel-dwell', 'remove'] };
+    case 'pin':
+      return { state: { ...state, phase: 'shown', isPinned: true }, effects: ['cancel-show', 'cancel-hide', 'render'] };
     case 'show-timer':
       if (state.phase !== 'pending') return { state, effects: [] };
       if (!state.isPointerOnLink) return { state: { ...state, phase: 'hidden' }, effects: [] };

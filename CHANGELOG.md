@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Pack panels get each pull request's merge check.** Each of your own pull requests in the `reviews` topic now carries `mergeBlocker`: the reason Glimmervoid would refuse to merge it now, from the same check the server runs before a merge, or null when a merge is allowed. The PR table pack offers Add to queue only when it is null. `packs preview` sample data now has one of your pull requests in the merge queue and one merged, and every sample pull request has a size.
 - **A pack panel that fails now says why.** A panel can call `window.glimmervoid.log(level, text)` to write a line to the Glimmervoid server log as `[dashboard] pack: <name>/<panel>`, and every uncaught error or unhandled rejection in a panel is logged the same way with the file and line it came from, up to 30 lines a minute per panel. A panel that reads any topic and sends no subscribe within 10 s of opening gets a notice over it in the dashboard and a line in the server log, and the notice goes away once it connects. `packs preview` shows a panel's log lines under its header.
+- **Approve a pack from the session that asked.** When an agent asks you to approve a pack, its reply carries a link to it. Hover the link in the session's terminal for what the pack adds, or click it to keep that open, then Approve right there; the pack's first panel tab opens at once. Show everything it adds expands the full Settings, Packs detail. Opened anywhere else, the link goes to Settings, Packs.
 
 ### Fixed
 
