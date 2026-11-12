@@ -25,7 +25,6 @@ import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../serve
 import { AGENT_REPLY_SCHEMAS, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
-import { formatSessionLimits } from '../session/core/session-routes.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { Session } from '../session/sessions.ts';
@@ -207,7 +206,6 @@ interface WiringFixtureOptions {
   headroomBytes?: number;
   holdFirstHeadroomRead?: boolean;
   clock?: ManualClock;
-  coderWorkspaceStatus?: (workspace: string) => string | null;
   childGitWorkspace?: SessionOptions['gitWorkspace'];
   teamReviewStatus?: TeamReviewStatus;
   settleSessionCoherence?: (id: string) => Promise<void>;
@@ -268,7 +266,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, coderWorkspaceStatus, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena, reviewComments,
+  clock, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena, reviewComments,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -333,7 +331,6 @@ function wiringFixture({
       : createSpawnGate({ memoryAdmission }),
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
-    coderWorkspaceStatus,
     ...(settleSessionCoherence ? { settleSessionCoherence } : {}),
     ...(teamReviewStatus ? {
       operatorState: {
@@ -615,11 +612,9 @@ test('the shared session card projection carries exactly the session-added paylo
   assert.equal('ephemeral' in flaglessCard, false, 'a source without the flag leaves it off the wire');
 });
 
-test('limits tells a session which commands answer and its boundary', async () => {
-  const fixture = wiringFixture({ coderWorkspaceStatus: (workspace) => (workspace === 'gv-0123456789ab' ? 'running' : null) });
+test('limits tells a session which commands answer', async () => {
+  const fixture = wiringFixture();
   const ephemeralLane = new Session({ id: 'review-lane', name: 'review', path: process.cwd(), ephemeral: true, ptySpawn: () => fakePty() });
-  const remote = new Session({ id: 'remote', name: 'remote', path: process.cwd(), ptySpawn: () => fakePty() });
-  fixture.config.projects.push({ id: 'remote', name: 'remote', path: process.cwd(), environment: { name: 'dev', workspace: 'gv-0123456789ab', remotePort: 45000, branch: 'main' } });
   const contestant = new Session({ id: 'contestant', name: 'race c1', path: process.cwd(), ptySpawn: () => fakePty() });
   fixture.config.projects.push({ id: 'contestant', name: 'race c1', path: process.cwd(), raceId: 'race-1' });
   const limitsOf = async (session: Session) => {
@@ -633,7 +628,6 @@ test('limits tells a session which commands answer and its boundary', async () =
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
       ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'wake', 'show'].map((name) => ({ name, answers: true })),
     ]);
-    assert.deepEqual([operatorLimits.boundary, operatorLimits.environment], ['none', null]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
@@ -665,12 +659,8 @@ test('limits tells a session which commands answer and its boundary', async () =
       const refusal = await fixture.wiring.handle(session, command, payload);
       assert.equal(refusal.body.error, limits.commands.find(({ name }) => name === command)?.reason, `${command} is refused for the reason limits gave`);
     }
-    const remoteLimits = await limitsOf(remote);
-    assert.deepEqual([remoteLimits.boundary, remoteLimits.environment], ['workspace', { name: 'dev', workspace: 'gv-0123456789ab', state: 'running' }]);
-    assert.ok(formatSessionLimits(remoteLimits).includes('  environment: dev, workspace gv-0123456789ab, running'));
   } finally {
     ephemeralLane.destroy();
-    remote.destroy();
     contestant.destroy();
     fixture.destroyAll();
   }

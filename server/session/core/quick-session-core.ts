@@ -17,7 +17,6 @@ interface QuickSessionRequest {
   repos?: string[];
   agent?: string;
   dangerouslySkipPermissions?: boolean;
-  environment?: string;
   accountId?: string | null;
 }
 
@@ -60,7 +59,6 @@ function requestFromProject(project: ProjectConfig): UnnamedQuickSessionRequest 
     repos: project.repos ? [...project.repos] : undefined,
     agent: project.agent,
     dangerouslySkipPermissions: project.dangerouslySkipPermissions,
-    environment: project.environment?.name,
     accountId: project.accountId ?? null,
   };
 }

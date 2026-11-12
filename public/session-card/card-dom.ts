@@ -44,10 +44,6 @@ export function setCardSessionSetup(open: (sessionId: string) => void) {
 
 export type { CardOptions };
 
-export function remoteWorkspaceText(remoteWorkspace: string): string {
-  return `Runs in Coder workspace ${remoteWorkspace}`;
-}
-
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
@@ -87,7 +83,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.saneYolo) card.dataset.saneYolo = '';
   if (options.worktree) card.dataset.worktree = '';
   if (options.workspace) card.dataset.workspace = '';
-  if (options.remoteWorkspace) card.dataset.remoteWorkspace = options.remoteWorkspace;
   if (options.ephemeral) card.dataset.ephemeral = '';
   if (options.accountId) card.dataset.accountId = options.accountId;
   if (options.path) card.dataset.path = String(options.path);

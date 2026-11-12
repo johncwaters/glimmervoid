@@ -182,7 +182,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     config,
     configStore,
     getGitWorkspace: () => gitWorkspace,
-    getCoderEnv: () => laneAssembly.coderEnv,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
@@ -455,7 +454,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     reviewComments: reviews,
     repoClones: assembledGitWorkspace,
-    coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     settleSessionCoherence: coherenceFeed.settle,
     secrets: secretsBroker,
     races: laneAssembly.races,
@@ -832,7 +830,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
-  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, coderEnvironments: laneAssembly.coderEnv.availableEnvironments(), agentLogins: agentConnect.logins() }) });
+  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, agentLogins: agentConnect.logins() }) });
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();

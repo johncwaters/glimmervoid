@@ -251,7 +251,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
     'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
-    'machine-sessions': { 'remote-setup': 'machine-remote', 'remote-sessions': 'machine-remote', 'hint-cards': 'machine-usage' },
+    'machine-sessions': { 'remote-setup': 'machine-remote', 'hint-cards': 'machine-usage' },
     'machine-vault': { 'lanes-fetch-domains': 'lanes-team-review' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });

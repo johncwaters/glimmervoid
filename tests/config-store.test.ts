@@ -384,19 +384,27 @@ test('a config file naming the retired experimental update channel loses the key
   });
 });
 
+test('a config file naming retired remote Coder sessions loses the coder block, the toggle and the workspace sessions on load', () => {
+  const coderProject = { id: 'remote', name: 'remote', path: '/repo', environment: { name: 'devbox', workspace: 'gv-0123456789ab', remotePort: 4100, branch: 'glimmervoid/session/remote' } };
+  const localProject = { id: 'local', name: 'local', path: '/repo' };
+  withStore({ projects: [coderProject, localProject], coder: { environments: [] }, remoteSessions: true }, (store, configPath) => {
+    const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    for (const config of [store.config, onDisk]) {
+      assert.deepEqual([Object.hasOwn(config, 'coder'), Object.hasOwn(config, 'remoteSessions'), config.projects.map((project: { id: string }) => project.id)], [false, false, ['local']]);
+    }
+  });
+});
+
 test('a stable build reads experimental features as off and keeps their stored values and a retired conversationView key on save', () => {
-  const stored = { projects: [], conversationView: true, remoteSessions: true, coherence: { enabled: true } };
+  const stored = { projects: [], conversationView: true, coherence: { enabled: true } };
   withStore(stored, (store, configPath) => {
-    assert.deepEqual(
-      [store.config.remoteSessions, store.config.coherence?.enabled],
-      [false, false],
-    );
+    assert.equal(store.config.coherence?.enabled, false);
     const saved = store.save((config) => { config.debugMode = true; });
     assert.ok(saved);
     const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.deepEqual(
-      [onDisk.conversationView, onDisk.remoteSessions, onDisk.coherence.enabled, onDisk.debugMode],
-      [true, true, true, true],
+      [onDisk.conversationView, onDisk.coherence.enabled, onDisk.debugMode],
+      [true, true, true],
     );
   }, { isExperimentalBuild: false });
   withStore(stored, (store) => {

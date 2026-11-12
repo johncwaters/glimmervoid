@@ -50,7 +50,7 @@ function wireSecretsBroker({ broker, findSession, broadcastControl, warn = conso
     const directory = session.effectiveCwd();
     if (seededDirectoryBySession.get(session) === directory) return;
     seededDirectoryBySession.set(session, directory);
-    void broker.seedMasks({ id: session.id, project: session.path, cwd: directory, isRemote: session.remoteWorkspace !== null }).then((problem) => {
+    void broker.seedMasks({ id: session.id, project: session.path, cwd: directory }).then((problem) => {
       if (problem !== null) warn(`[secrets] ${problem}`);
     });
   }

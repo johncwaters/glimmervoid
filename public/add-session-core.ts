@@ -85,9 +85,9 @@ export function filterRows(rows: readonly RecentRow[], query: string): RecentRow
   return rows.filter((row) => row.name.toLowerCase().includes(needle));
 }
 
-export function decidePermissions(input: { isSaneYoloInstalled: boolean; isSaneYoloSettingOn: boolean; hasEnvironment: boolean; isShell: boolean }): PermissionChoice {
+export function decidePermissions(input: { isSaneYoloInstalled: boolean; isSaneYoloSettingOn: boolean; isShell: boolean }): PermissionChoice {
   if (input.isShell) return { fields: {}, isUnprotectedHintShown: false };
-  const canProtect = input.isSaneYoloInstalled && input.isSaneYoloSettingOn && !input.hasEnvironment;
+  const canProtect = input.isSaneYoloInstalled && input.isSaneYoloSettingOn;
   if (!canProtect) return { fields: {}, isUnprotectedHintShown: true };
   return { fields: { dangerouslySkipPermissions: true, saneYolo: true }, isUnprotectedHintShown: false };
 }

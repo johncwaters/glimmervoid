@@ -33,8 +33,6 @@ interface SnapshotLane {
 
 interface LaneReader {
   githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestViewer' | 'requestViewerTeams'> };
-  coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
-  gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
   starHint: NonNullable<ControlHandlerDeps['starHint']>;
   prFlows: NonNullable<ControlHandlerDeps['prFlows']>;
   packStore: NonNullable<ControlHandlerDeps['packs']>;
@@ -191,8 +189,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     coherenceFeed: dependencies.coherenceFeed,
-    coderEnv: laneAssembly.coderEnv,
-    remoteRepoGit: laneAssembly.gitWorkspace,
     agentConnect: dependencies.agentConnect,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,

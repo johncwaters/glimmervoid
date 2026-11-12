@@ -17,7 +17,6 @@ const FEATURES = [
   { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session' },
   { area: 'resume', name: 'Auto-resume', line: 'Survives restarts mid-turn', visual: 'resume' },
   { area: 'worktrees', name: 'Worktrees', line: 'One worktree each. One-click merge.', visual: 'branch' },
-  { area: 'coder', name: 'Coder workspaces', line: 'Run agents in Coder', isExperimental: true },
 ];
 ---
 <section id="features">
@@ -39,7 +38,7 @@ const FEATURES = [
         {TRACE_STEP_LENGTHS.map((length) => <span class="trace-step" style={`--length: ${length}`}></span>)}
       </span>
     </li>
-    {FEATURES.map(({ area, name, line, visual, isExperimental }) => (
+    {FEATURES.map(({ area, name, line, visual }) => (
       <li class="tile" style={`grid-area: ${area}`}>
         <span class="feature-name">{name}</span>
         <span class="feature-line">{line}</span>
@@ -69,7 +68,6 @@ const FEATURES = [
           </svg>
         )}
         {visual === 'masked' && <span class="tile-visual masked-secret" aria-hidden="true">API_KEY=<span class="mask"></span></span>}
-        {isExperimental && <span class="experimental-tag">Experimental</span>}
       </li>
     ))}
   </ul>
@@ -84,15 +82,12 @@ const FEATURES = [
       "usage usage trace vault"
       "spawn spawn spawn radar"
       "streamer streamer upload radar"
-      "resume worktrees coder coder";
+      "resume resume worktrees worktrees";
   }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
   .is-feature .feature-name { font-size: var(--type-doc-h2); }
   .feature-line { color: var(--text-dim); font-size: var(--type-meta); }
-  .tile .experimental-tag { align-self: flex-start; margin: auto 0 0; padding: 0 6px; font-size: var(--type-meta); font-weight: 700; line-height: 18px; border: 1px solid var(--border); border-radius: 4px; }
-  .tile .feature-line + .experimental-tag { margin-top: auto; }
-  .tile:has(.experimental-tag) .feature-line { margin-bottom: 10px; }
   .tile-visual { margin-top: auto; padding-top: 18px; }
   .usage-bars { padding-top: 24px; display: flex; flex-direction: column; gap: 10px; }
   .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 999px; background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 35%, transparent)); }
@@ -152,7 +147,7 @@ const FEATURES = [
         "spawn radar"
         "streamer streamer"
         "upload resume"
-        "worktrees coder";
+        "worktrees worktrees";
     }
     .tile { padding: 12px 14px; border-radius: var(--radius-lg); }
     .tile:not(.is-feature) .feature-line { display: none; }

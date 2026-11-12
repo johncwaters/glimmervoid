@@ -122,9 +122,6 @@
 .agent-mark svg { width: 100%; height: 100%; }
 .agent-mark[data-monogram] { width: auto; height: auto; padding: 0 2px; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; line-height: 1; border: 1px solid currentColor; border-radius: 2px; }
 .session-agent-mark { margin-right: 6px; }
-.session-row-cloud { display: inline-flex; flex-shrink: 0; color: var(--accent); }
-.session-row-cloud[hidden] { display: none; }
-.session-row-cloud .line-icon { width: 12px; height: 12px; }
 .session-row-task {
   font-size: var(--type-meta);
   color: var(--text-dim);

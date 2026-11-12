@@ -6,12 +6,6 @@ export const AgentAccountId = z.string({ error: 'an agent account id must be a s
   .regex(AGENT_ACCOUNT_ID_RE, { error: 'an agent account id must be 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit' });
 export type AgentAccountId = z.infer<typeof AgentAccountId>;
 
-const REMOTE_ACCOUNT_AGENT_IDS: readonly string[] = Object.freeze(['claude-code', 'codex']);
-
-export function canRunUnderAccountRemotely(agentId: string): boolean {
-  return REMOTE_ACCOUNT_AGENT_IDS.includes(agentId);
-}
-
 export const LANE_ACCOUNT_AGENT_ID = 'claude-code';
 
 export const LaneAccountLane = z.enum(['team-review', 'radar', 'community', 'task-title', 'question-manager']);

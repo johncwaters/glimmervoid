@@ -1,10 +1,8 @@
 import addSessionHTML from '../components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { CoderEnvironmentOffers } from '#shared/contracts/control-messages.ts';
-import type { ConnectableAgent, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
-import { canRunUnderAccountRemotely } from '#shared/contracts/agent-accounts.ts';
-import { agentAccountsOf, agentLoginOf, agentLoginSummary, connectableAgentOf, onAgentAccountsChanged, onAgentLoginsChanged, refreshAgentAccounts, refreshAgentLogins } from '../agent-logins.ts';
+import type { ServerMessage } from '#shared/contracts/control-messages.ts';
+import { agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { el, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
 import { button } from '../ui/button.ts';
@@ -33,29 +31,9 @@ function formatRelativeAge(receivedAt: number, now: number): string {
 
 const NO_AGENT_ID = '';
 
-function openAgentConnectDialog(agent: ConnectableAgent) {
-  void import('../dialogs.ts').then((dialogs) => dialogs.openAgentConnectDialog(agent));
-}
-
 function isSaneYoloAvailable(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
   return 'saneYoloAvailable' in settings && settings.saneYoloAvailable === true;
-}
-
-function offeredCoderEnvironments(settings: unknown): CoderEnvironmentOffer[] {
-  if (typeof settings !== 'object' || settings === null || !('coderEnvironments' in settings)) return [];
-  const parsed = CoderEnvironmentOffers.safeParse(settings.coderEnvironments);
-  return parsed.success && parsed.data ? parsed.data : [];
-}
-
-function coderEnvironmentHint(environment: CoderEnvironmentOffer): string {
-  const parameters = Object.entries(environment.parameters).map(([key, value]) => `${key}=${value}`).join(', ');
-  return [
-    `Template ${environment.template}.`,
-    parameters ? `Parameters: ${parameters}.` : '',
-    environment.hourlyCostUsd !== null ? `Costs $${environment.hourlyCostUsd.toFixed(2)} an hour.` : '',
-    `Stops after ${environment.idleStopMinutes} idle minutes.`,
-  ].filter(Boolean).join(' ');
 }
 
 type AddSessionTarget =
@@ -66,12 +44,10 @@ type AddSessionTarget =
 
 type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null; requestType?: 'add-session' | 'pack-launch' };
 
-type AddSessionSlot = 'place' | 'agent' | 'project';
+type AddSessionSlot = 'agent' | 'project';
 
-const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['place', 'agent', 'project'];
+const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'project'];
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
-const LOCAL_PLACE = 'local';
-const ENVIRONMENT_PLACE_PREFIX = 'environment:';
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
 const UNPROTECTED_SKIPS_TEXT = 'Sane YOLO is not available here, so this session skips permission prompts unprotected.';
 
@@ -132,10 +108,8 @@ type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void; i
 export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel, initialTask }: AddSessionPickerOptions) {
   dialog.innerHTML = addSessionHTML;
   const taskField = initialTask === undefined ? null : buildTaskField(initialTask);
-  if (taskField) query(dialog, '#add-session-agent-login').before(taskField.field);
+  if (taskField) query(dialog, '#add-session-unprotected').before(taskField.field);
 
-  const placeEl = query(dialog, '#add-session-place');
-  const startWordEl = query(dialog, '#add-session-start-word');
   const pickEl = query(dialog, '#add-session-pick');
   const findInput = queryTag(dialog, '#add-session-find', 'input');
   const listEl = query(dialog, '#add-session-list');
@@ -147,16 +121,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
   const accountEl = query(dialog, '#add-session-account');
   const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
-  const agentLoginEl = query(dialog, '#add-session-agent-login');
-  const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
-  const environmentHintEl = query(dialog, '#add-session-environment-hint');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const errorEl = query(dialog, '#add-session-error');
   const launchersEl = query(dialog, '#add-session-launchers');
-  const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
-  agentLoginEl.append(agentConnectButton);
-  const placeWord = createPressable('add-session-word');
-  query(dialog, '#add-session-place-word-slot').replaceWith(placeWord);
   const agentWord = createPressable('add-session-word');
   const agentMarkEl = el('span', 'agent-mark');
   agentMarkEl.setAttribute('aria-hidden', 'true');
@@ -166,7 +133,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   query(dialog, '#add-session-agent-word-slot').replaceWith(agentWord);
   const repoWord = createPressable('add-session-word add-session-repo-word');
   query(dialog, '#add-session-repo-word-slot').replaceWith(repoWord);
-  const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { place: placeWord, agent: agentWord, project: repoWord };
+  const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { agent: agentWord, project: repoWord };
   const workspaceBackButton = createPressable('add-session-back', 'All projects');
   query(dialog, '#add-session-workspace-back-slot').replaceWith(workspaceBackButton);
   const folderBackButton = createPressable('add-session-back', 'All projects');
@@ -183,8 +150,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let agentOptions: { id: string; label: string }[] = [];
   let defaultAgentId = DEFAULT_AGENT_ID;
   let selectedAgentId = NO_AGENT_ID;
-  let localCoderEnvironments: CoderEnvironmentOffer[] = [];
-  let selectedEnvironment: CoderEnvironmentOffer | null = null;
   let hasSettingsLoaded = false;
   let settingsLoadCount = 0;
   let agentsLoadCount = 0;
@@ -196,7 +161,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let isSpawnBlocked = false;
   let isAddPending = false;
   let isAgentListSettled = false;
-  let chosenPlace: string | null = null;
   let openSlot: AddSessionSlot | null = null;
   let operatorTouch: 'untouched' | 'acted' | 'reopened' = 'untouched';
   let operatorAccountChoice: { agentId: string; accountId: string } | null = null;
@@ -212,17 +176,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return agentOptions.some((agentOption) => agentOption.id === rememberedAgentId) ? rememberedAgentId : defaultAgentId;
   };
 
-  const isPlaceShown = () => localCoderEnvironments.length > 0;
   const isSlotEmpty: Record<AddSessionSlot, () => boolean> = {
-    place: () => isPlaceShown() && chosenPlace === null,
     agent: () => selectedAgentId === NO_AGENT_ID && (!isAgentListSettled || agentOptions.length > 0),
     project: () => target.kind === 'none',
   };
   const firstEmptySlot = () => ADD_SESSION_SLOTS.find((slot) => isSlotEmpty[slot]()) ?? null;
-
-  function placeName() {
-    return selectedEnvironment?.name ?? 'this machine';
-  }
 
   function renderSentence() {
     const wordByKind: Record<AddSessionTarget['kind'], string> = {
@@ -233,9 +191,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     };
     repoWord.textContent = wordByKind[target.kind];
     agentWordTextEl.textContent = agentLabelOf(selectedAgentId) ?? 'an agent';
-    placeWord.textContent = chosenPlace !== null ? placeName() : 'a place';
-    placeEl.hidden = !isPlaceShown();
-    startWordEl.textContent = isPlaceShown() ? 'start' : 'Start';
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].setAttribute('aria-expanded', String(openSlot === slot));
     pickEl.hidden = openSlot === null;
     if (openSlot) pickEl.dataset.slot = openSlot;
@@ -295,20 +250,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return rowEl;
   }
 
-  function buildPlaceRows() {
-    const buildPlaceRow = (name: string, place: string) => buildSlotRow(place, name, place === chosenPlace, () => {
-      if (isAddPending) return;
-      const targetBeforePick = target;
-      choosePlace(place);
-      advanceFromPick(target === targetBeforePick);
-    });
-    const environmentRows = localCoderEnvironments.map((environment) => buildPlaceRow(environment.name, `${ENVIRONMENT_PLACE_PREFIX}${environment.name}`));
-    return [buildPlaceRow('this machine', LOCAL_PLACE), ...environmentRows];
-  }
-
   function buildProjectRows() {
     const rows: HTMLElement[] = filterRows(recentRows, findInput.value).map(buildProjectRow);
-    if (!isShellChosen() && selectedEnvironment === null && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
+    if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
     rows.push(buildChoiceRow('Any folder', pickFolder));
     return rows;
   }
@@ -316,7 +260,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function renderList() {
     const focusedRowKey = document.activeElement instanceof HTMLElement && listEl.contains(document.activeElement) ? document.activeElement.dataset.key ?? null : null;
     renderSentence();
-    if (openSlot === 'place') listEl.replaceChildren(...buildPlaceRows());
     if (openSlot === 'agent') listEl.replaceChildren(...agentOptions.map(buildAgentRow));
     if (openSlot === 'project') listEl.replaceChildren(...buildProjectRows());
     if (focusedRowKey !== null) [...listEl.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
@@ -370,15 +313,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     openSlotList(firstEmptySlot());
   }
 
-  function isAgentKnownSignedIn() {
-    if (selectedEnvironment === null) return true;
-    const connectableAgent = connectableAgentOf(selectedAgentId);
-    if (connectableAgent === null) return true;
-    return agentLoginOf(connectableAgent)?.state === 'signed-in';
-  }
-
   function canStartOnPick() {
-    return firstEmptySlot() === null && target.kind === 'project' && selectedAgentId !== NO_AGENT_ID && hasSettingsLoaded && isAgentKnownSignedIn() && !isSpawnBlocked;
+    return firstEmptySlot() === null && target.kind === 'project' && selectedAgentId !== NO_AGENT_ID && hasSettingsLoaded && !isSpawnBlocked;
   }
 
   function advanceFromPick(isTargetChosenByOperator: boolean) {
@@ -440,7 +376,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function renderPermissionHint() {
-    const choice = decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, hasEnvironment: selectedEnvironment !== null, isShell: isShellChosen() });
+    const choice = decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, isShell: isShellChosen() });
     unprotectedHintEl.hidden = !hasSettingsLoaded || !choice.isUnprotectedHintShown;
     unprotectedHintEl.textContent = skipsPermissionsByDefault ? UNPROTECTED_SKIPS_TEXT : UNPROTECTED_ASKS_TEXT;
   }
@@ -455,14 +391,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function applyAgentRules() {
     const isShell = isShellChosen();
     if (isShell && target.kind === 'workspace') returnToProjects();
-    if (isShell && selectedEnvironment) selectEnvironment(null);
     renderPermissionHint();
-    showAgentLogin();
     showAccountPick();
   }
 
   function pickableAccounts() {
-    if (selectedEnvironment !== null && !canRunUnderAccountRemotely(selectedAgentId)) return [];
     const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
     return accounts.some((account) => account.accountId !== null) ? accounts : [];
   }
@@ -492,41 +425,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   });
   const unsubscribeAgentAccounts = onAgentAccountsChanged(showAccountPick);
   refreshAgentAccounts();
-
-  function showAgentLogin() {
-    if (!dialog.isConnected) {
-      unsubscribeAgentLogins();
-      return;
-    }
-    const connectableAgent = connectableAgentOf(selectedAgentId);
-    const login = connectableAgent ? agentLoginOf(connectableAgent) : null;
-    agentLoginEl.hidden = selectedEnvironment === null || connectableAgent === null || login === null || login.state === 'signed-in';
-    agentLoginTextEl.textContent = connectableAgent ? agentLoginSummary(login, connectableAgent) : '';
-  }
-  agentConnectButton.addEventListener('click', () => {
-    const connectableAgent = connectableAgentOf(selectedAgentId);
-    if (connectableAgent) openAgentConnectDialog(connectableAgent);
-  });
-  const unsubscribeAgentLogins = onAgentLoginsChanged(showAgentLogin);
-  refreshAgentLogins();
-
-  function selectEnvironment(environmentName: string | null) {
-    selectedEnvironment = localCoderEnvironments.find((environment) => environment.name === environmentName) ?? null;
-    environmentHintEl.hidden = selectedEnvironment === null;
-    environmentHintEl.textContent = selectedEnvironment ? coderEnvironmentHint(selectedEnvironment) : '';
-    if (selectedEnvironment && isShellChosen()) setAgent(NO_AGENT_ID);
-    if (selectedEnvironment && target.kind === 'workspace') returnToProjects();
-    renderPermissionHint();
-    showAgentLogin();
-    showAccountPick();
-    renderList();
-  }
-
-  function choosePlace(place: string) {
-    chosenPlace = place;
-    const environmentName = place.startsWith(ENVIRONMENT_PLACE_PREFIX) ? place.slice(ENVIRONMENT_PLACE_PREFIX.length) : null;
-    selectEnvironment(environmentName);
-  }
 
   for (const slot of ADD_SESSION_SLOTS) {
     wordBySlot[slot].addEventListener('click', () => {
@@ -666,8 +564,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
           return;
         }
         if (message.type !== 'settings') return;
-        localCoderEnvironments = offeredCoderEnvironments(message.settings);
-        settleOpenSlot();
         isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
         isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
         skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
@@ -682,7 +578,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function permissionFields() {
     if (!hasSettingsLoaded) return { dangerouslySkipPermissions: false };
-    return decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, hasEnvironment: selectedEnvironment !== null, isShell: isShellChosen() }).fields;
+    return decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, isShell: isShellChosen() }).fields;
   }
 
   function buildRequest(): AddSessionRequest | null {
@@ -693,7 +589,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const isShell = isShellChosen();
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
-    if (selectedEnvironment && target.kind !== 'workspace') shared.environment = selectedEnvironment.name;
     if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
     const task = taskField?.taskInput.value.trim() ?? '';
     if (task && !isShell) shared.prompt = task;

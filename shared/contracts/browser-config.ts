@@ -244,7 +244,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   operatorTimezone: z.string({ error: 'operatorTimezone must be a timezone name' }).refine(isKnownTimezone, { error: 'operatorTimezone must be a known timezone name, such as Europe/Berlin' }).nullable().optional(),
   sessionOrder: z.array(z.string({ error: 'sessionOrder must be an array of session ids' }), { error: 'sessionOrder must be an array of session ids' }).optional(),
   hiddenAgents: z.array(z.string({ error: 'hiddenAgents must be an array of agent ids' }), { error: 'hiddenAgents must be an array of agent ids' }).optional(),
-  remoteSessions: optionalBoolean('remoteSessions'),
   detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
   recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),

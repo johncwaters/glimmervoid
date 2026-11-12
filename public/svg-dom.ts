@@ -28,7 +28,6 @@ export const TROPHY_ICON_PATH = 'M4.5 2h7v3.5a3.5 3.5 0 0 1-7 0z M4.5 3.5H2.5a2 
 export const MORE_ICON_PATH = 'M3 8h0.01M8 8h0.01M13 8h0.01';
 export const MENU_ICON_PATH = 'M2.5 4h11M2.5 8h11M2.5 12h11';
 export const CHANGES_ICON_PATH = 'M8 2.5v6M5 5.5h6M5 12.5h6';
-export const CLOUD_ICON_PATH = 'M4.5 12.5h7a3 3 0 0 0 0.4-5.97a4 4 0 0 0-7.7 0.57a2.7 2.7 0 0 0 0.3 5.4z';
 export const TERMINAL_ICON_PATH = 'M3 4.5L6.5 8L3 11.5 M8.5 11.5h4.5';
 export const USAGE_ICON_PATH = 'M3 13V9M8 13V3M13 13V6.5';
 export const FOCUS_ICON_PATH = 'M2.5 5.5v-3h3 M10.5 2.5h3v3 M13.5 10.5v3h-3 M5.5 13.5h-3v-3 M8 5c0.3 1.6 1.4 2.7 3 3c-1.6 0.3-2.7 1.4-3 3c-0.3-1.6-1.4-2.7-3-3c1.6-0.3 2.7-1.4 3-3z';

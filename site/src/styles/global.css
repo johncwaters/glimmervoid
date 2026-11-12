@@ -62,7 +62,6 @@ p { margin: 0; }
   .route-link { min-height: 56px; }
   .route-link::before { inset: 0 auto 0 50%; width: 1px; height: auto; background: repeating-linear-gradient(to bottom, var(--accent-dim) 0 6px, transparent 6px 10px); }
 }
-.experimental-tag { margin-left: 10px; color: var(--text-dim); font-size: var(--type-meta); font-weight: 400; text-transform: uppercase; letter-spacing: 0.06em; }
 
 .platform-switch { display: inline-flex; margin: 0; padding: 0; min-inline-size: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .platform-switch[hidden] { display: none; }

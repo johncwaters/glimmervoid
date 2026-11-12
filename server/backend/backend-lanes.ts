@@ -7,7 +7,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
-import { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans } from './retired-feature-data.ts';
+import { deleteRetiredBenchmarkRuns, deleteRetiredCoderOwnedWorkspaces, deleteRetiredIssuesCache, deleteRetiredPlans } from './retired-feature-data.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
 import { contestantDiff } from '../race/race-diff.ts';
 import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
@@ -20,9 +20,6 @@ import { runCommandSafely } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { KILLABLE_STATES } from '../../shared/states.ts';
-import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
-import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
-import { persistSessionField } from '../session/session-event-wiring.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
 import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
 import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
@@ -30,8 +27,6 @@ import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { laneAccountHomeFor } from '../../session/core/agent-account-core.ts';
 import fs from 'node:fs';
-import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../json-file.ts';
-import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
@@ -180,42 +175,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...(options.branchGcWiringOptions || {}),
   });
   const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
-  const coderOwnedWorkspacesPath = path.join(glimmervoidHomeDir(), 'coder-owned-workspaces.json');
-  const coderEnv = createCoderEnvWiring({
-    config,
-    loadOwnedWorkspaces: () => {
-      const outcome = loadJsonStateFileSync({
-        filePath: coderOwnedWorkspacesPath,
-        fsSync: fs,
-        parse: (raw) => CoderOwnedWorkspaces.safeParse(raw).data?.workspaces ?? null,
-        quarantine: false,
-        includeNotDir: false,
-      });
-      if (outcome.status === 'loaded') return outcome.value;
-      if (outcome.status === 'missing') return [];
-      logger.warn(`[coder-env] ignoring ${coderOwnedWorkspacesPath}: ${errorMessage(jsonStateLoadError(outcome))}`);
-      return [];
-    },
-    saveOwnedWorkspaces: (workspaces) => writeJsonAtomic(coderOwnedWorkspacesPath, { version: 1, workspaces } satisfies CoderOwnedWorkspaces, { mode: 0o600, mkdir: true }),
-    persistMapping: (projectId, mapping) => persistSessionField(configStore, config, projectId, 'environment', mapping),
-    sessionsForIdleCheck: () => {
-      const environmentsByName = new Map((config.coder?.environments ?? []).map((environment) => [environment.name, resolveCoderEnvironment(environment)]));
-      return config.projects.flatMap((project) => {
-        if (!project.environment) return [];
-        const session = sessions.get(project.id);
-        const environment = environmentsByName.get(project.environment.name);
-        if (!session || !environment) return [];
-        return [{
-          projectId: project.id,
-          workspace: project.environment.workspace,
-          state: session.state,
-          idleSinceMs: session.stateSince,
-          idleStopMinutes: environment.idleStopMinutes,
-        }];
-      });
-    },
-    log: logger,
-  });
   const getLaneAccessConfig = () => laneAccessConfigOf(configStore.config, githubAppToken());
   const posthog = createRadarWiring({
     config,
@@ -473,7 +432,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function startRuntimeLanes(): void {
     const startSteps = [
       () => branchGc.start(),
-      () => coderEnv.start(),
       () => posthog.startPoller(),
       () => community.startPoller(),
       () => teamReview.startPoller(),
@@ -494,6 +452,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void deleteRetiredBenchmarkRuns(glimmervoidHome, gitWorkspace, logger),
       () => void deleteRetiredPlans(configSiblingPath(configStore.configPath, 'plans'), logger),
       () => void deleteRetiredIssuesCache(glimmervoidHome, logger),
+      () => void deleteRetiredCoderOwnedWorkspaces(glimmervoidHome, logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
@@ -504,7 +463,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function restartServiceLanes(): void {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
-      () => coderEnv.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => community.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
@@ -521,7 +479,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     raceSessions,
     races,
     branchGc,
-    coderEnv,
     taskTitleRefiner,
     taskTitleSessions,
     questionManagerLane,

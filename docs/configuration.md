@@ -73,14 +73,6 @@ Which version is running, and updating to the newest.
 |-----|---------|---------|-------|
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
 
-### Remote
-
-Sessions in Coder workspaces, and a session that sets up Glimmervoid on another machine.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
-
 ### Usage
 
 Token accounting and estimated-cost budgets.
@@ -267,7 +259,6 @@ Edit these in `config.json` unless the note names another dashboard surface.
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `coder` |  | Coder environments that remote Coder sessions run in, under `coder.environments`. |
 | `guardrails` |  | Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. |
 | `agentAccounts` |  | Added agent accounts, each with `id`, `agent`, `label` and `folder` (the signed-in agent home that account runs from). A Claude Code account folder keeps its own login, `.claude.json` and org policy files, and links everything else to the real `~/.claude`; its `mcpServers` are copied from the real `.claude.json` at each spawn. |
 | `agentAccountDefaults` |  | The account Add session preselects for a new session of each agent, keyed by agent id, for example `{ "claude-code": "claude-a1b2c3" }`. Unset, or naming an account that no longer exists, a new session runs on the machine's own login. Set it with Make default in Settings > Accounts. A session from Quick session keeps its source session's account; sessions opened from an issue, a pull request or Arena run on the machine's own login. A Coder workspace session runs under a Claude Code or Codex account too: its armed token or login is read from that account's folder. |
@@ -302,7 +293,6 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting. |
-| `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_REPORT_URL` | internal | Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_TOKEN` | internal | The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |

@@ -103,6 +103,18 @@ function dropRetiredHosts(config: GlimmervoidConfig): string | null {
   return '[config] Removed hosts: linked hosts are gone; sessions on those machines keep running there.';
 }
 
+function dropRetiredCoderSessions(config: GlimmervoidConfig): string | null {
+  const projects = Array.isArray(config.projects) ? config.projects : [];
+  const keptProjects = projects.filter((project) => !Object.hasOwn(project, 'environment'));
+  const droppedProjectCount = projects.length - keptProjects.length;
+  const droppedKeys = ['coder', 'remoteSessions'].filter((key) => Object.hasOwn(config, key));
+  if (droppedProjectCount === 0 && droppedKeys.length === 0) return null;
+  for (const key of droppedKeys) Reflect.deleteProperty(config, key);
+  if (droppedProjectCount > 0) config.projects = keptProjects;
+  const removed = [...droppedKeys, ...(droppedProjectCount > 0 ? [`${droppedProjectCount} Coder workspace session${droppedProjectCount === 1 ? '' : 's'}`] : [])];
+  return `[config] Removed ${removed.join(', ')}: remote Coder sessions are gone; delete leftover gv-* workspaces with coder delete.`;
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -186,4 +198,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

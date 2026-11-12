@@ -15,7 +15,6 @@ interface NeedingSession {
   id: string;
   project: string;
   cwd: string;
-  isRemote: boolean;
 }
 
 interface Delivery {
@@ -54,7 +53,6 @@ const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
   failed: 'the vault could not read it',
 });
 
-const REMOTE_SESSION_NOTE = 'this session runs on another machine, where Glimmervoid cannot write an env file yet';
 const UNWRITABLE_VALUE_NOTE = 'the value holds every kind of quote, so no env file reader would get it back unchanged';
 const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze({
   offline: 'The vault companion is not connected, so the pasted values cannot go into the vault; run glimmervoid vault, or give a reference instead.',
@@ -111,7 +109,6 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   }
 
   async function seedMasks(session: NeedingSession): Promise<string | null> {
-    if (session.isRemote) return null;
     const approvedNames = Object.entries(approvalsOf(readSecrets(), session.project)).filter(([, approval]) => approval.isAllowed).map(([name]) => name);
     if (approvedNames.length === 0) return null;
     try {
@@ -125,7 +122,6 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   }
 
   async function deliver(session: NeedingSession, names: readonly string[]): Promise<Delivery> {
-    if (session.isRemote) return failedDelivery(names, REMOTE_SESSION_NOTE);
     const approvals = approvalsOf(readSecrets(), session.project);
     const items = names.flatMap((name) => {
       const reference = approvals[name]?.reference;

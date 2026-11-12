@@ -55,7 +55,7 @@ const SESSION = {
   dangerouslySkipPermissions: true,
   saneYolo: true,
   ephemeral: false,
-  isWorktree: true, isWorkspace: false, remoteWorkspace: 'gv-dev-1',
+  isWorktree: true, isWorkspace: false,
   resumeSessionId: null,
   activeAgents: 0,
   awaitingBackgroundTasks: false,

@@ -20,10 +20,6 @@ interface SessionRoleFacts {
 
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
 
-interface SessionLimitFacts extends SessionRoleFacts {
-  environment: SessionLimits['environment'];
-}
-
 type PushRefusalCode = 'not-operator-session' | 'no-worktree';
 type RouteVerdict = { answers: true } | { answers: false; reason: string; code?: PushRefusalCode };
 
@@ -294,27 +290,14 @@ function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCom
   return { name, answers: false, reason: verdict.reason };
 }
 
-function sessionBoundary({ environment }: SessionLimitFacts): SessionLimits['boundary'] {
-  return environment === null ? 'none' : 'workspace';
-}
-
-function describeSessionLimits(facts: SessionLimitFacts): SessionLimits {
-  return {
-    commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)),
-    boundary: sessionBoundary(facts),
-    environment: facts.environment,
-  };
-}
-
-function boundaryLines({ boundary, environment }: SessionLimits): string[] {
-  if (environment === null) return [`  boundary: ${boundary}`];
-  return [`  boundary: ${boundary}`, `  environment: ${environment.name}, workspace ${environment.workspace}, ${environment.state}`];
+function describeSessionLimits(facts: SessionRoleFacts): SessionLimits {
+  return { commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)) };
 }
 
 function formatSessionLimits(limits: SessionLimits): string[] {
   const cliCommands = limits.commands.filter(({ name }) => (AGENT_API_VERBS as readonly string[]).includes(name));
   const commandLines = cliCommands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
-  return ['This session:', ...commandLines, ...boundaryLines(limits)];
+  return ['This session:', ...commandLines];
 }
 
 const NEXT_PROMPT_FALLBACK = ', or the next UserPromptSubmit where the agent has no tool hook context';

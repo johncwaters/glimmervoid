@@ -89,7 +89,6 @@ export const SessionSnapshot = z.object({
   ownerId: z.string().nullable().optional(),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
-  remoteWorkspace: z.string().nullable().default(null),
   resumeSessionId: z.string().nullable(),
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
@@ -324,8 +323,6 @@ export const SessionLimits = z.object({
     answers: z.boolean(),
     reason: z.string().optional(),
   }).strict()),
-  boundary: z.enum(['workspace', 'none']),
-  environment: z.object({ name: z.string(), workspace: z.string(), state: z.string() }).strict().nullable(),
 }).strict();
 
 export const AgentLimitsReply = SessionLimits.extend({ ok: z.literal(true) }).strict();

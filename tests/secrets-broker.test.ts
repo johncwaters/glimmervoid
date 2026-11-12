@@ -85,7 +85,7 @@ test('a vault read that ends after the operator corrected the reference leaves t
   assert.deepEqual(broker.requestsSnapshot(), {}, 'no card comes back for a reference that was already replaced');
 });
 
-const NEEDING_SESSION = { id: 'needing-session', project: '/projects/app', cwd: '/projects/app', isRemote: false };
+const NEEDING_SESSION = { id: 'needing-session', project: '/projects/app', cwd: '/projects/app' };
 
 function brokerWithMissingVaultItem(initialSecrets: Record<string, unknown>) {
   let savedSecrets: unknown = initialSecrets;

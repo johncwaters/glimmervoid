@@ -61,13 +61,5 @@ function decideCodexLogin({ login, nowMs, hasRefreshed }: { login: CodexLogin | 
   return { kind: 'unavailable', reason: 'the host Codex login has expired and a host refresh did not renew it; run codex login' };
 }
 
-function chatgptAuthTokensLogin(login: CodexLogin) {
-  return { type: 'chatgptAuthTokens' as const, accessToken: login.accessToken, chatgptAccountId: login.accountId };
-}
-
-function chatgptAuthTokensRefreshResult(login: CodexLogin) {
-  return { accessToken: login.accessToken, chatgptAccountId: login.accountId, chatgptPlanType: null };
-}
-
-export { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult, codexHomeDir, decideCodexLogin, parseCodexAuth };
+export { codexHomeDir, decideCodexLogin, parseCodexAuth };
 export type { CodexLogin };

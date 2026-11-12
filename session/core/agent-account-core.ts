@@ -1,4 +1,4 @@
-import { canRunUnderAccountRemotely, LANE_ACCOUNT_AGENT_ID } from "../../shared/contracts/agent-accounts.ts";
+import { LANE_ACCOUNT_AGENT_ID } from "../../shared/contracts/agent-accounts.ts";
 import type { AgentAccount, LaneAccountLane, LaneAccounts } from "../../shared/contracts/agent-accounts.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -23,20 +23,17 @@ interface NewSessionAccountRequest {
   defaults: Readonly<Record<string, string>>;
   requestedAccountId: string | null | undefined;
   agentId: string;
-  isRemote: boolean;
 }
 
-function resolveNewSessionAccount({ accounts, defaults, requestedAccountId, agentId, isRemote }: NewSessionAccountRequest): NewSessionAccount {
+function resolveNewSessionAccount({ accounts, defaults, requestedAccountId, agentId }: NewSessionAccountRequest): NewSessionAccount {
   if (requestedAccountId === undefined) {
     const defaultAccount = accounts.find((account) => account.id === defaults[agentId] && account.agent === agentId);
-    const canUseDefault = !isRemote || canRunUnderAccountRemotely(agentId);
-    return { accountId: defaultAccount && canUseDefault ? defaultAccount.id : null };
+    return { accountId: defaultAccount ? defaultAccount.id : null };
   }
   if (requestedAccountId === null) return { accountId: null };
   const account = accounts.find((candidate) => candidate.id === requestedAccountId);
   if (!account) return { refusal: `The account ${requestedAccountId} is not in config.json.` };
   if (account.agent !== agentId) return { refusal: `The account ${account.label} belongs to ${account.agent}, not ${agentId}.` };
-  if (isRemote && !canRunUnderAccountRemotely(agentId)) return { refusal: `A Coder workspace ${agentId} session cannot run under the added account ${account.label}; only Claude Code and Codex sessions can.` };
   return { accountId: account.id };
 }
 
@@ -50,7 +47,7 @@ interface LaneAccountRequest {
 
 function resolveLaneAccountHome({ accounts, defaults, laneAccounts, lane, agentId }: LaneAccountRequest): SessionAccountHome {
   if (agentId !== LANE_ACCOUNT_AGENT_ID) return { kind: "machine-login" };
-  const chosen = resolveNewSessionAccount({ accounts, defaults, requestedAccountId: laneAccounts[lane], agentId, isRemote: false });
+  const chosen = resolveNewSessionAccount({ accounts, defaults, requestedAccountId: laneAccounts[lane], agentId });
   if ("refusal" in chosen) return { kind: "refused", reason: `the ${lane} lane cannot start: ${chosen.refusal}` };
   return resolveSessionAccountHome(accounts, chosen.accountId, agentId);
 }

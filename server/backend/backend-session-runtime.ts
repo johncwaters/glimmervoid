@@ -16,15 +16,12 @@ import { createClaudeCredentials } from '../claude-credentials.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import { createAgentConnect } from '../agent-login/agent-connect.ts';
 import { createAgentAccounts } from '../agent-login/agent-accounts.ts';
-import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex.ts';
+import codexAdapter from '../../session/adapters/codex.ts';
 import { createCodexCredentials } from '../codex-credentials.ts';
-import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
-import type { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
-import { clock } from '../../shared/clock.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -33,14 +30,10 @@ interface BackendSessionRuntimeDependencies {
   getBroadcastControl: () => ControlBroadcast | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
-  getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
   liveSessionNamesUsing: (accountId: string) => string[];
   onConfigSaved: (config: GlimmervoidConfig) => void;
 }
-
-const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
-const FORCED_CODEX_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
   const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
@@ -93,29 +86,10 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   void agentConnect.refresh();
   void agentAccounts.refresh();
-  const codexLogin = (resolved: Awaited<ReturnType<typeof codexCredentials.hostLogin>>) => {
-    if (!resolved.ok) throw new Error(resolved.reason);
-    return resolved.login;
-  };
-  const lastForcedCodexRefreshAtMsByHome = new Map<string, number>();
-  const rateLimitedCodexRefresh = (accountCodexHome: string | null) => {
-    const nowMs = clock.nowMs();
-    const homeKey = accountCodexHome ?? '';
-    const lastForcedRefreshAtMs = lastForcedCodexRefreshAtMsByHome.get(homeKey);
-    const isWithinForcedRefreshWindow = lastForcedRefreshAtMs !== undefined && nowMs - lastForcedRefreshAtMs < FORCED_CODEX_REFRESH_INTERVAL_MS;
-    if (isWithinForcedRefreshWindow) return codexCredentials.hostLogin(accountCodexHome);
-    lastForcedCodexRefreshAtMsByHome.set(homeKey, nowMs);
-    return codexCredentials.refreshedHostLogin(accountCodexHome);
-  };
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const makeSession = createSessionFactory({
     commitSigningProgram,
-    getCoderEnv: dependencies.getCoderEnv,
-    claudeToken: (accountFolder) => claudeCredentials.resolveArmToken(REMOTE_SESSION_TOKEN_LIFETIME_SECONDS, undefined, accountFolder),
-    codexVersion: readHostCodexVersion,
-    codexLoginParams: async (accountFolder) => chatgptAuthTokensLogin(await codexLogin(await codexCredentials.hostLogin(accountFolder))),
-    codexRefreshResult: async (accountFolder) => chatgptAuthTokensRefreshResult(await codexLogin(await rateLimitedCodexRefresh(accountFolder))),
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,

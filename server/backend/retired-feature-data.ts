@@ -9,6 +9,7 @@ const SUITES_FOLDER = 'benchmarks';
 const RETIRED_SUITE_FOLDERS: readonly string[] = Object.freeze(['runs', 'work']);
 const RETIRED_WORKTREES_FOLDER = 'worktrees';
 const RETIRED_ISSUES_CACHE_FILE = 'issues-cache.json';
+const RETIRED_CODER_OWNED_WORKSPACES_FILE = 'coder-owned-workspaces.json';
 
 interface RetiredWorktreeRemover {
   removeWorktreeByPath(args: { projectPath: string; cwd: string; cause: 'benchmark' }): Promise<{ ok: boolean; err?: string; removalKept?: string }>;
@@ -100,4 +101,8 @@ async function deleteRetiredIssuesCache(glimmervoidHome: string, log: Pick<Conso
   }
 }
 
-export { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans };
+async function deleteRetiredCoderOwnedWorkspaces(glimmervoidHome: string, log: Pick<Console, 'warn'> = console): Promise<void> {
+  await sweepRetiredPath({ retiredPath: path.join(glimmervoidHome, RETIRED_CODER_OWNED_WORKSPACES_FILE), kind: 'file', cause: 'remote-sessions', checkPassed: 'remote-coder-sessions-retired' }, log);
+}
+
+export { deleteRetiredBenchmarkRuns, deleteRetiredCoderOwnedWorkspaces, deleteRetiredIssuesCache, deleteRetiredPlans };

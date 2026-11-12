@@ -15,7 +15,6 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/lanes/lane-runner.ts': { awakeOnly: 'the shared tick loop; each lane that starts one is classified in its own file' },
   'server/github/github-status.ts': { awakeOnly: 'status page refresh for pack panels; a missed read while asleep is fine, the next tick reads again' },
   'server/branch-gc-poller.ts': { awakeOnly: 'housekeeping git fetch; nothing the operator acts on while the host sleeps' },
-  'server/coder/coder-env-poller.ts': { awakeOnly: 'reads this host\'s own coder environment' },
   'server/usage/usage-wiring.ts': { awakeOnly: 'scans local transcripts and pricing for a view read on an open dashboard' },
   'server/backend/backend-update.ts': { awakeOnly: 'update recheck runs only while a dashboard is connected' },
   'server/backend/backend-health.ts': { awakeOnly: 'local git context and health snapshots for connected dashboards' },

@@ -4,7 +4,7 @@ import type { InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 
 import type fs from "node:fs";
 import path from "node:path";
-import { execFileAsync, execFileSync } from "../../server/child-process-safe.ts";
+import { execFileSync } from "../../server/child-process-safe.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
@@ -298,16 +298,6 @@ function probeInstalledCodexVersion(): string | null {
   }
 }
 
-async function readHostCodexVersion(): Promise<string | null> {
-  const versionCommand = buildSpawnCommand({ platform: process.platform, resolved: resolveCommand(), agentArgs: ["--version"] });
-  try {
-    const { stdout } = await execFileAsync(versionCommand.file, versionCommand.args, { encoding: "utf8", timeout: 3000, windowsHide: true });
-    return parseCodexVersion(stdout);
-  } catch {
-    return null;
-  }
-}
-
 function installedCodexVersion(): string | null {
   installedVersion ??= probeInstalledCodexVersion();
   return installedVersion;
@@ -529,5 +519,4 @@ const codex = {
   promptContextReply: "additional-context",
 } satisfies AgentAdapterShape;
 
-export { readHostCodexVersion };
 export default codex;

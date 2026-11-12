@@ -57,7 +57,6 @@ interface CreateProjectSessionArgs {
   dangerouslySkipPermissions?: boolean;
   saneYolo?: boolean;
   requireExistingPath?: boolean;
-  environment?: ProjectEntry['environment'];
   accountId?: string | null;
   runSettings?: Partial<ProjectEntry>;
 }
@@ -91,7 +90,7 @@ function createControlContext(deps: ControlHandlerDeps): ControlContext {
     return config.projects.find((project) => project.id === projectId) ?? null;
   }
 
-  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, saneYolo, requireExistingPath, environment, accountId, runSettings }: CreateProjectSessionArgs): CreateProjectSessionResult {
+  function createProjectSession({ id = generateProjectId(), name, path: projectPath, repos, baseBranch, agent, dangerouslySkipPermissions, saneYolo, requireExistingPath, accountId, runSettings }: CreateProjectSessionArgs): CreateProjectSessionResult {
     const uniqueName = nextSuggestedName(name, liveSessionNames());
     let resolvedPath = path.resolve(projectPath);
     let workspaceRepos: string[] | undefined;
@@ -111,7 +110,6 @@ function createControlContext(deps: ControlHandlerDeps): ControlContext {
     if (typeof dangerouslySkipPermissions === 'boolean') project.dangerouslySkipPermissions = dangerouslySkipPermissions;
     if (saneYolo) project.saneYolo = true;
     if (agent) project.agent = agent;
-    if (environment) project.environment = environment;
     if (accountId) project.accountId = accountId;
     const freshConfig = configStore.save(cfg => {
       cfg.projects.push(project);

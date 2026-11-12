@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 
-type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'remoteWorkspace' | 'saneYolo' | 'isQuestionManagerOn' | 'accountId' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
+type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'saneYolo' | 'isQuestionManagerOn' | 'accountId' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
 type MessageCardFields = Pick<ServerMessageOf<'session-added'>, 'skipPerms' | 'worktree' | 'workspace' | 'ephemeral'>;
 type SessionCardFields = Partial<SnapshotCardFields & MessageCardFields> & { ownerId?: string | null };
 
@@ -13,7 +13,6 @@ export interface CardOptions {
   accountId?: string | null;
   worktree?: boolean;
   workspace?: boolean;
-  remoteWorkspace?: string | null;
   ephemeral?: boolean;
   ownerId?: string | null;
   path?: unknown;
@@ -28,7 +27,6 @@ export function buildSessionCardOptions(session: SessionCardFields): CardOptions
     accountId: session.accountId ?? null,
     worktree: session.worktree ?? session.isWorktree ?? false,
     workspace: session.workspace ?? session.isWorkspace ?? false,
-    remoteWorkspace: session.remoteWorkspace ?? null,
     ephemeral: session.ephemeral === true,
     ownerId: session.ownerId ?? null,
     path: session.path,

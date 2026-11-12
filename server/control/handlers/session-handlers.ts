@@ -7,7 +7,6 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-messages.ts';
 import type { KeptWorkPath } from '../../../shared/contracts/control-messages.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../../../shared/contracts/session.ts';
-import { sanitizeWorktreeName } from '../../../shared/paths.ts';
 import { KILLABLE_STATES, STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { DEFAULT_AGENT_ID, canRunUnderAccount, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
@@ -22,7 +21,6 @@ import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
 import type { ProjectEntry } from '../../config-store.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
-import { configuredIntegrationBranch } from '../../core/integration-branch-core.ts';
 import { sanitizeOneLine } from '../../core/text-core.ts';
 import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
@@ -63,14 +61,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     config,
     configStore,
     broadcastControl,
-    generateProjectId,
     applyConfigReload,
     getMyPrsStatus = null,
     conversationFs = fs,
     conversationGit = runGitForConversationHistory,
     conversationProjectsDir = claudeProjectsDir(process.env, os.homedir()),
-    coderEnv = null,
-    remoteRepoGit = null,
     secrets = null,
     agentAccounts = null,
     packLaunchers = null,
@@ -88,8 +83,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (refusal) sendError(ws, refusal);
   }
 
-  function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
-    return addSession(request, socketReply(ws, request), {});
+  function handleAddSession(request: AddSessionRequest, ws: ControlSocket): void {
+    addSession(request, socketReply(ws, request), {});
   }
 
   function socketReply(ws: ControlSocket, msg: AddSessionRequest): AddSessionReply {
@@ -109,17 +104,14 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     });
   }
 
-  function addSession(request: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): Promise<void> | undefined {
+  function addSession(request: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {
     const msg = withShellDefaults(request);
     const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
     if (refusal) {
       refuseAddSession(msg, reply, refusal);
-      return undefined;
+      return;
     }
-    const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
-    if (environmentName) return createRemoteAddedSession(msg, reply, runSettings, environmentName);
     createAddedSession(msg, reply, runSettings);
-    return undefined;
   }
 
   async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {
@@ -133,7 +125,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return;
     }
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
-    await addSession(request, socketReply(ws, request), {});
+    addSession(request, socketReply(ws, request), {});
   }
 
   async function handlePackSessionStart(msg: ClientMessageOf<'pack-session-start'>, ws: ControlSocket): Promise<void> {
@@ -148,7 +140,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return;
     }
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
-    await addSession(request, socketReply(ws, request), {});
+    addSession(request, socketReply(ws, request), {});
   }
 
   function handlePackSessionSend(msg: ClientMessageOf<'pack-session-send'>, ws: ControlSocket): void {
@@ -166,11 +158,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
   }
 
-  function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
+  function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): void {
     const source = findSession(msg);
     if (!source) {
       replyTo(ws, msg, 'add-session-result', { ok: false, error: 'The session to copy no longer exists.' });
-      return undefined;
+      return;
     }
     const plan = planQuickSession({
       live: source,
@@ -178,10 +170,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sessionNames: liveSessionNames(),
     });
     const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...plan.request };
-    return addSession(request, socketReply(ws, request), plan.runSettings);
+    addSession(request, socketReply(ws, request), plan.runSettings);
   }
 
-  function createAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
+  function createAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): void {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -193,17 +185,15 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       defaults: config.agentAccountDefaults ?? {},
       requestedAccountId: msg.accountId,
       agentId: requestedAgent || DEFAULT_AGENT_ID,
-      isRemote: remote !== undefined,
     });
     if ('refusal' in sessionAccount) {
       refuseAddSession(msg, reply, { error: sessionAccount.refusal });
-      return null;
+      return;
     }
     const skipPerms = typeof msg.dangerouslySkipPermissions === 'boolean'
       ? msg.dangerouslySkipPermissions
       : machineSkipsPermissionsByDefault(config);
     const created = createProjectSession({
-      id: remote?.id,
       name,
       path: projectPath,
       repos,
@@ -211,18 +201,16 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       dangerouslySkipPermissions: skipPerms,
       saneYolo: skipPerms && msg.saneYolo === true,
       requireExistingPath: !repos,
-      environment: remote?.environment,
       accountId: sessionAccount.accountId,
       runSettings: requestedRunSettings(msg, runSettings),
     });
     if (!created.ok) {
       refuseAddSession(msg, reply, { error: created.error });
-      return null;
+      return;
     }
     sendFirstPrompt(created.project.id, msg.prompt);
     reply({ ok: true, sessionId: created.project.id });
-    console.log(`[control] Added session via UI: ${created.project.name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
-    return created.project;
+    console.log(`[control] Added session via UI: ${created.project.name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}`);
   }
 
   function sendFirstPrompt(sessionId: string, prompt: string | undefined) {
@@ -237,102 +225,18 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!pasted.ok) console.warn(`[control] First prompt not sent to "${session.name}" (${pasted.reason})`);
   }
 
-  async function remoteRepoSource(projectPath: string): Promise<{ ok: true; repoRemoteUrl: string; baseBranch: string } | { ok: false; error: string }> {
-    if (!remoteRepoGit) return { ok: false, error: 'Coder environments are unavailable on this host' };
-    const repoRemoteUrl = await remoteRepoGit.originUrl({ projectPath });
-    if (!repoRemoteUrl) return { ok: false, error: `${projectPath} has no origin remote, so a Coder workspace cannot clone it.` };
-    const baseBranch = configuredIntegrationBranch(config) ?? await remoteRepoGit.detectDefaultBranch({ projectPath });
-    if (!baseBranch) return { ok: false, error: `Could not find the default branch of ${projectPath} on origin.` };
-    return { ok: true, repoRemoteUrl, baseBranch };
-  }
-
-  async function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session, options: { fresh: boolean; conversationId?: string }) => boolean): Promise<void> {
+  function restartSession(msg: ClientMessageOf<'restart'> | ClientMessageOf<'force-restart'>, ws: ControlSocket, restart: (session: Session, options: { fresh: boolean; conversationId?: string }) => boolean): void {
     const sess = findSession(msg);
     if (!sess) return;
     const fresh = msg.fresh === true;
     const conversationId = fresh ? null : requestedConversationId(msg.conversationId);
     if (!conversationId) {
-      await renewAndRestart(sess, ws, () => { restart(sess, { fresh }); });
+      restart(sess, { fresh });
       return;
     }
     const refusal = resumeConversationRefusal(sess, conversationId);
     if (refusal) { sendError(ws, refusal, { id: sess.id }); return; }
-    await renewAndRestart(sess, ws, () => {
-      if (restart(sess, { fresh, conversationId })) persistResumeConversation(sess.id, conversationId);
-    });
-  }
-
-  async function renewAndRestart(sess: Session, ws: ControlSocket, restart: () => void): Promise<void> {
-    const project = config.projects.find((candidate) => candidate.id === sess.id);
-    if (sess.state !== STATES.FAILED || !project?.environment || !coderEnv) {
-      restart();
-      return;
-    }
-    const source = await remoteRepoSource(project.path);
-    if (!source.ok) {
-      sendError(ws, source.error, { id: sess.id });
-      return;
-    }
-    const renewal = await coderEnv.renew({
-      projectId: project.id,
-      repoRemoteUrl: source.repoRemoteUrl,
-      baseBranch: source.baseBranch,
-      liveCount: liveWorkspaceCount(project.environment.name, project.id),
-    });
-    if (!renewal.ok) {
-      sendError(ws, renewal.reason, { id: sess.id });
-      return;
-    }
-    restart();
-  }
-
-  function liveWorkspaceCount(environmentName: string, excludedProjectId?: string): number {
-    return config.projects.filter((project) => {
-      if (project.environment?.name !== environmentName) return false;
-      if (project.id === excludedProjectId) return false;
-      const session = sessions.get(project.id);
-      return session !== undefined && session.state !== STATES.DORMANT;
-    }).length;
-  }
-
-  function remoteAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
-    if (msg.repos) return { error: 'A workspace session cannot run in a Coder environment. Pick a single repository.' };
-    if (msg.runInPlace === true) return { error: 'A session in a Coder environment always gets its own checkout, so it cannot run in this folder.' };
-    return null;
-  }
-
-  async function createRemoteAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings, environmentName: string): Promise<void> {
-    const refusal = remoteAddSessionRefusal(msg);
-    if (refusal) {
-      refuseAddSession(msg, reply, refusal);
-      return;
-    }
-    if (!coderEnv || !remoteRepoGit) {
-      refuseAddSession(msg, reply, { error: 'Coder environments are unavailable on this host' });
-      return;
-    }
-    const source = await remoteRepoSource(path.resolve((msg.path || '').trim()));
-    if (!source.ok) {
-      refuseAddSession(msg, reply, { error: source.error });
-      return;
-    }
-    const { repoRemoteUrl, baseBranch } = source;
-    const id = generateProjectId();
-    const reserved = await coderEnv.reserve({
-      projectId: id,
-      environmentName,
-      branch: `glimmervoid/session/${sanitizeWorktreeName(id)}`,
-      liveCount: liveWorkspaceCount(environmentName),
-    });
-    if (!reserved.ok) {
-      refuseAddSession(msg, reply, { error: reserved.reason });
-      return;
-    }
-    const project = createAddedSession(msg, reply, runSettings, { id, environment: reserved.mapping });
-    if (!project) return;
-    void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
-      if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
-    });
+    if (restart(sess, { fresh, conversationId })) persistResumeConversation(sess.id, conversationId);
   }
 
   function isShellRequest(msg: AddSessionRequest): boolean {
@@ -346,7 +250,6 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function shellAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     if (!isShellRequest(msg)) return null;
-    if (typeof msg.environment === 'string' && msg.environment.trim()) return { error: 'A shell session runs on this machine, so it cannot run in a Coder environment.' };
     if (msg.repos) return { error: 'A shell session runs in one folder, so it cannot span a workspace.' };
     return null;
   }
@@ -364,8 +267,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const adapter = getAdapter(agentId);
     if (!adapter?.capabilities.resume) return { error: `A ${adapter?.label ?? agentId} session cannot resume a conversation` };
     if (!RESUME_ID_RE.test(resumeSessionId)) return { error: 'Invalid conversation id' };
-    const isCoderSession = typeof msg.environment === 'string' && msg.environment.trim() !== '';
-    if (adapter.usageVendor !== 'claude' || isCoderSession) return null;
+    if (adapter.usageVendor !== 'claude') return null;
     const projectsDirs = projectDirCandidates(process.env, [], os.homedir());
     const sessionFolders = msg.repos ?? [(msg.path || '').trim()];
     const resumeTarget = resolveResumeTarget(
@@ -464,14 +366,6 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sess.destroy();
       console.log(`[control] Removed spawned session via UI: ${sess.name}`);
       return { ok: true };
-    }
-
-    const hasRemoteWorkspace = config.projects.some((project) => project.id === sess.id && project.environment);
-    if (hasRemoteWorkspace && coderEnv) {
-      sess.killSession();
-      const settlement = await coderEnv.settleRemoval({ projectId: sess.id, discardRemoteWork: isDiscardingWork });
-      if (!settlement.ok && settlement.canDiscardRemoteWork) return refuseRemoval(`${settlement.reason}. Removing "${sess.name}" deletes its Coder workspace and that work with it.`);
-      if (!settlement.ok) return { ok: false, error: settlement.reason, canDiscardWork: false };
     }
 
     const freshConfig = configStore.save(cfg => {
@@ -615,7 +509,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const project = config.projects.find((entry) => entry.id === session?.id);
     if (!session || !project) return { error: SESSION_GONE_TEXT };
     if (session.ephemeral) return { error: 'This session cannot switch accounts.' };
-    const plan = resolveNewSessionAccount({ accounts: config.agentAccounts ?? [], defaults: {}, requestedAccountId: msg.accountId, agentId: session.agentId, isRemote: Boolean(project.environment) });
+    const plan = resolveNewSessionAccount({ accounts: config.agentAccounts ?? [], defaults: {}, requestedAccountId: msg.accountId, agentId: session.agentId });
     if ('refusal' in plan) return { error: plan.refusal };
     if (plan.accountId === (project.accountId ?? null)) return null;
     const adapter = getAdapter(session.agentId);
@@ -627,7 +521,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const freshConfig = configStore.save((cfg) => {
       const configured = cfg.projects.find((entry) => entry.id === session.id);
       if (!configured) return ABORT_CONFIG_SAVE;
-      const savedPlan = resolveNewSessionAccount({ accounts: cfg.agentAccounts ?? [], defaults: {}, requestedAccountId: plan.accountId, agentId: session.agentId, isRemote: Boolean(configured.environment) });
+      const savedPlan = resolveNewSessionAccount({ accounts: cfg.agentAccounts ?? [], defaults: {}, requestedAccountId: plan.accountId, agentId: session.agentId });
       if ('refusal' in savedPlan) {
         savedRefusal = savedPlan.refusal;
         return ABORT_CONFIG_SAVE;

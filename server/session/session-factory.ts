@@ -9,7 +9,7 @@ import type { TerminalColors } from '../../session/core/terminal-color-query.ts'
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
-import type { RemoteLaunch, SessionOptions } from '../../session/sessions.ts';
+import type { SessionOptions } from '../../session/sessions.ts';
 import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
@@ -19,7 +19,6 @@ import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
-import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
 import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
@@ -38,71 +37,12 @@ interface SessionFactoryDependencies {
   questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   homeDir?: string;
-  getCoderEnv?: () => CoderWorkspacePort | null;
-  claudeToken?: (accountFolder: string | null) => ReturnType<RemoteLaunch['claudeToken']>;
-  codexVersion?: RemoteLaunch['codexVersion'];
-  codexLoginParams?: (accountFolder: string | null) => ReturnType<RemoteLaunch['codexLoginParams']>;
-  codexRefreshResult?: (accountFolder: string | null) => ReturnType<RemoteLaunch['codexRefreshResult']>;
-}
-
-interface CoderWorkspacePort {
-  resume: (request: { projectId: string }) => Promise<{ ok: true } | { ok: false; reason: string }>;
-  describeRemoteExit: (workspace: string) => Promise<string>;
-  uploadFile: (file: { workspace: string; remotePath: string; contents: string; mode: number }) => Promise<void>;
 }
 
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
-  }
-
-  function accountFolderOf(accountHome: SessionAccountHome): { folder: string | null } | { refusal: string } {
-    if (accountHome.kind === 'refused') return { refusal: accountHome.reason };
-    return { folder: accountHome.kind === 'account' ? accountHome.account.folder : null };
-  }
-
-  function remoteLaunchFor(builtProject: ProjectEntry, builtMapping: NonNullable<ProjectEntry['environment']>, config: GlimmervoidConfig, accountHome: () => SessionAccountHome): RemoteLaunch {
-    const projectId = builtProject.id;
-    const liveMapping = config.projects.find((project) => project.id === projectId)?.environment;
-    const mapping = liveMapping ?? builtMapping;
-    const environment = config.coder?.environments?.find((candidate) => candidate.name === mapping.name);
-    const coderEnv = liveMapping && environment ? dependencies.getCoderEnv?.() ?? null : null;
-    const claudeToken = dependencies.claudeToken;
-    const refusal = liveMapping
-      ? { ok: false as const, reason: `Coder environment ${mapping.name} is not available` }
-      : { ok: false as const, reason: `Coder workspace mapping for ${builtProject.name} was removed; close this session and start a new one` };
-    return {
-      workspace: mapping.workspace,
-      remotePort: mapping.remotePort,
-      checkoutDirectory: remoteCheckoutDirectory({ checkoutRoot: environment?.checkoutRoot ?? '/', workspace: mapping.workspace }),
-      nodePath: environment?.nodePath ?? 'node',
-      ensureRunning: async () => (coderEnv ? coderEnv.resume({ projectId }) : refusal),
-      describeExit: async () => (coderEnv ? coderEnv.describeRemoteExit(mapping.workspace) : null),
-      uploadFile: async (file) => {
-        if (!coderEnv) throw new Error(refusal.reason);
-        await coderEnv.uploadFile({ ...file, workspace: mapping.workspace });
-      },
-      claudeToken: async () => {
-        if (!claudeToken) return { ok: false, reason: 'no Claude Code login source is wired for remote sessions' };
-        const account = accountFolderOf(accountHome());
-        if ('refusal' in account) return { ok: false, reason: account.refusal };
-        return claudeToken(account.folder);
-      },
-      codexVersion: async () => (dependencies.codexVersion ? dependencies.codexVersion() : null),
-      codexLoginParams: async () => {
-        if (!dependencies.codexLoginParams) throw new Error('no Codex login source is wired for remote sessions');
-        const account = accountFolderOf(accountHome());
-        if ('refusal' in account) throw new Error(account.refusal);
-        return dependencies.codexLoginParams(account.folder);
-      },
-      codexRefreshResult: async () => {
-        if (!dependencies.codexRefreshResult) throw new Error('no Codex login source is wired for remote sessions');
-        const account = accountFolderOf(accountHome());
-        if ('refusal' in account) throw new Error(account.refusal);
-        return dependencies.codexRefreshResult(account.folder);
-      },
-    };
   }
 
   return function makeSession(
@@ -122,9 +62,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: dependencies.configStore.isExperimentalBuild === true && (dependencies.getConfig?.() ?? config).coherence?.enabled !== false,
     });
-    const builtMapping = project.environment;
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
-    const sessionTempFolder = builtMapping ? null : ensureSessionTempFolder(project.id);
+    const sessionTempFolder = ensureSessionTempFolder(project.id);
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -142,7 +81,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
-      gitWorkspace: builtMapping || isMachineShell ? null : dependencies.getGitWorkspace(),
+      gitWorkspace: isMachineShell ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
       autoRebase: config.worktree?.autoRebase !== false && project.isStartPinned !== true,
       syncOnStart: config.worktree?.syncOnStart !== false,
@@ -157,10 +96,9 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,
-      prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
+      prepareCoherence: isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
-      getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config, resolveAccountHome) : null,
       resolveAccountHome,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
