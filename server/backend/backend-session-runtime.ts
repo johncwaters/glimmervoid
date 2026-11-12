@@ -15,6 +15,7 @@ import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
 import { createClaudeCredentials } from '../claude-credentials.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import { createAgentConnect } from '../agent-login/agent-connect.ts';
+import { createAgentAccounts } from '../agent-login/agent-accounts.ts';
 import codexAdapter, { readHostCodexVersion } from '../../session/adapters/codex.ts';
 import { createCodexCredentials } from '../codex-credentials.ts';
 import { chatgptAuthTokensLogin, chatgptAuthTokensRefreshResult } from '../core/codex-credentials-core.ts';
@@ -34,6 +35,8 @@ interface BackendSessionRuntimeDependencies {
   logger: Pick<Console, 'warn'>;
   getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
+  liveSessionNamesUsing: (accountId: string) => string[];
+  onConfigSaved: (config: GlimmervoidConfig) => void;
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
@@ -67,19 +70,29 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       return { file: command.file, argsBeforeAppServer: command.args };
     },
   });
+  const launchAgentCommand = (agent: string, agentArgs: string[]) => {
+    const adapter = getAdapter(agent);
+    const resolved = adapter ? commandFor(adapter) : null;
+    if (!adapter || !resolved?.path) return null;
+    const command = adapter.buildSpawnCommand({ platform: process.platform, resolved, settingsArgs: [], agentArgs });
+    return { ...command, env: adapter.buildEnv(process.env, null) };
+  };
   const agentConnect = createAgentConnect({
     loginsRoot: agentLoginsRoot,
     loginSource: (agent) => (agent === 'codex' ? codexCredentials.loginSource() : claudeCredentials.loginSource()),
-    launchFor: (agent, loginArgs) => {
-      const adapter = getAdapter(agent);
-      const resolved = adapter ? commandFor(adapter) : null;
-      if (!adapter || !resolved?.path) return null;
-      const command = adapter.buildSpawnCommand({ platform: process.platform, resolved, settingsArgs: [], agentArgs: loginArgs });
-      return { ...command, env: adapter.buildEnv(process.env, null) };
-    },
+    launchFor: launchAgentCommand,
     onChange: (logins) => dependencies.getBroadcastControl()?.({ type: 'agent-logins', logins }),
   });
+  const agentAccounts = createAgentAccounts({
+    accountsRoot: configSiblingPath(dependencies.configStore.configPath, 'agent-accounts'),
+    configStore: dependencies.configStore,
+    launchFor: launchAgentCommand,
+    liveSessionNamesUsing: dependencies.liveSessionNamesUsing,
+    onConfigSaved: dependencies.onConfigSaved,
+    onChange: (accounts) => dependencies.getBroadcastControl()?.({ type: 'agent-accounts', accounts }),
+  });
   void agentConnect.refresh();
+  void agentAccounts.refresh();
   const codexLogin = async (resolveLogin: typeof codexCredentials.hostLogin) => {
     const resolved = await resolveLogin();
     if (!resolved.ok) throw new Error(resolved.reason);
@@ -115,7 +128,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       : null,
   });
 
-  return { agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
+  return { agentAccounts, agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

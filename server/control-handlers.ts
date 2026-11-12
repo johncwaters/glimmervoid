@@ -34,6 +34,7 @@ import type { ChangeMapService } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
 import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
 import type { createAgentConnect } from './agent-login/agent-connect.ts';
+import type { AgentAccounts } from './agent-login/agent-accounts.ts';
 import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring.ts';
 import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import type { createHostLinksWiring } from './hosts/host-links-wiring.ts';
@@ -158,6 +159,7 @@ interface ControlHandlerDeps {
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
+  agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'signIn' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
   starHint?: Pick<StarHintWiring, 'settleStar' | 'pendingHintMessages'> | null;

@@ -352,6 +352,8 @@ function createConfigStore({
     if (newConfig.hosts != null) config.hosts = newConfig.hosts;
     if (newConfig.secrets == null) delete config.secrets;
     if (newConfig.secrets != null) config.secrets = newConfig.secrets;
+    if (newConfig.agentAccounts == null) delete config.agentAccounts;
+    if (newConfig.agentAccounts != null) config.agentAccounts = newConfig.agentAccounts;
 
     config.hooks = Array.isArray(newConfig.hooks) ? newConfig.hooks : [];
     if (newConfig.port != null && newConfig.port !== config.port) {

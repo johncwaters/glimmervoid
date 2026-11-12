@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AGENT_ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const AGENT_ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export const AgentAccountId = z.string({ error: 'an agent account id must be a string' })
   .regex(AGENT_ACCOUNT_ID_RE, { error: 'an agent account id must be 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit' });
@@ -24,3 +24,24 @@ export const AgentAccounts = z.array(AgentAccount, { error: 'agentAccounts must 
       seenIds.add(account.id);
     }
   });
+
+export const AgentAccountLogin = z.strictObject({
+  state: z.enum(['signed-in', 'signed-out', 'connecting', 'failed']),
+  verificationUrl: z.string().nullable(),
+  userCode: z.string().nullable(),
+  needsPastedCode: z.boolean(),
+  reason: z.string().nullable(),
+});
+export type AgentAccountLogin = z.infer<typeof AgentAccountLogin>;
+
+export const AgentAccountStatus = z.strictObject({
+  accountId: AgentAccountId.nullable(),
+  agent: z.string(),
+  label: z.string(),
+  detail: z.string().nullable(),
+  login: AgentAccountLogin,
+  usedBy: z.array(z.string()),
+});
+export type AgentAccountStatus = z.infer<typeof AgentAccountStatus>;
+
+export const AgentAccountStatuses = z.array(AgentAccountStatus);

@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { reportHeaderError } from '../../action-status.ts';
-import { applyAgentLogins } from '../../agent-logins.ts';
+import { applyAgentAccounts, applyAgentLogins } from '../../agent-logins.ts';
 import type { HealthSnapshot } from '../../health-monitor.ts';
 import { applyHealthSnapshot } from '../../health-monitor.ts';
 import { applyHooksReport, applyLateHookResult } from '../../hooks-store.ts';
@@ -41,6 +41,7 @@ const messageHandlers = {
     refreshFirstRunChecklist();
   },
   'agent-logins':       (msg) => applyAgentLogins(msg.logins),
+  'agent-accounts':     (msg) => applyAgentAccounts(msg.accounts),
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
 
   'client-trust':       (msg) => applyClientTrust(msg.trust),

@@ -312,6 +312,7 @@ class Session extends EventEmitter {
   _spawnEnv: Record<string, string> | null;
   _resolveAccountHome: (() => SessionAccountHome) | null;
   _accountEnv: Record<string, string> = {};
+  accountIdInUse: string | null = null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
@@ -1892,14 +1893,19 @@ class Session extends EventEmitter {
 
   async _prepareAccountEnv(isRemoteLaunch: boolean): Promise<string | null> {
     this._accountEnv = {};
+    this.accountIdInUse = null;
     const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
     if (accountHome.kind === "machine-login") return null;
     if (accountHome.kind === "refused") return accountHome.reason;
     if (isRemoteLaunch) return `a Coder workspace session cannot run under the added account ${accountHome.account.label} yet`;
     const profile = this._adapter.accountHomeProfile;
     if (!profile) return `${this._adapter.label} sessions cannot run under an added account`;
+    this.accountIdInUse = accountHome.account.id;
     const prepared = await prepareAccountHome(profile, { env: process.env, accountFolder: accountHome.account.folder });
-    if ("refusal" in prepared) return `the account ${accountHome.account.label} cannot be used: ${prepared.refusal}`;
+    if ("refusal" in prepared) {
+      this.accountIdInUse = null;
+      return `the account ${accountHome.account.label} cannot be used: ${prepared.refusal}`;
+    }
     this._accountEnv = { [profile.homeEnvName]: prepared.home };
     return null;
   }

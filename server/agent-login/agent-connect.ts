@@ -28,6 +28,8 @@ interface ConnectLaunch {
 
 interface AgentConnectOptions {
   loginsRoot: string;
+  agents?: readonly ConnectableAgent[];
+  homeDirOf?: (agent: ConnectableAgent) => string;
   loginSource: (agent: ConnectableAgent) => Promise<LoginSource | null>;
   launchFor: (agent: ConnectableAgent, loginArgs: string[]) => ConnectLaunch | null;
   onChange: (logins: AgentLoginStatus[]) => void;
@@ -61,6 +63,8 @@ async function makePrivateDir(directory: string): Promise<void> {
 
 function createAgentConnect({
   loginsRoot,
+  agents = CONNECTABLE_AGENTS,
+  homeDirOf = (agent) => connectHomeDir(loginsRoot, agent),
   loginSource,
   launchFor,
   onChange,
@@ -69,11 +73,11 @@ function createAgentConnect({
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
 }: AgentConnectOptions) {
-  const statusByAgent = new Map<ConnectableAgent, AgentLoginStatus>(CONNECTABLE_AGENTS.map((agent) => [agent, idleLoginStatus(agent, null)]));
+  const statusByAgent = new Map<ConnectableAgent, AgentLoginStatus>(agents.map((agent) => [agent, idleLoginStatus(agent, null)]));
   const runningByAgent = new Map<ConnectableAgent, RunningConnect>();
 
   function logins(): AgentLoginStatus[] {
-    return CONNECTABLE_AGENTS.map((agent) => statusByAgent.get(agent) ?? idleLoginStatus(agent, null));
+    return agents.map((agent) => statusByAgent.get(agent) ?? idleLoginStatus(agent, null));
   }
 
   function setStatus(agent: ConnectableAgent, status: AgentLoginStatus): void {
@@ -83,7 +87,7 @@ function createAgentConnect({
   }
 
   async function refresh(): Promise<AgentLoginStatus[]> {
-    await Promise.all(CONNECTABLE_AGENTS.map(async (agent) => {
+    await Promise.all(agents.map(async (agent) => {
       if (runningByAgent.has(agent)) return;
       const source = await loginSource(agent).catch(() => null);
       if (runningByAgent.has(agent)) return;
@@ -106,7 +110,7 @@ function createAgentConnect({
     const recipe = CONNECT_RECIPES[agent];
     const launch = launchFor(agent, recipe.loginArgs);
     if (!launch) return { ok: false, error: `The ${recipe.displayName} command could not be found on this machine.` };
-    const homeDir = connectHomeDir(loginsRoot, agent);
+    const homeDir = homeDirOf(agent);
     try {
       await makeHomeDir(homeDir);
     } catch (error) {

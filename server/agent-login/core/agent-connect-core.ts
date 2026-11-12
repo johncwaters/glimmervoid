@@ -9,14 +9,17 @@ type LoginSource = 'host' | 'glimmervoid';
 
 interface ConnectRecipe {
   loginArgs: string[];
+  statusArgs: string[];
+  logoutArgs: string[];
   homeEnvKey: 'CLAUDE_CONFIG_DIR' | 'CODEX_HOME';
+  credentialEnvKeys: readonly string[];
   homeFolderName: string;
   displayName: string;
 }
 
 const CONNECT_RECIPES: Readonly<Record<ConnectableAgent, ConnectRecipe>> = Object.freeze({
-  'claude-code': { loginArgs: ['auth', 'login', '--claudeai'], homeEnvKey: 'CLAUDE_CONFIG_DIR', homeFolderName: 'claude-code', displayName: 'Claude Code' },
-  codex: { loginArgs: ['login', '--device-auth'], homeEnvKey: 'CODEX_HOME', homeFolderName: 'codex', displayName: 'Codex' },
+  'claude-code': { loginArgs: ['auth', 'login', '--claudeai'], statusArgs: ['auth', 'status'], logoutArgs: ['auth', 'logout'], homeEnvKey: 'CLAUDE_CONFIG_DIR', credentialEnvKeys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN'], homeFolderName: 'claude-code', displayName: 'Claude Code' },
+  codex: { loginArgs: ['login', '--device-auth'], statusArgs: ['login', 'status'], logoutArgs: ['logout'], homeEnvKey: 'CODEX_HOME', credentialEnvKeys: ['OPENAI_API_KEY', 'CODEX_API_KEY'], homeFolderName: 'codex', displayName: 'Codex' },
 });
 
 const ESCAPE = String.fromCharCode(27);
@@ -115,8 +118,48 @@ function decideConnectExit({ agent, exitCode, source, wasCancelled, hasTimedOut 
   return failedStatus(agent, `${displayName} sign-in stopped with exit code ${exitCode}. Connect again to retry.`);
 }
 
+interface AccountIdentity {
+  isSignedIn: boolean;
+  label: string | null;
+  detail: string | null;
+}
+
+function textField(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function capitalized(word: string): string {
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+}
+
+function readClaudeIdentity(statusOutput: string): AccountIdentity {
+  const signedOut: AccountIdentity = { isSignedIn: false, label: null, detail: null };
+  const parsed: unknown = (() => {
+    try {
+      return JSON.parse(statusOutput);
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return signedOut;
+  const status = Object.fromEntries(Object.entries(parsed));
+  if (status.loggedIn !== true) return signedOut;
+  const orgName = textField(status, 'orgName');
+  const plan = textField(status, 'subscriptionType');
+  const email = textField(status, 'email');
+  const isPersonalOrg = orgName !== null && email !== null && orgName === `${email}'s Organization`;
+  const label = [isPersonalOrg ? 'Personal' : orgName, plan === null ? null : capitalized(plan)].filter((part) => part !== null).join(' ');
+  return { isSignedIn: true, label: label === '' ? email : label, detail: email };
+}
+
+function readAccountIdentity(agent: ConnectableAgent, statusOutput: string, exitCode: number | null): AccountIdentity {
+  if (agent === 'claude-code') return readClaudeIdentity(statusOutput);
+  return { isSignedIn: exitCode === 0, label: null, detail: statusOutput.trim().split('\n')[0] || null };
+}
+
 export {
-  CONNECT_RECIPES, CONNECT_TIMEOUT_MS, appendConnectOutput, connectHomeDir, connectingStatus, decideConnectExit, idleLoginStatus,
+  CONNECT_RECIPES, readAccountIdentity, CONNECT_TIMEOUT_MS, appendConnectOutput, connectHomeDir, connectingStatus, decideConnectExit, idleLoginStatus,
   pastedCodeRefusal, pastedCodeRejection, readConnectPrompt,
 };
-export type { LoginSource };
+export type { AccountIdentity, LoginSource };

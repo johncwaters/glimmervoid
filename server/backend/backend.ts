@@ -190,8 +190,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
+    liveSessionNamesUsing: (accountId) => [...sessions.values()]
+      .filter((session) => session.accountIdInUse === accountId || configStore.config.projects.some((project) => project.id === session.id && project.accountId === accountId))
+      .map((session) => session.name),
+    onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
-  const { agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
+  const { agentAccounts, agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -244,6 +248,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     agentIngressServer.close();
     agentIngressServer.closeAllConnections();
     agentConnect.stop();
+    agentAccounts.stop();
   });
 
   const webSockets = createBackendWebSockets({
@@ -801,6 +806,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlReplayLog,
     hostLinks,
     agentConnect,
+    agentAccounts,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
     generateProjectId,

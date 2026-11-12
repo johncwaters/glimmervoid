@@ -87,6 +87,20 @@ export const MACHINE_SESSIONS: SettingsSection = {
   ],
 };
 
+export const MACHINE_ACCOUNTS: SettingsSection = {
+  id: 'machine-accounts',
+  level: 'machine',
+  title: 'Accounts',
+  description: 'Agent accounts a session can run under, beside the login already on this machine.',
+  settings: [
+    {
+      id: 'agent-accounts', path: 'status:agent-accounts', title: 'Agent accounts',
+      description: 'Each added account keeps its own login and shares settings, skills, plugins, MCP servers and conversations with this machine.',
+      control: 'readonly', keywords: ['claude', 'login', 'sign in', 'organization', 'team', 'account', 'switch'], status: 'agent-accounts', ...READOUT,
+    },
+  ],
+};
+
 export const MACHINE_SAFETY: SettingsSection = {
   id: 'machine-safety',
   level: 'machine',

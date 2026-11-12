@@ -132,6 +132,8 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
 }
 
 const AGENT_CONNECT_UNAVAILABLE = 'Agent sign-in is not available on this server.';
+const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
+type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove';
 
 function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const {
@@ -143,6 +145,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     telegramDelivery = null,
     coderEnv = null,
     agentConnect = null,
+    agentAccounts = null,
     remoteSetup = null,
   } = deps;
 
@@ -193,6 +196,19 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     }
     const outcome = agentConnect.submitCode(msg.agent, msg.code);
     replyTo(ws, msg, 'agent-logins', { logins: agentConnect.logins(), error: outcome.ok ? undefined : outcome.error });
+  }
+
+  async function answerAgentAccounts(msg: ClientMessageOf<AgentAccountMessageType>, ws: ControlSocket, act: (accounts: NonNullable<typeof agentAccounts>) => Promise<{ ok: true; accountId?: string } | { ok: false; error: string }>): Promise<void> {
+    if (!agentAccounts) {
+      replyTo(ws, msg, 'agent-accounts', { accounts: [], error: AGENT_ACCOUNTS_UNAVAILABLE });
+      return;
+    }
+    const outcome = await act(agentAccounts);
+    if (!outcome.ok) {
+      replyTo(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), error: outcome.error });
+      return;
+    }
+    replyTo(ws, msg, 'agent-accounts', { accounts: agentAccounts.list(), accountId: outcome.accountId });
   }
 
   function handleUpdateSettings(msg: ClientMessageOf<'update-settings'>, ws: ControlSocket): void {
@@ -439,6 +455,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-connect': handleAgentConnect,
     'start-remote-setup': handleStartRemoteSetup,
     'agent-connect-code': handleAgentConnectCode,
+    'get-agent-accounts': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => { await accounts.refresh(); return { ok: true }; }),
+    'agent-account-add': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.add(msg.agent)),
+    'agent-account-sign-in': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.signIn(msg.accountId)),
+    'agent-account-cancel': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.cancel(msg.accountId)),
+    'agent-account-code': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.submitCode(msg.accountId, msg.code)),
+    'agent-account-remove': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.remove(msg.accountId)),
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
     'list-agents': handleListAgents,
@@ -459,6 +481,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-connect': (_msg, requestId, message) => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'start-remote-setup': (_msg, requestId, message) => ({ type: 'start-remote-setup-result', requestId, ok: false, error: message }),
     'agent-connect-code': (_msg, requestId, message) => ({ type: 'agent-logins', requestId, logins: [], error: message }),
+    'get-agent-accounts': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-add': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-sign-in': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-cancel': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-code': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-remove': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),

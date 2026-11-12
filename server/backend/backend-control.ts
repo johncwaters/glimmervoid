@@ -74,6 +74,7 @@ interface BackendControlDependencies {
   broadcastControl: ControlBroadcast;
   controlReplayLog: ReplayLog;
   agentConnect: NonNullable<ControlHandlerDeps['agentConnect']>;
+  agentAccounts: NonNullable<ControlHandlerDeps['agentAccounts']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
   hostLinks: NonNullable<ControlHandlerDeps['hostLinks']>;
   telegramDelivery: TelegramDeliveryControl;
@@ -190,6 +191,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     coderEnv: laneAssembly.coderEnv,
     remoteRepoGit: laneAssembly.gitWorkspace,
     agentConnect: dependencies.agentConnect,
+    agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
     hostLinks: dependencies.hostLinks,
   });

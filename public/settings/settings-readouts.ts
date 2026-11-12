@@ -12,7 +12,9 @@ import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
 import { buildHostsSettings } from '../hosts/hosts-settings.ts';
-import { agentLoginOf, agentLoginSummary, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
+import { agentLoginOf, agentLoginSummary, openAgentAccountDialog, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
+import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
+import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
 import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
 import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from '../server-power.ts';
@@ -150,6 +152,62 @@ function buildAgentLoginsStatus() {
   return block;
 }
 
+const ACCOUNT_AGENTS = ['claude-code'] as const;
+const agentAccountActionStatus = createActionStatus('settings-agent-accounts-status');
+
+const ACCOUNT_STATE_TEXT: Readonly<Record<AgentAccountStatus['login']['state'], string>> = Object.freeze({
+  'signed-in': 'Signed in',
+  'signed-out': 'Signed out',
+  connecting: 'Signing in',
+  failed: 'Sign-in failed',
+});
+
+async function removeAgentAccount(account: AgentAccountStatus) {
+  const reply = await requestWithStatus('agent-account-remove', { accountId: account.accountId }, agentAccountActionStatus, { busyText: `Removing ${account.label}.` });
+  if (reply?.type !== 'agent-accounts') return;
+  applyAgentAccounts(reply.accounts);
+  if (reply.error) agentAccountActionStatus.show('error', reply.error);
+}
+
+function buildAgentAccountRow(agent: (typeof ACCOUNT_AGENTS)[number], account: AgentAccountStatus) {
+  const row = el('div', 'settings-telegram-test');
+  const description = [account.label, account.detail, account.accountId === null ? 'this machine' : null, ACCOUNT_STATE_TEXT[account.login.state]]
+    .filter((part) => part !== null && part !== '')
+    .join(', ');
+  row.appendChild(el('div', 'settings-readonly', description));
+  if (account.accountId === null) return row;
+  const accountId = account.accountId;
+  if (account.login.state !== 'signed-in') {
+    row.appendChild(button({ variant: 'secondary', label: 'Sign in', action: 'sign-in-agent-account', onClick: () => openAgentAccountDialog(agent, accountId) }));
+  }
+  row.appendChild(button({
+    variant: 'danger',
+    label: 'Remove',
+    action: 'remove-agent-account',
+    onClick: () => openConfirmDialog({
+      title: `Remove ${account.label}?`,
+      message: account.usedBy.length > 0
+        ? `${account.label} is in use by ${account.usedBy.join(', ')}. Switch those sessions to another account or close them first.`
+        : `Glimmervoid forgets ${account.label}. An account added here is also signed out and its folder deleted. Your settings, skills, plugins and conversations stay with ${CONNECTABLE_AGENT_NAMES[agent]} on this machine.`,
+      confirmLabel: 'Remove',
+      danger: true,
+      onConfirm: () => { void removeAgentAccount(account); },
+    }),
+  }));
+  return row;
+}
+
+function buildAgentAccountsStatus() {
+  const block = el('div', 'settings-view-status-block');
+  for (const agent of ACCOUNT_AGENTS) {
+    block.appendChild(el('div', 'settings-section-title', CONNECTABLE_AGENT_NAMES[agent]));
+    for (const account of agentAccountsOf(agent)) block.appendChild(buildAgentAccountRow(agent, account));
+    block.appendChild(button({ variant: 'secondary', label: 'Add account', action: 'add-agent-account', onClick: () => openAgentAccountDialog(agent) }));
+  }
+  block.appendChild(agentAccountActionStatus.element);
+  return block;
+}
+
 function buildRemoteSetupStatus() {
   const block = el('div', 'settings-view-status-block');
   block.appendChild(button({ variant: 'secondary', label: 'Set up remote host', action: 'set-up-remote-host', onClick: openRemoteSetupDialog }));
@@ -167,6 +225,7 @@ function buildServerPowerStatus() {
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'server-power') return buildServerPowerStatus();
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
+  if (setting.status === 'agent-accounts') return buildAgentAccountsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'hosts') return buildHostsSettings();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();

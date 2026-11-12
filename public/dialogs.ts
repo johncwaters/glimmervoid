@@ -2,8 +2,8 @@ import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
-import type { InstallDetail } from '#shared/contracts/control-messages.ts';
-import { agentLoginOf, agentLoginSummary, applyAgentLogins, CONNECTABLE_AGENT_NAMES, onAgentLoginsChanged, refreshAgentLogins } from './agent-logins.ts';
+import type { AgentLoginStatus, InstallDetail } from '#shared/contracts/control-messages.ts';
+import { agentAccountOf, agentAccountSummary, agentLoginOf, agentLoginSummary, applyAgentAccounts, applyAgentLogins, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, onAgentLoginsChanged, refreshAgentAccounts, refreshAgentLogins } from './agent-logins.ts';
 import { el, query, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
@@ -16,13 +16,38 @@ import type { InvestigationView } from './radar/radar-core.ts';
 
 export { agentLoginOf, agentLoginSummary, onAgentLoginsChanged } from './agent-logins.ts';
 
-export function openAgentConnectDialog(agent: ConnectableAgent) {
-  const name = CONNECTABLE_AGENT_NAMES[agent];
+type SignInLogin = Pick<AgentLoginStatus, 'state' | 'verificationUrl' | 'userCode' | 'needsPastedCode'>;
+
+interface SignInDialogBinding {
+  title: string;
+  intro: string;
+  hidesStartWhenSignedIn: boolean;
+  readLogin: () => SignInLogin | null;
+  summary: () => string;
+  subscribe: (listener: () => void) => () => void;
+  refresh: () => void;
+  start: () => Promise<string | null>;
+  cancel: () => Promise<string | null>;
+  submitCode: (code: string) => Promise<string | null>;
+}
+
+async function sendSignInRequest(type: string, payload: Record<string, unknown>, replyType: string, applyReply: (reply: Record<string, unknown>) => void): Promise<string | null> {
+  try {
+    const reply = await sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (reply.type !== replyType) return null;
+    applyReply(reply);
+    return typeof reply.error === 'string' && reply.error ? reply.error : null;
+  } catch (reason) {
+    return `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`;
+  }
+}
+
+function mountSignInDialog(binding: SignInDialogBinding) {
   const { dialog, close } = createModalOverlay();
   dialog.innerHTML = agentConnectHTML;
   applyDialogAria(dialog, 'agent-connect-title');
-  query(dialog, '#agent-connect-title').textContent = `Connect ${name}`;
-  query(dialog, '#agent-connect-intro').textContent = `Glimmervoid signs ${name} in for its own remote sessions and keeps that login in its own folder, apart from any login you already have on this machine. The sign-in runs here and is never recorded.`;
+  query(dialog, '#agent-connect-title').textContent = binding.title;
+  query(dialog, '#agent-connect-intro').textContent = binding.intro;
   const stateEl = query(dialog, '#agent-connect-state');
   const stepsEl = query(dialog, '#agent-connect-steps');
   const linkEl = queryTag(dialog, '#agent-connect-link', 'a');
@@ -42,10 +67,10 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
       unsubscribe();
       return;
     }
-    const login = agentLoginOf(agent);
+    const login = binding.readLogin();
     const isConnecting = login?.state === 'connecting';
-    stateEl.textContent = agentLoginSummary(login, agent);
-    startButton.hidden = isConnecting;
+    stateEl.textContent = binding.summary();
+    startButton.hidden = isConnecting || (binding.hidesStartWhenSignedIn && login?.state === 'signed-in');
     stopButton.hidden = !isConnecting;
     const verificationUrl = isConnecting ? login.verificationUrl : null;
     stepsEl.hidden = verificationUrl === null;
@@ -58,27 +83,21 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
     submitButton.hidden = !needsPastedCode;
   }
 
-  async function send(type: string, payload: Record<string, unknown>, pressedButton: HTMLButtonElement) {
+  async function run(request: () => Promise<string | null>, pressedButton: HTMLButtonElement) {
     pressedButton.disabled = true;
     errorEl.textContent = '';
-    try {
-      const reply = await sendControlRequest(type, { agent, ...payload }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-      if (reply.type !== 'agent-logins') return;
-      applyAgentLogins(reply.logins);
-      if (reply.error) errorEl.textContent = reply.error;
-    } catch (reason) {
-      errorEl.textContent = `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`;
-    } finally {
-      pressedButton.disabled = false;
-    }
+    const error = await request();
+    if (error) errorEl.textContent = error;
+    pressedButton.disabled = false;
+    render();
   }
 
-  startButton.addEventListener('click', () => { void send('agent-connect', { action: 'start' }, startButton); });
-  stopButton.addEventListener('click', () => { void send('agent-connect', { action: 'cancel' }, stopButton); });
+  startButton.addEventListener('click', () => { void run(binding.start, startButton); });
+  stopButton.addEventListener('click', () => { void run(binding.cancel, stopButton); });
   submitButton.addEventListener('click', () => {
     const code = pasteInput.value;
     pasteInput.value = '';
-    void send('agent-connect-code', { code }, submitButton);
+    void run(() => binding.submitCode(code), submitButton);
   });
   pasteInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
@@ -86,9 +105,53 @@ export function openAgentConnectDialog(agent: ConnectableAgent) {
     submitButton.click();
   });
   closeButton.addEventListener('click', close);
-  const unsubscribe = onAgentLoginsChanged(render);
+  const unsubscribe = binding.subscribe(render);
   render();
-  refreshAgentLogins();
+  binding.refresh();
+}
+
+export function openAgentConnectDialog(agent: ConnectableAgent) {
+  const name = CONNECTABLE_AGENT_NAMES[agent];
+  const send = (type: string, payload: Record<string, unknown>) => sendSignInRequest(type, { agent, ...payload }, 'agent-logins', (reply) => applyAgentLogins(reply.logins));
+  mountSignInDialog({
+    title: `Connect ${name}`,
+    hidesStartWhenSignedIn: false,
+    intro: `Glimmervoid signs ${name} in for its own remote sessions and keeps that login in its own folder, apart from any login you already have on this machine. The sign-in runs here and is never recorded.`,
+    readLogin: () => agentLoginOf(agent),
+    summary: () => agentLoginSummary(agentLoginOf(agent), agent),
+    subscribe: onAgentLoginsChanged,
+    refresh: refreshAgentLogins,
+    start: () => send('agent-connect', { action: 'start' }),
+    cancel: () => send('agent-connect', { action: 'cancel' }),
+    submitCode: (code) => send('agent-connect-code', { code }),
+  });
+}
+
+export function openAgentAccountDialog(agent: ConnectableAgent, existingAccountId: string | null = null) {
+  const name = CONNECTABLE_AGENT_NAMES[agent];
+  let accountId = existingAccountId;
+  const send = (type: string, payload: Record<string, unknown>) => sendSignInRequest(type, payload, 'agent-accounts', (reply) => {
+    applyAgentAccounts(reply.accounts);
+    if (typeof reply.accountId === 'string') accountId = reply.accountId;
+  });
+  const readAccount = () => (accountId === null ? null : agentAccountOf(accountId));
+  async function addAccount() {
+    if (accountId !== null) await send('agent-account-cancel', { accountId });
+    accountId = null;
+    return send('agent-account-add', { agent });
+  }
+  mountSignInDialog({
+    title: existingAccountId === null ? `Add a ${name} account` : `Sign in to ${readAccount()?.label ?? name}`,
+    hidesStartWhenSignedIn: true,
+    intro: `The account gets its own folder and login. Settings, hooks, skills, plugins, MCP servers and conversations stay shared with ${name} on this machine. The sign-in runs here and is never recorded.`,
+    readLogin: () => readAccount()?.login ?? null,
+    summary: () => agentAccountSummary(readAccount()),
+    subscribe: onAgentAccountsChanged,
+    refresh: refreshAgentAccounts,
+    start: existingAccountId === null ? addAccount : () => send('agent-account-sign-in', { accountId: existingAccountId }),
+    cancel: () => (accountId === null ? Promise.resolve(null) : send('agent-account-cancel', { accountId })),
+    submitCode: (code) => (accountId === null ? Promise.resolve(null) : send('agent-account-code', { accountId, code })),
+  });
 }
 
 export function openRemoteSetupDialog() {

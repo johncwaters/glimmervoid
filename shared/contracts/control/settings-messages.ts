@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentHookGroup, AgentNote } from '../hooks.ts';
+import { AgentAccountId, AgentAccountStatuses } from '../agent-accounts.ts';
 import { requestId, loose, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, AgentLoginStatuses, TelegramDeliveryStatus } from './control-fields.ts';
 
 export const settingsClientVariants = [
@@ -8,6 +9,12 @@ export const settingsClientVariants = [
   loose('start-remote-setup', { agent: ConnectableAgent, requestId }),
   loose('agent-connect', { agent: ConnectableAgent, action: z.enum(['start', 'cancel']), requestId }),
   loose('agent-connect-code', { agent: ConnectableAgent, code: z.string(), requestId }),
+  loose('get-agent-accounts', { requestId }),
+  loose('agent-account-add', { agent: ConnectableAgent, requestId }),
+  loose('agent-account-sign-in', { accountId: AgentAccountId, requestId }),
+  loose('agent-account-cancel', { accountId: AgentAccountId, requestId }),
+  loose('agent-account-code', { accountId: AgentAccountId, code: z.string(), requestId }),
+  loose('agent-account-remove', { accountId: AgentAccountId, requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
@@ -33,6 +40,7 @@ export const settingsServerVariants = [
   }),
   loose('save-hook-result', { requestId, ok: z.boolean(), error: optionalError, hook: opaqueObject.optional() }),
   loose('agent-logins', { requestId, logins: AgentLoginStatuses, error: optionalError }),
+  loose('agent-accounts', { requestId, accounts: AgentAccountStatuses, accountId: AgentAccountId.optional(), error: optionalError }),
   loose('start-remote-setup-result', { requestId, ok: z.boolean(), error: optionalError, sessionId: z.string().optional(), sessionName: z.string().optional() }),
   loose('host-change-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
