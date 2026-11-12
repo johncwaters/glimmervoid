@@ -119,6 +119,7 @@ function decideConnectExit({ agent, exitCode, source, wasCancelled, hasTimedOut 
 }
 
 interface AccountIdentity {
+  isChecked: boolean;
   isSignedIn: boolean;
   label: string | null;
   detail: string | null;
@@ -134,7 +135,8 @@ function capitalized(word: string): string {
 }
 
 function readClaudeIdentity(statusOutput: string): AccountIdentity {
-  const signedOut: AccountIdentity = { isSignedIn: false, label: null, detail: null };
+  const unchecked: AccountIdentity = { isChecked: false, isSignedIn: false, label: null, detail: null };
+  const signedOut: AccountIdentity = { isChecked: true, isSignedIn: false, label: null, detail: null };
   const parsed: unknown = (() => {
     try {
       return JSON.parse(statusOutput);
@@ -142,7 +144,7 @@ function readClaudeIdentity(statusOutput: string): AccountIdentity {
       return null;
     }
   })();
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return signedOut;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return unchecked;
   const status = Object.fromEntries(Object.entries(parsed));
   if (status.loggedIn !== true) return signedOut;
   const orgName = textField(status, 'orgName');
@@ -150,12 +152,12 @@ function readClaudeIdentity(statusOutput: string): AccountIdentity {
   const email = textField(status, 'email');
   const isPersonalOrg = orgName !== null && email !== null && orgName === `${email}'s Organization`;
   const label = [isPersonalOrg ? 'Personal' : orgName, plan === null ? null : capitalized(plan)].filter((part) => part !== null).join(' ');
-  return { isSignedIn: true, label: label === '' ? email : label, detail: email };
+  return { isChecked: true, isSignedIn: true, label: label === '' ? email : label, detail: email };
 }
 
 function readAccountIdentity(agent: ConnectableAgent, statusOutput: string, exitCode: number | null): AccountIdentity {
   if (agent === 'claude-code') return readClaudeIdentity(statusOutput);
-  return { isSignedIn: exitCode === 0, label: null, detail: statusOutput.trim().split('\n')[0] || null };
+  return { isChecked: exitCode !== null, isSignedIn: exitCode === 0, label: null, detail: statusOutput.trim().split('\n')[0] || null };
 }
 
 export {

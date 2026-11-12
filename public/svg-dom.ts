@@ -20,6 +20,7 @@ export const CHECK_ICON_PATH = 'M3 8.5L6.5 12L13 4';
 export const UNDO_ICON_PATH = 'M5.5 3.5l-3 3l3 3 M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7';
 export const REDO_ICON_PATH = 'M10.5 3.5l3 3l-3 3 M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9';
 export const PLUS_ICON_PATH = 'M8 3v10M3 8h10';
+export const SWITCH_ICON_PATH = 'M3 5.5h9.5M10 3l2.5 2.5L10 8 M13 10.5H3.5M6 8l-2.5 2.5L6 13';
 export const BACK_ICON_PATH = 'M10 3L5 8L10 13';
 export const HELP_ICON_PATH = 'M5.1 5.3a3 3 0 1 1 4.2 2.9c-0.8 0.3-1.3 1-1.3 1.8v0.6 M8 13.3h0.01';
 export const MUSIC_NOTE_ICON_PATH = 'M9.5 11.5a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 1 1 4.5 0z M9.5 11.5V2 M9.5 2c0.6 1.6 3 2.2 3 4.5';

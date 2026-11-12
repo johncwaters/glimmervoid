@@ -15,6 +15,7 @@ import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { setSessionAccount } from '../session-card/card-account.ts';
 import { forgetAttentionNotes, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
@@ -135,6 +136,7 @@ function catchUpExistingCard(row: SnapshotSessionRow) {
   applyState(row.id, row.state, row.stateSince);
   setSessionSaneYolo(row.id, !!row.saneYolo);
   setSessionQuestionManager(row.id, row.isQuestionManagerOn);
+  setSessionAccount(row.id, row.accountId);
   if (card && card.dataset.session !== row.name) renameSessionCard(row.id, row.name);
   setSessionWorktree(row.id, row.isWorktree);
 }
@@ -182,7 +184,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, accountId: card?.dataset.accountId ?? null, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
   setSessionAgent(msg.id, previousUi?.agent);
   carryOverClientSessionFields(msg.id, previousUi);
 }
@@ -215,6 +217,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
   if (msg.attentionNotes !== undefined) setSessionAttentionNotes(msg.id, msg.attentionNotes);
   if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
+  if (msg.accountId !== undefined) setSessionAccount(msg.id, msg.accountId);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();
   refreshFavicon(attentionTally.counts);
   markStatusDirty(msg.id);

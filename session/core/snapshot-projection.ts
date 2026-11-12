@@ -12,6 +12,7 @@ interface SessionCardSource {
   dangerouslySkipPermissions?: boolean;
   saneYolo?: boolean;
   isQuestionManagerOn?: boolean | null;
+  accountId?: string | null;
   isWorktree?: boolean;
   isWorkspace?: boolean;
   remoteWorkspace?: string | null;
@@ -48,6 +49,7 @@ function projectSessionCard(
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
+    ...(source.accountId ? { accountId: source.accountId } : {}),
   };
   if (source.ephemeral === undefined) return card;
   return { ...card, ephemeral: source.ephemeral };
@@ -81,6 +83,7 @@ interface SnapshotSource {
   unseenOutcome?: UnseenOutcome | null;
   managerSeenSeq?: number;
   isQuestionManagerOn?: boolean | null;
+  accountId?: string | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   coherenceHooks?: CoherenceHooksState | null;
@@ -118,6 +121,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     unseenOutcome: source.unseenOutcome ?? null,
     managerSeenSeq: source.managerSeenSeq ?? 0,
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
+    accountId: source.accountId ?? null,
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     coherenceHooks: source.coherenceHooks ?? null,

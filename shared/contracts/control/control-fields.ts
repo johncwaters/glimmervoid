@@ -4,6 +4,7 @@ import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { AttentionNote, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
+import { AgentAccountId } from '../agent-accounts.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 export const CHANGES_WATCH_LEASE_MS = 10_000;
@@ -101,6 +102,7 @@ export const SessionCardFields = z.object({
   skipPerms: z.boolean(),
   saneYolo: z.boolean(),
   isQuestionManagerOn: z.boolean().optional(),
+  accountId: AgentAccountId.optional(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
   remoteWorkspace: z.string().optional(),
@@ -128,6 +130,7 @@ export const SessionStatusFields = z.object({
   unseenOutcome: UnseenOutcome.nullable().optional(),
   managerSeenSeq: z.number().int().nonnegative().optional(),
   isQuestionManagerOn: z.boolean().optional(),
+  accountId: AgentAccountId.nullable().optional(),
   pendingPromptKind: nullableString.optional(),
   attentionNotes: z.array(AttentionNote).optional(),
 });

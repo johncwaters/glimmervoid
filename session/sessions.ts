@@ -1481,6 +1481,7 @@ class Session extends EventEmitter {
       unseenOutcome: this.unseenOutcome,
       managerSeenSeq: this.managerSeenSeq,
       isQuestionManagerOn: this.isQuestionManagerOn,
+      accountId: this.accountId,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       coherenceHooks: this.coherenceHooks,
@@ -2148,6 +2149,15 @@ class Session extends EventEmitter {
     if (seenSeq <= this.managerSeenSeq) return;
     this.managerSeenSeq = seenSeq;
     this.emit("manager-seen-change", { managerSeenSeq: seenSeq });
+  }
+
+  get accountId(): string | null {
+    const accountHome = this._resolveAccountHome?.() ?? null;
+    return accountHome?.kind === "account" ? accountHome.account.id : null;
+  }
+
+  announceAccountChange(): void {
+    this.emit("account-change", { accountId: this.accountId });
   }
 
   setQuestionManagerOn(isOn: boolean): void {

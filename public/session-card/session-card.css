@@ -370,6 +370,8 @@
 .session-wake-chip-slot { display: inline-flex; }
 .session-wake-chip-slot[hidden] { display: none; }
 .session-wake-chip { color: var(--text-muted); cursor: pointer; }
+.session-account { padding: 0 6px; font-size: var(--type-meta); color: var(--text-muted); white-space: nowrap; }
+.session-account[hidden], .session-account-switch[hidden] { display: none; }
 .session-wake-rows { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
 .session-wake-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .session-wake-row-details { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; flex: 1; min-width: 0; }

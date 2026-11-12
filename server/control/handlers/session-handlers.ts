@@ -7,7 +7,7 @@ import { CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-mes
 import type { KeptWorkPath } from '../../../shared/contracts/control-messages.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../../../shared/contracts/session.ts';
 import { sanitizeWorktreeName } from '../../../shared/paths.ts';
-import { STATES } from '../../../shared/states.ts';
+import { KILLABLE_STATES, STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { DEFAULT_AGENT_ID, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
 import { resolveNewSessionAccount } from '../../../session/core/agent-account-core.ts';
@@ -68,6 +68,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     coderEnv = null,
     remoteRepoGit = null,
     secrets = null,
+    agentAccounts = null,
   } = deps;
 
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
@@ -536,6 +537,45 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     reply(null);
   }
 
+  async function switchSessionAccount(msg: ClientMessageOf<'switch-session-account'>): Promise<{ error: string; needsSignIn?: boolean } | null> {
+    const session = findSession(msg);
+    const project = config.projects.find((entry) => entry.id === session?.id);
+    if (!session || !project) return { error: SESSION_GONE_TEXT };
+    if (session.ephemeral) return { error: 'This session cannot switch accounts.' };
+    const plan = resolveNewSessionAccount({ accounts: config.agentAccounts ?? [], defaults: {}, requestedAccountId: msg.accountId, agentId: session.agentId, isRemote: Boolean(project.environment) });
+    if ('refusal' in plan) return { error: plan.refusal };
+    if (plan.accountId === (project.accountId ?? null)) return null;
+    const adapter = getAdapter(session.agentId);
+    if (plan.accountId !== null && !adapter?.accountHomeProfile) return { error: `${adapter?.label ?? session.agentId} sessions cannot run under an added account yet.` };
+    const signInRefusal = await agentAccounts?.signInRefusal(session.agentId, plan.accountId) ?? null;
+    if (signInRefusal) return signInRefusal;
+    if (sessions.get(session.id) !== session) return { error: SESSION_GONE_TEXT };
+    let savedRefusal: string | null = null;
+    const freshConfig = configStore.save((cfg) => {
+      const configured = cfg.projects.find((entry) => entry.id === session.id);
+      if (!configured) return ABORT_CONFIG_SAVE;
+      const savedPlan = resolveNewSessionAccount({ accounts: cfg.agentAccounts ?? [], defaults: {}, requestedAccountId: plan.accountId, agentId: session.agentId, isRemote: Boolean(configured.environment) });
+      if ('refusal' in savedPlan) {
+        savedRefusal = savedPlan.refusal;
+        return ABORT_CONFIG_SAVE;
+      }
+      if (savedPlan.accountId === null) delete configured.accountId;
+      if (savedPlan.accountId !== null) configured.accountId = savedPlan.accountId;
+      return undefined;
+    });
+    if (savedRefusal !== null) return { error: savedRefusal };
+    if (!freshConfig) return { error: 'Could not write config.json' };
+    applyConfigReload(freshConfig);
+    session.announceAccountChange();
+    if (KILLABLE_STATES.includes(session.state)) session.forceRestart();
+    return null;
+  }
+
+  async function handleSwitchSessionAccount(msg: ClientMessageOf<'switch-session-account'>, ws: ControlSocket): Promise<void> {
+    const refusal = await switchSessionAccount(msg);
+    replyTo(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
+  }
+
   function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
@@ -691,6 +731,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
     'set-session-question-manager': handleSetSessionQuestionManager,
+    'switch-session-account': handleSwitchSessionAccount,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'cancel-wake': handleCancelWake,
@@ -717,6 +758,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'add-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
+    'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames: sessionWakeFrames, removeExitedSession, discardSession };

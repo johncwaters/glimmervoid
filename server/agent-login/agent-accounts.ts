@@ -122,7 +122,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
   async function readIdentity(agent: ConnectableAgent, folder: string | null): Promise<AccountIdentity> {
     const recipe = CONNECT_RECIPES[agent];
     const launch = launchFor(agent, recipe.statusArgs);
-    if (launch === null) return { isSignedIn: false, label: null, detail: `The ${recipe.displayName} command could not be found on this machine.` };
+    if (launch === null) return { isChecked: false, isSignedIn: false, label: null, detail: `The ${recipe.displayName} command could not be found on this machine.` };
     const statusLaunch = folder === null ? launch : accountLaunch(agent, launch, folder);
     const outcome = await runCommandSafely(statusLaunch.file, statusLaunch.args, { cwd: folder ?? accountsRoot, env: statusLaunch.env, timeoutMs: STATUS_TIMEOUT_MS, maxBufferBytes: STATUS_OUTPUT_LIMIT_BYTES });
     return readAccountIdentity(agent, outcome.stdout, outcome.exitCode);
@@ -340,11 +340,25 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return { ok: true };
   }
 
+  async function signInRefusal(agent: string, accountId: string | null): Promise<{ error: string; needsSignIn: boolean } | null> {
+    const accountAgent = ACCOUNT_AGENTS.find((candidate) => candidate === agent);
+    if (!accountAgent) return null;
+    const account = accountId === null ? null : configuredAccounts().find((candidate) => candidate.id === accountId && candidate.agent === agent);
+    if (account === undefined) return { error: 'That account is not in config.json.', needsSignIn: false };
+    const identity = await readIdentity(accountAgent, account?.folder ?? null);
+    const label = account?.label ?? identity.label ?? `This machine's ${CONNECT_RECIPES[accountAgent].displayName} login`;
+    if (!identity.isChecked) return { error: `Could not check whether ${label} is signed in${identity.detail ? `: ${identity.detail}` : '.'} Try again.`, needsSignIn: false };
+    identityByKey.set(identityKey(accountAgent, account?.id ?? null), identity);
+    announce();
+    if (identity.isSignedIn) return null;
+    return { error: `${label} is signed out. Sign in to it in Settings > Accounts, then switch again.`, needsSignIn: true };
+  }
+
   function stop(): void {
     for (const pending of pendingById.values()) pending.connect.stop();
   }
 
-  return { add, cancel, list, refresh, remove, setDefault, signIn, stop, submitCode };
+  return { add, cancel, list, refresh, remove, setDefault, signIn, signInRefusal, stop, submitCode };
 }
 
 type AgentAccounts = ReturnType<typeof createAgentAccounts>;

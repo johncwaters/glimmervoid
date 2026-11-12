@@ -355,6 +355,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       noteStatus({ isQuestionManagerOn });
     });
 
+    session.on('account-change', ({ accountId }: { accountId: string | null }) => noteStatus({ accountId }));
+
     session.on('merge-status', ({ mergeStatus, reason, parked }: {
       mergeStatus: string;
       reason?: string | null;

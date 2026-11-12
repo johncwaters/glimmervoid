@@ -13,6 +13,9 @@ import { mountHealthMonitor } from './health-monitor.ts';
 import { setHooksRequestSender } from './hooks-store.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
 import { setCardCoherenceJournal, setCardConnectBoard, setCardSessionSetup, setLinkedPrsPainter } from './session-card/card-dom.ts';
+import { setAccountSignIn } from './session-card/card-account.ts';
+import { openAgentAccountDialog, openAgentConnectDialog } from './dialogs.ts';
+import { connectableAgentOf } from './agent-logins.ts';
 import { refreshTerminalFonts } from './session-card/lifecycle.ts';
 import { prewarmDataSocket } from './session-card/terminal-data-socket.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
@@ -70,6 +73,15 @@ setCardConnectBoard(openConnectBoardDialog);
 setBoardsViewOpener(openBoardsSurface);
 setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setCardSessionSetup(openSessionSetup);
+setAccountSignIn((agentId, accountId) => {
+  const agent = connectableAgentOf(agentId);
+  if (!agent) return;
+  if (accountId === null) {
+    openAgentConnectDialog(agent);
+    return;
+  }
+  openAgentAccountDialog(agent, accountId);
+});
 
 onStreamerModeChanged(() => refreshViewsIfVisible('settings-updated'));
 

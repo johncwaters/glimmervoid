@@ -29,6 +29,7 @@ import { updateButtonVisibility } from './card-faces.ts';
 import { wireCardEvents } from './card-events.ts';
 import { cancelWatchedCompletionDismiss, holdThenDismissWatchedCompletion, isCompletionWatchedAt } from './watched-completion.ts';
 import { paintAgentMark } from './agent-mark.ts';
+import { paintSessionAccount } from './card-account.ts';
 import { clock } from '#shared/clock.ts';
 
 const asText = (value: unknown) => (value == null ? '' : String(value));
@@ -161,6 +162,7 @@ export function setSessionAgent(sessionId: unknown, agent: unknown) {
   ui.agent = typeof agent === 'string' ? agent : null;
   const agentMarkEl = ui.card.querySelector<HTMLElement>('.session-agent-mark');
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
+  paintSessionAccount(ui);
   updateButtonVisibility(ui);
 }
 

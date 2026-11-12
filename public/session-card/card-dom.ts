@@ -4,7 +4,8 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
-import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, SWITCH_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { openSwitchAccountDialog } from './card-account.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
@@ -88,6 +89,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   if (options.workspace) card.dataset.workspace = '';
   if (options.remoteWorkspace) card.dataset.remoteWorkspace = options.remoteWorkspace;
   if (options.ephemeral) card.dataset.ephemeral = '';
+  if (options.accountId) card.dataset.accountId = options.accountId;
   if (options.path) card.dataset.path = String(options.path);
 
   const header = el('div', 'session-card-header');
@@ -164,9 +166,16 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     sendControlMsg({ type: 'set-session-question-manager', id: sessionId, isOn: sessionQuestionManagerOf(card) !== true });
   };
+  const btnSwitchAccountMenuItem = buildMenuItem('Switch account', 'overflow-switch-account');
+  btnSwitchAccountMenuItem.setAttribute('aria-haspopup', 'dialog');
+  btnSwitchAccountMenuItem.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    openSwitchAccountDialog(sessionId);
+  };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnWakes, btnQuestionManager, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnWakes, btnQuestionManager, btnLinkPr, btnConnectBoard, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
@@ -183,7 +192,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const tags = el('div', 'session-card-tags');
   const wakeChipSlot = el('span', 'session-wake-chip-slot');
   paintWakeChip(wakeChipSlot, sessionId);
-  tags.append(wakeChipSlot);
+  const accountChip = el('span', 'session-account');
+  accountChip.hidden = true;
+  const btnSwitchAccount = button({ variant: 'icon', size: 'small', label: 'Switch account', icon: createLineIcon(SWITCH_ICON_PATH), action: 'switch-account', hidden: true });
+  btnSwitchAccount.classList.add('session-account-switch');
+  btnSwitchAccount.setAttribute('aria-haspopup', 'dialog');
+  btnSwitchAccount.onclick = () => openSwitchAccountDialog(sessionId);
+  tags.append(wakeChipSlot, accountChip, btnSwitchAccount);
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(agentMarkEl, nameEl, taskTitleEl, ownershipEl, tags, actions);

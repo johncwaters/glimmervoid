@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 
-type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'remoteWorkspace' | 'saneYolo' | 'isQuestionManagerOn' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
+type SnapshotCardFields = Pick<ServerMessageOf<'snapshot'>['sessions'][number], 'dangerouslySkipPermissions' | 'isWorktree' | 'isWorkspace' | 'remoteWorkspace' | 'saneYolo' | 'isQuestionManagerOn' | 'accountId' | 'path' | 'stateSince' | 'taskTitle' | 'taskTitleIsCustom'>;
 type MessageCardFields = Pick<ServerMessageOf<'session-added'>, 'skipPerms' | 'worktree' | 'workspace' | 'ephemeral'>;
 type SessionCardFields = Partial<SnapshotCardFields & MessageCardFields> & { ownerId?: string | null };
 
@@ -10,6 +10,7 @@ export interface CardOptions {
   skipPerms?: boolean;
   saneYolo?: boolean;
   isQuestionManagerOn?: boolean | null;
+  accountId?: string | null;
   worktree?: boolean;
   workspace?: boolean;
   remoteWorkspace?: string | null;
@@ -24,6 +25,7 @@ export function buildSessionCardOptions(session: SessionCardFields): CardOptions
     skipPerms: session.skipPerms ?? session.dangerouslySkipPermissions ?? false,
     saneYolo: session.saneYolo === true,
     isQuestionManagerOn: session.isQuestionManagerOn ?? null,
+    accountId: session.accountId ?? null,
     worktree: session.worktree ?? session.isWorktree ?? false,
     workspace: session.workspace ?? session.isWorkspace ?? false,
     remoteWorkspace: session.remoteWorkspace ?? null,
