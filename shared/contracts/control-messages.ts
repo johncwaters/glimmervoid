@@ -21,7 +21,6 @@ export {
   GithubTeam,
   pullRequestKeyFromReference,
   CustomAgentSummaryRow,
-  CoderEnvironmentOffers,
   PlanLimitsVendor,
   ConnectableAgent,
   AgentLoginStatus,
@@ -52,7 +51,7 @@ export {
   ONBOARDING_STEP_STATES,
   OPERATOR_SURFACES,
 } from './control/control-fields.ts';
-export type { CoderEnvironmentOffer, OnboardingStepReport, OperatorSurface, OperatorAction, OperatorActionOf } from './control/control-fields.ts';
+export type { OnboardingStepReport, OperatorSurface, OperatorAction, OperatorActionOf } from './control/control-fields.ts';
 
 const idOnlyClientTypes = [
   'kill', 'start-session',

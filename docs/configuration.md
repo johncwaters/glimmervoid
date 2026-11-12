@@ -72,14 +72,6 @@ Which version is running, and updating to the newest.
 |-----|---------|---------|-------|
 | `checkForUpdates` | Check for updates automatically | `true` | Check for a newer version at launch and while the dashboard is open. |
 
-### Remote
-
-Sessions in Coder workspaces, and a session that sets up Glimmervoid on another machine.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `remoteSessions` | Remote Coder sessions | `false` | Offer Coder workspaces when adding a session. |
-
 ### Usage
 
 Token accounting and estimated-cost budgets.
@@ -266,7 +258,6 @@ Edit these in `config.json` unless the note names another dashboard surface.
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `coder` |  | Coder environments that remote Coder sessions run in, under `coder.environments`. |
 | `guardrails` |  | Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"port":null,"publicHost":"","allowedOrigins":[]}` | Remote listener, always on and answering paired devices only: `port` (a free port the system picks when unset, published in `~/.glimmervoid/remote-listener/<local port>.port`; must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`), and `doormanUrl` (a doorman on another machine that hosts its watcher, https or http only for this machine; unset, the server starts its own doorman on this machine, kept in `~/.glimmervoid/doorman/<port>/`). Needs a server restart. See [Remote access](../README.md#remote-access). |
@@ -298,7 +289,6 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting. |
-| `GLIMMERVOID_CODEX_REMOTE_TOKEN` | internal | Set by Glimmervoid in the environment of a Codex session that runs in a Coder workspace; the Codex TUI sends it as the bearer token to the forwarded app-server. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_REPORT_URL` | internal | Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_TOKEN` | internal | The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |

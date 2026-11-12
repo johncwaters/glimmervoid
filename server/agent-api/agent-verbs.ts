@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
+import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { REMOTE_URL_PATTERN, describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import { openComments } from '../review/review-state-core.ts';
@@ -59,7 +59,7 @@ function hasGitFolder(folder: string): Promise<boolean> {
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
@@ -88,13 +88,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function limits(session: Session): AgentLimitsReply {
-    return { ok: true, ...describeSessionLimits({ ...roleFactsOf(session), environment: environmentOf(session) }) };
-  }
-
-  function environmentOf(session: Session): SessionLimits['environment'] {
-    const mapping = config.projects.find((project) => project.id === session.id)?.environment;
-    if (!mapping) return null;
-    return { name: mapping.name, workspace: mapping.workspace, state: coderWorkspaceStatus(mapping.workspace) ?? 'unknown' };
+    return { ok: true, ...describeSessionLimits(roleFactsOf(session)) };
   }
 
   async function push(session: Session): Promise<AgentReplyOf<'push'>> {
@@ -137,7 +131,6 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
 
   async function packs(session: Session, request: AgentPacksRequest): Promise<AgentReplyOf<'packs'>> {
     if (!operatorState) return refusal(503, 'packs are not available in this Glimmervoid');
-    if (request.command === 'check' && session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so its pack folder is not on this machine to check');
     const packPath = request.path === undefined ? undefined : path.resolve(session.effectiveCwd(), request.path);
     const reply = await operatorState.readPacks({ command: request.command, ...(packPath === undefined ? {} : { path: packPath }) });
     return { status: 200, body: { ok: true, ...reply } };
@@ -297,7 +290,6 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   async function checkout(session: Session, { repo }: AgentCheckoutRequest): Promise<AgentReplyOf<'checkout'>> {
-    if (session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so a checkout made on this machine would not be there');
     const resolved = await resolveCheckoutRepo(repo);
     if (!resolved.ok) return refusal(404, resolved.error);
     const checkoutRoot = configuredWorktreeRoot(config, resolved.repoPath);
@@ -390,10 +382,10 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     comments,
     checkout,
     packs,
-    need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd() }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
-    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd() }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
   return { handlers, roleFactsOf };

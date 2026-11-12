@@ -53,7 +53,6 @@ interface AgentApiWiringOptions {
   operatorState?: AgentOperatorStatePort | null;
   whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
-  coderWorkspaceStatus?: (workspace: string) => string | null;
   settleSessionCoherence?: (id: string) => Promise<void>;
   secrets?: Pick<SecretsBroker, 'need'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;

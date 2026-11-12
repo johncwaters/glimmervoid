@@ -19,8 +19,6 @@ const DEFAULT_CONFIG = {
   operatorTimezone: null as string | null,
   sessionOrder: [] as string[],
   hiddenAgents: [] as string[],
-  remoteSessions: false,
-
   detectBackgroundAgents: true,
 
   detectScheduledWakeups: true,

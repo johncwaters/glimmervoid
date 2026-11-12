@@ -172,7 +172,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
   setSessionAgent(msg.id, previousUi?.agent);
   carryOverClientSessionFields(msg.id, previousUi);
 }

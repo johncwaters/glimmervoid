@@ -143,12 +143,6 @@ export const MACHINE_REMOTE: SettingsSection = {
       control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
       legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
     },
-    {
-      id: 'remote-sessions', path: 'remoteSessions', title: 'Remote Coder sessions',
-      description: 'Offer Coder workspaces when adding a session.',
-      control: 'toggle', keywords: ['experimental', 'coder', 'remote', 'workspace', 'cloud'], defaultValue: false, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-sessions' }],
-    },
   ],
 };
 

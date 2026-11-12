@@ -32,10 +32,8 @@ import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
-import type { createCoderEnvWiring } from './coder/coder-env-wiring.ts';
 import type { createAgentConnect } from './agent-login/agent-connect.ts';
 import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring.ts';
-import type { GitWorkspaceInstance } from './git/git-workspace.ts';
 import { createControlContext } from './control/control-context.ts';
 import { mergeHandlerGroups, validationErrorReply } from './control/core/control-dispatch-core.ts';
 import type { SecretsBroker } from './secrets/secrets-broker.ts';
@@ -155,10 +153,8 @@ interface ControlHandlerDeps {
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
-  coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
-  remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
   starHint?: Pick<StarHintWiring, 'settleStar' | 'pendingHintMessages'> | null;
 }
 

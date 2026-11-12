@@ -43,8 +43,6 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
-import { startCodexAppServerBridge } from "./codex-app-server-bridge.ts";
-import { CODEX_REMOTE_TOKEN_ENV } from "./core/codex-remote-launch-core.ts";
 import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
 import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
@@ -84,7 +82,7 @@ import { createSessionApprovalHolds } from "./session-approval-holds.ts";
 import type { QuestionManagerPort, SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import { createSessionLaunch } from "./session-launch.ts";
-import type { RemoteLaunch, SessionLaunch } from "./session-launch.ts";
+import type { SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
@@ -186,7 +184,6 @@ interface SessionOptions {
   bypassHookTrust?: boolean;
   holdsQuestionsForParent?: boolean;
   questionManager?: QuestionManagerPort | null;
-  startCodexBridge?: typeof startCodexAppServerBridge;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
   initialPrompt?: string | null;
@@ -195,7 +192,6 @@ interface SessionOptions {
   ephemeral?: boolean;
   resumeSessionId?: string | null;
   settingsPermissions?: Record<string, unknown> | null;
-  getRemoteLaunch?: (() => RemoteLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
@@ -329,7 +325,6 @@ class Session extends EventEmitter {
   _agentSpawnsInFlight: number;
   _ptySpawn: PtySpawn;
   _probeGraphicalSession: () => Promise<GraphicalSessionState>;
-  _getRemoteLaunch: () => RemoteLaunch | null;
   _requiresWorktree: boolean;
   _platform: NodeJS.Platform;
   _startPending: Promise<void> | null;
@@ -374,7 +369,6 @@ class Session extends EventEmitter {
     bypassHookTrust = false,
     holdsQuestionsForParent = false,
     questionManager = null,
-    startCodexBridge = startCodexAppServerBridge,
 
     titleQuietFallbackMs = 30000,
 
@@ -390,7 +384,6 @@ class Session extends EventEmitter {
     prLinks = undefined,
 
     settingsPermissions = null,
-    getRemoteLaunch = null,
 
     spawnEnv = null,
     prependPathDirs = [],
@@ -606,27 +599,18 @@ class Session extends EventEmitter {
       assertLaunchable(file);
       return pty.spawn(file, args, opts);
     });
-    this._getRemoteLaunch = getRemoteLaunch ?? (() => null);
     this._launch = createSessionLaunch({
       id: this.id,
       adapter: this._adapter,
       platform,
-      startCodexBridge,
-      getRemoteLaunch: this._getRemoteLaunch,
       hooks: this._hooks,
       port: {
-        name: () => this.name,
-        promptSupervisionLine: () => this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null,
         effectiveCwd: () => this.effectiveCwd(),
         spawnEnv: () => this._spawnEnv,
         spawnCommand: () => this._spawnCommand,
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
         commitSigningProgram: () => this._commitSigningProgram,
-        isDestroyed: () => this._destroyed,
-        abandonSpawn: (cause) => this._abandonSpawn(cause),
-        emit: (event, detail) => this.emit(event, detail),
-        forceRestart: (options) => this.forceRestart(options),
       },
     });
 
@@ -853,7 +837,6 @@ class Session extends EventEmitter {
   _ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
     if (raw?.signal === "auth-failed") {
-      if (this._launch.respawnAfterAuthFailure()) return;
       this.ingestHookSignal({ ...raw, signal: "awaiting-input" });
       return;
     }
@@ -861,7 +844,6 @@ class Session extends EventEmitter {
       this.ingestHookSignal({ ...raw, payload: { ...raw.payload, source: "clear" } });
       return;
     }
-    if (raw?.signal === "ready" && String(raw.event || "").toLowerCase() === "stop") this._launch.noteTurnStopped();
     this._hookSeen = true;
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
@@ -1345,7 +1327,6 @@ class Session extends EventEmitter {
 
   get isWorktree(): boolean { return this.worktreeLifecycle.snapshot().isWorktree; }
   get isWorkspace(): boolean { return this.worktreeLifecycle.snapshot().isWorkspace; }
-  get remoteWorkspace(): string | null { return this._getRemoteLaunch()?.workspace ?? null; }
 
   getWorktreeCarry() { return this.worktreeLifecycle.getCarry(); }
 
@@ -1460,7 +1441,6 @@ class Session extends EventEmitter {
       ownerId: this.ownerId,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
-      remoteWorkspace: this.remoteWorkspace,
       resumeSessionId: this._resumeSessionId,
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
@@ -1639,14 +1619,8 @@ class Session extends EventEmitter {
     this.emit("rebaseline");
     this._resetDetectionSources({ quiet: false });
 
-    const remoteLaunch = this._getRemoteLaunch();
-    if (remoteLaunch !== null && this.agentId !== DEFAULT_AGENT_ID && this.agentId !== "codex") {
-      this._abandonSpawn(new Error("A Coder workspace session runs Claude Code or Codex only"));
-      return;
-    }
-    const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
     await this._hooks.prepare();
-    if (remoteLaunch === null && this._adapter.trustFolder) {
+    if (this._adapter.trustFolder) {
       await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._spawnEnv }))
         .catch((error: unknown) => console.warn(`[session:${this.name}] ${errorMessage(error)}`));
     }
@@ -1656,13 +1630,11 @@ class Session extends EventEmitter {
       this._abandonSpawn(new Error(hookInjection.refusal));
       return;
     }
-    this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
-    const mcpLaunch = remoteLaunch === null
-      ? mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken })
-      : { args: [], env: {} };
+    this._isSaneYoloActive = hookInjection.isSaneYoloActive;
+    const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken });
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
-    this._hooksReportPrompts = this._hooks.hasInjection() && !isRemoteCodex;
+    this._hooksReportPrompts = this._hooks.hasInjection();
     this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooksReportPrompts;
     this._armTitleQuietFallback();
 
@@ -1686,7 +1658,6 @@ class Session extends EventEmitter {
         transcriptPath: this._transcriptPath,
         projectsDirs: projectDirCandidates(env, [], os.homedir()),
         cwds: this._launch.spawnCwdSpellings(),
-        isTranscriptRemote: remoteLaunch !== null,
       }, { existsSync: fs.existsSync, readdirSync: fs.readdirSync });
       spawnResumeSessionId = resumeTarget.resumeSessionId;
       if (configuredResumeSessionId && !spawnResumeSessionId) {
@@ -1707,27 +1678,11 @@ class Session extends EventEmitter {
       initialPrompt: launchPrompt,
     });
 
-    const bridgedLaunch = isRemoteCodex && remoteLaunch !== null
-      ? await this._launch.startRemoteCodexBridge(remoteLaunch, agentArgs, env)
-      : null;
-    if (isRemoteCodex && !bridgedLaunch) return;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
-      await this._launch.stopCodexBridge();
       return;
     }
-    const spawnCommand = await this._launch.spawnCommandFor({ remoteLaunch, isRemoteCodex, settingsArgs, agentArgs, bridgedLaunch });
-    if (!spawnCommand) {
-      await this._launch.stopCodexBridge();
-      return;
-    }
-    if (isStartSuperseded()) {
-      this._hooks.cleanup();
-      await this._launch.stopCodexBridge();
-      return;
-    }
-    if (bridgedLaunch) env[CODEX_REMOTE_TOKEN_ENV] = bridgedLaunch.token;
-    const { file, args } = spawnCommand;
+    const { file, args } = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
 
     const ptySize = this._output.ptySize();
     try {
@@ -1735,8 +1690,8 @@ class Session extends EventEmitter {
         name: "xterm-256color",
         cols: ptySize.cols,
         rows: ptySize.rows,
-        cwd: spawnCommand.cwd ?? this.effectiveCwd(),
-        env: { ...env, ...spawnCommand.env },
+        cwd: this.effectiveCwd(),
+        env,
       });
     } catch (err) {
       this._abandonSpawn(err);
@@ -1876,7 +1831,6 @@ class Session extends EventEmitter {
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
-    void this._launch.stopCodexBridge();
     this._approvals.releaseAll();
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
@@ -1965,7 +1919,6 @@ class Session extends EventEmitter {
   }
 
   _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
-    void this._launch.stopCodexBridge();
     this._approvals.releaseAll();
     return this._handlePtyExit(exitCode, signal);
   }
@@ -1986,11 +1939,6 @@ class Session extends EventEmitter {
 
     const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._receivedFirstOutput);
     const reason = detail.reason || null;
-    const pendingRemoteExitReason = this._isExitHeadedForFailure(event) ? this._getRemoteLaunch()?.describeExit().catch(() => null) : undefined;
-    if (pendingRemoteExitReason) {
-      const remoteExitReason = await pendingRemoteExitReason;
-      if (remoteExitReason && this._isExitHeadedForFailure(event)) this.failureReason = remoteExitReason;
-    }
     const didTransition = this.transition(event, detail);
     const isUnsignalledCleanExit = didTransition && event === "process_exit_ok" && !signal;
 
@@ -2221,7 +2169,6 @@ class Session extends EventEmitter {
     this._clearPendingPaste();
 
     this._hooks.cleanup();
-    void this._launch.stopCodexBridge();
     this._approvals.releaseAll();
 
     this.kill();
@@ -2250,4 +2197,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, RemoteLaunch, SessionOptions };
+export type { ClaudeSessionIdEvent, SessionOptions };

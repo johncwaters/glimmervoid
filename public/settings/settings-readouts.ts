@@ -12,7 +12,7 @@ import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
 import { agentLoginOf, agentLoginSummary, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
-import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
+import { panelRefresher, setSettingsPayload, settingsPayload, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
 import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from '../server-power.ts';
 import { clock } from '#shared/clock.ts';
@@ -136,10 +136,6 @@ function buildUsageStatus() {
 
 function buildAgentLoginsStatus() {
   const block = el('div', 'settings-view-status-block');
-  if ((pendingSaveById.get('remote-sessions') ?? storedValues.remoteSessions) !== true) {
-    block.appendChild(el('div', 'settings-readonly', 'Turn on Remote Coder sessions to connect agent logins for them.'));
-    return block;
-  }
   for (const agent of ['claude-code', 'codex'] as const) {
     const row = el('div', 'settings-telegram-test');
     const connectButton = button({ variant: 'secondary', label: 'Connect', action: 'connect-agent-login', onClick: () => openAgentConnectDialog(agent) });

@@ -47,15 +47,6 @@ const MACHINES: OwnedMachine[] = [
     allowedOffenders: new Map(),
   },
   {
-    name: 'codex thread join',
-    owner: 'session/core/codex-app-server-core.ts',
-    handles: /\bThreadJoin\b/,
-    writes: [/\bkind\s*:\s*["'`](?:waiting|joining|joined|abandoned)["'`]/, /\bthreadJoin\s*=[^=]/],
-    allowedOffenders: new Map([
-      ['session/codex-app-server-bridge.ts', { writeCount: 1, reason: 'dispatchJoin applies the decideThreadJoin verdict' }],
-    ]),
-  },
-  {
     name: 'session teardown',
     owner: 'session/core/session-teardown.ts',
     handles: /\bclass Session\b/,
@@ -75,7 +66,6 @@ const ALLOWED_FREE_STRING_STATUS_FIELDS = new Map<string, { count: number; reaso
   ['shared/contracts/my-prs.ts#state', { count: 5, reason: 'GitHub GraphQL review and status states, an external vocabulary that grows without notice' }],
   ['shared/contracts/my-prs.ts#mergeStateStatus', { count: 2, reason: 'GitHub GraphQL mergeStateStatus, an external vocabulary' }],
   ['shared/contracts/my-prs.ts#status', { count: 1, reason: 'GitHub GraphQL CheckRun status, an external vocabulary' }],
-  ['shared/contracts/session.ts#state', { count: 1, reason: 'Coder workspace state reported by the external Coder CLI' }],
   ['shared/contracts/pr-flows.ts#state', { count: 1, reason: 'operator-authored commit status state line, free text by design' }],
   ['shared/contracts/pack-bridge.ts#state', { count: 1, reason: 'pack bridge mirrors session STATES in its describe text for third-party packs' }],
 ]);

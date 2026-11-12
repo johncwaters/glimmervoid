@@ -19,7 +19,6 @@ export const sessionClientVariants = [
     dangerouslySkipPermissions: z.boolean().optional(),
     saneYolo: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
-    environment: z.string().optional(),
     resumeSessionId: z.string().optional(),
     prompt: z.string().max(4000).optional(),
     requestId,

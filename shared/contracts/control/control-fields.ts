@@ -59,15 +59,6 @@ export const CustomAgentSummaryRow = z.object({
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
 
-const CoderEnvironmentOffer = z.object({
-  name: z.string(),
-  template: z.string(),
-  parameters: z.record(z.string(), z.string()),
-  hourlyCostUsd: z.number().nullable(),
-  idleStopMinutes: z.number(),
-});
-export type CoderEnvironmentOffer = z.infer<typeof CoderEnvironmentOffer>;
-export const CoderEnvironmentOffers = z.array(CoderEnvironmentOffer).nullable();
 export const PlanLimitsVendor = z.enum(['claude', 'codex', 'kimi']);
 export type PlanLimitsVendor = z.infer<typeof PlanLimitsVendor>;
 export const ConnectableAgent = z.enum(['claude-code', 'codex']);
@@ -103,7 +94,6 @@ export const SessionCardFields = z.object({
   isQuestionManagerOn: z.boolean().optional(),
   worktree: z.boolean(),
   workspace: z.boolean().optional(),
-  remoteWorkspace: z.string().optional(),
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
   ownerId: sessionId.optional(),

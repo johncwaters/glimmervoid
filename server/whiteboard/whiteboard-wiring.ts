@@ -83,7 +83,6 @@ interface WhiteboardCaller {
   name: string;
   project: string;
   cwd?: string;
-  remoteWorkspace?: string | null;
 }
 
 interface WhiteboardReply {
@@ -967,7 +966,6 @@ function createWhiteboardWiring({
   }
 
   async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
-    if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
     const note = withUnloadedNote(`put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`, ingested.unloaded);
@@ -1018,7 +1016,6 @@ function createWhiteboardWiring({
   }
 
   async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean): Promise<WhiteboardReply> {
-    if (caller.remoteWorkspace) return refusal(409, `show reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
     const ingested = await assets.ingestFile(sourcePath);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);

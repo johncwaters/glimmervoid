@@ -138,13 +138,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     applyConfigReload,
     applySettingsReload,
     telegramDelivery = null,
-    coderEnv = null,
     agentConnect = null,
     remoteSetup = null,
   } = deps;
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, telegramDelivery: telegramDelivery?.status() ?? null, coderEnvironments: coderEnv?.availableEnvironments() ?? null, agentLogins: agentConnect?.logins() ?? null });
+    return buildSettingsPayloadFrom({ configStore, telegramDelivery: telegramDelivery?.status() ?? null, agentLogins: agentConnect?.logins() ?? null });
   }
 
   function handleGetSettings(msg: ClientMessageOf<'get-settings'>, ws: ControlSocket): void {

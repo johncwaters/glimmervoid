@@ -1,6 +1,6 @@
 import { DEFAULT_REPLY_TIMEOUT_MS } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
-import { AgentLoginStatuses, ConnectableAgent } from '#shared/contracts/control-messages.ts';
+import { AgentLoginStatuses, type ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus } from '#shared/contracts/control-messages.ts';
 
 let latestAgentLogins: AgentLoginStatus[] = [];
@@ -23,11 +23,6 @@ export function onAgentLoginsChanged(listener: () => void): () => void {
 }
 
 export const CONNECTABLE_AGENT_NAMES: Readonly<Record<ConnectableAgent, string>> = Object.freeze({ 'claude-code': 'Claude Code', codex: 'Codex' });
-
-export function connectableAgentOf(agentId: string): ConnectableAgent | null {
-  const parsed = ConnectableAgent.safeParse(agentId);
-  return parsed.success ? parsed.data : null;
-}
 
 export function agentLoginSummary(login: AgentLoginStatus | null, agent: ConnectableAgent): string {
   const name = CONNECTABLE_AGENT_NAMES[agent];

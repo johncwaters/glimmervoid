@@ -1333,9 +1333,6 @@ test('show puts each file on a board the session is connected to, creating one n
   const pastOddId = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png' });
   assert.equal(pastOddId.status, 200, JSON.stringify(pastOddId.body));
   assert.match(String((pastOddId.body as { note: string }).note), /as box shown-3 /);
-
-  const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
-  assert.equal(remote.status, 409);
 });
 
 test('a shown page brings the files it refers to by relative path, served beside it, and the reply names each local file that did not load', { skip: process.platform === 'win32' }, async () => {

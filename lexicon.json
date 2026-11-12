@@ -454,7 +454,7 @@
     },
     {
       "name": "coder",
-      "definition": "Coder, the remote development platform whose devboxes can host Glimmervoid and whose workspaces remote Coder sessions run in",
+      "definition": "Coder, the remote development platform whose devboxes can host Glimmervoid; remote Coder sessions and Glimmervoid's Coder activity reporting are retired and named only in history",
       "aliases": [
         "remote coder"
       ]
@@ -570,10 +570,6 @@
     {
       "name": "teardown",
       "definition": "Ending or restarting a session's agent process (a pending restart, a pending finish-and-merge, or removal), held in one Teardown value moved only by decideTeardown in session/core/session-teardown.ts"
-    },
-    {
-      "name": "thread join",
-      "definition": "The Codex app-server bridge attaching to the agent's live thread with thread/resume (idle, waiting, joining, joined or abandoned), moved only by decideThreadJoin in session/core/codex-app-server-core.ts"
     },
     {
       "name": "outcome",
@@ -764,6 +760,11 @@
       "name": "job inbox",
       "definition": "The bearer-token listener inside a Glimmervoid server that accepts watcher jobs, parses each against its registered kind and acks it once",
       "because": "the bearer-token job inbox is deleted with the old watcher (dumb-fetcher-watcher U4)"
+    },
+    {
+      "name": "thread join",
+      "definition": "The Codex app-server bridge attaching to the agent's live thread with thread/resume (idle, waiting, joining, joined or abandoned), moved only by decideThreadJoin in session/core/codex-app-server-core.ts",
+      "because": "The Codex app-server bridge and codex-app-server-core are deleted with remote Coder sessions; nothing joins a thread any more"
     }
   ],
   "rejected": [
@@ -774,6 +775,10 @@
     {
       "concept": "job inbox",
       "because": "the bearer-token job inbox is deleted with the old watcher (dumb-fetcher-watcher U4)"
+    },
+    {
+      "concept": "thread join",
+      "because": "The Codex app-server bridge and codex-app-server-core are deleted with remote Coder sessions; nothing joins a thread any more"
     }
   ]
 }

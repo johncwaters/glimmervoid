@@ -3,7 +3,7 @@ import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
-import { paintCardOwnership, remoteWorkspaceText } from './session-card/card-dom.ts';
+import { paintCardOwnership } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { CLOSING_ROW_STATE, CONFIRM_REMOVE_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, armedRemovalReason, confirmArmedRemoval, keepArmedSession, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
@@ -13,7 +13,7 @@ import { sessionElapsedText } from './session-card/session-tick.ts';
 import { SIGNAL_TIER } from './signal-core.ts';
 import type { Signal } from './signal-core.ts';
 import { createSignal, paintSignalLine } from './signal.ts';
-import { CLOSE_ICON_PATH, CLOUD_ICON_PATH, createLineIcon } from './svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from './svg-dom.ts';
 import { createPrStatusIcon } from './github/pr-status-icon.ts';
 import type { ActivatableSignal } from './signal.ts';
 import { paintAgentMark } from './session-card/agent-mark.ts';
@@ -87,7 +87,7 @@ export function buildSessionRow(extraClassName = '') {
   const row = createPressable(`session-row ${extraClassName}`.trim());
   row.innerHTML = '<span class="session-row-glyph" aria-hidden="true"></span>'
     + '<span class="session-row-main">'
-    + '<span class="session-row-title"><span class="agent-mark session-row-agent" aria-hidden="true" hidden></span><span class="session-row-name"></span><span class="session-row-cloud" hidden></span></span>'
+    + '<span class="session-row-title"><span class="agent-mark session-row-agent" aria-hidden="true" hidden></span><span class="session-row-name"></span></span>'
     + '<span class="session-row-task" hidden></span>'
     + '<span class="session-row-meta">'
     + '<span class="session-row-label"></span>'
@@ -102,7 +102,6 @@ export function buildSessionRow(extraClassName = '') {
     label: query(row, '.session-row-label'),
     name: query(row, '.session-row-name'),
     agent: query(row, '.session-row-agent'),
-    cloud: query(row, '.session-row-cloud'),
     task: query(row, '.session-row-task'),
     signals: query(row, '.session-row-signals'),
     elapsed: query(row, '.session-row-elapsed'),
@@ -303,13 +302,6 @@ function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: Session
   return paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
 }
 
-function paintSessionRowCloud(cloud: HTMLElement, remoteWorkspace: string | undefined): string | null {
-  writeHiddenIfChanged(cloud, !remoteWorkspace);
-  if (!remoteWorkspace) return null;
-  if (!cloud.firstChild) cloud.append(createLineIcon(CLOUD_ICON_PATH));
-  return remoteWorkspaceText(remoteWorkspace);
-}
-
 function describeSessionOwnership(ui: SessionUi): string | null {
   const ownerUi = ui.ownerId ? sessionUIs.get(ui.ownerId) : undefined;
   const ownerName = ownerUi ? sessionName(ownerUi) : null;
@@ -346,7 +338,6 @@ export function paintSessionRow(
   sessionRowNamesByRow.set(row, { name, distinctTaskTitle: ui.taskTitle && ui.taskTitle !== name ? ui.taskTitle : null });
   paintSessionRowNames(row);
   paintAgentMark(refs.agent, ui.agent ?? null);
-  const cloudText = paintSessionRowCloud(refs.cloud, ui.card.dataset.remoteWorkspace);
   writeDataIfChanged(row, 'merge', mergeStatus);
   paintSessionRowSignals(row);
   writeDataIfChanged(row, 'activity', ui._activity || '');
@@ -355,7 +346,7 @@ export function paintSessionRow(
   paintSessionRowAttentionTab(row, refs.attentionTab, attentionPosition);
   const hasUnseenAnswer = row.dataset.id !== undefined && unseenManagerAnswersFor(row.dataset.id).length > 0;
   row.toggleAttribute('data-manager-answered', hasUnseenAnswer);
-  const accessibleLabel = [name, cloudText, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition), hasUnseenAnswer ? 'answered for you' : ''].filter(Boolean).join(', ');
+  const accessibleLabel = [name, ui.taskTitle, statusLabel, ownershipText, attentionPositionText(attentionPosition), hasUnseenAnswer ? 'answered for you' : ''].filter(Boolean).join(', ');
   writeAttributeIfChanged(row, 'aria-label', accessibleLabel);
   return statusLabel;
 }
