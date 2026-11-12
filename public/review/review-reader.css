@@ -59,8 +59,8 @@
 .review-composer-send:disabled,
 .review-thread-resolve:disabled { opacity: 0.6; cursor: default; }
 .review-thread,
-.review-composer { margin: 6px 12px 6px 48px; padding: 8px 10px; max-width: 72ch; background: var(--bg-surface); border: 1px solid var(--border-dim); border-left: 2px solid var(--accent); border-radius: var(--radius); font: var(--type-meta)/1.5 var(--font-ui); color: var(--text); white-space: normal; }
-.review-thread[data-status="resolved"] { border-left-color: var(--border-dim); opacity: 0.7; }
+.review-composer { margin: 6px 12px 6px 48px; padding: 8px 10px; max-width: 72ch; background: color-mix(in oklab, var(--accent) 6%, var(--bg-surface)); border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--border-dim)); border-radius: var(--radius); font: var(--type-meta)/1.5 var(--font-ui); color: var(--text); white-space: normal; }
+.review-thread[data-status="resolved"] { background: var(--bg-surface); border-color: var(--border-dim); opacity: 0.7; }
 .review-thread-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 4px; color: var(--text-muted); }
 .review-thread-tag { color: var(--state-waiting); }
 .review-thread-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
