@@ -895,12 +895,16 @@ async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<vo
   const beforeReloadWheel = await settledBoundsOf(viewerPage);
   await page.mouse.wheel(0, 10);
   await page.waitForFunction((reloadY) => document.querySelector('iframe.wb-image-viewer-page')?.getBoundingClientRect().y !== reloadY, beforeReloadWheel?.y ?? 0);
+  const zoomedPageScale = await viewerScaleOf(viewerPage);
   await page.mouse.dblclick(center.x, center.y);
-  await untilScaleOf(viewerPage, 1, 1, 'a double click or double tap inside a zoomed page returns it to fit');
+  await page.waitForTimeout(100);
+  assert.equal(await viewerScaleOf(viewerPage), zoomedPageScale, 'a mouse double click inside a zoomed page leaves its zoom alone');
+  await doubleTapOn(page, center);
+  await untilScaleOf(viewerPage, 1, 1, 'a double tap inside a zoomed page returns it to fit');
   await pinchOn(page, center, 60, 180);
   await untilScaleOf(viewerPage, 2.01, 8, 'a two finger pinch inside a full size page zooms it');
   await doubleTapOn(page, center);
-  await untilScaleOf(viewerPage, 1, 1, 'a double click or double tap inside a zoomed page returns it to fit');
+  await untilScaleOf(viewerPage, 1, 1, 'a double tap inside a zoomed page returns it to fit');
 }
 
 async function untilScaleOf(media: Locator, leastScale: number, mostScale: number, message: string): Promise<void> {
@@ -964,10 +968,14 @@ async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator
   await page.mouse.wheel(0, 20);
   const afterPan = await settledBoundsOf(media);
   assert.ok(beforePan && afterPan && Math.abs(beforePan.y - afterPan.y - 20) < 1.5, 'a plain wheel pans zoomed media');
+  const zoomedMediaScale = await viewerScaleOf(media);
   await page.mouse.dblclick(center.x, center.y);
-  await untilScaleOf(media, 1, 1, 'a double click on zoomed media returns it to fit');
-  await page.mouse.dblclick(center.x, center.y);
-  await untilScaleOf(media, 2, 2, 'a double click at fit zooms the media to 2x');
+  await page.waitForTimeout(100);
+  assert.equal(await viewerScaleOf(media), zoomedMediaScale, 'a mouse double click on zoomed media leaves its zoom alone');
+  await doubleTapOn(page, center);
+  await untilScaleOf(media, 1, 1, 'a double tap on zoomed media returns it to fit');
+  await doubleTapOn(page, center);
+  await untilScaleOf(media, 2, 2, 'a double tap at fit zooms the media to 2x');
   const beforeDrag = await settledBoundsOf(media);
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
@@ -975,7 +983,8 @@ async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator
   await page.mouse.up();
   const afterDrag = await settledBoundsOf(media);
   assert.ok(beforeDrag && afterDrag && Math.abs(beforeDrag.x - afterDrag.x - 80) < 1.5, 'a drag pans zoomed media');
-  await page.mouse.dblclick(center.x, center.y);
+  await doubleTapOn(page, center);
+  await untilScaleOf(media, 1, 1, 'a double tap on dragged media returns it to fit');
   await page.mouse.wheel(0, 40);
   assert.equal(await viewerScaleOf(media), 1, 'zoom never goes below fit');
   await pinchOn(page, center, 60, 180);
@@ -1004,8 +1013,8 @@ async function verifyViewerZoomEdges(page: Page, media: Locator, viewerClose: Lo
     return zoomWheel.defaultPrevented;
   });
   assert.ok(isHeaderZoomCancelled, 'a ctrl wheel over the viewer header never zooms the dashboard');
-  await page.mouse.dblclick(center.x, center.y);
-  await untilScaleOf(media, 1, 1, 'a double click on pinched media returns it to fit');
+  await doubleTapOn(page, center);
+  await untilScaleOf(media, 1, 1, 'a double tap on pinched media returns it to fit');
   await page.mouse.move(center.x, center.y);
   await page.mouse.down();
   await page.mouse.move(closeBounds.x - 40, closeBounds.y + closeBounds.height / 2, { steps: 4 });

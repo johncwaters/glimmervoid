@@ -44,7 +44,6 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   let zoom: MediaZoom = FIT_ZOOM;
   let gesture: StageGesture = { kind: 'idle' };
   let lastTap: { at: number; point: StagePoint } | null = null;
-  let lastPointerType = '';
   const pointers = new Map<number, StagePoint>();
   media.classList.add('wb-zoomable-media');
 
@@ -81,7 +80,6 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
 
   function onPointerDown(event: PointerEvent): void {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    lastPointerType = event.pointerType;
     const point = stagePointOfClient(event.clientX, event.clientY);
     pointers.set(event.pointerId, point);
     if (pointers.size === 2) {
@@ -152,11 +150,6 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   const reclamp = new ResizeObserver(() => show(panBy(zoom, 0, 0, mediaSize())));
   reclamp.observe(stage);
   reclamp.observe(media);
-  stage.addEventListener('dblclick', (event) => {
-    event.preventDefault();
-    if (lastPointerType !== 'mouse') return;
-    show(toggleFitAbout(zoom, stagePointOfClient(event.clientX, event.clientY), mediaSize()));
-  });
 
   return {
     zoomAt: (mediaPoint, factor) => show(zoomAbout(zoom, stagePointOf(zoom, mediaPoint), factor, mediaSize())),

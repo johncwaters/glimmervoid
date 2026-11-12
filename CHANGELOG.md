@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Double-clicking a full-size board picture, video or page no longer zooms it.** Clicking quickly in the viewer kept zooming it to 2x by accident. On desktop, zoom with Ctrl or Cmd and the scroll wheel, or a trackpad pinch. On a phone, double-tap still switches between fit and 2x.
+
 ## [0.57.4] - 2026-11-12
 
 ### Changed
