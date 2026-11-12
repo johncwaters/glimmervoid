@@ -8,7 +8,6 @@ import { sendSessionAction } from './session-card/card-actions.ts';
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
-import { openConfirmDialog } from './session-card/modal.ts';
 import { suggestSessionName } from './session-card/naming.ts';
 import { getSelectedId, setSelectedId } from './review/selection.ts';
 import { markStatusDirty } from './status-paint.ts';
@@ -38,7 +37,11 @@ export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
   const operatorSessions = [...sessionUIs].filter(([id]) => !removingSessionIds.has(id));
-  return buildSessionRows(operatorSessions, nameOf).map((row) => (pendingCloseById.has(row.id) ? { ...row, state: CLOSING_ROW_STATE, unseenOutcome: null } : row));
+  return buildSessionRows(operatorSessions, nameOf).map((row) => {
+    if (armedRemovalById.has(row.id)) return { ...row, state: CONFIRM_REMOVE_ROW_STATE, unseenOutcome: null };
+    if (pendingCloseById.has(row.id)) return { ...row, state: CLOSING_ROW_STATE, unseenOutcome: null };
+    return row;
+  });
 }
 
 export function sendForSession(id: string, message: Record<string, unknown>): boolean {
@@ -81,6 +84,12 @@ let revealSessionInView: (id: string) => void = selectSession;
 
 export function setAddedSessionRevealer(reveal: (id: string) => void) {
   revealSessionInView = reveal;
+}
+
+let revealArmedSessionRow: (id: string) => void = selectSession;
+
+export function setArmedSessionRowRevealer(reveal: (id: string) => void) {
+  revealArmedSessionRow = reveal;
 }
 
 export function revealAddedSession(sessionId: string | null | undefined) {
@@ -132,13 +141,29 @@ function reportRemovalRefusal(ui: SessionUi, id: string, reply: ServerMessageOf<
     reportHeaderError({ source: REMOVE_SESSION_ERROR_SOURCE, sessionId: id, message: `"${sessionName(ui)}" was not removed: ${reply.error ?? 'the server gave no reason'}. Try Remove again from its actions menu.` });
     return;
   }
-  openConfirmDialog({
-    title: 'Remove Session',
-    message: reply.error ?? `Remove session "${sessionName(ui)}"?`,
-    confirmLabel: 'Remove',
-    danger: true,
-    onConfirm: () => { void requestCheckedSessionRemoval(ui, id, true, (reply.keptPaths ?? []).map((kept) => kept.path)); },
+  settlePendingClose(id);
+  armedRemovalById.set(id, {
+    reason: reply.error ?? `Remove session "${sessionName(ui)}"? Its unsaved work is deleted.`,
+    confirmedKeptPaths: (reply.keptPaths ?? []).map((kept) => kept.path),
   });
+  markStatusDirty(id);
+  revealArmedSessionRow(id);
+}
+
+export function armedRemovalReason(id: string) {
+  return armedRemovalById.get(id)?.reason ?? null;
+}
+
+export function keepArmedSession(id: string) {
+  if (!armedRemovalById.delete(id)) return;
+  markStatusDirty(id);
+}
+
+export function confirmArmedRemoval(id: string) {
+  const armedRemoval = armedRemovalById.get(id);
+  if (!armedRemoval) return;
+  armedRemovalById.delete(id);
+  beginPendingClose(id, { discardWork: true, confirmedKeptPaths: armedRemoval.confirmedKeptPaths });
 }
 
 function reportRemovalFailure(ui: SessionUi, id: string, reason: unknown, timeoutMs: number) {
@@ -151,6 +176,7 @@ function settleSessionRemoving(id: string) {
 }
 
 async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWork: boolean, confirmedKeptPaths: string[] = []) {
+  armedRemovalById.delete(id);
   removingSessionIds.add(id);
   markStatusDirty(id);
   try {
@@ -167,8 +193,12 @@ async function requestCheckedSessionRemoval(ui: SessionUi, id: string, discardWo
 
 export const SESSION_CLOSE_UNDO_WINDOW_MS = 8000;
 export const CLOSING_ROW_STATE = 'CLOSING';
+export const CONFIRM_REMOVE_ROW_STATE = 'CONFIRM_REMOVE';
 
-const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean; startedAt: number }>();
+type RemovalConsent = { discardWork: boolean; confirmedKeptPaths: string[] };
+const NO_DISCARD: RemovalConsent = { discardWork: false, confirmedKeptPaths: [] };
+const pendingCloseById = new Map<string, { timer: number; wasOpen: boolean; startedAt: number; consent: RemovalConsent }>();
+const armedRemovalById = new Map<string, { reason: string; confirmedKeptPaths: string[] }>();
 
 export function pendingCloseStartedAt(id: string) {
   return pendingCloseById.get(id)?.startedAt ?? null;
@@ -188,15 +218,16 @@ function settlePendingClose(id: string) {
 }
 
 function finishPendingClose(id: string) {
-  if (!settlePendingClose(id)) return;
+  const pendingClose = settlePendingClose(id);
+  if (!pendingClose) return;
   const ui = sessionUIs.get(id);
-  if (ui) void requestCheckedSessionRemoval(ui, id, false);
+  if (ui) void requestCheckedSessionRemoval(ui, id, pendingClose.consent.discardWork, pendingClose.consent.confirmedKeptPaths);
 }
 
-function beginPendingClose(id: string) {
+function beginPendingClose(id: string, consent: RemovalConsent = NO_DISCARD) {
   if (pendingCloseById.has(id)) return;
   const timer = window.setTimeout(() => finishPendingClose(id), SESSION_CLOSE_UNDO_WINDOW_MS);
-  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id, startedAt: performance.now() });
+  pendingCloseById.set(id, { timer, wasOpen: getSelectedId() === id, startedAt: performance.now(), consent });
   markStatusDirty(id);
 }
 
@@ -228,7 +259,7 @@ async function requestUndoableSessionRemoval(ui: SessionUi, id: string) {
 
 export function requestSessionRemoval(id: string) {
   const ui = sessionUIs.get(id);
-  if (!ui || pendingCloseById.has(id)) return;
+  if (!ui || pendingCloseById.has(id) || armedRemovalById.has(id)) return;
   void requestUndoableSessionRemoval(ui, id);
 }
 

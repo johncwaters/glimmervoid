@@ -5,7 +5,7 @@ import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership, remoteWorkspaceText } from './session-card/card-dom.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
-import { CLOSING_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, pendingCloseStartedAt } from './session-actions.ts';
+import { CLOSING_ROW_STATE, CONFIRM_REMOVE_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, armedRemovalReason, confirmArmedRemoval, keepArmedSession, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import type { SessionUi } from './session-card/card-registry.ts';
 import { SHELL_AGENT_ID } from './session-card/agent-core.ts';
@@ -123,8 +123,74 @@ export function wrapSessionRow(row: HTMLElement, removeLabel: string, onRemove: 
   } });
   const closeCountdown = el('span', 'session-row-close-countdown');
   closeCountdown.setAttribute('aria-hidden', 'true');
-  item.append(row, removeButton, undoButton, closeCountdown);
+  item.append(row, removeButton, undoButton, closeCountdown, buildRemovalConfirm(row));
   return { item, removeButton };
+}
+
+function buildRemovalConfirm(row: HTMLElement) {
+  const confirm = el('div', 'session-row-confirm');
+  confirm.setAttribute('role', 'group');
+  confirm.setAttribute('aria-label', 'Confirm remove session');
+  const actions = el('div', 'session-row-confirm-actions');
+  actions.append(
+    button({ variant: 'danger', size: 'small', label: 'Remove', action: 'confirm-remove-session', onClick: (event) => {
+      event.stopPropagation();
+      if (row.dataset.id) confirmArmedRemoval(row.dataset.id);
+    } }),
+    button({ variant: 'secondary', size: 'small', label: 'Keep', action: 'keep-session', onClick: (event) => {
+      event.stopPropagation();
+      if (row.dataset.id) keepArmedSession(row.dataset.id);
+    } }),
+  );
+  confirm.append(el('span', 'session-row-confirm-name'), el('p', 'session-row-confirm-reason'), actions);
+  return confirm;
+}
+
+const stopKeepListenerByItem = new WeakMap<HTMLElement, () => void>();
+
+function keepWhenLeavingConfirm(item: HTMLElement, sessionId: string) {
+  const stopListening = () => {
+    window.removeEventListener('pointerdown', onLeavingConfirm, true);
+    window.removeEventListener('focusin', onLeavingConfirm, true);
+    window.removeEventListener('keydown', onConfirmKeydown, true);
+    stopKeepListenerByItem.delete(item);
+  };
+  const keepSession = () => {
+    stopListening();
+    keepArmedSession(sessionId);
+  };
+  const onLeavingConfirm = (event: Event) => {
+    if (event.target instanceof Node && item.contains(event.target)) return;
+    keepSession();
+  };
+  const onConfirmKeydown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    keepSession();
+  };
+  window.addEventListener('pointerdown', onLeavingConfirm, true);
+  window.addEventListener('focusin', onLeavingConfirm, true);
+  window.addEventListener('keydown', onConfirmKeydown, true);
+  stopKeepListenerByItem.set(item, stopListening);
+}
+
+function paintRemovalConfirm(row: HTMLElement, state: string, name: string) {
+  const item = row.closest<HTMLElement>('.session-row-item');
+  const confirm = item?.querySelector<HTMLElement>(':scope > .session-row-confirm');
+  if (!item || !confirm) return;
+  const sessionId = row.dataset.id;
+  const reason = state === CONFIRM_REMOVE_ROW_STATE && sessionId !== undefined ? armedRemovalReason(sessionId) : null;
+  writeTextIfChanged(query(confirm, '.session-row-confirm-name'), reason === null ? '' : name);
+  writeTextIfChanged(query(confirm, '.session-row-confirm-reason'), reason ?? '');
+  if (reason === null || sessionId === undefined) {
+    stopKeepListenerByItem.get(item)?.();
+    return;
+  }
+  if (stopKeepListenerByItem.has(item)) return;
+  item.scrollIntoView({ block: 'nearest' });
+  confirm.querySelector<HTMLButtonElement>('[data-action="keep-session"]')?.focus({ preventScroll: true });
+  keepWhenLeavingConfirm(item, sessionId);
 }
 
 const closeDrainByCountdown = new WeakMap<HTMLElement, Animation>();
@@ -276,6 +342,7 @@ export function paintSessionRow(
 ) {
   const statusLabel = paintSessionRowMark(row, refs, ui, state);
   paintCloseCountdown(row, state === CLOSING_ROW_STATE && row.dataset.id !== undefined ? pendingCloseStartedAt(row.dataset.id) : null);
+  paintRemovalConfirm(row, state, name);
   sessionRowNamesByRow.set(row, { name, distinctTaskTitle: ui.taskTitle && ui.taskTitle !== name ? ui.taskTitle : null });
   paintSessionRowNames(row);
   paintAgentMark(refs.agent, ui.agent ?? null);

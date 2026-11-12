@@ -256,6 +256,23 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-row-item[data-closing] > [data-action="remove-session"] { display: none; }
 .session-row-item[data-closing] > [data-action="undo-remove"] { display: inline-flex; }
 .session-row-item[data-closing] > .session-row-close-countdown { display: block; }
+.session-row-confirm { display: none; }
+.session-row-item:has(> .session-row[data-state="CONFIRM_REMOVE"]) {
+  background: color-mix(in oklch, var(--state-failed) 12%, transparent);
+}
+.session-row-item:has(> .session-row[data-state="CONFIRM_REMOVE"]) > :is(.session-row, [data-action="remove-session"]) { display: none; }
+.session-row-item:has(> .session-row[data-state="CONFIRM_REMOVE"]) > .session-row-confirm {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 6px;
+  padding: 6px 5px 8px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  line-height: 1.55;
+}
+.session-row-confirm-name { color: var(--text-head); font-weight: 700; overflow-wrap: anywhere; }
+.session-row-confirm-reason { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.session-row-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"] { --st: var(--state-running); }
 :is(.session-row, .status-legend-row, .phone-terminal-bar, .session-card)[data-state="RUNNING"][data-monitoring] { --st: var(--state-monitoring); }

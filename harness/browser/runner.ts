@@ -60,7 +60,7 @@ const DESKTOP_ENTER_FOCUS_SELECTOR = '#tab-focus';
 const PHONE_BACK_SELECTOR = 'button[data-action="back-to-board"]';
 const PHONE_TERMINAL_MENU_SELECTOR = '.phone-screen[data-screen="terminal"] button[data-action="session-menu"]';
 const PHONE_TERMINAL_REMOVE_SELECTOR = '.phone-screen[data-screen="terminal"] button.overflow-remove';
-const CONFIRM_DIALOG_SELECTOR = 'button[data-action="confirm-dialog"]:visible';
+const ARMED_ROW_REMOVE_SELECTOR = '.phone-board-list button[data-action="confirm-remove-session"]:visible';
 const PHONE_REMOVE_RETURN_MS = 4000;
 const PHONE_MORE_SELECTOR = 'button.phone-nav-item[aria-expanded]';
 const PHONE_SETTINGS_MENU_SELECTOR = 'button.phone-nav-menu-item[data-screen="settings"]';
@@ -861,14 +861,14 @@ async function runRemoveFromPhoneTerminal(viewer: Viewer, sessionId: string, dea
   await viewer.page.evaluate(holdConfirmedSessionRemovals);
   await viewer.page.locator(PHONE_TERMINAL_MENU_SELECTOR).first().click();
   await viewer.page.locator(PHONE_TERMINAL_REMOVE_SELECTOR).first().click();
-  await viewer.page.locator(CONFIRM_DIALOG_SELECTOR).first().click();
+  await viewer.page.locator(ARMED_ROW_REMOVE_SELECTOR).first().click();
   const returnedToBoard = await pollUntil(async () => {
     const reading = await viewer.page.evaluate(readSettingsHistory);
     const isRemovingSessionListed = (await viewer.page.evaluate(boardRowIds)).includes(sessionId);
     if (isRemovingSessionListed) return { ok: false, detail: `the session being removed is still listed, on ${String(reading.phoneScreen)}` };
     if (reading.phoneScreen === 'board') return { ok: true, detail: 'the board is shown while the server still holds the session' };
     return { ok: false, detail: `still on ${String(reading.phoneScreen)}` };
-  }, { label: `viewer ${viewer.id} back on the board after Remove`, timeoutMs: PHONE_REMOVE_RETURN_MS, intervalMs: deadlines.pollIntervalMs });
+  }, { label: `viewer ${viewer.id} back on the board after Remove`, timeoutMs: UNDO_CLOSE_WINDOW_MS + PHONE_REMOVE_RETURN_MS, intervalMs: deadlines.pollIntervalMs });
   return outcomeFor('returned-to-board', returnedToBoard);
 }
 

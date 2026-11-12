@@ -2,8 +2,8 @@ import { isRealInputOwningKey } from '../dom-helpers.ts';
 import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive, toggleFocusedBoardSplit } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
-import { showPhoneSession } from '../phone/phone-shell-gate.ts';
-import { requestSessionRemoval, selectSession, setAddedSessionRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
+import { showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
+import { requestSessionRemoval, selectSession, setAddedSessionRevealer, setArmedSessionRowRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
@@ -24,6 +24,11 @@ function revealSpawnedSession(id: string) {
   centerSessionInFocus(id);
   selectSession(id);
   requestAnimationFrame(() => requestAnimationFrame(() => sessionUIs.get(id)?.term?.focus()));
+}
+
+function revealArmedSessionRow(id: string) {
+  if (showPhoneScreen('board')) return;
+  centerSessionInFocus(id);
 }
 
 function addSessionLikeTheFocusedOne() {
@@ -85,6 +90,7 @@ function isUndoCloseKey(event: KeyboardEvent) {
 
 function wireDashboardShortcuts() {
   setAddedSessionRevealer(revealSpawnedSession);
+  setArmedSessionRowRevealer(revealArmedSessionRow);
   document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (isRealInputOwningKey(e)) return;
