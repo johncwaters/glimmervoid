@@ -136,6 +136,36 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     await addSession(request, socketReply(ws, request), {});
   }
 
+  async function handlePackSessionStart(msg: ClientMessageOf<'pack-session-start'>, ws: ControlSocket): Promise<void> {
+    if (!packLaunchers) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'Pack panels cannot start sessions on this host.' });
+      return;
+    }
+    const { project, agent, model, effort, prompt, name } = msg;
+    const outcome = await packLaunchers.panelSessionRequest(msg.pack, msg.panelId, { project, agent, model, effort, prompt, name }, liveSessionNames());
+    if (!outcome.ok) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
+      return;
+    }
+    const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
+    await addSession(request, socketReply(ws, request), {});
+  }
+
+  function handlePackSessionSend(msg: ClientMessageOf<'pack-session-send'>, ws: ControlSocket): void {
+    if (!packLaunchers?.panelMaySend(msg.pack, msg.panelId)) {
+      replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No approved panel ${msg.panelId} in pack ${msg.pack} lists sessions under acts` });
+      return;
+    }
+    const session = findSession(msg);
+    if (!session) {
+      replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
+      return;
+    }
+    const pasted = session.pasteTextWhenReady(msg.text, { submit: true });
+    console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
+    replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
+  }
+
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
     const source = findSession(msg);
     if (!source) {
@@ -767,6 +797,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'add-session': handleAddSession,
     'quick-session': handleQuickSession,
     'pack-launch': handlePackLaunch,
+    'pack-session-start': handlePackSessionStart,
+    'pack-session-send': handlePackSessionSend,
     'list-conversations': handleListConversations,
     'resume-conversation': handleResumeConversation,
     'remove-session': handleRemoveSession,
@@ -802,6 +834,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'add-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'pack-launch': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'pack-session-start': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'pack-session-send': (_msg, requestId, message) => ({ type: 'pack-session-send-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;

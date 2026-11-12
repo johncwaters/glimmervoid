@@ -8,7 +8,7 @@ import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
-import { approvedLauncher, approvedPackLaunchers, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
+import { approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
@@ -32,6 +32,7 @@ type PackStore = EventEmitter & {
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
   launcherProjectsInUse(): string[];
   launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
+  panelInUse(packName: string, panelId: string): ReturnType<typeof approvedPanel>;
   scheduledLaunchersInUse(): ScheduledPackLauncher[];
 };
 
@@ -233,8 +234,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   async function approveNow(fingerprint: string): Promise<PackApproveResult> {
     await refresh();
-    const isPending = rows().some((row) => row.state === 'pending' && row.fingerprint === fingerprint);
-    if (!isPending) return { ok: false, error: 'That pack changed or is already approved; check the list again.' };
+    const pendingRow = rows().find((row) => row.state === 'pending' && row.fingerprint === fingerprint);
+    if (!pendingRow) return { ok: false, error: 'That pack changed or is already approved; check the list again.' };
+    if (pendingRow.errors.length > 0) return { ok: false, error: `${pendingRow.name} has errors; fix them before approving, so nothing it declares is approved unseen.` };
     const saved = await persistApproval(fingerprint);
     if (saved.ok && !isStopped) emitter.emit('changed');
     return saved;
@@ -272,6 +274,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     launcherProjectsInUse: () => launcherProjects(packsInUse()),
     launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
+    panelInUse: (packName: string, panelId: string) => approvedPanel(packsInUse(), packName, panelId),
     scheduledLaunchersInUse: () => scheduledLaunchers(packsInUse()),
   });
 }

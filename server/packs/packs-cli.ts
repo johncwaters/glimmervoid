@@ -40,9 +40,10 @@ async function previewActionResponse(packDir: string, request: http.IncomingMess
   const body = PreviewActionBody.safeParse(bodyText === null ? null : parseJsonRecord(bodyText));
   if (!body.success) return jsonResponse({ ok: false, error: `not sent: the request was not JSON of at most ${ACTION_BODY_MAX_BYTES} bytes` });
   const read = await readPackDir(packDir, env);
-  const panel = read.ok && read.pack.ui?.ok ? read.pack.ui.value.panels.find((candidate) => candidate.id === body.data.panel) : undefined;
-  if (!panel) return jsonResponse({ ok: false, error: `not sent: the pack has no panel ${body.data.panel}` });
-  return jsonResponse(panelActionDecision(panel.acts, body.data.request));
+  const pack = read.ok ? read.pack : null;
+  const panel = pack?.ui?.ok ? pack.ui.value.panels.find((candidate) => candidate.id === body.data.panel) : undefined;
+  if (!pack || !panel) return jsonResponse({ ok: false, error: `not sent: the pack has no panel ${body.data.panel}` });
+  return jsonResponse(panelActionDecision({ pack: pack.header.name, panelId: panel.id, acts: panel.acts }, body.data.request));
 }
 
 async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: string; isJson: boolean; env: NodeJS.ProcessEnv; homeDir: string }): Promise<number> {

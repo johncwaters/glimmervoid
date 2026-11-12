@@ -31,7 +31,7 @@ export function approvedPackPanels(packs: readonly PackOnDisk[], framePathOf: Fr
     const entryUrl = packFileUrl(pack, panel.entry, framePathOf);
     if (entryUrl === null) return [];
     return [{
-      viewId: `pack:${pack.header.name}/${panel.id}`, pack: pack.header.name, label: panel.label, entryUrl,
+      viewId: `pack:${pack.header.name}/${panel.id}`, id: panel.id, pack: pack.header.name, label: panel.label, entryUrl,
       iconUrl: panel.icon ? packFileUrl(pack, panel.icon, framePathOf) : null, reads: panel.reads, acts: panel.acts,
     }];
   }));
@@ -96,6 +96,13 @@ export function approvedLauncher(packs: readonly PackOnDisk[], packName: string,
   const launcher = pack ? packLaunchers(pack).find((candidate) => candidate.id === launcherId) : undefined;
   if (!pack || !launcher) return null;
   return { launcher, sessions: packSessionSettings(pack) };
+}
+
+export function approvedPanel(packs: readonly PackOnDisk[], packName: string, panelId: string): { panel: PackUi['panels'][number]; sessions: PackSessions | null } | null {
+  const pack = packs.find((candidate) => candidate.header.name === packName);
+  const panel = pack ? packPanels(pack).find((candidate) => candidate.id === panelId) : undefined;
+  if (!pack || !panel) return null;
+  return { panel, sessions: packSessionSettings(pack) };
 }
 
 export type ScheduledPackLauncher = { pack: string; launcher: PackLauncher; schedule: string };

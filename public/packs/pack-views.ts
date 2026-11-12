@@ -8,10 +8,10 @@ import { packsSnapshot, subscribePacks } from './packs-store.ts';
 
 export type PackPanelView = PacksStatus['panels'][number];
 
-type PanelGrant = Pick<PackPanelView, 'pack' | 'reads' | 'acts'>;
+type PanelGrant = Pick<PackPanelView, 'id' | 'pack' | 'reads' | 'acts'>;
 
 const BLANK_FRAME_URL = 'about:blank';
-const NO_GRANT: PanelGrant = { pack: '', reads: [], acts: [] };
+const NO_GRANT: PanelGrant = { id: '', pack: '', reads: [], acts: [] };
 const frameByViewId = new Map<string, HTMLIFrameElement>();
 const panelByViewId = new Map<string, PackPanelView>();
 

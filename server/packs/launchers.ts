@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { clock } from '../../shared/clock.ts';
 import { PackLauncherRuns } from '../../shared/contracts/pack.ts';
+import type { PackSessionStart } from '../../shared/contracts/pack-launch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
@@ -70,12 +71,15 @@ export function createPackLaunchers({
     return hasGitFolder ? originUrl(projectPath).catch(() => null) : null;
   }
 
+  async function projectOriginsNow(): Promise<ProjectOrigin[]> {
+    const paths = [...new Set(projectPaths())];
+    const origins = await Promise.all(paths.map((projectPath) => originOfRepository(projectPath)));
+    return paths.map((projectPath, index) => ({ path: path.resolve(projectPath), originUrl: origins[index] ?? null }));
+  }
+
   async function refreshNow(): Promise<void> {
     const projects = packStore.launcherProjectsInUse();
-    const needsOrigins = projects.some(isRepositoryProject);
-    const paths = needsOrigins ? [...new Set(projectPaths())] : [];
-    const origins = await Promise.all(paths.map((projectPath) => originOfRepository(projectPath)));
-    projectOrigins = paths.map((projectPath, index) => ({ path: path.resolve(projectPath), originUrl: origins[index] ?? null }));
+    projectOrigins = projects.some(isRepositoryProject) ? await projectOriginsNow() : [];
     existingFolders = await existingFoldersOf(projects);
     packStore.setLauncherResolver(resolve);
     onResolved();
@@ -103,6 +107,29 @@ export function createPackLaunchers({
       ok: true,
       request: launcherAddSession({ launcher: approved.launcher, sessions: approved.sessions, projectPath: resolution.path, sessionNames, operatorSaneYolo: operatorSaneYolo() }),
     };
+  }
+
+  async function resolvePanelProject(project: string): Promise<LauncherProjectResolution> {
+    if (!isRepositoryProject(project)) return resolveLauncherProject(project, [], await existingFoldersOf([project]));
+    const cached = resolve(project);
+    if (cached.ok) return cached;
+    return resolveLauncherProject(project, await projectOriginsNow(), existingFolders);
+  }
+
+  async function panelSessionRequest(packName: string, panelId: string, start: PackSessionStart, sessionNames: readonly string[]): Promise<LaunchOutcome> {
+    const approved = packStore.panelInUse(packName, panelId);
+    if (!approved?.panel.acts.includes('sessions')) return { ok: false, error: `No approved panel ${panelId} in pack ${packName} lists sessions under acts` };
+    const resolution = await resolvePanelProject(start.project);
+    if (!resolution.ok) return { ok: false, error: `${approved.panel.label} cannot start a session: ${resolution.reason}` };
+    const launcher = { ...start, label: start.name ?? approved.panel.label };
+    return {
+      ok: true,
+      request: launcherAddSession({ launcher, sessions: approved.sessions, projectPath: resolution.path, sessionNames, operatorSaneYolo: operatorSaneYolo() }),
+    };
+  }
+
+  function panelMaySend(packName: string, panelId: string): boolean {
+    return packStore.panelInUse(packName, panelId)?.panel.acts.includes('sessions') ?? false;
   }
 
   function liveScheduledSessionCount(): number {
@@ -207,7 +234,7 @@ export function createPackLaunchers({
     armSchedule();
   }
 
-  return { refresh, launchRequest, attachSessionStarter };
+  return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter };
 }
 
 export type PackLaunchers = ReturnType<typeof createPackLaunchers>;

@@ -4,6 +4,7 @@ import { panelActionDecision, panelActionLogText } from '#shared/pack-action-cor
 import type { z } from 'zod';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
+import { hostOfSession } from '../hosts/session-hosts.ts';
 import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
 import { countAttentionByKind } from '../focus-view/attention-core.ts';
 import { reviewsSnapshot } from '../github/review-queue-store.ts';
@@ -18,12 +19,13 @@ import { planWindowOf } from '../usage/usage-store-core.ts';
 const BRIDGE_PUSH_INTERVAL_MS = 1000;
 const PANEL_ACTION_TIMEOUT_MS = 120_000;
 
-type PanelGrant = { pack: string; reads: readonly PackBridgeTopic[]; acts: readonly PackPanelAct[] };
+type PanelGrant = { id: string; pack: string; reads: readonly PackBridgeTopic[]; acts: readonly PackPanelAct[] };
 
 type BridgedFrame = {
   viewId: string;
   frame: HTMLIFrameElement;
   packName: string;
+  panelId: string;
   acts: readonly PackPanelAct[];
   grantedTopics: ReadonlySet<PackBridgeTopic>;
   subscribedTopics: Set<PackBridgeTopic>;
@@ -150,9 +152,14 @@ function replyErrorOf(type: string, result: Record<string, unknown>): string | n
 }
 
 async function runPanelAction(bridged: BridgedFrame, actionId: string, request: unknown): Promise<void> {
-  const decision = panelActionDecision(bridged.acts, request);
+  const decision = panelActionDecision({ pack: bridged.packName, panelId: bridged.panelId, acts: bridged.acts }, request);
   if (!decision.ok) {
     postActionResult(bridged, actionId, null, decision.error);
+    return;
+  }
+  const sessionHostId = decision.type === 'pack-session-send' && typeof decision.payload.id === 'string' ? hostOfSession(decision.payload.id) : null;
+  if (sessionHostId !== null) {
+    postActionResult(bridged, actionId, null, `pack-session-send not sent: that session runs on ${sessionHostId}, and panels type only into sessions on this machine`);
     return;
   }
   sendControlMsg({ type: 'client-log', scope: 'packs', text: panelActionLogText(bridged.viewId, decision.type, decision.payload) });
@@ -188,5 +195,5 @@ function onPanelMessage(event: MessageEvent): void {
 
 export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, grant: PanelGrant): void {
   if (bridgedFrameByViewId.size === 0) window.addEventListener('message', onPanelMessage);
-  bridgedFrameByViewId.set(viewId, { viewId, frame, packName: grant.pack, acts: grant.acts, grantedTopics: new Set(grant.reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
+  bridgedFrameByViewId.set(viewId, { viewId, frame, packName: grant.pack, panelId: grant.id, acts: grant.acts, grantedTopics: new Set(grant.reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
 }

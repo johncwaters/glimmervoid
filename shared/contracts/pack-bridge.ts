@@ -76,12 +76,18 @@ export function packStoreSizeError(packName: string, data: PackStoreData): strin
   return `${packName} would store ${byteCount} bytes, over the ${PACK_DATA_MAX_BYTES} byte limit; nothing was saved`;
 }
 
-export const PackPanelAct = z.enum(['reviews']);
+export const PackPanelAct = z.enum(['reviews', 'sessions']);
 export type PackPanelAct = z.infer<typeof PackPanelAct>;
 
+const PACK_SESSION_ACTION_TYPES = ['pack-session-start', 'pack-session-send'] as const;
+
+export const SESSIONS_ACT_GRANT_TEXT = 'start an agent session with any prompt in any project, and type text into any live session on this machine';
+
+export const PANEL_ACTION_TYPES_BY_ACT: { readonly [Act in PackPanelAct]: readonly string[] } = { reviews: REVIEW_ACTION_TYPES, sessions: PACK_SESSION_ACTION_TYPES };
+
 export const PanelActionRequest = z.looseObject({
-  type: z.enum(REVIEW_ACTION_TYPES).describe('A Reviews control message type; the other fields are that message\'s own, as the Reviews tab sends it, without requestId'),
-}).describe('One Reviews action, checked against the same schema the server uses before it is sent');
+  type: z.enum([...REVIEW_ACTION_TYPES, ...PACK_SESSION_ACTION_TYPES]).describe('A Reviews control message type, or pack-session-start or pack-session-send; the other fields are that message\'s own, without requestId, pack and panelId, which the host fills in'),
+}).describe('One action, checked against the same schema the server uses before it is sent');
 
 const PanelActionId = z.string().min(1).max(64).describe('Any id the panel picks; the matching action-result carries it back');
 
@@ -89,7 +95,7 @@ export const PanelActionEnvelope = z.object({ v: BridgeVersion, kind: z.literal(
 
 export const PanelToHost = z.discriminatedUnion('kind', [
   z.strictObject({ v: BridgeVersion, kind: z.literal('subscribe'), topics: z.array(PackBridgeTopic).describe("The topics to receive; only those also listed in the panel's reads in pack.json are granted, and a later subscribe replaces the earlier one. An empty list still gets hello and the store") }),
-  z.strictObject({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: PanelActionRequest }).describe('Send one Reviews action as the operator would from the Reviews tab; only a panel that lists reviews under acts may, and the host answers with action-result'),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: PanelActionRequest }).describe('Send one action as the operator would: a Reviews action needs reviews under the panel acts, a session action needs sessions; the host answers with action-result'),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store-set'), key: PackStoreKey, value: PackStoreValue.describe(`Any JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep; null deletes the key`) }).describe('Save one key of the pack store; the host answers with a store message'),
 ]);
 

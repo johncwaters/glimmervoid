@@ -145,16 +145,21 @@ test('a pack store keeps values per approved pack with panels, refuses a write o
 
 test('a panel sends a Reviews action only when its pack lists reviews under acts and the request passes the server schema within the byte limit, and the dashboard sends only the declared fields, never a requestId or padding the panel added', () => {
   const openSession = { type: 'open-team-review-session', key: 'acme/api#12', requestId: 'panel-picked', padding: 'x'.repeat(4096) };
-  const refusedWithoutActs = panelActionDecision([], openSession);
+  const refusedWithoutActs = panelActionDecision({ pack: 'demo', panelId: 'board', acts: [] }, openSession);
   assert.equal(refusedWithoutActs.ok, false);
   assert.match(refusedWithoutActs.ok ? '' : refusedWithoutActs.error, /does not list reviews under acts/);
-  const notAReviewsAction = panelActionDecision(['reviews'], { type: 'create-session', projectId: 'p1' });
+  const notAReviewsAction = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['reviews'] }, { type: 'create-session', projectId: 'p1' });
   assert.equal(notAReviewsAction.ok, false);
-  const invalidMerge = panelActionDecision(['reviews'], { type: 'my-pr-merge', repo: 'acme/api', number: -1 });
+  const invalidMerge = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['reviews'] }, { type: 'my-pr-merge', repo: 'acme/api', number: -1 });
   assert.equal(invalidMerge.ok, false);
   assert.match(invalidMerge.ok ? '' : invalidMerge.error, /^my-pr-merge not sent: /);
-  const sent = panelActionDecision(['reviews'], openSession);
+  const sent = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['reviews'] }, openSession);
   assert.deepEqual(sent, { ok: true, type: 'open-team-review-session', payload: { key: 'acme/api#12' } });
-  const oversizeComment = panelActionDecision(['reviews'], { type: 'team-review-action', key: 'acme/api#12', head: 'a'.repeat(40), action: 'comment', body: 'x'.repeat(PANEL_ACTION_MAX_BYTES), comments: [] });
+  const oversizeComment = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['reviews'] }, { type: 'team-review-action', key: 'acme/api#12', head: 'a'.repeat(40), action: 'comment', body: 'x'.repeat(PANEL_ACTION_MAX_BYTES), comments: [] });
   assert.match(oversizeComment.ok ? '' : oversizeComment.error, /^team-review-action not sent: the request is \d+ bytes, over the \d+ byte limit$/);
+  const sendText = { type: 'pack-session-send', id: 's1', text: 'continue', pack: 'other', panelId: 'spoofed' };
+  const refusedWithoutSessions = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['reviews'] }, sendText);
+  assert.match(refusedWithoutSessions.ok ? '' : refusedWithoutSessions.error, /does not list sessions under acts/);
+  const sentAsItsOwnPanel = panelActionDecision({ pack: 'demo', panelId: 'board', acts: ['sessions'] }, sendText);
+  assert.deepEqual(sentAsItsOwnPanel, { ok: true, type: 'pack-session-send', payload: { pack: 'demo', panelId: 'board', id: 's1', text: 'continue' } });
 });

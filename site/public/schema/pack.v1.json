@@ -569,12 +569,13 @@
               },
               "acts": {
                 "default": [],
-                "description": "What this panel may do as the operator, without asking again: reviews lets it post, discard or requeue team reviews and resolve their threads, open an agent session on a pull request, merge your pull requests, turn merge when ready on or off, turn keep mergeable on or off, dismiss review items, hand them to a session or run their actions, reopen handled review items, save rules to your config, approve PR flow commands, run PR actions; the operator sees it before approving",
+                "description": "What this panel may do as the operator, without asking again: reviews lets it post, discard or requeue team reviews and resolve their threads, open an agent session on a pull request, merge your pull requests, turn merge when ready on or off, turn keep mergeable on or off, dismiss review items, hand them to a session or run their actions, reopen handled review items, save rules to your config, approve PR flow commands, run PR actions; sessions lets it start an agent session with any prompt in any project, and type text into any live session on this machine, using the pack sessions settings; the operator sees it before approving",
                 "type": "array",
                 "items": {
                   "type": "string",
                   "enum": [
-                    "reviews"
+                    "reviews",
+                    "sessions"
                   ]
                 }
               }

@@ -1,14 +1,19 @@
 import { z } from 'zod';
 import { ClientMessage } from './contracts/control-messages.ts';
-import { PanelActionRequest } from './contracts/pack-bridge.ts';
-import type { PackPanelAct } from './contracts/pack-bridge.ts';
-import { REVIEW_ACTION_TYPES } from './contracts/reviews.ts';
+import { PANEL_ACTION_TYPES_BY_ACT, PackPanelAct, PanelActionRequest } from './contracts/pack-bridge.ts';
 
 type PanelActionDecision = { ok: true; type: string; payload: Record<string, unknown> } | { ok: false; error: string };
 
 const PANEL_ACTION_REQUEST_ID = 'panel-action';
 export const PANEL_ACTION_MAX_BYTES = 512 * 1024;
-const ACTION_TARGET_FIELDS = ['key', 'prKey', 'repo', 'number', 'action', 'actionId', 'itemKey', 'fingerprint'];
+const ACTION_TARGET_FIELDS = ['key', 'prKey', 'repo', 'number', 'action', 'actionId', 'itemKey', 'fingerprint', 'id', 'project', 'agent'];
+const HOST_FIELDS: ReadonlySet<string> = new Set(['requestId', 'pack', 'panelId']);
+
+type ActingPanel = { pack: string; panelId: string; acts: readonly PackPanelAct[] };
+
+function actOf(type: string): PackPanelAct | null {
+  return PackPanelAct.options.find((act) => PANEL_ACTION_TYPES_BY_ACT[act].includes(type)) ?? null;
+}
 const LOG_TEXT_MAX_CHARS = 900;
 
 function declaredFieldsOf(type: string): ReadonlySet<string> {
@@ -20,11 +25,13 @@ function issueText(issues: readonly { path: readonly PropertyKey[]; message: str
   return issues.map((issue) => `${issue.path.map(String).join('.') || 'request'}: ${issue.message}`).join('; ');
 }
 
-export function panelActionDecision(acts: readonly PackPanelAct[], request: unknown): PanelActionDecision {
+export function panelActionDecision(panel: ActingPanel, request: unknown): PanelActionDecision {
   const envelope = PanelActionRequest.safeParse(request);
   if (!envelope.success) return { ok: false, error: `not sent: ${issueText(envelope.error.issues)}` };
-  if (!acts.includes('reviews')) return { ok: false, error: `${envelope.data.type} not sent: this panel does not list reviews under acts in pack.json` };
-  const message = ClientMessage.safeParse({ ...envelope.data, requestId: PANEL_ACTION_REQUEST_ID });
+  const act = actOf(envelope.data.type);
+  if (act === null || !panel.acts.includes(act)) return { ok: false, error: `${envelope.data.type} not sent: this panel does not list ${act} under acts in pack.json` };
+  const hostFields = act === 'sessions' ? { pack: panel.pack, panelId: panel.panelId } : {};
+  const message = ClientMessage.safeParse({ ...envelope.data, ...hostFields, requestId: PANEL_ACTION_REQUEST_ID });
   if (!message.success) return { ok: false, error: `${envelope.data.type} not sent: ${issueText(message.error.issues)}` };
   const declaredFields = declaredFieldsOf(message.data.type);
   const payload = Object.fromEntries(Object.entries(message.data).filter(([field]) => declaredFields.has(field)));
@@ -41,14 +48,14 @@ export function panelActionLogText(viewId: string, type: string, payload: Readon
   return `${viewId} sent ${type} ${targetText}`.trim().slice(0, LOG_TEXT_MAX_CHARS);
 }
 
-function withoutRequestId(schema: z.core.JSONSchema.BaseSchema): z.core.JSONSchema.BaseSchema {
-  return { ...schema, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([field]) => field !== 'requestId')) };
+function withoutHostFields(schema: z.core.JSONSchema.BaseSchema): z.core.JSONSchema.BaseSchema {
+  const required = Array.isArray(schema.required) ? schema.required.filter((field) => !HOST_FIELDS.has(field)) : schema.required;
+  return { ...schema, required, properties: Object.fromEntries(Object.entries(schema.properties ?? {}).filter(([field]) => !HOST_FIELDS.has(field))) };
 }
 
 export function panelActionsJsonSchemaText(): string {
-  const reviewActionTypes: readonly string[] = REVIEW_ACTION_TYPES;
   const schemaByType = Object.fromEntries(ClientMessage.options
-    .filter((variant) => reviewActionTypes.includes(variant.shape.type.value))
-    .map((variant) => [variant.shape.type.value, withoutRequestId(z.toJSONSchema(variant, { io: 'input', unrepresentable: 'any' }))]));
+    .filter((variant) => actOf(variant.shape.type.value) !== null)
+    .map((variant) => [variant.shape.type.value, withoutHostFields(z.toJSONSchema(variant, { io: 'input', unrepresentable: 'any' }))]));
   return `${JSON.stringify(schemaByType, null, 2)}\n`;
 }

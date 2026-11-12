@@ -1,8 +1,8 @@
 import { Cron } from 'croner';
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
-import { CatalogAgentId, SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
-import { PackBridgeTopic, PackName, PackPanelAct } from './pack-bridge.ts';
+import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, LauncherProject } from './pack-launch.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
@@ -49,7 +49,7 @@ export const PackPanel = z.strictObject({
   entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }).describe('The HTML page the panel opens, relative to the pack folder'),
   icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional(),
   reads: z.array(PackBridgeTopic).default([]).describe('The bridge topics this panel may receive; the operator sees them before approving, and a subscribe for any other topic is ignored'),
-  acts: z.array(PackPanelAct).default([]).describe(`What this panel may do as the operator, without asking again: reviews lets it ${REVIEW_ACTIONS_GRANT_TEXT}; the operator sees it before approving`),
+  acts: z.array(PackPanelAct).default([]).describe(`What this panel may do as the operator, without asking again: reviews lets it ${REVIEW_ACTIONS_GRANT_TEXT}; sessions lets it ${SESSIONS_ACT_GRANT_TEXT}, using the pack sessions settings; the operator sees it before approving`),
 });
 
 export const PackUi = z.strictObject({
@@ -66,7 +66,6 @@ export const PackUi = z.strictObject({
 });
 export type PackUi = z.infer<typeof PackUi>;
 
-const LaunchValue = z.string().regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'a model or effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' });
 const CRON_FIELD_COUNT = 5;
 
 function isFiveFieldCron(pattern: string): boolean {
@@ -79,17 +78,11 @@ function isFiveFieldCron(pattern: string): boolean {
   }
 }
 
-const LAUNCHER_PROJECT_PATTERN = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|\/.+|[A-Za-z]:[\\/].*)$/;
-
 export const PackLauncher = z.strictObject({
   id: PackItemId,
-  label: z.string().trim().regex(/^[A-Za-z0-9_\-. ()]{1,24}$/, { error: 'a launcher label is 1 to 24 letters, digits, spaces and _ - . ( )' }).describe('The button text, also the name of the session it starts'),
-  project: z.string().max(4096).regex(LAUNCHER_PROJECT_PATTERN, { error: 'a launcher project is an owner/name GitHub repository or an absolute folder path' })
-    .describe('owner/name: the first configured project whose origin is that GitHub repository; or an absolute path of a folder on this machine. A launcher whose project matches nothing shows disabled'),
-  agent: CatalogAgentId.describe('The agent the session runs'),
-  model: LaunchValue.max(200).optional().describe('The model passed to the agent, as its own --model flag takes it; absent uses the agent default'),
-  effort: LaunchValue.max(40).optional().describe('The reasoning effort passed to the agent, such as low, medium or high; absent uses the agent default'),
-  prompt: z.string().trim().min(1).max(4000).regex(/^[\P{C}\n\t]*$/u, { error: 'a launcher prompt holds no control, format or invisible characters besides newlines and tabs, so the operator approves exactly what the session gets' }).describe('The first prompt the session gets'),
+  label: LauncherLabel.describe('The button text, also the name of the session it starts'),
+  project: LauncherProject.describe('owner/name: the first configured project whose origin is that GitHub repository; or an absolute path of a folder on this machine. A launcher whose project matches nothing shows disabled'),
+  agent: LaunchAgent, model: LaunchModel, effort: LaunchEffort, prompt: LaunchPrompt,
   schedule: z.string().trim().max(100).refine(isFiveFieldCron, { error: 'a launcher schedule is a cron pattern of five fields such as "0 9 * * 1-5"' }).optional()
     .describe('A cron pattern of five fields in the operator timezone; the launcher also starts its session on this schedule, skipping a run while its last scheduled session is still live, and never catching up runs missed while Glimmervoid was down'),
 });

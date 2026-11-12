@@ -47,7 +47,7 @@ export function decideScheduledFire({ lateByMs, missedGraceMs, isProjectResolved
 }
 
 export function launcherAddSession({ launcher, sessions, projectPath, sessionNames, operatorSaneYolo }: {
-  launcher: PackLauncher;
+  launcher: Pick<PackLauncher, 'label' | 'agent' | 'model' | 'effort' | 'prompt'>;
   sessions: PackSessions | null;
   projectPath: string;
   sessionNames: readonly string[];

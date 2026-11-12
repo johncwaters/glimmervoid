@@ -1,4 +1,5 @@
 import type { PackRow } from '#shared/contracts/control/pack-messages.ts';
+import { SESSIONS_ACT_GRANT_TEXT } from '#shared/contracts/pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
@@ -42,7 +43,27 @@ function packHeading(row: PackRow): HTMLElement {
 function sessionsLine(sessions: PackRow['sessions']): string | null {
   if (!sessions?.dangerouslySkipPermissions) return null;
   const guardrails = sessions.saneYolo === undefined ? 'Sane YOLO as in your settings' : `Sane YOLO ${sessions.saneYolo ? 'on' : 'off'}`;
-  return `Sessions its launchers start skip permission prompts (${guardrails})`;
+  return `Sessions its launchers and panels start skip permission prompts (${guardrails})`;
+}
+
+const ACT_GRANT_TEXT_BY_ACT: { readonly [Act in PackRow['panels'][number]['acts'][number]]: string } = {
+  reviews: `acts as you in Reviews without asking: may ${REVIEW_ACTIONS_GRANT_TEXT}`,
+  sessions: `may ${SESSIONS_ACT_GRANT_TEXT} without asking`,
+};
+
+function panelLines(row: PackRow): HTMLElement[] {
+  return row.panels.flatMap((panel) => {
+    const readsText = panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`;
+    const actsText = panel.acts.map((act) => `; ${ACT_GRANT_TEXT_BY_ACT[act]}`).join('');
+    return [el('p', 'settings-view-setting-description', `Panel: ${panel.label}${readsText}${actsText}`)];
+  });
+}
+
+function steeringWarning(row: PackRow): HTMLElement[] {
+  const readsReviews = row.panels.some((panel) => panel.reads.includes('reviews'));
+  const startsSessions = row.panels.some((panel) => panel.acts.includes('sessions'));
+  if (!readsReviews || !startsSessions) return [];
+  return [el('p', 'settings-view-warning', 'This pack reads pull request text other people wrote and can start agents, and its panels share one store, so that text could steer what it runs')];
 }
 
 function launcherLines(row: PackRow): HTMLElement[] {
@@ -58,7 +79,6 @@ function packLines(row: PackRow): HTMLElement[] {
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
-    ...row.panels.map((panel) => `Panel: ${panel.label}${panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`}${panel.acts.includes('reviews') ? `; acts as you in Reviews without asking: may ${REVIEW_ACTIONS_GRANT_TEXT}` : ''}`),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),
@@ -66,6 +86,8 @@ function packLines(row: PackRow): HTMLElement[] {
   ];
   return [
     ...lines.map((line) => el('p', 'settings-view-setting-description', line)),
+    ...panelLines(row),
+    ...steeringWarning(row),
     ...launcherLines(row),
     ...(sessionsText === null ? [] : [el('p', 'settings-view-warning', sessionsText)]),
     ...row.errors.map((error) => el('p', 'settings-view-warning', error)),
@@ -80,7 +102,7 @@ function packControl(row: PackRow): HTMLElement {
   const status = approveStatusByFingerprint.get(fingerprint);
   const approve = button({
     variant: 'secondary', label: 'Approve', action: 'pack-approve',
-    disabled: row.state !== 'pending' || status?.tone === 'busy',
+    disabled: row.state !== 'pending' || row.errors.length > 0 || status?.tone === 'busy',
     onClick: () => { void approvePack(fingerprint); },
   });
   const statusText = el('span', 'settings-view-pack-status');

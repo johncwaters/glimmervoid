@@ -156,7 +156,7 @@ test('packs remove and install leave a hand-placed pack alone, and install refus
   }
 });
 
-test('an approved pack launcher starts a session in its project with the pack model and permission settings, and a repository with no matching project stays disabled', async () => {
+test('an approved pack launcher, or a panel listing sessions under acts, starts a session in its project with the pack model and permission settings, a panel without it is refused, and a repository with no matching project stays disabled', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-launchers-'));
   const projectDir = path.join(homeDir, 'nightly-project');
   fs.mkdirSync(projectDir);
@@ -170,7 +170,15 @@ test('an approved pack launcher starts a session in its project with the pack mo
       { id: 'elsewhere', label: 'Elsewhere', project: 'example-org/not-cloned', agent: 'claude-code', prompt: 'Hello' },
     ],
     sessions: { dangerouslySkipPermissions: true, saneYolo: false },
+    ui: { panels: [{ id: 'inbox', label: 'Inbox', entry: 'inbox.html', acts: ['sessions'] }, { id: 'viewer', label: 'Viewer', entry: 'inbox.html' }] },
   }));
+  fs.writeFileSync(path.join(packDir, 'inbox.html'), '<!doctype html><title>Inbox</title>');
+  const unseenPackDir = path.join(homeDir, PACKS_DIR_NAME, 'unseen');
+  fs.mkdirSync(unseenPackDir, { recursive: true });
+  fs.writeFileSync(path.join(unseenPackDir, 'pack.json'), JSON.stringify({ name: 'unseen', version: 1, ui: { panels: [{ id: 'board', label: 'Board', entry: 'board.html', acts: ['not-yet-a-grant'] }] } }));
+  fs.writeFileSync(path.join(unseenPackDir, 'board.html'), '<!doctype html><title>Board</title>');
+  const panelProjectDir = path.join(homeDir, 'panel-project');
+  fs.mkdirSync(panelProjectDir);
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const clonedDir = path.join(homeDir, 'cloned-later');
   const projectPaths = [projectDir];
@@ -180,14 +188,17 @@ test('an approved pack launcher starts a session in its project with the pack mo
     runsPath: null, isSessionLive: () => true, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC',
   });
   const config: GlimmervoidConfig = { projects: [] };
-  const connection = connectControl<{ requestId?: string; ok?: boolean; error?: string | null }>(createControlServer(controlDeps(config, { packLaunchers, generateProjectId: () => `launched-${config.projects.length}` })));
-  const launch = (launcherId: string, requestId: string) => {
-    connection.send({ type: 'pack-launch', requestId, pack: 'nightly', launcherId });
-    return waitFor(() => connection.sent.some((frame) => frame.requestId === requestId)).then(() => connection.sent.find((frame) => frame.requestId === requestId));
+  const liveSession = idleSession(projectDir);
+  const connection = connectControl<{ requestId?: string; ok?: boolean; error?: string | null }>(createControlServer(controlDeps(config, { sessions: new Map([[liveSession.id, liveSession]]), packLaunchers, generateProjectId: () => `launched-${config.projects.length}` })));
+  const request = (message: Record<string, unknown> & { requestId: string }) => {
+    connection.send(message);
+    return waitFor(() => connection.sent.some((frame) => frame.requestId === message.requestId)).then(() => connection.sent.find((frame) => frame.requestId === message.requestId));
   };
+  const launch = (launcherId: string, requestId: string) => request({ type: 'pack-launch', requestId, pack: 'nightly', launcherId });
+  const panelStart = (panelId: string, requestId: string, project: string) => request({ type: 'pack-session-start', requestId, pack: 'nightly', panelId, project, agent: 'claude-code', prompt: 'Triage the inbox' });
   try {
     await packStore.start();
-    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'nightly'));
+    await waitFor(() => ['nightly', 'unseen'].every((name) => packStore.statusFrame().packs.some((row) => row.name === name)));
     const pendingRow = packStore.statusFrame().packs.find((row) => row.name === 'nightly');
     assert.deepEqual(pendingRow?.launchers.map((launcher) => launcher.prompt), [prompt, 'Hello'], 'the approval screen gets each prompt word for word');
     await packLaunchers.refresh();
@@ -195,6 +206,9 @@ test('an approved pack launcher starts a session in its project with the pack mo
     assert.equal((await launch('checks', 'before-approval'))?.ok, false);
     assert.equal(config.projects.length, 0);
 
+    const unseenRow = packStore.statusFrame().packs.find((row) => row.name === 'unseen');
+    const unseenApproval = await packStore.approve(unseenRow?.fingerprint ?? '');
+    assert.equal(unseenApproval.ok, false, 'a pack with errors cannot be approved, so a later schema cannot turn on a grant nobody saw');
     assert.deepEqual(await packStore.approve(pendingRow?.fingerprint ?? ''), { ok: true });
     await packLaunchers.refresh();
     const [checks, elsewhere] = packStore.statusFrame().launchers;
@@ -218,8 +232,21 @@ test('an approved pack launcher starts a session in its project with the pack mo
     const afterClone = await launch('elsewhere', 'after-clone');
     assert.equal(afterClone?.ok, true, afterClone?.error ?? '');
     assert.equal(config.projects.find((added) => added.name === 'Elsewhere')?.path, clonedDir);
+
+    assert.equal((await panelStart('viewer', 'viewer-start', panelProjectDir))?.ok, false, 'a panel without the sessions act is refused');
+    const panelStarted = await panelStart('inbox', 'inbox-start', panelProjectDir);
+    assert.equal(panelStarted?.ok, true, panelStarted?.error ?? '');
+    const panelProject = config.projects.find((added) => added.path === panelProjectDir);
+    assert.equal(panelProject?.name, 'Inbox');
+    assert.equal(panelProject?.dangerouslySkipPermissions, true, 'the pack sessions settings apply to panel sessions too');
+    const send = (panelId: string, requestId: string, id: string) => request({ type: 'pack-session-send', requestId, pack: 'nightly', panelId, id, text: 'Now the next one' });
+    assert.equal((await send('viewer', 'viewer-send', liveSession.id))?.ok, false, 'a panel without the sessions act cannot type into a session');
+    assert.equal((await send('inbox', 'unknown-send', 'no-such-session'))?.ok, false);
+    const typed = await send('inbox', 'inbox-send', liveSession.id);
+    assert.equal(typed?.ok, true, typed?.error ?? '');
   } finally {
     packStore.stop();
+    liveSession.destroy();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });
