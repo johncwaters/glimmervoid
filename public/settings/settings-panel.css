@@ -242,6 +242,25 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
   overflow-y: auto;
 }
 
+.settings-view-pack-source-add,
+.settings-view-pack-source-pack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.settings-view-pack-source-add .settings-view-input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.settings-view-pack-source-pack .settings-view-setting-description {
+  flex: 1 1 160px;
+  margin: 0;
+}
+
 .settings-view-subsection {
   padding: 28px 0 10px;
 }

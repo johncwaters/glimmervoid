@@ -12,6 +12,8 @@ import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts'
 import { PACK_PANEL_CONTENT_POLICY, pendingPackNote } from './core/pack-core.ts';
 import { PACKS_DIR_NAME } from './pack-files.ts';
 import { installPack, removeInstalledPack } from './pack-install.ts';
+import type { PackSources } from './pack-sources.ts';
+import { packSourceOf } from './core/pack-sources-core.ts';
 
 type PacksReadout = { text: string; hasProblem: boolean };
 type PackAgentDeps = {
@@ -20,6 +22,7 @@ type PackAgentDeps = {
   examplePacksDir: string;
   packRows: () => readonly PackRow[];
   isApproved: (fingerprint: string) => boolean;
+  sources?: Pick<PackSources, 'add' | 'update'>;
 };
 
 async function exampleLines(examplePacksDir: string): Promise<string[]> {
@@ -37,6 +40,7 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     'Glimmervoid packs',
     '',
     `A pack is a folder holding a ${PACK_FILE_NAME} and the files it names, at most 1 MiB in all and without symlinks. Install one with the packs tool action install (glimmervoid packs install <folder>), which checks the folder and copies it into ${path.join(homeDir, PACKS_DIR_NAME)}; installing again replaces that copy. remove deletes only a copy install made.`,
+    `Shared team packs: add <https URL of a git repository> clones it into ${path.join(homeDir, 'pack-sources')}, with git hooks and symlinks off; every folder in it holding a ${PACK_FILE_NAME} (at most two levels down) stays off until the operator enables it in Settings, Packs, which installs it, unapproved. update pulls every source, or the one whose URL you give, and reinstalls its enabled packs, which wait for approval again when any file changed.`,
     'Nothing in a pack runs or shows until the operator approves it in Settings, Packs, and any change to any file in it asks again. No tool action approves a pack: install it, then call request-approval with its name, which shows the operator what it adds and points them to Settings, Packs. status names its approval state, load errors and anything missing on this machine.',
     '',
     'Sections of pack.json, each checked on its own:',
@@ -136,6 +140,14 @@ async function checkForAgent(packDir: string, deps: PackAgentDeps): Promise<Pack
   return { text: packReportText(report), hasProblem: packCheckHasProblem(report) };
 }
 
+async function changeSourceForAgent(request: AgentPacksRequest, { sources }: PackAgentDeps): Promise<PacksReadout> {
+  if (!sources) return { text: 'Pack sources are not running here', hasProblem: true };
+  const target = request.url === undefined ? null : packSourceOf(request.url);
+  if (target !== null && !target.ok) return { text: target.error, hasProblem: true };
+  const outcome = request.command === 'add' ? await sources.add(request.url ?? '') : await sources.update(target?.slug ?? null);
+  return outcome.ok ? { text: outcome.text, hasProblem: false } : { text: outcome.error, hasProblem: true };
+}
+
 export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAgentDeps): Promise<PacksReadout> {
   switch (request.command) {
     case 'guide':
@@ -157,5 +169,8 @@ export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAg
       return requestApprovalFor(request.name ?? '', deps);
     case 'remove':
       return removeForAgent(request.name ?? '', deps);
+    case 'add':
+    case 'update':
+      return changeSourceForAgent(request, deps);
   }
 }

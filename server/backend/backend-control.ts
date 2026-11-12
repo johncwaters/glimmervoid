@@ -39,6 +39,7 @@ interface LaneReader {
   prFlows: NonNullable<ControlHandlerDeps['prFlows']>;
   packStore: NonNullable<ControlHandlerDeps['packs']>;
   packData: NonNullable<ControlHandlerDeps['packData']>;
+  packSources: NonNullable<ControlHandlerDeps['packSources']>;
   packLaunchers: NonNullable<ControlHandlerDeps['packLaunchers']>;
   races: NonNullable<ControlHandlerDeps['races']>;
 }
@@ -172,6 +173,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     prFlows: laneAssembly.prFlows,
     packs: laneAssembly.packStore,
     packData: laneAssembly.packData,
+    packSources: laneAssembly.packSources,
     packLaunchers: laneAssembly.packLaunchers,
     races: laneAssembly.races,
     githubStore: laneAssembly.githubStore,

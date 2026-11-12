@@ -445,6 +445,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     replyTo(ws, msg, 'pack-data-result', await deps.packData.set(msg.pack, msg.key, msg.value));
   }
 
+  async function replySourceChange(ws: ControlSocket, msg: { requestId?: string | null }, change: (sources: NonNullable<typeof deps.packSources>) => Promise<{ ok: true; text: string } | { ok: false; error: string }>): Promise<void> {
+    if (!deps.packSources) { replyTo(ws, msg, 'pack-source-result', { ok: false, error: 'Packs are not running' }); return; }
+    const outcome = await change(deps.packSources);
+    replyTo(ws, msg, 'pack-source-result', outcome.ok ? { ok: true, text: outcome.text, error: null } : { ok: false, error: outcome.error });
+  }
+
   function connectFrames(): readonly unknown[] {
     return deps.packs ? [deps.packs.statusFrame()] : [];
   }
@@ -475,6 +481,10 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-approve': handlePackApprove,
     'pack-data-get': handlePackDataGet,
     'pack-data-set': handlePackDataSet,
+    'pack-source-add': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.add(msg.url)),
+    'pack-source-update': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.update(msg.slug)),
+    'pack-source-remove': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.remove(msg.slug)),
+    'pack-source-enable': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.setPackEnabled(msg.slug, msg.pack, msg.isEnabled)),
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -503,6 +513,10 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
+    'pack-source-add': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
+    'pack-source-update': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
+    'pack-source-remove': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
+    'pack-source-enable': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames };

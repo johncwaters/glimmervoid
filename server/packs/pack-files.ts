@@ -8,7 +8,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import type { z } from 'zod';
 
-const PACK_MAX_TOTAL_BYTES = 1024 * 1024;
+export const PACK_MAX_TOTAL_BYTES = 1024 * 1024;
 export const PACKS_DIR_NAME = 'packs';
 const PACKS_STATE_FILE_NAME = 'packs-state.json';
 

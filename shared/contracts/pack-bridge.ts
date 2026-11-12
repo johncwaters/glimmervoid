@@ -56,6 +56,8 @@ export type PackBridgeTopicData = { [Topic in PackBridgeTopic]: z.infer<(typeof 
 
 export const PackName = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'a pack name is lowercase letters, digits and dashes, at most 40 characters' });
 
+export const PackSourceSlug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,79}$/, { error: 'a pack source is named by its slug: lowercase letters, digits, dots and dashes, at most 80 characters' });
+
 export const PACK_DATA_MAX_BYTES = 64 * 1024;
 
 export const PACK_STORE_MAX_DEPTH = 32;

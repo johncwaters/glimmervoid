@@ -2,7 +2,7 @@ import { Cron } from 'croner';
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, LauncherProject } from './pack-launch.ts';
-import { PackBridgeTopic, PackName, PackPanelAct, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
@@ -119,6 +119,11 @@ export type PacksState = z.infer<typeof PacksState>;
 
 export const PacksInstalled = z.strictObject({ fingerprintsByName: z.record(z.string().min(1), z.string().min(1)).default({}) });
 export type PacksInstalled = z.infer<typeof PacksInstalled>;
+
+export const PackSourcesFile = z.strictObject({
+  sources: z.array(z.strictObject({ url: z.string().min(1), slug: PackSourceSlug, enabledPacks: z.array(PackName) })).default([]),
+});
+export type PackSourcesFile = z.infer<typeof PackSourcesFile>;
 
 export type PackSection<Value> = { ok: true; value: Value } | { ok: false; errors: string[] };
 

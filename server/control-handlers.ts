@@ -1,3 +1,4 @@
+import type { PackSources } from './packs/pack-sources.ts';
 import type fs from 'node:fs';
 import type { z } from 'zod';
 import type { WebSocket } from 'ws';
@@ -139,6 +140,7 @@ interface ControlHandlerDeps {
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
   packLaunchers?: Pick<PackLaunchers, 'launchRequest' | 'panelSessionRequest' | 'panelMaySend' | 'attachSessionStarter'> | null;
   packData?: PackData | null;
+  packSources?: Pick<PackSources, 'add' | 'update' | 'remove' | 'setPackEnabled'> | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];

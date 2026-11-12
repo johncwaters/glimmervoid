@@ -16,6 +16,8 @@ import { createPackStore } from '../server/packs/pack-store.ts';
 import express from 'express';
 import http from 'node:http';
 import { createBoardPackPreviews, mountPackPreviewRoutes } from '../server/packs/pack-preview-server.ts';
+import { createPackSources } from '../server/packs/pack-sources.ts';
+import { runGit } from '../server/git/git-exec.ts';
 import { createGithubStatus, createProviderStatus } from '../server/github/github-status.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
@@ -28,6 +30,19 @@ import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 const EXAMPLE_THEME_PACK = path.resolve('examples/packs/night-shift');
+const TEST_GIT_HOST = 'https://example.test/';
+
+function gitServedFrom(remotesDir: string): typeof runGit {
+  return (args, options) => runGit(['-c', 'protocol.file.allow=always', ...args.map((arg) => (arg.startsWith(TEST_GIT_HOST) ? `file://${path.join(remotesDir, arg.slice(TEST_GIT_HOST.length))}` : arg))], options);
+}
+
+async function commitAll(repoDir: string, message: string): Promise<void> {
+  const identity = ['-c', 'user.name=Pack Author', '-c', 'user.email=author@example.test', '-c', 'commit.gpgsign=false'];
+  for (const args of [['add', '-A'], [...identity, 'commit', '-q', '-m', message]]) {
+    const ran = await runGit(args, { cwd: repoDir });
+    assert.ok(ran.ok, ran.err);
+  }
+}
 
 function idleSession(projectPath: string): Session {
   const session = new Session({ id: 'pack-author', name: 'pack-author', path: projectPath, ptySpawn: () => fakePty() });
@@ -46,6 +61,10 @@ function selfServiceFixture() {
   const session = idleSession(projectDir);
   const boardPackPreviews = createBoardPackPreviews({ env: process.env, homeDir, pagesDir: path.join(homeDir, 'pack-previews') });
   const shownOnBoard: Array<{ callerId: string; request: unknown }> = [];
+  const packSources = createPackSources({
+    homeDir, env: process.env, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+    onChange: () => {}, runGitFn: gitServedFrom(path.join(homeDir, 'remotes')),
+  });
   const wiring = createAgentApiWiring({
     config,
     agentSessions: new Map(),
@@ -64,7 +83,7 @@ function selfServiceFixture() {
       readSettings: () => ({ ok: false as const, error: 'not in this fixture' }),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir, env: process.env, examplePacksDir: path.resolve('examples/packs'),
-        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint), sources: packSources,
       }),
       previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
     },
@@ -87,7 +106,7 @@ function selfServiceFixture() {
     session.destroy();
     fs.rmSync(homeDir, { recursive: true, force: true });
   };
-  return { homeDir, projectDir, packStore, session, packs, rowNamed, shownOnBoard, cleanUp };
+  return { homeDir, projectDir, packStore, packSources, session, packs, rowNamed, shownOnBoard, cleanUp };
 }
 
 test('an agent installs a pack, asks for approval and removes it, while only the operator approval and no agent command approves it', async () => {
@@ -452,6 +471,64 @@ test('an agent previews a pack folder as a page card that Glimmervoid itself ser
     assert.equal(fixture.rowNamed('night-shift'), undefined, 'a preview installs nothing');
   } finally {
     await restartedServer.close();
+    fixture.cleanUp();
+  }
+});
+
+test('an agent adds a git pack source whose packs stay off until the operator enables one, update reinstalls it so a changed pack waits for approval again, and removing the source deletes its clone and installs', async () => {
+  const fixture = selfServiceFixture();
+  try {
+    await fixture.packStore.start();
+    const remoteDir = path.join(fixture.homeDir, 'remotes', 'team', 'packs');
+    fs.cpSync(EXAMPLE_THEME_PACK, path.join(remoteDir, 'themes', 'night-shift'), { recursive: true });
+    assert.ok((await runGit(['init', '-q', '-b', 'main'], { cwd: remoteDir })).ok);
+    await commitAll(remoteDir, 'add night-shift');
+
+    const refused = await fixture.packs({ command: 'add', url: 'http://example.test/team/packs' });
+    assert.match(refused.body.text ?? '', /is not a pack source: give the https URL/);
+    const added = await fixture.packs({ command: 'add', url: `${TEST_GIT_HOST}team/packs.git` });
+    assert.equal(added.body.hasProblem, false, added.body.text ?? '');
+    assert.match(added.body.text ?? '', /its packs: night-shift\. Each stays off until the operator enables it/);
+    const [source] = fixture.packSources.rows();
+    assert.deepEqual(source?.packs.map((pack) => [pack.name, pack.isEnabled]), [['night-shift', false]]);
+    assert.equal(fixture.rowNamed('night-shift'), undefined, 'adding a source installs nothing');
+
+    const enabled = await fixture.packSources.setPackEnabled(source?.slug ?? '', 'night-shift', true);
+    assert.ok(enabled.ok, enabled.ok ? '' : enabled.error);
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'pending');
+    assert.deepEqual(await fixture.packStore.approve(fixture.rowNamed('night-shift')?.fingerprint ?? ''), { ok: true });
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'approved');
+
+    const manifestPath = path.join(remoteDir, 'themes', 'night-shift', 'pack.json');
+    fs.writeFileSync(manifestPath, fs.readFileSync(manifestPath, 'utf8').replace('"version": 1', '"version": 2'));
+    await commitAll(remoteDir, 'bump night-shift');
+    const updated = await fixture.packs({ command: 'update' });
+    assert.match(updated.body.text ?? '', /night-shift reinstalled/);
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 2);
+    assert.equal(fixture.rowNamed('night-shift')?.state, 'pending', 'a changed pack from a source asks the operator again');
+
+    const otherRemoteDir = path.join(fixture.homeDir, 'remotes', 'team-b', 'packs');
+    fs.cpSync(EXAMPLE_THEME_PACK, path.join(otherRemoteDir, 'night-shift'), { recursive: true });
+    assert.ok((await runGit(['init', '-q', '-b', 'main'], { cwd: otherRemoteDir })).ok);
+    await commitAll(otherRemoteDir, 'add night-shift');
+    const otherAdded = await fixture.packs({ command: 'add', url: `${TEST_GIT_HOST}team-b/packs` });
+    assert.equal(otherAdded.body.hasProblem, false, otherAdded.body.text ?? '');
+    const otherSource = fixture.packSources.rows().find((row) => row.slug !== source?.slug);
+    assert.notEqual(otherSource?.dir, source?.dir, 'two repositories get two clones');
+    const clash = await fixture.packSources.setPackEnabled(otherSource?.slug ?? '', 'night-shift', true);
+    assert.ok(!clash.ok && /already enabled from/.test(clash.error), 'a second source cannot take over an installed pack name');
+    fs.rmSync(otherRemoteDir, { recursive: true, force: true });
+    const failedUpdate = await fixture.packs({ command: 'update', url: `${TEST_GIT_HOST}team-b/packs` });
+    assert.equal(failedUpdate.body.hasProblem, true, 'an update whose fetch fails reports a problem');
+    assert.deepEqual(await fixture.packSources.remove(otherSource?.slug ?? ''), { ok: true, text: `Removed the pack source ${otherSource?.slug}` });
+    assert.equal(fixture.rowNamed('night-shift')?.dir.endsWith('night-shift'), true, 'removing the other source leaves the first source install');
+
+    const removed = await fixture.packSources.remove(source?.slug ?? '');
+    assert.ok(removed.ok, removed.ok ? '' : removed.error);
+    await waitFor(() => fixture.rowNamed('night-shift') === undefined);
+    assert.equal(fs.existsSync(source?.dir ?? ''), false, 'the clone is deleted');
+    assert.deepEqual(fixture.packSources.rows(), []);
+  } finally {
     fixture.cleanUp();
   }
 });

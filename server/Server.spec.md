@@ -72,3 +72,8 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   via: a new session first prompt names the five newest boards of its project in use, once
   because: boards outlive their sessions, so a new session would otherwise not know a plan for its repository already exists; naming its own board or another repository's sends it to the wrong place
   kinds: none
+- agents never approve packs: No agent verb, MCP action or pack source change approves a pack; a pack an agent installs, or one enabled or updated from a pack source, waits in Pending until the operator approves it in Settings, Packs.
+  over: every packs command an agent sends and every pack source add, enable and update
+  via: an agent adds a git pack source whose packs stay off until the operator enables one, update reinstalls it so a changed pack waits for approval again, and removing the source deletes its clone and installs
+  because: an approved pack can start agents and run commands on this machine; an approval the operator never saw would run code they never read
+  kinds: none

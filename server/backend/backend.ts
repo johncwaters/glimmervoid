@@ -468,6 +468,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       readPacks: (request) => readPacksForAgent(request, {
         homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
         packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint),
+        sources: laneAssembly.packSources,
       }),
       previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
     },

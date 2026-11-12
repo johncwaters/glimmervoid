@@ -149,6 +149,8 @@ const JSON_OPTION: OptionSpec = { name: 'json', type: 'boolean', summary: 'Machi
 const SETTING_PATH = { usage: '<path>', min: 1, max: 1 };
 const PACK_FOLDER = { usage: '<folder>', min: 1, max: 1 };
 const PACK_NAME = { usage: '<name>', min: 1, max: 1 };
+const PACK_SOURCE_URL = { usage: '<https-git-url>', min: 1, max: 1 };
+const OPTIONAL_PACK_SOURCE_URL = { usage: '[https-git-url]', min: 0, max: 1 };
 
 const SETTINGS_NOTES = `<path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
 <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
@@ -239,7 +241,7 @@ const OWNED_COMMAND_SPECS = {
   },
   packs: {
     name: 'packs',
-    summary: 'Build a Glimmervoid pack: read the guide, check, preview and install a pack folder, ask the operator to approve it, list and remove installed packs',
+    summary: 'Build a Glimmervoid pack: read the guide, check, preview and install a pack folder, ask the operator to approve it, list and remove installed packs, add and update shared pack sources',
     subcommands: [
       { name: 'guide', summary: 'How to build a pack: its rules, the workflow and example packs to copy; --schema prints a JSON Schema', options: [{ name: 'schema', type: 'string', valueName: 'pack|bridge|actions|pr-flows', summary: 'Print only the pack.json (pack), panel bridge (bridge), panel action request (actions) or prFlows command output (pr-flows) JSON Schema' }] },
       { name: 'check', summary: 'Check a pack folder as Glimmervoid loads it, and every file its pages load; exits 1 on any problem', positionals: PACK_FOLDER, options: [JSON_OPTION], missingArgumentHint: 'check needs a pack folder, for example "glimmervoid packs check ./my-pack"' },
@@ -255,6 +257,8 @@ const OWNED_COMMAND_SPECS = {
       { name: 'status', summary: "One pack's approval state, load errors and anything missing on this machine; works inside a Glimmervoid session", positionals: PACK_NAME, missingArgumentHint: 'status needs a pack name, for example "glimmervoid packs status my-pack"' },
       { name: 'request-approval', summary: 'Ask the operator to approve an installed pack in Settings, Packs; works inside a Glimmervoid session', positionals: PACK_NAME, missingArgumentHint: 'request-approval needs a pack name, for example "glimmervoid packs request-approval my-pack"' },
       { name: 'remove', summary: 'Delete a pack that install placed; a pack placed by hand stays; works inside a Glimmervoid session', positionals: PACK_NAME, missingArgumentHint: 'remove needs a pack name, for example "glimmervoid packs remove my-pack"' },
+      { name: 'add', summary: 'Clone a git repository of shared packs as a pack source; each pack stays off until the operator enables it in Settings, Packs; works inside a Glimmervoid session', positionals: PACK_SOURCE_URL, missingArgumentHint: 'add needs the https URL of a git repository, for example "glimmervoid packs add https://github.com/owner/packs"' },
+      { name: 'update', summary: 'Pull every pack source, or the one given, and reinstall its enabled packs, which wait for approval again when changed; works inside a Glimmervoid session', positionals: OPTIONAL_PACK_SOURCE_URL },
     ],
   },
   vault: {

@@ -112,6 +112,7 @@ function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): 
 
 function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
   if (packArgument === undefined) return { command };
+  if (command === 'add' || command === 'update') return { command, url: packArgument };
   return command === 'check' || command === 'install' || command === 'preview' ? { command, path: path.resolve(packArgument) } : { command, name: packArgument };
 }
 

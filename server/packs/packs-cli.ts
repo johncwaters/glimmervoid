@@ -84,8 +84,10 @@ export async function runPacksCli(parsed: ParsedRun): Promise<number> {
   const subcommand = parsed.commandPath[1];
   if (subcommand === 'guide') return runGuide(homeDir, typeof parsed.values.schema === 'string' ? parsed.values.schema : null);
   if (subcommand === 'list') return runViaRunningGlimmervoid('list', {});
+  if (subcommand === 'update') return runViaRunningGlimmervoid('update', packArgument === undefined ? {} : { url: packArgument });
   if (packArgument === undefined) return 1;
   if (subcommand === 'status' || subcommand === 'request-approval' || subcommand === 'remove') return runViaRunningGlimmervoid(subcommand, { name: packArgument });
+  if (subcommand === 'add') return runViaRunningGlimmervoid('add', { url: packArgument });
   const packDir = path.resolve(packArgument);
   if (subcommand === 'install') return runViaRunningGlimmervoid('install', { path: packDir });
   if (subcommand === 'check') return runPackCheckCli({ packDir, isJson: parsed.values.json === true, env, homeDir });

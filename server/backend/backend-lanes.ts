@@ -53,6 +53,7 @@ import { createGithubUsageLedger } from '../github/github-usage-ledger.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packLauncherRunsPath, packsStatePath } from '../packs/pack-files.ts';
+import { createPackSources } from '../packs/pack-sources.ts';
 import { createPackData } from '../packs/pack-data.ts';
 import { createPackLaunchers } from '../packs/launchers.ts';
 import { createPackStore } from '../packs/pack-store.ts';
@@ -303,6 +304,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
   const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger, frameSecret });
   packStore.setProviderStatuses(providerStatus.statuses);
+  const packSources = createPackSources({
+    homeDir: glimmervoidHome, env: process.env, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+    onChange: () => broadcastPacksIfChanged(),
+  });
+  packStore.setSourceRows(packSources.rows);
   const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
@@ -493,6 +499,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
         const forgetRemovedPackData = () => packData.forgetRemovedPacks().catch((error: unknown) => logger.warn(`[packs] could not delete the stored data of removed packs: ${errorMessage(error)}`));
         packStore.on('removed', forgetRemovedPackData);
         packStore.start().then(forgetRemovedPackData, (error: unknown) => logger.warn(`[packs] start failed: ${errorMessage(error)}`));
+        packSources.start().catch((error: unknown) => logger.warn(`[packs] could not read pack sources: ${errorMessage(error)}`));
       },
       () => workflows.startPoller(),
       () => void deleteRetiredBenchmarkRuns(glimmervoidHome, gitWorkspace, logger),
@@ -549,6 +556,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     myPrs,
     prFlows,
     packStore,
+    packSources,
     packData,
     packLaunchers,
     community,
