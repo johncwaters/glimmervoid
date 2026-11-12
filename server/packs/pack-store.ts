@@ -11,6 +11,7 @@ import { keyedFramePath } from '../core/frame-capability-core.ts';
 import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
 import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
+import { servedPackFile } from './core/pack-page-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -192,7 +193,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   function servableFile(packName: string, fingerprint: string, filePath: string): Buffer | null {
     const pack = packsInUse().find((candidate) => candidate.header.name === packName && candidate.fingerprint === fingerprint);
-    return pack?.filesByPath.get(filePath) ?? null;
+    return pack === undefined ? null : servedPackFile(filePath, pack.filesByPath);
   }
 
   async function approvedPacks(): Promise<ApprovedPacks> {

@@ -10,6 +10,7 @@ import { readCappedBody } from '../backend/http/backend-http-body.ts';
 import { parseJsonRecord } from '../core/json-core.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { packFileHeaders } from './core/pack-core.ts';
+import { servedPackFile } from './core/pack-page-core.ts';
 import { previewHostPage } from './core/pack-preview-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { readApprovedPackFingerprints, readPackDir } from './pack-files.ts';
@@ -64,8 +65,8 @@ async function previewResponse(packDir: string, restPath: string, requestOrigin:
   const pack = read.ok ? read.pack : null;
   if (restPath.startsWith(FILES_PREFIX)) {
     const filePath = decodedFilePath(restPath);
-    const bytes = filePath === null ? undefined : pack?.filesByPath.get(filePath);
-    if (filePath === null || bytes === undefined) return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not a file in the pack' };
+    const bytes = filePath === null || pack === null ? null : servedPackFile(filePath, pack.filesByPath);
+    if (filePath === null || bytes === null) return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not a file in the pack' };
     return { status: 200, headers: { ...packFileHeaders(filePath, requestOrigin), 'Cache-Control': 'no-store' }, body: bytes };
   }
   if (restPath !== '') return { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: 'Not found' };

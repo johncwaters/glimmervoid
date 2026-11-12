@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createBackendHttpApp } from '../server/backend/backend-http.ts';
 import { createPackData } from '../server/packs/pack-data.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
+import { PACK_BRIDGE_HELPER_SOURCE } from '../server/packs/core/pack-page-core.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
 import { PACK_DATA_MAX_BYTES, PanelToHost } from '../shared/contracts/pack-bridge.ts';
 import { PANEL_ACTION_MAX_BYTES, panelActionDecision } from '../shared/pack-action-core.ts';
@@ -20,7 +21,9 @@ test('a pack panel file is served only from an approved pack at its current cont
   const packDir = path.join(homeDir, 'packs', 'ci');
   fs.mkdirSync(path.join(packDir, 'panel'), { recursive: true });
   fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'ci', version: 1, ui: { panels: [{ id: 'board', label: 'CI', entry: 'panel/index.html' }] } }));
-  fs.writeFileSync(path.join(packDir, 'panel', 'index.html'), '<!doctype html><p>ci</p>');
+  fs.writeFileSync(path.join(packDir, 'panel', 'index.html'), '<!doctype html><head><link rel="stylesheet" href="panel.css"></head><p>ci</p><script src="panel.js"></script>');
+  fs.writeFileSync(path.join(packDir, 'panel', 'panel.css'), 'p { color: red }');
+  fs.writeFileSync(path.join(packDir, 'panel', 'panel.js'), 'document.title = "</script>";');
   const frameSecret = crypto.randomBytes(32);
   const packStore = createPackStore({ homeDir, frameSecret, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
   const server = http.createServer(createBackendHttpApp({
@@ -47,7 +50,7 @@ test('a pack panel file is served only from an approved pack at its current cont
     assert.equal((await fetchPath(`/packs/ci/${pendingUrl.split('/')[2]}/files/panel/index.html`)).status, 401, 'the old access key route is gone');
     const served = await fetchPath(pendingUrl);
     assert.equal(served.status, 200);
-    assert.equal(await served.text(), '<!doctype html><p>ci</p>');
+    assert.equal(await served.text(), `<!doctype html><head><script>${PACK_BRIDGE_HELPER_SOURCE}</script><style>p { color: red }</style></head><p>ci</p><script>document.title = "<\\/script>";</script>`, 'the page arrives with the bridge helper first and its stylesheet and script inline, so a sign-in proxy that refuses the frame\'s own requests cannot blank it');
     assert.match(served.headers.get('content-type') ?? '', /^text\/html/);
     const policy = served.headers.get('content-security-policy') ?? '';
     assert.match(policy, /^sandbox allow-scripts allow-forms;/);
