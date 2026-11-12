@@ -570,6 +570,7 @@ async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
   const enlargedBounds = await enlarged.boundingBox();
   assert.ok(closeBounds && enlargedBounds && closeBounds.y + closeBounds.height <= enlargedBounds.y, 'the viewer puts Close in its header above the picture');
   assert.equal(await viewer.locator('.dialog-actions').count(), 0, 'the viewer has no bottom actions row');
+  await verifyViewerWidthHandle(page, enlarged);
   await verifyViewerZoom(page, enlarged, viewerClose);
   await viewerClose.click();
   await viewer.waitFor({ state: 'detached' });
@@ -748,6 +749,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await viewerPage.waitFor();
   assert.equal(await viewerPage.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a click on a page box opens it full size in the same sandbox');
   assert.notEqual(await viewerPage.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'the full size page takes the pointer');
+  await verifyViewerWidthHandle(page, viewerPage);
   await verifyViewerPageZoom(page, viewerPage);
   await page.frameLocator('iframe.wb-image-viewer-page').getByLabel('probe field').click();
   await page.keyboard.press('Escape');
@@ -783,9 +785,62 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
 function viewerScaleOf(media: Locator): Promise<number> {
   return media.evaluate(async (node) => {
     await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
-    const transform = getComputedStyle(node).transform;
+    const transform = getComputedStyle(node.closest('.wb-image-viewer-sheet') ?? node).transform;
     return transform === 'none' ? 1 : new DOMMatrixReadOnly(transform).a;
   });
+}
+
+async function untilSheetWidthOf(page: Page, expectedWidth: number, message: string): Promise<void> {
+  const lastWidth = await page.locator('.wb-image-viewer-sheet').evaluate((sheet, expected) => new Promise<number>((resolve) => {
+    const giveUpAt = performance.now() + 3000;
+    const check = () => {
+      const width = sheet.getBoundingClientRect().width;
+      if (Math.abs(width - expected) < 2 || performance.now() > giveUpAt) {
+        resolve(width);
+        return;
+      }
+      requestAnimationFrame(check);
+    };
+    check();
+  }), expectedWidth);
+  assert.ok(Math.abs(lastWidth - expectedWidth) < 2, `${message} (width ${lastWidth}, expected ${expectedWidth})`);
+}
+
+async function verifyViewerWidthHandle(page: Page, media: Locator): Promise<void> {
+  const viewer = page.locator('.wb-image-viewer');
+  const widthHandle = viewer.locator('.wb-image-viewer-resizer');
+  await viewer.evaluate((dialog) => Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+  const fullWidth = (await viewer.locator('.wb-image-viewer-sheet').boundingBox())?.width;
+  const handleBounds = await widthHandle.boundingBox();
+  assert.ok(fullWidth && fullWidth > 600 && handleBounds, 'the viewer shows a width handle on the media edge');
+  const grip = { x: handleBounds.x + handleBounds.width / 2, y: handleBounds.y + handleBounds.height / 2 };
+  await page.mouse.move(grip.x, grip.y);
+  await page.mouse.down();
+  await page.mouse.move(grip.x - 300, grip.y, { steps: 6 });
+  await page.mouse.up();
+  await untilSheetWidthOf(page, fullWidth - 300, 'dragging the width handle narrows the media by the drag');
+  assert.ok(((await media.boundingBox())?.width ?? 0) <= fullWidth - 299, 'the media fits inside its narrowed width');
+  assert.equal(await viewerScaleOf(media), 1, 'dragging the width handle leaves the zoom at fit');
+  const narrowedMedia = await media.boundingBox();
+  const narrowedHandle = await widthHandle.boundingBox();
+  assert.ok(narrowedMedia && narrowedHandle && narrowedMedia.x + narrowedMedia.width <= narrowedHandle.x + 0.5, 'the width handle sits beside the media, not over its scrollbar or controls');
+  const mediaCenter = { x: narrowedMedia.x + narrowedMedia.width / 2, y: narrowedMedia.y + narrowedMedia.height / 2 };
+  await page.mouse.move(mediaCenter.x, mediaCenter.y);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -400);
+  await page.keyboard.up('Control');
+  await untilScaleOf(media, 1.05, 8, 'a ctrl wheel zooms narrowed media');
+  for (let push = 0; push < 6; push += 1) await page.mouse.wheel(1000, 0);
+  const pannedRight = await settledBoundsOf(media);
+  const stageBounds = await viewer.locator('.wb-image-viewer-stage').boundingBox();
+  assert.ok(pannedRight && stageBounds && pannedRight.x + pannedRight.width > stageBounds.x + stageBounds.width / 2, `panning zoomed narrowed media keeps it on the stage (media right ${pannedRight ? pannedRight.x + pannedRight.width : 'none'})`);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, 2000);
+  await page.keyboard.up('Control');
+  await untilScaleOf(media, 1, 1, 'a ctrl wheel back returns narrowed media to fit');
+  await widthHandle.dblclick();
+  await untilSheetWidthOf(page, fullWidth, 'a double click on the width handle returns the media to its fitted width');
+  assert.equal(await viewerScaleOf(media), 1, 'a double click on the width handle does not zoom');
 }
 
 async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<void> {
@@ -828,7 +883,7 @@ async function untilScaleOf(media: Locator, leastScale: number, mostScale: numbe
   const lastScale = await media.evaluate((element, [least, most]) => new Promise<number>((resolve) => {
     const giveUpAt = performance.now() + 3000;
     const check = () => {
-      const scale = new DOMMatrixReadOnly(getComputedStyle(element).transform).a;
+      const scale = new DOMMatrixReadOnly(getComputedStyle(element.closest('.wb-image-viewer-sheet') ?? element).transform).a;
       if ((scale >= least && scale <= most) || performance.now() > giveUpAt) {
         resolve(scale);
         return;

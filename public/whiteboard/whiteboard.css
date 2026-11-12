@@ -564,6 +564,35 @@
   object-fit: contain;
 }
 
+.wb-image-viewer-sheet {
+  display: flex;
+  width: var(--wb-viewer-width, 100%);
+}
+
+.wb-image-viewer-media {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  object-fit: contain;
+}
+
+.wb-image-viewer-resizer {
+  flex: 0 0 8px;
+  cursor: col-resize;
+  touch-action: none;
+  background: color-mix(in oklch, var(--border) 70%, transparent);
+}
+
+.wb-image-viewer-resizer[data-dragging],
+.wb-image-viewer-resizer:focus-visible { outline: none; background: color-mix(in oklch, var(--accent) 40%, transparent); }
+@media (hover: hover) {
+  .wb-image-viewer-resizer:hover { background: color-mix(in oklch, var(--accent) 40%, transparent); }
+}
+
+.wb-image-viewer-stage.is-zoomed .wb-image-viewer-resizer { display: none; }
+
 .wb-image-viewer-video {
   background: #000;
 }

@@ -48,8 +48,8 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   const pointers = new Map<number, StagePoint>();
   media.classList.add('wb-zoomable-media');
 
-  function stageSize() {
-    return { width: stage.clientWidth, height: stage.clientHeight };
+  function mediaSize() {
+    return { width: media.offsetWidth, height: media.offsetHeight };
   }
 
   function stagePointOfClient(clientX: number, clientY: number): StagePoint {
@@ -94,8 +94,8 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   function movePinch(pinch: Extract<StageGesture, { kind: 'pinching' }>): void {
     const { distance, midpoint } = pinchShape();
     if (distance <= 0 || pinch.distance <= 0) return;
-    const panned = panBy(zoom, midpoint.x - pinch.midpoint.x, midpoint.y - pinch.midpoint.y, stageSize());
-    show(zoomAbout(panned, midpoint, distance / pinch.distance, stageSize()));
+    const panned = panBy(zoom, midpoint.x - pinch.midpoint.x, midpoint.y - pinch.midpoint.y, mediaSize());
+    show(zoomAbout(panned, midpoint, distance / pinch.distance, mediaSize()));
     gesture = { kind: 'pinching', distance, midpoint };
   }
 
@@ -119,7 +119,7 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
       gesture = { kind: 'panning', pointerId: event.pointerId, last: gesture.start };
     }
     if (gesture.kind !== 'panning' || gesture.pointerId !== event.pointerId) return;
-    show(panBy(zoom, point.x - gesture.last.x, point.y - gesture.last.y, stageSize()));
+    show(panBy(zoom, point.x - gesture.last.x, point.y - gesture.last.y, mediaSize()));
     gesture = { ...gesture, last: point };
   }
 
@@ -130,18 +130,18 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
     if (pointers.size === 1 && gesture.kind === 'pinching') gesture = { kind: 'idle' };
     if (!wasTap) return;
     const point = stagePointOfClient(event.clientX, event.clientY);
-    if (isDoubleTap(point)) show(toggleFitAbout(zoom, point, stageSize()));
+    if (isDoubleTap(point)) show(toggleFitAbout(zoom, point, mediaSize()));
   }
 
   function onWheel(event: WheelEvent): void {
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault();
-      show(zoomAbout(zoom, stagePointOfClient(event.clientX, event.clientY), wheelZoomFactor(event.deltaY, WHEEL_ZOOM_STEP), stageSize()));
+      show(zoomAbout(zoom, stagePointOfClient(event.clientX, event.clientY), wheelZoomFactor(event.deltaY, WHEEL_ZOOM_STEP), mediaSize()));
       return;
     }
     if (!isZoomedIn(zoom)) return;
     event.preventDefault();
-    show(panBy(zoom, -event.deltaX, -event.deltaY, stageSize()));
+    show(panBy(zoom, -event.deltaX, -event.deltaY, mediaSize()));
   }
 
   stage.addEventListener('pointerdown', onPointerDown);
@@ -149,17 +149,19 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   stage.addEventListener('pointerup', onPointerEnd);
   stage.addEventListener('pointercancel', onPointerEnd);
   stage.addEventListener('wheel', onWheel, { passive: false });
-  new ResizeObserver(() => show(panBy(zoom, 0, 0, stageSize()))).observe(stage);
+  const reclamp = new ResizeObserver(() => show(panBy(zoom, 0, 0, mediaSize())));
+  reclamp.observe(stage);
+  reclamp.observe(media);
   stage.addEventListener('dblclick', (event) => {
     event.preventDefault();
     if (lastPointerType !== 'mouse') return;
-    show(toggleFitAbout(zoom, stagePointOfClient(event.clientX, event.clientY), stageSize()));
+    show(toggleFitAbout(zoom, stagePointOfClient(event.clientX, event.clientY), mediaSize()));
   });
 
   return {
-    zoomAt: (mediaPoint, factor) => show(zoomAbout(zoom, stagePointOf(zoom, mediaPoint), factor, stageSize())),
-    panBy: (deltaX, deltaY) => show(panBy(zoom, deltaX, deltaY, stageSize())),
-    toggleFitAt: (mediaPoint) => show(toggleFitAbout(zoom, stagePointOf(zoom, mediaPoint), stageSize())),
+    zoomAt: (mediaPoint, factor) => show(zoomAbout(zoom, stagePointOf(zoom, mediaPoint), factor, mediaSize())),
+    panBy: (deltaX, deltaY) => show(panBy(zoom, deltaX, deltaY, mediaSize())),
+    toggleFitAt: (mediaPoint) => show(toggleFitAbout(zoom, stagePointOf(zoom, mediaPoint), mediaSize())),
     isZoomed: () => isZoomedIn(zoom),
   };
 }

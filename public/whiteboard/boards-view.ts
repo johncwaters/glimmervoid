@@ -4,11 +4,12 @@ import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
+import { wireColumnResizer } from '../column-resizer.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
@@ -690,6 +691,37 @@ function openBoardDoc(boardId: string, boxId: string): void {
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 
+const VIEWER_WIDTH_BOUNDS = { minPx: 240, maxPx: BOARD_MEDIA_MAX_EDGE_PX };
+const VIEWER_WIDTH_KEY_STEP_PX = 40;
+
+function viewerWidthHandle(): HTMLElement {
+  const widthHandle = el('div', 'wb-image-viewer-resizer');
+  widthHandle.setAttribute('role', 'separator');
+  widthHandle.setAttribute('aria-orientation', 'vertical');
+  widthHandle.setAttribute('aria-label', 'Media width');
+  widthHandle.tabIndex = 0;
+  widthHandle.addEventListener('pointerdown', (event) => event.stopPropagation());
+  widthHandle.addEventListener('dblclick', (event) => event.stopPropagation());
+  return widthHandle;
+}
+
+function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthHandle: HTMLElement): void {
+  let operatorWidthPx: number | null = null;
+  wireColumnResizer({
+    resizer: widthHandle,
+    column: mediaSheet,
+    widthHost: zoomStage,
+    widthProperty: '--wb-viewer-width',
+    bounds: VIEWER_WIDTH_BOUNDS,
+    keyStepPx: VIEWER_WIDTH_KEY_STEP_PX,
+    reservePx: 0,
+    getStoredWidth: () => operatorWidthPx,
+    setStoredWidth: (widthPx) => {
+      operatorWidthPx = widthPx;
+    },
+  });
+}
+
 function openImageViewer(pressedImage: PressedImage): void {
   const { alt } = pressedImage;
   const media = pressedMediaOf(pressedImage);
@@ -707,10 +739,16 @@ function openImageViewer(pressedImage: PressedImage): void {
     if (event.ctrlKey || event.metaKey) event.preventDefault();
   }, { passive: false });
   const enlargedMedia = enlargedMediaOf(pressedImage, media);
+  enlargedMedia.classList.add('wb-image-viewer-media');
   const zoomStage = el('div', 'wb-image-viewer-stage');
-  zoomStage.append(enlargedMedia);
+  const mediaSheet = el('div', 'wb-image-viewer-sheet');
+  const widthHandle = viewerWidthHandle();
+  mediaSheet.append(enlargedMedia, widthHandle);
+  zoomStage.append(mediaSheet);
   dialog.append(zoomStage);
-  const zoomControl = attachMediaZoom(zoomStage, enlargedMedia, (isZoomed) => {
+  wireViewerWidth(zoomStage, mediaSheet, widthHandle);
+  const zoomControl = attachMediaZoom(zoomStage, mediaSheet, (isZoomed) => {
+    zoomStage.classList.toggle('is-zoomed', isZoomed);
     if (enlargedMedia instanceof HTMLIFrameElement) postZoomedState(enlargedMedia, isZoomed);
   });
   if (enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(enlargedMedia, overlay, close, zoomControl);
