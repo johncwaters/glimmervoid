@@ -15,6 +15,7 @@ import { openAgentAccountDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
 import { buildLaneAccountsBlock } from './settings-accounts.ts';
 import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
+import { buildVaultConnectionSlot } from '../secrets/secrets-settings.ts';
 import { panelRefresher, setSettingsPayload, settingsPayload, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
 import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from '../server-power.ts';
@@ -245,6 +246,7 @@ function buildStatusSlot(setting: SettingsSetting) {
   if (setting.id === 'desktop-notifications') return buildNotificationPermissionSlot(setting);
   if (setting.id === 'telemetry-enabled') return buildTelemetryDataSlot();
   if (setting.status === 'telegram-delivery') return buildTelegramDeliverySlot();
+  if (setting.status === 'vault-connection') return buildVaultConnectionSlot(setting);
   const status = statusText(setting);
   if (!status) return null;
   return el('div', 'settings-view-warning settings-view-status-slot', status);

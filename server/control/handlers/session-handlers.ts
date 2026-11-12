@@ -69,6 +69,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     secrets = null,
     agentAccounts = null,
     packLaunchers = null,
+    testSecretSource = null,
   } = deps;
 
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
@@ -81,6 +82,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (!secrets) return sendError(ws, 'Secret approvals are unavailable on this host.');
     const refusal = await secrets.revoke(msg);
     if (refusal) sendError(ws, refusal);
+  }
+
+  async function handleSecretSourceTest(msg: ClientMessageOf<'secret-source-test'>, ws: ControlSocket): Promise<void> {
+    if (!testSecretSource) return replyTo(ws, msg, 'secret-source-test-result', { ok: false, message: 'Secrets are unavailable on this host.', detail: '' });
+    replyTo(ws, msg, 'secret-source-test-result', await testSecretSource(msg.lookIn));
   }
 
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): void {
@@ -717,6 +723,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     },
     'secret-decision': handleSecretDecision,
     'secret-revoke': handleSecretRevoke,
+    'secret-source-test': handleSecretSourceTest,
     'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
       findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
     },
@@ -732,6 +739,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'pack-session-send': (_msg, requestId, message) => ({ type: 'pack-session-send-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'secret-source-test': (_msg, requestId, message) => ({ type: 'secret-source-test-result', requestId, ok: false, message, detail: '' }),
   } satisfies InvalidReplyTable;
 
   packLaunchers?.attachSessionStarter(startSession);

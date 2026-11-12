@@ -14,11 +14,16 @@ export const SecretManager = z.enum(['1password']);
 
 export const SECRET_MANAGER_LABELS: Readonly<Record<z.infer<typeof SecretManager>, string>> = Object.freeze({ '1password': '1Password' });
 
+export const SecretLookIn = z.string({ error: 'vault.lookIn must be a string' }).trim()
+  .max(MAX_LOOK_IN_LENGTH, { error: `vault.lookIn must be at most ${MAX_LOOK_IN_LENGTH} characters` })
+  .regex(/^\P{Cc}*$/u, { error: 'vault.lookIn cannot hold control characters' });
+
 export const SecretSource = z.object({
   manager: SecretManager,
-  lookIn: z.string().trim().min(1, { error: 'name where the password manager should look' }).max(MAX_LOOK_IN_LENGTH)
-    .regex(/^\P{Cc}*$/u, { error: 'a password manager location cannot hold control characters' }),
+  lookIn: SecretLookIn.min(1, { error: 'Type the vault to look in first' }),
 }).strict();
+
+export const SecretSourceTestResult = z.object({ ok: z.boolean(), message: z.string(), detail: z.string() }).strict();
 
 const NEED_STATUSES = ['delivered', 'pending', 'denied', 'no-source', 'failed'] as const;
 export const NeedStatus = z.enum(NEED_STATUSES);
@@ -142,6 +147,7 @@ export const VaultCompanionFile = z.object({
 export type SecretName = z.infer<typeof SecretName>;
 export type SecretManager = z.infer<typeof SecretManager>;
 export type SecretSource = z.infer<typeof SecretSource>;
+export type SecretSourceTestResult = z.infer<typeof SecretSourceTestResult>;
 export type NeedStatus = z.infer<typeof NeedStatus>;
 export type AgentNeedRequest = z.infer<typeof AgentNeedRequest>;
 export type AgentNeedReply = z.infer<typeof AgentNeedReply>;

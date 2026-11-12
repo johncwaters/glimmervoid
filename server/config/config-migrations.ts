@@ -131,7 +131,7 @@ function dropRetiredSecretReferences(config: GlimmervoidConfig): string | null {
     if (Object.keys(keptEntries).length > 0) byProject[project] = keptEntries;
   }
   if (droppedCount === 0) return null;
-  return `[config] Removed ${droppedCount} saved secret approval${droppedCount === 1 ? '' : 's'} that named a vault item: secrets now read from the vault set as vault.lookIn, so each name asks again once.`;
+  return `[config] Removed ${droppedCount} saved secret approval${droppedCount === 1 ? '' : 's'} that named a vault item: secrets now read from the vault set in Settings > Vault, so each name asks again once.`;
 }
 
 interface KeyMove {

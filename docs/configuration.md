@@ -57,10 +57,11 @@ What agents may do without asking, and what Sane YOLO blocks.
 
 ### Vault
 
-Approved secrets, the vault companion, and the tokens Glimmervoid itself holds.
+Where agents read secrets from, the names they may read, and the tokens Glimmervoid itself holds.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
+| `vault.lookIn` | Look in | `""` | The 1Password vault agents read secrets from, only for the names you allow. Opening Settings never asks 1Password; Test connection does. |
 | `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
 | `vault.host` | Vault companion address | `"127.0.0.1"` | Address the vault companion listener binds. Any address other than this machine needs GLIMMERVOID_VAULT_TOKEN and a fixed vault port. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `vault.port` | Vault companion port | `null` | Port the vault companion listener binds; empty picks any free port. Set one for a companion on another machine. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |

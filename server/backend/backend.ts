@@ -84,6 +84,7 @@ import { createSecretsBroker } from '../secrets/secrets-broker.ts';
 import { createFnoxRunner } from '../secrets/fnox-runner.ts';
 import { createWrittenSecretNames } from '../secrets/written-secret-names.ts';
 import { SecretSource } from '../../shared/contracts/secrets.ts';
+import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { createVaultSocket } from '../secrets/vault-socket.ts';
 import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
@@ -406,11 +407,17 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onCompanionChanged: () => undefined,
     telemetry,
   });
+  const vaultSourceFor = (lookIn: unknown) => SecretSource.safeParse({ manager: config.vault?.manager ?? '1password', lookIn });
+  const testSecretSource = async (lookIn: string): Promise<SecretSourceTestResult> => {
+    const source = vaultSourceFor(lookIn);
+    if (!source.success) return { ok: false, message: source.error.issues[0]?.message ?? 'Glimmervoid cannot use that vault', detail: '' };
+    return fnoxRunner.test(source.data);
+  };
   const fnoxRunner = createFnoxRunner({ fnoxPath: resolveFnoxPath(), runsRoot: path.join(glimmervoidHomeDir(), 'fnox-runs'), environment: process.env });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
     currentSource: () => {
-      const source = SecretSource.safeParse({ manager: config.vault?.manager ?? '1password', lookIn: config.vault?.lookIn });
+      const source = vaultSourceFor(config.vault?.lookIn);
       return source.success ? source.data : null;
     },
     readSecret: fnoxRunner.read,
@@ -820,6 +827,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readTracePage: traceWiring?.readTracePage ?? null,
     sessionDocs,
     secrets: secretsBroker,
+    testSecretSource,
     whiteboards,
     reviews,
     changeMaps,

@@ -23,6 +23,7 @@ esac
 echo "end $reference" >> "$log"
 case "$reference" in
   *MISSING*) echo "[ERROR] \\"MISSING\\" isn't an item in the \\"Shelf\\" vault" >&2; exit 1 ;;
+  *NOVAULT*) echo "[ERROR] \\"Shelf\\" isn't a vault in this account" >&2; exit 1 ;;
 esac
 printf 'value-of-%s' "$reference"
 `;
@@ -60,17 +61,20 @@ test('a read takes only the vault and name Glimmervoid wrote, whatever fnox.toml
   }
 });
 
-test('reads from many sessions run one at a time, and a missing item fails with the helper output as detail and no value', { skip: cannotRunFakeOp }, async () => {
+test('reads from many sessions run one at a time, and a missing item or vault fails with its own message, the helper output as detail and no value', { skip: cannotRunFakeOp }, async () => {
   const { world, runner, opCalls, leftoverRunFolders } = makeFakeOpWorld();
   try {
     const source = { manager: '1password', lookIn: 'Shelf' } as const;
-    const [found, missing] = await Promise.all([runner.read(source, 'GH_TOKEN'), runner.read(source, 'MISSING')]);
+    const [found, missing, missingVault] = await Promise.all([runner.read(source, 'GH_TOKEN'), runner.read(source, 'MISSING'), runner.read(source, 'NOVAULT_TOKEN')]);
 
     assert.deepEqual(found, { value: 'value-of-op://Shelf/GH_TOKEN/password' });
     assert.ok('failure' in missing);
     assert.equal(missing.failure.kind, 'not-found');
     assert.match(missing.failure.detail, /isn't an item in the "Shelf"/);
-    assert.deepEqual(opCalls(), ['start op://Shelf/GH_TOKEN/password', 'end op://Shelf/GH_TOKEN/password', 'start op://Shelf/MISSING/password', 'end op://Shelf/MISSING/password']);
+    assert.match(missing.failure.message, /has no item MISSING in Shelf/);
+    assert.ok('failure' in missingVault);
+    assert.match(missingVault.failure.message, /has no vault Shelf/);
+    assert.deepEqual(opCalls(), ['start op://Shelf/GH_TOKEN/password', 'end op://Shelf/GH_TOKEN/password', 'start op://Shelf/MISSING/password', 'end op://Shelf/MISSING/password', 'start op://Shelf/NOVAULT_TOKEN/password', 'end op://Shelf/NOVAULT_TOKEN/password']);
     assert.deepEqual(leftoverRunFolders(), []);
   } finally {
     fs.rmSync(world, { recursive: true, force: true });
@@ -88,6 +92,19 @@ test('a read that times out stops the password manager it started before the nex
     assert.equal(slow.failure.kind, 'timed-out');
     assert.deepEqual(found, { value: 'value-of-op://Shelf/GH_TOKEN/password' });
     assert.deepEqual(opCalls(), ['start op://Shelf/SLOW_TOKEN/password', 'start op://Shelf/GH_TOKEN/password', 'end op://Shelf/GH_TOKEN/password']);
+  } finally {
+    fs.rmSync(world, { recursive: true, force: true });
+  }
+});
+
+test('a connection test asks the password manager who is signed in and reads no item', { skip: cannotRunFakeOp }, async () => {
+  const { world, runner, opCalls } = makeFakeOpWorld();
+  try {
+    const outcome = await runner.test({ manager: '1password', lookIn: 'Shelf' });
+
+    assert.equal(outcome.ok, true, outcome.detail);
+    assert.match(outcome.message, /^Signed in to 1Password/);
+    assert.deepEqual(opCalls(), ['start whoami', 'end whoami']);
   } finally {
     fs.rmSync(world, { recursive: true, force: true });
   }

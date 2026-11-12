@@ -26,6 +26,7 @@ import type { ReviewPort } from '../review/review-wiring.ts';
 import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
+import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -102,6 +103,7 @@ interface BackendControlDependencies {
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs: SessionDocsPort;
   secrets: SecretsBroker;
+  testSecretSource: (lookIn: string) => Promise<SecretSourceTestResult>;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
@@ -184,6 +186,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     readTracePage: dependencies.readTracePage,
     sessionDocs: dependencies.sessionDocs,
     secrets: dependencies.secrets,
+    testSecretSource: dependencies.testSecretSource,
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,

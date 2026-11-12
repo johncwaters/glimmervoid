@@ -4,8 +4,8 @@ import path from 'node:path';
 import { execFile, spawn } from '../child-process-safe.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 import { fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf } from './core/fnox-core.ts';
-import type { FnoxRunResult, ReadOutcome, TestOutcome } from './core/fnox-core.ts';
-import type { SecretName, SecretSource } from '../../shared/contracts/secrets.ts';
+import type { FnoxRunResult, ReadOutcome } from './core/fnox-core.ts';
+import type { SecretName, SecretSource, SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 
 const FNOX_READ_TIMEOUT_MS = 120_000;
 const FNOX_OUTPUT_LIMIT_BYTES = 1024 * 1024;
@@ -23,7 +23,7 @@ interface FnoxRunnerOptions {
 
 interface FnoxRunner {
   read(source: SecretSource, name: SecretName): Promise<ReadOutcome>;
-  test(source: SecretSource): Promise<TestOutcome>;
+  test(source: SecretSource): Promise<SecretSourceTestResult>;
 }
 
 interface FnoxLaunch {
@@ -124,8 +124,8 @@ function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNO
     return queue.run(async () => readOutcomeOf(await runFnox(fnoxConfigText(source, name), (configPath) => fnoxReadArguments(configPath, name)), source, name));
   }
 
-  function test(source: SecretSource): Promise<TestOutcome> {
-    return queue.run(async () => testOutcomeOf(await runFnox(fnoxConfigText(source, null), fnoxTestArguments), source));
+  function test(source: SecretSource): Promise<SecretSourceTestResult> {
+    return runFnox(fnoxConfigText(source, null), fnoxTestArguments).then((result) => testOutcomeOf(result, source));
   }
 
   return { read, test };

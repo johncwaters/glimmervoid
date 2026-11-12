@@ -1137,8 +1137,30 @@ html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr)
 }
 
 .settings-telegram-test .settings-telegram-test-status,
+.settings-telegram-test .settings-vault-test-status,
 .settings-telemetry-data .settings-telemetry-deletion-status {
   margin: 0;
+}
+
+.settings-vault-test-details {
+  margin-top: 8px;
+}
+
+.settings-vault-test-details-summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.settings-vault-test-details-text {
+  margin: 4px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .settings-workflow-rule-status {

@@ -45,6 +45,7 @@ const DEFAULT_CONFIG = {
   vault: {
     host: '127.0.0.1',
     port: null,
+    lookIn: '',
   },
 
   checkForUpdates: true,

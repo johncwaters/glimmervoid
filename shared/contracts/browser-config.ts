@@ -9,6 +9,7 @@ import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { QuestionManagerSettings } from './question-manager.ts';
 import { isKnownTimezone } from '../clock.ts';
+import { SecretLookIn } from './secrets.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -214,9 +215,10 @@ export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetr
 const vaultShape = {
   host: optionalString('vault.host', true),
   port: z.number({ error: 'vault.port must be a port from 1 to 65535 or null' }).int().min(ranges.FIXED_PORT_RANGE.min).max(ranges.FIXED_PORT_RANGE.max).nullable().optional(),
+  lookIn: SecretLookIn.optional(),
 };
 const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
-export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional(), manager: z.string().optional(), lookIn: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
+export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional(), manager: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
 
 export const WorktreeFileSettings = z.object({
   root: optionalString('worktree.root'),

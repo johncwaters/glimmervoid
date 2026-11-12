@@ -131,7 +131,7 @@ test('with no source chosen the agent gets no-source, the card asks for a source
   assert.deepEqual(reply.results.map((result) => result.status), ['no-source']);
   assert.equal(needExitCode(Object.fromEntries(reply.results.map((result) => [result.name, result.status]))), 30);
   assert.equal(broker.requestsSnapshot()[NEEDING_SESSION.id]?.phase, 'needs-source');
-  assert.match(await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-always', names: ['API_KEY'] }) ?? '', /vault.lookIn/);
+  assert.match(await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-always', names: ['API_KEY'] }) ?? '', /Settings > Vault/);
   assert.deepEqual(world.savedSecrets, {});
 
   world.source = SOURCE;

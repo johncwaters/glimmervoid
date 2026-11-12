@@ -128,9 +128,14 @@ export const MACHINE_VAULT: SettingsSection = {
   id: 'machine-vault',
   level: 'machine',
   title: 'Vault',
-  description: 'Approved secrets, the vault companion, and the tokens Glimmervoid itself holds.',
+  description: 'Where agents read secrets from, the names they may read, and the tokens Glimmervoid itself holds.',
   legacyIds: ['machine-secrets', 'lanes-github-access'],
   settings: [
+    {
+      id: 'vault-look-in', path: 'vault.lookIn', title: 'Look in',
+      description: 'The 1Password vault agents read secrets from, only for the names you allow. Opening Settings never asks 1Password; Test connection does.',
+      control: 'text', keywords: ['1password', 'password manager', 'secrets', 'source', 'op'], defaultValue: '', status: 'vault-connection', ...MACHINE_NOW,
+    },
     {
       id: 'github-read-token', path: 'github.readToken', title: 'GitHub read token',
       description: 'Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it.',

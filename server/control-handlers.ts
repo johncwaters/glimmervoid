@@ -39,6 +39,7 @@ import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring
 import { createControlContext } from './control/control-context.ts';
 import { mergeHandlerGroups, validationErrorReply } from './control/core/control-dispatch-core.ts';
 import type { SecretsBroker } from './secrets/secrets-broker.ts';
+import type { SecretSourceTestResult } from '../shared/contracts/secrets.ts';
 import { createCommunityHandlers } from './control/handlers/community-handlers.ts';
 import { createGithubHandlers } from './control/handlers/github-handlers.ts';
 import { createInspectHandlers } from './control/handlers/inspect-handlers.ts';
@@ -153,6 +154,7 @@ interface ControlHandlerDeps {
   readTracePage?: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs?: SessionDocsPort | null;
   secrets?: Pick<SecretsBroker, 'decide' | 'revoke'> | null;
+  testSecretSource?: ((lookIn: string) => Promise<SecretSourceTestResult>) | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;

@@ -290,7 +290,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
       withoutCardNames(card, names);
       return null;
     }
-    if (currentSource() === null) return 'Choose the vault Glimmervoid reads secrets from first: set vault.lookIn in config.json.';
+    if (currentSource() === null) return 'Choose the vault Glimmervoid reads secrets from first: type it in Look in under Settings > Vault.';
     decidingSessionIds.add(id);
     try {
       if (choice === 'allow-once') allowOnce(id, names);

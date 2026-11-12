@@ -84,6 +84,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-secret-request', id: 'session-1', card: { names: ['OPENAI_API_KEY'], reason: 'To call the model', phase: 'asking', readingName: null, from: '1Password, vault Dev', failure: null } },
   { type: 'secret-requests-snapshot', requests: { 'session-1': { names: ['OPENAI_API_KEY'], reason: null, phase: 'needs-source', readingName: null, from: null, failure: null } } },
   { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', isAllowed: true }] }] },
+  { type: 'secret-source-test-result', requestId: 'r1', ok: false, message: '1Password did not sign in', detail: '[ERROR] not signed in' },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
   { type: 'session-wakes', id: 'session-1', wakes: [{ id: 'w4', kind: 'cron', pattern: '0 9 * * 1-5', text: 'run nightly QA and report', nextFireAt: NOW, nextFire: '09:00 tomorrow (in 14h)' }] },

@@ -5,7 +5,7 @@ import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke } from '../secrets.ts';
+import { ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
@@ -44,6 +44,7 @@ export const sessionClientVariants = [
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('secret-decision', SecretDecision.shape),
   loose('secret-revoke', SecretRevoke.shape),
+  loose('secret-source-test', { requestId, lookIn: z.string() }),
 ] as const;
 
 export const sessionServerVariants = [
@@ -103,4 +104,5 @@ export const sessionServerVariants = [
   loose('session-secret-request', { id: sessionId, card: SecretRequestCard.nullable() }),
   loose('secret-requests-snapshot', { requests: z.record(z.string(), SecretRequestCard) }),
   loose('secret-approvals', { projects: z.array(ProjectApprovals) }),
+  loose('secret-source-test-result', { requestId, ...SecretSourceTestResult.shape }),
 ] as const;
