@@ -15,7 +15,8 @@ import { paintSessionRowStatus } from '../session-row.ts';
 import { createSessionPageButtons } from '../session-pages/session-pages.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
-import { controlBytesForCharacter, createMobileKeyStrip } from './mobile-key-strip.ts';
+import { decideStripContext } from '../mobile-keys.ts';
+import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
 export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   const screen = el('div', 'phone-terminal');
@@ -54,7 +55,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     + '<p class="phone-empty-desc">Select a session from the board to watch it here.</p>';
 
   const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
-  const { element: keyStrip, takeHeldControl, setKeyboardOpen } = createMobileKeyStrip({
+  const { element: keyStrip, takeModifiedCharacter, setKeyboardOpen, setContext: setStripContext } = createMobileKeyStrip({
     send: sendToShownTerminal,
     getSessionId: () => shownId,
     reportProblem: (text) => keyStatus.show('error', text),
@@ -67,6 +68,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   let adoptedActions: HTMLDivElement | null = null;
   let adoptedTags: HTMLDivElement | null = null;
   let renameTargetUi: SessionUi | null = null;
+  let bufferChangeSubscription: { dispose: () => void } | null = null;
+  let bufferWatchedTerminal: SessionUi['term'] | null = null;
 
   function sendToShownTerminal(data: string | null | undefined) {
     const ui = shownId ? sessionUIs.get(shownId) : null;
@@ -102,9 +105,10 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   cardSlot.addEventListener('focusout', () => queueMicrotask(() => setKeyboardOpen(isShownTerminalFocused())));
 
   function sendHeldControlChord(typedCharacter: string) {
-    const controlBytes = controlBytesForCharacter(typedCharacter);
-    if (!controlBytes || !takeHeldControl()) return false;
-    sendToShownTerminal(controlBytes);
+    if (typedCharacter.length !== 1) return false;
+    const modifiedBytes = takeModifiedCharacter(typedCharacter);
+    if (!modifiedBytes) return false;
+    sendToShownTerminal(modifiedBytes);
     return true;
   }
 
@@ -152,6 +156,8 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
       return;
     }
     const state = ui.currentState || STATES.DORMANT;
+    watchBufferOf(ui.term);
+    setStripContext(decideStripContext({ pendingPromptKind: ui.pendingPromptKind, state, bufferType: ui.term?.buffer.active.type, agentDrawsAlternateScreen: ui.agentDrawsAlternateScreen === true }));
     paintSessionRowStatus(topBar, { glyph: glyphEl, label: labelEl }, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
 
     paintAgentMark(agentMarkEl, ui.agent ?? null);
@@ -162,7 +168,21 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     elapsedEl.textContent = sessionElapsedText(ui);
   }
 
+  function stopWatchingBuffer() {
+    bufferChangeSubscription?.dispose();
+    bufferChangeSubscription = null;
+    bufferWatchedTerminal = null;
+  }
+
+  function watchBufferOf(terminal: SessionUi['term'] | null | undefined) {
+    if (!terminal || terminal === bufferWatchedTerminal) return;
+    stopWatchingBuffer();
+    bufferWatchedTerminal = terminal;
+    bufferChangeSubscription = terminal.buffer.onBufferChange(() => paint());
+  }
+
   function releaseBorrowedChrome() {
+    stopWatchingBuffer();
     if (renameTargetUi) {
       delete renameTargetUi.renameTargetEl;
       delete renameTargetUi.titleTargetEl;

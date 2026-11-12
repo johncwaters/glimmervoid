@@ -7,6 +7,7 @@ interface SessionCardSource {
   taskTitleIsCustom?: boolean;
   path: string;
   agentId: string;
+  agentDrawsAlternateScreen?: boolean;
   state: SessionCardFields["state"];
   stateSince: number;
   dangerouslySkipPermissions?: boolean;
@@ -37,6 +38,7 @@ function projectSessionCard(
     taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
     agent: source.agentId,
+    agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
     state: source.state,
     stateSince: source.stateSince,
     skipPerms: !!source.dangerouslySkipPermissions,
@@ -60,6 +62,7 @@ interface SnapshotSource {
   name: string;
   path: string;
   agent: string;
+  agentDrawsAlternateScreen?: boolean;
   state: string;
   stateSince: number;
   dangerouslySkipPermissions: boolean;
@@ -97,6 +100,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
     agent: source.agent,
+    agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
     state: source.state,
     stateSince: source.stateSince,
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,

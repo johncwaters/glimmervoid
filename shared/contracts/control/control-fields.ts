@@ -88,6 +88,7 @@ export const SessionCardFields = z.object({
   taskTitleIsCustom: z.boolean().optional(),
   path: z.string(),
   agent: z.string(),
+  agentDrawsAlternateScreen: z.boolean().optional(),
   state: SessionState,
   stateSince: timestamp,
   skipPerms: z.boolean(),
