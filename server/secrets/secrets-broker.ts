@@ -241,6 +241,8 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     if (readableNames.length === 0) return { ok: true, valuesByName: {}, missingNames: [] };
     const envValues = await readEnvValues(session.cwd);
     const valuesByName = Object.fromEntries(readableNames.filter((name) => (envValues[name] ?? '') !== '').map((name) => [name, envValues[name] ?? '']));
+    const handedOutValues = Object.values(valuesByName);
+    if (handedOutValues.length > 0) addDeliveredValues(session.id, handedOutValues);
     return { ok: true, valuesByName, missingNames: readableNames.filter((name) => !(name in valuesByName)) };
   }
 

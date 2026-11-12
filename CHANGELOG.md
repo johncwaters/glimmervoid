@@ -27,10 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An agent's secret request now reads from your password manager the moment you allow it.** The card on the session shows which names the agent wants, where the value comes from and where it goes, with Deny, Always allow and Allow once. While Glimmervoid waits on 1Password the card says so. A failed read shows a plain message and the password manager's own output under Show details, and leaves the buttons ready to retry. You no longer type `op://` references on the card or keep `glimmervoid vault` running. Type the 1Password vault Glimmervoid reads from in Settings > Vault > Look in; Test connection checks that you are signed in to 1Password, and the vault name itself is checked on the first read. Until a vault is set, an agent's `glimmervoid need` answers `no-source` (exit code 30) and the card offers Choose source. Saved approvals that named a vault item are removed on upgrade, so each name asks once more.
 
-### Removed
-
-- **The 1Password vault companion.** `glimmervoid vault` is gone, and so are `vault.host`, `vault.port` and `vault.token` in config.json and `GLIMMERVOID_VAULT_TOKEN`: Glimmervoid reads secrets itself from the vault set in Settings > Vault. On upgrade the three keys are removed from config.json with a log line saying so, and the companion's connection file is deleted.
-
 - **Double-clicking a full-size board picture, video or page no longer zooms it.** Clicking quickly in the viewer kept zooming it to 2x by accident. On desktop, zoom with Ctrl or Cmd and the scroll wheel, or a trackpad pinch. On a phone, double-tap still switches between fit and 2x.
 
 ### Fixed
@@ -39,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The 1Password vault companion.** `glimmervoid vault` is gone, and so are `vault.host`, `vault.port` and `vault.token` in config.json and `GLIMMERVOID_VAULT_TOKEN`: Glimmervoid reads secrets itself from the vault set in Settings > Vault. On upgrade the three keys are removed from config.json with a log line saying so, and the companion's connection file is deleted.
 - **Glimmervoid no longer reports activity to Coder.** When Glimmervoid ran inside a Coder workspace with `coder.appSlug` set, it told Coder whether sessions were working so the workspace stayed up. That reporting is gone, so a Coder workspace running Glimmervoid now follows only its own idle rules.
 - **Linked hosts are gone.** This dashboard no longer links other machines running Glimmervoid over ssh: the `glimmervoid host` command, the Linked hosts list in Settings, the host headers in the sidebar, the host choice in Add Session and Telegram alerts relayed from a linked host have been removed. A `hosts` block left in config.json is dropped at startup with one log line, and sessions already running on those machines keep running there; open each machine's own dashboard to reach them. Remote host setup still installs Glimmervoid on another machine, without the final linking step.
 - **Remote Coder sessions are gone.** Add Session no longer offers a Coder environment, and sessions no longer run Claude Code or Codex inside a `gv-` Coder workspace. The Remote Coder sessions setting and the `coder` block in config.json are dropped at startup with one log line, along with any session that ran in a Coder workspace and the list of workspaces Glimmervoid created. Glimmervoid does not delete those workspaces: list leftovers with `coder list` and remove each `gv-` workspace you no longer need with `coder delete <name>`.

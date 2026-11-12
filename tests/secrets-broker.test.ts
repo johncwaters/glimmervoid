@@ -146,6 +146,21 @@ test('with no source chosen the agent gets no-source, the card asks for a source
   assert.deepEqual(broker.requestsSnapshot(), {}, 'an always-allowed name reads without a card in another session');
 });
 
+test('a value another session approved for the project is masked in the session that runs a command with it', async () => {
+  const world = freshWorld({ savedSecrets: { byProject: { [NEEDING_SESSION.project]: { SHARED_KEY: { isAllowed: true } } } } });
+  const broker = createSecretsBroker({
+    readSecrets: () => world.savedSecrets,
+    writeSecrets: async () => false,
+    currentSource: () => world.source,
+    readSecret: async () => ({ value: '' }),
+    writeEnvFile: async () => ({ ok: true, envFile: '/projects/app/.env.local' }),
+    readEnvValues: async () => ({ SHARED_KEY: 'copied-into-this-worktree' }),
+  });
+  const reply = await broker.envFor(NEEDING_SESSION);
+  assert.deepEqual(reply.valuesByName, { SHARED_KEY: 'copied-into-this-worktree' });
+  assert.deepEqual(broker.deliveredValuesOf(NEEDING_SESSION.id), ['copied-into-this-worktree']);
+});
+
 test('Deny holds the name for the project and closes the card', async () => {
   const world = freshWorld({ valueByName: { API_KEY: 'the-value' } });
   const { broker } = brokerOver(world);
