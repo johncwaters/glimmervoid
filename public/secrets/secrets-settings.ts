@@ -4,7 +4,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 
-const SECRETS_NOTE = 'Secrets agents may read from your vault, per project. Revoking one makes the next request ask again.';
+const SECRETS_NOTE = 'Secrets agents may read from your password manager, per project. Revoking one makes the next request ask again.';
 
 let approvalsByProject: readonly ProjectApprovals[] | null = null;
 let secretsContainer: HTMLElement | null = null;
@@ -14,7 +14,7 @@ function approvalArticle(project: string, approval: ProjectApprovals['approvals'
   const text = el('div', 'settings-view-setting-text');
   const heading = el('div', 'settings-view-setting-heading');
   heading.append(el('h2', 'settings-view-setting-title', approval.name));
-  text.append(heading, el('p', 'settings-view-setting-description', approval.isAllowed ? `Reads ${approval.reference ?? 'no reference yet'}` : 'Denied'));
+  text.append(heading, el('p', 'settings-view-setting-description', approval.isAllowed ? 'Always allowed' : 'Denied'));
   const control = el('div', 'settings-view-setting-control');
   control.append(button({ variant: 'secondary', label: 'Revoke', action: 'secret-revoke', onClick: () => { sendControlMsg({ type: 'secret-revoke', project, name: approval.name }); } }));
   article.append(text, control);

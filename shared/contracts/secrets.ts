@@ -12,13 +12,15 @@ const MAX_LOOK_IN_LENGTH = 200;
 
 export const SecretManager = z.enum(['1password']);
 
+export const SECRET_MANAGER_LABELS: Readonly<Record<z.infer<typeof SecretManager>, string>> = Object.freeze({ '1password': '1Password' });
+
 export const SecretSource = z.object({
   manager: SecretManager,
   lookIn: z.string().trim().min(1, { error: 'name where the password manager should look' }).max(MAX_LOOK_IN_LENGTH)
     .regex(/^\P{Cc}*$/u, { error: 'a password manager location cannot hold control characters' }),
 }).strict();
 
-const NEED_STATUSES = ['delivered', 'pending', 'denied', 'companion-offline', 'failed'] as const;
+const NEED_STATUSES = ['delivered', 'pending', 'denied', 'no-source', 'failed'] as const;
 export const NeedStatus = z.enum(NEED_STATUSES);
 
 export const AgentNeedRequest = z.object({
@@ -40,19 +42,32 @@ export const AgentNeedReply = z.object({
 }).strict();
 
 export const SecretApproval = z.object({
-  reference: z.string().min(1).max(MAX_REFERENCE_LENGTH).nullable(),
   isAllowed: z.boolean(),
-}).passthrough();
+}).strict();
 
 const MAX_SECRET_VALUE_LENGTH = 65536;
-export const MAX_VAULT_NAME_LENGTH = 200;
+const MAX_VAULT_NAME_LENGTH = 200;
+
+export const WrittenSecretNames = z.object({
+  version: z.literal(1),
+  namesByDirectory: z.record(z.string(), z.array(SecretName)),
+}).strict();
 
 export const SecretDecision = z.object({
   id: z.string().min(1),
-  isAllowed: z.boolean(),
-  referenceByName: z.record(SecretName, z.string().trim().max(MAX_REFERENCE_LENGTH)).default({}),
-  valueByName: z.record(SecretName, z.string().max(MAX_SECRET_VALUE_LENGTH)).default({}),
-  newItemsVault: z.string().trim().max(MAX_VAULT_NAME_LENGTH).default(''),
+  choice: z.enum(['deny', 'allow-once', 'allow-always']),
+  names: z.array(SecretName).min(1).max(MAX_NAMES_PER_NEED),
+}).strict();
+
+const SECRET_REQUEST_PHASES = ['needs-source', 'asking', 'reading', 'failed'] as const;
+
+export const SecretRequestCard = z.object({
+  names: z.array(SecretName),
+  reason: z.string().nullable(),
+  phase: z.enum(SECRET_REQUEST_PHASES),
+  readingName: SecretName.nullable(),
+  from: z.string().nullable(),
+  failure: z.object({ message: z.string(), detail: z.string() }).strict().nullable(),
 }).strict();
 
 export const SecretRevoke = z.object({
@@ -62,7 +77,6 @@ export const SecretRevoke = z.object({
 
 const ApprovalRow = z.object({
   name: SecretName,
-  reference: z.string().nullable(),
   isAllowed: z.boolean(),
 }).strict();
 
@@ -133,6 +147,8 @@ export type AgentNeedRequest = z.infer<typeof AgentNeedRequest>;
 export type AgentNeedReply = z.infer<typeof AgentNeedReply>;
 export type SecretApproval = z.infer<typeof SecretApproval>;
 export type SecretDecision = z.infer<typeof SecretDecision>;
+export type WrittenSecretNames = z.infer<typeof WrittenSecretNames>;
+export type SecretRequestCard = z.infer<typeof SecretRequestCard>;
 export type SecretRevoke = z.infer<typeof SecretRevoke>;
 export type ProjectApprovals = z.infer<typeof ProjectApprovals>;
 export type VaultFailure = z.infer<typeof VaultFailure>;

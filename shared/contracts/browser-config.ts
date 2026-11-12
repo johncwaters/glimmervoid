@@ -216,7 +216,7 @@ const vaultShape = {
   port: z.number({ error: 'vault.port must be a port from 1 to 65535 or null' }).int().min(ranges.FIXED_PORT_RANGE.min).max(ranges.FIXED_PORT_RANGE.max).nullable().optional(),
 };
 const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
-export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
+export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional(), manager: z.string().optional(), lookIn: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
 
 export const WorktreeFileSettings = z.object({
   root: optionalString('worktree.root'),

@@ -8,12 +8,13 @@ import { waitFor } from '../helpers/wait-for.ts';
 import { startRecordingFake } from './support/recording-fake.ts';
 import type { RecordedRequest } from './support/recording-fake.ts';
 import { assertCleanLog, startServer } from './support/server-process.ts';
+import { resolveFnoxPath } from '../../server/runtime-paths.ts';
 
-const SCENARIO_SEEDS = ['server/secrets/vault-socket.ts', 'server/secrets/secrets-broker.ts', 'server/telemetry.ts', 'server/agent-api-cli.ts', 'bin/glimmervoid.ts'];
+const SCENARIO_SEEDS = ['server/secrets/vault-socket.ts', 'server/secrets/secrets-broker.ts', 'server/secrets/fnox-runner.ts', 'server/telemetry.ts', 'server/agent-api-cli.ts', 'bin/glimmervoid.ts'];
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const SECRET_NAME = 'E2E_VAULT_SECRET';
-const SECRET_REFERENCE = 'op://e2e-vault/e2e-item/credential';
+const VAULT_NAME = 'e2e-vault';
 const SECRET_VALUE = 'e2e-secret-value-7f3a';
 const WRONG_TOKEN = 'e2e-wrong-vault-token';
 const DELIVERY_DEADLINE_MS = 20_000;
@@ -47,14 +48,12 @@ function connectCompanion(companionUrl: string, token: string): Promise<WebSocke
   });
 }
 
-function answerResolveJobs(companion: WebSocket): void {
-  companion.send(JSON.stringify({ type: 'hello', newItemsVault: null }));
-  companion.on('message', (rawJob: Buffer) => {
-    const job = JSON.parse(rawJob.toString('utf8'));
-    if (job.type !== 'resolve') return;
-    const items = job.items.map((item: { name: string; reference: string }) => (item.reference === SECRET_REFERENCE ? { name: item.name, value: SECRET_VALUE } : { name: item.name, failure: { kind: 'not-found', message: 'unknown reference' } }));
-    companion.send(JSON.stringify({ type: 'resolved', jobId: job.jobId, items }));
-  });
+const cannotRunFakeOp = process.platform === 'win32' || !fs.existsSync(resolveFnoxPath());
+
+function writeFakeOp(): string {
+  const fakeBin = fs.mkdtempSync(path.join(process.env.GLIMMERVOID_HOME ?? REPO_ROOT, 'vault-op-'));
+  fs.writeFileSync(path.join(fakeBin, 'op'), `#!/bin/sh\nprintf '%s' '${SECRET_VALUE}'\n`, { mode: 0o755 });
+  return fakeBin;
 }
 
 function capturedEventsOf(requests: readonly RecordedRequest[]): CapturedEvent[] {
@@ -70,7 +69,7 @@ function stringsInside(value: unknown): string[] {
   return [];
 }
 
-test('the vault takes a companion, refuses a wrong token, delivers an approved secret to a shell session, and telemetry reports it without names, values, tokens or addresses', async (t) => {
+test('the vault takes a companion, refuses a wrong token, delivers an approved secret to a shell session through the password manager, and telemetry reports it without names, values, tokens or addresses', { skip: cannotRunFakeOp }, async (t) => {
   const fakeIngest = await startRecordingFake((request) => {
     if (request.path.startsWith('/flags')) return { status: 200, body: '{"flags":{}}' };
     return { status: 200, body: '{"status":1}' };
@@ -82,10 +81,12 @@ test('the vault takes a companion, refuses a wrong token, delivers an approved s
     testContext: t,
     extraEnvironment: { GLIMMERVOID_POSTHOG_INGEST_HOST: fakeIngest.origin },
     removedEnvironmentNames: TELEMETRY_ENVIRONMENT_NAMES,
+    pathPrefix: writeFakeOp(),
     seedConfig: {
       projects: [],
       telemetry: { enabled: true },
-      secrets: { byProject: { [projectDirectory]: { [SECRET_NAME]: { reference: SECRET_REFERENCE, isAllowed: true } } } },
+      vault: { manager: '1password', lookIn: VAULT_NAME },
+      secrets: { byProject: { [projectDirectory]: { [SECRET_NAME]: { isAllowed: true } } } },
     },
   });
 
@@ -97,7 +98,6 @@ test('the vault takes a companion, refuses a wrong token, delivers an approved s
   await assert.rejects(connectCompanion(companionUrl, WRONG_TOKEN), /401/);
   await server.waitForLogLine(/\[vault\] refused a companion connection: wrong token/, 'the wrong token refusal');
   const companion = await connectCompanion(companionUrl, companionFile.token);
-  answerResolveJobs(companion);
   await server.waitForLogLine(/\[vault\] companion connected/, 'the companion connection');
 
   const client = await dashboardClient(server.port);
@@ -132,7 +132,7 @@ test('the vault takes a companion, refuses a wrong token, delivers an approved s
   assert.ok(vaultConnections.includes('refused') && vaultConnections.includes('connected'), `vault connection events: ${JSON.stringify(vaultConnections)}`);
   const answeredSecrets = capturedEvents.filter((captured) => captured.event === 'vault_secret_answered');
   assert.equal(answeredSecrets.at(-1)?.properties.delivered_count, 1, JSON.stringify(answeredSecrets));
-  const forbiddenTexts = [SECRET_NAME, SECRET_VALUE, SECRET_REFERENCE, companionFile.token, WRONG_TOKEN, projectDirectory, path.basename(projectDirectory), server.home, fakeIngest.origin, 'http://', 'https://'];
+  const forbiddenTexts = [SECRET_NAME, SECRET_VALUE, VAULT_NAME, companionFile.token, WRONG_TOKEN, projectDirectory, path.basename(projectDirectory), server.home, fakeIngest.origin, 'http://', 'https://'];
   const leakedStrings = capturedEvents.flatMap((captured) => stringsInside(captured.properties).filter((text) => forbiddenTexts.some((forbidden) => text.includes(forbidden))).map((text) => `${captured.event}: ${text}`));
   assert.deepEqual(leakedStrings, [], 'telemetry carried a secret, token, address or project name');
 });

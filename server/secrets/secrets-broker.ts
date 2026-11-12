@@ -1,13 +1,11 @@
 import { EventEmitter } from 'node:events';
-import path from 'node:path';
 
-import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRevoke, CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
+import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
-import type { CreateMiss } from './vault-socket.ts';
-import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
+import type { ReadOutcome } from './core/fnox-core.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
-import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, withApprovals, withoutApproval, withoutApprovals } from './core/secrets-broker-core.ts';
+import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, sourceLabel, withAllowedNames, withoutApproval } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
 import { clock } from '../../shared/clock.ts';
 
@@ -17,26 +15,36 @@ interface NeedingSession {
   cwd: string;
 }
 
+type CardFailure = NonNullable<SecretRequestCard['failure']>;
+
+interface RequestCard {
+  session: NeedingSession;
+  names: string[];
+  reason: string | null;
+  phase: 'asking' | 'reading' | 'failed';
+  readingName: string | null;
+  failure: CardFailure | null;
+}
+
 interface Delivery {
   statusByName: Record<string, NeedStatus>;
   noteByName: Record<string, string>;
   envFile: string | null;
 }
 
-interface PendingCard {
-  project: string;
-  names: string[];
+interface DeliveredName {
+  cwd: string;
+  envFile: string;
 }
 
 interface SecretsBrokerOptions {
   readSecrets: () => unknown;
   writeSecrets: (mutate: (rawSecrets: unknown) => Record<string, unknown> | null) => Promise<boolean>;
-  isCompanionOnline?: () => boolean;
-  readVault?: (items: ResolveJob['items']) => Promise<ResolvedResult['items'] | null>;
-  createInVault?: (items: CreateJob['items']) => Promise<CreatedResult['items'] | CreateMiss>;
-  newItemsVault?: () => string | null;
+  currentSource: () => SecretSource | null;
+  readSecret: (source: SecretSource, name: string) => Promise<ReadOutcome>;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
   readEnvValues?: (directory: string) => Promise<Readonly<Record<string, string>>>;
+  writtenNames?: { remember(directory: string, names: readonly string[]): Promise<void>; namesIn(directory: string): Promise<readonly string[]> };
   now?: () => number;
   telemetry?: Pick<Telemetry, 'capture'> | null;
 }
@@ -49,58 +57,70 @@ const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
   delivered: deliveredNote('the env file'),
   pending: "waiting on the operator's approval card in Glimmervoid; ask again later or pass --wait",
   denied: 'the operator denied it; do not ask again today',
-  'companion-offline': 'the vault companion is not connected, so ask the operator to run glimmervoid vault and then ask again',
-  failed: 'the vault could not read it',
+  'no-source': "no password manager is chosen in Glimmervoid yet; the operator was asked to pick one on this session's card, so ask again later",
+  failed: 'the password manager could not read it',
 });
 
-const UNWRITABLE_VALUE_NOTE = 'the value holds every kind of quote, so no env file reader would get it back unchanged';
-const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze({
-  offline: 'The vault companion is not connected, so the pasted values cannot go into the vault; run glimmervoid vault, or give a reference instead.',
-  outdated: 'The running vault companion predates pasting values; restart glimmervoid vault, or give a reference instead.',
-  invalid: 'The pasted values or vault name are too long for a vault item; give a reference instead.',
-  'no-answer': 'The vault companion did not answer in time, so the items may or may not exist; check the vault for them, then give their references instead of pasting again.',
-});
-const REFERENCE_NOT_FOUND_NOTE = 'the vault has no item at the saved reference; the operator was asked for a new one';
-const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
+const READER_CRASHED_MESSAGE = 'Glimmervoid could not run its password manager reader';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
+function writtenSummary(deliveredNames: readonly string[]): string {
+  if (deliveredNames.length === 0) return 'Nothing was written.';
+  return `${deliveredNames.join(', ')} ${deliveredNames.length === 1 ? 'was' : 'were'} written to the env file; the rest were not.`;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
-  const cardsBySession = new Map<string, PendingCard>();
+  const cardsBySession = new Map<string, RequestCard>();
   const decidingSessionIds = new Set<string>();
-  const deliveriesBySession = new Map<string, Map<string, { source: string; envFile: string }>>();
+  const allowedOnceNamesBySession = new Map<string, Set<string>>();
+  const deliveriesBySession = new Map<string, Map<string, DeliveredName>>();
   const deliveredValuesBySession = new Map<string, Set<string>>();
 
-  function projectState(project: string): ProjectSecretState {
-    return { approvals: approvalsOf(readSecrets(), project), deniedUntilMs: deniedUntilMsByProject.get(project) ?? {} };
+  function deliveredNamesFor(session: NeedingSession): Map<string, string> {
+    const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, DeliveredName>();
+    return new Map([...deliveries].filter(([, delivery]) => delivery.cwd === session.cwd).map(([name, delivery]) => [name, delivery.envFile]));
   }
 
-  function raiseCard(session: NeedingSession, names: readonly string[]): void {
-    const card = cardsBySession.get(session.id) ?? { project: session.project, names: [] };
+  function projectState(session: NeedingSession, hasSource: boolean): ProjectSecretState {
+    return {
+      approvals: approvalsOf(readSecrets(), session.project),
+      deniedUntilMs: deniedUntilMsByProject.get(session.project) ?? {},
+      allowedOnceNames: allowedOnceNamesBySession.get(session.id) ?? new Set(),
+      deliveredNames: new Set(deliveredNamesFor(session).keys()),
+      hasSource,
+    };
+  }
+
+  function cardView(card: RequestCard): SecretRequestCard {
+    const source = currentSource();
+    const phase = card.phase === 'asking' && source === null ? 'needs-source' : card.phase;
+    return { names: [...card.names], reason: card.reason, phase, readingName: card.readingName, from: source === null ? null : sourceLabel(source), failure: card.failure };
+  }
+
+  function emitCard(sessionId: string, newNames: readonly string[]): void {
+    const card = cardsBySession.get(sessionId);
+    events.emit('card-changed', { sessionId, card: card ? cardView(card) : null, newNames });
+  }
+
+  function raiseCard(session: NeedingSession, names: readonly string[], reason: string | null): void {
+    const card = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'asking', readingName: null, failure: null };
     const newNames = names.filter((name) => !card.names.includes(name));
-    if (newNames.length === 0) return;
+    const isReasonNew = reason !== null && reason !== card.reason;
+    if (newNames.length === 0 && !isReasonNew) return;
     card.names = [...card.names, ...newNames];
+    card.reason = reason ?? card.reason;
     cardsBySession.set(session.id, card);
     emitCard(session.id, newNames);
   }
 
-  function failedDelivery(names: readonly string[], note: string): Delivery {
-    return {
-      statusByName: Object.fromEntries(names.map((name) => [name, 'failed'])),
-      noteByName: Object.fromEntries(names.map((name) => [name, note])),
-      envFile: null,
-    };
-  }
-
-  function deliverySource(session: NeedingSession, reference: string): string {
-    return JSON.stringify([session.cwd, reference]);
-  }
-
-  function rememberDelivery(session: NeedingSession, items: readonly { name: string; reference: string }[], envFile: string, valuesByName: Readonly<Record<string, string>>): void {
-    const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, { source: string; envFile: string }>();
-    for (const { name, reference } of items) deliveries.set(name, { source: deliverySource(session, reference), envFile });
-    deliveriesBySession.set(session.id, deliveries);
-    addDeliveredValues(session.id, Object.values(valuesByName));
+  function closeCard(sessionId: string): void {
+    if (!cardsBySession.delete(sessionId)) return;
+    emitCard(sessionId, []);
   }
 
   function addDeliveredValues(sessionId: string, values: readonly string[]): void {
@@ -108,108 +128,111 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     events.emit('delivered', sessionId);
   }
 
+  function rememberDelivery(session: NeedingSession, envFile: string, valuesByName: Readonly<Record<string, string>>): void {
+    const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, DeliveredName>();
+    for (const name of Object.keys(valuesByName)) deliveries.set(name, { cwd: session.cwd, envFile });
+    deliveriesBySession.set(session.id, deliveries);
+    addDeliveredValues(session.id, Object.values(valuesByName));
+  }
+
   async function seedMasks(session: NeedingSession): Promise<string | null> {
     const approvedNames = Object.entries(approvalsOf(readSecrets(), session.project)).filter(([, approval]) => approval.isAllowed).map(([name]) => name);
-    if (approvedNames.length === 0) return null;
     try {
+      const maskedNames = new Set([...approvedNames, ...await writtenNames.namesIn(session.cwd)]);
+      if (maskedNames.size === 0) return null;
       const envValues = await readEnvValues(session.cwd);
-      const approvedValues = approvedNames.map((name) => envValues[name] ?? '').filter((value) => value !== '');
-      if (approvedValues.length > 0) addDeliveredValues(session.id, approvedValues);
+      const maskedValues = [...maskedNames].map((name) => envValues[name] ?? '').filter((value) => value !== '');
+      if (maskedValues.length > 0) addDeliveredValues(session.id, maskedValues);
       return null;
     } catch (error) {
-      return `could not read the env file of session ${session.id} to mask its secrets: ${error instanceof Error ? error.message : String(error)}`;
+      return `could not read the env file of session ${session.id} to mask its secrets: ${errorText(error)}`;
     }
   }
 
-  async function deliver(session: NeedingSession, names: readonly string[]): Promise<Delivery> {
-    const approvals = approvalsOf(readSecrets(), session.project);
-    const items = names.flatMap((name) => {
-      const reference = approvals[name]?.reference;
-      return reference ? [{ name, reference }] : [];
-    });
-    const deliveries = deliveriesBySession.get(session.id);
-    const alreadyDelivered = items.filter((item) => deliveries?.get(item.name)?.source === deliverySource(session, item.reference));
-    const itemsToRead = items.filter((item) => !alreadyDelivered.includes(item));
-    const earlier: Delivery = {
-      statusByName: Object.fromEntries(alreadyDelivered.map((item) => [item.name, 'delivered'])),
-      noteByName: Object.fromEntries(alreadyDelivered.map((item) => [item.name, deliveredNote(deliveries?.get(item.name)?.envFile ?? 'the env file')])),
-      envFile: alreadyDelivered.length > 0 ? deliveries?.get(alreadyDelivered[0]?.name ?? '')?.envFile ?? null : null,
-    };
-    if (itemsToRead.length === 0) return earlier;
-    return mergedDelivery(earlier, await readAndWrite(session, itemsToRead));
+  function startReading(session: NeedingSession, names: readonly string[]): RequestCard {
+    const card = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'reading', readingName: null, failure: null };
+    card.names = [...names, ...card.names.filter((name) => !names.includes(name))];
+    card.phase = 'reading';
+    card.failure = null;
+    cardsBySession.set(session.id, card);
+    return card;
   }
 
-  async function askAgainFor(session: NeedingSession, notFoundItems: readonly { name: string; reference: string }[]): Promise<string[]> {
-    if (notFoundItems.length === 0) return [];
-    const readReferenceByName = Object.fromEntries(notFoundItems.map((item) => [item.name, item.reference]));
-    let removedNames: string[] = [];
-    const isSaved = await writeSecrets((rawSecrets) => {
-      removedNames = namesStillSavedAt(rawSecrets, session.project, readReferenceByName);
-      if (removedNames.length === 0) return null;
-      return withoutApprovals(rawSecrets, session.project, removedNames);
-    });
-    if (!isSaved) return [];
-    events.emit('approvals-changed');
-    raiseCard(session, removedNames);
-    return removedNames;
+  function showReading(card: RequestCard, name: string): void {
+    card.readingName = name;
+    emitCard(card.session.id, []);
   }
 
-  async function readAndWrite(session: NeedingSession, items: readonly { name: string; reference: string }[]): Promise<Delivery> {
-    const names = items.map((item) => item.name);
-    const resolvedItems = await readVault([...items]);
-    if (resolvedItems === null) return failedDelivery(names, COMPANION_LOST_NOTE);
-    const delivery: Delivery = { statusByName: {}, noteByName: {}, envFile: null };
+  function finishReading(card: RequestCard, deliveredNames: readonly string[], failure: CardFailure | null): void {
+    if (cardsBySession.get(card.session.id) !== card) return;
+    card.names = card.names.filter((name) => !deliveredNames.includes(name));
+    card.readingName = null;
+    card.failure = failure;
+    card.phase = failure === null ? 'asking' : 'failed';
+    if (card.names.length === 0) {
+      closeCard(card.session.id);
+      return;
+    }
+    emitCard(card.session.id, []);
+  }
+
+  async function readValuesInOrder(card: RequestCard, source: SecretSource, names: readonly string[]): Promise<{ valuesByName: Record<string, string>; failedName: string | null; failure: CardFailure | null }> {
     const valuesByName: Record<string, string> = {};
-    const notFoundNames: string[] = [];
-    for (const item of resolvedItems) {
-      if (!names.includes(item.name)) continue;
-      if ('value' in item) {
-        valuesByName[item.name] = item.value;
-        continue;
-      }
-      if (item.failure.kind === 'not-found') notFoundNames.push(item.name);
-      delivery.statusByName[item.name] = 'failed';
-      delivery.noteByName[item.name] = `the vault could not read it (${item.failure.kind}): ${item.failure.message}`;
+    for (const name of names) {
+      showReading(card, name);
+      const outcome = await readSecret(source, name).catch((error: unknown): ReadOutcome => ({ failure: { kind: 'unavailable', message: READER_CRASHED_MESSAGE, detail: errorText(error) } }));
+      if ('failure' in outcome) return { valuesByName, failedName: name, failure: { message: outcome.failure.message, detail: outcome.failure.detail } };
+      if (unwritableEnvNames({ [name]: outcome.value }).length > 0) return { valuesByName, failedName: name, failure: { message: `${name} holds every kind of quote, so no env file reader would get it back unchanged`, detail: '' } };
+      valuesByName[name] = outcome.value;
     }
-    for (const name of await askAgainFor(session, items.filter((item) => notFoundNames.includes(item.name)))) {
-      delivery.statusByName[name] = 'pending';
-      delivery.noteByName[name] = REFERENCE_NOT_FOUND_NOTE;
+    return { valuesByName, failedName: null, failure: null };
+  }
+
+  async function readAndDeliver(session: NeedingSession, names: readonly string[]): Promise<Delivery> {
+    const source = currentSource();
+    if (source === null) return { statusByName: Object.fromEntries(names.map((name) => [name, 'no-source'])), noteByName: {}, envFile: null };
+    const card = startReading(session, names);
+    const read = await readValuesInOrder(card, source, names);
+    const readNames = Object.keys(read.valuesByName);
+    const written = readNames.length === 0 ? null : await writeEnvFile(session.cwd, read.valuesByName);
+    const writeFailure = written !== null && !written.ok ? { message: written.reason, detail: '' } : null;
+    const deliveredNames = written?.ok ? readNames : [];
+    if (written?.ok) await writtenNames.remember(session.cwd, readNames);
+    if (written?.ok && cardsBySession.get(session.id) === card) rememberDelivery(session, written.envFile, read.valuesByName);
+    const failure = writeFailure ?? read.failure;
+    finishReading(card, deliveredNames, failure === null ? null : { ...failure, message: `${failure.message}. ${writtenSummary(deliveredNames)}` });
+    const failedNames = writeFailure ? readNames : [read.failedName].filter((name) => name !== null);
+    const statusByName: Record<string, NeedStatus> = {};
+    const noteByName: Record<string, string> = {};
+    for (const name of names) {
+      statusByName[name] = deliveredNames.includes(name) ? 'delivered' : failedNames.includes(name) ? 'failed' : 'pending';
+      if (statusByName[name] === 'delivered' && written?.ok) noteByName[name] = deliveredNote(written.envFile);
+      if (statusByName[name] === 'failed' && failure !== null) noteByName[name] = `the password manager could not read it: ${failure.message}`;
     }
-    const unwritableNames = unwritableEnvNames(valuesByName);
-    for (const name of unwritableNames) delete valuesByName[name];
-    const unansweredNames = names.filter((name) => !Object.hasOwn(valuesByName, name) && !Object.hasOwn(delivery.statusByName, name) && !unwritableNames.includes(name));
-    const answered = mergedDelivery(mergedDelivery(delivery, failedDelivery(unansweredNames, NOTE_BY_STATUS.failed)), failedDelivery(unwritableNames, UNWRITABLE_VALUE_NOTE));
-    const deliveredNames = Object.keys(valuesByName);
-    if (deliveredNames.length === 0) return answered;
-    const written = await writeEnvFile(session.cwd, valuesByName);
-    if (!written.ok) return mergedDelivery(answered, failedDelivery(deliveredNames, written.reason));
-    rememberDelivery(session, items.filter((item) => deliveredNames.includes(item.name)), written.envFile, valuesByName);
-    return mergedDelivery(answered, {
-      statusByName: Object.fromEntries(deliveredNames.map((name) => [name, 'delivered'])),
-      noteByName: Object.fromEntries(deliveredNames.map((name) => [name, deliveredNote(written.envFile)])),
-      envFile: written.envFile,
+    return { statusByName, noteByName, envFile: written?.ok ? written.envFile : null };
+  }
+
+  function readOnDecision(session: NeedingSession, names: readonly string[]): void {
+    void readAndDeliver(session, names).catch((error: unknown) => {
+      const card = cardsBySession.get(session.id);
+      if (card) finishReading(card, [], { message: READER_CRASHED_MESSAGE, detail: errorText(error) });
     });
   }
 
-  function mergedDelivery(base: Delivery, overlay: Delivery): Delivery {
-    return {
-      statusByName: { ...base.statusByName, ...overlay.statusByName },
-      noteByName: { ...base.noteByName, ...overlay.noteByName },
-      envFile: overlay.envFile ?? base.envFile,
-    };
-  }
-
-  async function need(session: NeedingSession, names: readonly string[]): Promise<AgentNeedReply> {
-    const decision = decideNeed(projectState(session.project), names, isCompanionOnline(), now());
-    raiseCard(session, decision.namesNeedingCard);
-    const delivery = decision.namesToRead.length === 0 ? null : await deliver(session, decision.namesToRead);
-    const results = Object.entries(decision.statusByName).map(([name, status]) => {
-      const deliveredStatus = delivery?.statusByName[name];
-      if (deliveredStatus === undefined) return { name, status, note: NOTE_BY_STATUS[status] };
-      return { name, status: deliveredStatus, note: delivery?.noteByName[name] ?? NOTE_BY_STATUS[deliveredStatus] };
+  async function need(session: NeedingSession, names: readonly string[], reason: string | null = null): Promise<AgentNeedReply> {
+    const decision = decideNeed(projectState(session, currentSource() !== null), names, now());
+    raiseCard(session, [...decision.namesNeedingSource, ...decision.namesNeedingCard], reason);
+    const delivered = deliveredNamesFor(session);
+    const notes: Record<string, string> = Object.fromEntries([...delivered].filter(([name]) => decision.statusByName[name] === 'delivered').map(([name, envFile]) => [name, deliveredNote(envFile)]));
+    const isAlreadyReading = cardsBySession.get(session.id)?.phase === 'reading';
+    const reading = decision.namesToRead.length === 0 || isAlreadyReading ? null : await readAndDeliver(session, decision.namesToRead);
+    const results = Object.entries(decision.statusByName).map(([name, decidedStatus]) => {
+      const status = reading?.statusByName[name] ?? decidedStatus;
+      return { name, status, note: reading?.noteByName[name] ?? notes[name] ?? NOTE_BY_STATUS[status] };
     });
     reportAnswer(results.map((result) => result.status));
-    return { ok: true, results, envFile: delivery?.envFile ?? null };
+    const envFile = reading?.envFile ?? [...delivered.values()][0] ?? null;
+    return { ok: true, results, envFile: results.some((result) => result.status === 'delivered') ? envFile : null };
   }
 
   function reportAnswer(statuses: readonly NeedStatus[]): void {
@@ -218,18 +241,9 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
       delivered_count: countOf('delivered'),
       pending_count: countOf('pending'),
       denied_count: countOf('denied'),
-      companion_offline_count: countOf('companion-offline'),
+      no_source_count: countOf('no-source'),
       failed_count: countOf('failed'),
     });
-  }
-
-  function emitCard(sessionId: string, newNames: readonly string[]): void {
-    events.emit('card-changed', { sessionId, names: cardsBySession.get(sessionId)?.names ?? [], newItemsVault: newItemsVault(), newNames });
-  }
-
-  function closeCard(sessionId: string): void {
-    if (!cardsBySession.delete(sessionId)) return;
-    emitCard(sessionId, []);
   }
 
   function holdDenial(project: string, names: readonly string[]): void {
@@ -244,80 +258,50 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     deniedUntilMsByProject.set(project, deniedUntilMs);
   }
 
-  async function decide(decision: SecretDecision): Promise<string | null> {
-    const card = cardsBySession.get(decision.id);
+  function allowOnce(sessionId: string, names: readonly string[]): void {
+    allowedOnceNamesBySession.set(sessionId, new Set([...(allowedOnceNamesBySession.get(sessionId) ?? []), ...names]));
+  }
+
+  async function allowAlways(project: string, names: readonly string[]): Promise<string | null> {
+    const isSaved = await writeSecrets((rawSecrets) => withAllowedNames(rawSecrets, project, names));
+    if (!isSaved) return 'Glimmervoid could not save the approval to config.json.';
+    events.emit('approvals-changed');
+    return null;
+  }
+
+  function withoutCardNames(card: RequestCard, names: readonly string[]): void {
+    card.names = card.names.filter((name) => !names.includes(name));
+    if (card.names.length === 0) {
+      closeCard(card.session.id);
+      return;
+    }
+    emitCard(card.session.id, []);
+  }
+
+  async function decide({ id, choice, names: shownNames }: SecretDecision): Promise<string | null> {
+    const card = cardsBySession.get(id);
     if (!card) return 'This secret request was already answered.';
-    if (decidingSessionIds.has(decision.id)) return 'This secret request is already being answered.';
-    if (!decision.isAllowed) {
-      holdDenial(card.project, card.names);
-      closeCard(decision.id);
+    if (card.phase === 'reading' || decidingSessionIds.has(id)) return 'This secret request is already being read.';
+    const names = card.names.filter((name) => shownNames.includes(name));
+    if (names.length === 0) return 'This secret request changed. Look at the card again.';
+    const { session } = card;
+    if (choice === 'deny') {
+      holdDenial(session.project, names);
+      withoutCardNames(card, names);
       return null;
     }
-    const decidedNames = [...card.names];
-    const referenceByName = Object.fromEntries(decidedNames.map((name) => [name, decision.referenceByName[name] ?? '']));
-    const pastedNames = decidedNames.filter((name) => !referenceByName[name] && decision.valueByName[name]);
-    const missingNames = missingReferenceNames(decidedNames, referenceByName).filter((name) => !pastedNames.includes(name));
-    if (missingNames.length > 0) return `Give a vault reference or paste the value for ${missingNames.join(', ')} before allowing.`;
-    decidingSessionIds.add(decision.id);
+    if (currentSource() === null) return 'Choose the vault Glimmervoid reads secrets from first: set vault.lookIn in config.json.';
+    decidingSessionIds.add(id);
     try {
-      const notFoundNames = await namesWithNoVaultItem(referenceByName);
-      if (notFoundNames.length > 0) return `The vault has no item at the reference given for ${notFoundNames.join(', ')}.`;
-      return await allow(decision, card.project, referenceByName, pastedNames);
+      if (choice === 'allow-once') allowOnce(id, names);
+      const refusal = choice === 'allow-always' ? await allowAlways(session.project, names) : null;
+      if (refusal !== null) return refusal;
+      releaseDenial(session.project, names);
+      readOnDecision(session, names);
+      return null;
     } finally {
-      decidingSessionIds.delete(decision.id);
+      decidingSessionIds.delete(id);
     }
-  }
-
-  async function namesWithNoVaultItem(referenceByName: Readonly<Record<string, string>>): Promise<string[]> {
-    const typedItems = Object.entries(referenceByName).filter(([, reference]) => reference !== '').map(([name, reference]) => ({ name, reference }));
-    if (typedItems.length === 0 || !isCompanionOnline()) return [];
-    const resolvedItems = await readVault(typedItems);
-    return (resolvedItems ?? []).flatMap((item) => ('failure' in item && item.failure.kind === 'not-found' ? [item.name] : []));
-  }
-
-  async function allow(decision: SecretDecision, project: string, referenceByName: Record<string, string>, pastedNames: readonly string[]): Promise<string | null> {
-    const creation = await createPastedItems(project, pastedNames, decision);
-    if (typeof creation === 'string') return creation;
-    const referencesToSave = Object.fromEntries(Object.entries({ ...referenceByName, ...creation.referenceByName }).filter(([, reference]) => reference !== ''));
-    const isSaved = await writeSecrets((rawSecrets) => withApprovals(rawSecrets, project, referencesToSave));
-    if (!isSaved) return 'Glimmervoid could not save the approval to config.json.';
-    const savedNames = Object.keys(referencesToSave);
-    releaseDenial(project, savedNames);
-    dropFromCard(decision.id, savedNames);
-    events.emit('approvals-changed');
-    if (creation.failures.length === 0) return null;
-    return `The vault could not create ${creation.failures.map((failure) => `${failure.name} (${failure.message})`).join(', ')}.`;
-  }
-
-  function dropFromCard(sessionId: string, names: readonly string[]): void {
-    const card = cardsBySession.get(sessionId);
-    if (!card) return;
-    card.names = card.names.filter((name) => !names.includes(name));
-    if (card.names.length === 0) cardsBySession.delete(sessionId);
-    emitCard(sessionId, []);
-  }
-
-  function vaultItemTitle(name: string, project: string): string {
-    const projectRoom = MAX_VAULT_NAME_LENGTH - name.length - ' ()'.length;
-    return `${name} (${path.basename(project).slice(0, projectRoom)})`;
-  }
-
-  async function createPastedItems(project: string, pastedNames: readonly string[], decision: SecretDecision): Promise<string | { referenceByName: Record<string, string>; failures: { name: string; message: string }[] }> {
-    if (pastedNames.length === 0) return { referenceByName: {}, failures: [] };
-    const createdItems = await createInVault(pastedNames.map((name) => ({ name, title: vaultItemTitle(name, project), value: decision.valueByName[name] ?? '', vaultName: decision.newItemsVault })));
-    if (typeof createdItems === 'string') return CREATE_MISS_REFUSALS[createdItems];
-    const referenceByName: Record<string, string> = {};
-    const failures: { name: string; message: string }[] = [];
-    for (const item of createdItems) {
-      if (!pastedNames.includes(item.name)) continue;
-      if ('reference' in item) {
-        referenceByName[item.name] = item.reference;
-        continue;
-      }
-      failures.push({ name: item.name, message: item.failure.message });
-    }
-    const unansweredNames = pastedNames.filter((name) => !Object.hasOwn(referenceByName, name) && !failures.some((failure) => failure.name === name));
-    return { referenceByName, failures: [...failures, ...unansweredNames.map((name) => ({ name, message: 'the companion did not answer' }))] };
   }
 
   function refreshCards(): void {
@@ -331,8 +315,8 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     return null;
   }
 
-  function requestsSnapshot(): Record<string, string[]> {
-    return Object.fromEntries([...cardsBySession].map(([sessionId, card]) => [sessionId, card.names]));
+  function requestsSnapshot(): Record<string, SecretRequestCard> {
+    return Object.fromEntries([...cardsBySession].map(([sessionId, card]) => [sessionId, cardView(card)]));
   }
 
   function approvalRows(): ProjectApprovals[] {
@@ -346,10 +330,11 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
   function forgetSession(sessionId: string): void {
     deliveriesBySession.delete(sessionId);
     deliveredValuesBySession.delete(sessionId);
+    allowedOnceNamesBySession.delete(sessionId);
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault, deliveredValuesOf, seedMasks };
+  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

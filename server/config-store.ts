@@ -18,7 +18,7 @@ import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-
 import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config/config-defaults.ts';
 import type { DefaultConfig } from './config/config-defaults.ts';
-import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredHosts, dropRetiredCoderSessions, dropRetiredPlanReview, migrateRemoteEnabled } from './config/config-migrations.ts';
+import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredHosts, dropRetiredCoderSessions, dropRetiredPlanReview, dropRetiredSecretReferences, migrateRemoteEnabled } from './config/config-migrations.ts';
 import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, readStoredSecrets, writeStoredSecrets, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
 import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
 import { configBackupPath, configSecretsPath } from './secrets/core/secret-files-core.ts';
@@ -126,7 +126,7 @@ function createConfigStore({
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
   if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
-  const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), dropRetiredBenchmarks(config), dropRetiredHintCards(config), dropRetiredPlanReview(config), dropRetiredIssues(config), dropRetiredHosts(config), dropRetiredCoderSessions(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
+  const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), dropRetiredBenchmarks(config), dropRetiredHintCards(config), dropRetiredPlanReview(config), dropRetiredIssues(config), dropRetiredHosts(config), dropRetiredCoderSessions(config), dropRetiredSecretReferences(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
   if (configMigrations.length > 0) {
     try {
       writeConfigFileAtBoot(config);

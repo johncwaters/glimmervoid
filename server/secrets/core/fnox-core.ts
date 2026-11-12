@@ -1,3 +1,4 @@
+import { SECRET_MANAGER_LABELS } from '../../../shared/contracts/secrets.ts';
 import type { SecretManager, SecretName, SecretSource } from '../../../shared/contracts/secrets.ts';
 
 type ReadFailureKind = 'not-found' | 'refused' | 'timed-out' | 'unavailable';
@@ -21,13 +22,12 @@ interface FnoxRunResult {
 }
 
 interface ProviderFields {
-  label: string;
   type: string;
   lookInKey: string;
 }
 
 const PROVIDER_FIELDS_BY_MANAGER: Record<SecretManager, ProviderFields> = {
-  '1password': { label: '1Password', type: '1password', lookInKey: 'vault' },
+  '1password': { type: '1password', lookInKey: 'vault' },
 };
 
 const FNOX_PROVIDER_NAME = 'source';
@@ -80,7 +80,7 @@ function includesAny(text: string, markers: readonly string[]): boolean {
 }
 
 function failureOf(result: FnoxRunResult, source: SecretSource, name: SecretName): ReadFailure {
-  const label = PROVIDER_FIELDS_BY_MANAGER[source.manager].label;
+  const label = SECRET_MANAGER_LABELS[source.manager];
   const detail = cleanDetail(result.stderr);
   const lowerDetail = detail.replace(/[\s\u2502]+/g, ' ').toLowerCase();
   if (result.wasKilled) return { kind: 'timed-out', message: `${label} was not confirmed in time`, detail };
@@ -95,13 +95,13 @@ function readOutcomeOf(result: FnoxRunResult, source: SecretSource, name: Secret
   if (!result.ok) return { failure: failureOf(result, source, name) };
   const value = withoutTrailingNewline(result.stdout);
   if (value.length > 0) return { value };
-  const label = PROVIDER_FIELDS_BY_MANAGER[source.manager].label;
+  const label = SECRET_MANAGER_LABELS[source.manager];
   return { failure: { kind: 'not-found', message: `${label} holds an empty ${name} in ${source.lookIn}`, detail: cleanDetail(result.stderr) } };
 }
 
 function testOutcomeOf(result: FnoxRunResult, source: SecretSource): TestOutcome {
   if (result.ok) return { ok: true };
-  const label = PROVIDER_FIELDS_BY_MANAGER[source.manager].label;
+  const label = SECRET_MANAGER_LABELS[source.manager];
   const detail = cleanDetail(result.stderr);
   if (result.wasKilled) return { ok: false, message: `${label} did not answer in time`, detail };
   if (result.failureCode !== null) return { ok: false, message: `Glimmervoid could not start its ${label} reader (${result.failureCode})`, detail };

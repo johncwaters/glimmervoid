@@ -80,7 +80,7 @@ const VaultSecretAnsweredProperties = z.object({
   delivered_count: nonNegativeInteger,
   pending_count: nonNegativeInteger,
   denied_count: nonNegativeInteger,
-  companion_offline_count: nonNegativeInteger,
+  no_source_count: nonNegativeInteger,
   failed_count: nonNegativeInteger,
 }).strict();
 
@@ -275,7 +275,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'watcher_probe_recovered', description: 'A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds.' },
   { name: 'watcher_nudge_received', description: 'The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository.' },
   { name: 'vault_companion_connection', description: 'A vault companion connected, disconnected (with how long it stayed, in whole seconds) or was refused (because it asked for the wrong path or brought the wrong token; once per reason until a companion connects). Never the token, address or account.' },
-  { name: 'vault_secret_answered', description: 'An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, companion offline or failed. Never the names, values or project.' },
+  { name: 'vault_secret_answered', description: 'An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, no source chosen or failed. Never the names, values or project.' },
   { name: 'background_work_outlived_limit', description: 'A subagent or background shell finished after the 30 or 60 minute limit past which Glimmervoid stops counting it as working, with which kind of agent, which kind of work and how many whole minutes past the limit. Never the task or its output.' },
   { name: 'idle_stop_requested', description: 'The server asked to put its host to sleep after 20 awake minutes with no agent working, with the answer (stopping, no host to stop, or failed) and how many sessions, subagents and background shells were still unfinished past their limit at that moment.' },
 ]);

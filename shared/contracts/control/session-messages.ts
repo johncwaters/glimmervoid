@@ -5,7 +5,7 @@ import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
+import { ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
@@ -100,7 +100,7 @@ export const sessionServerVariants = [
     error: z.string().optional(),
     requestId,
   }),
-  loose('session-secret-request', { id: sessionId, names: z.array(SecretName), newItemsVault: z.string().nullable() }),
-  loose('secret-requests-snapshot', { requests: z.record(z.string(), z.array(SecretName)), newItemsVault: z.string().nullable() }),
+  loose('session-secret-request', { id: sessionId, card: SecretRequestCard.nullable() }),
+  loose('secret-requests-snapshot', { requests: z.record(z.string(), SecretRequestCard) }),
   loose('secret-approvals', { projects: z.array(ProjectApprovals) }),
 ] as const;

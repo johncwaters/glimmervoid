@@ -220,4 +220,3 @@ function createVaultSocket({ envToken, companionFile, legacyCompanionFile = null
 }
 
 export { createVaultSocket };
-export type { CreateMiss };

@@ -115,6 +115,25 @@ function dropRetiredCoderSessions(config: GlimmervoidConfig): string | null {
   return `[config] Removed ${removed.join(', ')}: remote Coder sessions are gone; delete leftover gv-* workspaces with coder delete.`;
 }
 
+function isRetiredSecretReference(entry: unknown): boolean {
+  return isRecord(entry) && Object.hasOwn(entry, 'reference');
+}
+
+function dropRetiredSecretReferences(config: GlimmervoidConfig): string | null {
+  const byProject = isRecord(config.secrets) ? config.secrets.byProject : null;
+  if (!isRecord(byProject)) return null;
+  let droppedCount = 0;
+  for (const [project, entries] of Object.entries(byProject)) {
+    if (!isRecord(entries)) continue;
+    const keptEntries = Object.fromEntries(Object.entries(entries).filter(([, entry]) => !isRetiredSecretReference(entry)));
+    droppedCount += Object.keys(entries).length - Object.keys(keptEntries).length;
+    if (Object.keys(keptEntries).length === 0) delete byProject[project];
+    if (Object.keys(keptEntries).length > 0) byProject[project] = keptEntries;
+  }
+  if (droppedCount === 0) return null;
+  return `[config] Removed ${droppedCount} saved secret approval${droppedCount === 1 ? '' : 's'} that named a vault item: secrets now read from the vault set as vault.lookIn, so each name asks again once.`;
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -198,4 +217,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

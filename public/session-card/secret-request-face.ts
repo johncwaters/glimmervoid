@@ -1,131 +1,143 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { SecretRequestCard } from '#shared/contracts/secrets.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
+import { settingsHash } from '../settings/settings-link.ts';
+import { paintStatusIcon } from '../status-icon.ts';
+import { button, linkButton } from '../ui/button.ts';
 import { sessionUIs } from './card-registry.ts';
 import './secret-request-face.css';
 
-const namesBySessionId = new Map<string, string[]>();
+const cardBySessionId = new Map<string, SecretRequestCard>();
 const requestElementBySessionId = new Map<string, HTMLElement>();
-const vaultInputBySessionId = new Map<string, HTMLInputElement>();
-let companionNewItemsVault: string | null = null;
 
-const REFERENCE_PLACEHOLDER = 'op://vault/item/field';
-const VALUE_PLACEHOLDER = 'or paste the value';
+const VAULT_SETTINGS_SECTION_ID = 'machine-vault';
+const WAITING_TEXT = 'Waiting on your password manager. Confirm there if it asks.';
+const NEEDS_SOURCE_TEXT = 'Nothing is shared until you allow it. First, pick where Glimmervoid reads secrets from.';
 
-interface RequestInputs {
-  referenceByName: Map<string, HTMLInputElement>;
-  valueByName: Map<string, HTMLInputElement>;
-  vault: HTMLInputElement;
+type Choice = 'deny' | 'allow-once' | 'allow-always';
+
+function sendChoice(sessionId: string, choice: Choice): void {
+  const names = cardBySessionId.get(sessionId)?.names ?? [];
+  sendControlMsg({ type: 'secret-decision', id: sessionId, choice, names });
 }
 
-function filledValues(inputs: ReadonlyMap<string, HTMLInputElement>, readValue: (input: HTMLInputElement) => string): Record<string, string> {
-  return Object.fromEntries([...inputs].map(([name, input]) => [name, readValue(input)]).filter(([, value]) => value));
+function namesText(names: readonly string[]): string {
+  return names.join(', ');
 }
 
-function sendDecision(sessionId: string, isAllowed: boolean, inputs: RequestInputs) {
-  if (!isAllowed) {
-    sendControlMsg({ type: 'secret-decision', id: sessionId, isAllowed });
-    return;
-  }
-  sendControlMsg({
-    type: 'secret-decision',
-    id: sessionId,
-    isAllowed,
-    referenceByName: filledValues(inputs.referenceByName, (input) => input.value.trim()),
-    valueByName: filledValues(inputs.valueByName, (input) => input.value),
-    newItemsVault: inputs.vault.value.trim(),
-  });
+function labeledLine(label: string, text: string): HTMLElement {
+  const line = el('div', 'secret-request-line');
+  line.append(el('span', 'secret-request-label', label), el('span', 'secret-request-line-text', text));
+  return line;
 }
 
-function vaultPlaceholder(): string {
-  return companionNewItemsVault ?? 'vault name';
+function reasonBlock(reason: string): HTMLElement {
+  const block = el('div', 'secret-request-reason');
+  block.append(el('span', 'secret-request-label', "Agent's reason"), el('p', 'secret-request-reason-text', reason));
+  return block;
 }
 
-function textInput(className: string, placeholder: string, label: string): HTMLInputElement {
-  const input = el('input', `dialog-input ${className}`);
-  input.type = 'text';
-  input.placeholder = placeholder;
-  input.spellcheck = false;
-  input.autocomplete = 'off';
-  input.setAttribute('aria-label', label);
-  return input;
+function choiceButtons(sessionId: string, isDisabled: boolean): HTMLElement {
+  const actions = el('div', 'secret-request-actions');
+  const allowButtons = el('div', 'secret-request-allow');
+  allowButtons.append(
+    button({ variant: 'secondary', label: 'Always allow', disabled: isDisabled, onClick: () => sendChoice(sessionId, 'allow-always') }),
+    button({ variant: 'primary', label: 'Allow once', disabled: isDisabled, onClick: () => sendChoice(sessionId, 'allow-once') }),
+  );
+  actions.append(button({ variant: 'secondary', label: 'Deny', disabled: isDisabled, onClick: () => sendChoice(sessionId, 'deny') }), allowButtons);
+  return actions;
 }
 
-function buildRequest(sessionId: string, names: readonly string[]): HTMLElement {
-  const request = el('div', 'secret-request');
-  request.setAttribute('role', 'group');
-  request.setAttribute('aria-label', 'Secret request');
-  const inputs: RequestInputs = { referenceByName: new Map(), valueByName: new Map(), vault: textInput('secret-request-vault', vaultPlaceholder(), 'Vault for pasted values') };
-  vaultInputBySessionId.set(sessionId, inputs.vault);
-  const rows = el('div', 'secret-request-rows');
-  for (const name of names) {
-    const referenceInput = textInput('secret-request-reference', REFERENCE_PLACEHOLDER, `Vault reference for ${name}`);
-    const valueInput = textInput('secret-request-value', VALUE_PLACEHOLDER, `Value for ${name}, saved into the vault`);
-    valueInput.type = 'password';
-    valueInput.autocomplete = 'new-password';
-    inputs.referenceByName.set(name, referenceInput);
-    inputs.valueByName.set(name, valueInput);
-    const row = el('div', 'secret-request-row');
-    row.append(el('code', 'secret-request-name', name), referenceInput, valueInput);
-    rows.append(row);
-  }
-  const vaultRow = el('label', 'secret-request-vault-row');
-  vaultRow.append(el('span', 'secret-request-vault-label', 'Pasted values go into'), inputs.vault);
+function waitingStatus(readingName: string | null): HTMLElement {
+  const status = el('div', 'secret-request-status');
+  status.setAttribute('role', 'status');
+  const icon = el('span', 'secret-request-status-icon');
+  paintStatusIcon(icon, 'working');
+  const reading = readingName === null ? '' : `Reading ${readingName}. `;
+  status.append(icon, el('span', 'secret-request-status-text', `${reading}${WAITING_TEXT}`));
+  return status;
+}
+
+function failureBlock(failure: NonNullable<SecretRequestCard['failure']>): HTMLElement {
+  const block = el('div', 'secret-request-failure');
+  block.setAttribute('role', 'alert');
+  block.append(el('p', 'secret-request-failure-text', failure.message));
+  if (failure.detail === '') return block;
+  const details = el('details', 'secret-request-details');
+  details.append(el('summary', 'secret-request-details-summary', 'Show details'), el('pre', 'secret-request-details-text', failure.detail));
+  block.append(details);
+  return block;
+}
+
+function needsSourceBody(sessionId: string): HTMLElement[] {
   const actions = el('div', 'secret-request-actions');
   actions.append(
-    button({ variant: 'secondary', label: 'Deny', onClick: () => sendDecision(sessionId, false, inputs) }),
-    button({ variant: 'primary', label: 'Allow', onClick: () => sendDecision(sessionId, true, inputs) }),
+    button({ variant: 'secondary', label: 'Deny', onClick: () => sendChoice(sessionId, 'deny') }),
+    linkButton({ variant: 'primary', label: 'Choose source', href: settingsHash(VAULT_SETTINGS_SECTION_ID) }),
   );
-  request.append(el('span', 'secret-request-text', 'The agent asks for these secrets. Allow saves each vault reference for this project; a pasted value goes into the vault first.'), rows, vaultRow, actions);
+  return [el('p', 'secret-request-note', NEEDS_SOURCE_TEXT), actions];
+}
+
+function allowBody(sessionId: string, card: SecretRequestCard): HTMLElement[] {
+  const body: HTMLElement[] = [];
+  if (card.from !== null) body.push(labeledLine('From', `${namesText(card.names)} in ${card.from}`));
+  body.push(labeledLine('Into', '.env.local in this worktree'));
+  body.push(el('p', 'secret-request-note', 'Always allow skips this card for these names in this project. Your password manager may still ask you to confirm. Revoke it in Settings > Vault.'));
+  if (card.phase === 'failed' && card.failure !== null) body.push(failureBlock(card.failure));
+  const isReading = card.phase === 'reading';
+  const footer = el('div', 'secret-request-footer');
+  if (isReading) footer.append(waitingStatus(card.readingName));
+  footer.append(choiceButtons(sessionId, isReading));
+  body.push(footer);
+  return body;
+}
+
+function buildRequest(sessionId: string, card: SecretRequestCard): HTMLElement {
+  const request = el('div', 'secret-request');
+  request.dataset.phase = card.phase;
+  request.setAttribute('role', 'group');
+  request.setAttribute('aria-label', 'Secret request');
+  request.append(el('span', 'secret-request-title', `The agent wants to read ${namesText(card.names)}`));
+  if (card.reason !== null) request.append(reasonBlock(card.reason));
+  request.append(...(card.phase === 'needs-source' ? needsSourceBody(sessionId) : allowBody(sessionId, card)));
   return request;
 }
 
-function setCompanionNewItemsVault(newItemsVault: string | null) {
-  companionNewItemsVault = newItemsVault;
-  for (const input of vaultInputBySessionId.values()) input.placeholder = vaultPlaceholder();
+function cardKey(card: SecretRequestCard): string {
+  return JSON.stringify(card);
 }
 
-function hasSameRequest(sessionId: string): boolean {
+function isPaintedCurrent(sessionId: string, cardElement: HTMLElement): boolean {
   const painted = requestElementBySessionId.get(sessionId);
-  const names = namesBySessionId.get(sessionId);
-  return painted !== undefined && names !== undefined && painted.dataset.names === names.join(' ');
+  const card = cardBySessionId.get(sessionId);
+  return painted !== undefined && card !== undefined && painted.dataset.card === cardKey(card) && painted.parentElement === cardElement;
 }
 
 function paintSecretRequest(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
-  if (ui && hasSameRequest(sessionId) && requestElementBySessionId.get(sessionId)?.parentElement === ui.card) return;
+  if (ui && isPaintedCurrent(sessionId, ui.card)) return;
   requestElementBySessionId.get(sessionId)?.remove();
   requestElementBySessionId.delete(sessionId);
-  vaultInputBySessionId.delete(sessionId);
-  const names = namesBySessionId.get(sessionId);
-  if (!names || !ui) return;
-  const request = buildRequest(sessionId, names);
-  request.dataset.names = names.join(' ');
+  const card = cardBySessionId.get(sessionId);
+  if (!card || !ui) return;
+  const request = buildRequest(sessionId, card);
+  request.dataset.card = cardKey(card);
   requestElementBySessionId.set(sessionId, request);
   ui.termWrap.before(request);
 }
 
-function setRequestNames(sessionId: string, names: readonly string[]) {
-  if (names.length === 0) {
-    namesBySessionId.delete(sessionId);
-    return;
-  }
-  namesBySessionId.set(sessionId, [...names]);
-}
-
 function applySecretRequest(message: ServerMessageOf<'session-secret-request'>) {
-  setCompanionNewItemsVault(message.newItemsVault);
-  setRequestNames(message.id, message.names);
+  if (message.card === null) cardBySessionId.delete(message.id);
+  if (message.card !== null) cardBySessionId.set(message.id, message.card);
   paintSecretRequest(message.id);
 }
 
 function applySecretRequestsSnapshot(message: ServerMessageOf<'secret-requests-snapshot'>) {
-  setCompanionNewItemsVault(message.newItemsVault);
-  const previousSessionIds = [...namesBySessionId.keys()];
-  namesBySessionId.clear();
-  for (const [sessionId, names] of Object.entries(message.requests)) setRequestNames(sessionId, names);
-  for (const sessionId of new Set([...previousSessionIds, ...namesBySessionId.keys()])) paintSecretRequest(sessionId);
+  const previousSessionIds = [...cardBySessionId.keys()];
+  cardBySessionId.clear();
+  for (const [sessionId, card] of Object.entries(message.requests)) cardBySessionId.set(sessionId, card);
+  for (const sessionId of new Set([...previousSessionIds, ...cardBySessionId.keys()])) paintSecretRequest(sessionId);
 }
 
 export { applySecretRequest, applySecretRequestsSnapshot, paintSecretRequest };

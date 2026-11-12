@@ -69,7 +69,7 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches } from '../runtime-paths.ts';
+import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, resolveFnoxPath } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -81,6 +81,9 @@ import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-cor
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
+import { createFnoxRunner } from '../secrets/fnox-runner.ts';
+import { createWrittenSecretNames } from '../secrets/written-secret-names.ts';
+import { SecretSource } from '../../shared/contracts/secrets.ts';
 import { createVaultSocket } from '../secrets/vault-socket.ts';
 import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
@@ -400,17 +403,20 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     envToken: vaultEnvToken,
     companionFile: vaultCompanionPath(glimmervoidHomeDir()),
     legacyCompanionFile: legacyVaultCompanionPath(glimmervoidHomeDir()),
-    onCompanionChanged: () => secretsBroker.refreshCards(),
+    onCompanionChanged: () => undefined,
     telemetry,
   });
+  const fnoxRunner = createFnoxRunner({ fnoxPath: resolveFnoxPath(), runsRoot: path.join(glimmervoidHomeDir(), 'fnox-runs'), environment: process.env });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
-    isCompanionOnline: vaultSocket.isOnline,
-    readVault: vaultSocket.resolve,
-    createInVault: vaultSocket.create,
-    newItemsVault: vaultSocket.newItemsVault,
+    currentSource: () => {
+      const source = SecretSource.safeParse({ manager: config.vault?.manager ?? '1password', lookIn: config.vault?.lookIn });
+      return source.success ? source.data : null;
+    },
+    readSecret: fnoxRunner.read,
     writeEnvFile,
     readEnvValues,
+    writtenNames: createWrittenSecretNames({ filePath: path.join(glimmervoidHomeDir(), 'env-file-names.json') }),
     telemetry,
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {
@@ -834,6 +840,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     applyConfigReload(newConfig);
     broadcastSettings?.();
     broadcastControl?.({ type: 'secret-approvals', projects: secretsBroker.approvalRows() });
+    secretsBroker.refreshCards();
   }, { reloadDebounceMs: options.configReloadDebounceMs });
   updateCheck.start();
 

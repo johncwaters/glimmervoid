@@ -395,6 +395,15 @@ test('a config file naming retired remote Coder sessions loses the coder block, 
   });
 });
 
+test('a saved secret approval that names a vault item is dropped on load, and a name-only approval stays', () => {
+  const byProject = { '/repo/app': { OLD_KEY: { reference: 'op://vault/item/field', isAllowed: true }, NEW_KEY: { isAllowed: true } }, '/repo/old': { GONE: { reference: 'op://vault/gone/field', isAllowed: false } } };
+  withStore({ projects: [], secrets: { byProject } }, (store, configPath) => {
+    const expected = { byProject: { '/repo/app': { NEW_KEY: { isAllowed: true } } } };
+    assert.deepEqual(store.config.secrets, expected);
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).secrets, expected);
+  });
+});
+
 test('a stable build reads experimental features as off and keeps their stored values and a retired conversationView key on save', () => {
   const stored = { projects: [], conversationView: true, coherence: { enabled: true } };
   withStore(stored, (store, configPath) => {
