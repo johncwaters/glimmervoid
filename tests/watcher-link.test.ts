@@ -588,6 +588,41 @@ test('a timer tick still searches a watch the watcher does not cover yet, and le
   assert.deepEqual(searchedQualifiers, ['repo:c/d']);
 });
 
+test('a PR read once on request stays out of the probe set', async () => {
+  const unusedRead = async () => { throw new Error('not read in this test'); };
+  const refreshTimers: (() => void)[] = [];
+  const detailReads: string[] = [];
+  const refreshedNode = { repository: { nameWithOwner: 'a/b' }, number: 7, updatedAt: '2026-11-12T00:00:00Z', headRefOid: 'abc', state: 'OPEN' as const, commits: { nodes: [] }, reviewDecision: null, mergeable: 'MERGEABLE' as const };
+  const store = createGithubStorePoller({
+    github: {
+      searchPrsLight: async () => ({ ok: true, items: [], isComplete: true, totalCount: 0, error: '' }),
+      prsLightByKey: async () => ({ byKey: new Map([['a/b#7', refreshedNode]]), goneKeys: new Set() }),
+      prDetails: async () => {
+        detailReads.push('a/b#7');
+        return { byKey: new Map(), goneKeys: new Set(['a/b#7']) };
+      },
+      reviewThreadsBatch: unusedRead, viewPr: unusedRead, prDiff: unusedRead, prHead: unusedRead,
+      behindCounts: async () => new Map(),
+      notificationsSince: async () => ({ kind: 'unchanged' }),
+      rateLimitWaitMs: async () => null,
+    },
+    now: Date.now,
+    isDashboardConnected: () => true,
+    exclusive: async (work) => work(),
+    setTimeoutFn: (run) => {
+      refreshTimers.push(run);
+      return { unref() {} } as NodeJS.Timeout;
+    },
+    clearTimeoutFn: () => {},
+    log: QUIET_LOG,
+  });
+  store.requestRefresh('a/b#7');
+  for (const run of refreshTimers.splice(0)) run();
+  await eventually(() => detailReads.length === 1 ? true : undefined);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(store.probeInputs().knownPrs, []);
+});
+
 function storeWiringWithSearches(t: test.TestContext, searchAnswers: ('ok' | 'bad-gateway')[]) {
   const searchedQualifiers: string[] = [];
   const pendingTimers: (() => void)[] = [];

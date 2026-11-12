@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The watcher no longer burns your GitHub rate limit.** Since the watcher moved into the local doorman, a pull request you got a notification about could reset its GitHub probes dozens of times a minute, and each reset sent a fresh GitHub read, using up the hourly GraphQL budget so Reviews, My PRs and the PR store stalled. A changed probe now waits out its normal interval.
+- **The watcher no longer burns your GitHub rate limit.** Since the watcher moved into the local doorman, a pull request you got a notification about could reset its GitHub probes dozens of times a minute, and each reset sent a fresh GitHub read, using up the hourly GraphQL budget so Reviews, My PRs and the PR store stalled. A changed probe now waits out its normal interval, and a pull request read once for a notification no longer changes what the watcher probes.
 
 ## [0.57.3] - 2026-11-12
 

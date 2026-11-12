@@ -378,7 +378,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }
 
   function probeInputs(): GithubStoreProbeInputs {
-    const knownKeys = new Set([...lightByKey.keys(), ...watchedKeys()]);
+    const explicitlyWatchedKeys = watchedKeys();
+    const knownKeys = new Set([...githubStoreWatchUnion(watches.values(), explicitlyWatchedKeys, lightByKey).lightByKey.keys(), ...explicitlyWatchedKeys]);
     const detailWatchKeys = new Set([...watches.values()].filter((watch) => watch.needsDetail)
       .flatMap((watch) => watch.nodes.map((node) => comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }))));
     return {
