@@ -24,6 +24,8 @@ import { hostStatuses } from '../hosts/host-status.ts';
 import { requestOnHost } from '../hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { clock } from '#shared/clock.ts';
+import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
+import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
   const elapsedMs = now - receivedAt;
@@ -64,7 +66,7 @@ type AddSessionTarget =
   | { kind: 'workspace' }
   | { kind: 'folder' };
 
-type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null };
+type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null; requestType?: 'add-session' | 'pack-launch' };
 
 type AddSessionSlot = 'place' | 'agent' | 'project';
 
@@ -152,6 +154,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const environmentHintEl = query(dialog, '#add-session-environment-hint');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const errorEl = query(dialog, '#add-session-error');
+  const launchersEl = query(dialog, '#add-session-launchers');
   const agentConnectButton = button({ variant: 'secondary', label: 'Connect' });
   agentLoginEl.append(agentConnectButton);
   const placeWord = createPressable('add-session-word');
@@ -760,19 +763,38 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function lockPicking(isLocked: boolean) {
-    const pickingRegions = [pickEl, workspacePanel, folderPanel];
+    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
     for (const region of pickingRegions) region.inert = isLocked;
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
   }
 
-  function requestAddSession({ message, rememberedPath }: AddSessionRequest) {
+  function buildLauncher(launcher: ApprovedPackLauncher) {
+    const launcherEl = el('div', 'add-session-launcher');
+    const launchButton = button({ variant: 'secondary', label: launcher.label });
+    launchButton.disabled = launcher.disabledReason !== null;
+    launchButton.addEventListener('click', () => {
+      if (isSpawnBlocked || isAddPending) return;
+      errorEl.textContent = '';
+      requestAddSession({ message: { pack: launcher.pack, launcherId: launcher.id }, rememberedPath: null, requestType: 'pack-launch' });
+    });
+    launcherEl.append(launchButton, el('span', 'dialog-hint', launcher.disabledReason ?? `${launcher.agent} in ${launcher.project}`));
+    return launcherEl;
+  }
+
+  function renderLaunchers() {
+    const launchers = selectedHostId === null ? packsSnapshot()?.launchers ?? [] : [];
+    launchersEl.hidden = launchers.length === 0;
+    launchersEl.replaceChildren(...launchers.map(buildLauncher));
+  }
+
+  function requestAddSession({ message, rememberedPath, requestType = 'add-session' }: AddSessionRequest) {
     isAddPending = true;
     btnConfirm.disabled = true;
     lockPicking(true);
     startStatus.show('busy', 'Starting the session');
     const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
-    requestOnSelectedHost('add-session', message)
+    requestOnSelectedHost(requestType, message)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           rememberSuccessfulStart(rememberedPath);
@@ -813,6 +835,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     pathInput.value = '';
     setAgent(NO_AGENT_ID);
     renderList();
+    renderLaunchers();
   }
 
   function loadFromSelectedHost() {
@@ -832,6 +855,14 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     advanceFromPick(filterRows(recentRows, findInput.value).some((row) => row.path === pickedPath));
   });
 
+  const stopWatchingPacks = subscribePacks(() => {
+    if (!dialog.isConnected) {
+      stopWatchingPacks();
+      return;
+    }
+    renderLaunchers();
+  });
+  renderLaunchers();
   advance();
   loadFromSelectedHost();
 

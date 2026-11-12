@@ -1,4 +1,4 @@
-import { EFFORT_OPTION_ID } from './contracts/agent-models.ts';
+import { EFFORT_OPTION_ID, SAFE_LAUNCH_ARGUMENT_PATTERN } from './contracts/agent-models.ts';
 import type { AgentSetup, CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
 
 const CLAUDE_DEFAULT_POINTER = 'default';
@@ -144,8 +144,6 @@ function selectionArgs(selection: ModelSelection | null): string[] {
   if (!buildFlags) return [];
   return buildFlags(selection.model, optionValue(selection, EFFORT_OPTION_ID));
 }
-
-const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
 function unsafeLaunchValueOf(selections: readonly ModelSelection[]): string | null {
   const launchValues = selections.flatMap((selection) => [...(selection.model === null ? [] : [selection.model]), ...selection.options.map((option) => option.value)]);

@@ -8,7 +8,8 @@ import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
-import { approvedPackPanels, approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
+import { approvedLauncher, approvedPackLaunchers, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote } from './core/pack-core.ts';
+import type { LauncherProjectResolution } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -28,6 +29,9 @@ type PackStore = EventEmitter & {
   approve(fingerprint: string): Promise<PackApproveResult>;
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
+  setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
+  launcherProjectsInUse(): string[];
+  launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
 };
 
 export function createPackStore({ homeDir, statePath, env, log, frameSecret, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -50,6 +54,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   let homeWarning: string | null = null;
   let homeWatcher: fs.FSWatcher | null = null;
   let isStopped = false;
+  let resolveLauncherProject = (_project: string): LauncherProjectResolution => ({ ok: false, reason: 'projects are still being matched' });
 
   function watchQuietly(target: string, onChange: (changedName: string | null) => void, isRecursive: boolean): fs.FSWatcher | null {
     try {
@@ -170,7 +175,10 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   function statusFrame(): PacksStatus {
     const inUse = packsInUse();
-    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, (innerPath) => keyedFramePath(frameSecret, innerPath)), warnings: homeWarning === null ? [] : [homeWarning] };
+    return {
+      type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, (innerPath) => keyedFramePath(frameSecret, innerPath)),
+      launchers: approvedPackLaunchers(inUse, resolveLauncherProject), warnings: homeWarning === null ? [] : [homeWarning],
+    };
   }
 
   function servableFile(packName: string, fingerprint: string, filePath: string): Buffer | null {
@@ -258,5 +266,10 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     return entry?.packDir ?? null;
   }
 
-  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  return Object.assign(emitter, {
+    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
+    setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
+    launcherProjectsInUse: () => launcherProjects(packsInUse()),
+    launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
+  });
 }

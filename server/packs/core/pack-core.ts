@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { PackRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
-import type { PackOnDisk, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackLauncher, PackOnDisk, PackSessions, PackUi } from '../../../shared/contracts/pack.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
 
@@ -67,13 +67,44 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
   return requestOrigin === OPAQUE_ORIGIN ? { ...headers, 'Access-Control-Allow-Origin': OPAQUE_ORIGIN } : headers;
 }
 
-export function uiSectionErrors(pack: PackOnDisk): string[] {
-  return pack.ui && !pack.ui.ok ? pack.ui.errors : [];
+export function packSectionErrors(pack: PackOnDisk): string[] {
+  return [pack.ui, pack.launchers, pack.sessions].flatMap((section) => (section && !section.ok ? section.errors : []));
+}
+
+function packLaunchers(pack: PackOnDisk): PackLauncher[] {
+  return pack.launchers?.ok ? pack.launchers.value : [];
+}
+
+function packSessionSettings(pack: PackOnDisk): PackSessions | null {
+  return pack.sessions?.ok ? pack.sessions.value : null;
+}
+
+export type LauncherProjectResolution = { ok: true; path: string } | { ok: false; reason: string };
+
+export function approvedPackLaunchers(packs: readonly PackOnDisk[], resolveProject: (project: string) => LauncherProjectResolution): PacksStatus['launchers'] {
+  return packs.flatMap((pack) => packLaunchers(pack).map((launcher) => {
+    const resolution = resolveProject(launcher.project);
+    return {
+      pack: pack.header.name, id: launcher.id, label: launcher.label, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null,
+      project: launcher.project, disabledReason: resolution.ok ? null : resolution.reason,
+    };
+  }));
+}
+
+export function approvedLauncher(packs: readonly PackOnDisk[], packName: string, launcherId: string): { launcher: PackLauncher; sessions: PackSessions | null } | null {
+  const pack = packs.find((candidate) => candidate.header.name === packName);
+  const launcher = pack ? packLaunchers(pack).find((candidate) => candidate.id === launcherId) : undefined;
+  if (!pack || !launcher) return null;
+  return { launcher, sessions: packSessionSettings(pack) };
+}
+
+export function launcherProjects(packs: readonly PackOnDisk[]): string[] {
+  return [...new Set(packs.flatMap((pack) => packLaunchers(pack).map((launcher) => launcher.project)))];
 }
 
 function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): PackRow {
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
-  const sectionErrors = [...prFlowsErrors, ...uiSectionErrors(pack)];
+  const sectionErrors = [...prFlowsErrors, ...packSectionErrors(pack)];
   const [prFlowsPack] = prFlowsPacks;
   return {
     name: pack.header.name, version: pack.header.version, description: pack.header.description ?? null, dir: pack.dir,
@@ -81,7 +112,9 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     files: [...pack.filesByPath.keys()].sort(), needs: packNeeds(pack), missingRequires: pack.missingRequires,
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
-    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })), errors: sectionErrors,
+    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
+    launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt })),
+    sessions: packSessionSettings(pack), errors: sectionErrors,
   };
 }
 
@@ -89,7 +122,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return validPackRow(read.pack, approvedFingerprints);
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, errors: read.errors,
   };
 }
 

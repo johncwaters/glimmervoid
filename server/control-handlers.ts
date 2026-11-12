@@ -4,6 +4,7 @@ import type { WebSocket } from 'ws';
 import { ClientMessage, configIssueMessage, type ClientMessageOf, type ServerMessageOf } from '../shared/contracts/index.ts';
 import type { PacksStatus } from '../shared/contracts/control/pack-messages.ts';
 import type { PackData } from './packs/pack-data.ts';
+import type { PackLaunchers } from './packs/launchers.ts';
 import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../shared/contracts/github-prs.ts';
 import type { PrFlowsWiring } from './github/pr-flows-wiring.ts';
@@ -136,6 +137,7 @@ interface ControlHandlerDeps {
   myPrs?: MyPrMergeControl | null;
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
+  packLaunchers?: Pick<PackLaunchers, 'launchRequest'> | null;
   packData?: PackData | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];

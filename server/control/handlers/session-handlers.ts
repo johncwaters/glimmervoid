@@ -70,6 +70,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     remoteRepoGit = null,
     secrets = null,
     agentAccounts = null,
+    packLaunchers = null,
   } = deps;
 
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
@@ -99,6 +100,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (environmentName) return createRemoteAddedSession(msg, ws, runSettings, environmentName);
     createAddedSession(msg, ws, runSettings);
     return undefined;
+  }
+
+  async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {
+    if (!packLaunchers) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, error: 'Pack launchers are unavailable on this host.' });
+      return;
+    }
+    const outcome = await packLaunchers.launchRequest(msg.pack, msg.launcherId, liveSessionNames());
+    if (!outcome.ok) {
+      replyTo(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
+      return;
+    }
+    await addSession({ type: 'add-session', requestId: msg.requestId, ...outcome.request }, ws, {});
   }
 
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
@@ -734,6 +748,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   const handlers = {
     'add-session': handleAddSession,
     'quick-session': handleQuickSession,
+    'pack-launch': handlePackLaunch,
     'list-conversations': handleListConversations,
     'resume-conversation': handleResumeConversation,
     'remove-session': handleRemoveSession,
@@ -768,6 +783,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'resume-conversation': (msg, requestId, message) => ({ type: 'resume-conversation-ack', requestId, id: typeof msg?.id === 'string' ? msg.id : undefined, ok: false, error: message }),
     'add-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'pack-launch': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;

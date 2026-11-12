@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
+import { CatalogAgentId, SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
 import { PackBridgeTopic, PackName, PackPanelAct } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
@@ -15,6 +16,8 @@ export const PackHeader = z.strictObject({
   requires: PrFlowPackRequires.default({ env: [], programs: [] }),
   prFlows: z.unknown().optional(),
   ui: z.unknown().optional(),
+  launchers: z.unknown().optional(),
+  sessions: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -62,6 +65,35 @@ export const PackUi = z.strictObject({
 });
 export type PackUi = z.infer<typeof PackUi>;
 
+const LaunchValue = z.string().regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'a model or effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' });
+const LAUNCHER_PROJECT_PATTERN = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|\/.+|[A-Za-z]:[\\/].*)$/;
+
+export const PackLauncher = z.strictObject({
+  id: PackItemId,
+  label: z.string().trim().regex(/^[A-Za-z0-9_\-. ()]{1,24}$/, { error: 'a launcher label is 1 to 24 letters, digits, spaces and _ - . ( )' }).describe('The button text, also the name of the session it starts'),
+  project: z.string().max(4096).regex(LAUNCHER_PROJECT_PATTERN, { error: 'a launcher project is an owner/name GitHub repository or an absolute folder path' })
+    .describe('owner/name: the first configured project whose origin is that GitHub repository; or an absolute path of a folder on this machine. A launcher whose project matches nothing shows disabled'),
+  agent: CatalogAgentId.describe('The agent the session runs'),
+  model: LaunchValue.max(200).optional().describe('The model passed to the agent, as its own --model flag takes it; absent uses the agent default'),
+  effort: LaunchValue.max(40).optional().describe('The reasoning effort passed to the agent, such as low, medium or high; absent uses the agent default'),
+  prompt: z.string().trim().min(1).max(4000).regex(/^[\P{C}\n\t]*$/u, { error: 'a launcher prompt holds no control, format or invisible characters besides newlines and tabs, so the operator approves exactly what the session gets' }).describe('The first prompt the session gets'),
+});
+export type PackLauncher = z.infer<typeof PackLauncher>;
+
+export const PackLaunchers = z.array(PackLauncher).max(16).superRefine((launchers, context) => {
+  const seenIds = new Set<string>();
+  launchers.forEach((launcher, index) => {
+    if (seenIds.has(launcher.id)) context.addIssue({ code: 'custom', path: [index, 'id'], message: `the id '${launcher.id}' is already used in launchers` });
+    seenIds.add(launcher.id);
+  });
+});
+
+export const PackSessions = z.strictObject({
+  dangerouslySkipPermissions: z.boolean().default(false).describe('Sessions this pack starts skip the agent\'s permission prompts; the operator sees it before approving'),
+  saneYolo: z.boolean().optional().describe('With dangerouslySkipPermissions, also catch risky commands with Sane YOLO; absent follows the operator\'s default'),
+});
+export type PackSessions = z.infer<typeof PackSessions>;
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -77,10 +109,16 @@ export type PackOnDisk = {
   filesByPath: ReadonlyMap<string, Buffer>;
   prFlows: PackSection<PackPrFlows> | null;
   ui: PackSection<PackUi> | null;
+  launchers: PackSection<PackLauncher[]> | null;
+  sessions: PackSection<PackSessions> | null;
   missingRequires: string[];
 };
 
-const PackManifestForSchema = PackHeader.extend({ prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional() });
+const PackManifestForSchema = PackHeader.extend({
+  prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional(),
+  launchers: PackLaunchers.optional().describe('Buttons in the Add session picker, each starting a session with its own prompt'),
+  sessions: PackSessions.optional().describe('Permission settings for every session this pack starts'),
+});
 
 export function packJsonSchemaText(): string {
   return `${JSON.stringify({ $id: PACK_SCHEMA_URL, title: 'Glimmervoid pack', ...prFlowRulesJsonSchema(PackManifestForSchema) }, null, 2)}\n`;

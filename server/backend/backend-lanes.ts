@@ -54,6 +54,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packsStatePath } from '../packs/pack-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
+import { createPackLaunchers } from '../packs/launchers.ts';
 import { createPackStore } from '../packs/pack-store.ts';
 import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
@@ -308,6 +309,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     lastPacksFrameText = frameText;
     broadcastControl(frame);
   };
+  const packLaunchers = createPackLaunchers({
+    packStore, projectPaths: () => configStore.config.projects.map((project) => project.path || '').filter(Boolean),
+    originUrl: (projectPath) => gitWorkspace.originUrl({ projectPath }), operatorSaneYolo: () => configStore.config.saneYolo !== false,
+    onResolved: broadcastPacksIfChanged, log: logger,
+  });
   const prFlows = createPrFlowsWiring({
     statePath: path.join(glimmervoidHome, 'pr-flows-state.json'), openPrs: () => myPrs.getStatus().prs.filter((pr) => pr.state === 'OPEN'),
     linkedSession: (pullRequestKey) => sessionLinkedToPr(sessions.values(), pullRequestKey),
@@ -472,6 +478,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => {
         packStore.on('changed', () => {
           broadcastPacksIfChanged();
+          void packLaunchers.refresh();
           void prFlows.applyRules();
         });
         const forgetRemovedPackData = () => packData.forgetRemovedPacks().catch((error: unknown) => logger.warn(`[packs] could not delete the stored data of removed packs: ${errorMessage(error)}`));
@@ -534,6 +541,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     prFlows,
     packStore,
     packData,
+    packLaunchers,
     community,
     workflows,
     startRuntimeLanes,

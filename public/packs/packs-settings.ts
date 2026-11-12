@@ -39,7 +39,22 @@ function packHeading(row: PackRow): HTMLElement {
   return heading;
 }
 
+function sessionsLine(sessions: PackRow['sessions']): string | null {
+  if (!sessions?.dangerouslySkipPermissions) return null;
+  const guardrails = sessions.saneYolo === undefined ? 'Sane YOLO as in your settings' : `Sane YOLO ${sessions.saneYolo ? 'on' : 'off'}`;
+  return `Sessions its launchers start skip permission prompts (${guardrails})`;
+}
+
+function launcherLines(row: PackRow): HTMLElement[] {
+  return row.launchers.flatMap((launcher) => {
+    const setup = [launcher.model, launcher.effort].filter((choice): choice is string => choice !== null);
+    const heading = `Launcher: ${launcher.label} starts ${launcher.agent}${setup.length === 0 ? '' : ` (${setup.join(', ')})`} in ${launcher.project} with this prompt:`;
+    return [el('p', 'settings-view-setting-description', heading), el('pre', 'settings-view-pack-prompt', launcher.prompt)];
+  });
+}
+
 function packLines(row: PackRow): HTMLElement[] {
+  const sessionsText = sessionsLine(row.sessions);
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
@@ -51,6 +66,8 @@ function packLines(row: PackRow): HTMLElement[] {
   ];
   return [
     ...lines.map((line) => el('p', 'settings-view-setting-description', line)),
+    ...launcherLines(row),
+    ...(sessionsText === null ? [] : [el('p', 'settings-view-warning', sessionsText)]),
     ...row.errors.map((error) => el('p', 'settings-view-warning', error)),
     ...(row.prFlows ? approvalDetails(row.prFlows) : []),
   ];

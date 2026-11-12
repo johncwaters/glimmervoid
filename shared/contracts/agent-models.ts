@@ -5,6 +5,7 @@ export const CatalogAgentId = z.enum(CATALOG_AGENT_IDS);
 export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 
 export const EFFORT_OPTION_ID = 'effort';
+export const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
 export const AgentHomeKind = z.enum(['operator', 'clean']);
 export type AgentHomeKind = z.infer<typeof AgentHomeKind>;

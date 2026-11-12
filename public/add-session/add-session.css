@@ -85,6 +85,28 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   html[data-layout="phone"] .add-session-dialog { animation: none; }
 }
 
+.add-session-launchers {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.add-session-launchers[hidden] {
+  display: none;
+}
+
+.add-session-launcher {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
 .add-session-pick[hidden],
 .add-session-panel[hidden] {
   display: none;

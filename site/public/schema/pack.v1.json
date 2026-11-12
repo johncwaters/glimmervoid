@@ -589,6 +589,83 @@
         }
       },
       "additionalProperties": false
+    },
+    "launchers": {
+      "description": "Buttons in the Add session picker, each starting a session with its own prompt",
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_\\-. ()]{1,24}$",
+            "description": "The button text, also the name of the session it starts"
+          },
+          "project": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^(?:[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+|\\/.+|[A-Za-z]:[\\\\/].*)$",
+            "description": "owner/name: the first configured project whose origin is that GitHub repository; or an absolute path of a folder on this machine. A launcher whose project matches nothing shows disabled"
+          },
+          "agent": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex",
+              "kimi"
+            ],
+            "description": "The agent the session runs"
+          },
+          "model": {
+            "description": "The model passed to the agent, as its own --model flag takes it; absent uses the agent default",
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9._:/[\\]-]+$"
+          },
+          "effort": {
+            "description": "The reasoning effort passed to the agent, such as low, medium or high; absent uses the agent default",
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[A-Za-z0-9._:/[\\]-]+$"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "^[\\P{C}\\n\\t]*$",
+            "description": "The first prompt the session gets"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "project",
+          "agent",
+          "prompt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sessions": {
+      "description": "Permission settings for every session this pack starts",
+      "type": "object",
+      "properties": {
+        "dangerouslySkipPermissions": {
+          "default": false,
+          "description": "Sessions this pack starts skip the agent's permission prompts; the operator sees it before approving",
+          "type": "boolean"
+        },
+        "saneYolo": {
+          "description": "With dangerouslySkipPermissions, also catch risky commands with Sane YOLO; absent follows the operator's default",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

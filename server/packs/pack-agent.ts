@@ -44,6 +44,8 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     '- ui.themes: color themes for the Theme picker; every chrome and state color is a #rrggbb hex.',
     '- ui.panels: HTML pages shown as dashboard tabs. A panel runs sandboxed in an opaque origin: no network, no cookies, no storage, no popups or navigation (a link in a panel opens nothing), no access to the dashboard page. Put every script, style, image and font in the pack and refer to it by a relative path; ES module scripts with relative imports, fonts, inline <script> and <style> all work. localStorage, sessionStorage and cookies throw a SecurityError; keep state in the pack store instead (below). Every panel file is served with this Content-Security-Policy:',
     `  ${PACK_PANEL_CONTENT_POLICY}`,
+    '- launchers: buttons at the top of the add-session picker, each starting one session: label, project (an owner/name repository matched against the projects already on this machine, or an absolute folder path), agent (claude-code, codex or kimi), optional model and effort, and the first prompt, at most 4000 characters. The operator sees each prompt word for word before approving. A launcher whose project matches nothing here shows disabled with the reason.',
+    '- sessions: settings for every session the pack starts. dangerouslySkipPermissions (default false) starts them without permission prompts; saneYolo turns the risky-command catcher on or off for them, and follows the operator setting when absent.',
     '',
     'Panel bridge: list the topics a panel needs under its reads in pack.json; the operator sees them before approving. The panel posts {"v":1,"kind":"subscribe","topics":[...]} to window.parent and gets {"v":1,"kind":"hello","granted":[...]}: the subscribed topics that are also in reads, so a topic left out of reads never arrives. Then a {"v":1,"kind":"topic","topic":...,"data":...} message comes for each granted topic, right away and again whenever it changes. Accept messages only when event.source === window.parent. The descriptions in the bridge JSON Schema below give each field\'s units and meaning.',
     `Pack store: every panel of a pack shares one key/value store kept across reloads, browsers and pack updates, at most ${PACK_DATA_MAX_BYTES} bytes as JSON and deleted when the pack folder is removed. A {"v":1,"kind":"store","data":{...},"error":null} message arrives right after hello (an empty topics list in subscribe is fine for a panel that only stores), and again after each save. Save one key by posting {"v":1,"kind":"store-set","key":"sort","value":"newest"}; a value of null deletes the key, and a value nests at most ${PACK_STORE_MAX_DEPTH} levels deep. A save over the limit is refused: the store message then carries the unchanged data and an error naming the size.`,
@@ -64,6 +66,7 @@ function rowLines(row: PackRow): string[] {
     `${row.name}${row.version === null ? '' : ` v${row.version}`}: ${row.state} at ${row.dir}`,
     ...row.panels.map((panel) => `  panel ${panel.id} (${panel.label})${panel.reads.length === 0 ? '' : `, reads ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : `, acts on ${panel.acts.join(', ')}`}`),
     ...row.themes.map((theme) => `  theme ${theme.id} (${theme.label}, ${theme.mode})`),
+    ...row.launchers.map((launcher) => `  launcher ${launcher.id} (${launcher.label}), ${launcher.agent} in ${launcher.project}`),
     ...row.missingRequires.map((missing) => `  missing on this machine: ${missing}`),
     ...row.errors.map((error) => `  error: ${error}`),
   ];
@@ -74,6 +77,8 @@ function packGrantsText(row: PackRow): string {
   const grants = [
     ...row.panels.map((panel) => `panel ${panel.label}${panel.reads.length === 0 ? '' : ` reading ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : ` acting on ${panel.acts.join(', ')}`}`),
     ...(row.themes.length === 0 ? [] : [`${row.themes.length} theme${row.themes.length === 1 ? '' : 's'}`]),
+    ...row.launchers.map((launcher) => `launcher ${launcher.label} starting ${launcher.agent} in ${launcher.project}`),
+    ...(row.sessions?.dangerouslySkipPermissions ? ['sessions without permission prompts'] : []),
     ...(prFlowCommandCount === 0 ? [] : [`${prFlowCommandCount} My PRs command${prFlowCommandCount === 1 ? '' : 's'}`]),
   ];
   return grants.length === 0 ? 'it adds nothing yet' : `it adds ${grants.join('; ')}`;

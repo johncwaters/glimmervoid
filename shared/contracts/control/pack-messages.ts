@@ -20,6 +20,8 @@ export const PackRow = z.strictObject({
   prFlows: PrFlowPendingApproval.nullable(),
   themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode })),
   panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
+  launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string() })),
+  sessions: z.strictObject({ dangerouslySkipPermissions: z.boolean(), saneYolo: z.boolean().optional() }).nullable(),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;
@@ -30,7 +32,14 @@ const ApprovedPackPanel = z.strictObject({
   viewId: z.string(), pack: z.string(), label: z.string(), entryUrl: z.string(), iconUrl: z.string().nullable(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct),
 });
 
-export const PacksStatus = loose('packs-status', { packs: z.array(PackRow), themes: z.array(ApprovedPackTheme), panels: z.array(ApprovedPackPanel), warnings: z.array(z.string()) });
+const ApprovedPackLauncher = z.strictObject({
+  pack: z.string(), id: z.string(), label: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), project: z.string(), disabledReason: z.string().nullable(),
+});
+export type ApprovedPackLauncher = z.infer<typeof ApprovedPackLauncher>;
+
+export const PacksStatus = loose('packs-status', {
+  packs: z.array(PackRow), themes: z.array(ApprovedPackTheme), panels: z.array(ApprovedPackPanel), launchers: z.array(ApprovedPackLauncher).default([]), warnings: z.array(z.string()),
+});
 export type PacksStatus = z.infer<typeof PacksStatus>;
 
 export const PackApproveRequest = z.strictObject({ fingerprint: z.string().min(1).max(128) });
@@ -41,6 +50,7 @@ export const packClientVariants = [
   loose('pack-approve', { ...PackApproveRequest.shape, requestId }),
   loose('pack-data-get', PackDataRequest),
   loose('pack-data-set', { ...PackDataRequest, key: PackStoreKey, value: PackStoreValue }),
+  loose('pack-launch', { requestId, pack: PackName, launcherId: z.string().min(1).max(40) }),
 ] as const;
 
 export const packServerVariants = [

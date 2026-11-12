@@ -575,6 +575,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hostLinks.reconcile(newConfig.hosts ?? []);
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
+    void laneAssembly.packLaunchers.refresh();
   }
 
   function nameProvisionalBoard({ boardId, provisionalTitle, sessionId, cardTitle, caption }: ProvisionalBoardNaming): void {
