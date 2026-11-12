@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from '../link/core/link-signing-core.ts';
-import { AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
 import { clock } from '../../shared/clock.ts';
@@ -34,7 +34,7 @@ function jsonOrNull(text: string): unknown {
 }
 
 function answer(response: http.ServerResponse, status: number, payload: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', [WATCHER_FEATURES_HEADER]: ALARMS_FEATURE });
   response.end(JSON.stringify(payload));
 }
 

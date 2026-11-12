@@ -1,4 +1,4 @@
-import { isSessionBusy, nextQuietAwakeMs, shouldRequestStop } from './core/idle-stop-core.ts';
+import { isSessionBusy, isWakeDueWithinIdleWindow, nextQuietAwakeMs, shouldRequestStop } from './core/idle-stop-core.ts';
 import type { HostStopRequestOutcome } from '../cloud/link/watcher-link.ts';
 import type { SessionState } from '../shared/states.ts';
 import type { ExpiredOpenWork } from '../session/core/agent-tracker.ts';
@@ -21,10 +21,11 @@ function expiredWorkReport(sessions: readonly LiveSessionView[]): Omit<StopReque
 
 const DEFAULT_TICK_MS = 15_000;
 
-function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, now = clock.nowMs, tickMs = DEFAULT_TICK_MS, log = console }: {
+function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, nextWakeAt = () => null, now = clock.nowMs, tickMs = DEFAULT_TICK_MS, log = console }: {
   liveSessions: () => Iterable<LiveSessionView>;
   requestHostStop: () => Promise<HostStopRequestOutcome>;
   reportStopRequested: (report: StopRequestedReport) => void;
+  nextWakeAt?: () => number | null;
   now?: () => number;
   tickMs?: number;
   log?: Pick<Console, 'log'>;
@@ -50,7 +51,7 @@ function startIdleStop({ liveSessions, requestHostStop, reportStopRequested, now
   function tick(): void {
     const nowMs = now();
     const sessions = [...liveSessions()];
-    const isBusy = sessions.some(isSessionBusy);
+    const isBusy = sessions.some(isSessionBusy) || isWakeDueWithinIdleWindow(nextWakeAt(), nowMs);
     quietAwakeMs = nextQuietAwakeMs({ quietAwakeMs, isBusy, previousTickAt, nowMs, tickMs });
     previousTickAt = nowMs;
     if (isRequestInFlight || !shouldRequestStop(quietAwakeMs)) return;

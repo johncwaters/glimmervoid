@@ -1,12 +1,14 @@
 import type { Session } from '../../session/sessions.ts';
 import { WakeStoreFile } from '../../shared/contracts/wakes.ts';
 import type { AgentWakeRequest, Wake, WakeKind, WakeView } from '../../shared/contracts/wakes.ts';
+import { MAX_ALARMS } from '../../shared/contracts/watcher-link.ts';
+import type { Alarm } from '../../shared/contracts/watcher-link.ts';
 import { clock } from '../../shared/clock.ts';
 import { STATES } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { admitWake, afterFire, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
+import { admitWake, afterFire, afterSkipped, alarmsOf, soonestFireAt, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
 import type { WakeFailureCause, WakeLimits } from '../core/wake-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import type { ChildChannels } from '../agent-api/child-channels.ts';
@@ -52,6 +54,8 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   const recheckAtById = new Map<string, number>();
   const resumingWakeIds = new Set<string>();
   const watchedSessions = new WeakSet<Session>();
+  const alarmListeners = new Set<() => void>();
+  let announcedAlarmsDigest = '[]';
 
   const store = createJsonStateStore<WakeStoreFile>({
     name: 'wakes',
@@ -106,7 +110,27 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     });
   }
 
+  function alarms(): Alarm[] {
+    return alarmsOf(wakes, MAX_ALARMS);
+  }
+
+  function noteAlarmsMayHaveChanged(): void {
+    const alarmsDigest = JSON.stringify(alarms());
+    if (alarmsDigest === announcedAlarmsDigest) return;
+    announcedAlarmsDigest = alarmsDigest;
+    for (const listener of alarmListeners) listener();
+  }
+
+  function onAlarmsMayHaveChanged(listener: () => void): void {
+    alarmListeners.add(listener);
+  }
+
+  function nextWakeAt(): number | null {
+    return soonestFireAt(wakes);
+  }
+
   function armTimer(): void {
+    noteAlarmsMayHaveChanged();
     if (timer) clearTimeoutFn(timer);
     timer = null;
     const dueTimes = wakes.filter((wake) => wake.status === 'pending' && !resumingWakeIds.has(wake.id)).map((wake) => Math.max(wake.nextFireAt, recheckAtById.get(wake.id) ?? 0));
@@ -196,6 +220,10 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function evaluateWake(wake: Wake, nowMs: number): void {
     const session = findLiveSession(wake.sessionId);
+    if (!session && nowMs - wake.nextFireAt > limits.missedGraceMs) {
+      settleWake(wake, { ...wake, status: 'missed' });
+      return;
+    }
     if (!session) {
       recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
       return;
@@ -299,7 +327,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { cancelForOperator, handleAgent, pendingWakesBySession, start, watchSession };
+  return { alarms, cancelForOperator, handleAgent, nextWakeAt, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

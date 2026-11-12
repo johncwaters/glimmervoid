@@ -9,6 +9,10 @@ function isSessionBusy(session: { state: SessionState; hasBackgroundWork: boolea
   return BUSY_STATES.has(session.state) || session.hasBackgroundWork;
 }
 
+function isWakeDueWithinIdleWindow(nextWakeAt: number | null, nowMs: number): boolean {
+  return nextWakeAt !== null && nextWakeAt - nowMs <= IDLE_STOP_WINDOW_MS;
+}
+
 function nextQuietAwakeMs({ quietAwakeMs, isBusy, previousTickAt, nowMs, tickMs }: {
   quietAwakeMs: number; isBusy: boolean; previousTickAt: number; nowMs: number; tickMs: number;
 }): number {
@@ -20,4 +24,4 @@ function shouldRequestStop(quietAwakeMs: number): boolean {
   return quietAwakeMs >= IDLE_STOP_WINDOW_MS;
 }
 
-export { isSessionBusy, nextQuietAwakeMs, shouldRequestStop };
+export { isSessionBusy, isWakeDueWithinIdleWindow, nextQuietAwakeMs, shouldRequestStop };
