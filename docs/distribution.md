@@ -13,7 +13,11 @@ Install and update commands are in the [README Quickstart](../README.md#quicksta
 
 The binaries are Node single executable applications built by `@yao-pkg/pkg --sea`, so an install needs no Node. Installers, the Homebrew formula and the updater come from axodotdev dist, configured in `dist-workspace.toml`; `.github/workflows/release.yml` is generated from it by `dist generate` and must never be edited by hand, because `dist plan` refuses a workflow that drifted from the config. Each target builds on its own native runner, since pkg cannot cross-compile native modules (node-pty, sharp). macOS binaries carry only the ad-hoc signature pkg applies, so no paid signing identity is involved; the curl and PowerShell installers download with tools that set no quarantine or Mark of the Web flag.
 
-dist builds through the npm `dist` script, which writes the binary to the package root where dist collects it. `npm run release` creates the GitHub release as a draft; the tag push runs `release.yml`, which uploads the archives, installers and checksums to that draft and publishes it, then pushes the formula to `johncwaters/homebrew-tap` with the `HOMEBREW_TAP_TOKEN` secret.
+dist builds through the npm `dist` script, which writes the binary to the package root where dist collects it.
+
+Each archive also carries `glimmervoid-fnox`, the pinned fnox Glimmervoid reads secrets through, declared as a second `bin` so the archive, the installers, the Homebrew formula and the updater all place it beside `glimmervoid`. It is named `glimmervoid-fnox` because a `fnox` in `~/.glimmervoid/bin` would shadow the operator's own fnox and clash with Homebrew's fnox formula. `scripts/fnox-release.json` pins the version and each target's archive sha256, and `scripts/fetch-fnox.ts` refuses an archive that does not match; `npm run dev` fetches the same pin into the gitignored `.fnox/`.
+
+`npm run release` creates the GitHub release as a draft; the tag push runs `release.yml`, which uploads the archives, installers and checksums to that draft and publishes it, then pushes the formula to `johncwaters/homebrew-tap` with the `HOMEBREW_TAP_TOKEN` secret.
 
 ## Updates
 
@@ -25,3 +29,4 @@ Every install learns about new versions from the latest GitHub release through t
 - A clone's dashboard update, guarded handoff and startup recovery: `tests/update-apply-clone-handoff.test.ts` and `tests/recover-handoff.test.ts`.
 - CI and releases on the same Node as development: every workflow reads `.nvmrc`.
 - `release.yml` matching `dist-workspace.toml`: `dist plan` fails on any drift.
+- The fnox archive for every target matching its pin: `node scripts/fetch-fnox.ts --target <target> --check-only`.

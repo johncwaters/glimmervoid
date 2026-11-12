@@ -11,6 +11,7 @@ dist/
 !.claude/release-profile.json
 !.claude/settings.json
 config.json
+.fnox/
 # Remote-mode device pairings (hashes only, but machine-local state). A repo-local GLIMMERVOID_CONFIG lands them here.
 pairings.json
 pairings-seen.json
@@ -35,4 +36,6 @@ marketing/video/*/glimmervoid-*.html
 dist-binary/
 /glimmervoid
 /glimmervoid.exe
+/glimmervoid-fnox
+/glimmervoid-fnox.exe
 /target/

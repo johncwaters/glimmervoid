@@ -16,6 +16,13 @@ export interface RuntimePaths {
   boardStoreWorkerPath: string;
   layoutWorkerPath: string;
   selfLaunch: (entry: SelfEntry, launcherPath: string) => string[];
+  fnoxPath: (fnoxLocation: FnoxLocation) => string;
+}
+
+interface FnoxLocation {
+  execPath: string;
+  platform: NodeJS.Platform;
+  fnoxVersion: string;
 }
 
 interface RuntimePathsInput {
@@ -33,6 +40,13 @@ function findPackageRoot(startDirectory: string, hasPackageJson: (directory: str
     if (parent === directory) return path.resolve(startDirectory, '..');
     directory = parent;
   }
+}
+
+const SHIPPED_FNOX_NAME = 'glimmervoid-fnox';
+const DEV_FNOX_DIRNAME = '.fnox';
+
+function withExecutableSuffix(name: string, platform: NodeJS.Platform): string {
+  return platform === 'win32' ? `${name}.exe` : name;
 }
 
 const ENTRY_EXTENSION_BY_MODE: Record<RuntimeMode, string> = { source: '.ts', bundled: '.js', binary: '.mjs' };
@@ -55,6 +69,10 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
     if (mode === 'binary') return entry === 'cli' ? [launcherPath] : [launcherPath, '__run', entry];
     return [launcherPath, entry === 'cli' ? cliPath : relayPath(entry)];
   };
+  const fnoxPath = ({ execPath, platform, fnoxVersion }: FnoxLocation): string => {
+    if (mode === 'binary') return path.join(path.dirname(execPath), withExecutableSuffix(SHIPPED_FNOX_NAME, platform));
+    return path.join(packageRoot, DEV_FNOX_DIRNAME, fnoxVersion, withExecutableSuffix('fnox', platform));
+  };
   return {
     packageRoot,
     mode,
@@ -67,6 +85,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
     boardStoreWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `board-store-worker${sourceExtension}`),
     layoutWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `layout-worker${sourceExtension}`),
     selfLaunch,
+    fnoxPath,
   };
 }
 

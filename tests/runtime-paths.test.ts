@@ -61,3 +61,21 @@ test('a binary relaunches itself through __run, while node installs launch the e
   assert.deepEqual(binaryPaths.selfLaunch('hook-relay', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid', '__run', 'hook-relay']);
   assert.deepEqual(bundledPaths.selfLaunch('hook-relay', '/usr/bin/node'), ['/usr/bin/node', path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js')]);
 });
+
+test('a binary runs the glimmervoid-fnox shipped beside it, while a checkout runs the pinned fnox it fetched', () => {
+  const binaryPaths = computeRuntimePaths({
+    moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.mjs'),
+    hasPackageJson: onlyRootHasPackageJson,
+    isBinary: true,
+  });
+  const sourcePaths = computeRuntimePaths({
+    moduleFile: path.join(PACKAGE_ROOT, 'server', 'index.ts'),
+    hasPackageJson: onlyRootHasPackageJson,
+    isBinary: false,
+  });
+  const installDir = path.join(path.sep, 'home', 'operator', '.glimmervoid', 'bin');
+
+  assert.equal(binaryPaths.fnoxPath({ execPath: path.join(installDir, 'glimmervoid'), platform: 'darwin', fnoxVersion: '1.48.0' }), path.join(installDir, 'glimmervoid-fnox'));
+  assert.equal(binaryPaths.fnoxPath({ execPath: path.join(installDir, 'glimmervoid.exe'), platform: 'win32', fnoxVersion: '1.48.0' }), path.join(installDir, 'glimmervoid-fnox.exe'));
+  assert.equal(sourcePaths.fnoxPath({ execPath: '/usr/bin/node', platform: 'linux', fnoxVersion: '1.48.0' }), path.join(PACKAGE_ROOT, '.fnox', '1.48.0', 'fnox'));
+});

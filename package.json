@@ -8,7 +8,8 @@
     "#shared/*": "./shared/*"
   },
   "bin": {
-    "glimmervoid": "dist/bin/glimmervoid.js"
+    "glimmervoid": "dist/bin/glimmervoid.js",
+    "glimmervoid-fnox": "dist/bin/glimmervoid-fnox"
   },
   "files": [
     "dist/",
@@ -68,6 +69,7 @@
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "test:container": "docker build -f harness/container/Dockerfile -t glimmervoid-remote-test . && docker run --rm glimmervoid-remote-test",
+    "predev": "node scripts/fetch-fnox.ts",
     "dev": "vite",
     "build": "node scripts/build.mjs",
     "postinstall": "node scripts/postinstall.mjs",

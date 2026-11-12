@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
+import { fetchFnox, hostTarget } from './fetch-fnox.ts';
 import { packJsonSchemaText } from '../shared/contracts/pack.ts';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -67,6 +68,8 @@ async function buildBinary() {
     if (!npmShapeModuleFiles.has(moduleFile)) fs.rmSync(moduleFile);
   }
   console.log(`build: standalone binary at ${path.relative(repoRoot, binaryPath)}`);
+  const fnoxName = process.platform === 'win32' ? 'glimmervoid-fnox.exe' : 'glimmervoid-fnox';
+  await fetchFnox({ target: hostTarget(), outputPath: path.join(binaryOutputDirectory, fnoxName) });
 }
 
 function nodeOutputFiles(directory, extension = '.js', found = []) {
@@ -136,7 +139,8 @@ if (missing.length > 0) fail(`missing from dist/: ${missing.join(', ')}`);
 
 const declaredBin = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).bin;
 const declaredBins = typeof declaredBin === 'string' ? [declaredBin] : Object.values(declaredBin ?? {});
-for (const relativePath of declaredBins) fs.chmodSync(path.join(repoRoot, relativePath), 0o755);
+const builtBins = declaredBins.filter((relativePath) => fs.existsSync(path.join(repoRoot, relativePath)));
+for (const relativePath of builtBins) fs.chmodSync(path.join(repoRoot, relativePath), 0o755);
 
 console.log(`build: dist/ complete (${REQUIRED_OUTPUTS.length} load-bearing outputs present)`);
 
