@@ -74,6 +74,8 @@ export const BoardPageGesture = z.discriminatedUnion('gesture', [
   z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('doubleTap'), centerX: PagePixels, centerY: PagePixels }).strict(),
 ]);
 export type BoardPageGesture = z.infer<typeof BoardPageGesture>;
+export const BOARD_PAGE_CONTENT_WIDTH_MESSAGE = 'glimmervoid-board-page-content-width';
+export const BoardPageContentWidth = z.object({ type: z.literal(BOARD_PAGE_CONTENT_WIDTH_MESSAGE), contentWidth: z.number().finite().positive(), layoutWidth: z.number().finite().positive() }).strict();
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 

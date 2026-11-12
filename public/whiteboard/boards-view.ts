@@ -4,7 +4,7 @@ import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -32,6 +32,7 @@ import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './boar
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
 import type { MediaZoomControl } from './media-zoom.ts';
+import { MAX_MEDIA_SCALE } from './media-zoom-core.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
@@ -592,7 +593,12 @@ function postZoomedState(pageFrame: HTMLIFrameElement, isZoomed: boolean): void 
   pageFrame.contentWindow?.postMessage({ type: BOARD_PAGE_ZOOMED_MESSAGE, isZoomed }, '*');
 }
 
-function listenToViewerPage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void, zoomControl: MediaZoomControl): void {
+function sheetGestureOf(gesture: BoardPageGesture, pageScale: number): BoardPageGesture {
+  if (gesture.gesture === 'pan') return gesture;
+  return { ...gesture, centerX: gesture.centerX * pageScale, centerY: gesture.centerY * pageScale };
+}
+
+function listenToViewerPage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, close: () => void, zoomControl: MediaZoomControl, viewerSizing: ViewerSizing): void {
   const listening = new AbortController();
   window.addEventListener('message', (event) => {
     if (event.source !== pageFrame.contentWindow) return;
@@ -600,10 +606,18 @@ function listenToViewerPage(pageFrame: HTMLIFrameElement, overlay: HTMLElement, 
       close();
       return;
     }
+    const pageWidths = BoardPageContentWidth.safeParse(event.data);
+    if (pageWidths.success) {
+      viewerSizing.takePageWidths(pageWidths.data);
+      return;
+    }
     const gesture = BoardPageGesture.safeParse(event.data);
-    if (gesture.success) applyPageGesture(zoomControl, gesture.data);
+    if (gesture.success) applyPageGesture(zoomControl, sheetGestureOf(gesture.data, viewerSizing.pageScale()));
   }, { signal: listening.signal });
-  pageFrame.addEventListener('load', () => postZoomedState(pageFrame, zoomControl.isZoomed()), { signal: listening.signal });
+  pageFrame.addEventListener('load', () => {
+    viewerSizing.takeNewPage();
+    postZoomedState(pageFrame, zoomControl.isZoomed());
+  }, { signal: listening.signal });
   const overlayWatcher = new MutationObserver(() => {
     if (overlay.isConnected) return;
     listening.abort();
@@ -693,6 +707,45 @@ function openBoardDoc(boardId: string, boxId: string): void {
 
 const VIEWER_WIDTH_BOUNDS = { minPx: 240, maxPx: BOARD_MEDIA_MAX_EDGE_PX };
 const VIEWER_WIDTH_KEY_STEP_PX = 40;
+const VIEWER_HANDLE_WIDTH_PX = 8;
+const MIN_PAGE_SCALE = 1 / MAX_MEDIA_SCALE;
+
+type PageWidths = { contentWidth: number; layoutWidth: number };
+type ViewerSizing = { pageScale: () => number; operatorWidth: () => number | null; takePageWidths: (pageWidths: PageWidths) => void; takeNewPage: () => void; takeOperatorWidth: (widthPx: number | null) => void };
+
+function createViewerSizing(zoomStage: HTMLElement, mediaSheet: HTMLElement): ViewerSizing {
+  let contentWidthPx: number | null = null;
+  let operatorWidthPx: number | null = null;
+  let pageScale = 1;
+  const showAtScale = (nextPageScale: number) => {
+    pageScale = nextPageScale;
+    mediaSheet.style.setProperty('--wb-page-scale', String(pageScale));
+  };
+  const refit = () => {
+    const visibleWidthPx = mediaSheet.clientWidth - VIEWER_HANDLE_WIDTH_PX;
+    if (operatorWidthPx !== null || contentWidthPx === null || visibleWidthPx <= 0) return;
+    showAtScale(Math.max(MIN_PAGE_SCALE, Math.min(1, visibleWidthPx / contentWidthPx)));
+  };
+  new ResizeObserver(refit).observe(zoomStage);
+  return {
+    pageScale: () => pageScale,
+    operatorWidth: () => operatorWidthPx,
+    takePageWidths: ({ contentWidth, layoutWidth }) => {
+      if (contentWidth <= layoutWidth) return;
+      contentWidthPx = contentWidth;
+      refit();
+    },
+    takeNewPage: () => {
+      if (operatorWidthPx !== null) return;
+      contentWidthPx = null;
+      showAtScale(1);
+    },
+    takeOperatorWidth: (widthPx) => {
+      operatorWidthPx = widthPx;
+      refit();
+    },
+  };
+}
 
 function viewerWidthHandle(): HTMLElement {
   const widthHandle = el('div', 'wb-image-viewer-resizer');
@@ -705,8 +758,8 @@ function viewerWidthHandle(): HTMLElement {
   return widthHandle;
 }
 
-function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthHandle: HTMLElement): void {
-  let operatorWidthPx: number | null = null;
+function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthHandle: HTMLElement, viewerSizing: ViewerSizing): void {
+  mediaSheet.style.setProperty('--wb-viewer-handle', `${VIEWER_HANDLE_WIDTH_PX}px`);
   wireColumnResizer({
     resizer: widthHandle,
     column: mediaSheet,
@@ -715,10 +768,8 @@ function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthH
     bounds: VIEWER_WIDTH_BOUNDS,
     keyStepPx: VIEWER_WIDTH_KEY_STEP_PX,
     reservePx: 0,
-    getStoredWidth: () => operatorWidthPx,
-    setStoredWidth: (widthPx) => {
-      operatorWidthPx = widthPx;
-    },
+    getStoredWidth: viewerSizing.operatorWidth,
+    setStoredWidth: viewerSizing.takeOperatorWidth,
   });
 }
 
@@ -746,12 +797,13 @@ function openImageViewer(pressedImage: PressedImage): void {
   mediaSheet.append(enlargedMedia, widthHandle);
   zoomStage.append(mediaSheet);
   dialog.append(zoomStage);
-  wireViewerWidth(zoomStage, mediaSheet, widthHandle);
+  const viewerSizing = createViewerSizing(zoomStage, mediaSheet);
+  wireViewerWidth(zoomStage, mediaSheet, widthHandle, viewerSizing);
   const zoomControl = attachMediaZoom(zoomStage, mediaSheet, (isZoomed) => {
     zoomStage.classList.toggle('is-zoomed', isZoomed);
     if (enlargedMedia instanceof HTMLIFrameElement) postZoomedState(enlargedMedia, isZoomed);
   });
-  if (enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(enlargedMedia, overlay, close, zoomControl);
+  if (enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(enlargedMedia, overlay, close, zoomControl, viewerSizing);
   btnCancel.addEventListener('click', close);
   requestAnimationFrame(() => btnCancel.focus());
 }

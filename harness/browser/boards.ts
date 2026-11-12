@@ -580,7 +580,9 @@ async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'undo removes the dropped picture', titled('dropped-shot'));
 }
 
+const WIDE_TABLE_WIDTH_PX = 3000;
 const PROBE_PAGE_HTML = `<!doctype html><html><body><input aria-label="probe field"><script>
+addEventListener('load', () => setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<table aria-label="wide table" style="width:${WIDE_TABLE_WIDTH_PX}px"><tr><td>first column</td><td style="text-align:right">last column</td></tr></table>'), 50));
 addEventListener('keydown', (event) => event.stopImmediatePropagation(), true);
 const readings = {};
 try { readings.dom = String(parent.document.body.childElementCount); } catch { readings.dom = 'blocked'; }
@@ -749,6 +751,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await viewerPage.waitFor();
   assert.equal(await viewerPage.getAttribute('sandbox'), 'allow-scripts allow-forms', 'a click on a page box opens it full size in the same sandbox');
   assert.notEqual(await viewerPage.evaluate((frame) => getComputedStyle(frame).pointerEvents), 'none', 'the full size page takes the pointer');
+  await verifyWidePageFitsWhole(page, viewerPage);
   await verifyViewerWidthHandle(page, viewerPage);
   await verifyViewerPageZoom(page, viewerPage);
   await page.frameLocator('iframe.wb-image-viewer-page').getByLabel('probe field').click();
@@ -843,6 +846,23 @@ async function verifyViewerWidthHandle(page: Page, media: Locator): Promise<void
   assert.equal(await viewerScaleOf(media), 1, 'a double click on the width handle does not zoom');
 }
 
+async function verifyWidePageFitsWhole(page: Page, viewerPage: Locator): Promise<void> {
+  const wideTable = page.frameLocator('iframe.wb-image-viewer-page').getByRole('table', { name: 'wide table' });
+  const stage = page.locator('.wb-image-viewer-stage');
+  const fitsWhole = await page.waitForFunction(() => {
+    const frame = document.querySelector('iframe.wb-image-viewer-page');
+    const stageElement = document.querySelector('.wb-image-viewer-stage');
+    return Boolean(frame instanceof HTMLIFrameElement && stageElement && frame.offsetWidth > stageElement.clientWidth);
+  }, undefined, { timeout: BOARD_TIMEOUT_MS }).then(() => true, () => false);
+  assert.ok(fitsWhole, 'a page wider than the viewer lays out at its content width');
+  const pageLayout = await page.frameLocator('iframe.wb-image-viewer-page').locator('html').evaluate((root) => ({ scrollWidth: root.scrollWidth, clientWidth: root.clientWidth }));
+  assert.ok(pageLayout.scrollWidth <= pageLayout.clientWidth, `a fitted wide page scrolls no content sideways (${JSON.stringify(pageLayout)})`);
+  const tableBounds = await wideTable.boundingBox();
+  const stageBounds = await stage.boundingBox();
+  assert.ok(tableBounds && stageBounds && tableBounds.x >= stageBounds.x && tableBounds.x + tableBounds.width <= stageBounds.x + stageBounds.width, `a wide table shows whole inside the viewer (table ${JSON.stringify(tableBounds)}, stage ${JSON.stringify(stageBounds)})`);
+  assert.ok(((await viewerPage.boundingBox())?.width ?? 0) < (await viewerPage.evaluate((frame) => frame instanceof HTMLElement ? frame.offsetWidth : 0)), 'a fitted wide page is scaled down to the viewer');
+}
+
 async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<void> {
   await page.waitForFunction(() => document.querySelector('iframe.wb-image-viewer-page')?.getAnimations({ subtree: true }).length === 0);
   const frameBounds = await viewerPage.boundingBox();
@@ -863,6 +883,7 @@ async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<vo
   await page.mouse.down();
   await page.mouse.move(center.x, center.y + 15, { steps: 5 });
   await page.mouse.up();
+  await page.waitForFunction((targetY) => Math.round((document.querySelector('iframe.wb-image-viewer-page')?.getBoundingClientRect().y ?? 0) - targetY) === 0, (beforeDrag?.y ?? 0) + 15, { timeout: BOARD_TIMEOUT_MS }).catch(() => undefined);
   assert.equal(Math.round(((await settledBoundsOf(viewerPage))?.y ?? 0) - (beforeDrag?.y ?? 0)), 15, 'a mouse drag inside a zoomed page pans it');
   await viewerPage.evaluate((frame) => new Promise((resolve) => {
     frame.addEventListener('load', resolve, { once: true });

@@ -3,7 +3,7 @@ type StageSize = { width: number; height: number };
 export type StagePoint = { x: number; y: number };
 
 export const FIT_ZOOM: MediaZoom = { scale: 1, offsetX: 0, offsetY: 0 };
-const MAX_MEDIA_SCALE = 8;
+export const MAX_MEDIA_SCALE = 8;
 const DOUBLE_TAP_SCALE = 2;
 
 function clampToStage(zoom: MediaZoom, stage: StageSize): MediaZoom {
