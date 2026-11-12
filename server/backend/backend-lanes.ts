@@ -64,7 +64,7 @@ import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
 import { createStarHintWiring } from '../star-hint-wiring.ts';
 import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.ts';
 import { createGithubClock } from '../github/github-clock.ts';
-import { createGithubStatus } from '../github/github-status.ts';
+import { createGithubStatus, createProviderStatus } from '../github/github-status.ts';
 import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
@@ -244,7 +244,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     controlClientCount: viewerControlClientCount,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
   });
-  const githubStatus = createGithubStatus({ log: logger });
+  const providerStatus = createProviderStatus({ log: logger, onChange: () => broadcastPacksIfChanged() });
+  const githubStatus = createGithubStatus({ providerStatus });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();
   const githubUsage = createGithubUsageLedger({ homeDir: glimmervoidHome, readAccountPool: () => githubStore.readAccountRateLimit(), log: logger });
@@ -301,6 +302,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
   const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger, frameSecret });
+  packStore.setProviderStatuses(providerStatus.statuses);
   const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
@@ -484,6 +486,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => {
         packStore.on('changed', () => {
           broadcastPacksIfChanged();
+          void providerStatus.track(packStore.statusUrlsInUse());
           void packLaunchers.refresh();
           void prFlows.applyRules();
         });

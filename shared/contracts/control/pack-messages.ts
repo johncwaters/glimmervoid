@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PrFlowPendingApproval } from '../pr-flows.ts';
 import { ThemePalette } from '../theme-palette.ts';
-import { PackBridgeTopic, PackName, PackPanelAct, PackStoreData, PackStoreKey, PackStoreValue } from '../pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, PackStoreData, PackStoreKey, PackStoreValue, ProviderStatus } from '../pack-bridge.ts';
 import { PackSessionStart } from '../pack-launch.ts';
 import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
 
@@ -23,6 +23,7 @@ export const PackRow = z.strictObject({
   panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
   launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string(), schedule: z.string().nullable() })),
   sessions: z.strictObject({ dangerouslySkipPermissions: z.boolean(), saneYolo: z.boolean().optional() }).nullable(),
+  statusUrls: z.array(z.string()).default([]),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;
@@ -39,7 +40,7 @@ const ApprovedPackLauncher = z.strictObject({
 export type ApprovedPackLauncher = z.infer<typeof ApprovedPackLauncher>;
 
 export const PacksStatus = loose('packs-status', {
-  packs: z.array(PackRow), themes: z.array(ApprovedPackTheme), panels: z.array(ApprovedPackPanel), launchers: z.array(ApprovedPackLauncher).default([]), warnings: z.array(z.string()),
+  packs: z.array(PackRow), themes: z.array(ApprovedPackTheme), panels: z.array(ApprovedPackPanel), launchers: z.array(ApprovedPackLauncher).default([]), providers: z.array(ProviderStatus).default([]), warnings: z.array(z.string()),
 });
 export type PacksStatus = z.infer<typeof PacksStatus>;
 

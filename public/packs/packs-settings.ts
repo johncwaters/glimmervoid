@@ -60,10 +60,13 @@ function panelLines(row: PackRow): HTMLElement[] {
 }
 
 function steeringWarning(row: PackRow): HTMLElement[] {
-  const readsReviews = row.panels.some((panel) => panel.reads.includes('reviews'));
   const startsSessions = row.panels.some((panel) => panel.acts.includes('sessions'));
-  if (!readsReviews || !startsSessions) return [];
-  return [el('p', 'settings-view-warning', 'This pack reads pull request text other people wrote and can start agents, and its panels share one store, so that text could steer what it runs')];
+  if (!startsSessions) return [];
+  const readsReviews = row.panels.some((panel) => panel.reads.includes('reviews'));
+  const readsProviders = row.statusUrls.length > 0 && row.panels.some((panel) => panel.reads.includes('providers'));
+  const outsideTexts = [...(readsReviews ? ['pull request text other people wrote'] : []), ...(readsProviders ? ['incident text the status pages write'] : [])];
+  if (outsideTexts.length === 0) return [];
+  return [el('p', 'settings-view-warning', `This pack reads ${outsideTexts.join(' and ')} and can start agents, and its panels share one store, so that text could steer what it runs`)];
 }
 
 function launcherLines(row: PackRow): HTMLElement[] {
@@ -79,6 +82,7 @@ function packLines(row: PackRow): HTMLElement[] {
   const lines = [
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
+    ...(row.statusUrls.length === 0 ? [] : [`Status pages it reads every five minutes for its panels: ${row.statusUrls.join(', ')}`]),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),

@@ -563,7 +563,8 @@
                     "theme",
                     "usage",
                     "attention",
-                    "reviews"
+                    "reviews",
+                    "providers"
                   ]
                 }
               },
@@ -671,6 +672,26 @@
           "type": "boolean"
         }
       },
+      "additionalProperties": false
+    },
+    "status": {
+      "description": "Status pages its panels read through the providers topic",
+      "type": "object",
+      "properties": {
+        "urls": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "format": "uri"
+          },
+          "description": "Statuspage summary URLs, such as https://www.githubstatus.com/api/v2/summary.json; the providers topic carries their open incidents"
+        }
+      },
+      "required": [
+        "urls"
+      ],
       "additionalProperties": false
     }
   },

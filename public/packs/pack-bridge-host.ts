@@ -14,6 +14,7 @@ import { maskStreamerText } from '../streamer-text-core.ts';
 import { currentThemeColors } from '../theme.ts';
 import { uiState } from '../ui-state-core.ts';
 import { usageSnapshot } from '../usage/usage-store.ts';
+import { packsSnapshot } from './packs-store.ts';
 import { planWindowOf } from '../usage/usage-store-core.ts';
 
 const BRIDGE_PUSH_INTERVAL_MS = 1000;
@@ -39,7 +40,7 @@ function shownText(text: string): string {
   return isStreamerMode() ? maskStreamerText(text) : text;
 }
 
-const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: () => PackBridgeTopicData[Topic] } = {
+const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: (packName: string) => PackBridgeTopicData[Topic] } = {
   sessions: () => ({
     sessions: [...sessionUIs].map(([id, ui]) => ({
       id, name: shownText(sessionName(ui)), agent: ui.agent ?? null, state: ui.currentState, stateSinceMs: ui.stateSince, taskTitle: ui.taskTitle === null ? null : shownText(ui.taskTitle),
@@ -58,6 +59,12 @@ const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: () => PackBridgeTopicData
     return { waiting: counts.waitingCount, finished: counts.finishedCount, failed: counts.failedCount };
   },
   reviews: () => reviewsSnapshot(),
+  providers: (packName) => {
+    const status = packsSnapshot();
+    const statusByUrl = new Map((status?.providers ?? []).map((provider) => [provider.url, provider]));
+    const urls = status?.packs.find((row) => row.name === packName && row.state === 'approved')?.statusUrls ?? [];
+    return { providers: urls.map((url) => statusByUrl.get(url) ?? { url, name: null, incidents: [], checkedAtMs: null, error: null }) };
+  },
 };
 
 function post(bridged: BridgedFrame, message: z.infer<typeof HostToPanel>): void {
@@ -66,17 +73,18 @@ function post(bridged: BridgedFrame, message: z.infer<typeof HostToPanel>): void
 
 type TopicFrame = { data: unknown; dataJson: string };
 
-function topicFrame(topic: PackBridgeTopic, framesThisTick: Map<PackBridgeTopic, TopicFrame>): TopicFrame {
-  const cached = framesThisTick.get(topic);
+function topicFrame(topic: PackBridgeTopic, packName: string, framesThisTick: Map<string, TopicFrame>): TopicFrame {
+  const frameKey = topic === 'providers' ? `${topic}:${packName}` : topic;
+  const cached = framesThisTick.get(frameKey);
   if (cached) return cached;
-  const data = TOPIC_PROJECTIONS[topic]();
+  const data = TOPIC_PROJECTIONS[topic](packName);
   const frame = { data, dataJson: JSON.stringify(data) };
-  framesThisTick.set(topic, frame);
+  framesThisTick.set(frameKey, frame);
   return frame;
 }
 
-function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic, framesThisTick: Map<PackBridgeTopic, TopicFrame> = new Map()): void {
-  const { data, dataJson } = topicFrame(topic, framesThisTick);
+function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic, framesThisTick: Map<string, TopicFrame> = new Map()): void {
+  const { data, dataJson } = topicFrame(topic, bridged.packName, framesThisTick);
   if (bridged.lastSentJsonByTopic.get(topic) === dataJson) return;
   bridged.lastSentJsonByTopic.set(topic, dataJson);
   post(bridged, HostToPanel.parse({ v: 1, kind: 'topic', topic, data }));
@@ -84,7 +92,7 @@ function pushTopic(bridged: BridgedFrame, topic: PackBridgeTopic, framesThisTick
 
 function pushChangedTopics(): void {
   let hasSubscriber = false;
-  const framesThisTick = new Map<PackBridgeTopic, TopicFrame>();
+  const framesThisTick = new Map<string, TopicFrame>();
   for (const bridged of bridgedFrameByViewId.values()) {
     for (const topic of bridged.subscribedTopics) pushTopic(bridged, topic, framesThisTick);
     hasSubscriber ||= bridged.subscribedTopics.size > 0;

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackHeader, PackLaunchers, PackPanel, PackPrFlows, PackSessions, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackHeader, PackLaunchers, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -156,12 +156,13 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const ui = withPanelFilesPresent(parseSection(PackUi, header.data.ui, 'ui'), header.data.ui, read.filesByPath);
   const launchers = parseSection(PackLaunchers, header.data.launchers, 'launchers');
   const sessions = parseSection(PackSessions, header.data.sessions, 'sessions');
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions].flatMap(sectionErrors)], filesByPath, header: header.data };
+  const status = parseSection(PackStatus, header.data.status, 'status');
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }

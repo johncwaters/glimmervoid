@@ -19,6 +19,7 @@ export const PackHeader = z.strictObject({
   ui: z.unknown().optional(),
   launchers: z.unknown().optional(),
   sessions: z.unknown().optional(),
+  status: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -102,6 +103,15 @@ export const PackSessions = z.strictObject({
 });
 export type PackSessions = z.infer<typeof PackSessions>;
 
+const PACK_STATUS_URLS_MAX = 8;
+
+export const PackStatus = z.strictObject({
+  urls: z.array(z.url({ protocol: /^https$/, error: 'a status URL is an https URL' }).max(2048)).max(PACK_STATUS_URLS_MAX).superRefine((urls, context) => {
+    if (new Set(urls).size !== urls.length) context.addIssue({ code: 'custom', message: 'a status URL is listed twice' });
+  }).describe('Statuspage summary URLs, such as https://www.githubstatus.com/api/v2/summary.json; the providers topic carries their open incidents'),
+});
+export type PackStatus = z.infer<typeof PackStatus>;
+
 export const PackLauncherRuns = z.strictObject({ sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}) });
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
@@ -121,6 +131,7 @@ export type PackOnDisk = {
   ui: PackSection<PackUi> | null;
   launchers: PackSection<PackLauncher[]> | null;
   sessions: PackSection<PackSessions> | null;
+  status: PackSection<PackStatus> | null;
   missingRequires: string[];
 };
 
@@ -128,6 +139,7 @@ const PackManifestForSchema = PackHeader.extend({
   prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional(),
   launchers: PackLaunchers.optional().describe('Buttons in the Add session picker, each starting a session with its own prompt'),
   sessions: PackSessions.optional().describe('Permission settings for every session this pack starts'),
+  status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
 });
 
 export function packJsonSchemaText(): string {

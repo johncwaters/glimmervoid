@@ -68,7 +68,7 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
 }
 
 export function packSectionErrors(pack: PackOnDisk): string[] {
-  return [pack.ui, pack.launchers, pack.sessions].flatMap((section) => (section && !section.ok ? section.errors : []));
+  return [pack.ui, pack.launchers, pack.sessions, pack.status].flatMap((section) => (section && !section.ok ? section.errors : []));
 }
 
 function packLaunchers(pack: PackOnDisk): PackLauncher[] {
@@ -111,6 +111,14 @@ export function scheduledLaunchers(packs: readonly PackOnDisk[]): ScheduledPackL
   return packs.flatMap((pack) => packLaunchers(pack).flatMap((launcher) => (launcher.schedule ? [{ pack: pack.header.name, launcher, schedule: launcher.schedule }] : [])));
 }
 
+function packStatusUrls(pack: PackOnDisk): string[] {
+  return pack.status?.ok ? pack.status.value.urls : [];
+}
+
+export function statusUrlsOf(packs: readonly PackOnDisk[]): string[] {
+  return [...new Set(packs.flatMap(packStatusUrls))];
+}
+
 export function launcherProjects(packs: readonly PackOnDisk[]): string[] {
   return [...new Set(packs.flatMap((pack) => packLaunchers(pack).map((launcher) => launcher.project)))];
 }
@@ -127,7 +135,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
-    sessions: packSessionSettings(pack), errors: sectionErrors,
+    sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), errors: sectionErrors,
   };
 }
 
@@ -135,7 +143,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return validPackRow(read.pack, approvedFingerprints);
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], errors: read.errors,
   };
 }
 

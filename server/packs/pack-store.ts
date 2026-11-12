@@ -8,7 +8,8 @@ import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
-import { approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
+import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
+import { statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
@@ -30,6 +31,8 @@ type PackStore = EventEmitter & {
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
+  setProviderStatuses(statusesOf: (urls: readonly string[]) => ProviderStatus[]): void;
+  statusUrlsInUse(): string[];
   launcherProjectsInUse(): string[];
   launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
   panelInUse(packName: string, panelId: string): ReturnType<typeof approvedPanel>;
@@ -57,6 +60,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   let homeWatcher: fs.FSWatcher | null = null;
   let isStopped = false;
   let resolveLauncherProject = (_project: string): LauncherProjectResolution => ({ ok: false, reason: 'projects are still being matched' });
+  let providerStatusesOf = (_urls: readonly string[]): ProviderStatus[] => [];
 
   function watchQuietly(target: string, onChange: (changedName: string | null) => void, isRecursive: boolean): fs.FSWatcher | null {
     try {
@@ -179,7 +183,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     const inUse = packsInUse();
     return {
       type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, (innerPath) => keyedFramePath(frameSecret, innerPath)),
-      launchers: approvedPackLaunchers(inUse, resolveLauncherProject), warnings: homeWarning === null ? [] : [homeWarning],
+      launchers: approvedPackLaunchers(inUse, resolveLauncherProject), providers: providerStatusesOf(statusUrlsOf(inUse)), warnings: homeWarning === null ? [] : [homeWarning],
     };
   }
 
@@ -272,6 +276,8 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   return Object.assign(emitter, {
     start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
+    setProviderStatuses: (statusesOf: (urls: readonly string[]) => ProviderStatus[]) => { providerStatusesOf = statusesOf; },
+    statusUrlsInUse: () => statusUrlsOf(packsInUse()),
     launcherProjectsInUse: () => launcherProjects(packsInUse()),
     launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
     panelInUse: (packName: string, panelId: string) => approvedPanel(packsInUse(), packName, panelId),

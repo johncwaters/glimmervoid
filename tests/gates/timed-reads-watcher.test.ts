@@ -13,6 +13,7 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/radar/radar-poller.ts': { watcherBackedBy: 'posthog' },
   'server/community/community-poller.ts': { watcherBackedBy: 'community' },
   'server/lanes/lane-runner.ts': { awakeOnly: 'the shared tick loop; each lane that starts one is classified in its own file' },
+  'server/github/github-status.ts': { awakeOnly: 'status page refresh for pack panels; a missed read while asleep is fine, the next tick reads again' },
   'server/branch-gc-poller.ts': { awakeOnly: 'housekeeping git fetch; nothing the operator acts on while the host sleeps' },
   'server/coder-activity-poller.ts': { awakeOnly: 'reports this host\'s own running sessions' },
   'server/coder/coder-env-poller.ts': { awakeOnly: 'reads this host\'s own coder environment' },

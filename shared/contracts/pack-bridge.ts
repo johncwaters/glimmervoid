@@ -4,7 +4,7 @@ import { REVIEW_ACTION_TYPES, ReviewsSnapshot } from './reviews.ts';
 
 export const PACK_BRIDGE_VERSION = 1;
 
-export const PackBridgeTopic = z.enum(['sessions', 'focus', 'theme', 'usage', 'attention', 'reviews']);
+export const PackBridgeTopic = z.enum(['sessions', 'focus', 'theme', 'usage', 'attention', 'reviews', 'providers']);
 export type PackBridgeTopic = z.infer<typeof PackBridgeTopic>;
 
 const BridgeVersion = z.literal(PACK_BRIDGE_VERSION);
@@ -13,6 +13,22 @@ const BridgePlanWindow = z.strictObject({
   pct: z.number().nullable().describe('Percent of the window used, 0 to 100; 100 or more means the limit is reached; null when the agent did not report it'),
   resetsAtMs: z.number().nullable().describe('When the window resets, as Unix epoch milliseconds; null when the agent did not report it'),
 }).nullable().describe('null when the agent reported nothing for this window');
+
+export const ProviderIncidentStatus = z.enum(['investigating', 'identified', 'monitoring', 'scheduled', 'in_progress', 'verifying', 'other']);
+
+export const ProviderStatus = z.strictObject({
+  url: z.string().describe('A statuspage summary URL the pack lists under status.urls'),
+  name: z.string().nullable().describe("The status page's own name, such as GitHub; null until a read succeeds"),
+  incidents: z.array(z.strictObject({
+    name: z.string().max(300), status: ProviderIncidentStatus.describe('The statuspage incident status; other when the page reports a state this list lacks'),
+    impact: z.string().max(40).nullable().describe('none, minor, major or critical, as the page reports it'),
+    updatedAtMs: z.number().describe('When the incident was last updated, as Unix epoch milliseconds'),
+    url: z.string().nullable().describe('The https link to the incident page'),
+  })).describe('Open incidents, newest first; resolved ones are left out'),
+  checkedAtMs: z.number().nullable().describe('When Glimmervoid last read the page, as Unix epoch milliseconds; pages are read at most once every five minutes'),
+  error: z.string().nullable().describe('Why the last read failed; incidents is then empty'),
+});
+export type ProviderStatus = z.infer<typeof ProviderStatus>;
 
 const PACK_BRIDGE_TOPIC_DATA = {
   sessions: z.strictObject({
@@ -33,6 +49,7 @@ const PACK_BRIDGE_TOPIC_DATA = {
   }),
   attention: z.strictObject({ waiting: z.number(), finished: z.number(), failed: z.number() }),
   reviews: ReviewsSnapshot,
+  providers: z.strictObject({ providers: z.array(ProviderStatus).describe("One entry per URL in the pack's status.urls, in that order") }),
 } satisfies Record<PackBridgeTopic, z.ZodType>;
 
 export type PackBridgeTopicData = { [Topic in PackBridgeTopic]: z.infer<(typeof PACK_BRIDGE_TOPIC_DATA)[Topic]> };

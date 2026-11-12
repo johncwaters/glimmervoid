@@ -13,6 +13,7 @@ import { readPacksForAgent } from '../server/packs/pack-agent.ts';
 import { PACKS_DIR_NAME, packLauncherRunsPath, packsStatePath } from '../server/packs/pack-files.ts';
 import { createPackLaunchers } from '../server/packs/launchers.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
+import { createGithubStatus, createProviderStatus } from '../server/github/github-status.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
 import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
@@ -337,6 +338,64 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     await restarted.refresh();
     assert.equal(armedTimers.at(-1)?.delayMs, hourMs, 'a timezone change moves the next run to 03:00 in the new timezone');
   } finally {
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('an approved pack listing status pages gets their open incidents in the packs frame, refuses an oversize or non-statuspage reply, and shares one read per page with the GitHub outage check', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-status-'));
+  const githubUrl = 'https://www.githubstatus.com/api/v2/summary.json';
+  const oversizeUrl = 'https://status.example.com/api/v2/summary.json';
+  const htmlUrl = 'https://down.example.com/api/v2/summary.json';
+  const packDir = path.join(homeDir, PACKS_DIR_NAME, 'outage-watch');
+  fs.mkdirSync(packDir, { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'outage-watch', version: 1, status: { urls: [githubUrl, oversizeUrl, htmlUrl] } }));
+  const githubSummary = {
+    page: { name: 'GitHub' },
+    incidents: [
+      { name: 'Actions delayed', status: 'investigating', impact: 'minor', shortlink: 'https://stspg.io/a', updated_at: '2026-11-12T10:00:00Z' },
+      { name: 'Old outage', status: 'resolved', updated_at: '2026-11-11T10:00:00Z' },
+    ],
+  };
+  const readsByUrl = new Map<string, number>();
+  const fetchFn = (async (input: string | URL | Request) => {
+    const url = String(input);
+    readsByUrl.set(url, (readsByUrl.get(url) ?? 0) + 1);
+    if (url === githubUrl) return new Response(JSON.stringify(githubSummary));
+    if (url === oversizeUrl) return new Response('x'.repeat(600 * 1024));
+    return new Response('<html>down</html>');
+  }) as typeof fetch;
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  let changeCount = 0;
+  const providerStatus = createProviderStatus({ fetchFn, log: { warn: () => {} }, onChange: () => { changeCount += 1; } });
+  const githubStatus = createGithubStatus({ providerStatus });
+  packStore.setProviderStatuses(providerStatus.statuses);
+  try {
+    await packStore.start();
+    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'outage-watch'));
+    const row = packStore.statusFrame().packs.find((candidate) => candidate.name === 'outage-watch');
+    assert.deepEqual(row?.statusUrls, [githubUrl, oversizeUrl, htmlUrl]);
+    assert.deepEqual(packStore.statusUrlsInUse(), [], 'an unapproved pack reads no status page');
+
+    assert.deepEqual(await packStore.approve(row?.fingerprint ?? ''), { ok: true });
+    await waitFor(() => packStore.statusUrlsInUse().length === 3);
+    await providerStatus.track(packStore.statusUrlsInUse());
+    assert.ok(changeCount > 0);
+
+    const providersByUrl = new Map(packStore.statusFrame().providers.map((provider) => [provider.url, provider]));
+    assert.equal(providersByUrl.get(githubUrl)?.name, 'GitHub');
+    assert.deepEqual(providersByUrl.get(githubUrl)?.incidents.map((incident) => [incident.name, incident.url]), [['Actions delayed', 'https://stspg.io/a']]);
+    assert.match(providersByUrl.get(oversizeUrl)?.error ?? '', /over 524288 bytes/);
+    assert.equal(providersByUrl.get(htmlUrl)?.error, 'the reply is not a statuspage summary JSON');
+    assert.deepEqual(providersByUrl.get(htmlUrl)?.incidents, []);
+
+    githubStatus.noteTransientFailure();
+    await providerStatus.track(packStore.statusUrlsInUse());
+    assert.equal(githubStatus.incident(), 'Actions delayed');
+    assert.equal(readsByUrl.get(githubUrl), 1, 'the pack and the outage check share one read inside five minutes');
+  } finally {
+    await providerStatus.track([]);
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
   }

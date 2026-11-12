@@ -94,6 +94,12 @@ export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBri
   },
   attention: { waiting: isLoginBugWaiting ? 1 : 0, finished: 1, failed: 1 },
   reviews: sampleReviews(nowMs, frameIndex),
+  providers: {
+    providers: [
+      { url: 'https://www.githubstatus.com/api/v2/summary.json', name: 'GitHub', checkedAtMs: nowMs - 60 * 1000, error: null, incidents: [{ name: 'Degraded performance for Actions', status: 'investigating', impact: 'minor', updatedAtMs: nowMs - 12 * 60 * 1000, url: 'https://stspg.io/sample' }] },
+      { url: 'https://status.claude.com/api/v2/summary.json', name: 'Claude', checkedAtMs: nowMs - 60 * 1000, error: null, incidents: [] },
+    ],
+  },
   };
 }
 
