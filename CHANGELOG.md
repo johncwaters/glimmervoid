@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-11-11
+
 ### Added
 
 - **`glimmervoid doctor` shows where npm and pnpm come from.** A new Package managers section lists the npm and pnpm that new worktrees install with, and whether each was found on PATH, through your login shell PATH or in a usual install folder, or that it was not found at all.

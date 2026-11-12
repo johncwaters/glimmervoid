@@ -1,6 +1,6 @@
 {
   "name": "glimmervoid",
-  "version": "0.57.1-next.0",
+  "version": "0.57.1",
   "description": "See it before it's built. Every terminal coding agent shows its prototypes, architecture and plans on a whiteboard you mark up, and works in its own git worktree. Only the one that needs you asks for your attention.",
   "main": "dist/server/index.js",
   "type": "module",
