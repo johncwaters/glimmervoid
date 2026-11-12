@@ -54,6 +54,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   const { sessions, agentSessions, findSession, liveSessionNames, findConfiguredProject, createProjectSession } = context;
   const {
     markChildWorktreeDiscard = null,
+    sessionWakes = null,
     config,
     configStore,
     broadcastControl,
@@ -584,6 +585,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     session.unlinkPr(msg.key);
   }
 
+  async function handleCancelWake(msg: ClientMessageOf<'cancel-wake'>, ws: ControlSocket): Promise<void> {
+    if (!sessionWakes) {
+      sendError(ws, 'Wakes are not available on this host.', { id: msg.id });
+      return;
+    }
+    const refusal = await sessionWakes.cancelForOperator(msg.id, msg.wake);
+    if (refusal) sendError(ws, refusal, { id: msg.id });
+  }
+
+  function sessionWakeFrames() {
+    return (sessionWakes?.pendingWakesBySession() ?? []).map(({ sessionId, wakes }) => ({ type: 'session-wakes', id: sessionId, wakes }));
+  }
+
   async function handleListConversations(msg: ClientMessageOf<'list-conversations'>, ws: ControlSocket): Promise<void> {
     const sess = findSession(msg);
     if (!sess) {
@@ -665,6 +679,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-session-question-manager': handleSetSessionQuestionManager,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
+    'cancel-wake': handleCancelWake,
     'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session': handleStartSession,
     'restart': (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.restart(options)),
@@ -690,7 +705,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
-  return { handlers, invalidReplies, removeExitedSession, discardSession };
+  return { handlers, invalidReplies, connectFrames: sessionWakeFrames, removeExitedSession, discardSession };
 }
 
 export { createSessionHandlers };

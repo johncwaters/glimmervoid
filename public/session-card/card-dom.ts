@@ -10,6 +10,7 @@ import { buildDialogShell } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { paintTaskTitle } from './card-titles.ts';
+import { hasPendingWakes, openSessionWakes, paintWakeChip } from './session-wakes.ts';
 import { button, menuButton } from '../ui/button.ts';
 
 type LinkedPrsPainter = (slot: HTMLElement, sessionId: string) => void;
@@ -130,9 +131,19 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnCoherenceJournal = buildMenuItem('Coherence journal', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
-  const paintCoherenceJournalItem = () => btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
-  btnSessionMenu.onclick = paintCoherenceJournalItem;
-  btnSessionMenu.onkeydown = paintCoherenceJournalItem;
+  const btnWakes = buildMenuItem('Wakes', 'overflow-wakes');
+  btnWakes.setAttribute('aria-haspopup', 'dialog');
+  btnWakes.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    openSessionWakes(sessionId);
+  };
+  const paintMenuItems = () => {
+    btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
+    btnWakes.classList.toggle('visible', hasPendingWakes(sessionId));
+  };
+  btnSessionMenu.onclick = paintMenuItems;
+  btnSessionMenu.onkeydown = paintMenuItems;
   btnCoherenceJournal.onclick = () => {
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
@@ -155,7 +166,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnQuestionManager, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnWakes, btnQuestionManager, btnLinkPr, btnConnectBoard, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
@@ -170,6 +181,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   actions.append(sessionMenuWrap);
   const tags = el('div', 'session-card-tags');
+  const wakeChipSlot = el('span', 'session-wake-chip-slot');
+  paintWakeChip(wakeChipSlot, sessionId);
+  tags.append(wakeChipSlot);
   const ownershipEl = el('span', 'session-ownership');
   ownershipEl.hidden = true;
   header.append(agentMarkEl, nameEl, taskTitleEl, ownershipEl, tags, actions);

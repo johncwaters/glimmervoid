@@ -367,6 +367,17 @@
 .linked-pr-row-stage { color: var(--text-dim); }
 .linked-pr-row .session-pr-chip-unlink { height: auto; padding: 0 10px; }
 
+.session-wake-chip-slot { display: inline-flex; }
+.session-wake-chip-slot[hidden] { display: none; }
+.session-wake-chip { color: var(--text-muted); cursor: pointer; }
+.session-wake-rows { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
+.session-wake-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.session-wake-row-details { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; flex: 1; min-width: 0; }
+.session-wake-row-time { font-weight: 700; color: var(--text-head); }
+.session-wake-row-schedule { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-wake-row-text { grid-column: 1 / -1; color: var(--text-muted); overflow-wrap: anywhere; }
+.session-wake-row-empty { color: var(--text-muted); }
+
 .session-actions {
   display: flex;
   align-items: center;

@@ -1,6 +1,6 @@
 import type { Session } from '../../session/sessions.ts';
 import { WakeStoreFile } from '../../shared/contracts/wakes.ts';
-import type { AgentWakeRequest, Wake, WakeKind } from '../../shared/contracts/wakes.ts';
+import type { AgentWakeRequest, Wake, WakeKind, WakeView } from '../../shared/contracts/wakes.ts';
 import { clock } from '../../shared/clock.ts';
 import { STATES } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
@@ -25,6 +25,7 @@ interface WakeWiringOptions {
   budget: WakeBudget;
   limits?: WakeLimits;
   spawnGate?: WakeSpawnGate | null;
+  onSessionWakesChange?: (sessionId: string, wakes: WakeView[]) => void;
   setTimeoutFn: SetTimeoutFn;
   clearTimeoutFn: ClearTimeoutFn;
   now: () => number;
@@ -43,7 +44,7 @@ function refusal(status: number, error: string): AgentRefusalReply {
   return { status, body: { ok: false, error } };
 }
 
-function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
+function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, onSessionWakesChange = () => {}, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
   let wakes: Wake[] = [];
   let lastWakeNumber = 0;
   let timer: TimerHandle | null = null;
@@ -61,6 +62,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
       lastWakeNumber = loaded?.lastWakeNumber ?? 0;
       isLoaded = true;
       armTimer();
+      for (const sessionId of sessionIdsWithPendingWakes()) announce(sessionId);
     },
     warn: (message, fields) => logger.warn(`[wakes] ${message} ${JSON.stringify(fields)}`),
   });
@@ -78,6 +80,23 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function pendingWakesOf(sessionId: string): Wake[] {
     return wakes.filter((wake) => wake.sessionId === sessionId && wake.status === 'pending');
+  }
+
+  function pendingViewsOf(sessionId: string): WakeView[] {
+    const nowMs = now();
+    return pendingWakesOf(sessionId).sort((left, right) => left.nextFireAt - right.nextFireAt).map((wake) => viewOfWake(wake, nowMs, FIRE_TIME_FORMAT));
+  }
+
+  function sessionIdsWithPendingWakes(): Set<string> {
+    return new Set(wakes.filter((wake) => wake.status === 'pending').map((wake) => wake.sessionId));
+  }
+
+  function announce(sessionId: string): void {
+    onSessionWakesChange(sessionId, pendingViewsOf(sessionId));
+  }
+
+  function pendingWakesBySession(): { sessionId: string; wakes: WakeView[] }[] {
+    return [...sessionIdsWithPendingWakes()].map((sessionId) => ({ sessionId, wakes: pendingViewsOf(sessionId) }));
   }
 
   function replaceWake(updated: Wake): void {
@@ -125,6 +144,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     recheckAtById.delete(wake.id);
     replaceWake(settled);
     void persistUntilWritten();
+    announce(wake.sessionId);
   }
 
   function settleDelivery(wakeId: string, isSubmitted: boolean): void {
@@ -194,6 +214,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
         return;
       case 'missed':
         settleWake(wake, afterSkipped(wake, 'missed', nowMs, limits));
+        session.raiseAttention('wake-failed', describeWakeFailedNote(wake, 'missed'));
         return;
       case 'failed':
         failWake(wake, session, decision.cause);
@@ -234,13 +255,14 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     }
     watchSession(session);
     armTimer();
+    announce(session.id);
     const view = viewOfWake(wake, setAt, FIRE_TIME_FORMAT);
     return { status: 200, body: { ok: true, wake: view, timezone, note: `wake ${wake.id} set: fires ${view.nextFire}, ${timezone}` } };
   }
 
-  async function cancel(session: Session, wakeId: string): Promise<AgentReplyOf<'wake'>> {
+  async function cancel(sessionId: string, wakeId: string): Promise<AgentReplyOf<'wake'>> {
     await store.load();
-    const wake = pendingWakesOf(session.id).find((pending) => pending.id === wakeId);
+    const wake = pendingWakesOf(sessionId).find((pending) => pending.id === wakeId);
     if (!wake) return refusal(404, `this session has no pending wake ${wakeId}; glimmervoid wake list shows them`);
     replaceWake({ ...wake, status: 'cancelled' });
     if (!(await persist())) {
@@ -249,19 +271,25 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     }
     recheckAtById.delete(wakeId);
     armTimer();
+    announce(sessionId);
     return { status: 200, body: { ok: true, cancelled: wakeId } };
+  }
+
+  async function cancelForOperator(sessionId: string, wakeId: string): Promise<string | null> {
+    const reply = await cancel(sessionId, wakeId);
+    if (reply.body.ok) return null;
+    announce(sessionId);
+    return reply.body.error;
   }
 
   async function list(session: Session): Promise<AgentReplyOf<'wake'>> {
     await store.load();
-    const nowMs = now();
-    const views = pendingWakesOf(session.id).sort((left, right) => left.nextFireAt - right.nextFireAt).map((wake) => viewOfWake(wake, nowMs, FIRE_TIME_FORMAT));
-    return { status: 200, body: { ok: true, wakes: views, timezone: clock.timezone() } };
+    return { status: 200, body: { ok: true, wakes: pendingViewsOf(session.id), timezone: clock.timezone() } };
   }
 
   function handleAgent(session: Session, request: AgentWakeRequest): Promise<AgentReplyOf<'wake'>> {
     if (request.sub === 'list') return list(session);
-    if (request.sub === 'cancel') return cancel(session, request.wake);
+    if (request.sub === 'cancel') return cancel(session.id, request.wake);
     return schedule(session, request.sub, request.when, request.text);
   }
 
@@ -271,7 +299,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { handleAgent, start, watchSession };
+  return { cancelForOperator, handleAgent, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

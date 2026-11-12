@@ -29,7 +29,7 @@ interface DueWakeFacts extends OperatorWakeFacts {
 type ParsedWhen = { ok: true; schedule: WakeSchedule; nextFireAt: number } | { ok: false; reason: string };
 type DueWakeDecision = { kind: 'wait'; untilMs: number } | { kind: 'flag-operator' } | { kind: 'type-line' } | { kind: 'resume-with-line' } | { kind: 'missed' } | { kind: 'failed'; cause: WakeFailureCause };
 type SkippedWakeStatus = 'missed' | 'failed';
-type WakeFailureCause = 'no-conversation' | 'exited' | 'start-failed';
+type WakeFailureCause = 'no-conversation' | 'exited' | 'start-failed' | 'missed';
 
 interface FireTimeFormat {
   dayKeyOf(ms: number): string;
@@ -166,6 +166,7 @@ const WAKE_FAILURE_REASONS: Readonly<Record<WakeFailureCause, string>> = Object.
   'no-conversation': 'it is stopped and has no saved conversation to resume. Start the session for its wakes to reach it.',
   exited: 'its agent has exited. Restart the session for its wakes to reach it.',
   'start-failed': 'resuming its conversation did not start the agent. Start the session for its wakes to reach it.',
+  missed: 'it came due while Glimmervoid was down or the session was busy, and stayed late past the catch-up window, so it was skipped.',
 });
 
 function describeWakeFailedNote(wake: Wake, cause: WakeFailureCause): string {
