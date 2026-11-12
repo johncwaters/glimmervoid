@@ -2,13 +2,20 @@ import type { Session } from '../../session/sessions.ts';
 import { WakeStoreFile } from '../../shared/contracts/wakes.ts';
 import type { AgentWakeRequest, Wake, WakeKind } from '../../shared/contracts/wakes.ts';
 import { clock } from '../../shared/clock.ts';
+import { STATES } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { admitWake, afterDelivery, decideDueWake, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
-import type { WakeLimits } from '../core/wake-core.ts';
+import { admitWake, afterFire, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
+import type { WakeFailureCause, WakeLimits } from '../core/wake-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import type { ChildChannels } from '../agent-api/child-channels.ts';
+
+interface WakeSpawnGate {
+  run: (task: () => unknown, options?: { isStillWanted?: () => boolean }) => Promise<unknown>;
+}
+
+type ResumeOutcome = 'started' | 'start-failed' | 'not-wanted';
 
 type WakeBudget = Pick<ChildChannels, 'watchOperatorInput' | 'operatorWakeFactsOf' | 'flagWakeCap' | 'isWakeLineInFlight' | 'submitWakeLine'>;
 
@@ -17,6 +24,7 @@ interface WakeWiringOptions {
   findLiveSession(sessionId: string): Session | null;
   budget: WakeBudget;
   limits?: WakeLimits;
+  spawnGate?: WakeSpawnGate | null;
   setTimeoutFn: SetTimeoutFn;
   clearTimeoutFn: ClearTimeoutFn;
   now: () => number;
@@ -35,12 +43,13 @@ function refusal(status: number, error: string): AgentRefusalReply {
   return { status, body: { ok: false, error } };
 }
 
-function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
+function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
   let wakes: Wake[] = [];
   let lastWakeNumber = 0;
   let timer: TimerHandle | null = null;
   let isLoaded = false;
   const recheckAtById = new Map<string, number>();
+  const resumingWakeIds = new Set<string>();
   const watchedSessions = new WeakSet<Session>();
 
   const store = createJsonStateStore<WakeStoreFile>({
@@ -81,7 +90,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   function armTimer(): void {
     if (timer) clearTimeoutFn(timer);
     timer = null;
-    const dueTimes = wakes.filter((wake) => wake.status === 'pending').map((wake) => Math.max(wake.nextFireAt, recheckAtById.get(wake.id) ?? 0));
+    const dueTimes = wakes.filter((wake) => wake.status === 'pending' && !resumingWakeIds.has(wake.id)).map((wake) => Math.max(wake.nextFireAt, recheckAtById.get(wake.id) ?? 0));
     if (dueTimes.length === 0) return;
     timer = unrefTimer(setTimeoutFn(evaluate, Math.max(0, Math.min(...dueTimes) - now())));
   }
@@ -108,13 +117,55 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     });
   }
 
+  function pendingWakeById(wakeId: string): Wake | undefined {
+    return wakes.find((stored) => stored.id === wakeId && stored.status === 'pending');
+  }
+
+  function settleWake(wake: Wake, settled: Wake): void {
+    recheckAtById.delete(wake.id);
+    replaceWake(settled);
+    void persistUntilWritten();
+  }
+
   function settleDelivery(wakeId: string, isSubmitted: boolean): void {
-    const wake = wakes.find((stored) => stored.id === wakeId && stored.status === 'pending');
-    if (wake) {
-      recheckAtById.delete(wakeId);
-      replaceWake(afterDelivery(wake, isSubmitted, now(), limits));
-      void persistUntilWritten();
+    const wake = pendingWakeById(wakeId);
+    if (wake) settleWake(wake, isSubmitted ? afterFire(wake, now(), limits) : afterSkipped(wake, 'failed', now(), limits));
+    evaluateSoon();
+  }
+
+  function failWake(wake: Wake, session: Session, cause: WakeFailureCause): void {
+    settleWake(wake, afterSkipped(wake, 'failed', now(), limits));
+    session.raiseAttention('wake-failed', describeWakeFailedNote(wake, cause));
+  }
+
+  async function startDormantSession(wake: Wake, session: Session, isStillWanted: () => boolean): Promise<ResumeOutcome> {
+    if (!isStillWanted()) return 'not-wanted';
+    await session.start({ resumePrompt: describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf) });
+    return session.state === STATES.DORMANT || session.state === STATES.FAILED ? 'start-failed' : 'started';
+  }
+
+  async function runResume(wake: Wake, session: Session): Promise<ResumeOutcome> {
+    const isStillWanted = () => !session._destroyed && session.state === STATES.DORMANT && pendingWakeById(wake.id) !== undefined && now() - wake.nextFireAt <= limits.missedGraceMs;
+    const startTask = () => startDormantSession(wake, session, isStillWanted);
+    try {
+      const outcome = await (spawnGate ? spawnGate.run(startTask, { isStillWanted }) : startTask());
+      return outcome === 'started' || outcome === 'start-failed' ? outcome : 'not-wanted';
+    } catch (error) {
+      logger.warn(`[wakes] resuming ${session.id} for wake ${wake.id} failed: ${error instanceof Error ? error.message : String(error)}`);
+      return 'start-failed';
     }
+  }
+
+  async function resumeWithLine(wake: Wake, session: Session): Promise<void> {
+    resumingWakeIds.add(wake.id);
+    const outcome = await runResume(wake, session);
+    resumingWakeIds.delete(wake.id);
+    const stillPending = pendingWakeById(wake.id);
+    if (outcome === 'started' && stillPending) {
+      settleDelivery(wake.id, true);
+      return;
+    }
+    if (outcome === 'start-failed' && stillPending) failWake(stillPending, session, 'start-failed');
     evaluateSoon();
   }
 
@@ -130,23 +181,36 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
       return;
     }
     watchSession(session);
-    const decision = decideDueWake(wake, { nowMs, sessionState: session.state, isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session) });
-    if (decision.kind === 'wait') {
-      recheckAtById.set(wake.id, decision.untilMs);
-      return;
+    const decision = decideDueWake(wake, {
+      nowMs, sessionState: session.state, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
+    }, limits);
+    switch (decision.kind) {
+      case 'wait':
+        recheckAtById.set(wake.id, decision.untilMs);
+        return;
+      case 'flag-operator':
+        budget.flagWakeCap(session, 'self-wake-cap', SELF_WAKE_CAP_NOTE);
+        recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
+        return;
+      case 'missed':
+        settleWake(wake, afterSkipped(wake, 'missed', nowMs, limits));
+        return;
+      case 'failed':
+        failWake(wake, session, decision.cause);
+        return;
+      case 'resume-with-line':
+        void resumeWithLine(wake, session);
+        return;
+      case 'type-line':
+        deliver(wake, session, nowMs);
+        return;
     }
-    if (decision.kind === 'flag-operator') {
-      budget.flagWakeCap(session, 'self-wake-cap', SELF_WAKE_CAP_NOTE);
-      recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
-      return;
-    }
-    deliver(wake, session, nowMs);
   }
 
   function evaluate(): void {
     const nowMs = now();
     const dueWakes = wakes
-      .filter((wake) => wake.status === 'pending' && wake.nextFireAt <= nowMs && (recheckAtById.get(wake.id) ?? 0) <= nowMs)
+      .filter((wake) => wake.status === 'pending' && !resumingWakeIds.has(wake.id) && wake.nextFireAt <= nowMs && (recheckAtById.get(wake.id) ?? 0) <= nowMs)
       .sort((left, right) => left.nextFireAt - right.nextFireAt);
     for (const wake of dueWakes) evaluateWake(wake, nowMs);
     armTimer();

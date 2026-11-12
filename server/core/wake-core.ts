@@ -1,6 +1,7 @@
 import { Cron } from 'croner';
 
 import { decideWake } from './child-channel-core.ts';
+import { RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { Wake, WakeKind, WakeSchedule, WakeView } from '../../shared/contracts/wakes.ts';
 
@@ -9,6 +10,7 @@ interface WakeLimits {
   maxHorizonMs: number;
   cronExpiryMs: number;
   minCronIntervalMs: number;
+  missedGraceMs: number;
 }
 
 interface OperatorWakeFacts {
@@ -20,11 +22,14 @@ interface OperatorWakeFacts {
 interface DueWakeFacts extends OperatorWakeFacts {
   nowMs: number;
   sessionState: SessionState;
+  hasConversationId: boolean;
   isDelivering: boolean;
 }
 
 type ParsedWhen = { ok: true; schedule: WakeSchedule; nextFireAt: number } | { ok: false; reason: string };
-type DueWakeDecision = { kind: 'wait'; untilMs: number } | { kind: 'flag-operator' } | { kind: 'type-line' };
+type DueWakeDecision = { kind: 'wait'; untilMs: number } | { kind: 'flag-operator' } | { kind: 'type-line' } | { kind: 'resume-with-line' } | { kind: 'missed' } | { kind: 'failed'; cause: WakeFailureCause };
+type SkippedWakeStatus = 'missed' | 'failed';
+type WakeFailureCause = 'no-conversation' | 'exited' | 'start-failed';
 
 interface FireTimeFormat {
   dayKeyOf(ms: number): string;
@@ -43,6 +48,7 @@ const DEFAULT_WAKE_LIMITS: WakeLimits = Object.freeze({
   maxHorizonMs: 7 * MS_PER_DAY,
   cronExpiryMs: 7 * MS_PER_DAY,
   minCronIntervalMs: MS_PER_MINUTE,
+  missedGraceMs: 30 * MS_PER_MINUTE,
 });
 
 const DURATION_PATTERN = /^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/;
@@ -124,8 +130,11 @@ function admitWake(pendingInSession: readonly Wake[], candidate: Pick<Wake, 'sch
   return { ok: true };
 }
 
-function decideDueWake(wake: Wake, facts: DueWakeFacts): DueWakeDecision {
+function decideDueWake(wake: Wake, facts: DueWakeFacts, limits: WakeLimits): DueWakeDecision {
   if (wake.nextFireAt > facts.nowMs) return { kind: 'wait', untilMs: wake.nextFireAt };
+  if (facts.nowMs - wake.nextFireAt > limits.missedGraceMs) return { kind: 'missed' };
+  if (facts.sessionState === STATES.DORMANT) return facts.hasConversationId ? { kind: 'resume-with-line' } : { kind: 'failed', cause: 'no-conversation' };
+  if (RESTARTABLE_STATES.includes(facts.sessionState)) return { kind: 'failed', cause: 'exited' };
   const recheckAt = facts.nowMs + WAKE_RECHECK_MS;
   const decision = decideWake({
     recipientState: facts.sessionState,
@@ -148,9 +157,19 @@ function afterFire(wake: Wake, nowMs: number, limits: WakeLimits): Wake {
   return { ...wake, nextFireAt, status: 'pending' };
 }
 
-function afterDelivery(wake: Wake, isSubmitted: boolean, nowMs: number, limits: WakeLimits): Wake {
-  if (isSubmitted || wake.schedule.kind === 'cron') return afterFire(wake, nowMs, limits);
-  return { ...wake, status: 'failed' };
+function afterSkipped(wake: Wake, status: SkippedWakeStatus, nowMs: number, limits: WakeLimits): Wake {
+  if (wake.schedule.kind === 'cron') return afterFire(wake, nowMs, limits);
+  return { ...wake, status };
+}
+
+const WAKE_FAILURE_REASONS: Readonly<Record<WakeFailureCause, string>> = Object.freeze({
+  'no-conversation': 'it is stopped and has no saved conversation to resume. Start the session for its wakes to reach it.',
+  exited: 'its agent has exited. Restart the session for its wakes to reach it.',
+  'start-failed': 'resuming its conversation did not start the agent. Start the session for its wakes to reach it.',
+});
+
+function describeWakeFailedNote(wake: Wake, cause: WakeFailureCause): string {
+  return `Wake ${wake.id} could not reach this session: ${WAKE_FAILURE_REASONS[cause]}`;
 }
 
 function describeDelay(delayMs: number): string {
@@ -187,5 +206,5 @@ function describeWakeLine(wake: Wake, formatTime: (ms: number) => string): strin
   return `Glimmervoid wake ${wake.id} (you set it at ${formatTime(wake.setAt)}${cronPart}): ${wake.text}`;
 }
 
-export { admitWake, afterDelivery, decideDueWake, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
-export type { OperatorWakeFacts, WakeLimits };
+export { admitWake, afterFire, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
+export type { OperatorWakeFacts, WakeFailureCause, WakeLimits };
