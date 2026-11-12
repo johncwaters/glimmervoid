@@ -17,6 +17,7 @@ import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
+import { createPackSessionFiles } from '../packs/pack-session-files.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -66,7 +67,9 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   void agentAccounts.refresh();
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
+  const packSessionFiles = createPackSessionFiles({ root: configSiblingPath(dependencies.configStore.configPath, 'pack-session-files') });
   const makeSession = createSessionFactory({
+    getPackAgentLaunch: packSessionFiles.launch,
     commitSigningProgram,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
@@ -81,7 +84,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       : null,
   });
 
-  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
+  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, packSessionFiles, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };
