@@ -2,10 +2,12 @@ import '../support/disable-telemetry.ts';
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
 import type { Browser } from 'playwright-core';
+import type { Plugin } from 'vite';
 
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
@@ -41,9 +43,24 @@ interface HarnessOptions {
   headed: boolean;
   executablePath: string | null;
   browserName: string;
+  lanAddress: string | null;
+  lanAllowedPeers: string[];
   unknownArguments: string[];
   flagsMissingValues: string[];
 }
+
+const LAN_DEFAULT_VIEWPORT = 'phone-393';
+const LAN_DEFAULT_SCENARIO_PREFIX = 'touch-';
+const LAN_DEVICE_STEPS = [
+  'Open the URL in iOS Safari and in Android Chrome; with a cable, inspect each from Safari Web Inspector or chrome://inspect.',
+  'Add to Home Screen, open it from the icon, and confirm it runs without the browser bar and clear of the notch.',
+  'On the Terminal screen, type in the compose bar with autocorrect and dictation, then Send; the message lands once with Enter.',
+  'Long-press the compose field and paste text with a tab and a line break; it stays in the field until Send.',
+  'Tap Ctrl then c in the compose field; the agent gets Ctrl+C and the field stays empty.',
+  'Hold an arrow key; it repeats and stops on release. Swipe the key row from an arrow; it scrolls without typing.',
+  'In the shell session, run vim or less: the compose bar steps aside and the soft keyboard types into the app; quit and the compose bar returns with the keyboard up.',
+  'Rotate the phone and open and close the keyboard; the terminal refits each time.',
+];
 
 const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: string) => void>([
   ['--only', (options, value) => { options.only.push(value); }],
@@ -51,6 +68,8 @@ const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: str
   ['--artifacts', (options, value) => { options.artifactsDir = path.resolve(value); }],
   ['--executable', (options, value) => { options.executablePath = path.resolve(value); }],
   ['--browser', (options, value) => { options.browserName = value; }],
+  ['--lan', (options, value) => { options.lanAddress = value; }],
+  ['--lan-allow', (options, value) => { options.lanAllowedPeers.push(value); }],
 ]);
 
 function valueFollowing(argv: readonly string[], flagIndex: number): string | null {
@@ -69,6 +88,8 @@ function parseArguments(argv: readonly string[]): HarnessOptions {
     headed: false,
     executablePath: null,
     browserName: 'chromium',
+    lanAddress: null,
+    lanAllowedPeers: [],
     unknownArguments: [],
     flagsMissingValues: [],
   };
@@ -126,7 +147,7 @@ function readPlaywrightVersion(): string {
   }
 }
 
-function writeConfigDocument(configPath: string, port: number, cases: HarnessCase[], sessionIds: string[], projectDirs: string[]): void {
+function writeConfigDocument(configPath: string, port: number, cases: HarnessCase[], sessionIds: string[], projectDirs: string[], lanOrigin: string | null): void {
   const projects = cases.map((harnessCase, index) => ({
     id: sessionIds[index],
     name: `${harnessCase.viewport.name}-${harnessCase.scenario.name}`,
@@ -150,6 +171,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     postTurnChecks: { enabled: false },
     checkForUpdates: false,
     telemetry: { enabled: false },
+    ...(lanOrigin ? { remote: { allowedOrigins: [lanOrigin] } } : {}),
   };
   fs.writeFileSync(configPath, `${JSON.stringify(configDocument, null, 2)}\n`, 'utf8');
 }
@@ -227,6 +249,47 @@ function restoreEnvironmentVariable(name: string, value: string | undefined): vo
   process.env[name] = value;
 }
 
+function withoutIpv4MappedPrefix(address: string): string {
+  return address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
+}
+
+function isHostLanAddress(address: string): boolean {
+  return Object.values(os.networkInterfaces()).some((interfaces) => (interfaces ?? [])
+    .some((networkInterface) => !networkInterface.internal && networkInterface.family === 'IPv4' && networkInterface.address === address));
+}
+
+function lanRefusal(options: HarnessOptions): string | null {
+  if (options.lanAddress === null) return null;
+  if (process.env.GLIMMERVOID_INSECURE_BIND !== '1') return '--lan serves an unauthenticated dashboard to the network; set GLIMMERVOID_INSECURE_BIND=1 to confirm';
+  if (options.lanAllowedPeers.length === 0) return '--lan needs at least one --lan-allow <device address>';
+  if (!isHostLanAddress(options.lanAddress)) return `--lan takes an IPv4 address of this machine, not ${options.lanAddress}`;
+  return null;
+}
+
+function lanConnectionGuard(allowedPeers: string[]): Plugin {
+  const allowed = new Set(allowedPeers);
+  return {
+    name: 'harness-lan-connection-guard',
+    configureServer(server) {
+      if (!(server.httpServer instanceof http.Server)) throw new Error('--lan needs Vite\'s plain HTTP server to guard its connections');
+      server.httpServer.prependListener('connection', (socket) => {
+        const peer = withoutIpv4MappedPrefix(socket.remoteAddress ?? '');
+        if (allowed.has(peer)) return;
+        console.error(`refused a connection from ${peer || 'an unknown peer'}`);
+        socket.destroy();
+      });
+    },
+  };
+}
+
+function printDeviceSteps(baseUrl: string, cases: HarnessCase[]): void {
+  console.log(`dashboard for the device pass: ${baseUrl}`);
+  console.log(`sessions: ${cases.map((harnessCase) => `${harnessCase.scenario.name} (${harnessCase.scenario.agent ?? 'claude-code'})`).join(', ')}`);
+  console.log('the fake agent answers stop, work, fullscreen and leave-fullscreen typed as a message');
+  for (const [index, step] of LAN_DEVICE_STEPS.entries()) console.log(`${index + 1}. ${step}`);
+  console.log('report each step as passed or failed with the device and browser version; Ctrl+C ends the run');
+}
+
 async function main(): Promise<number> {
   if (process.platform === 'win32') {
     console.error('the browser harness runs on Linux and macOS only: the agent shim it spawns is a POSIX sh script');
@@ -247,16 +310,26 @@ async function main(): Promise<number> {
     console.error(`harness flag needs a value: ${options.flagsMissingValues.join(' ')}`);
     return EXIT_HARNESS_ERROR;
   }
+  const refusedLan = lanRefusal(options);
+  if (refusedLan) {
+    console.error(refusedLan);
+    return EXIT_HARNESS_ERROR;
+  }
+  const isLanRun = options.lanAddress !== null;
   const browserEngine = browserEngineNamed(options.browserName);
   if (!browserEngine) {
     console.error(`--browser takes ${BROWSER_ENGINES.join(', ')}, not ${options.browserName}`);
     return EXIT_HARNESS_ERROR;
   }
-  const cases = casesFor({
+  const requestedCases = casesFor({
     only: options.only.length > 0 ? options.only : undefined,
-    viewportNames: options.viewportNames.length > 0 ? options.viewportNames : undefined,
+    viewportNames: options.viewportNames.length > 0 ? options.viewportNames : isLanRun ? [LAN_DEFAULT_VIEWPORT] : undefined,
     proveFailure: options.proveFailure,
   });
+  const isLanDefaultSelection = isLanRun && options.only.length === 0;
+  const cases = isLanDefaultSelection
+    ? requestedCases.filter((harnessCase) => harnessCase.scenario.name.startsWith(LAN_DEFAULT_SCENARIO_PREFIX))
+    : requestedCases;
   if (cases.length === 0) {
     console.error('no case matched the requested scenarios and viewports');
     return EXIT_HARNESS_ERROR;
@@ -339,7 +412,9 @@ async function main(): Promise<number> {
     const sessionIds = cases.map(() => crypto.randomUUID());
     const port = await findFreeHighPort();
     const configPath = path.join(tempDirectory, 'config.json');
-    writeConfigDocument(configPath, port, cases, sessionIds, projectDirs);
+    const servedHost = options.lanAddress ?? '127.0.0.1';
+    const baseUrl = `http://${servedHost}:${port}/`;
+    writeConfigDocument(configPath, port, cases, sessionIds, projectDirs, isLanRun ? baseUrl.slice(0, -1) : null);
 
     const glimmervoidHome = path.join(tempDirectory, 'home');
     fs.mkdirSync(glimmervoidHome, { recursive: true });
@@ -353,13 +428,17 @@ async function main(): Promise<number> {
     const { createServer } = await import('vite');
     const devServer = await createServer({
       configFile: path.join(REPO_ROOT, 'vite.config.ts'),
-      server: { port, strictPort: true, host: '127.0.0.1' },
+      server: { port, strictPort: true, host: servedHost },
+      plugins: options.lanAddress === null ? [] : [lanConnectionGuard([...options.lanAllowedPeers, options.lanAddress])],
       logLevel: 'warn',
       clearScreen: false,
     });
     await devServer.listen();
     vite = devServer;
-    const baseUrl = `http://127.0.0.1:${port}/`;
+    if (isLanRun) {
+      printDeviceSteps(baseUrl, cases);
+      await new Promise<never>(() => {});
+    }
 
     const browserType = await browserTypeOf(browserEngine);
     browser = await browserType.launch({
