@@ -19,6 +19,7 @@ import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/int
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
 import { remoteCheckoutDirectory } from '../coder/core/coder-env-core.ts';
 import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
+import type { PackAgentLaunch } from '../../session/core/pack-session-core.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
@@ -41,6 +42,7 @@ interface SessionFactoryDependencies {
   codexVersion?: RemoteLaunch['codexVersion'];
   codexLoginParams?: RemoteLaunch['codexLoginParams'];
   codexRefreshResult?: RemoteLaunch['codexRefreshResult'];
+  getPackAgentLaunch?: () => PackAgentLaunch | null;
 }
 
 interface CoderWorkspacePort {
@@ -140,6 +142,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
+      getPackAgentLaunch: builtMapping || isMachineShell ? null : dependencies.getPackAgentLaunch ?? null,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
     });
