@@ -250,8 +250,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'star-hint' },
   { type: 'hosts-status', hosts: [{ id: 'devbox', name: 'Devbox', sshTarget: 'devbox', dashboardPort: 3000, state: 'version-differs', hostVersion: '0.51.0', hubVersion: '0.52.3-next.0', lastError: null }] },
   { type: 'packs-status', warnings: [], packs: [
-    { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'], acts: ['reviews'] }], errors: [] },
-    { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: ['there is no pack.json'] },
+    { name: 'ci-board', version: 3, description: null, dir: '/home/me/.glimmervoid/packs/ci-board', state: 'pending', fingerprint: 'f'.repeat(64), files: ['pack.json'], needs: ['program gh'], missingRequires: [], prFlows: null, mcpServers: [], themes: [{ id: 'night-shift', label: 'Night Shift', mode: 'dark' }], panels: [{ id: 'board', label: 'CI', reads: ['sessions'], acts: ['reviews'] }], errors: [] },
+    { name: 'broken', version: null, description: null, dir: '/home/me/.glimmervoid/packs/broken', state: 'invalid', fingerprint: null, files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], mcpServers: [], errors: ['there is no pack.json'] },
   ], themes: [], panels: [{ viewId: 'pack:ci-board/board', pack: 'ci-board', label: 'CI', entryUrl: '/packs/ci-board/abc/files/panel/index.html', iconUrl: null, reads: ['sessions'], acts: ['reviews'] }] },
   { type: 'pack-approve-result', requestId: 'pack-1', ok: false, error: 'That pack changed or is already approved; check the list again.' },
   { type: 'pack-data-result', requestId: 'pack-2', ok: true, data: { sort: 'newest', pinned: ['acme/api#12'] } },

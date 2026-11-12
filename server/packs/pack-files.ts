@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackHeader, PackPanel, PackPrFlows, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackHeader, PackMcp, PackPanel, PackPrFlows, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -150,12 +150,13 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   if (!header.success) return { ok: false, errors: [...read.errors, ...header.error.issues.map((issue) => `${PACK_FILE_NAME} ${issue.path.join('.') || '(root)'}: ${issue.message}`)], filesByPath };
   const prFlows = parseSection(PackPrFlows, header.data.prFlows, 'prFlows');
   const ui = withPanelFilesPresent(parseSection(PackUi, header.data.ui, 'ui'), header.data.ui, read.filesByPath);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...sectionErrors(prFlows), ...sectionErrors(ui)], filesByPath, header: header.data };
+  const mcp = parseSection(PackMcp, header.data.mcp, 'mcp');
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...sectionErrors(prFlows), ...sectionErrors(ui), ...sectionErrors(mcp)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, mcp, missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }

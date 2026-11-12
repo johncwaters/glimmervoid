@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { PackRow, PacksStatus } from '../../shared/contracts/control/pack-messages.ts';
 import { PACK_FILE_NAME, PacksState } from '../../shared/contracts/pack.ts';
-import type { PackOnDisk } from '../../shared/contracts/pack.ts';
+import type { PackMcpServer, PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
-import { approvedPackPanels, approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, approvedPackPanels, approvedPackThemes, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote } from './core/pack-core.ts';
+import type { OperatorMcpServerNames } from './core/pack-core.ts';
+import { readCodexOperatorServerNames, readOperatorMcpServerNames } from './operator-mcp-servers.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -28,6 +30,7 @@ type PackStore = EventEmitter & {
   approve(fingerprint: string): Promise<PackApproveResult>;
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
+  mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
 };
 
 export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -50,6 +53,11 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   let homeWarning: string | null = null;
   let homeWatcher: fs.FSWatcher | null = null;
   let isStopped = false;
+  let operatorMcpServerNames: OperatorMcpServerNames = NO_OPERATOR_MCP_SERVER_NAMES;
+
+  async function refreshOperatorMcpServerNames(): Promise<void> {
+    operatorMcpServerNames = await readOperatorMcpServerNames(env);
+  }
 
   function watchQuietly(target: string, onChange: (changedName: string | null) => void, isRecursive: boolean): fs.FSWatcher | null {
     try {
@@ -76,6 +84,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
       return;
     }
     readsByDir.set(packDir, await readPackDir(packDir, env));
+    await refreshOperatorMcpServerNames();
     if (!isStopped) emitter.emit('changed');
   }
 
@@ -91,7 +100,10 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   async function refresh(): Promise<void> {
     const found = await packDirsUnder(homeDir);
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
-    const freshReads = await Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const));
+    const [freshReads] = await Promise.all([
+      Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const)),
+      refreshOperatorMcpServerNames(),
+    ]);
     if (isStopped) return;
     const hasDroppedPack = [...readsByDir.keys()].some((packDir) => !knownDirs.includes(packDir));
     homeWarning = found.warning;
@@ -145,6 +157,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
 
   function currentReads(): { packDir: string; read: PackRead }[] {
     const takenNames = new Set<string>();
+    const takenServerNames = new Set<string>();
     return [...new Set([...homePackDirs, ...listedWatchersByDir.keys()])].flatMap((packDir): { packDir: string; read: PackRead }[] => {
       const read = readsByDir.get(packDir);
       if (!read) return [];
@@ -152,12 +165,15 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
       const name = read.pack.header.name;
       if (takenNames.has(name)) return [{ packDir, read: { ok: false, errors: [`another pack is already named '${name}'`] } }];
       takenNames.add(name);
+      const takenServer = packMcpServers(read.pack).find((server) => takenServerNames.has(server.name));
+      if (takenServer) return [{ packDir, read: { ok: false, errors: [`another pack already adds an MCP server named '${takenServer.name}'`] } }];
+      for (const server of packMcpServers(read.pack)) takenServerNames.add(server.name);
       return [{ packDir, read }];
     });
   }
 
   function rows(): PackRow[] {
-    return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints));
+    return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, operatorMcpServerNames));
   }
 
   function packEntriesInUse(): { packDir: string; pack: PackOnDisk }[] {
@@ -199,7 +215,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
         packs.push(read.pack);
         continue;
       }
-      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints)));
+      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints, operatorMcpServerNames)));
     }
     return { packs, warnings };
   }
@@ -266,5 +282,12 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     return entry?.packDir ?? null;
   }
 
-  return Object.assign(emitter, { start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  async function mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]> {
+    const packs = packsInUse();
+    if (packs.every((pack) => packMcpServers(pack).length === 0)) return [];
+    const codexNames = agentId === 'codex' ? await readCodexOperatorServerNames(env, cwd) : operatorMcpServerNames.codex;
+    return packMcpServersForAgent(agentId, packs, { ...operatorMcpServerNames, codex: codexNames });
+  }
+
+  return Object.assign(emitter, { start, stop, mcpServersForSession, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }

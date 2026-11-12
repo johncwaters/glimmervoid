@@ -589,6 +589,41 @@
         }
       },
       "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$",
+                "description": "The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login"
+              }
+            },
+            "required": [
+              "name",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "description": "MCP servers every locally launched glimmervoid session gets once the operator approves the pack"
+        }
+      },
+      "required": [
+        "servers"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

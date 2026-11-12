@@ -37,6 +37,7 @@ import { attentionNotesOf, createAttentionLanes, reduceAttention } from "./core/
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
+import type { PackMcpServer } from "../shared/contracts/pack.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -207,6 +208,7 @@ interface SessionOptions {
   isCleanHome?: boolean;
   requiresHooks?: boolean;
   prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
+  packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -312,6 +314,8 @@ class Session extends EventEmitter {
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
+  _packMcpServers: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
+  _spawnPackMcpServers: readonly PackMcpServer[] = [];
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
   _coherenceHooksRefresh: Promise<void> | null;
@@ -407,6 +411,7 @@ class Session extends EventEmitter {
     isCleanHome,
     requiresHooks = false,
     prepareCoherence = null,
+    packMcpServers = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -558,6 +563,7 @@ class Session extends EventEmitter {
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("planLimits");
     this._prepareCoherence = prepareCoherence;
+    this._packMcpServers = packMcpServers;
     this.coherenceHooks = null;
     this.coherenceAttachment = null;
     this._coherenceHooksRefresh = null;
@@ -584,6 +590,7 @@ class Session extends EventEmitter {
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
+      packMcpServers: () => this._spawnPackMcpServers,
       agentEnv: () => this._launch.buildEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
@@ -1643,6 +1650,8 @@ class Session extends EventEmitter {
       return;
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
+    this._spawnPackMcpServers = remoteLaunch === null && this._packMcpServers ? await this._packMcpServers(this.agentId, this.effectiveCwd()) : [];
+    if (isStartSuperseded()) return;
     await this._hooks.prepare();
     if (remoteLaunch === null && this._adapter.trustFolder) {
       await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._spawnEnv }))
@@ -1656,7 +1665,7 @@ class Session extends EventEmitter {
     }
     this._isSaneYoloActive = remoteLaunch === null && hookInjection.isSaneYoloActive;
     const mcpLaunch = remoteLaunch === null
-      ? mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken })
+      ? mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken, packServers: this._spawnPackMcpServers })
       : { args: [], env: {} };
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 

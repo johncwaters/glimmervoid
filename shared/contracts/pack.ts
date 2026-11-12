@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { PackBridgeTopic, PackName, PackPanelAct } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
+import { isLoopbackHostname } from '../loopback-hosts.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -15,6 +16,7 @@ export const PackHeader = z.strictObject({
   requires: PrFlowPackRequires.default({ env: [], programs: [] }),
   prFlows: z.unknown().optional(),
   ui: z.unknown().optional(),
+  mcp: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -62,6 +64,35 @@ export const PackUi = z.strictObject({
 });
 export type PackUi = z.infer<typeof PackUi>;
 
+export const GLIMMERVOID_MCP_SERVER_NAME = 'glimmervoid';
+
+function isHttpsOrLoopbackHttp(url: string): boolean {
+  const parsed = URL.parse(url);
+  if (parsed === null) return false;
+  return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname));
+}
+
+export const PackMcpServer = z.strictObject({
+  name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, { error: 'a server name is lowercase letters, digits, dash and underscore, at most 40 characters' })
+    .refine((name) => name !== GLIMMERVOID_MCP_SERVER_NAME, { error: `the server name '${GLIMMERVOID_MCP_SERVER_NAME}' is glimmervoid's own` })
+    .describe('The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions'),
+  url: z.url().refine(isHttpsOrLoopbackHttp, { error: 'a server url is https, or http on 127.0.0.1, ::1 or localhost' })
+    .refine((url) => !url.includes('$'), { error: 'a server url holds no $, since agents expand ${VAR} in it' })
+    .describe('The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login'),
+});
+export type PackMcpServer = z.infer<typeof PackMcpServer>;
+
+export const PackMcp = z.strictObject({
+  servers: z.array(PackMcpServer).min(1).max(8).describe('MCP servers every locally launched glimmervoid session gets once the operator approves the pack'),
+}).superRefine((section, context) => {
+  const seenNames = new Set<string>();
+  section.servers.forEach((server, index) => {
+    if (seenNames.has(server.name)) context.addIssue({ code: 'custom', path: ['servers', index, 'name'], message: `the name '${server.name}' is already used in servers` });
+    seenNames.add(server.name);
+  });
+});
+export type PackMcp = z.infer<typeof PackMcp>;
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -74,10 +105,11 @@ export type PackOnDisk = {
   filesByPath: ReadonlyMap<string, Buffer>;
   prFlows: PackSection<PackPrFlows> | null;
   ui: PackSection<PackUi> | null;
+  mcp: PackSection<PackMcp> | null;
   missingRequires: string[];
 };
 
-const PackManifestForSchema = PackHeader.extend({ prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional() });
+const PackManifestForSchema = PackHeader.extend({ prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional(), mcp: PackMcp.optional() });
 
 export function packJsonSchemaText(): string {
   return `${JSON.stringify({ $id: PACK_SCHEMA_URL, title: 'Glimmervoid pack', ...prFlowRulesJsonSchema(PackManifestForSchema) }, null, 2)}\n`;

@@ -172,7 +172,7 @@ function isPlainFile(filePath: string): boolean {
   }
 }
 
-function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: number, isCleanHome: boolean): Record<string, string> {
+function mcpFilesFor(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packServers }: GeneratedHomeLaunch): Record<string, string> {
   const generatedHome = generatedAgentHomePath(KIMI_HOME_PROFILE, env, undefined, isCleanHome);
   const generatedMcpPath = path.join(generatedHome, KIMI_MCP_CONFIG_NAME);
   return kimiMcpFiles({
@@ -180,13 +180,14 @@ function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: numb
     generatedMcpJson: isPlainFile(generatedMcpPath) ? readTextOrNull(generatedMcpPath) : null,
     baseMcpJson: readTextOrNull(path.join(generatedHome, KIMI_MCP_BASE_NAME)),
     listenerPort,
+    packServers,
   });
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
-  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, listenerPort, isCleanHome), isCleanHome);
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, launch), launch.isCleanHome);
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {

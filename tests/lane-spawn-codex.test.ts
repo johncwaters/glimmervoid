@@ -35,3 +35,24 @@ test('a Codex lane runs codex exec under a permission profile that hides the hom
     fs.rmSync(laneDir, { recursive: true, force: true });
   }
 });
+
+test('a Kimi lane without PostHog runs in an empty home of its own and removes it after, so it never rewrites the shared Kimi home', async () => {
+  const laneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-kimi-lane-'));
+  const launched: SessionOptions[] = [];
+  try {
+    const spawn = createLaneSpawn({
+      laneName: 'race', getSaneYoloUnreadablePaths: () => [],
+      createSession: (options) => {
+        launched.push(options);
+        throw new Error('launch captured');
+      },
+    });
+    await assert.rejects(spawn({ id: 'kimi-lane', name: 'Kimi lane', prompt: 'Judge the contestants.', cwd: laneDir, agent: 'kimi' }), /launch captured/);
+    const scratchAgentHome = launched[0]?.scratchAgentHome;
+    assert.ok(scratchAgentHome);
+    assert.deepEqual({ configSuffix: scratchAgentHome.configSuffix, files: scratchAgentHome.files }, { configSuffix: '', files: {} });
+    assert.equal(fs.existsSync(path.dirname(scratchAgentHome.home)), false);
+  } finally {
+    fs.rmSync(laneDir, { recursive: true, force: true });
+  }
+});

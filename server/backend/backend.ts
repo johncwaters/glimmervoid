@@ -184,6 +184,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getGitWorkspace: () => gitWorkspace,
     getCoderEnv: () => laneAssembly.coderEnv,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
+    packMcpServersFor: (agentId, cwd) => laneAssembly.packStore.mcpServersForSession(agentId, cwd),
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,

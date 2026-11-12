@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { PackRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
-import type { PackOnDisk, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackMcpServer, PackOnDisk, PackUi } from '../../../shared/contracts/pack.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
 
@@ -60,13 +60,35 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
   return requestOrigin === OPAQUE_ORIGIN ? { ...headers, 'Access-Control-Allow-Origin': OPAQUE_ORIGIN } : headers;
 }
 
-export function uiSectionErrors(pack: PackOnDisk): string[] {
-  return pack.ui && !pack.ui.ok ? pack.ui.errors : [];
+export function packSectionErrors(pack: PackOnDisk): string[] {
+  return [pack.ui, pack.mcp].flatMap((section) => (section && !section.ok ? section.errors : []));
 }
 
-function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): PackRow {
+export function packMcpServers(pack: PackOnDisk): PackMcpServer[] {
+  return pack.mcp?.ok ? pack.mcp.value.servers : [];
+}
+
+const AGENT_LABELS_BY_MCP_AGENT = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code' } as const;
+type McpAgentId = keyof typeof AGENT_LABELS_BY_MCP_AGENT;
+export type OperatorMcpServerNames = Readonly<Record<McpAgentId, ReadonlySet<string>>>;
+export const NO_OPERATOR_MCP_SERVER_NAMES: OperatorMcpServerNames = Object.freeze({ 'claude-code': new Set<string>(), codex: new Set<string>(), kimi: new Set<string>() });
+
+function serverClashNotes(serverName: string, operatorNames: OperatorMcpServerNames): string[] {
+  const replacedIn = (['claude-code', 'kimi'] as const).filter((agentId) => operatorNames[agentId].has(serverName)).map((agentId) => AGENT_LABELS_BY_MCP_AGENT[agentId]);
+  const replacedNote = replacedIn.length === 0 ? [] : [`Replaces your own ${serverName} server in ${replacedIn.join(' and ')} sessions`];
+  const codexNote = operatorNames.codex.has(serverName) ? [`Codex sessions keep your own ${serverName} server, so they leave this one out`] : [];
+  return [...replacedNote, ...codexNote];
+}
+
+export function packMcpServersForAgent(agentId: string, packs: readonly PackOnDisk[], operatorNames: OperatorMcpServerNames): PackMcpServer[] {
+  const servers = packs.flatMap(packMcpServers);
+  if (agentId !== 'codex') return servers;
+  return servers.filter((server) => !operatorNames.codex.has(server.name));
+}
+
+function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>, operatorNames: OperatorMcpServerNames): PackRow {
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
-  const sectionErrors = [...prFlowsErrors, ...uiSectionErrors(pack)];
+  const sectionErrors = [...prFlowsErrors, ...packSectionErrors(pack)];
   const [prFlowsPack] = prFlowsPacks;
   return {
     name: pack.header.name, version: pack.header.version, description: pack.header.description ?? null, dir: pack.dir,
@@ -74,15 +96,16 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     files: [...pack.filesByPath.keys()].sort(), needs: packNeeds(pack), missingRequires: pack.missingRequires,
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
-    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })), errors: sectionErrors,
+    panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
+    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: serverClashNotes(server.name, operatorNames) })), errors: sectionErrors,
   };
 }
 
-export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>): PackRow {
-  if (read.ok) return validPackRow(read.pack, approvedFingerprints);
+export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>, operatorNames: OperatorMcpServerNames): PackRow {
+  if (read.ok) return validPackRow(read.pack, approvedFingerprints, operatorNames);
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], mcpServers: [], errors: read.errors,
   };
 }
 

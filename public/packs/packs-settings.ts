@@ -9,7 +9,7 @@ import { buildChip } from '../settings/settings-readouts.ts';
 import { button } from '../ui/button.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 
-const PACKS_TRUST_NOTE = 'Approving a pack lets its commands run on this machine and its panels show what they read. Panels cannot reach the network, but they are trusted not to leak what they read. Any change to a file in a pack asks again.';
+const PACKS_TRUST_NOTE = 'Approving a pack lets its commands run on this machine, its panels show what they read, and its MCP servers join your sessions. Panels cannot reach the network, but they are trusted not to leak what they read. Any change to a file in a pack asks again.';
 const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
 
 const approveStatusByFingerprint = new Map<string, { tone: ActionStatusTone; text: string }>();
@@ -44,6 +44,7 @@ function packLines(row: PackRow): HTMLElement[] {
     ...(row.description ? [row.description] : []),
     `Folder: ${row.dir}`,
     ...row.panels.map((panel) => `Panel: ${panel.label}${panel.reads.length === 0 ? ', reads nothing from the dashboard' : `, reads ${panel.reads.join(', ')}`}${panel.acts.includes('reviews') ? `; acts as you in Reviews without asking: may ${REVIEW_ACTIONS_GRANT_TEXT}` : ''}`),
+    ...row.mcpServers.flatMap((server) => [`MCP server: ${server.name} at ${server.url}, added to every session you start; with no secret the agent asks you to sign in`, ...server.notes]),
     ...(row.themes.length === 0 ? [] : [`Themes: ${row.themes.map((theme) => `${theme.label} (${theme.mode})`).join(', ')}`]),
     ...(row.files.length === 0 ? [] : [`Files: ${row.files.join(', ')}`]),
     ...(row.needs.length === 0 ? [] : [`Needs: ${row.needs.join(', ')}`]),

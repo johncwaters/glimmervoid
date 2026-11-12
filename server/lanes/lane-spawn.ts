@@ -6,7 +6,8 @@ import type { HookRouter } from '../../detection/hook-source.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { appendUserHooks } from '../../session/core/user-hooks-core.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
-import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, getAdapter } from '../../session/adapters/index.ts';
+import type { ScratchAgentHome } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
 import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowRules, withLaneAccessRules } from './core/lane-permissions-core.ts';
@@ -73,6 +74,14 @@ async function writeStandaloneDenySettings(permissions: unknown, userHooks: read
   return { args: ['--settings', settingsPath], cleanup: removeSettingsDirectory };
 }
 
+async function makeEmptyLaneAgentHome(): Promise<{ scratchAgentHome: ScratchAgentHome; cleanup(): Promise<void> }> {
+  const homeParent = await makeHostScratchDirectory(SETTINGS_DIR_PREFIX);
+  return {
+    scratchAgentHome: { home: path.join(homeParent, 'home'), configSuffix: '', files: {} },
+    cleanup: () => fsPromises.rm(homeParent, { recursive: true, force: true }).catch(() => {}),
+  };
+}
+
 async function makeLaneGhConfigDirectory(): Promise<{ path: string; remove(): Promise<void> }> {
   const ghConfigDirectory = await makeHostScratchDirectory(GH_CONFIG_DIR_PREFIX);
   return { path: ghConfigDirectory, remove: () => fsPromises.rm(ghConfigDirectory, { recursive: true, force: true }).catch(() => {}) };
@@ -130,6 +139,9 @@ function createLaneSpawn({
       const unscopedPermissions = settingsPermissions ?? posture?.permissions ?? null;
       const basePermissions = unscopedPermissions && isClaude ? withLaneAccessRules(unscopedPermissions, access) : unscopedPermissions;
       const laneMcp = hookRouter ? await prepareMcp({ laneArgs: posture?.args ?? [], agent }) : null;
+      const readsSharedGeneratedHome = getAdapter(agent)?.hooks?.injection.kind === 'generated-home';
+      const emptyLaneHome = readsSharedGeneratedHome && !laneMcp?.scratchAgentHome ? await makeEmptyLaneAgentHome() : null;
+      const scratchAgentHome = laneMcp?.scratchAgentHome ?? emptyLaneHome?.scratchAgentHome ?? null;
       const permissions = basePermissions && laneMcp ? withAllowRules(basePermissions, laneMcp.posture.allowRules) : basePermissions;
       const standalone = !hookRouter && permissions ? await writeStandaloneDenySettings(permissions, []) : null;
       const hookTools = [...saneYoloHookTools, ...(laneMcp ? [laneMcp.posture.hookTool] : [])];
@@ -155,7 +167,7 @@ function createLaneSpawn({
         replayBufferKB,
         hookRouter,
         getHookPort,
-        ...(laneMcp?.scratchAgentHome ? { scratchAgentHome: laneMcp.scratchAgentHome } : {}),
+        ...(scratchAgentHome ? { scratchAgentHome } : {}),
         ...(isCodex ? { isCleanHome: true } : {}),
       };
       try {
@@ -168,6 +180,7 @@ function createLaneSpawn({
       } finally {
         if (standalone) await standalone.cleanup();
         if (laneMcp) await laneMcp.cleanup();
+        if (emptyLaneHome) await emptyLaneHome.cleanup();
       }
     }
   };

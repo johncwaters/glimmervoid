@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { PR_FLOW_PLACEHOLDERS_BY_KIND } from '../../shared/contracts/pr-flows.ts';
 import { expandPlaceholders, packApproval, packRuleErrors, prFlowsPacksOf, unknownPlaceholderMessage } from '../github/core/pr-flows-core.ts';
-import { panelReferenceErrors, uiSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
+import { panelReferenceErrors, packSectionErrors, undeclaredSubscriptionErrors } from './core/pack-core.ts';
 import { declaredPanels, readPackDir } from './pack-files.ts';
 
 
@@ -25,7 +25,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
   const ui = pack.ui?.ok ? pack.ui.value : { panels: [], themes: [] };
   const report = {
     packDir: pack.dir, name: `${pack.header.name} v${pack.header.version}`, isApproved: isApprovedFingerprint(pack.fingerprint),
-    errors: [...prFlowsErrors, ...uiSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], missingRequires: pack.missingRequires, entries: [], rules: [],
+    errors: [...prFlowsErrors, ...packSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], missingRequires: pack.missingRequires, entries: [], rules: [],
     panels: ui.panels.map((panel) => `${panel.id} (${panel.label}) opens ${panel.entry}${panel.reads.length === 0 ? ', reads nothing' : `, reads ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : `, acts on ${panel.acts.join(', ')}`}`),
     themes: ui.themes.map((theme) => `${theme.id} (${theme.label}, ${theme.mode})`),
   };

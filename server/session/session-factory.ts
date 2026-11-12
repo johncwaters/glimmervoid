@@ -41,6 +41,7 @@ interface SessionFactoryDependencies {
   codexVersion?: RemoteLaunch['codexVersion'];
   codexLoginParams?: RemoteLaunch['codexLoginParams'];
   codexRefreshResult?: RemoteLaunch['codexRefreshResult'];
+  packMcpServers?: SessionOptions['packMcpServers'];
 }
 
 interface CoderWorkspacePort {
@@ -137,6 +138,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
+      packMcpServers: builtMapping || isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,

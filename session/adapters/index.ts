@@ -11,6 +11,7 @@ import shell from "./shell.ts";
 import { createCustomAdapter } from "./custom.ts";
 
 import type { HookProfile } from "../../detection/hook-source.ts";
+import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import type { TitleProfile } from "../../detection/osc-title-source.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
@@ -91,6 +92,7 @@ interface GeneratedHomeLaunch {
   listenerPort: number;
   folderTrustRoot: string;
   isCleanHome: boolean;
+  packServers: readonly PackMcpServer[];
 }
 
 interface GeneratedHomeInjection {

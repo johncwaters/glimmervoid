@@ -1,18 +1,23 @@
 import type { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
+import { GLIMMERVOID_MCP_SERVER_NAME } from '../../shared/contracts/pack.ts';
+import type { PackMcpServer } from '../../shared/contracts/pack.ts';
 import { mcpCredentialFor } from './credentials.ts';
 
 const MCP_CREDENTIAL_ENV = 'GLIMMERVOID_MCP_TOKEN';
-const MCP_SERVER_NAME = 'glimmervoid';
+const MCP_SERVER_NAME = GLIMMERVOID_MCP_SERVER_NAME;
 const MCP_TOOL_TIMEOUT_SECONDS = 600;
 const CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES = 16384;
 const KIMI_MCP_CONFIG_NAME = 'mcp.json';
 const KIMI_MCP_BASE_NAME = '.glimmervoid-mcp-base.json';
+const KIMI_PACK_SERVER_NAMES_KEY = 'glimmervoidPackServers';
+const KIMI_SHADOWED_SERVERS_KEY = 'glimmervoidShadowedServers';
 
 interface McpLaunchInput {
   agentId: string;
   listenerPort: number | null;
   sessionId: string;
   agentToken: string | null;
+  packServers: readonly PackMcpServer[];
 }
 
 interface McpLaunch {
@@ -26,24 +31,28 @@ function mcpUrl(listenerPort: number): string {
   return `http://127.0.0.1:${listenerPort}/mcp`;
 }
 
-function claudeMcpArgs(url: string): string[] {
-  const config = {
-    mcpServers: {
-      [MCP_SERVER_NAME]: { type: 'http', url, headers: { Authorization: `Bearer \${${MCP_CREDENTIAL_ENV}}` } },
-    },
-  };
-  return ['--mcp-config', JSON.stringify(config), '--allowedTools', `mcp__${MCP_SERVER_NAME}`];
+function claudeMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { type: 'http', url: server.url }]));
+  if (glimmervoidUrl === null) return ['--mcp-config', JSON.stringify({ mcpServers: packEntries })];
+  const glimmervoidEntry = { type: 'http', url: glimmervoidUrl, headers: { Authorization: `Bearer \${${MCP_CREDENTIAL_ENV}}` } };
+  return ['--mcp-config', JSON.stringify({ mcpServers: { ...packEntries, [MCP_SERVER_NAME]: glimmervoidEntry } }), '--allowedTools', `mcp__${MCP_SERVER_NAME}`];
 }
 
-function codexMcpArgs(url: string): string[] {
+function codexPackServerArgs(server: PackMcpServer): string[] {
+  return ['-c', `mcp_servers.${server.name}.url=${JSON.stringify(server.url)}`];
+}
+
+function codexMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {
+  const packArgs = packServers.flatMap(codexPackServerArgs);
+  if (glimmervoidUrl === null) return packArgs;
   const settings = [
-    `url=${JSON.stringify(url)}`,
+    `url=${JSON.stringify(glimmervoidUrl)}`,
     `bearer_token_env_var=${JSON.stringify(MCP_CREDENTIAL_ENV)}`,
     'default_tools_approval_mode="approve"',
     `tool_timeout_sec=${MCP_TOOL_TIMEOUT_SECONDS}`,
     `tool_input_schema_max_bytes=${CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES}`,
   ];
-  return settings.flatMap((setting) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.${setting}`]);
+  return [...packArgs, ...settings.flatMap((setting) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.${setting}`])];
 }
 
 function credentialOnly(): string[] {
@@ -52,7 +61,7 @@ function credentialOnly(): string[] {
 
 type BuiltinAgentId = (typeof BUILTIN_AGENT_IDS)[number];
 
-const ARGS_BY_AGENT: Readonly<Partial<Record<BuiltinAgentId, (url: string) => string[]>>> = Object.freeze({
+const ARGS_BY_AGENT: Readonly<Partial<Record<BuiltinAgentId, (glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]) => string[]>>> = Object.freeze({
   'claude-code': claudeMcpArgs,
   codex: codexMcpArgs,
   kimi: credentialOnly,
@@ -102,16 +111,54 @@ interface KimiMcpSources {
   generatedMcpJson: string | null;
   baseMcpJson: string | null;
   listenerPort: number;
+  packServers: readonly PackMcpServer[];
 }
 
 function serversFileText(servers: McpServers): string {
   return `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`;
 }
 
-function kimiMcpFiles({ realMcpJson, generatedMcpJson, baseMcpJson, listenerPort }: KimiMcpSources): Record<string, string> {
+interface LastPackServers {
+  names: string[];
+  shadowedServers: McpServers;
+}
+
+const NO_LAST_PACK_SERVERS: LastPackServers = Object.freeze({ names: [], shadowedServers: {} });
+
+function baseFileText(operatorServers: McpServers, packServerNames: readonly string[], shadowedServers: McpServers): string {
+  return `${JSON.stringify({ mcpServers: operatorServers, [KIMI_PACK_SERVER_NAMES_KEY]: packServerNames, [KIMI_SHADOWED_SERVERS_KEY]: shadowedServers }, null, 2)}\n`;
+}
+
+function lastPackServersOf(baseMcpJson: string | null): LastPackServers {
+  if (baseMcpJson === null) return NO_LAST_PACK_SERVERS;
+  try {
+    const parsed: unknown = JSON.parse(baseMcpJson);
+    if (typeof parsed !== 'object' || parsed === null) return NO_LAST_PACK_SERVERS;
+    const names = KIMI_PACK_SERVER_NAMES_KEY in parsed ? parsed[KIMI_PACK_SERVER_NAMES_KEY] : [];
+    const shadowedServers = KIMI_SHADOWED_SERVERS_KEY in parsed ? parsed[KIMI_SHADOWED_SERVERS_KEY] : {};
+    return {
+      names: Array.isArray(names) ? names.filter((name) => typeof name === 'string') : [],
+      shadowedServers: typeof shadowedServers === 'object' && shadowedServers !== null && !Array.isArray(shadowedServers) ? { ...shadowedServers } : {},
+    };
+  } catch {
+    return NO_LAST_PACK_SERVERS;
+  }
+}
+
+function withPackServersUndone(servers: McpServers, { names, shadowedServers }: LastPackServers): McpServers {
+  const kept = Object.entries(servers).filter(([name]) => !names.includes(name));
+  const restored = names.filter((name) => Object.hasOwn(shadowedServers, name)).map((name) => [name, shadowedServers[name]]);
+  return Object.fromEntries([...kept, ...restored]);
+}
+
+function serversNamed(servers: McpServers, names: readonly string[]): McpServers {
+  return Object.fromEntries(names.filter((name) => Object.hasOwn(servers, name)).map((name) => [name, servers[name]]));
+}
+
+function kimiMcpFiles({ realMcpJson, generatedMcpJson, baseMcpJson, listenerPort, packServers }: KimiMcpSources): Record<string, string> {
   const realServers = mcpServersOf(realMcpJson);
   const generatedServers = mcpServersOf(generatedMcpJson);
-  const ours = generatedServers === null ? null : withoutGlimmervoidServer(generatedServers);
+  const ours = generatedServers === null ? null : withPackServersUndone(withoutGlimmervoidServer(generatedServers), lastPackServersOf(baseMcpJson));
   const isRealFileUnreadable = realMcpJson !== null && realServers === null;
   const theirs = withoutGlimmervoidServer(realServers ?? {});
   const operatorServers = isRealFileUnreadable ? ours ?? {} : mergeOperatorServers(mcpServersOf(baseMcpJson), ours, theirs);
@@ -121,9 +168,11 @@ function kimiMcpFiles({ realMcpJson, generatedMcpJson, baseMcpJson, listenerPort
     bearerTokenEnvVar: MCP_CREDENTIAL_ENV,
     toolTimeoutMs: MCP_TOOL_TIMEOUT_SECONDS * 1000,
   };
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { transport: 'http', url: server.url }]));
+  const packServerNames = packServers.map((server) => server.name);
   return {
-    [KIMI_MCP_CONFIG_NAME]: serversFileText({ ...operatorServers, [MCP_SERVER_NAME]: glimmervoidServer }),
-    [KIMI_MCP_BASE_NAME]: isRealFileUnreadable ? baseMcpJson ?? serversFileText(operatorServers) : serversFileText(theirs),
+    [KIMI_MCP_CONFIG_NAME]: serversFileText({ ...operatorServers, ...packEntries, [MCP_SERVER_NAME]: glimmervoidServer }),
+    [KIMI_MCP_BASE_NAME]: baseFileText(isRealFileUnreadable ? mcpServersOf(baseMcpJson) ?? operatorServers : theirs, packServerNames, serversNamed(operatorServers, packServerNames)),
   };
 }
 
@@ -131,12 +180,14 @@ function isBuiltinWithMcpArgs(agentId: string): agentId is keyof typeof ARGS_BY_
   return Object.hasOwn(ARGS_BY_AGENT, agentId);
 }
 
-function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken }: McpLaunchInput): McpLaunch {
+function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServers }: McpLaunchInput): McpLaunch {
   const buildArgs = isBuiltinWithMcpArgs(agentId) ? ARGS_BY_AGENT[agentId] : undefined;
-  if (!buildArgs || !listenerPort || !agentToken) return NO_MCP_LAUNCH;
+  if (!buildArgs) return NO_MCP_LAUNCH;
+  const hasGlimmervoidServer = listenerPort !== null && listenerPort > 0 && agentToken !== null && agentToken !== '';
+  if (!hasGlimmervoidServer && packServers.length === 0) return NO_MCP_LAUNCH;
   return {
-    args: buildArgs(mcpUrl(listenerPort)),
-    env: { [MCP_CREDENTIAL_ENV]: mcpCredentialFor(sessionId, agentToken) },
+    args: buildArgs(hasGlimmervoidServer ? mcpUrl(listenerPort) : null, packServers),
+    env: hasGlimmervoidServer ? { [MCP_CREDENTIAL_ENV]: mcpCredentialFor(sessionId, agentToken) } : {},
   };
 }
 

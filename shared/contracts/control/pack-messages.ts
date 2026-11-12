@@ -20,6 +20,7 @@ export const PackRow = z.strictObject({
   prFlows: PrFlowPendingApproval.nullable(),
   themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode })),
   panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
+  mcpServers: z.array(z.strictObject({ name: z.string(), url: z.string(), notes: z.array(z.string()) })),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;
