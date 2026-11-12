@@ -817,6 +817,10 @@ class Session extends EventEmitter {
     return this._observability.auditLog;
   }
 
+  get agentDrawsAlternateScreen(): boolean {
+    return this._can("drawsOwnAlternateScreen");
+  }
+
   _can(capability: keyof AgentCapabilities): boolean {
     return this._adapter.capabilities?.[capability] === true;
   }
@@ -1451,6 +1455,7 @@ class Session extends EventEmitter {
       taskTitleIsCustom: this.taskTitleIsCustom,
       path: this.path,
       agent: this.agentId,
+      agentDrawsAlternateScreen: this.agentDrawsAlternateScreen,
       state: this.state,
       stateSince: this.stateSince,
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,

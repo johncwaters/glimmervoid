@@ -131,7 +131,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     id: sessionIds[index],
     name: `${harnessCase.viewport.name}-${harnessCase.scenario.name}`,
     path: projectDirs[index],
-    agent: 'claude-code',
+    agent: harnessCase.scenario.agent ?? 'claude-code',
     dangerouslySkipPermissions: false,
   }));
   const configDocument = {

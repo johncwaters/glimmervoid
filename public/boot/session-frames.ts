@@ -96,7 +96,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     setSessionAttentionNotes(s.id, s.attentionNotes);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
-    setSessionAgent(s.id, s.agent);
+    setSessionAgent(s.id, s.agent, s.agentDrawsAlternateScreen);
 
     seedSessionMergeStatus(s.id, s.mergeStatus, s.mergeReason);
 
@@ -182,7 +182,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
   createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, remoteWorkspace: card?.dataset.remoteWorkspace ?? null, ephemeral: card?.dataset.ephemeral !== undefined, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom }));
-  setSessionAgent(msg.id, previousUi?.agent);
+  setSessionAgent(msg.id, previousUi?.agent, previousUi?.agentDrawsAlternateScreen);
   carryOverClientSessionFields(msg.id, previousUi);
 }
 

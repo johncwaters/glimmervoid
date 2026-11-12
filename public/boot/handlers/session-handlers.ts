@@ -14,7 +14,7 @@ import { forgetSession, handleSessionStatus, rebuildSessionCard, refreshAttentio
 
 const messageHandlers = {
   'session-status':     (msg) => handleSessionStatus(msg),
-  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
@@ -22,7 +22,7 @@ const messageHandlers = {
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);
-    setSessionAgent(msg.id, msg.agent);
+    setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen);
     refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();

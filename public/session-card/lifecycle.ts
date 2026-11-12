@@ -154,10 +154,11 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
   return sessionUi;
 }
 
-export function setSessionAgent(sessionId: unknown, agent: unknown) {
+export function setSessionAgent(sessionId: unknown, agent: unknown, agentDrawsAlternateScreen: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
+  ui.agentDrawsAlternateScreen = agentDrawsAlternateScreen === true;
   const agentMarkEl = ui.card.querySelector<HTMLElement>('.session-agent-mark');
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   updateButtonVisibility(ui);

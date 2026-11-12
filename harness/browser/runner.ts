@@ -9,6 +9,7 @@ import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
+import { verifyFullScreenAppRow, verifyKeyStripContexts } from './key-strip.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1244,6 +1245,12 @@ export async function runCase({
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);
       return passedOutcome('phone-changes-back', 'a tapped file opens its diff, back returns to the file list, back again returns to the terminal');
+    }
+    if (step.kind === 'assert-key-strip-contexts') {
+      return passedOutcome('key-strip-contexts', await verifyKeyStripContexts(viewer.page, async (command) => { await runType(viewer, command); }));
+    }
+    if (step.kind === 'assert-key-strip-fullscreen-app') {
+      return passedOutcome('key-strip-fullscreen-app', await verifyFullScreenAppRow(viewer.page, async (command) => { await runType(viewer, command); }));
     }
     if (step.kind === 'assert-link-repaint') return runAssertLinkRepaint(viewer, sessionId, deadlines);
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);
