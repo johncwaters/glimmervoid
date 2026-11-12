@@ -50,6 +50,7 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     `  ${PACK_PANEL_CONTENT_POLICY}`,
     '- launchers: buttons at the top of the add-session picker, each starting one session: label, project (an owner/name repository matched against the projects already on this machine, or an absolute folder path), agent (claude-code, codex or kimi), optional model and effort, and the first prompt, at most 4000 characters. The operator sees each prompt word for word before approving. A launcher whose project matches nothing here shows disabled with the reason. An optional schedule, a cron pattern of five fields in the operator timezone such as "0 9 * * 1-5", also starts the session on that schedule; a run is skipped while the last scheduled session of that launcher is still live, when its project matches nothing, or when packScheduledSessionsMax scheduled sessions are already live, and runs missed while Glimmervoid was down never catch up.',
     '- sessions: settings for every session the pack starts. dangerouslySkipPermissions (default false) starts them without permission prompts; saneYolo turns the risky-command catcher on or off for them, and follows the operator setting when absent.',
+    '- agent: context and skills every Glimmervoid session gets once the pack is approved, in any project, on Claude Code, Codex and Kimi Code; never in team review, community or Radar sessions, or clean-home projects. context names a file in the pack that each session\'s first prompt points the agent at; skills lists skill folders in the pack, each holding a SKILL.md, which a session sees as /<pack>:<folder name> on Claude Code and <pack>-<folder name> on Codex and Kimi Code (a combined name over 64 characters reaches Claude Code only). Sessions read a copy of the approved files, so an edit reaches none until the operator approves it; a live session keeps the copy it started with.',
     '',
     'Panel bridge: list the topics a panel needs under its reads in pack.json; the operator sees them before approving. The panel posts {"v":1,"kind":"subscribe","topics":[...]} to window.parent and gets {"v":1,"kind":"hello","granted":[...]}: the subscribed topics that are also in reads, so a topic left out of reads never arrives. Then a {"v":1,"kind":"topic","topic":...,"data":...} message comes for each granted topic, right away and again whenever it changes. Accept messages only when event.source === window.parent. The descriptions in the bridge JSON Schema below give each field\'s units and meaning.',
     `Pack store: every panel of a pack shares one key/value store kept across reloads, browsers and pack updates, at most ${PACK_DATA_MAX_BYTES} bytes as JSON and deleted when the pack folder is removed. A {"v":1,"kind":"store","data":{...},"error":null} message arrives right after hello (an empty topics list in subscribe is fine for a panel that only stores), and again after each save. Save one key by posting {"v":1,"kind":"store-set","key":"sort","value":"newest"}; a value of null deletes the key, and a value nests at most ${PACK_STORE_MAX_DEPTH} levels deep. A save over the limit is refused: the store message then carries the unchanged data and an error naming the size.`,
@@ -74,6 +75,8 @@ function rowLines(row: PackRow): string[] {
     ...row.themes.map((theme) => `  theme ${theme.id} (${theme.label}, ${theme.mode})`),
     ...row.launchers.map((launcher) => `  launcher ${launcher.id} (${launcher.label}), ${launcher.agent} in ${launcher.project}${launcher.schedule === null ? '' : `, on schedule ${launcher.schedule}`}`),
     ...row.statusUrls.map((url) => `  status page ${url}`),
+    ...(row.agent?.context ? [`  agent context ${row.agent.context.path}`] : []),
+    ...(row.agent?.skills ?? []).map((skill) => `  agent skill ${skill.name} (${skill.path})`),
     ...row.missingRequires.map((missing) => `  missing on this machine: ${missing}`),
     ...row.errors.map((error) => `  error: ${error}`),
   ];
@@ -87,6 +90,8 @@ function packGrantsText(row: PackRow): string {
     ...row.launchers.map((launcher) => `launcher ${launcher.label} starting ${launcher.agent} in ${launcher.project}${launcher.schedule === null ? '' : ` on schedule ${launcher.schedule}`}`),
     ...(row.sessions?.dangerouslySkipPermissions ? ['sessions without permission prompts'] : []),
     ...(row.statusUrls.length === 0 ? [] : [`status pages ${row.statusUrls.join(', ')}`]),
+    ...(row.agent?.context ? [`context ${row.agent.context.path} for every session`] : []),
+    ...((row.agent?.skills.length ?? 0) === 0 ? [] : [`skills ${(row.agent?.skills ?? []).map((skill) => skill.name).join(', ')} for every session`]),
     ...(prFlowCommandCount === 0 ? [] : [`${prFlowCommandCount} My PRs command${prFlowCommandCount === 1 ? '' : 's'}`]),
   ];
   return grants.length === 0 ? 'it adds nothing yet' : `it adds ${grants.join('; ')}`;

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { renameSkillFrontmatter } from "../../shared/skill-frontmatter-core.ts";
+import { SKILL_NAME_PATTERN, renameSkillFrontmatter } from "../../shared/skill-frontmatter-core.ts";
 
 type PackAgentSkill = { skillName: string; filesByPath: ReadonlyMap<string, Buffer> };
 type PackAgentContext = { fileName: string; bytes: Buffer };
@@ -12,7 +12,6 @@ const CONTEXT_FOLDER_NAME = "context";
 const NAMED_SKILLS_FOLDER_NAME = "named";
 const SKILL_FILE_NAME = "SKILL.md";
 const FINGERPRINT_PREFIX_LENGTH = 12;
-const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const EMPTY_LAUNCH: PackAgentLaunch = Object.freeze({ contextLines: Object.freeze([]), claudePluginDirs: Object.freeze([]), namedSkillDirs: Object.freeze([]) });
 
 function packAgentFolderName(packName: string, fingerprint: string): string {
@@ -98,5 +97,5 @@ function claudePluginArgs(agentId: string, launch: PackAgentLaunch | null): stri
   return launch.claudePluginDirs.flatMap((pluginDir) => ["--plugin-dir", pluginDir]);
 }
 
-export type { PackAgentContribution, PackAgentFile, PackAgentLaunch };
+export type { PackAgentContribution, PackAgentFile, PackAgentLaunch, PackAgentSkill };
 export { claudePluginArgs, packAgentFolderName, packAgentLaunchOf, packNameOfFolder, planPackAgentFiles };

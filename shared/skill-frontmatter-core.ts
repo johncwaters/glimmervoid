@@ -58,4 +58,6 @@ function withoutNameEntry(lines: string[]): string[] {
   return [...lines.slice(0, nameIndex), ...lines.slice(entryEnd)];
 }
 
-export { parseSkillFrontmatter, renameSkillFrontmatter };
+const SKILL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+export { SKILL_NAME_PATTERN, parseSkillFrontmatter, renameSkillFrontmatter };

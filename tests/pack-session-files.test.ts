@@ -1,6 +1,7 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,8 @@ import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
 import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
+import { createPackStore } from '../server/packs/pack-store.ts';
+import { PACKS_DIR_NAME, packsStatePath } from '../server/packs/pack-files.ts';
 import type { PackSessionFiles } from '../server/packs/pack-session-files.ts';
 import type { PackAgentContribution } from '../session/core/pack-session-core.ts';
 import { ProjectConfig } from '../shared/contracts/config.ts';
@@ -97,5 +100,42 @@ test('a re-approved pack keeps the copy live sessions started with until the nex
     assert.deepEqual(restarted.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [] });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a pack.json agent section shows its context and skills word for word, reaches sessions only once approved, and an edited file reaches none until approved again', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-agent-'));
+  const packDir = path.join(homeDir, PACKS_DIR_NAME, 'acme-team');
+  fs.mkdirSync(path.join(packDir, 'skills', 'deploy'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'acme-team', version: 1, agent: { context: 'CONTEXT.md', skills: ['skills/deploy'] } }));
+  fs.writeFileSync(path.join(packDir, 'CONTEXT.md'), 'Approved context.\n');
+  fs.writeFileSync(path.join(packDir, 'skills', 'deploy', 'SKILL.md'), SKILL_TEXT);
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  const root = path.join(homeDir, 'pack-session-files');
+  const packSessionFiles = createPackSessionFiles({ root });
+  try {
+    await packStore.start();
+    const pendingRow = packStore.statusFrame().packs.find((row) => row.name === 'acme-team');
+    assert.deepEqual(pendingRow?.agent, { context: { path: 'CONTEXT.md', text: 'Approved context.\n' }, skills: [{ name: 'deploy', path: 'skills/deploy', text: SKILL_TEXT }] });
+    assert.deepEqual(packStore.agentContributionsInUse(), []);
+
+    assert.deepEqual(await packStore.approve(pendingRow?.fingerprint ?? ''), { ok: true });
+    assert.deepEqual(await packSessionFiles.sync(packStore.agentContributionsInUse()), { warnings: [] });
+    const folder = path.join(root, `acme-team-${(pendingRow?.fingerprint ?? '').slice(0, 12)}`);
+    assert.deepEqual(packSessionFiles.launch(), {
+      contextLines: [`Pack acme-team context: ${path.join(folder, 'context', 'CONTEXT.md')}. Read it when the task touches what it covers.`],
+      claudePluginDirs: [path.join(folder, 'claude')], namedSkillDirs: [path.join(folder, 'named', 'acme-team-deploy')],
+    });
+    assert.match(fs.readFileSync(path.join(folder, 'named', 'acme-team-deploy', 'SKILL.md'), 'utf8'), /^---\nname: acme-team-deploy\n/);
+
+    fs.writeFileSync(path.join(packDir, 'CONTEXT.md'), 'Edited after approval.\n');
+    await packStore.approvedPacks();
+    assert.deepEqual(packStore.agentContributionsInUse(), []);
+    await packSessionFiles.sync(packStore.agentContributionsInUse());
+    assert.deepEqual(packSessionFiles.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [] });
+    assert.equal(fs.existsSync(folder), false);
+  } finally {
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });

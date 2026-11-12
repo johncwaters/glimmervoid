@@ -693,6 +693,28 @@
         "urls"
       ],
       "additionalProperties": false
+    },
+    "agent": {
+      "description": "Context and skills every session's agent gets once the operator approves the pack",
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "A file in the pack that every session's first prompt names, so the agent reads it when the task touches what it covers; the operator reads it word for word before approving",
+          "type": "string",
+          "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+        },
+        "skills": {
+          "default": [],
+          "description": "Skill folders in the pack, each holding a SKILL.md; every session gets them, as /<pack>:<folder name> on Claude Code and <pack>-<folder name> on Codex and Kimi Code",
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

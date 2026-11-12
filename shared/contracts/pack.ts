@@ -4,6 +4,7 @@ import { ThemePalette } from './theme-palette.ts';
 import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, LauncherProject } from './pack-launch.ts';
 import { PackBridgeTopic, PackName, PackPanelAct, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
+import { SKILL_NAME_PATTERN } from '../skill-frontmatter-core.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -20,6 +21,7 @@ export const PackHeader = z.strictObject({
   launchers: z.unknown().optional(),
   sessions: z.unknown().optional(),
   status: z.unknown().optional(),
+  agent: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -112,6 +114,27 @@ export const PackStatus = z.strictObject({
 });
 export type PackStatus = z.infer<typeof PackStatus>;
 
+const PACK_AGENT_SKILLS_MAX = 32;
+
+export function packSkillNameOf(skillFolder: string): string {
+  return skillFolder.split('/').at(-1) ?? '';
+}
+
+const PackSkillFolder = PackFilePath.refine((skillFolder) => SKILL_NAME_PATTERN.test(packSkillNameOf(skillFolder)), { error: 'a skill folder name is lowercase letters, digits and dashes, at most 64 characters' });
+
+export const PackAgent = z.strictObject({
+  context: PackFilePath.optional().describe('A file in the pack that every session\'s first prompt names, so the agent reads it when the task touches what it covers; the operator reads it word for word before approving'),
+  skills: z.array(PackSkillFolder).max(PACK_AGENT_SKILLS_MAX).default([]).describe('Skill folders in the pack, each holding a SKILL.md; every session gets them, as /<pack>:<folder name> on Claude Code and <pack>-<folder name> on Codex and Kimi Code'),
+}).superRefine((section, context) => {
+  const seenNames = new Set<string>();
+  section.skills.forEach((skillFolder, index) => {
+    const skillName = packSkillNameOf(skillFolder);
+    if (seenNames.has(skillName)) context.addIssue({ code: 'custom', path: ['skills', index], message: `the skill name '${skillName}' is already used in skills` });
+    seenNames.add(skillName);
+  });
+});
+export type PackAgent = z.infer<typeof PackAgent>;
+
 export const PackLauncherRuns = z.strictObject({ sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}) });
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
@@ -137,6 +160,7 @@ export type PackOnDisk = {
   launchers: PackSection<PackLauncher[]> | null;
   sessions: PackSection<PackSessions> | null;
   status: PackSection<PackStatus> | null;
+  agent: PackSection<PackAgent> | null;
   missingRequires: string[];
 };
 
@@ -145,6 +169,7 @@ const PackManifestForSchema = PackHeader.extend({
   launchers: PackLaunchers.optional().describe('Buttons in the Add session picker, each starting a session with its own prompt'),
   sessions: PackSessions.optional().describe('Permission settings for every session this pack starts'),
   status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
+  agent: PackAgent.optional().describe('Context and skills every session\'s agent gets once the operator approves the pack'),
 });
 
 export function packJsonSchemaText(): string {

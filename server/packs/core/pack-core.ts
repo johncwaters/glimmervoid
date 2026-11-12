@@ -1,6 +1,8 @@
 import path from 'node:path';
 import type { PackRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
-import type { PackLauncher, PackOnDisk, PackSessions, PackUi } from '../../../shared/contracts/pack.ts';
+import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
+import type { PackAgent, PackLauncher, PackOnDisk, PackSessions, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
 
@@ -68,7 +70,7 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
 }
 
 export function packSectionErrors(pack: PackOnDisk): string[] {
-  return [pack.ui, pack.launchers, pack.sessions, pack.status].flatMap((section) => (section && !section.ok ? section.errors : []));
+  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent].flatMap((section) => (section && !section.ok ? section.errors : []));
 }
 
 function packLaunchers(pack: PackOnDisk): PackLauncher[] {
@@ -123,6 +125,42 @@ export function launcherProjects(packs: readonly PackOnDisk[]): string[] {
   return [...new Set(packs.flatMap((pack) => packLaunchers(pack).map((launcher) => launcher.project)))];
 }
 
+function packAgentSection(pack: PackOnDisk): PackAgent | null {
+  return pack.agent?.ok ? pack.agent.value : null;
+}
+
+function packFileText(pack: PackOnDisk, filePath: string): string {
+  return pack.filesByPath.get(filePath)?.toString('utf8') ?? '';
+}
+
+function packAgentRow(pack: PackOnDisk): PackRow['agent'] {
+  const agent = packAgentSection(pack);
+  if (agent === null) return null;
+  return {
+    context: agent.context === undefined ? null : { path: agent.context, text: packFileText(pack, agent.context) },
+    skills: agent.skills.map((skillFolder) => ({ name: packSkillNameOf(skillFolder), path: skillFolder, text: packFileText(pack, `${skillFolder}/SKILL.md`) })),
+  };
+}
+
+function packAgentSkill(pack: PackOnDisk, skillFolder: string): PackAgentSkill {
+  const folderPrefix = `${skillFolder}/`;
+  const filesByPath = new Map([...pack.filesByPath].filter(([filePath]) => filePath.startsWith(folderPrefix)).map(([filePath, bytes]) => [filePath.slice(folderPrefix.length), bytes]));
+  return { skillName: packSkillNameOf(skillFolder), filesByPath };
+}
+
+export function packAgentContributions(packs: readonly PackOnDisk[]): PackAgentContribution[] {
+  return packs.flatMap((pack) => {
+    const agent = packAgentSection(pack);
+    const contextBytes = agent?.context === undefined ? undefined : pack.filesByPath.get(agent.context);
+    if (agent === null || (contextBytes === undefined && agent.skills.length === 0)) return [];
+    return [{
+      packName: pack.header.name, fingerprint: pack.fingerprint,
+      context: agent.context === undefined || contextBytes === undefined ? null : { fileName: path.posix.basename(agent.context), bytes: contextBytes },
+      skills: agent.skills.map((skillFolder) => packAgentSkill(pack, skillFolder)),
+    }];
+  });
+}
+
 function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): PackRow {
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
   const sectionErrors = [...prFlowsErrors, ...packSectionErrors(pack)];
@@ -135,7 +173,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
-    sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), errors: sectionErrors,
+    sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack), errors: sectionErrors,
   };
 }
 
@@ -143,7 +181,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return validPackRow(read.pack, approvedFingerprints);
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors,
   };
 }
 

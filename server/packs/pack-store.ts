@@ -9,7 +9,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
 import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
-import { statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
+import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
@@ -38,6 +38,7 @@ type PackStore = EventEmitter & {
   launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
   panelInUse(packName: string, panelId: string): ReturnType<typeof approvedPanel>;
   scheduledLaunchersInUse(): ScheduledPackLauncher[];
+  agentContributionsInUse(): ReturnType<typeof packAgentContributions>;
 };
 
 export function createPackStore({ homeDir, statePath, env, log, frameSecret, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -285,5 +286,6 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
     panelInUse: (packName: string, panelId: string) => approvedPanel(packsInUse(), packName, panelId),
     scheduledLaunchersInUse: () => scheduledLaunchers(packsInUse()),
+    agentContributionsInUse: () => packAgentContributions(packsInUse()),
   });
 }

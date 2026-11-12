@@ -24,6 +24,10 @@ export const PackRow = z.strictObject({
   launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string(), schedule: z.string().nullable() })),
   sessions: z.strictObject({ dangerouslySkipPermissions: z.boolean(), saneYolo: z.boolean().optional() }).nullable(),
   statusUrls: z.array(z.string()).default([]),
+  agent: z.strictObject({
+    context: z.strictObject({ path: z.string(), text: z.string() }).nullable(),
+    skills: z.array(z.strictObject({ name: z.string(), path: z.string(), text: z.string() })),
+  }).nullable().default(null),
   errors: z.array(z.string()),
 });
 export type PackRow = z.infer<typeof PackRow>;

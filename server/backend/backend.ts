@@ -196,7 +196,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       .map((session) => session.name),
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
-  const { agentAccounts, agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
+  const { agentAccounts, agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -395,6 +395,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
     renameSessionFromTaskTitle,
     retitleProvisionalBoard: whiteboards.retitleProvisionalBoard,
+    packSessionFiles,
   });
   const {
     allLiveSessions,
