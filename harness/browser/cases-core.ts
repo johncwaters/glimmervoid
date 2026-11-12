@@ -18,6 +18,7 @@ export type Step =
   | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
   | { kind: 'assert-raw-typing-in-fullscreen-app'; viewer?: ViewerId }
   | { kind: 'assert-compose-submit'; viewer?: ViewerId }
+  | { kind: 'assert-touch-select-copy'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
@@ -314,6 +315,12 @@ export const SCENARIOS: readonly Scenario[] = [
     phoneOnly: true,
     viewports: ['phone-393'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-compose-submit' }, { kind: 'shot', name: 'compose-bar' }],
+  },
+  {
+    name: 'touch-select-copy',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-touch-select-copy' }, { kind: 'shot', name: 'select-sheet' }],
   },
   {
     name: 'phone-changes-back',

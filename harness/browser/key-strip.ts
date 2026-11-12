@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import type { Page } from 'playwright-core';
+import type { CDPSession, Page } from 'playwright-core';
+import { SECRET_ROW_VALUE, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const CONTEXT_TIMEOUT_MS = 10_000;
 
@@ -187,4 +188,130 @@ export async function verifyRawTypingInFullScreenApp(page: Page, typeCommand: (c
   await rawTyping.click();
   await waitForComposeBar(page, 'visible');
   return 'a full-screen app hides the compose bar and gets Tab and q; leaving it brings both back with typing in the field; Raw hides and restores the compose bar';
+}
+
+const LONG_PRESS_HELD_MS = 800;
+const SELECTION_DRAG_STEPS = 5;
+const SELECTION_DRAG_STEP_PX = 20;
+const selectionMirror = '.terminal-select-mirror';
+const selectSheet = '.terminal-select-sheet';
+
+interface ScreenPoint { x: number; y: number }
+
+async function copyScreenText(page: Page) {
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await page.locator('.phone-key-more').click();
+  await page.locator('.phone-key-more-sheet [data-key="copy-screen"]').click();
+  await page.waitForFunction(() => navigator.clipboard.readText().then((text) => text !== ''));
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+async function waitForScreenText(page: Page, expectedText: string) {
+  const deadline = Date.now() + CONTEXT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const screenText = await copyScreenText(page);
+    if (screenText.includes(expectedText)) return screenText;
+  }
+  throw new Error(`the terminal never showed ${JSON.stringify(expectedText)}`);
+}
+
+async function cellCenter(page: Page, screenText: string, rowNumber: number, column: number): Promise<ScreenPoint> {
+  const size = /cols=(\d+) rows=(\d+)/.exec(screenText);
+  assert.ok(size, 'the fake agent prints its size');
+  const screenBox = await page.locator('.phone-card-slot .xterm-screen').boundingBox();
+  assert.ok(screenBox, 'the terminal screen is on screen');
+  const cellWidth = screenBox.width / Number(size[1]);
+  const cellHeight = screenBox.height / Number(size[2]);
+  return { x: screenBox.x + (column + 0.5) * cellWidth, y: screenBox.y + (rowNumber - 0.5) * cellHeight };
+}
+
+async function pressAndHold(page: Page, touch: CDPSession, point: ScreenPoint) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+  await page.waitForTimeout(LONG_PRESS_HELD_MS);
+  await page.locator(selectionMirror).waitFor({ timeout: CONTEXT_TIMEOUT_MS });
+}
+
+async function releaseTouch(touch: CDPSession) {
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+async function assertSelectionUnderFinger(page: Page, point: ScreenPoint, what: string) {
+  const selectedBox = await page.evaluate(() => {
+    const box = document.getSelection()?.getRangeAt(0).getBoundingClientRect();
+    return box ? { left: box.left, right: box.right, top: box.top, bottom: box.bottom } : null;
+  });
+  const isUnderFinger = !!selectedBox && selectedBox.left <= point.x && selectedBox.right >= point.x && selectedBox.top <= point.y && selectedBox.bottom >= point.y;
+  assert.ok(isUnderFinger, `${what} sits under the finger (${JSON.stringify(selectedBox)} around ${JSON.stringify(point)})`);
+}
+
+async function selectedText(page: Page) {
+  return page.evaluate(() => document.getSelection()?.toString() ?? '');
+}
+
+async function clearSelection(page: Page) {
+  await page.evaluate(() => document.getSelection()?.removeAllRanges());
+  await page.locator(selectionMirror).waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
+}
+
+async function toggleStreamerMode(page: Page) {
+  const isMacPlatform = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.userAgent));
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press(isMacPlatform ? 'Meta+Alt+Backslash' : 'Alt+Backslash');
+}
+
+async function openSelectSheetText(page: Page) {
+  await page.locator('.phone-key-more').click();
+  await page.locator('.phone-key-more-sheet [data-key="select"]').click();
+  await page.locator(selectSheet).waitFor({ timeout: CONTEXT_TIMEOUT_MS });
+  return page.locator(`${selectSheet} pre`).textContent().then((text) => text ?? '');
+}
+
+export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  assert.match(await copyScreenText(page), /^0\|0123456789/m, 'Copy screen copies the rows on screen');
+  await typeCommand('wide-row');
+  await typeCommand('secret-row');
+  const screenText = await waitForScreenText(page, `${WIDE_ROW_LEAD} ${WIDE_ROW_TARGET}`);
+  await waitForScreenText(page, SECRET_ROW_VALUE);
+  const touch = await page.context().newCDPSession(page);
+
+  const digitsPoint = await cellCenter(page, screenText, 2, 20);
+  await pressAndHold(page, touch, digitsPoint);
+  assert.match(await selectedText(page), /^\d+$/, `a long-press selects the word under the finger (${JSON.stringify(await selectedText(page))})`);
+  await assertSelectionUnderFinger(page, digitsPoint, 'the selected word');
+  await releaseTouch(touch);
+  assert.equal(await page.locator(composeField).evaluate((element) => element === document.activeElement), false, 'a long-press does not open the keyboard');
+  await clearSelection(page);
+
+  const wideRowTargetColumn = WIDE_ROW_LEAD.length * 2 + WIDE_ROW_TARGET.length;
+  const wideRowPoint = await cellCenter(page, screenText, WIDE_ROW_NUMBER, wideRowTargetColumn);
+  await pressAndHold(page, touch, wideRowPoint);
+  await releaseTouch(touch);
+  assert.equal(await selectedText(page), WIDE_ROW_TARGET, 'after wide characters the long-press still selects the word under the finger');
+  await assertSelectionUnderFinger(page, wideRowPoint, 'a word after wide characters');
+  await clearSelection(page);
+
+  await toggleStreamerMode(page);
+  await page.locator('html[data-streamer]').waitFor({ state: 'attached', timeout: CONTEXT_TIMEOUT_MS });
+  const streamerSheetText = await openSelectSheetText(page);
+  assert.ok(streamerSheetText.includes('GITHUB_TOKEN=') && !streamerSheetText.includes(SECRET_ROW_VALUE), 'in streamer mode the select sheet masks secrets');
+  await page.locator(`${selectSheet} [data-action="close-select"]`).click();
+  await toggleStreamerMode(page);
+  await page.locator('html[data-streamer]').waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
+
+  assert.match(await openSelectSheetText(page), /cols=\d+ rows=\d+/, 'Select opens the terminal text in a sheet');
+  await page.locator(`${selectSheet} [data-action="close-select"]`).click();
+
+  await typeCommand('history');
+  await waitForScreenText(page, 'burst 199');
+  const historyPoint = await cellCenter(page, screenText, 2, 1);
+  await pressAndHold(page, touch, historyPoint);
+  for (let step = 1; step <= SELECTION_DRAG_STEPS; step++) {
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: historyPoint.x, y: historyPoint.y + step * SELECTION_DRAG_STEP_PX }] });
+  }
+  await releaseTouch(touch);
+  assert.equal(await page.locator(selectionMirror).count(), 1, 'dragging after a long-press keeps the selection instead of scrolling it away');
+  await clearSelection(page);
+  return 'Copy screen copies the rows; a long-press selects the word under the finger, also after wide characters, without opening the keyboard, and a drag over scrollback keeps it; the select sheet masks secrets in streamer mode';
 }

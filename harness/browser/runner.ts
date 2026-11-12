@@ -9,7 +9,7 @@ import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyIssues } from './issues.ts';
-import { verifyComposeSubmit, verifyKeyStripContexts, verifyRawTypingInFullScreenApp } from './key-strip.ts';
+import { verifyComposeSubmit, verifyTouchSelectCopy, verifyKeyStripContexts, verifyRawTypingInFullScreenApp } from './key-strip.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1254,6 +1254,9 @@ export async function runCase({
     }
     if (step.kind === 'assert-compose-submit') {
       return passedOutcome('compose-submit', await verifyComposeSubmit(viewer.page, async (command) => { await runType(viewer, command); }));
+    }
+    if (step.kind === 'assert-touch-select-copy') {
+      return passedOutcome('touch-select-copy', await verifyTouchSelectCopy(viewer.page, async (command) => { await runType(viewer, command); }));
     }
     if (step.kind === 'assert-link-repaint') return runAssertLinkRepaint(viewer, sessionId, deadlines);
     if (step.kind === 'open') return runOpen(viewer, sessionId, deadlines);

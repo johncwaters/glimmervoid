@@ -60,6 +60,8 @@ const LAN_DEVICE_STEPS = [
   'Hold an arrow key; it repeats and stops on release. Swipe the key row from an arrow; it scrolls without typing.',
   'In the shell session, run vim or less: the compose bar steps aside and the soft keyboard types into the app; quit and the compose bar returns with the keyboard up.',
   'Rotate the phone and open and close the keyboard; the terminal refits each time.',
+  'Long-press a word in the terminal: the phone selects it with its own handles lined up on the text, drag a handle across rows, Copy, and paste elsewhere unchanged. Scroll still works after.',
+  'Under More, tap Select: select across many lines in the sheet and copy; then try Copy screen and Copy output and paste each elsewhere.',
 ];
 
 const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: string) => void>([
