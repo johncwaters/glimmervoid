@@ -38,6 +38,7 @@ export const ARROW_KEY_IDS: readonly string[] = Object.freeze(['left', 'up', 'do
 export const ARROWS_SLOT = 'arrows';
 export const CONTROL_SLOT = 'ctrl';
 export const ALT_SLOT = 'alt';
+export const RAW_TYPING_SLOT = 'raw';
 
 export type StripContext = 'asking' | 'working' | 'ready' | 'fullscreen';
 
@@ -48,7 +49,7 @@ export const STRIP_SLOTS_BY_CONTEXT: Readonly<Record<StripContext, readonly stri
   fullscreen: Object.freeze(['esc', CONTROL_SLOT, 'tab', ARROWS_SLOT, 'q', 'enter']),
 });
 
-export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'paste', 'attach']);
+export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'paste', 'attach', RAW_TYPING_SLOT]);
 
 const WORKING_STATES: ReadonlySet<string> = new Set(['INITIALIZING', 'STARTING', 'RUNNING']);
 
@@ -59,11 +60,38 @@ interface StripContextInputs {
   agentDrawsAlternateScreen: boolean;
 }
 
+interface FullScreenAppInputs {
+  bufferType: string | null | undefined;
+  agentDrawsAlternateScreen: boolean;
+}
+
+function isFullScreenAppShown({ bufferType, agentDrawsAlternateScreen }: FullScreenAppInputs) {
+  return bufferType === 'alternate' && !agentDrawsAlternateScreen;
+}
+
 export function decideStripContext({ pendingPromptKind, state, bufferType, agentDrawsAlternateScreen }: StripContextInputs): StripContext {
   if (pendingPromptKind) return 'asking';
-  if (bufferType === 'alternate' && !agentDrawsAlternateScreen) return 'fullscreen';
+  if (isFullScreenAppShown({ bufferType, agentDrawsAlternateScreen })) return 'fullscreen';
   if (state && WORKING_STATES.has(state)) return 'working';
   return 'ready';
+}
+
+export function decideIsRawTyping({ isRawTypingChosen, ...fullScreenApp }: FullScreenAppInputs & { isRawTypingChosen: boolean }) {
+  return isRawTypingChosen || isFullScreenAppShown(fullScreenApp);
+}
+
+const LINE_FEED_CODE = 0x0a;
+const FIRST_PRINTABLE_CODE = 0x20;
+const DELETE_CODE = 0x7f;
+
+export function isTextForCompose(data: string) {
+  if (data === '') return false;
+  for (const character of data) {
+    const code = character.charCodeAt(0);
+    if (code === LINE_FEED_CODE) continue;
+    if (code < FIRST_PRINTABLE_CODE || code === DELETE_CODE) return false;
+  }
+  return true;
 }
 
 export type StickyModifierState = 'off' | 'once' | 'locked';
