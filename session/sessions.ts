@@ -92,6 +92,8 @@ import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
+import { claudePluginArgs } from "./core/pack-session-core.ts";
+import type { PackAgentLaunch } from "./core/pack-session-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 import { clock } from '../shared/clock.ts';
 import { cleanPastedText } from './core/input-delivery-core.ts';
@@ -198,6 +200,7 @@ interface SessionOptions {
   resumeSessionId?: string | null;
   settingsPermissions?: Record<string, unknown> | null;
   getRemoteLaunch?: (() => RemoteLaunch | null) | null;
+  getPackAgentLaunch?: (() => PackAgentLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
   resolveAccountHome?: (() => SessionAccountHome) | null;
   prependPathDirs?: string[];
@@ -296,6 +299,9 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _pendingPromptSupervisionLine: string | null;
+  _pendingPackContextLines: readonly string[];
+  _getPackAgentLaunch: () => PackAgentLaunch | null;
+  _spawnPackLaunch: PackAgentLaunch | null;
   _pendingResumeNote: string | null;
   _resumeNoteAwaitingTurn: string | null;
   _hintedCommands: Set<HintedCommand>;
@@ -399,6 +405,7 @@ class Session extends EventEmitter {
 
     settingsPermissions = null,
     getRemoteLaunch = null,
+    getPackAgentLaunch = null,
 
     spawnEnv = null,
     resolveAccountHome = null,
@@ -549,6 +556,9 @@ class Session extends EventEmitter {
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
     this._pendingPromptSupervisionLine = null;
+    this._pendingPackContextLines = [];
+    this._getPackAgentLaunch = getPackAgentLaunch ?? (() => null);
+    this._spawnPackLaunch = null;
     this._pendingResumeNote = null;
     this._resumeNoteAwaitingTurn = null;
     this._hintedCommands = new Set();
@@ -1717,10 +1727,11 @@ class Session extends EventEmitter {
     this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
     this._resumeNoteAwaitingTurn = this._pendingResumeNote;
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
+    this._spawnPackLaunch = remoteLaunch === null && !this.ephemeral && !this._isCleanHome ? this._getPackAgentLaunch() : null;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup), ...cleanHomeArgs(this._adapter.id, this._isCleanHome)],
+      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup), ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch)],
       initialPrompt: launchPrompt,
     });
 
@@ -1815,6 +1826,7 @@ class Session extends EventEmitter {
 
   _armPromptSupervisionLine(): void {
     this._pendingPromptSupervisionLine = this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null;
+    this._pendingPackContextLines = this._spawnPackLaunch?.contextLines ?? [];
   }
 
   promptContextReply(): PromptContextReply | null {
@@ -1871,8 +1883,9 @@ class Session extends EventEmitter {
 
   takePromptNotes(keepsHint: (command: HintedCommand) => boolean): string[] {
     const queuedHints = this._queuedCommandHints.filter((hint) => keepsHint(hint.command));
-    const notes = [this._pendingPromptSupervisionLine, ...queuedHints.map((hint) => hint.text)].filter((note) => note !== null);
+    const notes = [this._pendingPromptSupervisionLine, ...this._pendingPackContextLines, ...queuedHints.map((hint) => hint.text)].filter((note) => note !== null);
     this._pendingPromptSupervisionLine = null;
+    this._pendingPackContextLines = [];
     this._queuedCommandHints = [];
     for (const hint of queuedHints) this._noteCommandHint(hint.command, "shown");
     return notes;
