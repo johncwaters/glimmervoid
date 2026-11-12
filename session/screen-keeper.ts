@@ -34,7 +34,13 @@ interface SerializeAddonModule {
   SerializeAddon: new () => SerializerPort;
 }
 
-const { SerializeAddon } = createRequire(import.meta.url)("@xterm/addon-serialize") as SerializeAddonModule;
+interface Unicode11AddonModule {
+  Unicode11Addon: new () => { activate(terminal: unknown): void; dispose(): void };
+}
+
+const requireAddon = createRequire(import.meta.url);
+const { SerializeAddon } = requireAddon("@xterm/addon-serialize") as SerializeAddonModule;
+const { Unicode11Addon } = requireAddon("@xterm/addon-unicode11") as Unicode11AddonModule;
 
 interface DeepScreen {
   data: string;
@@ -75,6 +81,8 @@ function createScreenKeeper(
   });
   const serializer = new SerializeAddon();
   serializer.activate(terminal);
+  new Unicode11Addon().activate(terminal);
+  terminal.unicode.activeVersion = "11";
 
   let mouseEncoding: MouseEncoding = null;
   const mouseEncodingHandlers = ['h', 'l'].map((final) => terminal.parser.registerCsiHandler(

@@ -289,6 +289,17 @@ test('a deep snapshot serialized in slices replays cell for cell, across wrapped
   assert.equal(replay.buffer.active.cursorY, reference.buffer.active.cursorY);
 });
 
+test('the kept screen counts an emoji as two cells, as agent TUIs draw it', async (context) => {
+  const twistedArrows = String.fromCodePoint(0x1F500);
+  const moveToThirdColumn = '\x1b[3G';
+  const keeper = await keeperAfterChunks([`${twistedArrows}X${moveToThirdColumn}Y`]);
+  context.after(() => { keeper.dispose(); });
+
+  const snapshot = keeper.serialize();
+  assert.ok(snapshot.includes(`${twistedArrows}Y`), JSON.stringify(snapshot));
+  assert.ok(!snapshot.includes('X'), JSON.stringify(snapshot));
+});
+
 test('output pushed during a sliced serialize is held so the deep snapshot matches one offset', async (context) => {
   const noop = () => {};
   const output = createSessionOutput({

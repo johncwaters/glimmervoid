@@ -68,6 +68,8 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
 
   const fitAddon = new xtermRuntime.FitAddon();
   term.loadAddon(fitAddon);
+  term.loadAddon(new xtermRuntime.Unicode11Addon());
+  term.unicode.activeVersion = '11';
   ensureConnectingOverlay(termWrap);
   term.open(termWrap);
   buildTerminalNotices(termWrap, ui, term);
