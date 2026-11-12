@@ -128,7 +128,7 @@ interface ControlHandlerDeps {
   teamReview?: TeamReviewActionControl | null;
   myPrs?: MyPrMergeControl | null;
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
-  packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
+  packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }>; addExample: (name: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
   packData?: PackData | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestIssue?: GithubLaneStore['requestIssue'];

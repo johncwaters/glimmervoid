@@ -170,6 +170,19 @@ export async function readPackDir(packDir: string, env: NodeJS.ProcessEnv): Prom
   }
 }
 
+export type ShippedExamplePack = { name: string; dir: string; description: string | null };
+
+export async function readExamplePacks(examplePacksDir: string): Promise<ShippedExamplePack[]> {
+  const entries = await fs.promises.readdir(examplePacksDir, { withFileTypes: true }).catch(() => []);
+  const examples = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
+    const dir = path.join(examplePacksDir, entry.name);
+    const manifestText = await fs.promises.readFile(path.join(dir, PACK_FILE_NAME), 'utf8').catch(() => '');
+    const header = PackHeader.safeParse(parseJsonOrNull(manifestText));
+    return { name: entry.name, dir, description: header.success ? header.data.description ?? null : null };
+  }));
+  return examples.sort((first, second) => first.name.localeCompare(second.name));
+}
+
 export async function packDirsUnder(homeDir: string): Promise<{ packDirs: string[]; warning: string | null }> {
   const packsDir = path.join(homeDir, PACKS_DIR_NAME);
   const entries = await fs.promises.readdir(packsDir, { withFileTypes: true }).then(

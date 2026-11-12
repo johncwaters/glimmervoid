@@ -1,4 +1,4 @@
-import type { PackRow } from '#shared/contracts/control/pack-messages.ts';
+import type { ExamplePack, PackRow } from '#shared/contracts/control/pack-messages.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
@@ -13,6 +13,7 @@ const PACKS_TRUST_NOTE = 'Approving a pack lets its commands run on this machine
 const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
 
 const approveStatusByFingerprint = new Map<string, { tone: ActionStatusTone; text: string }>();
+const addStatusByExampleName = new Map<string, { tone: ActionStatusTone; text: string }>();
 let packsContainer: HTMLElement | null = null;
 
 async function approvePack(fingerprint: string): Promise<void> {
@@ -31,6 +32,55 @@ async function approvePack(fingerprint: string): Promise<void> {
   } finally {
     repaintPacks();
   }
+}
+
+async function addExamplePack(name: string): Promise<void> {
+  addStatusByExampleName.set(name, { tone: 'busy', text: 'Adding' });
+  repaintPacks();
+  try {
+    const response = await sendControlRequest('pack-add-example', { name }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (response.type !== 'pack-add-example-result') throw new Error('Unexpected reply to adding an example pack.');
+    if (!response.ok) {
+      addStatusByExampleName.set(name, { tone: 'error', text: response.error ?? 'Could not add this pack.' });
+      return;
+    }
+    addStatusByExampleName.delete(name);
+  } catch (error) {
+    addStatusByExampleName.set(name, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
+  } finally {
+    repaintPacks();
+  }
+}
+
+function exampleArticle(example: ExamplePack): HTMLElement {
+  const article = el('article', 'settings-view-setting settings-view-pack');
+  const text = el('div', 'settings-view-setting-text');
+  const heading = el('div', 'settings-view-setting-heading');
+  heading.append(el('h2', 'settings-view-setting-title', example.name));
+  text.append(heading, ...(example.description ? [el('p', 'settings-view-setting-description', example.description)] : []));
+  const control = el('div', 'settings-view-setting-control');
+  const status = addStatusByExampleName.get(example.name);
+  const add = button({
+    variant: 'secondary', label: 'Add', action: 'pack-add-example',
+    disabled: status?.tone === 'busy',
+    onClick: () => { void addExamplePack(example.name); },
+  });
+  const statusText = el('span', 'settings-view-pack-status');
+  statusText.setAttribute('role', 'status');
+  paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
+  control.append(add, statusText);
+  article.append(text, control);
+  return article;
+}
+
+function examplesContent(examples: readonly ExamplePack[]): HTMLElement[] {
+  const addable = examples.filter((example) => !example.isAdded);
+  if (addable.length === 0) return [];
+  return [
+    el('h2', 'settings-view-section-title', 'Example packs'),
+    el('p', 'settings-view-section-description', 'Packs that ship with Glimmervoid. Add one, then approve it in its row above.'),
+    ...addable.map(exampleArticle),
+  ];
 }
 
 function packHeading(row: PackRow): HTMLElement {
@@ -88,8 +138,9 @@ function packsContent(): HTMLElement[] {
   const intro = el('p', 'settings-view-section-description', PACKS_TRUST_NOTE);
   if (!status) return [intro, el('p', 'settings-view-setting-description', 'Waiting for the server to list packs.')];
   const warnings = status.warnings.map((warning) => el('p', 'settings-view-warning', warning));
-  if (status.packs.length === 0) return [intro, ...warnings, el('p', 'settings-view-setting-description', 'No packs yet. Copy a pack folder into ~/.glimmervoid/packs/ or list its path in packs in config.json.')];
-  return [intro, ...warnings, ...status.packs.map(packArticle)];
+  const examples = examplesContent(status.examples);
+  if (status.packs.length === 0) return [intro, ...warnings, el('p', 'settings-view-setting-description', 'No packs yet. Add an example pack, copy a pack folder into ~/.glimmervoid/packs/, or list its path in packs in config.json.'), ...examples];
+  return [intro, ...warnings, ...status.packs.map(packArticle), ...examples];
 }
 
 function repaintPacks(): void {

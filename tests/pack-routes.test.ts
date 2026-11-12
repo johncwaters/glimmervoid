@@ -156,3 +156,36 @@ test('a panel sends a Reviews action only when its pack lists reviews under acts
   const oversizeComment = panelActionDecision(['reviews'], { type: 'team-review-action', key: 'acme/api#12', head: 'a'.repeat(40), action: 'comment', body: 'x'.repeat(PANEL_ACTION_MAX_BYTES), comments: [] });
   assert.match(oversizeComment.ok ? '' : oversizeComment.error, /^team-review-action not sent: the request is \d+ bytes, over the \d+ byte limit$/);
 });
+
+test('adding the shipped Executor example lists its folder in config, shows it pending with its MCP server and its executor program need, and keeps it out of sessions while executor is missing', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-example-'));
+  const examplePacksDir = path.join(import.meta.dirname, '..', 'examples', 'packs');
+  const appendedDirs: string[] = [];
+  const packStore = createPackStore({
+    homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: { ...process.env, PATH: homeDir }, log: { warn: () => {} }, examplePacksDir,
+    appendListedPath: async (listedPath) => {
+      appendedDirs.push(listedPath);
+      return { ok: true, listedPaths: [...appendedDirs] };
+    },
+  });
+  try {
+    await packStore.start();
+    assert.equal(packStore.statusFrame().examples.find((example) => example.name === 'executor')?.isAdded, false);
+    const changed = once(packStore, 'changed');
+    assert.deepEqual(await packStore.addExample('executor'), { ok: true });
+    await changed;
+    assert.deepEqual(appendedDirs, ['example:executor']);
+    const row = packStore.statusFrame().packs.find((candidate) => candidate.name === 'executor');
+    assert.equal(row?.state, 'pending');
+    assert.equal(row?.dir, path.join(examplePacksDir, 'executor'));
+    assert.deepEqual(row?.mcpServers.map((server) => [server.name, server.url]), [['executor', 'http://127.0.0.1:4312/mcp']]);
+    assert.deepEqual(row?.missingRequires, ['program executor']);
+    assert.equal(packStore.statusFrame().examples.find((example) => example.name === 'executor')?.isAdded, true);
+    assert.deepEqual(await packStore.addExample('executor'), { ok: false, error: 'A pack named executor is already installed.' });
+    assert.deepEqual(await packStore.approve(row?.fingerprint ?? ''), { ok: true });
+    assert.deepEqual(await packStore.mcpServersForSession('claude-code', homeDir), []);
+  } finally {
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});

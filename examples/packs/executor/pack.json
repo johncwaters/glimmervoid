@@ -1,0 +1,12 @@
+{
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
+  "name": "executor",
+  "version": 1,
+  "description": "Executor in every session: connect your accounts once in Executor and every agent can use them. Install it with curl -fsSL https://executor.sh/docs/install.sh | sh, start it with executor service start, then sign in the first time an agent uses it.",
+  "requires": { "env": [], "programs": ["executor"] },
+  "mcp": {
+    "servers": [
+      { "name": "executor", "url": "http://127.0.0.1:4312/mcp" }
+    ]
+  }
+}

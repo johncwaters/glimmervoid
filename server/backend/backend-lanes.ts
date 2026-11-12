@@ -56,6 +56,7 @@ import { packsStatePath } from '../packs/pack-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
 import { createPackStore } from '../packs/pack-store.ts';
 import { packPathsOf } from '../github/core/pr-flows-core.ts';
+import { examplePacksDir } from '../runtime-paths.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
@@ -293,7 +294,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
-  const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger });
+  const appendListedPackPath = async (listedPath: string) => {
+    let listedPaths: string[] = [];
+    const saved = await configStore.saveAsync((savedConfig) => {
+      listedPaths = [...new Set([...packPathsOf(savedConfig), listedPath])];
+      savedConfig.packs = listedPaths;
+      return undefined;
+    });
+    if (!saved) return { ok: false as const, error: configStore.lastSaveFailureReason() ?? 'Could not save config.json.' };
+    return { ok: true as const, listedPaths };
+  };
+  const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger, examplePacksDir, appendListedPath: appendListedPackPath });
   const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {

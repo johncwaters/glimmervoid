@@ -418,6 +418,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     reply(await deps.packs.approve(parsed.data.fingerprint));
   }
 
+  async function handlePackAddExample(msg: ClientMessageOf<'pack-add-example'>, ws: ControlSocket): Promise<void> {
+    const reply = (outcome: { ok: boolean; error?: string }) => replyTo(ws, msg, 'pack-add-example-result', outcome);
+    if (!deps.packs) { reply({ ok: false, error: 'Packs are not running' }); return; }
+    reply(await deps.packs.addExample(msg.name));
+  }
+
   async function handlePackDataGet(msg: ClientMessageOf<'pack-data-get'>, ws: ControlSocket): Promise<void> {
     if (!deps.packData) { replyTo(ws, msg, 'pack-data-result', { ok: false, error: 'Packs are not running' }); return; }
     replyTo(ws, msg, 'pack-data-result', await deps.packData.get(msg.pack));
@@ -448,6 +454,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'add-host': (msg, ws) => changeHosts(msg, ws, (hosts) => addHostTo(hosts, msg.host)),
     'remove-host': (msg, ws) => changeHosts(msg, ws, (hosts) => removeHostFrom(hosts, msg.id)),
     'pack-approve': handlePackApprove,
+    'pack-add-example': handlePackAddExample,
     'pack-data-get': handlePackDataGet,
     'pack-data-set': handlePackDataSet,
   } satisfies ControlHandlerTable;
@@ -468,6 +475,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'add-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
     'remove-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
+    'pack-add-example': (_msg, requestId, message) => ({ type: 'pack-add-example-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;

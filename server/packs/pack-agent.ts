@@ -1,15 +1,13 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { REVIEW_ACTION_TYPES } from '../../shared/contracts/reviews.ts';
 import { PANEL_ACTION_MAX_BYTES, panelActionsJsonSchemaText } from '../../shared/pack-action-core.ts';
 import { PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
-import { PACK_FILE_NAME, PackHeader, packJsonSchemaText } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, packJsonSchemaText } from '../../shared/contracts/pack.ts';
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
-import { parseJsonOrNull } from '../core/json-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { PACK_PANEL_CONTENT_POLICY } from './core/pack-core.ts';
-import { PACKS_DIR_NAME } from './pack-files.ts';
+import { PACKS_DIR_NAME, readExamplePacks } from './pack-files.ts';
 
 type PacksReadout = { text: string; hasProblem: boolean };
 type PackAgentDeps = {
@@ -21,12 +19,7 @@ type PackAgentDeps = {
 };
 
 async function exampleLines(examplePacksDir: string): Promise<string[]> {
-  const entries = await fs.promises.readdir(examplePacksDir, { withFileTypes: true }).catch(() => []);
-  const lines = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
-    const manifestText = await fs.promises.readFile(path.join(examplePacksDir, entry.name, PACK_FILE_NAME), 'utf8').catch(() => '');
-    const header = PackHeader.safeParse(parseJsonOrNull(manifestText));
-    return `- ${path.join(examplePacksDir, entry.name)}${header.success && header.data.description ? `: ${header.data.description}` : ''}`;
-  }));
+  const lines = (await readExamplePacks(examplePacksDir)).map((example) => `- ${example.dir}${example.description ? `: ${example.description}` : ''}`);
   return lines.length === 0 ? ['(this install ships no example packs)'] : lines.sort();
 }
 

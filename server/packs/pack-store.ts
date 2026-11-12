@@ -11,14 +11,17 @@ import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { NO_OPERATOR_MCP_SERVER_NAMES, approvedPackPanels, approvedPackThemes, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote } from './core/pack-core.ts';
 import type { OperatorMcpServerNames } from './core/pack-core.ts';
 import { readCodexOperatorServerNames, readOperatorMcpServerNames } from './operator-mcp-servers.ts';
-import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
+import { PACKS_DIR_NAME, packDirsUnder, readExamplePacks, readPackDir } from './pack-files.ts';
+import type { ShippedExamplePack } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
+const EXAMPLE_PACK_REFERENCE_PREFIX = 'example:';
 
 type PackRead = Awaited<ReturnType<typeof readPackDir>>;
 type PackStoreLogger = { warn: (...parts: unknown[]) => void };
 type ApprovedPacks = { packs: PackOnDisk[]; warnings: string[] };
 type PackApproveResult = { ok: true } | { ok: false; error: string };
+type ListedPathAppender = (listedPath: string) => Promise<{ ok: true; listedPaths: string[] } | { ok: false; error: string }>;
 
 type PackStore = EventEmitter & {
   start(): Promise<void>;
@@ -31,10 +34,13 @@ type PackStore = EventEmitter & {
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
   mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
+  addExample(name: string): Promise<PackApproveResult>;
 };
 
-export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
+export function createPackStore({ homeDir, statePath, env, log, examplePacksDir = null, appendListedPath = null, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
   homeDir: string;
+  examplePacksDir?: string | null;
+  appendListedPath?: ListedPathAppender | null;
   statePath: string | null;
   env: NodeJS.ProcessEnv;
   log: PackStoreLogger;
@@ -54,6 +60,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   let homeWatcher: fs.FSWatcher | null = null;
   let isStopped = false;
   let operatorMcpServerNames: OperatorMcpServerNames = NO_OPERATOR_MCP_SERVER_NAMES;
+  let examplePacks: ShippedExamplePack[] = [];
 
   async function refreshOperatorMcpServerNames(): Promise<void> {
     operatorMcpServerNames = await readOperatorMcpServerNames(env);
@@ -100,12 +107,14 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
   async function refresh(): Promise<void> {
     const found = await packDirsUnder(homeDir);
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
-    const [freshReads] = await Promise.all([
+    const [freshReads, freshExamples] = await Promise.all([
       Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const)),
+      examplePacksDir === null ? Promise.resolve([]) : readExamplePacks(examplePacksDir),
       refreshOperatorMcpServerNames(),
     ]);
     if (isStopped) return;
     const hasDroppedPack = [...readsByDir.keys()].some((packDir) => !knownDirs.includes(packDir));
+    examplePacks = freshExamples;
     homeWarning = found.warning;
     homePackDirs = found.packDirs;
     readsByDir.clear();
@@ -139,8 +148,14 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     }, false);
   }
 
+  function listedPackDir(listedPath: string): string {
+    const exampleName = listedPath.startsWith(EXAMPLE_PACK_REFERENCE_PREFIX) ? listedPath.slice(EXAMPLE_PACK_REFERENCE_PREFIX.length) : null;
+    if (exampleName === null || examplePacksDir === null) return path.resolve(homeDir, listedPath);
+    return path.join(examplePacksDir, path.basename(exampleName));
+  }
+
   function setListedPaths(listedPaths: readonly string[]): void {
-    const wantedDirs = new Set(listedPaths.map((listedPath) => path.resolve(homeDir, listedPath)));
+    const wantedDirs = new Set(listedPaths.map(listedPackDir));
     for (const [packDir, watcher] of listedWatchersByDir) {
       if (wantedDirs.has(packDir)) continue;
       watcher?.close();
@@ -186,7 +201,7 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
 
   function statusFrame(): PacksStatus {
     const inUse = packsInUse();
-    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, packAccessKey), warnings: homeWarning === null ? [] : [homeWarning] };
+    return { type: 'packs-status', packs: rows(), examples: exampleRows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, packAccessKey), warnings: homeWarning === null ? [] : [homeWarning] };
   }
 
   function packAccessKey(pack: PackOnDisk): string {
@@ -282,6 +297,24 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     return entry?.packDir ?? null;
   }
 
+  function exampleRows(): PacksStatus['examples'] {
+    const reads = currentReads();
+    const addedNames = new Set(reads.flatMap(({ read }) => (read.ok ? [read.pack.header.name] : [])));
+    const addedDirs = new Set(reads.map(({ packDir }) => packDir));
+    return examplePacks.map((example) => ({ name: example.name, description: example.description, isAdded: addedNames.has(example.name) || addedDirs.has(example.dir) }));
+  }
+
+  async function addExample(name: string): Promise<PackApproveResult> {
+    const example = examplePacks.find((candidate) => candidate.name === name);
+    if (!example) return { ok: false, error: `This install ships no example pack named ${name}.` };
+    if (exampleRows().some((row) => row.name === name && row.isAdded)) return { ok: false, error: `A pack named ${name} is already installed.` };
+    if (appendListedPath === null) return { ok: false, error: 'Packs cannot be added from here.' };
+    const appended = await appendListedPath(`${EXAMPLE_PACK_REFERENCE_PREFIX}${example.name}`);
+    if (!appended.ok) return appended;
+    setListedPaths(appended.listedPaths);
+    return { ok: true };
+  }
+
   async function mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]> {
     const packs = packsInUse();
     if (packs.every((pack) => packMcpServers(pack).length === 0)) return [];
@@ -289,5 +322,5 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
     return packMcpServersForAgent(agentId, packs, { ...operatorMcpServerNames, codex: codexNames });
   }
 
-  return Object.assign(emitter, { start, stop, mcpServersForSession, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  return Object.assign(emitter, { start, stop, mcpServersForSession, addExample, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }
