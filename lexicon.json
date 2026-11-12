@@ -454,7 +454,7 @@
     },
     {
       "name": "coder",
-      "definition": "Coder, the remote development platform whose devboxes can host Glimmervoid, and the Coder activity lane that reports session activity to a Coder workspace",
+      "definition": "Coder, the remote development platform whose devboxes can host Glimmervoid and whose workspaces remote Coder sessions run in",
       "aliases": [
         "remote coder"
       ]

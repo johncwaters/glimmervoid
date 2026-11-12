@@ -391,7 +391,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const {
     allLiveSessions,
     branchGc,
-    coderActivity,
     gitWorkspace: assembledGitWorkspace,
     gitWorkspaceSync,
     posthog,
@@ -724,7 +723,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     questionManagerSessions: laneAssembly.questionManagerSessions,
     raceSessions: laneAssembly.raceSessions,
     branchGc,
-    coderActivity,
     posthog,
     teamReview,
     myPrs,

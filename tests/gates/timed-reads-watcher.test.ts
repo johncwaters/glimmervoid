@@ -14,7 +14,6 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/community/community-poller.ts': { watcherBackedBy: 'community' },
   'server/lanes/lane-runner.ts': { awakeOnly: 'the shared tick loop; each lane that starts one is classified in its own file' },
   'server/branch-gc-poller.ts': { awakeOnly: 'housekeeping git fetch; nothing the operator acts on while the host sleeps' },
-  'server/coder-activity-poller.ts': { awakeOnly: 'reports this host\'s own running sessions' },
   'server/coder/coder-env-poller.ts': { awakeOnly: 'reads this host\'s own coder environment' },
   'server/usage/usage-wiring.ts': { awakeOnly: 'scans local transcripts and pricing for a view read on an open dashboard' },
   'server/backend/backend-update.ts': { awakeOnly: 'update recheck runs only while a dashboard is connected' },
