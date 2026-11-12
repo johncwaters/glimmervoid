@@ -15,12 +15,13 @@ import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '../shared/whiteboard-layout-core.ts';
 import { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf } from '../shared/whiteboard-plan-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { AGENT_COMMAND_HELP, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
+import { AGENT_COMMAND_HELP, REMOTE_URL_PATTERN, agentCommandSpec, isAgentApiVerb } from './core/agent-api-core.ts';
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { needExitCode } from './secrets/core/secrets-broker-core.ts';
 import { clock } from '../shared/clock.ts';
+import { repoParts } from '../shared/contracts/github-ids.ts';
 
 const AGENT_PATH_PREFIX = '/agent/';
 const HELP_LIMITS_TIMEOUT_MS = 2000;
@@ -148,8 +149,15 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   arena: arenaBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   wake: wakeBody,
-  checkout: ({ positionals: [repo] }) => (repo ? { repo: /[\\/]|^\./.test(repo) ? path.resolve(repo) : repo } : null),
+  checkout: ({ positionals: [repo] }) => (repo ? { repo: checkoutRepoArgument(repo) } : null),
 };
+
+function checkoutRepoArgument(repo: string): string {
+  if (!/[\\/]|^\./.test(repo) || REMOTE_URL_PATTERN.test(repo)) return repo;
+  const localPath = path.resolve(repo);
+  if (repoParts(repo) && !fs.existsSync(localPath)) return repo;
+  return localPath;
+}
 
 function bodySaysOk(text: string): boolean {
   try {

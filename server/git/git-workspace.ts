@@ -504,6 +504,17 @@ function createGitWorkspace(opts: {
     return pruneWorktreeEntries((args) => runUntrusted(args, projectPath, { disableHooks, replaceEnv }));
   }
 
+  async function cloneRepository({ url, targetPath, timeoutMs }: { url: string; targetPath: string; timeoutMs: number }): Promise<{ ok: true } | { ok: false; error: string }> {
+    const repoRoot = path.dirname(targetPath);
+    const repoRootError = await fs.promises.mkdir(repoRoot, { recursive: true }).then(() => null, (error: unknown) => (error instanceof Error ? error.message : String(error)));
+    if (repoRootError) return { ok: false, error: `cannot create the repo root ${repoRoot}: ${repoRootError}` };
+    const existedBefore = await directoryExists(targetPath);
+    const cloned = await run(['-c', `core.hooksPath=${os.devNull}`, 'clone', '--', url, targetPath], repoRoot, { timeout: timeoutMs, disableRepoCommands: false });
+    if (cloned.ok) return { ok: true };
+    const leftover = !existedBefore && await directoryExists(targetPath);
+    return { ok: false, error: `${cloned.err || 'git clone failed'}${leftover ? `; git left ${targetPath} behind, remove it before trying again` : ''}` };
+  }
+
   async function removeSharedLinks(wtDir: string, shareList: string[] | null | undefined): Promise<void> {
     for (const rel of await expandShareListIn(wtDir, shareList)) {
       if (!rel || String(rel).includes('..')) continue;
@@ -576,6 +587,7 @@ function createGitWorkspace(opts: {
     resolveRebaseTarget,
     populate: serialized(populateShare),
     originUrl: serialized(originUrl),
+    cloneRepository,
     pushProvenanceNotes: serialized(origin.pushProvenanceNotes),
     removeWorktreeByPath: admitted(removeWorktreeByPathBody, (args: RemovalArgs): QueuedGitResult => ({
       ok: false,

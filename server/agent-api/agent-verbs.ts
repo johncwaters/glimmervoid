@@ -5,7 +5,7 @@ import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, SessionLimits } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
-import { describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
+import { REMOTE_URL_PATTERN, describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import { openComments } from '../review/review-state-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -18,11 +18,49 @@ import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { clock } from '../../shared/clock.ts';
+import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
+import { repoParts } from '../../shared/contracts/github-ids.ts';
+import { createKeyedSerialQueue } from '../spawn-gate.ts';
 
 const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
+const CHECKOUT_DEADLINE_MS = 240_000;
+const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
+
+type CheckoutTarget =
+  | { kind: 'local'; repo: string }
+  | { kind: 'github'; slug: string; name: string; cloneUrl: string }
+  | { kind: 'unsupported' };
+
+type CheckoutResolution = { ok: true; repoPath: string } | { ok: false; error: string };
+
+function githubCheckoutTarget(slug: string, cloneUrl: string): CheckoutTarget {
+  return { kind: 'github', slug, name: slug.split('/')[1] ?? slug, cloneUrl };
+}
+
+function parseCheckoutTarget(repo: string): CheckoutTarget {
+  if (path.isAbsolute(repo)) return { kind: 'local', repo };
+  const slugFromUrl = githubRepoSlugFromRemote(repo);
+  if (slugFromUrl) return githubCheckoutTarget(slugFromUrl, repo.trim());
+  if (REMOTE_URL_PATTERN.test(repo)) return { kind: 'unsupported' };
+  if (repoParts(repo)) return githubCheckoutTarget(repo, `https://github.com/${repo}.git`);
+  return { kind: 'local', repo };
+}
+
+function isSameGithubRepo(originUrl: string | null, slug: string): boolean {
+  return originUrl !== null && githubRepoSlugFromRemote(originUrl)?.toLowerCase() === slug.toLowerCase();
+}
+
+function pathExists(candidatePath: string): Promise<boolean> {
+  return fs.promises.stat(candidatePath).then(() => true, () => false);
+}
+
+function hasGitFolder(folder: string): Promise<boolean> {
+  return pathExists(path.join(folder, '.git'));
+}
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
+  const clonesByFolder = createKeyedSerialQueue();
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -207,15 +245,55 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true, closed: owned.channel.childId } };
   }
 
-  async function resolveCheckoutRepo(repo: string): Promise<{ ok: true; repoPath: string } | { ok: false; error: string }> {
+  async function resolveLocalCheckoutRepo(repo: string): Promise<CheckoutResolution> {
     const configuredPaths = path.isAbsolute(repo)
       ? [repo]
       : config.projects.filter((project) => project.name === repo || path.basename(project.path || '') === repo).map((project) => project.path || '');
     for (const candidatePath of configuredPaths) {
-      if (await fs.promises.stat(path.join(candidatePath, '.git')).then(() => true, () => false)) return { ok: true, repoPath: path.resolve(candidatePath) };
+      if (await hasGitFolder(candidatePath)) return { ok: true, repoPath: path.resolve(candidatePath) };
     }
     if (path.isAbsolute(repo)) return { ok: false, error: `${repo} is not a git repository` };
-    return { ok: false, error: `no configured project is named ${repo}; pass a project name or an absolute path to a git repository` };
+    return { ok: false, error: `no configured project is named ${repo}; pass a project name, an absolute path to a git repository, or a GitHub owner/repo` };
+  }
+
+  async function claimRepoRootFolder(folder: string, slug: string, clones: NonNullable<typeof repoClones>): Promise<CheckoutResolution> {
+    if (!(await hasGitFolder(folder))) return { ok: false, error: `${folder} exists but is not a git repository, so ${slug} cannot be cloned there; move it, or ${CLONE_BY_HAND_HINT}` };
+    const originUrl = await clones.originUrl({ projectPath: folder });
+    if (isSameGithubRepo(originUrl, slug)) return { ok: true, repoPath: folder };
+    return { ok: false, error: `${folder} holds ${originUrl ?? 'a repository with no origin'}, not ${slug}; move it, or ${CLONE_BY_HAND_HINT}` };
+  }
+
+  async function findOrCloneInRepoRoots(target: Extract<CheckoutTarget, { kind: 'github' }>, repoRoots: string[], cloneFolder: string, deadlineMs: number, clones: NonNullable<typeof repoClones>): Promise<CheckoutResolution> {
+    for (const root of repoRoots) {
+      const folder = path.join(root, target.name);
+      if (await pathExists(folder)) return claimRepoRootFolder(folder, target.slug, clones);
+    }
+    const remainingMs = deadlineMs - clock.nowMs();
+    if (remainingMs <= 0) return { ok: false, error: `another checkout of ${target.slug} used up this request's time and its clone failed; try again, or ${CLONE_BY_HAND_HINT}` };
+    const cloned = await clones.cloneRepository({ url: target.cloneUrl, targetPath: cloneFolder, timeoutMs: remainingMs });
+    if (!cloned.ok) return { ok: false, error: `cloning ${target.cloneUrl} into ${cloneFolder} failed: ${cloned.error}; ${CLONE_BY_HAND_HINT}` };
+    return { ok: true, repoPath: cloneFolder };
+  }
+
+  async function resolveGithubCheckoutRepo(target: Extract<CheckoutTarget, { kind: 'github' }>): Promise<CheckoutResolution> {
+    if (!repoClones) return { ok: false, error: `this Glimmervoid cannot clone repositories; ${CLONE_BY_HAND_HINT}` };
+    const deadlineMs = clock.nowMs() + CHECKOUT_DEADLINE_MS;
+    const projectPaths = config.projects.map((project) => project.path || '').filter((projectPath) => projectPath !== '');
+    for (const projectPath of projectPaths) {
+      if (!(await hasGitFolder(projectPath))) continue;
+      if (isSameGithubRepo(await repoClones.originUrl({ projectPath }), target.slug)) return { ok: true, repoPath: path.resolve(projectPath) };
+    }
+    const repoRoots = (config.repoRoots ?? []).map((root) => path.resolve(root));
+    if (repoRoots.length === 0) return { ok: false, error: `${target.slug} is not on this machine and no repo root is set to clone it into; add a folder to repoRoots in Settings, or ${CLONE_BY_HAND_HINT}` };
+    const cloneFolder = path.join(repoRoots[0] ?? '', target.name);
+    return clonesByFolder.run(cloneFolder.toLowerCase(), () => findOrCloneInRepoRoots(target, repoRoots, cloneFolder, deadlineMs, repoClones));
+  }
+
+  function resolveCheckoutRepo(repo: string): Promise<CheckoutResolution> {
+    const target = parseCheckoutTarget(repo);
+    if (target.kind === 'unsupported') return Promise.resolve({ ok: false, error: `checkout clones GitHub repositories only; ${CLONE_BY_HAND_HINT}` });
+    if (target.kind === 'github') return resolveGithubCheckoutRepo(target);
+    return resolveLocalCheckoutRepo(target.repo);
   }
 
   async function checkout(session: Session, { repo }: AgentCheckoutRequest): Promise<AgentReplyOf<'checkout'>> {

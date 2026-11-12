@@ -45,6 +45,7 @@ function createAgentApiWiring({
   races = null,
   startRace = null,
   reviewComments = null,
+  repoClones = null,
   wakesFilePath = null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
@@ -53,7 +54,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, settleSessionCoherence, secrets, races, startRace, reviewComments, wakesFilePath,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, settleSessionCoherence, secrets, races, startRace, reviewComments, repoClones, wakesFilePath,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),

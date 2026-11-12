@@ -20,6 +20,7 @@ import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 
 const MAX_LIVE_CHILDREN = 3;
+const REMOTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/|^[^/\\\s]+@[^/\\\s]+:/i;
 const MAX_LIFETIME_SPAWNS = 100;
 const MAX_SPAWNS_IN_FLIGHT = 1;
 
@@ -518,8 +519,8 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it instead of git worktree add or git clone when this session must change a repository it was not started in',
     usage: 'checkout <repo>',
     positionals: requiredText('<repo>'),
-    summary: 'Make a worktree of a configured project or a local git repository, owned by this session and removed when it closes',
-    missingArgumentHint: 'this command needs a repository, for example "glimmervoid checkout dotfiles" or "glimmervoid checkout ~/projects/dotfiles"',
+    summary: 'Make a worktree of a configured project, a local git repository or a GitHub owner/repo, owned by this session and removed when it closes; a GitHub repo not on this machine is cloned into the first repo root first',
+    missingArgumentHint: 'this command needs a repository, for example "glimmervoid checkout dotfiles", "glimmervoid checkout ~/projects/dotfiles" or "glimmervoid checkout acme/storefront"',
   },
   need: {
     whenToUse: 'Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat',
@@ -562,5 +563,5 @@ function agentCommandSpec(verb: AgentApiVerb): CommandSpec {
   return { name: verb, summary, missingArgumentHint, positionals, options, subcommands, isPassthrough };
 }
 
-export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, tokensMatch, MAX_LIVE_CHILDREN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
+export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, tokensMatch, MAX_LIVE_CHILDREN, REMOTE_URL_PATTERN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
 export type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree };

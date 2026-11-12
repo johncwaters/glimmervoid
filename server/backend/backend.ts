@@ -466,6 +466,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     reviewComments: reviews,
+    repoClones: assembledGitWorkspace,
     coderWorkspaceStatus: (workspace) => laneAssembly.coderEnv.workspaceStatus(workspace),
     settleSessionCoherence: coherenceFeed.settle,
     secrets: secretsBroker,
