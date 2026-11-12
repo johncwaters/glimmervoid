@@ -36,4 +36,3 @@ function verifiedFrameRequest(secret: Buffer, offeredKey: string, innerPath: str
 }
 
 export { keyedFramePath, verifiedFrameRequest };
-export type { FrameRequest };
