@@ -11,7 +11,6 @@ const RADAR_BLIPS = [
 const FEATURES = [
   { area: 'notify', name: 'Notifications', line: 'Browser or Telegram' },
   { area: 'vault', name: 'Vault', line: 'You approve every secret an agent reads' },
-  { area: 'issues', name: 'Issues', line: 'Open a session from an issue', visual: 'issue' },
   { area: 'spawn', name: 'glimmervoid spawn', line: 'Agents start their own helpers', visual: 'helpers' },
   { area: 'radar', name: 'Radar', line: 'PostHog errors to PRs, opt-in', visual: 'radar' },
   { area: 'streamer', name: 'Streamer mode', line: 'Hides secrets on stream', visual: 'masked' },
@@ -58,12 +57,6 @@ const FEATURES = [
             ))}
           </span>
         )}
-        {visual === 'issue' && (
-          <span class="tile-visual issue-to-session" aria-hidden="true">
-            <span class="issue-row"><span class="issue-number">#42</span><span class="issue-title"></span></span>
-            <span class="issue-session"><span class="issue-session-dot"></span><span class="issue-session-line"></span></span>
-          </span>
-        )}
         {visual === 'resume' && (
           <span class="tile-visual turn-resume" aria-hidden="true"><span class="turn-fill"></span><span class="turn-restart"></span></span>
         )}
@@ -89,7 +82,7 @@ const FEATURES = [
     grid-template-areas:
       "usage usage trace notify"
       "usage usage trace vault"
-      "issues spawn spawn radar"
+      "spawn spawn spawn radar"
       "streamer streamer upload radar"
       "resume worktrees coder coder";
   }
@@ -129,12 +122,6 @@ const FEATURES = [
     12% { opacity: 1; scale: 1; }
     100% { opacity: 0.15; scale: 1; }
   }
-  .issue-to-session { display: flex; flex-direction: column; gap: 6px; }
-  .issue-row, .issue-session { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); }
-  .issue-number { font-family: var(--font-mono); font-size: var(--type-meta); color: var(--accent); }
-  .issue-title, .issue-session-line { display: block; flex: 1; height: 5px; border-radius: 2px; background: var(--border); }
-  .issue-session-line { max-width: 70%; }
-  .issue-session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-running); }
   .branch-merge { display: block; width: 100%; max-width: 180px; height: auto; overflow: visible; }
   .branch-main { fill: none; stroke: var(--border-hover); stroke-width: 2; }
   .branch-fork { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 1; }
@@ -144,14 +131,10 @@ const FEATURES = [
   .turn-fill { position: absolute; inset: 0 auto 0 0; width: 100%; border-radius: 4px; background: var(--state-running); }
   .turn-restart { position: absolute; top: 50%; left: 55%; width: 14px; height: 14px; translate: -50% -50%; border: 2px solid var(--bg-card); border-radius: 50%; background: var(--state-waiting); }
   .bento[data-on-screen="true"] .turn-fill { animation: resume-turn 5s var(--ease-out-expo) infinite; }
-  .bento[data-on-screen="true"] .issue-row { animation: pick-issue 5s var(--ease-out-expo) infinite; }
-  .bento[data-on-screen="true"] .issue-session { animation: open-session 5s var(--ease-out-expo) infinite; }
   .bento[data-on-screen="true"] .branch-fork { animation: fork-and-merge 5s var(--ease-out-expo) infinite; }
   .bento[data-on-screen="true"] .branch-commit { animation: land-commit 5s var(--ease-out-expo) infinite; }
   .bento[data-on-screen="true"] .branch-merge-dot { animation: show-merge 5s var(--ease-out-expo) infinite; }
   @keyframes resume-turn { 0% { width: 0%; } 30%, 50% { width: 55%; } 80%, 100% { width: 100%; } }
-  @keyframes pick-issue { 0%, 10% { border-color: var(--border); } 22%, 100% { border-color: var(--accent); } }
-  @keyframes open-session { 0%, 28% { opacity: 0; translate: 0 -8px; } 44%, 100% { opacity: 1; translate: 0 0; } }
   @keyframes fork-and-merge { 0%, 8% { stroke-dashoffset: 1; } 60%, 100% { stroke-dashoffset: 0; } }
   @keyframes land-commit { 0%, 30% { opacity: 0; } 38%, 100% { opacity: 1; } }
   @keyframes show-merge { 0%, 60% { opacity: 0; scale: 0.4; } 70%, 100% { opacity: 1; scale: 1; } }
@@ -166,8 +149,7 @@ const FEATURES = [
         "usage usage"
         "trace trace"
         "notify vault"
-        "spawn spawn"
-        "issues radar"
+        "spawn radar"
         "streamer streamer"
         "upload resume"
         "worktrees coder";
@@ -181,7 +163,7 @@ const FEATURES = [
   }
   @media (prefers-reduced-motion: reduce) {
     .radar-sweep, .radar-blip { animation: none; }
-    .bento[data-on-screen="true"] :is(.turn-fill, .issue-row, .issue-session, .branch-fork, .branch-commit, .branch-merge-dot) { animation: none; }
+    .bento[data-on-screen="true"] :is(.turn-fill, .branch-fork, .branch-commit, .branch-merge-dot) { animation: none; }
     .radar-blip { opacity: 1; }
   }
 </style>

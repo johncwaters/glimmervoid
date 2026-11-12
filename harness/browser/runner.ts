@@ -8,7 +8,6 @@ import { heightWithKeyboardUp, layoutFor, needsSocketRoute } from './cases-core.
 import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from './cases-core.ts';
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
-import { verifyIssues } from './issues.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1215,10 +1214,6 @@ export async function runCase({
 
   const runStep = async (step: ResolvedStep): Promise<StepOutcome> => {
     const viewer = await viewerFor(step.viewer ?? 'a');
-    if (step.kind === 'assert-issues') {
-      await verifyIssues(viewer.page, viewer.layout, sessionId);
-      return passedOutcome('issues', 'queue filters, live states, descriptions, sessions and pane navigation verified');
-    }
     if (step.kind === 'assert-boards') {
       await verifyBoards(viewer.page, viewer.layout, sessionId);
       return passedOutcome('boards', 'board create, live box add and Comic Mono board text verified');

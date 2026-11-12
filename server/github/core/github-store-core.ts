@@ -9,7 +9,7 @@ export function isBotAuthor(author: { __typename?: string; login: string } | nul
   return author.__typename === 'Bot' || author.login.toLowerCase().endsWith('[bot]');
 }
 
-export function isOrgMemberAssociation(authorAssociation: string | null | undefined): boolean | null {
+function isOrgMemberAssociation(authorAssociation: string | null | undefined): boolean | null {
   if (!authorAssociation) return null;
   return authorAssociation === 'MEMBER' || authorAssociation === 'OWNER';
 }

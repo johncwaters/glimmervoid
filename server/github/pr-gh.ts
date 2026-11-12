@@ -1,5 +1,3 @@
-import { GithubIssuePullRequestsRepository, IssueKey, IssuesSearchResponse, issuePullRequestStateFromGithub } from '../../shared/contracts/issues.ts';
-import type { IssuePullRequest, IssuesFetchResult, IssueUpdate } from '../../shared/contracts/issues.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { GithubPrDetailNode as GithubPrDetailNodeType, GithubPrLightSearchNode as GithubPrLightSearchNodeType } from '../../shared/contracts/github-prs.ts';
 import { runCommand } from '../git/git-exec.ts';
@@ -24,21 +22,15 @@ import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { notificationSubjectPrKey } from './core/github-store-core.ts';
 import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
-import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, reviewCaseDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, issueLinkedPullRequestsQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
+import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, reviewCaseDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
 import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
-import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
-import type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators } from './pr-gh/pr-gh-parsing.ts';
+import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
+import type { ConditionalGetResult, RestValidators } from './pr-gh/pr-gh-parsing.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
 
 const GH_MERGE_FLAGS: Readonly<Record<MyPrMergeMethodType, GhMergeFlag>> = { MERGE: '--merge', SQUASH: '--squash', REBASE: '--rebase' };
-
-interface GithubIssueDetail {
-  ok: boolean;
-  issue: GithubIssue | null;
-  error: string;
-}
 
 type NotificationsSinceResult = Exclude<ConditionalGetResult, { kind: 'ok' }>
   | { kind: 'ok'; prKeys: string[]; lastModified?: string; pollIntervalSeconds?: number };
@@ -51,7 +43,6 @@ interface PrGh {
   notificationsSince(lastModified?: string): Promise<NotificationsSinceResult>;
   addPrLabel(label: { repo: string; number: number; name: string }): Promise<{ ok: boolean; err: string }>;
   commentOnPr(comment: { repo: string; number: number; body: string }): Promise<{ ok: boolean; err: string }>;
-  setIssueState(change: { repo: string; number: number; state: 'closed' | 'open' }): Promise<{ ok: boolean; err: string }>;
   behindCounts(prs: readonly PrHeadReference[]): Promise<Map<string, number | null>>;
   rebasePr(pullRequestId: string, expectedHeadSha: string): Promise<{ ok: boolean; err: string }>;
   mergePr(merge: { repo: string; number: number; headSha: string; method: MyPrMergeMethodType }): Promise<{ ok: true; kind: MyPrMergeKind } | { ok: false; err: string }>;
@@ -66,10 +57,6 @@ interface PrGh {
   listMergedPrs(repo: string, limit: number): Promise<{ ok: true; prs: MergedPrListingType[] } | { ok: false; reason: string }>;
   reviewCaseData(repo: string, numbers: readonly number[]): Promise<Map<number, MinedPrReviewDataType>>;
   compareCommits(repo: string, base: string, head: string): Promise<CommitComparisonType | null>;
-  searchIssues(query: string): Promise<IssuesFetchResult>;
-  listRepoIssues(repo: string, since: string | null, maxIssues: number): Promise<IssuesFetchResult>;
-  issueLinkedPullRequests(keys: readonly string[]): Promise<Map<string, IssuePullRequest[]>>;
-  viewIssue(issueNumber: number | string, repo?: string): Promise<GithubIssueDetail>;
   viewer(): Promise<string | null>;
   viewerTeams(): Promise<{ teams: GithubTeam[]; orgs: string[] } | null>;
   teamMembers(org: string, team: string): Promise<string[] | null>;
@@ -105,8 +92,6 @@ const MERGED_PRS_PAGE_SIZE = 50;
 const REVIEW_CASE_BATCH_SIZE = 10;
 const COMPARE_FILE_LIST_CAP = 300;
 
-const SEARCH_PAGE_SIZE = 100;
-const MAX_SEARCH_PAGES = 5;
 const MAX_REVIEW_THREAD_PAGES = 5;
 const REVIEW_SNAPSHOT_BATCH_SIZE = 25;
 
@@ -272,32 +257,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     }
   }
 
-  async function searchIssuePages(query: string, maxPages: number, pageLimit: 'ends the list' | 'truncates the list'): Promise<IssuesFetchResult> {
-    const references = query.matchAll(/(?:^|\s)(?:repo|team):([^\s]+)/g);
-    for (const reference of references) {
-      if (!repoParts(reference[1])) return { ok: false, items: [], isComplete: false, error: 'invalid repository or team' };
-    }
-    const items: IssueUpdate[] = [];
-    let isComplete = true;
-    for (let page = 1; page <= maxPages; page += 1) {
-      const response = await runGh(['api', '-X', 'GET', 'search/issues', '-f', `q=${query}`, '-f', 'sort=updated', '-f', 'order=desc', '-f', `per_page=${SEARCH_PAGE_SIZE}`, '-f', `page=${page}`]);
-      if (!response.ok) return { ok: false, items, isComplete: false, error: response.err.trim() || 'gh issue search failed' };
-      const parsed = IssuesSearchResponse.safeParse(parseJsonOrNull(response.out));
-      if (!parsed.success) return { ok: false, items, isComplete: false, error: 'invalid gh issue search response' };
-      isComplete = isComplete && !parsed.data.incomplete_results;
-      for (const candidate of parsed.data.items) {
-        if (isPullRequest(candidate)) continue;
-        const issue = parseGithubIssue(candidate);
-        if (!issue) { isComplete = false; continue; }
-        items.push(issue);
-      }
-      if (page * SEARCH_PAGE_SIZE >= parsed.data.total_count) return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
-      if (parsed.data.items.length < SEARCH_PAGE_SIZE) break;
-    }
-    if (pageLimit === 'ends the list') return { ok: true, items, isComplete, error: isComplete ? '' : 'GitHub issue search returned incomplete results.' };
-    return { ok: true, items, isComplete: false, error: 'GitHub issue search reached its pagination limit.' };
-  }
-
   return scopedToOperations({
     conditionalGet,
 
@@ -368,15 +327,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
       if (!comment.success) return { ok: false, err: 'invalid comment body' };
       const response = await runGh(['pr', 'comment', String(number), '--repo', repo, '--body-file', '-'], comment.data, false, GH_WRITE_TIMEOUT_MS);
       return { ok: response.ok, err: response.ok ? '' : response.err.trim() || 'gh pr comment failed' };
-    },
-
-    async setIssueState({ repo, number, state }) {
-      if (!repoParts(repo) || !isPrNumber(number)) return { ok: false, err: 'invalid repository or issue number' };
-      const args = state === 'closed'
-        ? ['issue', 'close', String(number), '--repo', repo, '--reason', 'completed']
-        : ['issue', 'reopen', String(number), '--repo', repo];
-      const response = await runGh(args, undefined, false, GH_WRITE_TIMEOUT_MS);
-      return { ok: response.ok, err: response.ok ? '' : response.err.trim() || `gh issue ${args[1]} failed` };
     },
 
     async teamReviewThreads(prs) {
@@ -566,51 +516,6 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
       const prState = await runGraphql(MY_PR_MERGE_STATE_QUERY, ['-f', `owner=${parts[0]}`, '-f', `name=${parts[1]}`, '-F', `number=${number}`]);
       return { ok: true, kind: prState.ok ? mergeKindFromPrState(prState.out) : 'unconfirmed' };
     },
-    async searchIssues(query) {
-      return searchIssuePages(query, MAX_SEARCH_PAGES, 'truncates the list');
-    },
-
-    async issueLinkedPullRequests(keys) {
-      const issues = [...new Set(keys)].flatMap((key) => {
-        if (!IssueKey.safeParse(key).success) return [];
-        const [repo, issueNumber] = key.split('#');
-        const number = Number(issueNumber);
-        if (!repoParts(repo) || !isPrNumber(number)) return [];
-        return [{ repo, number }];
-      });
-      const pullRequestsByIssue = new Map<string, IssuePullRequest[]>();
-      await forEachAliasedPr(issues, issueLinkedPullRequestsQuery, (issue, repository) => {
-        const parsed = GithubIssuePullRequestsRepository.safeParse(repository);
-        const connection = parsed.success ? parsed.data.issue?.closedByPullRequestsReferences : null;
-        if (!connection) return 'unreadable';
-        const pullRequests = connection.nodes.flatMap((pullRequest): IssuePullRequest[] => {
-          if (!pullRequest) return [];
-          const { isDraft, state, ...fields } = pullRequest;
-          return [{ ...fields, state: issuePullRequestStateFromGithub({ state, isDraft }) }];
-        });
-        pullRequestsByIssue.set(reviewSnapshotKey(issue.repo, issue.number), pullRequests);
-        return 'found';
-      }, 50, true);
-      return pullRequestsByIssue;
-    },
-
-    async listRepoIssues(repo, since, maxIssues) {
-      if (!Number.isInteger(maxIssues) || maxIssues <= 0) return { ok: false, items: [], isComplete: false, error: 'invalid issue limit' };
-      if (!repoParts(repo) || (since !== null && !z.iso.datetime().safeParse(since).success)) return { ok: false, items: [], isComplete: false, error: 'invalid repository or date' };
-      const query = since === null ? `repo:${repo} is:issue is:open` : `repo:${repo} is:issue updated:>=${since}`;
-      return searchIssuePages(query, Math.ceil(maxIssues / SEARCH_PAGE_SIZE), since === null ? 'ends the list' : 'truncates the list');
-    },
-
-    async viewIssue(issueNumber, repo) {
-      if (repo !== undefined && !repoParts(repo)) return { ok: false, issue: null, error: 'invalid repository' };
-      const repoArguments = repo === undefined ? [] : ['--repo', repo];
-      const r = await commandRunner('gh', ['issue', 'view', String(issueNumber), ...repoArguments, '--json', 'number,title,body,labels,url,updatedAt'], cwd);
-      if (!r.ok) return { ok: false, issue: null, error: r.err.trim() || 'gh issue view failed' };
-      const issue = normalizeIssue((parseJsonOrNull(r.out) ?? {}) as GithubIssueRow);
-      if (!issue) return { ok: false, issue: null, error: 'gh issue view returned no issue' };
-      return { ok: true, issue, error: '' };
-    },
-
     async viewer() {
       const response = await runGh(['api', 'user', '--jq', '.login']);
       if (!response.ok) return null;

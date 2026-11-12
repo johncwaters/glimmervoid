@@ -97,10 +97,6 @@ const TeamReviewSettings = optionalObject('teamReview', {
   skipIdleAfterDays: optionalNumber('teamReview.skipIdleAfterDays'),
 });
 
-const IssuesSettings = optionalObject('issues', {
-  enabled: optionalBoolean('issues.enabled'),
-});
-
 const CommunitySettings = optionalObject('community', {
   enabled: optionalBoolean('community.enabled'),
   skill: optionalString('community.skill', true).refine((value) => value == null || !value || SKILL_NAME_RE.test(value), { message: 'community.skill must be a skill name like answering-questions, made of letters, digits, colons, dots, underscores or dashes, with no leading /' }),
@@ -264,7 +260,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   lanes: LanesSettings,
   teamReview: TeamReviewSettings,
   coherence: CoherenceSettings,
-  issues: IssuesSettings,
   community: CommunitySettings,
   questionManager: QuestionManagerSettings.nullable().optional(),
   posthog: PosthogSettings,

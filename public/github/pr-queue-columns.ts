@@ -61,7 +61,7 @@ function createPrQueueHead(scopeTabs: HTMLElement): HTMLElement {
   return head;
 }
 
-export function createPrQueueFoot(control: HTMLElement | null): HTMLElement {
+function createPrQueueFoot(control: HTMLElement | null): HTMLElement {
   const foot = el('div', 'pr-queue-foot');
   if (control) foot.append(control);
   return foot;

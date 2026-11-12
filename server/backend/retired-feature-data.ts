@@ -8,6 +8,7 @@ const RETIRED_RUNS_FOLDER = 'benchmark-runs';
 const SUITES_FOLDER = 'benchmarks';
 const RETIRED_SUITE_FOLDERS: readonly string[] = Object.freeze(['runs', 'work']);
 const RETIRED_WORKTREES_FOLDER = 'worktrees';
+const RETIRED_ISSUES_CACHE_FILE = 'issues-cache.json';
 
 interface RetiredWorktreeRemover {
   removeWorktreeByPath(args: { projectPath: string; cwd: string; cause: 'benchmark' }): Promise<{ ok: boolean; err?: string; removalKept?: string }>;
@@ -38,34 +39,35 @@ async function unregisterWorktrees(worktreesDir: string, git: RetiredWorktreeRem
   return isEveryRegistrationGone;
 }
 
-interface RetiredFolder {
-  folderPath: string;
+interface RetiredPath {
+  retiredPath: string;
+  kind: 'folder' | 'file';
   cause: RemovalCause;
   checkPassed: string;
 }
 
-async function sweepFolder({ folderPath, cause, checkPassed }: RetiredFolder, log: Pick<Console, 'warn'>): Promise<void> {
-  const isPresent = await stat(folderPath).then((stats) => stats.isDirectory(), () => false);
+async function sweepRetiredPath({ retiredPath, kind, cause, checkPassed }: RetiredPath, log: Pick<Console, 'warn'>): Promise<void> {
+  const isPresent = await stat(retiredPath).then((stats) => (kind === 'folder' ? stats.isDirectory() : stats.isFile()), () => false);
   if (!isPresent) return;
-  if (!(await recordSweptPath({ cause, kind: 'folder', path: folderPath, checksPassed: [checkPassed], log }))) return;
-  await rm(folderPath, { recursive: true, force: true }).catch((error: unknown) => {
-    log.warn(`[retired] could not delete the retired folder ${folderPath}: ${errorMessage(error)}`);
+  if (!(await recordSweptPath({ cause, kind, path: retiredPath, checksPassed: [checkPassed], log }))) return;
+  await rm(retiredPath, { recursive: kind === 'folder', force: true }).catch((error: unknown) => {
+    log.warn(`[retired] could not delete the retired ${kind} ${retiredPath}: ${errorMessage(error)}`);
   });
 }
 
-function retiredBenchmarkFolder(folderPath: string): RetiredFolder {
-  return { folderPath, cause: 'benchmark', checkPassed: 'benchmarks-lane-retired' };
+function retiredBenchmarkFolder(folderPath: string): RetiredPath {
+  return { retiredPath: folderPath, kind: 'folder', cause: 'benchmark', checkPassed: 'benchmarks-lane-retired' };
 }
 
 async function deleteRetiredBenchmarkRuns(glimmervoidHome: string, git: RetiredWorktreeRemover, log: Pick<Console, 'warn'> = console): Promise<void> {
-  await sweepFolder(retiredBenchmarkFolder(path.join(glimmervoidHome, RETIRED_RUNS_FOLDER)), log);
+  await sweepRetiredPath(retiredBenchmarkFolder(path.join(glimmervoidHome, RETIRED_RUNS_FOLDER)), log);
   const suitesRoot = path.join(glimmervoidHome, SUITES_FOLDER);
   const suiteEntries = await readdir(suitesRoot, { withFileTypes: true }).catch(() => []);
   for (const suiteEntry of suiteEntries) {
     if (!suiteEntry.isDirectory()) continue;
     const suiteDir = path.join(suitesRoot, suiteEntry.name);
-    for (const folderName of RETIRED_SUITE_FOLDERS) await sweepFolder(retiredBenchmarkFolder(path.join(suiteDir, folderName)), log);
-    if (await unregisterWorktrees(path.join(suiteDir, RETIRED_WORKTREES_FOLDER), git, log)) await sweepFolder(retiredBenchmarkFolder(path.join(suiteDir, RETIRED_WORKTREES_FOLDER)), log);
+    for (const folderName of RETIRED_SUITE_FOLDERS) await sweepRetiredPath(retiredBenchmarkFolder(path.join(suiteDir, folderName)), log);
+    if (await unregisterWorktrees(path.join(suiteDir, RETIRED_WORKTREES_FOLDER), git, log)) await sweepRetiredPath(retiredBenchmarkFolder(path.join(suiteDir, RETIRED_WORKTREES_FOLDER)), log);
   }
 }
 
@@ -84,4 +86,18 @@ async function deleteRetiredPlans(plansFolderPath: string, log: Pick<Console, 'w
   if (entries.length > 0) await rmdir(plansFolderPath).catch(() => undefined);
 }
 
-export { deleteRetiredBenchmarkRuns, deleteRetiredPlans };
+function isRetiredIssuesCacheFile(fileName: string): boolean {
+  if (fileName === RETIRED_ISSUES_CACHE_FILE) return true;
+  if (!fileName.startsWith(`${RETIRED_ISSUES_CACHE_FILE}.`)) return false;
+  return fileName.endsWith('.tmp') || fileName.includes('.corrupt-');
+}
+
+async function deleteRetiredIssuesCache(glimmervoidHome: string, log: Pick<Console, 'warn'> = console): Promise<void> {
+  const entries = await readdir(glimmervoidHome, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !isRetiredIssuesCacheFile(entry.name)) continue;
+    await sweepRetiredPath({ retiredPath: path.join(glimmervoidHome, entry.name), kind: 'file', cause: 'issues', checkPassed: 'issues-tab-retired' }, log);
+  }
+}
+
+export { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans };

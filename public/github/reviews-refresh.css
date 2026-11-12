@@ -7,19 +7,5 @@
 .pr-content > .reviews-retry-notice { margin: 12px; }
 
 
-html[data-layout="phone"] .issues-view { display: flex; overflow: hidden; }
-html[data-layout="phone"] .issues-view[hidden] { display: none; }
-html[data-layout="phone"] .issues-content .pr-queue-pane { border: 0; }
-html[data-layout="phone"] .issues-content .pr-queue { overflow-y: auto; }
-html[data-layout="phone"] .issues-content .pr-detail-host { overflow-y: auto; }
-html[data-layout="phone"] .issues-content[data-detail-open="true"] .pr-queue-pane { display: none; }
-html[data-layout="phone"] .issues-content:not([data-detail-open="true"]) .pr-detail-host { display: none; }
-html[data-layout="phone"] .issues-content .pr-detail { padding: 16px 0 0; }
-html[data-layout="phone"] .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
 @media (max-width: 760px) {
-  html:not([data-layout="phone"]) .issues-content .pr-queue-pane { border: 0; }
-  html:not([data-layout="phone"]) .issues-content[data-detail-open="true"] .pr-queue-pane { display: none; }
-  html:not([data-layout="phone"]) .issues-content:not([data-detail-open="true"]) .pr-detail-host { display: none; }
-  html:not([data-layout="phone"]) .issues-content .pr-detail { padding: 16px 0 0; }
-  html:not([data-layout="phone"]) .issues-content .pr-footer { margin-inline: 0; padding-inline: 0; }
 }

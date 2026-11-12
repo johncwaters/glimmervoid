@@ -91,6 +91,12 @@ function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
   return '[config] Removed planReview: the plan view is gone and plans go through boards.';
 }
 
+function dropRetiredIssues(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'issues')) return null;
+  delete config.issues;
+  return '[config] Removed issues: the Issues tab is gone.';
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -174,4 +180,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

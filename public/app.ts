@@ -8,7 +8,6 @@ import { queryTag } from './dom-helpers.ts';
 import { routeExternalAnchorsThroughHost } from './external-link.ts';
 import { applyFlyingAnimals } from './flying-animals.ts';
 import { initFormFactor } from './form-factor.ts';
-import { setIssuesRequestSender } from './github/issues-store.ts';
 import { paintSessionPrRows, sessionRowPrSignals } from './github/session-pr-chips.ts';
 import { mountHealthMonitor } from './health-monitor.ts';
 import { setHooksRequestSender } from './hooks-store.ts';
@@ -63,7 +62,6 @@ void import('./your-day-tip.ts').then(
 );
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
-setIssuesRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrRows);
 addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals, 'links');

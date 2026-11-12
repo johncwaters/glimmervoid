@@ -5,7 +5,6 @@ export type ViewerId = 'a' | 'b';
 
 
 export type Step =
-  | { kind: 'assert-issues'; viewer?: ViewerId }
   | { kind: 'assert-undo-close'; viewer?: ViewerId }
   | { kind: 'assert-added-session-shown'; viewer?: ViewerId }
   | { kind: 'assert-boards'; viewer?: ViewerId }
@@ -206,10 +205,6 @@ export const SCENARIOS: readonly Scenario[] = [
       { kind: 'assert-fit' },
       { kind: 'touch-scroll' },
     ],
-  },
-  {
-    name: 'issues',
-    steps: [{ kind: 'assert-issues' }, { kind: 'shot', name: 'issues' }],
   },
   {
     name: 'undo-close',
@@ -708,10 +703,6 @@ export function needsSocketRoute(scenario: Pick<Scenario, 'steps'>): boolean {
 
 export function needsTeamReview(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-team-review');
-}
-
-export function needsIssues(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-issues');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {

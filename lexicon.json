@@ -15,7 +15,7 @@
     },
     {
       "name": "view",
-      "definition": "A primary dashboard surface the operator switches between (Focus, Settings, Trace, Issues, Usage and the lane tabs, plus Boards on the phone), or one session's rendering inside it, its face (Terminal or the Board pane in Focus)",
+      "definition": "A primary dashboard surface the operator switches between (Focus, Settings, Trace, Usage and the lane tabs, plus Boards on the phone), or one session's rendering inside it, its face (Terminal or the Board pane in Focus)",
       "aliases": [
         "face"
       ]
@@ -145,7 +145,7 @@
     },
     {
       "name": "running",
-      "definition": "The session status meaning the agent is mid-turn and working, derived from hook events or the OSC-0 title; the Issues step for an issue with a live session",
+      "definition": "The session status meaning the agent is mid-turn and working, derived from hook events or the OSC-0 title",
       "aliases": [
         "working"
       ]
@@ -438,7 +438,7 @@
     },
     {
       "name": "issues",
-      "definition": "The dashboard's Issues tab, which lists GitHub issues and the step each is at, such as running when a live session works on it"
+      "definition": "The retired Issues tab, which listed GitHub issues and opened a session from one; removed with its lane and now named only in history"
     },
     {
       "name": "remote",

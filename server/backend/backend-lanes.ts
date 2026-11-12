@@ -1,4 +1,3 @@
-import { createIssuesWiring } from '../github/issues-wiring.ts';
 import path from 'node:path';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { sessionLinkedToPr } from '../github/core/team-review-core.ts';
@@ -9,7 +8,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
-import { deleteRetiredBenchmarkRuns, deleteRetiredPlans } from './retired-feature-data.ts';
+import { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans } from './retired-feature-data.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
 import { contestantDiff } from '../race/race-diff.ts';
 import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
@@ -325,7 +324,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       return approvedPacks;
     },
   });
-  const issues = createIssuesWiring({ config, store: githubStore.laneStore, github, gitWorkspace, broadcast: broadcastControl, hasSession: (id) => sessions.has(id), log: logger, clock: githubClock });
   const workflowsWorkRoot = path.join(glimmervoidHome, 'workflows-work');
   const workflows = createWorkflowsWiring({
     config, notificationManager, store: githubStore.laneStore, log: logger, clock: githubClock,
@@ -444,7 +442,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     community,
     'team-review': teamReview,
     'my-prs': myPrs,
-    issues,
     workflows,
     usage,
     'task-title': taskTitleRefiner,
@@ -476,10 +473,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
         packStore.on('removed', forgetRemovedPackData);
         packStore.start().then(forgetRemovedPackData, (error: unknown) => logger.warn(`[packs] start failed: ${errorMessage(error)}`));
       },
-      () => issues.startPoller(),
       () => workflows.startPoller(),
       () => void deleteRetiredBenchmarkRuns(glimmervoidHome, gitWorkspace, logger),
       () => void deleteRetiredPlans(configSiblingPath(configStore.configPath, 'plans'), logger),
+      () => void deleteRetiredIssuesCache(glimmervoidHome, logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
@@ -496,7 +493,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => community.restartIfConfigChanged(),
       () => teamReview.restartIfConfigChanged(),
       () => myPrs.restartIfConfigChanged(),
-      () => issues.restartIfConfigChanged(),
       () => workflows.restartIfConfigChanged(),
       () => usage.restartIfConfigChanged(),
     ];
@@ -533,7 +529,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     prFlows,
     packStore,
     packData,
-    issues,
     community,
     workflows,
     startRuntimeLanes,

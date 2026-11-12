@@ -1,43 +1,12 @@
-import { GithubIssueResponse, IssueUpdate } from '../../../shared/contracts/issues.ts';
 import type { CommandResult } from '../../git/git-exec.ts';
 import { repoParts } from '../../../shared/contracts/github-ids.ts';
 import { secondaryRateLimitWaitMs } from '../../lanes/core/lane-backoff.ts';
-import { z } from 'zod';
 import { MyPrMergeStateResponse } from '../../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind } from '../../../shared/contracts/my-prs.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { parseJsonOrNull } from '../../core/json-core.ts';
-import { isOrgMemberAssociation } from '../core/github-store-core.ts';
 import type { PrReference } from './pr-gh-queries.ts';
 import { GRAPHQL_ALIAS_NOT_FOUND_ERROR, GRAPHQL_ERROR_ALIAS } from './pr-gh-responses.ts';
-
-interface GithubIssueLabelRow {
-  name?: unknown;
-  color?: unknown;
-}
-
-interface GithubIssueRow {
-  number?: unknown;
-  title?: unknown;
-  body?: unknown;
-  labels?: unknown;
-  url?: unknown;
-  updatedAt?: unknown;
-}
-
-interface GithubIssueLabel {
-  name: string;
-  color: string;
-}
-
-interface GithubIssue {
-  number: number;
-  title: string;
-  body: string;
-  labels: GithubIssueLabel[];
-  url: string;
-  updatedAt: string;
-}
 
 interface RestValidators {
   etag?: string;
@@ -64,7 +33,6 @@ function mergeKindFromPrState(prStateJson: string): MyPrMergeKind {
   return 'unconfirmed';
 }
 
-const HEX_LABEL_COLOR = /^[0-9a-f]{6}$/i;
 
 function aliasesOfErrors(errors: readonly unknown[]): Set<string> | null {
   const aliases = new Set<string>();
@@ -105,50 +73,6 @@ function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
   return [...byKey.values()];
 }
 
-function isPullRequest(candidate: unknown): boolean {
-  const parsed = z.object({ pull_request: z.unknown().optional() }).safeParse(candidate);
-  return parsed.success && parsed.data.pull_request !== undefined;
-}
-
-function parseGithubIssue(candidate: unknown, repository?: string): IssueUpdate | null {
-  const parsed = GithubIssueResponse.safeParse(candidate);
-  if (!parsed.success) return null;
-  const issue = parsed.data;
-  const repo = repository ?? (issue.repository_url ? new URL(issue.repository_url).pathname.replace(/^\/repos\//, '') : '');
-  if (!repoParts(repo)) return null;
-  return IssueUpdate.parse({
-    key: `${repo}#${issue.number}`, repo, number: issue.number, title: issue.title, url: issue.html_url,
-    labels: issue.labels.map((label) => typeof label === 'string' ? label : label.name),
-    assignees: issue.assignees.map((assignee) => assignee.login), author: issue.user?.login ?? '', isAuthorOrgMember: isOrgMemberAssociation(issue.author_association), comments: issue.comments,
-    createdAt: issue.created_at, updatedAt: issue.updated_at, state: issue.state,
-  });
-}
-
-function normalizeIssueLabel(candidate: unknown): GithubIssueLabel | null {
-  if (!candidate || typeof candidate !== 'object') return null;
-  const label = candidate as GithubIssueLabelRow;
-  const name = typeof label.name === 'string' ? label.name.trim() : '';
-  if (!name) return null;
-  const color = typeof label.color === 'string' ? label.color.trim() : '';
-  return { name, color: HEX_LABEL_COLOR.test(color) ? color : '' };
-}
-
-function normalizeIssue(row: GithubIssueRow): GithubIssue | null {
-  const number = typeof row.number === 'number' && Number.isInteger(row.number) && row.number > 0 ? row.number : 0;
-  if (number === 0) return null;
-  const labels = Array.isArray(row.labels)
-    ? row.labels.map(normalizeIssueLabel).filter((label): label is GithubIssueLabel => label !== null)
-    : [];
-  return {
-    number,
-    title: typeof row.title === 'string' ? row.title.trim() : '',
-    body: typeof row.body === 'string' ? row.body : '',
-    labels,
-    url: typeof row.url === 'string' ? row.url : '',
-    updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : '',
-  };
-}
-
 function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
   if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
@@ -184,5 +108,5 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   }
 }
 
-export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, isPullRequest, mergeKindFromPrState, normalizeIssue, parseGithubIssue, reviewSnapshotKey, uniqueValidPrs };
-export type { ConditionalGetResult, GithubIssue, GithubIssueRow, RestValidators };
+export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs };
+export type { ConditionalGetResult, RestValidators };

@@ -181,14 +181,6 @@ Coherence hook status and decision journal per session.
 |-----|---------|---------|-------|
 | `coherence.enabled` | Show session Coherence | `true` | Show the Coherence hook status and decisions of each session in a repository with a coherence.config.json (needs @posthog/coherence 1.8 or newer). |
 
-### Issues
-
-GitHub issues from your projects and teams.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `issues.enabled` | Show the Issues tab | `false` | Show an Issues tab listing GitHub issues for your projects and teams. |
-
 ### Community
 
 Research new posthog.com community questions and draft replies.
@@ -331,7 +323,7 @@ Every event also carries `app_version`, `os_platform`, `node_major`, `install_fl
 | `command_hint_shown` | `command`, `adapter` | An agent was handed a one-time line naming a Glimmervoid command when its tool call made the command fit, with which command and which kind of agent. Never the tool call. |
 | `command_hint_followed` | `command`, `adapter` | An agent ran a Glimmervoid command it had been handed a one-time line about earlier in the same conversation, with which command and which kind of agent. |
 | `view_shown` | `view` | A dashboard tab opened, on desktop or phone, with which tab. Sent on every open. |
-| `operator_action` | `surface`, `action` | An action taken in the Usage, Issues, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
+| `operator_action` | `surface`, `action` | An action taken in the Usage, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on. |
 | `onboarding_step` | `step`, `state` | The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open. |
 | `header_error_shown` | `source`, `message`, `kind` | An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. For a dependency install warning it also carries the failure kind: tool-missing, failed or timed-out. Each distinct message is sent once per page load. |
 | `board_graphics_reset` | `reset`, `loss_count`, `ms_since_last_loss`, `blank_ms`, `retries`, `creation_error`, `terminal_webgl_contexts`, `same_origin_dashboard_tabs`, `media_texture_count`, `media_texture_mib`, `canvas_width_px`, `canvas_height_px`, `device_pixel_ratio`, `is_page_visible`, `gpu_renderer` | A whiteboard lost its graphics context, got it back, or found the browser blocking graphics: which of those, how many losses this page has had, the time since the last one and how long the board stayed blank, how many terminal and media textures were on the graphics card, the board canvas size, whether the page was visible, the browser's GPU name and its context error text. Never the board or its contents. |

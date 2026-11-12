@@ -385,18 +385,18 @@ test('a config file naming the retired experimental update channel loses the key
 });
 
 test('a stable build reads experimental features as off and keeps their stored values and a retired conversationView key on save', () => {
-  const stored = { projects: [], conversationView: true, remoteSessions: true, coherence: { enabled: true }, issues: { enabled: true } };
+  const stored = { projects: [], conversationView: true, remoteSessions: true, coherence: { enabled: true } };
   withStore(stored, (store, configPath) => {
     assert.deepEqual(
-      [store.config.remoteSessions, store.config.coherence?.enabled, store.config.issues?.enabled],
-      [false, false, false],
+      [store.config.remoteSessions, store.config.coherence?.enabled],
+      [false, false],
     );
     const saved = store.save((config) => { config.debugMode = true; });
     assert.ok(saved);
     const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.deepEqual(
-      [onDisk.conversationView, onDisk.remoteSessions, onDisk.coherence.enabled, onDisk.issues.enabled, onDisk.debugMode],
-      [true, true, true, true, true],
+      [onDisk.conversationView, onDisk.remoteSessions, onDisk.coherence.enabled, onDisk.debugMode],
+      [true, true, true, true],
     );
   }, { isExperimentalBuild: false });
   withStore(stored, (store) => {
@@ -408,7 +408,7 @@ test('a stable build saves a config that sets no experimental feature', () => {
   withStore({ projects: [] }, (store) => {
     const saved = store.save((config) => { config.debugMode = true; });
     assert.equal(saved?.debugMode, true);
-    assert.equal(store.config.issues?.enabled ?? false, false);
+    assert.equal(store.config.coherence?.enabled ?? false, false);
   }, { isExperimentalBuild: false });
 });
 

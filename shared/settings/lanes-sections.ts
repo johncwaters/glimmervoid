@@ -203,20 +203,6 @@ export const LANES_COHERENCE: SettingsSection = {
   ],
 };
 
-export const LANES_ISSUES: SettingsSection = {
-  id: 'lanes-issues',
-  level: 'lanes',
-  title: 'Issues',
-  description: 'GitHub issues from your projects and teams.',
-  settings: [
-    {
-      id: 'issues-enabled', path: 'issues.enabled', title: 'Show the Issues tab',
-      description: 'Show an Issues tab listing GitHub issues for your projects and teams.',
-      control: 'toggle', keywords: ['experimental', 'issues', 'github', 'tab'], defaultValue: false, ...MACHINE_NOW,
-    },
-  ],
-};
-
 export const LANES_COMMUNITY: SettingsSection = {
   id: 'lanes-community',
   level: 'lanes',

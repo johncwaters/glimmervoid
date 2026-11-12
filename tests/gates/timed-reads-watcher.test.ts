@@ -10,7 +10,6 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/github/my-prs-poller.ts': { watcherBackedBy: 'githubStore' },
   'server/github/team-review-poller.ts': { watcherBackedBy: 'githubStore' },
   'server/workflows-poller.ts': { watcherBackedBy: 'githubStore' },
-  'server/github/issues-poller.ts': { watcherBackedBy: 'issues' },
   'server/radar/radar-poller.ts': { watcherBackedBy: 'posthog' },
   'server/community/community-poller.ts': { watcherBackedBy: 'community' },
   'server/lanes/lane-runner.ts': { awakeOnly: 'the shared tick loop; each lane that starts one is classified in its own file' },

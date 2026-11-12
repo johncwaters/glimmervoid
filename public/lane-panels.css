@@ -1,23 +1,5 @@
 .arena-view { --phone-panel-max-width: none; }
 
-.issues-view {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0 clamp(12px, 2vw, 32px);
-  color: var(--text);
-  --phone-panel-padding: 0 12px;
-  --phone-panel-overflow-x: hidden;
-}
-.issues-view[hidden] { display: none; }
-.issues-content { display: flex; flex: 1; min-width: 0; min-height: 0; font-size: var(--type-meta); }
-.issues-content .pr-queue-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 8px 10px 8px 14px; }
-.issues-content .reviews-refresh-control { display: contents; }
-.issues-content .reviews-refresh-status { flex: 1 1 100%; order: 3; }
-.issues-content .reviews-refresh-status[hidden] { display: none; }
-.issues-content .reviews-retry-notice { order: 4; flex: 1 1 100%; margin: 0; font-size: var(--type-meta); }
-.issues-content .pr-action-status { font-size: var(--type-meta); }
-.issues-content .pr-action-status { overflow-wrap: anywhere; }
 :has(> .action-status-icon):not([hidden]) { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .action-status-icon { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; }
 [data-tone="busy"] > .action-status-icon { color: var(--state-running); }

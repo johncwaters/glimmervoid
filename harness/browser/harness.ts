@@ -12,7 +12,7 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
-import { casesFor, needsGitOrigin, needsIssues, needsTeamReview } from './cases-core.ts';
+import { casesFor, needsGitOrigin, needsTeamReview } from './cases-core.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
   EXIT_HARNESS_ERROR,
@@ -139,7 +139,6 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     projects,
     teams: [],
     teamReview: { enabled: cases.some((harnessCase) => needsTeamReview(harnessCase.scenario)) },
-    issues: { enabled: cases.some((harnessCase) => needsIssues(harnessCase.scenario)) },
     repoRoots: [],
     autoResume: false,
     worktree: { autoRebase: false, syncOnStart: false },

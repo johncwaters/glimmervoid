@@ -51,7 +51,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `plan/` | Safe markdown parsing and rendering for docs and board documents (see `plan/AGENTS.md`) |
 | `review/` | Worktree review: `review-store.ts` owns per-session merge state and sends the merge, discard and diff control messages; the change reader and the Focus review bar only render it. `selection.ts` is the one source of the selected session |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
-| `github/` | GitHub views: issues, my PRs, team review, the PR queue and status icons, and the shared polling retry text |
+| `github/` | GitHub views: my PRs, team review, the PR queue and status icons, and the shared polling retry text |
 | `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules, and `settings-link.ts`, the one builder for `#settings/` and `#settings?q=` links |
 | `radar/` | Radar panel: the DOM shell, its pure view core and the hold rules |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |

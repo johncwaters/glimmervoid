@@ -24,7 +24,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'listRepoIssues' | 'searchIssues' | 'issueLinkedPullRequests' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'viewIssue' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -514,11 +514,6 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return requestRead(() => github.teamMembers?.(org, slug) ?? Promise.resolve(null), null, () => false, mode, ['core']);
   }
 
-  function requestIssue(number: number | string, repo: string, mode: GithubStoreReadMode = 'wait') {
-    const fallback = { ok: false, issue: null, error: 'gh issue view failed' };
-    return requestRead(() => github.viewIssue?.(number, repo) ?? Promise.resolve(fallback), fallback, () => false, mode, ['graphql']);
-  }
-
   function requestMergedPrs(repo: string, limit: number, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['listMergedPrs']>>>> {
     const fallback = { ok: false as const, reason: 'gh graphql search failed' };
     return requestRead(() => github.listMergedPrs?.(repo, limit) ?? Promise.resolve(fallback), fallback, () => false, mode, ['graphql']);
@@ -571,26 +566,11 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     return requestRead(() => github.teamReviewThreads?.(prs) ?? Promise.resolve(new Map()), new Map(), () => false, mode);
   }
 
-  function requestRepoIssues(repo: string, since: string | null, maxIssues: number, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['listRepoIssues']>>>> {
-    const fallback = { ok: false, items: [], isComplete: false, error: 'Issue listing failed.' };
-    return requestRead(() => github.listRepoIssues?.(repo, since, maxIssues) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
-  }
-
-  function requestIssueSearch(query: string, mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['searchIssues']>>>> {
-    const fallback = { ok: false, items: [], isComplete: false, error: 'Issue search failed.' };
-    return requestRead(() => github.searchIssues?.(query) ?? Promise.resolve(fallback), fallback, () => false, mode, ['core', 'search']);
-  }
-
-  function requestIssueLinkedPullRequests(issueKeys: readonly string[], mode: GithubStoreReadMode = 'wait'): Promise<GithubStoreRead<Awaited<ReturnType<PrGh['issueLinkedPullRequests']>>>> {
-    return requestRead(() => github.issueLinkedPullRequests?.(issueKeys) ?? Promise.resolve(new Map()), new Map(), () => false, mode, ['graphql', 'core', 'search']);
-  }
-
   return {
     events, registerWatch, unregisterWatch, setWatchedKeys, tick, requestRefresh, refreshWatches, getSnapshot, probeInputs, setCoveredProbes,
-    requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestIssue, requestMergedPrs, requestReviewCaseData, requestCompareCommits,
+    requestViewer, requestViewerTeams, requestTeamProfile, requestTeamMembers, requestMergedPrs, requestReviewCaseData, requestCompareCommits,
     rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
-    requestRepoIssues, requestIssueSearch, requestIssueLinkedPullRequests,
     requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),
   };
 }

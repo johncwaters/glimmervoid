@@ -22,7 +22,7 @@ export function isLinkUrlSafe(rawUrl: string): boolean {
   return linkUrl.protocol === 'http:' && isLoopbackHostname(linkUrl.hostname);
 }
 
-export const WATCHER_LANE_IDS = Object.freeze(['github-store', 'issues', 'radar', 'community'] as const);
+export const WATCHER_LANE_IDS = Object.freeze(['github-store', 'radar', 'community'] as const);
 export const PROBE_CREDENTIALS = Object.freeze(['github', 'posthog'] as const);
 const ProbeCredential = z.enum(PROBE_CREDENTIALS);
 

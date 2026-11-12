@@ -36,8 +36,6 @@ const RETIRED_CLASSES: string[] = [
   'hooks-btn',
   'hooks-btn-add',
   'hooks-btn-danger',
-  'issues-back',
-  'issues-small-action',
   'phone-back',
   'phone-changes',
   'plan-action',

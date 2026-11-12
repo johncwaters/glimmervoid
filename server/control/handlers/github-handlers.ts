@@ -12,7 +12,6 @@ import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
 import type { Session } from '../../../session/sessions.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
-import { buildGithubIssuePrompt, deriveIssueSessionName } from '../../github/core/github-issues-core.ts';
 import { toMyPrsWireStatus } from '../../github/core/my-prs-core.ts';
 import { prKey, prSessionName, prSessionPrompt, sessionLinkedToPr } from '../../github/core/team-review-core.ts';
 import { githubStoreRateLimitedError } from '../../github/github-store-poller.ts';
@@ -38,24 +37,19 @@ interface GithubHandlerGroup extends ControlHandlerGroup {
 }
 
 function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps): GithubHandlerGroup {
-  const { sessions, findConfiguredProject, createProjectSession, captureOperatorAction } = context;
+  const { sessions, createProjectSession, captureOperatorAction } = context;
   const {
     config,
     getTeamReviewStatus = null,
     getMyPrsStatus = null,
-    getIssuesStatus = null,
     githubStore = null,
-    issues = null,
     teamReview = null,
     myPrs = null,
     prFlows = null,
-    requestIssue = async () => ({ isRateLimited: false, value: { ok: false, issue: null, error: 'Issues polling is not running.' } }),
     requestViewer = async () => ({ isRateLimited: false, value: null }),
     requestViewerTeams = async () => ({ isRateLimited: false, value: null }),
-    issueProjectRepos = null,
   } = deps;
 
-  const issueOpenQueue = createKeyedSerialQueue();
   const prSessionOpenQueue = createKeyedSerialQueue();
 
   async function handleListGithubTeams(request: ClientMessageOf<'list-github-teams'>, ws: ControlSocket): Promise<void> {
@@ -67,84 +61,6 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     if (teamsRead.isRateLimited) { reply({ viewer: viewerRead.value, teams: [], orgs: [], error: githubStoreRateLimitedError(teamsRead.waitMs, 'your GitHub teams') }); return; }
     if (!teamsRead.value) { reply({ viewer: viewerRead.value, teams: [], orgs: [], error: 'GitHub did not list your teams.' }); return; }
     reply({ viewer: viewerRead.value, teams: teamsRead.value.teams, orgs: teamsRead.value.orgs, error: null });
-  }
-
-  async function handleIssueDetail(request: ClientMessageOf<'issue-detail'>, ws: ControlSocket): Promise<void> {
-    try {
-      const issueRead = await requestIssue(request.issueNumber, request.repo, 'priority');
-      if (issueRead.isRateLimited) {
-        replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') });
-        return;
-      }
-      const viewed = issueRead.value;
-      if (!viewed.ok || !viewed.issue) {
-        replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: viewed.error || 'Issue not found.' });
-        return;
-      }
-      replyTo(ws, request, 'issue-detail-result', { ok: true, body: viewed.issue.body, error: null });
-    } catch (error: unknown) {
-      replyTo(ws, request, 'issue-detail-result', { ok: false, body: null, error: errorMessage(error) });
-    }
-  }
-
-  async function handleSetIssueState(request: ClientMessageOf<'set-issue-state'>, ws: ControlSocket): Promise<void> {
-    captureOperatorAction('issues', request.state === 'closed' ? 'close' : 'reopen');
-    const setIssueState = issues?.setIssueState;
-    if (!setIssueState) { replyTo(ws, request, 'set-issue-state-result', { ok: false, error: 'Issues polling is not running.' }); return; }
-    try {
-      const applied = await setIssueState({ repo: request.repo, number: request.issueNumber, state: request.state });
-      replyTo(ws, request, 'set-issue-state-result', { ok: applied.ok, error: applied.ok ? null : applied.err });
-    } catch (error: unknown) {
-      replyTo(ws, request, 'set-issue-state-result', { ok: false, error: errorMessage(error) });
-    }
-  }
-
-  async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
-    const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'open-issue-session-result', { ok: false, error: null, ...payload });
-    const project = findConfiguredProject(msg.projectId);
-    if (!project) { reply({ error: 'Project not found' }); return; }
-    captureOperatorAction('issues', 'open-session');
-    const issueNumber = msg.issueNumber ?? 0;
-    const repo = msg.repo;
-    try {
-      if (!issueProjectRepos) { reply({ error: 'Issues polling is not running.' }); return; }
-      const projectRepos = await issueProjectRepos(msg.projectId);
-      if (!projectRepos.some((projectRepo) => projectRepo.toLowerCase() === repo.toLowerCase())) {
-        reply({ error: `Repository ${repo} does not belong to project "${project.name}"` });
-        return;
-      }
-      const issueKey = `${repo}#${issueNumber}`;
-      const linkedSessionId = await issues?.getLinkedSessionId?.(issueKey);
-      const linkedSession = linkedSessionId ? sessions.get(linkedSessionId) : null;
-      if (linkedSession) {
-        reply({ ok: true, sessionId: linkedSession.id, sessionName: linkedSession.name, existing: true });
-        return;
-      }
-      const issueRead = await requestIssue(issueNumber, repo, 'priority');
-      if (issueRead.isRateLimited) { reply({ error: githubStoreRateLimitedError(issueRead.waitMs, 'the issue') }); return; }
-      const viewed = issueRead.value;
-      if (!viewed.ok) { reply({ error: `Could not read GitHub issue #${issueNumber}: ${viewed.error}` }); return; }
-      const issue = viewed.issue;
-      if (!issue) { reply({ error: `Open issue #${issueNumber} was not found` }); return; }
-      const sessionName = deriveIssueSessionName(issue);
-      const created = createProjectSession({
-        name: sessionName,
-        path: project.path,
-        agent: project.agent,
-        dangerouslySkipPermissions: project.dangerouslySkipPermissions,
-      });
-      if (!created.ok) { reply({ error: created.error }); return; }
-      const session = sessions.get(created.project.id);
-      if (!session) { reply({ error: `Session "${sessionName}" is not loaded` }); return; }
-      const prompt = buildGithubIssuePrompt({ issue, repoSlug: repo });
-      const pasted = session.pasteTextWhenReady(prompt);
-      if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
-      await issues?.linkSession?.(issueKey, session.id);
-      reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
-      console.log(`[control] open-issue-session: issue=${repo}#${issueNumber} -> session=${session.name}`);
-    } catch (error) {
-      reply({ error: `Could not open GitHub issue session: ${errorMessage(error)}` });
-    }
   }
 
   function linkedSessionFor(pullRequestKey: string): Session | null {
@@ -201,8 +117,8 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
   }
 
   async function handleGithubPollingRefresh(msg: ClientMessageOf<'github-polling-refresh'>, ws: ControlSocket): Promise<void> {
-    captureOperatorAction(msg.lane === 'issues' ? 'issues' : 'reviews', 'refresh');
-    const lane = { 'my-prs': myPrs, 'team-review': teamReview, issues }[msg.lane];
+    captureOperatorAction('reviews', 'refresh');
+    const lane = { 'my-prs': myPrs, 'team-review': teamReview }[msg.lane];
     if (!lane?.refresh) {
       replyTo(ws, msg, 'github-polling-refresh-result', { ok: false, error: 'Reviews polling is not running.' });
       return;
@@ -268,17 +184,12 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     const myPrsStatus = typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null;
     if (myPrsStatus) frames.push(toMyPrsWireStatus(myPrsStatus));
     if (prFlows) frames.push(prFlows.statusFrame());
-    const issuesStatus = getIssuesStatus?.();
-    if (issuesStatus) frames.push(issuesStatus);
     return frames;
   }
 
   const handlers = {
     'list-github-teams': handleListGithubTeams,
-    'issue-detail': handleIssueDetail,
-    'set-issue-state': handleSetIssueState,
     'open-team-review-session': (msg: ClientMessageOf<'open-team-review-session'>, ws: ControlSocket) => prSessionOpenQueue.run(msg.key.toLowerCase(), () => handleOpenTeamReviewSession(msg, ws)),
-    'open-issue-session': (msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket) => issueOpenQueue.run(`${msg.repo.toLowerCase()}#${msg.issueNumber}`, () => handleOpenIssueSession(msg, ws)),
     'team-review-action': handleTeamReviewAction,
     'team-review-refresh-threads': handleTeamReviewRefreshThreads,
     'my-pr-merge': handleMyPrMerge,
@@ -294,9 +205,6 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
 
   const invalidReplies = {
     'list-github-teams': (_msg, requestId, message) => ({ type: 'github-teams-listed', requestId, viewer: null, teams: [], orgs: [], error: message }),
-    'issue-detail': (_msg, requestId, message) => ({ type: 'issue-detail-result', requestId, ok: false, body: null, error: message }),
-    'set-issue-state': (_msg, requestId, message) => ({ type: 'set-issue-state-result', requestId, ok: false, error: message }),
-    'open-issue-session': (_msg, requestId, message) => ({ type: 'open-issue-session-result', requestId, ok: false, error: message }),
     'open-team-review-session': (_msg, requestId, message) => ({ type: 'open-team-review-session-result', requestId, ok: false, error: message }),
     'team-review-action': (msg, requestId, message) => ({ type: 'team-review-action-result', requestId, key: typeof msg?.key === 'string' ? msg.key : '', ok: false, error: message }),
     'github-polling-refresh': (_msg, requestId, message) => ({ type: 'github-polling-refresh-result', requestId, ok: false, error: message }),

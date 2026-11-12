@@ -221,10 +221,9 @@ export const InstallDetail = z.object({
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
 export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown', 'board_graphics_reset'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'issues', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
-  issues: ['step', 'search', 'select', 'back', 'go-to-session', 'open-session', 'open-reviews', 'close', 'reopen', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],
   onboarding: ['rescan', 'add-root-typed', 'add-root-suggested', 'add-session', 'start-session', 'allow-notifications', 'skip-notifications', 'check-github-again', 'save-github-teams', 'save-github-org', 'save-lane-read-token', 'save-review-skill', 'save-community-key', 'save-community-project', 'save-community-skill', 'save-community-discord', 'finish-community-setup'],
   reviews: ['open-session', 'approve', 'approve-only', 'comment', 'request-changes', 'discard', 'requeue', 'restore', 'resolve-thread', 'merge', 'keep-mergeable', 'merge-when-ready', 'refresh', 'pr-flow-dismiss', 'pr-flow-fix-local', 'pr-flow-undo', 'pr-flow-save-rule', 'pr-flow-approve', 'pr-flow-run'],
@@ -234,7 +233,7 @@ export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
 export const ONBOARDING_STEPS = Object.freeze(['agent', 'repo_roots', 'notifications', 'first_session'] as const);
 export const ONBOARDING_STEP_STATES = Object.freeze(['current', 'done'] as const);
 export type OnboardingStepReport = { step: (typeof ONBOARDING_STEPS)[number]; state: (typeof ONBOARDING_STEP_STATES)[number] };
-export const OPERATOR_SURFACES = Object.freeze(['usage', 'issues', 'radar', 'onboarding', 'reviews', 'star', 'community'] as const);
+export const OPERATOR_SURFACES = Object.freeze(['usage', 'radar', 'onboarding', 'reviews', 'star', 'community'] as const);
 export type OperatorSurface = (typeof OPERATOR_SURFACES)[number];
 export type OperatorAction = { [Surface in OperatorSurface]: (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number] }[OperatorSurface];
 export type OperatorActionOf<Surface extends OperatorSurface> = (typeof OPERATOR_ACTIONS_BY_SURFACE)[Surface][number];

@@ -1,6 +1,6 @@
 # GitHub lanes
 
-GitHub lanes: issue and pull request polling, the canonical PR store (`core/github-store-core.ts`, `github-store-poller.ts`, `github-store-wiring.ts`), and the opt-in team PR review that acts under the operator's name
+GitHub lanes: pull request polling, the canonical PR store (`core/github-store-core.ts`, `github-store-poller.ts`, `github-store-wiring.ts`), and the opt-in team PR review that acts under the operator's name
 
 ## invariants
 - drafts follow the reviewed head: A team review draft is never left ready for posting at a pull request head it was not reviewed at: a moved head makes it stale, a returned head makes it ready again, and restoring or requeueing a discarded draft while the head has moved leaves it stale.

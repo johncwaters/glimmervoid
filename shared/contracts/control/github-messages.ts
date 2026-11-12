@@ -1,4 +1,3 @@
-import { IssueRepoSlug, IssuesStatus } from '../issues.ts';
 import { GithubPollingRefreshRequest, GithubPollingRefreshResult } from '../github-polling.ts';
 import { z } from 'zod';
 import { TeamReviewActionRequest, TeamReviewActionResult, TeamReviewStatus, hasRequiredActionHead } from '../team-review.ts';
@@ -9,9 +8,6 @@ import { requestId, GithubTeam, PullRequestKey, loose, optionalError } from './c
 
 export const githubClientVariants = [
   loose('list-github-teams', { requestId }),
-  loose('issue-detail', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
-  loose('open-issue-session', { requestId, projectId: z.string(), repo: IssueRepoSlug, issueNumber: z.number().int().positive() }),
-  loose('set-issue-state', { requestId: z.string().min(1), repo: IssueRepoSlug, issueNumber: z.number().int().positive(), state: z.enum(['closed', 'open']) }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
   loose('team-review-refresh-threads', { requestId, key: PullRequestKey }),
@@ -28,17 +24,6 @@ export const githubClientVariants = [
 
 export const githubServerVariants = [
   loose('github-teams-listed', { requestId, viewer: z.string().nullable(), teams: z.array(GithubTeam), orgs: z.array(z.string()), error: z.string().nullable() }),
-  loose('issue-detail-result', { requestId: z.string().min(1), ok: z.boolean(), body: z.string().nullable(), error: z.string().nullable() }),
-  loose('set-issue-state-result', { requestId: z.string().min(1), ok: z.boolean(), error: optionalError }),
-  loose('open-issue-session-result', {
-    requestId,
-    ok: z.boolean(),
-    error: optionalError,
-    sessionId: z.string().optional(),
-    sessionName: z.string().optional(),
-    pending: z.boolean().optional(),
-    existing: z.boolean().optional(),
-  }),
   loose('open-team-review-session-result', {
     requestId,
     ok: z.boolean(),
@@ -59,5 +44,4 @@ export const githubServerVariants = [
   MyPrsStatus,
   PrFlowsStatus,
   GithubPrsFrame,
-  IssuesStatus,
 ] as const;

@@ -401,7 +401,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     teamReview,
     myPrs,
     packStore,
-    issues,
     community,
     traceChangeBroadcast,
     traceWiring,
@@ -730,7 +729,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     teamReview,
     myPrs,
     packStore,
-    issues,
     community,
     workflows: laneAssembly.workflows,
     races: laneAssembly.races,
@@ -770,12 +768,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
   });
   laneAssembly.githubStore.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
-  watcherLink.registerProbeSource(laneAssembly.issues.probeSource);
   if (agentApi) {
     watcherLink.registerAlarmSource(agentApi.sessionWakes);
     agentApi.sessionWakes.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
   }
-  laneAssembly.issues.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   for (const posthogLane of [laneAssembly.posthog, laneAssembly.community]) {
     watcherLink.registerProbeSource(posthogLane.probeSource);
     posthogLane.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
@@ -832,7 +828,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     teamReview,
     community,
     myPrs,
-    issues,
     usage,
     readTracePage: traceWiring?.readTracePage ?? null,
     sessionDocs,

@@ -1,6 +1,6 @@
 # server/github
 
-Shared GitHub store and lanes: issue and pull request polling, and the opt-in team PR review that acts under the operator's name.
+Shared GitHub store and lanes: pull request polling, and the opt-in team PR review that acts under the operator's name.
 
 ## Invariants
 

@@ -4,7 +4,6 @@ import { clearHeaderErrorsForSession } from '../action-status.ts';
 import { forgetSessionCoherence, setSessionCoherenceHooks } from '../coherence/journal-drawer.ts';
 import { refreshFavicon } from '../favicon.ts';
 import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-view.ts';
-import { refreshIssuesSessionState } from '../github/issues-store.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
 import { forgetSessionWakes, setSessionWakes } from '../session-card/session-wakes.ts';
@@ -29,7 +28,6 @@ import { forgetSessionHost, hostOfSession, rememberSessionHost, sessionsOfHost }
 
 
 function refreshAttentionSurfaces() {
-  refreshIssuesSessionState();
   refreshMyPrsSessionState();
   refreshPhoneBoard();
 }
@@ -208,7 +206,6 @@ function handleSessionStatus(msg: SessionStatusMessage) {
     if (!msg.transition) return;
     createSessionCard(msg.id, msg.session, msg.transition.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
     refreshFavicon(attentionTally.counts);
-    refreshIssuesSessionState();
     return;
   }
   if (msg.transition) applySessionTransition(msg, msg.transition);

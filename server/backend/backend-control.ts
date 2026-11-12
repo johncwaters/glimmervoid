@@ -1,6 +1,5 @@
 import type { GithubLaneStore } from '../github/github-store-wiring.ts';
-import type { IssuesStatus } from '../../shared/contracts/issues.ts';
-import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
+import type { GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
@@ -33,7 +32,7 @@ interface SnapshotLane {
 }
 
 interface LaneReader {
-  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestIssue' | 'requestViewer' | 'requestViewerTeams'> };
+  githubStore: { snapshotMessage: () => GithubPrsFrame; getFreshness: () => GithubPrsFreshness; laneStore: Pick<GithubLaneStore, 'requestViewer' | 'requestViewerTeams'> };
   coderEnv: NonNullable<ControlHandlerDeps['coderEnv']>;
   gitWorkspace: NonNullable<ControlHandlerDeps['remoteRepoGit']>;
   starHint: NonNullable<ControlHandlerDeps['starHint']>;
@@ -100,7 +99,6 @@ interface BackendControlDependencies {
   teamReview: TeamReviewControl;
   community: CommunityControl;
   myPrs: MyPrMergeControl & { getStatus: () => MyPrsSnapshot };
-  issues: { getStatus: () => IssuesStatus; refresh: () => Promise<GithubPollingRefreshResult>; projectRepoSlugs: (projectId: string) => Promise<string[]>; getLinkedSessionId: (issueKey: string) => Promise<string | null>; linkSession: (issueKey: string, sessionId: string) => Promise<void>; setIssueState: (change: { repo: string; number: number; state: 'closed' | 'open' }) => Promise<{ ok: boolean; err: string }> };
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs: SessionDocsPort;
@@ -127,7 +125,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     teamReview,
     community,
     myPrs,
-    issues,
     usage,
     logger,
   } = dependencies;
@@ -167,8 +164,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getTeamReviewStatus: () => teamReview.getStatus(),
     getCommunityStatus: () => community.getStatus(),
     getMyPrsStatus: () => myPrs.getStatus(),
-    getIssuesStatus: () => issues.getStatus(),
-    issueProjectRepos: (projectId) => issues.projectRepoSlugs(projectId),
     teamReview,
     community,
     myPrs,
@@ -176,9 +171,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     packs: laneAssembly.packStore,
     packData: laneAssembly.packData,
     races: laneAssembly.races,
-    issues,
     githubStore: laneAssembly.githubStore,
-    requestIssue: laneAssembly.githubStore.laneStore.requestIssue,
     requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
     requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,
     serverBuild: dependencies.serverBuild,

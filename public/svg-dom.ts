@@ -33,7 +33,6 @@ export const USAGE_ICON_PATH = 'M3 13V9M8 13V3M13 13V6.5';
 export const FOCUS_ICON_PATH = 'M2.5 5.5v-3h3 M10.5 2.5h3v3 M13.5 10.5v3h-3 M5.5 13.5h-3v-3 M8 5c0.3 1.6 1.4 2.7 3 3c-1.6 0.3-2.7 1.4-3 3c-0.3-1.6-1.4-2.7-3-3c1.6-0.3 2.7-1.4 3-3z';
 export const BOARDS_ICON_PATH = 'M3 1.5v12.5 M3 1.5h4a2.75 2.75 0 0 1 0 5.5H3 M3 7h5a3 3 0 0 1 0 6H5 M6.75 11.25L5 13l1.75 1.75';
 export const REVIEWS_ICON_PATH = 'M5 13V3M2.5 5.5L5 3l2.5 2.5 M11 3v10M8.5 10.5L11 13l2.5-2.5';
-export const ISSUES_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z M8 8h0.01';
 export const RADAR_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z M8 8L11.5 4.5';
 export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
