@@ -256,10 +256,10 @@ const SETTINGS_TOOL: GroupedTool = {
 const PACKS_TOOL: GroupedTool = {
   name: 'packs',
   title: 'Glimmervoid packs',
-  description: 'Build and install Glimmervoid packs: folders that add color themes, sandboxed HTML dashboard panels and My PRs commands. guide returns how packs work, the pack.json and panel bridge JSON Schemas and example packs to copy; read it before writing a pack. check validates a pack folder and lists what it adds; install checks a folder and copies it into Glimmervoid\'s packs folder, where it waits for approval; request-approval asks the operator to approve an installed pack; status reads one pack\'s approval state and problems; list names every pack here; remove deletes a pack install made. Only the operator approves a pack, in Settings, Packs; no action here can.',
+  description: 'Build and install Glimmervoid packs: folders that add color themes, sandboxed HTML dashboard panels and My PRs commands. guide returns how packs work, the pack.json and panel bridge JSON Schemas and example packs to copy; read it before writing a pack. check validates a pack folder and lists what it adds; install checks a folder and copies it into Glimmervoid\'s packs folder, where it waits for approval; preview checks a folder and shows its panels with sample data as a live page card on this session\'s board; request-approval asks the operator to approve an installed pack; status reads one pack\'s approval state and problems; list names every pack here; remove deletes a pack install made. Only the operator approves a pack, in Settings, Packs; no action here can.',
   loadsUpfront: false,
   fields: {
-    path: AgentPacksRequest.shape.path.describe('check, install: the pack folder, absolute or relative to this session\'s directory'),
+    path: AgentPacksRequest.shape.path.describe('check, install, preview: the pack folder, absolute or relative to this session\'s directory'),
     name: AgentPacksRequest.shape.name.describe('status, request-approval, remove: the pack name from its pack.json'),
   },
   actions: {
@@ -267,6 +267,7 @@ const PACKS_TOOL: GroupedTool = {
     check: { verb: 'packs', presenter: 'reply-text', required: ['path'], accepts: ['path'], hints: READS, toPayload: (toolArguments) => ({ command: 'check', ...definedEntries(toolArguments, ['path']) }) },
     list: { verb: 'packs', presenter: 'reply-text', required: [], accepts: [], hints: READS, toPayload: () => ({ command: 'list' }) },
     install: { verb: 'packs', presenter: 'reply-text', required: ['path'], accepts: ['path'], hints: WRITES, toPayload: (toolArguments) => ({ command: 'install', ...definedEntries(toolArguments, ['path']) }) },
+    preview: { verb: 'packs', presenter: 'reply-text', required: ['path'], accepts: ['path'], hints: WRITES, toPayload: (toolArguments) => ({ command: 'preview', ...definedEntries(toolArguments, ['path']) }) },
     status: { verb: 'packs', presenter: 'reply-text', required: ['name'], accepts: ['name'], hints: READS, toPayload: (toolArguments) => ({ command: 'status', ...definedEntries(toolArguments, ['name']) }) },
     'request-approval': { verb: 'packs', presenter: 'reply-text', required: ['name'], accepts: ['name'], hints: { ...WRITES, openWorld: true }, toPayload: (toolArguments) => ({ command: 'request-approval', ...definedEntries(toolArguments, ['name']) }) },
     remove: { verb: 'packs', presenter: 'reply-text', required: ['name'], accepts: ['name'], hints: DESTROYS, toPayload: (toolArguments) => ({ command: 'remove', ...definedEntries(toolArguments, ['name']) }) },

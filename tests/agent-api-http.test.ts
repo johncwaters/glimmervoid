@@ -342,6 +342,7 @@ function wiringFixture({
         myPrsStatus: () => null,
         readSettings: () => ({ ok: false as const, error: 'not in this fixture' }),
         readPacks: async () => ({ text: 'not in this fixture', hasProblem: true }),
+        previewPackPage: async () => ({ ok: false as const, error: 'not in this fixture' }),
       },
     } : {}),
     ...arena,

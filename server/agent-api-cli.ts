@@ -112,7 +112,7 @@ function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): 
 
 function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
   if (packArgument === undefined) return { command };
-  return command === 'check' || command === 'install' ? { command, path: path.resolve(packArgument) } : { command, name: packArgument };
+  return command === 'check' || command === 'install' || command === 'preview' ? { command, path: path.resolve(packArgument) } : { command, name: packArgument };
 }
 
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {

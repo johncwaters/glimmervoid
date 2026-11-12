@@ -113,7 +113,7 @@ export function previewThemes(pack: PackOnDisk | null): PreviewTheme[] {
 
 function previewPanels(pack: PackOnDisk | null): PreviewPanel[] {
   if (!pack?.ui?.ok) return [];
-  return pack.ui.value.panels.map((panel) => ({ id: panel.id, label: panel.label, url: `/files/${panel.entry.split('/').map(encodeURIComponent).join('/')}`, reads: panel.reads }));
+  return pack.ui.value.panels.map((panel) => ({ id: panel.id, label: panel.label, url: `files/${panel.entry.split('/').map(encodeURIComponent).join('/')}`, reads: panel.reads }));
 }
 
 const HOST_SCRIPT = `
@@ -166,11 +166,12 @@ function openPanel() {
   if (!panel) renderSwatches();
 }
 const storeKey = 'glimmervoid-preview-store:' + preview.packName;
+let storeWithoutStorage = {};
 function savedStore() {
   try {
     return JSON.parse(localStorage.getItem(storeKey) ?? '{}');
   } catch {
-    return {};
+    return storeWithoutStorage;
   }
 }
 function isShallowJsonValue(root) {
@@ -190,7 +191,11 @@ function saveStoreKey(key, value) {
   if (value !== null) next[key] = value;
   const byteCount = new TextEncoder().encode(JSON.stringify(next) + '\\n').length;
   if (byteCount > preview.storeMaxBytes) return post({ v: 1, kind: 'store', data: savedStore(), error: preview.packName + ' would store ' + byteCount + ' bytes, over the ' + preview.storeMaxBytes + ' byte limit; nothing was saved' });
-  localStorage.setItem(storeKey, JSON.stringify(next));
+  try {
+    localStorage.setItem(storeKey, JSON.stringify(next));
+  } catch {
+    storeWithoutStorage = next;
+  }
   post({ v: 1, kind: 'store', data: next, error: null });
 }
 function isStoreSet(request) {
@@ -202,7 +207,7 @@ function isAction(request) {
     && typeof request.id === 'string' && request.id.length >= 1 && request.id.length <= 64;
 }
 async function answerAction(panel, actionId, actionRequest) {
-  const response = await fetch('/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ panel: panel.id, request: actionRequest }) }).catch(() => null);
+  const response = await fetch('action', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ panel: panel.id, request: actionRequest }) }).catch(() => null);
   const decision = response ? await response.json().catch(() => null) : null;
   const error = decision ? (decision.ok ? null : decision.error) : 'the preview server did not answer';
   status.textContent = error === null ? 'Glimmervoid would send ' + decision.type + ' ' + JSON.stringify(decision.payload) + '; the preview sends nothing' : 'Action not sent: ' + error;

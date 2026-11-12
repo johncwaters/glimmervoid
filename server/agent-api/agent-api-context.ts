@@ -35,6 +35,7 @@ interface AgentOperatorStatePort {
   myPrsStatus(): MyPrsSnapshot | null;
   readSettings(request: AgentSettingsRequest): AgentSettingsReply;
   readPacks(request: AgentPacksRequest): Promise<{ text: string; hasProblem: boolean }>;
+  previewPackPage(packDir: string): Promise<{ ok: true; pagePath: string; url: string } | { ok: false; error: string }>;
 }
 
 interface AgentApiWiringOptions {

@@ -29,6 +29,7 @@ import { readPacksForAgent } from '../packs/pack-agent.ts';
 import { createBackendWebSockets } from './backend-websockets.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
 import { createBackendShutdown } from './backend-shutdown.ts';
+import { createBoardPackPreviews } from '../packs/pack-preview-server.ts';
 import { createBackendTrust } from './backend-trust.ts';
 import { createSessionEventWiring, persistSessionField } from '../session/session-event-wiring.ts';
 import {
@@ -225,6 +226,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   };
   const frameSecret = crypto.randomBytes(32);
+  const boardPackPreviews = createBoardPackPreviews({ env: process.env, homeDir: glimmervoidHomeDir(), pagesDir: path.join(glimmervoidHomeDir(), 'pack-previews') });
   const app = createBackendHttpApp({
     ...agentIngressDependencies,
     staticDir,
@@ -239,6 +241,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     isLinkPreviewEnabled: () => config.linkPreviews !== false,
     fetchLinkPreview: createLinkPreviewFetcher(),
     getPackFile: (packName, fingerprint, filePath) => laneAssembly.packStore.servableFile(packName, fingerprint, filePath),
+    packPreviews: boardPackPreviews,
     frameSecret,
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
@@ -466,6 +469,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
         packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint),
       }),
+      previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
     },
     whiteboards,
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),

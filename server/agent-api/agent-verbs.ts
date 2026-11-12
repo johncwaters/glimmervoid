@@ -54,6 +54,10 @@ function hasGitFolder(folder: string): Promise<boolean> {
   return pathExists(path.join(folder, '.git'));
 }
 
+function whiteboardCallerOf(session: Session) {
+  return { id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace };
+}
+
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, coderWorkspaceStatus, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
@@ -135,12 +139,24 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (!operatorState) return refusal(503, 'packs are not available in this Glimmervoid');
     if (request.path !== undefined && session.remoteWorkspace) return refusal(409, `this session runs in a Coder workspace, so its pack folder is not on this machine to ${request.command}`);
     const packPath = request.path === undefined ? undefined : path.resolve(session.effectiveCwd(), request.path);
+    if (request.command === 'preview' && packPath !== undefined) return previewPack(session, packPath);
     const reply = await operatorState.readPacks({ ...request, ...(packPath === undefined ? {} : { path: packPath }) });
     if (request.command !== 'request-approval') return { status: 200, body: { ok: true, ...reply } };
     if (reply.hasProblem) return refusal(409, reply.text);
     const raised = session.raiseAttention('agent', reply.text);
     if (!raised.ok) return refusal(429, raised.error);
     return { status: 200, body: { ok: true, text: `Asked the operator to approve it in Settings, Packs: ${reply.text}`, hasProblem: false } };
+  }
+
+  async function previewPack(session: Session, packPath: string): Promise<AgentReplyOf<'packs'>> {
+    if (!operatorState || !whiteboards) return refusal(503, 'pack previews are not available in this Glimmervoid');
+    const check = await operatorState.readPacks({ command: 'check', path: packPath });
+    const page = await operatorState.previewPackPage(packPath);
+    if (!page.ok) return refusal(409, `${check.text}\n\nNo preview: ${page.error}`);
+    const shown = await whiteboards.handleAgent(whiteboardCallerOf(session), { sub: 'show', path: page.pagePath, caption: 'Pack preview with sample data' });
+    if (!shown.body.ok) return refusal(shown.status, `${check.text}\n\nThe preview is served at ${page.url}, but the board card was not placed: ${shown.body.error}`);
+    const note = 'note' in shown.body && typeof shown.body.note === 'string' ? shown.body.note : 'showed the preview on this session board';
+    return { status: 200, body: { ok: true, text: `${check.text}\n\nPreview: ${note}. Glimmervoid serves it at ${page.url} and re-reads the pack folder on each reload; panel actions only say what they would send.`, hasProblem: check.hasProblem } };
   }
 
   async function comments(session: Session, request: AgentCommentsRequest): Promise<AgentReplyOf<'comments'>> {
@@ -392,7 +408,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd(), isRemote: session.remoteWorkspace !== null }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
-    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent({ id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd(), remoteWorkspace: session.remoteWorkspace }, request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent(whiteboardCallerOf(session), request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 
   return { handlers, roleFactsOf };

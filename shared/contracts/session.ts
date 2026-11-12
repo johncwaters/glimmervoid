@@ -222,8 +222,8 @@ export const AgentSettingsRequest = z.object({
   path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(200, { error: 'path must be at most 200 characters' }).optional(),
 }).strict();
 
-const AGENT_PACKS_COMMANDS = ['guide', 'check', 'list', 'install', 'status', 'request-approval', 'remove'] as const;
-const PACK_FOLDER_COMMANDS: readonly string[] = ['check', 'install'];
+const AGENT_PACKS_COMMANDS = ['guide', 'check', 'list', 'install', 'preview', 'status', 'request-approval', 'remove'] as const;
+const PACK_FOLDER_COMMANDS: readonly string[] = ['check', 'install', 'preview'];
 const PACK_NAME_COMMANDS: readonly string[] = ['status', 'request-approval', 'remove'];
 
 export const AgentPacksRequest = z.object({
@@ -231,7 +231,7 @@ export const AgentPacksRequest = z.object({
   path: z.string({ error: 'path must be a string' }).min(1, { error: 'path must not be empty' }).max(4096, { error: 'path must be at most 4096 characters' }).optional(),
   name: z.string({ error: 'name must be a string' }).min(1, { error: 'name must not be empty' }).max(40, { error: 'a pack name is at most 40 characters' }).optional(),
 }).strict()
-  .refine((request) => !PACK_FOLDER_COMMANDS.includes(request.command) || request.path !== undefined, { error: 'check and install need the path of a pack folder' })
+  .refine((request) => !PACK_FOLDER_COMMANDS.includes(request.command) || request.path !== undefined, { error: 'check, install and preview need the path of a pack folder' })
   .refine((request) => !PACK_NAME_COMMANDS.includes(request.command) || request.name !== undefined, { error: 'status, request-approval and remove need the name of a pack' });
 
 const AGENT_COMMENTS_COMMANDS = ['list', 'reply', 'resolve'] as const;

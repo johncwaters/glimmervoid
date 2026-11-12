@@ -57,7 +57,7 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     'Examples to copy and adapt:',
     ...await exampleLines(examplePacksDir),
     '',
-    'Workflow: write the pack in any folder, run glimmervoid packs check <folder> (exits 1 and lists every problem, including files a page loads that are missing or remote), then glimmervoid packs preview <folder> to open its panels in a browser with sample data and its themes, without installing or approving anything. Then install it and call request-approval. The packs tool actions check, install, status, request-approval and remove do the same over MCP.',
+    'Workflow: write the pack in any folder, run glimmervoid packs check <folder> (exits 1 and lists every problem, including files a page loads that are missing or remote), then glimmervoid packs preview <folder> to open its panels in a browser with sample data and its themes, without installing or approving anything. Then install it and call request-approval. The packs tool actions check, install, status, request-approval and remove do the same over MCP, and its preview action shows the panels with sample data as a live page card on your session board, loading from this machine.',
     '',
     ...schemaLines,
   ].join('\n');
@@ -145,6 +145,7 @@ export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAg
       return { text: rows.length === 0 ? `No packs are installed; ${path.join(deps.homeDir, PACKS_DIR_NAME)} holds none and config.json lists none.` : rows.flatMap(rowLines).join('\n'), hasProblem: rows.some((row) => row.errors.length > 0) };
     }
     case 'check':
+    case 'preview':
       return checkForAgent(request.path ?? '', deps);
     case 'install':
       return installForAgent(request.path ?? '', deps);

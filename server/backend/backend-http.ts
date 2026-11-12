@@ -1,3 +1,5 @@
+import { mountPackPreviewRoutes } from '../packs/pack-preview-server.ts';
+import type { BoardPackPreviews } from '../packs/pack-preview-server.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -114,6 +116,7 @@ interface BackendHttpDependencies {
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
   getPackFile?: PackFileSource;
+  packPreviews?: BoardPackPreviews;
   frameSecret?: Buffer;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getWhiteboardLayouts?: () => WhiteboardLayouts | null;
@@ -626,6 +629,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     serveBoardPageFile: (req, res, assetId, memberPath) => serveBoardPageFile(req, res, dependencies.getWhiteboardAssets?.() ?? null, assetId, memberPath),
     packFileSource: dependencies.getPackFile ?? null,
   });
+  mountPackPreviewRoutes(app, dependencies.packPreviews ?? null);
 
   if (remoteAuth) {
     app.use(remoteAuth.httpMiddleware);

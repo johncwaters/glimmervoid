@@ -13,6 +13,9 @@ import { readPacksForAgent } from '../server/packs/pack-agent.ts';
 import { PACKS_DIR_NAME, packLauncherRunsPath, packsStatePath } from '../server/packs/pack-files.ts';
 import { createPackLaunchers } from '../server/packs/launchers.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
+import express from 'express';
+import http from 'node:http';
+import { createBoardPackPreviews, mountPackPreviewRoutes } from '../server/packs/pack-preview-server.ts';
 import { createGithubStatus, createProviderStatus } from '../server/github/github-status.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
@@ -21,6 +24,7 @@ import { Session } from '../session/sessions.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 const EXAMPLE_THEME_PACK = path.resolve('examples/packs/night-shift');
@@ -40,6 +44,8 @@ function selfServiceFixture() {
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const session = idleSession(projectDir);
+  const boardPackPreviews = createBoardPackPreviews({ env: process.env, homeDir, pagesDir: path.join(homeDir, 'pack-previews') });
+  const shownOnBoard: Array<{ callerId: string; request: unknown }> = [];
   const wiring = createAgentApiWiring({
     config,
     agentSessions: new Map(),
@@ -60,6 +66,14 @@ function selfServiceFixture() {
         homeDir, env: process.env, examplePacksDir: path.resolve('examples/packs'),
         packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
       }),
+      previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
+    },
+    whiteboards: {
+      handleAgent: async (caller, request) => {
+        shownOnBoard.push({ callerId: caller.id, request });
+        const board = { id: 'board-1', title: 'Packs', version: 1, updatedAt: 0, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {} };
+        return { status: 200, body: { ok: true as const, board, note: 'showed the page as box b1 on board "Packs"' } };
+      },
     },
     logger: { warn: () => {} },
   });
@@ -73,7 +87,7 @@ function selfServiceFixture() {
     session.destroy();
     fs.rmSync(homeDir, { recursive: true, force: true });
   };
-  return { homeDir, projectDir, packStore, session, packs, rowNamed, cleanUp };
+  return { homeDir, projectDir, packStore, session, packs, rowNamed, shownOnBoard, cleanUp };
 }
 
 test('an agent installs a pack, asks for approval and removes it, while only the operator approval and no agent command approves it', async () => {
@@ -398,5 +412,46 @@ test('an approved pack listing status pages gets their open incidents in the pac
     await providerStatus.track([]);
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+async function servePreviews(homeDir: string) {
+  const app = express();
+  mountPackPreviewRoutes(app, createBoardPackPreviews({ env: process.env, homeDir, pagesDir: path.join(homeDir, 'pack-previews') }));
+  const server = http.createServer(app);
+  const port = await listenOnLoopback(server);
+  return { origin: `http://127.0.0.1:${port}`, close: () => closeServer(server) };
+}
+
+test('an agent previews a pack folder as a page card that Glimmervoid itself serves, one stable address per folder that survives a restart, while the pack stays uninstalled and unapproved', async () => {
+  const fixture = selfServiceFixture();
+  const restartedServer = await servePreviews(fixture.homeDir);
+  try {
+    await fixture.packStore.start();
+    const previewed = await fixture.packs({ command: 'preview', path: 'my-pack' });
+    assert.equal(previewed.status, 200, previewed.body.error ?? '');
+    assert.match(previewed.body.text ?? '', /night-shift[\s\S]*Preview: showed the page as box b1/);
+    const [shown] = fixture.shownOnBoard;
+    assert.equal(shown?.callerId, fixture.session.id);
+    const showRequest = shown?.request as { sub: string; path: string };
+    assert.equal(showRequest.sub, 'show');
+    const wrapperPage = fs.readFileSync(showRequest.path, 'utf8');
+    const previewPath = /\.src = "(\/pack-previews\/[0-9a-f]{32}\/)"/.exec(wrapperPage)?.[1] ?? '';
+    assert.notEqual(previewPath, '', wrapperPage);
+
+    const hostPage = await fetch(`${restartedServer.origin}${previewPath}`);
+    assert.match(await hostPage.text(), /Pack preview: night-shift/);
+    assert.match(hostPage.headers.get('content-security-policy') ?? '', /^sandbox allow-scripts allow-forms/);
+    const action = await fetch(`${restartedServer.origin}${previewPath}action`, { method: 'POST', headers: { Origin: 'null', 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ panel: 'none', request: {} }) });
+    assert.equal(action.headers.get('access-control-allow-origin'), 'null', 'the sandboxed board card can read what an action would send');
+    assert.equal((await fetch(`${restartedServer.origin}/pack-previews/${'0'.repeat(32)}/`)).status, 404);
+
+    await fixture.packs({ command: 'preview', path: 'my-pack' });
+    const secondShow = fixture.shownOnBoard[1]?.request as { path: string } | undefined;
+    assert.ok(fs.readFileSync(secondShow?.path ?? '', 'utf8').includes(previewPath), 'the second preview keeps the same address');
+    assert.equal(fixture.rowNamed('night-shift'), undefined, 'a preview installs nothing');
+  } finally {
+    await restartedServer.close();
+    fixture.cleanUp();
   }
 });
