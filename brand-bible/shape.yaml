@@ -16,3 +16,8 @@ shadows:
   shadow-xl: 0 8px 24px color-mix(in srgb, var(--shadow-tint) 80%, transparent)
   state-edge-waiting: inset 0 0 0 1px var(--state-waiting)
 restingShadow: false
+rules:
+  - rule: Never mark a row, card or panel with a colored side stripe (a left or right edge over 1px in an accent or state color, as a border or an inset shadow); emphasis is a tint, a full border or a leading glyph.
+    why: A stripe puts the emphasis on one edge instead of the thing that changed; tests/gates/no-glow.test.ts fails on one in any dashboard or site stylesheet.
+  - rule: Never blur an accent or state color into a glow (blurred box-shadow, drop-shadow, text-shadow or radial haze); state reads through a tinted fill, a full border and one motion.
+    why: A blurred halo spends emphasis on the empty space around the thing that changed; tests/gates/no-glow.test.ts fails on one in any dashboard or site stylesheet.
