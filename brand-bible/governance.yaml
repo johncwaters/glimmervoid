@@ -2,9 +2,6 @@ owner: John C. Waters
 reviewers: []
 reviewEveryMonths: 6
 exemptions:
-  - paths: [public/whiteboard/**, shared/whiteboard-svg-core.ts, public/doc-editor/**]
-    kinds: [font-family]
-    why: ComicMono is the hand-drawn face of whiteboards and the doc editor's red pen, so sketches and pen marks never read as chrome.
   - paths: [public/**/posthog*, site/src/**/posthog*]
     kinds: [color]
     why: Third-party logos keep their owners' colors.

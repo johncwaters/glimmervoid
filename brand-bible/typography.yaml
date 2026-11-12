@@ -14,6 +14,13 @@ families:
       - public/fonts/ibm-plex-sans-latin.woff2
     license: SIL OFL 1.1 (assets/fonts/IBMPlexSans-OFL.txt)
     fallback: [Segoe UI, system-ui, sans-serif]
+  - id: board
+    family: ComicMono
+    files:
+      - public/fonts/comic-mono-400.woff2
+      - public/fonts/comic-mono-700.woff2
+    license: MIT (assets/fonts/ComicMono-LICENSE.txt)
+    fallback: [CommitMono, monospace]
 scale:
   meta: { token: type-meta, sizePx: 12, lineHeight: 1.55, weight: 400, trackingEm: 0, case: none }
   body: { token: type-body, sizePx: 14, lineHeight: 1.5, weight: 400, trackingEm: 0, case: none }
