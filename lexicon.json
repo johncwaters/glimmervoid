@@ -237,7 +237,7 @@
     },
     {
       "name": "host",
-      "definition": "A machine running Glimmervoid; a registered host is another such machine, listed under hosts in config, that this dashboard links over an ssh tunnel and shows in the sidebar with its sessions"
+      "definition": "A machine running Glimmervoid; linked hosts, other such machines this dashboard reached over an ssh tunnel, are retired and named only in history"
     },
     {
       "name": "watcher",
@@ -334,7 +334,7 @@
     },
     {
       "name": "link",
-      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, a linked host reached over an ssh tunnel, or a board card linked to a file in the code session worktree"
+      "definition": "A connection Glimmervoid keeps and shows between two things: a session linked to its pull request, or a board card linked to a file in the code session worktree"
     },
     {
       "name": "model",

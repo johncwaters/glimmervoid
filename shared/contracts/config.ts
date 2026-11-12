@@ -9,7 +9,6 @@ import { BranchGcControlSettings, GithubSettings,
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { isLinkUrlSafe } from './watcher-link.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
-import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
 
@@ -203,7 +202,6 @@ export const Config = z.object({
     ownerLogin: z.string().optional(),
     doormanUrl: z.string().refine(isLinkUrlSafe, { error: 'remote.doormanUrl must use https, or http only for this machine' }).optional(),
   }).passthrough().optional(),
-  hosts: HostEntries.optional(),
   vault: VaultFileSettings,
   projects: z.array(ProjectConfig),
 }).passthrough().superRefine((config, ctx) => {

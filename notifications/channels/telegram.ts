@@ -96,4 +96,4 @@ function createTelegramChannel({
   };
 }
 
-export { createTelegramChannel, decideTelegramNotification, formatTelegramText };
+export { createTelegramChannel, decideTelegramNotification };

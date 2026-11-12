@@ -21,8 +21,6 @@ interface PendingRequest {
 }
 
 interface ControlClientOptions {
-  pathPrefix: string;
-  isLocal: boolean;
   onMessage(message: ServerMessage): void;
   onStateChange?(state: string, label: string): void;
   onSocketChange?(change: ControlSocketChange): void;
@@ -30,7 +28,7 @@ interface ControlClientOptions {
   onUnreadableMessage?(): void;
 }
 
-export interface ControlClient {
+interface ControlClient {
   connect(): void;
   abandon(): void;
   reconnectNow(): void;
@@ -45,7 +43,7 @@ export function nextRequestId(prefix: string): string {
   return `${prefix}-${requestSequence}`;
 }
 
-export function createControlClient(options: ControlClientOptions): ControlClient {
+function createControlClient(options: ControlClientOptions): ControlClient {
   let controlWs: WebSocket | null = null;
   let controlRetryTimer: number | null = null;
   let controlRetryAttempt = 0;
@@ -124,7 +122,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
     try {
       rawMessage = JSON.parse(event.data);
     } catch {
-      reportToServerLog('control', `dropped a ${options.pathPrefix || 'local'} message that is not JSON`);
+      reportToServerLog('control', 'dropped a message that is not JSON');
       return;
     }
     const parsedMessage = ServerMessage.safeParse(rawMessage);
@@ -170,7 +168,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
     }
 
     const since = lastSeq > 0 ? `?since=${lastSeq}` : '';
-    const url = buildWebSocketUrl(location, withPageToken(`${options.pathPrefix}/control${since}`));
+    const url = buildWebSocketUrl(location, withPageToken(`/control${since}`));
     const ws = new WebSocket(url);
     controlWs = ws;
     options.onSocketChange?.('connecting');
@@ -192,7 +190,7 @@ export function createControlClient(options: ControlClientOptions): ControlClien
       controlWs = null;
       rejectPendingRequests(NOT_CONNECTED_TEXT);
 
-      if (!hasEverOpened && options.isLocal) clearPageToken();
+      if (!hasEverOpened) clearPageToken();
       options.onStateChange?.('disconnected', 'Reconnecting');
       options.onSocketChange?.('closed');
       const retryDelayMs = nextReconnectDelayMs(controlRetryAttempt);
@@ -208,12 +206,8 @@ let _messageHandler: ControlMessageHandler | null = null;
 let _connectionStateCallback: ConnectionStateCallback | null = null;
 let _controlSocketChangeListener: ControlSocketChangeListener | null = null;
 let _unreadableServerMessageListener: UnreadableServerMessageListener | null = null;
-let routeControlMessage: (msg: Record<string, unknown>) => ControlClient | null = () => null;
-let listHostClients: () => readonly ControlClient[] = () => [];
 
 const localClient = createControlClient({
-  pathPrefix: '',
-  isLocal: true,
   onMessage: (message) => _messageHandler?.(message),
   onStateChange: (state, label) => _connectionStateCallback?.(state, label),
   onSocketChange: (change) => _controlSocketChangeListener?.(change),
@@ -223,11 +217,6 @@ const localClient = createControlClient({
     headerErrorTelemetryReporter.flushUnsent();
   },
 });
-
-export function setControlRouter(router: (msg: Record<string, unknown>) => ControlClient | null, hostClients: () => readonly ControlClient[]) {
-  routeControlMessage = router;
-  listHostClients = hostClients;
-}
 
 export function setConnectionStateCallback(fn: ConnectionStateCallback) {
   _connectionStateCallback = fn;
@@ -246,7 +235,7 @@ export function onControlMessage(handler: ControlMessageHandler) {
 }
 
 export function sendControlMsg(msg: Record<string, unknown>): boolean {
-  return (routeControlMessage(msg) ?? localClient).send(msg);
+  return localClient.send(msg);
 }
 
 const clientLogReporter = createClientLogReporter(localClient.send);
@@ -263,17 +252,15 @@ export function reportHeaderErrorToServer(source: string, text: string, kind?: I
 }
 
 export function sendControlRequest(type: string, payload?: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<ServerMessage> {
-  return (routeControlMessage(payload ?? {}) ?? localClient).request(type, payload, options);
+  return localClient.request(type, payload, options);
 }
 
 export function abandonControlSocket() {
   localClient.abandon();
-  for (const hostClient of listHostClients()) hostClient.abandon();
 }
 
 export function replaceControlSocket() {
   localClient.reconnectNow();
-  for (const hostClient of listHostClients()) hostClient.reconnectNow();
 }
 
 export function probeControl(deadlineMs: number, isAnnounced: boolean): Promise<boolean> {

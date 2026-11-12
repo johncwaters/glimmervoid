@@ -203,3 +203,37 @@ test('a keystroke on a title-only agent card still ends WAITING', async () => {
     await harness.close();
   }
 });
+
+test('a control socket from a hub on an older release is refused and never counts as a dashboard viewer', async () => {
+  const server = http.createServer();
+  const webSockets = createBackendWebSockets({
+    remote: { allowedOrigins: [] },
+    remoteAuth: { isUpgradeAuthorized: () => false },
+    remoteListenerPort: () => null,
+    allowedHosts: [],
+    listenerPortsFor: () => [boundPort(server)],
+    tokenMatches: () => true,
+    getSession: () => null,
+    logger: { warn: () => {} },
+  });
+  server.on('upgrade', (request, socket, head) => webSockets.handleUpgrade(request, socket, head));
+  await listenOnLoopback(server);
+  const origin = `http://127.0.0.1:${boundPort(server)}`;
+  const hubSocket = new WebSocket(`ws://127.0.0.1:${boundPort(server)}/control?token=t`, { headers: { origin, 'x-glimmervoid-role': 'hub' } });
+  try {
+    const hubStatusCode = await new Promise<number | null>((resolve) => {
+      hubSocket.once('open', () => resolve(null));
+      hubSocket.once('unexpected-response', (_request, response) => resolve(response.statusCode ?? null));
+      hubSocket.once('error', () => resolve(-1));
+    });
+    assert.equal(hubStatusCode, 410);
+    assert.equal(webSockets.viewerControlClientCount(), 0);
+    assert.equal(webSockets.isViewerConnected(), false);
+  } finally {
+    hubSocket.terminate();
+    for (const client of webSockets.controlWss.clients) client.terminate();
+    webSockets.controlWss.close();
+    server.closeAllConnections();
+    await closeServer(server);
+  }
+});

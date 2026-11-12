@@ -134,14 +134,9 @@ export const MACHINE_REMOTE: SettingsSection = {
   id: 'machine-remote',
   level: 'machine',
   title: 'Remote',
-  description: 'Sessions on other machines: hosts running Glimmervoid that this dashboard links over ssh, and Coder workspaces.',
+  description: 'Sessions in Coder workspaces, and a session that sets up Glimmervoid on another machine.',
   legacyIds: ['machine-hosts'],
   settings: [
-    {
-      id: 'hosts', path: 'status:hosts', title: 'Linked hosts',
-      description: 'Each host\'s link and build. The host key must already be known to ssh. Removing a host leaves its sessions running there.',
-      control: 'readonly', keywords: ['remote', 'ssh', 'machine', 'devbox', 'server', 'link', 'tunnel', 'add host', 'remove host'], status: 'hosts', ...READOUT,
-    },
     {
       id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
       description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',

@@ -431,8 +431,6 @@ function runParsedSettingsCommand(parsed: ParsedSettingsRun, io: SettingsCliIo):
   }
 }
 
-export { processIo, requireView, saveValidatedConfig };
-export type { SettingsCliIo };
 
 export async function runParsedSettingsCli(parsed: ParsedSettingsRun, io: SettingsCliIo = processIo()): Promise<number> {
   const serverRequest = settingsRequestForServer(parsed, process.env);

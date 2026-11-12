@@ -68,8 +68,7 @@ import { trackedReportCleanupCommands } from '../../shared/post-turn-leftovers.t
 import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
-import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, selfLaunch } from '../runtime-paths.ts';
-import { shellQuote } from '../../session/core/hook-command-core.ts';
+import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -85,8 +84,6 @@ import { createVaultSocket } from '../secrets/vault-socket.ts';
 import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
-import { createHostLinksWiring } from '../hosts/host-links-wiring.ts';
-import type { SpawnHostTunnel } from '../hosts/host-links-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -98,7 +95,6 @@ interface CreateBackendOptions extends BackendLaneOptions {
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
   isExperimentalBuild?: boolean;
-  spawnHostTunnel?: SpawnHostTunnel;
   localPort?: number;
 }
 
@@ -256,7 +252,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getSession: getSessionAny,
     recordOutcome,
     logger: console,
-    relayToHost: (request, socket, head) => hostLinks.relayUpgrade(request, socket, head),
   });
   const {
     controlWss,
@@ -268,9 +263,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     closeSessionDataClients,
     viewerControlClientCount,
     isViewerConnected,
-    isHubControlSocket,
-    hubControlClientCount,
-    sendToHubControlSockets,
   } = webSockets;
   function forgetSessionInSavedOrder(sessionId: string) {
     if (!config.sessionOrder?.includes(sessionId)) return;
@@ -289,13 +281,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     void reviews.forgetSession(message.id);
     forgetSessionInSavedOrder(message.id);
   };
-  const hostLinks = createHostLinksWiring({
-    hosts: config.hosts ?? [],
-    hubBuild: serverBuild,
-    broadcast: broadcastControlFromWebSockets,
-    relayPhoneAlert: (hostName, text) => notifications.relayHostPhoneAlert(hostName, text),
-    spawnHostTunnel: options.spawnHostTunnel,
-  });
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
@@ -324,7 +309,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getMemoryGateStatus: () => laneAssembly.memoryAdmission.gateStatus(),
     controlWss,
     viewerControlClientCount,
-    hubControlClientCount,
     dataWss,
     broadcastControl,
   });
@@ -337,9 +321,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     controlWss,
     onControlConnection,
     viewerControlClientCount,
-    hubControlClientCount,
-    isHubControlSocket,
-    sendToHubControlSockets,
     dataWss,
     broadcastControl,
     recordOutcome,
@@ -380,7 +361,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onControlConnection,
     viewerControlClientCount,
     isViewerConnected,
-    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -484,7 +464,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordLane,
     setupRootDir: path.join(glimmervoidHomeDir(), 'remote-setup'),
     skillSourceDir: path.join(assetRoot, 'session', 'remote-setup'),
-    hubCliCommand: `${selfLaunch('cli').map(shellQuote).join(' ')} --config ${shellQuote(configStore.configPath)}`,
   });
 
   const wireSessionStatusEvents = createSessionEventWiring({
@@ -566,7 +545,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
 
   function applyConfigReload(newConfig: GlimmervoidConfig): void {
-    hostLinks.reconcile(newConfig.hosts ?? []);
     applyCustomAgents(newConfig);
     reconcileProjectsOnReload(newConfig);
   }
@@ -595,7 +573,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   function applySettingsReload(newConfig: GlimmervoidConfig): void {
     configStore.applySettings(newConfig);
-    hostLinks.reconcile(newConfig.hosts ?? []);
     telemetry.applyConfig();
     applyCustomAgents(newConfig);
     updateCheck.applySettings();
@@ -740,7 +717,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     heartbeat,
     outcomes,
     telemetry,
-    hostLinks,
     watcherLink,
     idleStop,
     awakeUsageAlerts,
@@ -797,7 +773,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     controlReplayLog,
-    hostLinks,
     agentConnect,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,

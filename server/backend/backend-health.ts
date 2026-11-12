@@ -14,7 +14,6 @@ interface BackendHealthDependencies {
   getMemoryGateStatus: () => MemoryGateStatus;
   controlWss: { clients: Set<WebSocket> };
   viewerControlClientCount: () => number;
-  hubControlClientCount: () => number;
   dataWss: { clients: Set<WebSocket> };
   broadcastControl: ControlBroadcast;
 }
@@ -82,7 +81,6 @@ function createBackendHealth(dependencies: BackendHealthDependencies): BackendHe
       memoryGate: dependencies.getMemoryGateStatus(),
       websockets: {
         control: dependencies.controlWss.clients.size,
-        hubControl: dependencies.hubControlClientCount(),
         data: dependencies.dataWss.clients.size,
         dataPerSessionTotal: dataClientTotal,
       },

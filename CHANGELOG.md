@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The Issues tab is gone.** The experimental tab that listed GitHub issues from your projects and teams and opened a session from one has been removed, along with its Settings switch, its background polling and its watcher lane. An `issues` block left in config.json is dropped at startup with one log line, and the old issues cache file in your Glimmervoid folder is deleted.
 - **Glimmervoid no longer reports activity to Coder.** When Glimmervoid ran inside a Coder workspace with `coder.appSlug` set, it told Coder whether sessions were working so the workspace stayed up. That reporting is gone, so a Coder workspace running Glimmervoid now follows only its own idle rules.
+- **Linked hosts are gone.** This dashboard no longer links other machines running Glimmervoid over ssh: the `glimmervoid host` command, the Linked hosts list in Settings, the host headers in the sidebar, the host choice in Add Session and Telegram alerts relayed from a linked host have been removed. A `hosts` block left in config.json is dropped at startup with one log line, and sessions already running on those machines keep running there; open each machine's own dashboard to reach them. Remote host setup still installs Glimmervoid on another machine, without the final linking step.
 
 ## [0.57.3] - 2026-11-12
 

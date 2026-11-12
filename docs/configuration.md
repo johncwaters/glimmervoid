@@ -74,7 +74,7 @@ Which version is running, and updating to the newest.
 
 ### Remote
 
-Sessions on other machines: hosts running Glimmervoid that this dashboard links over ssh, and Coder workspaces.
+Sessions in Coder workspaces, and a session that sets up Glimmervoid on another machine.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
@@ -270,7 +270,6 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | `guardrails` |  | Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. |
 | `hooks` |  | Operator-defined hooks per project, managed from the dashboard Hooks panel. |
 | `remote` | `{"port":null,"publicHost":"","allowedOrigins":[]}` | Remote listener, always on and answering paired devices only: `port` (a free port the system picks when unset, published in `~/.glimmervoid/remote-listener/<local port>.port`; must differ from the local port), `publicHost`, `allowedOrigins` and `ownerLogin` (when set, only that Tailscale login is answered; trustworthy only when the remote port is reached solely through HTTP-mode `tailscale serve`, since any other proxy, or `tailscale serve --tcp` or `--tls-terminated-tcp`, lets a client send its own `Tailscale-User-Login`), and `doormanUrl` (a doorman on another machine that hosts its watcher, https or http only for this machine; unset, the server starts its own doorman on this machine, kept in `~/.glimmervoid/doorman/<port>/`). Needs a server restart. See [Remote access](../README.md#remote-access). |
-| `hosts` |  | Other machines running Glimmervoid that this dashboard links over ssh and shows in the sidebar. Each entry has `id` (lowercase letters, digits and dashes), `name`, `sshTarget` (an ssh host or `~/.ssh/config` alias, never starting with a dash) and `dashboardPort` (that machine's loopback dashboard port). The tunnel runs `ssh` with `BatchMode=yes` and `StrictHostKeyChecking=yes`, so the host key must already be known. A host on a different Glimmervoid version is refused. Managed from Settings, Remote, or with `glimmervoid host add`, `list` and `remove`; a running Glimmervoid applies a change without a restart. |
 | `projects` | `[]` | Projects shown in the dashboard, added from the Add Session dialog. Each entry has `path` (required), optional `name`, `repos` (two or more member repositories for a workspace session), `baseBranch` (the branch sessions of this project start from and merge back into, set by Open in session on a team review pull request), `agent` (an agent id, see `customAgents`) and `codexBypassHookTrust` (file-only, default off). |
 
 ## Environment variables

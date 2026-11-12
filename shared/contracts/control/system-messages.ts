@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { UpdateJournal } from '../update-journal.ts';
-import { HostStatus } from '../hosts.ts';
 import { requestId, sessionId, loose, opaqueObject, updateStatusShape, ClientErrorReport, ClientLogReport, DASHBOARD_TELEMETRY_EVENTS } from './control-fields.ts';
 
 export const systemClientVariants = [
@@ -28,5 +27,4 @@ export const systemServerVariants = [
   loose('shutting-down'),
   loose('restarting'),
   loose('star-hint'),
-  loose('hosts-status', { hosts: z.array(HostStatus) }),
 ] as const;

@@ -14,9 +14,7 @@ import type { SessionSpawnOverrides } from './session/session-factory.ts';
 const REMOTE_SETUP_TAG = 'remote-setup';
 const REMOTE_SETUP_SESSION_NAME = 'Remote host setup';
 
-function remoteSetupPrompt(hubCliCommand: string): string {
-  return `Set up a remote host for Glimmervoid. Read ./SKILL.md in this folder first and follow it; ./glimmervoid.service is the unit template it refers to. On this machine, run Glimmervoid as ${hubCliCommand}, wherever ./SKILL.md says to run glimmervoid on this machine. Start by asking me the questions its Ground rules list.`;
-}
+const REMOTE_SETUP_PROMPT = 'Set up a remote host for Glimmervoid. Read ./SKILL.md in this folder first and follow it; ./glimmervoid.service is the unit template it refers to. Start by asking me the questions its Ground rules list.';
 
 async function copySkillFolder(sourceDir: string, targetDir: string): Promise<void> {
   const fileNames = await fs.promises.readdir(sourceDir);
@@ -38,11 +36,10 @@ interface RemoteSetupWiringOptions {
   recordLane?: RecordLane | null;
   setupRootDir: string;
   skillSourceDir: string;
-  hubCliCommand: string;
 }
 
 function createRemoteSetupWiring({
-  config, agentSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane = null, setupRootDir, skillSourceDir, hubCliCommand,
+  config, agentSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane = null, setupRootDir, skillSourceDir,
 }: RemoteSetupWiringOptions) {
   async function start(agent: RemoteSetupAgent): Promise<RemoteSetupOutcome> {
     const id = `${REMOTE_SETUP_TAG}-${crypto.randomUUID()}`;
@@ -61,7 +58,7 @@ function createRemoteSetupWiring({
     try {
       await copySkillFolder(skillSourceDir, setupDir);
       const project: ProjectEntry = { id, name: REMOTE_SETUP_SESSION_NAME, path: setupDir, dangerouslySkipPermissions: false, unguarded: true };
-      session = makeSession(project, config, { agent, ephemeral: true, gitWorkspace: null, dangerouslySkipPermissions: false, initialPrompt: remoteSetupPrompt(hubCliCommand) });
+      session = makeSession(project, config, { agent, ephemeral: true, gitWorkspace: null, dangerouslySkipPermissions: false, initialPrompt: REMOTE_SETUP_PROMPT });
       const startedSession = session;
       wireSessionEvents(startedSession);
       registerEphemeralSession({
