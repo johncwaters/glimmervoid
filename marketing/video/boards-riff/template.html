@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glimmervoid: boards, riff</title>
+<style>
+@font-face { font-family: CommitMono; font-weight: 400; src: url(data:font/woff2;base64,__FONT400__) format("woff2"); }
+@font-face { font-family: CommitMono; font-weight: 700; src: url(data:font/woff2;base64,__FONT700__) format("woff2"); }
+:root { color-scheme: dark; --bg: #0f0d15; --card: #1b1721; --border: #3b3448; --text: #cfcbd9; --muted: #9e97af; --accent: #b688fe; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: CommitMono, monospace; }
+body { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; }
+#stage { width: 1056px; max-width: 100%; height: auto; aspect-ratio: 16 / 9; display: block; font-family: CommitMono, monospace; }
+.chrome { display: flex; gap: 14px; align-items: center; font-size: 14px; }
+.chrome button { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 8px 14px; cursor: pointer; }
+.chrome button:focus-visible, .chrome input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chrome label { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+#sound-hint { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .chrome .motion-note { display: inline; } }
+.motion-note { display: none; color: var(--muted); }
+</style>
+</head>
+<body>
+<svg id="stage" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1056" height="594" role="img" aria-label="Glimmervoid boards: inside the real dashboard, an agent's wall of text in the terminal breaks apart into a prototype on the board beside it, the operator marks it up in red, and the plan rises as a skyline."></svg>
+<div class="chrome">
+  <button id="pause" type="button">Play/pause</button>
+  <button id="restart" type="button">Restart</button>
+  <label>Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="0.8"></label>
+  <span id="sound-hint" hidden>Click anywhere for sound</span>
+  <span class="motion-note">Reduced motion: showing a still.</span>
+</div>
+<audio id="narration" preload="auto" src="data:audio/mp4;base64,__AUDIO__"><track kind="captions" src="data:text/vtt,WEBVTT"></audio>
+<script>
+const COLOR = {
+  bg: "#0f0d15", card: "#1b1721", header: "#15121b", surface: "#211d29",
+  border: "#3b3448", borderDim: "#2b2636", borderHover: "#4b435a",
+  text: "#cfcbd9", textDim: "#b0aabf", textHead: "#efedf6", textMuted: "#9e97af",
+  accent: "#b688fe", accentDim: "#7a4aba",
+  boxStroke: "#b3a7d4",
+  stickyFill: "#594e2f", stickyStroke: "#e2c45a", stickyText: "#f3e8c0",
+  selectedRow: "#2e2639", tabActive: "#2e253d",
+  page: "#1a1621", chrome: "#131119", paneHeader: "#201c27", tabGroup: "#1c1825", rule: "#373541", divider: "#292434",
+  promptBlock: "#38393c", doneRow: "#17282a", doneBadge: "#1f5c45", doneGlyph: "#4ac19c", attention: "#f59e0b", attentionFill: "#2a1a0c",
+  agentGlyph: "#d97757", mascot: "#d58585", bypass: "#ef6b8a", watching: "#60a5fa",
+  running: "#22c55e", waiting: "#f59e0b", failed: "#f84d4c", idle: "#eab308", complete: "#34d399",
+};
+
+const TIMELINE = {
+  promptStart: 0.2, promptEnd: 0.9,
+  streamStart: 1.0, streamEnd: 3.0,
+  highlight: 3.1,
+  boardOpen: 3.3,
+  fallStart: 4.0,
+  flyStart: 4.3,
+  phoneDraw: 4.6,
+  drop: 5.6,
+  drewLine: 6.0,
+  settingsToolCall: 4.9,
+  cursorIn: 6.45, cursorClick: 7.55,
+  operatorCursorIn: 12.0,
+  paneZoomIn: 8.0, paneZoomInEnd: 8.9,
+  tiltStart: 9.0, tiltEnd: 9.8,
+  agentLiftStart: 9.7, operatorLiftStart: 10.3, liftSeconds: 0.6,
+  penStart: 12.85, penEnd: 13.5,
+  noteDrop: 14.0,
+  collapseStart: 11.3, collapseEnd: 12.1,
+  paneZoomOut: 15.1, paneZoomOutEnd: 16.1,
+  fixPromptStart: 16.4, fixPromptEnd: 17,
+  agentFix: 17.1,
+  saveMove: 17.6,
+  replyLine: 18.85,
+  inkClear: 18.6,
+  planPromptStart: 19.1, planPromptEnd: 19.7,
+  paneZoomIn2: 20, paneZoomIn2End: 23,
+  diveStart: 20, diveEnd: 23,
+  archBoxes: Array.from({ length: 10 }, (_, boxIndex) => 21.55 + boxIndex * 0.09),
+  archWires: Array.from({ length: 12 }, (_, wireIndex) => 23.1 + wireIndex * 0.07),
+  planIn: 24.3,
+  splitStart: 24.9, splitEnd: 25.9,
+  building: [26.1, 27.0, 28.2, 29.2],
+  landed: [27.0, 28.2, 29.2, 30.3],
+  boardOutStart: 31, boardOutEnd: 32.3, linkDraw: 32.1,
+  pullStart: 33.1, pullEnd: 34.1,
+  planLandedLine: 30.7,
+  dashboardLeave: 35.3,
+  markIn: 35.5,
+  markClamp: 36.4,
+  total: 39.7,
+};
+const TITLE_CARDS = {
+  draws: { lines: ["Your agent", "draws it on a board."], accentLine: 1 },
+  layers: { lines: ["Collaborate", "locally."], accentLine: 1 },
+  plans: { lines: ["Architecture and plans,", "on the same board."], accentLine: 1 },
+  side: { lines: ["Board and terminal,", "side by side."], accentLine: 1 },
+};
+const PLAYBACK = [
+  { play: [0, 24.85] },
+  { play: [25.35, TIMELINE.total] },
+];
+const CARD_TITLE_SIZE = 96;
+const CARD_TRACKING_EM = -0.02;
+const CARD_LINE_HEIGHT = 1.08;
+const CARD_WORD_STAGGER_SECONDS = 0.05;
+const SCENE_DIM_SECONDS = 0.25;
+const SCENE_DIM_OPACITY = 0.1;
+const titleCardSecondsFor = (card) => 1.0 + 0.2 * card.lines.join(" ").split(" ").length;
+const PLAYBACK_SEGMENTS = (() => {
+  const segments = [];
+  let realStart = 0;
+  for (const entry of PLAYBACK) {
+    if (entry.play) {
+      const [storyStart, storyEnd] = entry.play;
+      segments.push({ kind: "play", realStart, storyStart, storyEnd, seconds: storyEnd - storyStart });
+      realStart += storyEnd - storyStart;
+      continue;
+    }
+    const card = TITLE_CARDS[entry.hold];
+    const seconds = titleCardSecondsFor(card);
+    const storyAt = segments[segments.length - 1].storyEnd;
+    segments.push({ kind: "hold", realStart, storyStart: storyAt, storyEnd: storyAt, seconds, card });
+    realStart += seconds;
+  }
+  return segments;
+})();
+window.totalSeconds = PLAYBACK_SEGMENTS.reduce((sum, segment) => sum + segment.seconds, 0);
+function realTimeAt(storySeconds) {
+  const playing = PLAYBACK_SEGMENTS.find((segment) => segment.kind === "play" && storySeconds >= segment.storyStart && storySeconds < segment.storyEnd);
+  if (playing) return playing.realStart + storySeconds - playing.storyStart;
+  const nextPlay = PLAYBACK_SEGMENTS.find((segment) => segment.kind === "play" && segment.storyStart >= storySeconds);
+  return nextPlay ? nextPlay.realStart : window.totalSeconds;
+}
+function segmentAtRealTime(realSeconds) {
+  return PLAYBACK_SEGMENTS.find((segment) => realSeconds < segment.realStart + segment.seconds) ?? PLAYBACK_SEGMENTS[PLAYBACK_SEGMENTS.length - 1];
+}
+function storyTimeAt(realSeconds) {
+  const segment = segmentAtRealTime(realSeconds);
+  if (segment.kind === "hold") return segment.storyStart;
+  return Math.min(segment.storyEnd, segment.storyStart + realSeconds - segment.realStart);
+}
+
+const ARRIVE_SECONDS = 0.48;
+const LEAVE_SECONDS = 0.2;
+const MONO_ADVANCE_EM = 0.6;
+const ISO_COS = Math.cos(Math.PI / 6);
+const ISO_SIN = 0.5;
+
+const clamp01 = (value) => Math.min(1, Math.max(0, value));
+const progressBetween = (time, start, durationSeconds) => clamp01((time - start) / durationSeconds);
+const lerp = (from, to, amount) => from + (to - from) * amount;
+const easeOutQuart = (p) => 1 - (1 - p) ** 4;
+const easeInOutSine = (p) => -(Math.cos(Math.PI * p) - 1) / 2;
+const easeOutExpo = (p) => (p >= 1 ? 1 : 1 - 2 ** (-10 * p));
+const easeInExpo = (p) => (p <= 0 ? 0 : 2 ** (10 * p - 10));
+const easeInOutCubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
+const hashOf = (seed) => { const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453; return value - Math.floor(value); };
+
+const GLYPHS = {};
+const GLYPH_DEFS = Object.entries(GLYPHS).map(([weight, face]) => Object.entries(face.glyphs).filter(([, pathData]) => pathData).map(([character, pathData]) => `<path id="g${weight}-${character.charCodeAt(0)}" d="${pathData}"/>`).join("")).join("");
+function textElement(x, y, text, { size = 24, weight = 400, fill = COLOR.text, anchor = "start", opacity = 1, spacing = 0 } = {}) {
+  const face = GLYPHS[String(weight)];
+  const unitsPerPixel = face.unitsPerEm / size;
+  const step = face.advance + spacing * unitsPerPixel;
+  const characters = [...text];
+  const width = characters.length * step - spacing * unitsPerPixel;
+  const anchorShift = { start: 0, middle: width / 2, end: width }[anchor];
+  const uses = characters.map((character, index) => {
+    if (!face.glyphs[character]) return "";
+    return `<use href="#g${weight}-${character.charCodeAt(0)}" x="${(index * step - anchorShift).toFixed(1)}"/>`;
+  }).join("");
+  return `<g transform="translate(${x} ${y}) scale(${size / face.unitsPerEm} ${-size / face.unitsPerEm})" fill="${fill}" opacity="${opacity}">${uses}</g>`;
+}
+
+function drawTitleCard(card, localSeconds) {
+  const characterWidth = CARD_TITLE_SIZE * (MONO_ADVANCE_EM + CARD_TRACKING_EM);
+  const lineHeight = CARD_TITLE_SIZE * CARD_LINE_HEIGHT;
+  const firstBaseline = 540 - ((card.lines.length - 1) * lineHeight) / 2 + CARD_TITLE_SIZE * 0.35;
+  const leave = easeInExpo(progressBetween(localSeconds, titleCardSecondsFor(card) - LEAVE_SECONDS - SCENE_DIM_SECONDS, LEAVE_SECONDS));
+  const parts = [`<g opacity="${1 - leave}" transform="translate(0 ${-leave * 18})">`];
+  let wordIndex = 0;
+  card.lines.forEach((line, lineIndex) => {
+    const baseline = firstBaseline + lineIndex * lineHeight;
+    const lineWidth = line.length * characterWidth - CARD_TITLE_SIZE * CARD_TRACKING_EM;
+    const lineLeft = 960 - lineWidth / 2;
+    const fill = lineIndex === card.accentLine ? COLOR.accent : COLOR.textHead;
+    let column = 0;
+    for (const word of line.split(" ")) {
+      const arrive = easeOutExpo(progressBetween(localSeconds, wordIndex * CARD_WORD_STAGGER_SECONDS, ARRIVE_SECONDS));
+      wordIndex += 1;
+      const wordLeft = lineLeft + column * characterWidth;
+      column += word.length + 1;
+      parts.push(`<g opacity="${arrive}" transform="translate(0 ${(1 - arrive) * 28})">` +
+        textElement(wordLeft, baseline, word, { size: CARD_TITLE_SIZE, weight: 700, fill, spacing: CARD_TITLE_SIZE * CARD_TRACKING_EM }) + "</g>");
+    }
+  });
+  parts.push("</g>");
+  return parts.join("");
+}
+function drawTitleCards(realSeconds) {
+  const segment = segmentAtRealTime(realSeconds);
+  if (segment.kind !== "hold") return "";
+  return drawTitleCard(segment.card, realSeconds - segment.realStart);
+}
+function sceneDimAt(realSeconds) {
+  const segment = segmentAtRealTime(realSeconds);
+  if (segment.kind !== "hold") return 0;
+  const intoHold = realSeconds - segment.realStart;
+  const untilEnd = segment.realStart + segment.seconds - realSeconds;
+  return easeInOutCubic(clamp01(Math.min(intoHold, untilEnd) / SCENE_DIM_SECONDS));
+}
+
+const OPERATOR_PROMPT = "redo the settings screen";
+const AGENT_PARAGRAPH = "Settings becomes four rows. Profile holds name, avatar and email. Billing holds plan and invoices. Alerts covers email and push. Danger zone goes last, with a red label. Save stays pinned to the bottom, full width, in the accent color. Each row gets a 2px left border and 10px padding, the detail line sits under the name in a dimmer tone, and on narrow screens the rows stack so the detail wraps under the name, unless the name is longer than 18 characters, in which case it truncates with a fade, not dots, and the fade uses the card color at 0% to 100% over the last 24px. The header is 56px tall with the title left aligned at 20px, semibold, and a back chevron at 44px tap size. Between Billing and Alerts there is a 12px gap, but between Alerts and Danger zone the gap is 24px with a 1px divider in the border color at 40% opacity, inset 16px on both sides. Profile shows the avatar at 40px, circular, 2px ring in the accent, to the left of the name, with the email below in 13px. Billing shows the plan as a pill, violet for Pro, gray for Free, and the next invoice date right aligned. Alerts has two toggles, email and push, each 44px tall, the push toggle disabled until the browser grants permission, with a helper line under it. Danger zone is red text on the card color, not a red card, and opens a confirm sheet from the bottom with the account name typed to confirm. Save stays disabled until something changes, then animates in over 200ms, and on success shows a check for 1.2s before returning to Save.";
+const DASHBOARD = { width: 1440, height: 810 };
+const TOPBAR_HEIGHT = 54;
+const STATUS_BAR = { y: 810, height: 0 };
+const SIDEBAR_WIDTH = 320;
+const HEADER_HEIGHT = 41;
+const UI_TEXT = 13;
+const UI_ADVANCE = UI_TEXT * MONO_ADVANCE_EM;
+const TERMINAL = { x: SIDEBAR_WIDTH, y: TOPBAR_HEIGHT, openWidth: 540, fullWidth: DASHBOARD.width - SIDEBAR_WIDTH, height: STATUS_BAR.y - TOPBAR_HEIGHT };
+const PANE = { x: TERMINAL.x + TERMINAL.openWidth + 2, y: TOPBAR_HEIGHT, width: DASHBOARD.width - TERMINAL.x - TERMINAL.openWidth - 2, bodyY: TOPBAR_HEIGHT + HEADER_HEIGHT, bodyHeight: STATUS_BAR.y - TOPBAR_HEIGHT - HEADER_HEIGHT };
+const PANE_FIT_SCALE = PANE.width / 1920;
+const BOARD_SCALE = 0.62;
+const paneSceneOriginAt = (scale) => ({ x: PANE.x + PANE.width / 2 - 960 * scale, y: PANE.bodyY + PANE.bodyHeight / 2 - 540 * scale });
+const sceneToDashboard = (sceneX, sceneY) => {
+  const origin = paneSceneOriginAt(BOARD_SCALE);
+  return { x: origin.x + sceneX * BOARD_SCALE, y: origin.y + sceneY * BOARD_SCALE };
+};
+const TERMINAL_TEXT = { left: TERMINAL.x + 23, lineHeight: 16, firstBlockY: TOPBAR_HEIGHT + HEADER_HEIGHT + 104, inputY: DASHBOARD.height - 51 };
+const WALL = { x: TERMINAL_TEXT.left, y: TERMINAL_TEXT.firstBlockY + 34, size: UI_TEXT, lineHeight: TERMINAL_TEXT.lineHeight };
+const WALL_ADVANCE = WALL.size * MONO_ADVANCE_EM;
+const WALL_MAX_CHARS = Math.floor((TERMINAL.openWidth - 50) / WALL_ADVANCE);
+
+const SETTINGS_ROWS = [
+  { title: "Profile", detail: "Name, avatar, email" },
+  { title: "Billing", detail: "Plan and invoices" },
+  { title: "Alerts", detail: "Email and push" },
+  { title: "Danger zone", detail: "Delete account" },
+];
+const PHONE = { left: -180, top: -390, right: 180, bottom: 390 };
+const ROW = { left: -160, right: 160, firstTop: -280, pitch: 108, height: 96 };
+const SAVE = { left: -150, right: 150, height: 72, pinnedTop: 290, movedTop: ROW.firstTop + 4 * ROW.pitch + 14 };
+const rowTop = (rowIndex) => ROW.firstTop + rowIndex * ROW.pitch;
+const TITLE_SIZE = 30;
+const TITLE_ADVANCE = TITLE_SIZE * MONO_ADVANCE_EM;
+
+const HERO_TARGETS = [
+  { word: "Profile", rowIndex: 0, offsetChars: 0 },
+  { word: "Billing", rowIndex: 1, offsetChars: 0 },
+  { word: "Alerts", rowIndex: 2, offsetChars: 0 },
+  { word: "Danger", rowIndex: 3, offsetChars: 0 },
+  { word: "zone", rowIndex: 3, offsetChars: 7 },
+  { word: "Save", rowIndex: -1, offsetChars: 0 },
+];
+const FLY_STAGGER_SECONDS = 0.1;
+const FLY_SECONDS = 1.1;
+
+const WALL_WORDS = (() => {
+  const words = [];
+  let lineIndex = 0;
+  let column = 0;
+  for (const token of AGENT_PARAGRAPH.split(" ")) {
+    if (column > 0 && column + token.length > WALL_MAX_CHARS) {
+      lineIndex += 1;
+      column = 0;
+    }
+    words.push({ text: token, lineIndex, column, heroIndex: -1 });
+    column += token.length + 1;
+  }
+  HERO_TARGETS.forEach((target, heroIndex) => {
+    const match = words.find((word, index) => word.heroIndex === -1 && word.text.replace(/[^A-Za-z]/g, "") === target.word && (target.word !== "zone" || words[index - 1].text === "Danger"));
+    match.heroIndex = heroIndex;
+  });
+  return words;
+})();
+const WALL_LINES = WALL_WORDS.reduce((lines, word) => {
+  lines[word.lineIndex] = lines[word.lineIndex] === undefined ? word.text : `${lines[word.lineIndex]} ${word.text}`;
+  return lines;
+}, []);
+const WALL_CHAR_COUNT = WALL_LINES.reduce((sum, line) => sum + line.length, 0);
+
+function heroLandsAt(heroIndex) {
+  return TIMELINE.flyStart + heroIndex * FLY_STAGGER_SECONDS + FLY_SECONDS;
+}
+function heroTargetScreen(heroIndex) {
+  const target = HERO_TARGETS[heroIndex];
+  if (target.rowIndex < 0) return sceneToDashboard(960 - (target.word.length * TITLE_ADVANCE) / 2, 540 + SAVE.pinnedTop + 46);
+  return sceneToDashboard(960 + ROW.left + 28 + target.offsetChars * TITLE_ADVANCE, 540 + rowTop(target.rowIndex) + 42);
+}
+
+function drawWall(time) {
+  if (time > TIMELINE.flyStart + 6 * FLY_STAGGER_SECONDS + FLY_SECONDS) return "";
+  const bullet = time >= TIMELINE.streamStart && time < TIMELINE.fallStart + 0.3 ? `<circle cx="${TERMINAL.x + 12}" cy="${WALL.y - 4}" r="3.5" fill="${COLOR.textHead}"/>` : "";
+  if (time < TIMELINE.streamEnd) return `<g clip-path="url(#terminal-clip)">${bullet}${drawStreamingWall(time)}</g>`;
+  const words = WALL_WORDS.map((word, index) => ({ word, index }));
+  const falling = words.filter(({ word }) => word.heroIndex < 0).map(({ word, index }) => drawWallWord(word, index, time)).join("");
+  const heroes = words.filter(({ word }) => word.heroIndex >= 0).map(({ word, index }) => drawWallWord(word, index, time)).join("");
+  return `<g clip-path="url(#terminal-clip)">${bullet}${falling}</g>${heroes}`;
+}
+
+function drawStreamingWall(time) {
+  const revealedChars = Math.floor(WALL_CHAR_COUNT * progressBetween(time, TIMELINE.streamStart, TIMELINE.streamEnd - TIMELINE.streamStart));
+  let remaining = revealedChars;
+  return WALL_LINES.map((line, lineIndex) => {
+    if (remaining <= 0) return "";
+    const shown = line.slice(0, remaining);
+    remaining -= line.length;
+    return textElement(WALL.x, WALL.y + lineIndex * WALL.lineHeight, shown, { size: WALL.size, fill: COLOR.textDim });
+  }).join("");
+}
+
+function drawWallWord(word, index, time) {
+  const x = WALL.x + word.column * WALL_ADVANCE;
+  const y = WALL.y + word.lineIndex * WALL.lineHeight;
+  const dim = easeOutQuart(progressBetween(time, TIMELINE.highlight, 0.6));
+  if (word.heroIndex >= 0) return drawFlyingHero(word, x, y, time);
+  const fallDelay = TIMELINE.fallStart + hashOf(index) * 0.45 + (word.lineIndex / WALL_LINES.length) * 0.35;
+  const fall = progressBetween(time, fallDelay, 0.9);
+  if (fall >= 1) return "";
+  const drop = easeInExpo(fall) * 1300;
+  const drift = (hashOf(index + 500) - 0.5) * 160 * fall;
+  const spin = (hashOf(index + 900) - 0.5) * 90 * easeInExpo(fall);
+  const opacity = lerp(1, 0.22, dim) * (1 - easeInExpo(fall));
+  return `<g transform="translate(${x + drift} ${y + drop}) rotate(${spin})">${textElement(0, 0, word.text, { size: WALL.size, fill: COLOR.textDim, opacity })}</g>`;
+}
+
+function drawFlyingHero(word, x, y, time) {
+  const flyBegin = TIMELINE.flyStart + word.heroIndex * FLY_STAGGER_SECONDS;
+  if (time >= flyBegin + FLY_SECONDS) return "";
+  const fly = easeOutQuart(progressBetween(time, flyBegin, FLY_SECONDS));
+  const target = heroTargetScreen(word.heroIndex);
+  const arc = -90 * 4 * fly * (1 - fly);
+  const letters = word.text.replace(/[^A-Za-z]/g, "");
+  const highlighted = time >= TIMELINE.highlight;
+  const fill = highlighted ? COLOR.accent : COLOR.textDim;
+  return textElement(lerp(x, target.x, fly), lerp(y, target.y, fly) + arc, highlighted ? letters : word.text, { size: lerp(WALL.size, TITLE_SIZE * BOARD_SCALE, fly), weight: highlighted ? 700 : 400, fill });
+}
+
+function planeMatrix(tilt, lift, scale, yShift) {
+  return {
+    a: lerp(1, ISO_COS * scale, tilt), b: lerp(0, ISO_SIN * scale, tilt),
+    c: lerp(0, -ISO_COS * scale, tilt), d: lerp(1, ISO_SIN * scale, tilt),
+    e: 960, f: 540 + yShift * tilt - lift,
+  };
+}
+const matrixAttribute = (matrix) => `matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})`;
+const project = (matrix, u, v) => [matrix.a * u + matrix.c * v + matrix.e, matrix.b * u + matrix.d * v + matrix.f];
+
+const BOARD_PLANE = { halfWidth: 650, halfHeight: 430 };
+const BOARD_ISO_SCALE = 0.7;
+const BOARD_ISO_SHIFT = 130;
+const AGENT_LIFT = 110;
+const OPERATOR_LIFT = 220;
+
+function boardTiltAt(time) {
+  const into = easeInOutCubic(progressBetween(time, TIMELINE.tiltStart, TIMELINE.tiltEnd - TIMELINE.tiltStart));
+  const out = easeInOutCubic(progressBetween(time, TIMELINE.collapseStart, TIMELINE.collapseEnd - TIMELINE.collapseStart));
+  return into * (1 - out);
+}
+function layerLiftAt(time, liftStart) {
+  const up = easeOutQuart(progressBetween(time, liftStart, TIMELINE.liftSeconds));
+  const down = easeInOutCubic(progressBetween(time, TIMELINE.collapseStart, (TIMELINE.collapseEnd - TIMELINE.collapseStart) * 0.8));
+  return up * (1 - down);
+}
+function layerLabelOpacityAt(time, appearAt) {
+  return easeOutQuart(progressBetween(time, appearAt, ARRIVE_SECONDS)) * (1 - progressBetween(time, TIMELINE.collapseStart, 0.3));
+}
+
+function drawPlaneRect(matrix, { fill, stroke, dashed = false, opacity = 1 }) {
+  const { halfWidth, halfHeight } = BOARD_PLANE;
+  return `<g transform="${matrixAttribute(matrix)}" opacity="${opacity}"><rect x="${-halfWidth}" y="${-halfHeight}" width="${halfWidth * 2}" height="${halfHeight * 2}" rx="5" fill="${fill}" stroke="${stroke}" stroke-width="2" ${dashed ? 'stroke-dasharray="14 10"' : ""}/></g>`;
+}
+
+function drawLayerLabel(matrix, text, color, opacity) {
+  if (opacity <= 0) return "";
+  const [x, y] = project(matrix, -BOARD_PLANE.halfWidth, BOARD_PLANE.halfHeight);
+  return `<g opacity="${opacity}"><line x1="${x - 16}" y1="${y}" x2="${x - 4}" y2="${y}" stroke="${color}" stroke-width="2"/>${textElement(x - 26, y + 9, text, { size: 26, weight: 700, fill: color, anchor: "end" })}</g>`;
+}
+
+function saveTopAt(time) {
+  return lerp(SAVE.pinnedTop, SAVE.movedTop, easeOutQuart(progressBetween(time, TIMELINE.saveMove, ARRIVE_SECONDS)));
+}
+
+function drawPhone(time) {
+  const outline = easeOutQuart(progressBetween(time, TIMELINE.phoneDraw, 0.9));
+  if (outline <= 0) return "";
+  const perimeter = 2 * (PHONE.right - PHONE.left + PHONE.bottom - PHONE.top);
+  const header = easeOutQuart(progressBetween(time, TIMELINE.phoneDraw + 0.5, ARRIVE_SECONDS));
+  const frame = `<rect x="${PHONE.left}" y="${PHONE.top}" width="${PHONE.right - PHONE.left}" height="${PHONE.bottom - PHONE.top}" rx="30" fill="${COLOR.card}" fill-opacity="${outline}" stroke="${COLOR.boxStroke}" stroke-width="3" stroke-dasharray="${perimeter}" stroke-dashoffset="${perimeter * (1 - outline)}"/>` +
+    `<g opacity="${header}">${textElement(ROW.left, PHONE.top + 72, "Settings", { size: 36, weight: 700, fill: COLOR.textHead })}</g>`;
+  const rows = SETTINGS_ROWS.map((row, rowIndex) => drawSettingsRow(row, rowIndex, time)).join("");
+  return frame + rows + drawSaveButton(time);
+}
+
+function drawSettingsRow(row, rowIndex, time) {
+  const firstHero = HERO_TARGETS.findIndex((target) => target.rowIndex === rowIndex);
+  const lastHero = HERO_TARGETS.findLastIndex((target) => target.rowIndex === rowIndex);
+  const appear = easeOutQuart(progressBetween(time, heroLandsAt(firstHero) - 0.25, ARRIVE_SECONDS));
+  if (appear <= 0) return "";
+  const top = rowTop(rowIndex);
+  const titleShown = time >= heroLandsAt(lastHero);
+  const titleColor = progressBetween(time, heroLandsAt(lastHero), 0.6);
+  const titles = HERO_TARGETS.map((target, heroIndex) => ({ target, heroIndex })).filter(({ target, heroIndex }) => target.rowIndex === rowIndex && time >= heroLandsAt(heroIndex));
+  const titleText = titles.map(({ target, heroIndex }) => {
+    const x = ROW.left + 28 + target.offsetChars * TITLE_ADVANCE;
+    const settle = progressBetween(time, heroLandsAt(heroIndex), 0.6);
+    return textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: COLOR.accent, opacity: 1 - settle }) +
+      textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: COLOR.textHead, opacity: settle });
+  }).join("");
+  const detail = titleShown ? textElement(ROW.left + 28, top + 76, row.detail, { size: 20, fill: COLOR.textDim, opacity: titleColor }) : "";
+  return `<g opacity="${appear}" transform="translate(0 ${(1 - appear) * 16})"><rect x="${ROW.left}" y="${top}" width="${ROW.right - ROW.left}" height="${ROW.height}" rx="4" fill="${COLOR.surface}" stroke="${COLOR.accentDim}" stroke-width="2"/></g>` + titleText + detail;
+}
+
+function drawSaveButton(time) {
+  const heroIndex = HERO_TARGETS.length - 1;
+  const appear = easeOutQuart(progressBetween(time, heroLandsAt(heroIndex) - 0.2, ARRIVE_SECONDS));
+  if (appear <= 0) return "";
+  const top = saveTopAt(time);
+  const label = time >= heroLandsAt(heroIndex);
+  const settle = progressBetween(time, heroLandsAt(heroIndex), 0.4);
+  const dive = diveProgressAt(time);
+  const portal = easeInOutCubic(progressBetween(dive, 0.55, 0.25));
+  const labelFade = 1 - easeInOutCubic(progressBetween(dive, 0.15, 0.2));
+  return `<g opacity="${appear}"><rect x="${SAVE.left}" y="${top}" width="${SAVE.right - SAVE.left}" height="${SAVE.height}" rx="4" fill="${mixColor(COLOR.accent, COLOR.bg, portal)}"/></g>` +
+    (label ? textElement(0, top + 49, "Save", { size: TITLE_SIZE, weight: 700, fill: COLOR.bg, anchor: "middle", opacity: settle * labelFade }) : "");
+}
+
+function drawPen(time) {
+  const draw = progressBetween(time, TIMELINE.penStart, TIMELINE.penEnd - TIMELINE.penStart);
+  if (draw <= 0) return "";
+  const clear = progressBetween(time, TIMELINE.inkClear, 0.4);
+  const centerV = SAVE.pinnedTop + SAVE.height / 2;
+  const steps = Math.max(2, Math.floor(72 * easeInOutSine(draw)));
+  const points = [];
+  for (let step = 0; step <= steps; step += 1) {
+    const angle = -2.4 + (step / 72) * Math.PI * 2.15;
+    const wobble = 1 + 0.06 * Math.sin(step * 0.7);
+    points.push(`${(Math.cos(angle) * 215 * wobble).toFixed(1)},${(centerV + Math.sin(angle) * 74 * wobble).toFixed(1)}`);
+  }
+  return `<polyline points="${points.join(" ")}" fill="none" stroke="${COLOR.failed}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="${1 - clear}"/>`;
+}
+
+function drawNote(time) {
+  const drop = progressBetween(time, TIMELINE.noteDrop, ARRIVE_SECONDS);
+  if (drop <= 0) return "";
+  const clear = progressBetween(time, TIMELINE.inkClear, 0.4);
+  const settle = easeOutExpo(drop);
+  return `<g transform="translate(${NOTE_GRAB[0]} ${NOTE_GRAB[1]}) scale(${lerp(0.4, 1, settle)}) translate(${204 - NOTE_GRAB[0]} ${120 - NOTE_GRAB[1]})" opacity="${clamp01(drop * 4) * (1 - clear)}">` +
+    `<rect x="0" y="0" width="240" height="150" rx="4" fill="${COLOR.stickyFill}" stroke="${COLOR.stickyStroke}" stroke-width="2.5"/>` +
+    textElement(28, 62, "Save sits", { size: 34, weight: 700, fill: COLOR.stickyText }) +
+    textElement(28, 108, "too low.", { size: 34, weight: 700, fill: COLOR.stickyText }) + "</g>";
+}
+
+
+
+const DIVE_MAX_ZOOM = 1080 / SAVE.height;
+const DIVE_DASHBOARD_SHARE = 0.6;
+function diveProgressAt(time) {
+  return easeInOutCubic(progressBetween(time, TIMELINE.diveStart, TIMELINE.diveEnd - TIMELINE.diveStart));
+}
+function diveDashboardZoomAt(time) {
+  const settle = easeInOutCubic(clamp01(diveProgressAt(time) / DIVE_DASHBOARD_SHARE));
+  return Math.exp(lerp(Math.log(CAMERA_SHOTS.overview.zoom), Math.log(CAMERA_SHOTS.pane.zoom), settle));
+}
+const hexChannels = (hex) => [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
+function mixColor(fromHex, toHex, amount) {
+  const from = hexChannels(fromHex);
+  const to = hexChannels(toHex);
+  return `rgb(${from.map((channel, index) => Math.round(lerp(channel, to[index], amount))).join(" ")})`;
+}
+function diveZoomAt(time) {
+  const boardOnScreen = Math.exp(lerp(Math.log(CAMERA_SHOTS.overview.zoom * BOARD_SCALE), Math.log(DIVE_MAX_ZOOM), diveProgressAt(time)));
+  return Math.max(1, boardOnScreen / (diveDashboardZoomAt(time) * BOARD_SCALE));
+}
+function diveCameraAt(time) {
+  const zoom = diveZoomAt(time);
+  const targetX = 960;
+  const targetY = 540 + SAVE.movedTop + SAVE.height / 2;
+  const anchor = diveAnchorAt(time);
+  const screenY = lerp(targetY, 540, anchor);
+  return { zoom, centerX: targetX, centerY: targetY - (screenY - 540) / zoom, targetX, targetY };
+}
+
+const POINTER_PATH = "M0 0L0 26L7 20L12 31L17 29L12 18L21 18Z";
+function drawPointer(x, y, size, opacity) {
+  if (opacity <= 0) return "";
+  const scale = size / 31;
+  return `<g opacity="${opacity}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${scale.toFixed(3)})"><path d="${POINTER_PATH}" fill="${COLOR.textHead}" stroke="${COLOR.bg}" stroke-width="2.5" stroke-linejoin="round"/></g>`;
+}
+function curvePoint(from, control, to, amount) {
+  const inverse = 1 - amount;
+  return [inverse * inverse * from[0] + 2 * inverse * amount * control[0] + amount * amount * to[0], inverse * inverse * from[1] + 2 * inverse * amount * control[1] + amount * amount * to[1]];
+}
+function drawClickRing(x, y, time, clickAt, radius) {
+  const ring = progressBetween(time, clickAt, 0.45);
+  if (ring <= 0 || ring >= 1) return "";
+  return `<circle cx="${x}" cy="${y}" r="${(radius * easeOutExpo(ring)).toFixed(1)}" fill="none" stroke="${COLOR.accent}" stroke-width="${radius / 9}" opacity="${1 - ring}"/>`;
+}
+const CURSOR_HOVER_SECONDS = 0.25;
+const CURSOR_PRESS_SECONDS = 0.12;
+function cursorPressScale(time, clickAt) {
+  return time >= clickAt && time < clickAt + CURSOR_PRESS_SECONDS ? 0.85 : 1;
+}
+function drawOverviewCursor(time) {
+  if (time < TIMELINE.cursorIn || time >= TIMELINE.paneZoomIn) return "";
+  const target = sceneToDashboard(960 - 60, 540 + PHONE.top + 60);
+  const from = [TERMINAL.x + 380, DASHBOARD.height + 30];
+  const exit = [DASHBOARD.width + 40, DASHBOARD.height - 120];
+  const arrive = easeOutQuart(progressBetween(time, TIMELINE.cursorIn, TIMELINE.cursorClick - CURSOR_HOVER_SECONDS - TIMELINE.cursorIn));
+  const leave = easeInExpo(progressBetween(time, TIMELINE.cursorClick + 0.2, 0.25));
+  const [x, y] = leave > 0 ? curvePoint([target.x, target.y], [target.x + 80, target.y + 40], exit, leave) : curvePoint(from, [from[0] + 20, target.y + 120], [target.x, target.y], arrive);
+  return drawClickRing(target.x, target.y, time, TIMELINE.cursorClick, 26) + drawPointer(x, y, 22 * cursorPressScale(time, TIMELINE.cursorClick), 1);
+}
+function drawPhoneSelection(time) {
+  const shown = easeOutExpo(progressBetween(time, TIMELINE.cursorClick, 0.25)) * (1 - progressBetween(time, TIMELINE.tiltStart, 0.3));
+  if (shown <= 0) return "";
+  const pad = 14;
+  const left = PHONE.left - pad, top = PHONE.top - pad, right = PHONE.right + pad, bottom = PHONE.bottom + pad;
+  const handles = [[left, top], [right, top], [left, bottom], [right, bottom]].map(([x, y]) => `<rect x="${x - 7}" y="${y - 7}" width="14" height="14" fill="${COLOR.bg}" stroke="${COLOR.accent}" stroke-width="3"/>`).join("");
+  return `<g opacity="${shown}"><rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" fill="none" stroke="${COLOR.accent}" stroke-width="3"/>${handles}</g>`;
+}
+function penTipAt(time) {
+  const drawn = easeInOutSine(progressBetween(time, TIMELINE.penStart, TIMELINE.penEnd - TIMELINE.penStart));
+  const angle = -2.4 + drawn * Math.PI * 2.15;
+  const wobble = 1 + 0.06 * Math.sin(drawn * 72 * 0.7);
+  return [Math.cos(angle) * 215 * wobble, SAVE.pinnedTop + SAVE.height / 2 + Math.sin(angle) * 74 * wobble];
+}
+const NOTE_GRAB = [330, 196];
+const OPERATOR_CURSOR_ENTRY = [2000, 1160];
+const OPERATOR_CURSOR_EXIT = [2000, 760];
+function operatorCursorScreenPoint(time, operatorMatrix) {
+  const onPlane = (point) => project(operatorMatrix, point[0], point[1]);
+  const circleStart = onPlane(penTipAt(TIMELINE.penStart));
+  if (time < TIMELINE.penStart) {
+    const arrive = easeOutQuart(progressBetween(time, TIMELINE.operatorCursorIn, TIMELINE.penStart - CURSOR_HOVER_SECONDS - TIMELINE.operatorCursorIn));
+    return curvePoint(OPERATOR_CURSOR_ENTRY, [circleStart[0] + 260, OPERATOR_CURSOR_ENTRY[1] - 60], circleStart, arrive);
+  }
+  if (time < TIMELINE.penEnd) return onPlane(penTipAt(time));
+  const notePoint = onPlane(NOTE_GRAB);
+  if (time < TIMELINE.noteDrop) {
+    const circleEnd = onPlane(penTipAt(TIMELINE.penEnd));
+    const move = easeOutQuart(progressBetween(time, TIMELINE.penEnd + 0.08, TIMELINE.noteDrop - CURSOR_HOVER_SECONDS - TIMELINE.penEnd));
+    return curvePoint(circleEnd, [(circleEnd[0] + notePoint[0]) / 2, Math.max(circleEnd[1], notePoint[1]) + 50], notePoint, move);
+  }
+  const leave = easeInExpo(progressBetween(time, TIMELINE.noteDrop + 0.3, 0.3));
+  return curvePoint(notePoint, [notePoint[0] + 120, notePoint[1] + 30], OPERATOR_CURSOR_EXIT, leave);
+}
+function drawOperatorCursor(time, operatorMatrix) {
+  if (time < TIMELINE.operatorCursorIn || time > TIMELINE.noteDrop + 0.7) return "";
+  const [x, y] = operatorCursorScreenPoint(time, operatorMatrix);
+  return drawPointer(x, y, 40 * cursorPressScale(time, TIMELINE.noteDrop), 1);
+}
+function selectedBoardToolAt(time) {
+  if (time >= TIMELINE.operatorCursorIn + 0.6 && time < TIMELINE.penEnd + 0.05) return 9;
+  if (time >= TIMELINE.penEnd + 0.05 && time < TIMELINE.noteDrop + 0.3) return 4;
+  return 0;
+}
+
+function drawBoardStage(time) {
+  const tilt = boardTiltAt(time);
+  const agentLift = layerLiftAt(time, TIMELINE.agentLiftStart);
+  const operatorLift = layerLiftAt(time, TIMELINE.operatorLiftStart);
+  const camera = diveCameraAt(time);
+  const zoomFade = clamp01((camera.zoom - 2) / 2);
+  const planeShown = clamp01(tilt * 1.5);
+  const baseMatrix = planeMatrix(tilt, 0, BOARD_ISO_SCALE, BOARD_ISO_SHIFT);
+  const agentMatrix = planeMatrix(tilt, AGENT_LIFT * agentLift, BOARD_ISO_SCALE, BOARD_ISO_SHIFT);
+  const operatorMatrix = planeMatrix(tilt, OPERATOR_LIFT * operatorLift, BOARD_ISO_SCALE, BOARD_ISO_SHIFT);
+  const operatorPlane = operatorLift > 0.01 ? drawPlaneRect(operatorMatrix, { fill: "none", stroke: COLOR.failed, dashed: true, opacity: operatorLift * 0.8 }) : "";
+  const archInside = drawArchitectureInsideSave(time, camera);
+  const canvasDots = `<rect x="-3000" y="-2000" width="7920" height="5080" fill="url(#dots)" opacity="${(1 - planeShown) * (1 - zoomFade)}"/>`;
+  const base = canvasDots + drawPlaneRect(baseMatrix, { fill: "url(#dots)", stroke: COLOR.border, opacity: planeShown * (1 - zoomFade) }) +
+    (agentLift > 0.01 ? drawPlaneRect(agentMatrix, { fill: COLOR.bg, stroke: COLOR.accentDim, opacity: agentLift * 0.85 }) : "");
+  const agentLayer = `<g transform="${matrixAttribute(agentMatrix)}" opacity="${1 - easeInOutCubic(progressBetween(diveProgressAt(time), 0.62, 0.25))}">${drawPhone(time)}${drawPhoneSelection(time)}</g>`;
+  const operatorLayer = `<g transform="${matrixAttribute(operatorMatrix)}">${drawPen(time)}${drawNote(time)}</g>`;
+  const labels = drawLayerLabel(baseMatrix, "board", COLOR.textMuted, layerLabelOpacityAt(time, TIMELINE.tiltEnd)) +
+    drawLayerLabel(agentMatrix, "agent draws", COLOR.accent, layerLabelOpacityAt(time, TIMELINE.agentLiftStart + TIMELINE.liftSeconds - 0.2)) +
+    drawLayerLabel(operatorMatrix, "you draw", COLOR.failed, layerLabelOpacityAt(time, TIMELINE.operatorLiftStart + TIMELINE.liftSeconds - 0.2));
+  const scene = base + agentLayer + archInside + operatorPlane + operatorLayer + labels + drawOperatorCursor(time, operatorMatrix);
+  return `<g transform="translate(960 540) scale(${camera.zoom}) translate(${-camera.centerX} ${-camera.centerY})">${scene}</g>`;
+}
+
+function drawArchitectureInsideSave(time, camera) {
+  const reveal = easeInOutCubic(progressBetween(diveProgressAt(time), 0.62, 0.33));
+  if (reveal <= 0) return "";
+  return `<g opacity="${reveal}" transform="translate(${camera.targetX} ${camera.targetY}) scale(${1 / DIVE_MAX_ZOOM}) translate(-960 -540)">${drawArchitectureScene(time)}</g>`;
+}
+
+const ARCH_COLUMNS = [120, 470, 820, 1170, 1520];
+const ARCH_BOXES = [
+  { name: "web", detail: "dashboard", x: ARCH_COLUMNS[0], y: 65.5 },
+  { name: "phone", detail: "PWA", x: ARCH_COLUMNS[0], y: 245.5 },
+  { name: "gateway", detail: "auth, rate limit", x: ARCH_COLUMNS[1], y: 155.5 },
+  { name: "api", detail: "REST", x: ARCH_COLUMNS[2], y: 65.5 },
+  { name: "ws", detail: "live updates", x: ARCH_COLUMNS[2], y: 245.5 },
+  { name: "queue", detail: "jobs", x: ARCH_COLUMNS[3], y: 155.5 },
+  { name: "worker", detail: "email, push", x: ARCH_COLUMNS[4], y: 65.5 },
+  { name: "billing", detail: "Stripe", x: ARCH_COLUMNS[4], y: 245.5 },
+  { name: "db", detail: "Postgres", x: ARCH_COLUMNS[2], y: 425.5 },
+  { name: "cache", detail: "Redis", x: ARCH_COLUMNS[1], y: 425.5 },
+];
+const ARCH_BOX_SIZE = { width: 260, height: 99 };
+const ARCH_BOXES_TOP = Math.min(...ARCH_BOXES.map((box) => box.y));
+const ARCH_WIRES = [
+  [[380, 115], [425, 115], [425, 187], [470, 187]],
+  [[380, 295], [425, 295], [425, 223], [470, 223]],
+  [[730, 187], [775, 187], [775, 115], [820, 115]],
+  [[730, 223], [775, 223], [775, 295], [820, 295]],
+  [[600, 254.5], [600, 425.5]],
+  [[1080, 115], [1125, 115], [1125, 187], [1170, 187]],
+  [[1080, 295], [1125, 295], [1125, 223], [1170, 223]],
+  [[950, 344.5], [950, 425.5]],
+  [[730, 475], [820, 475]],
+  [[1430, 187], [1475, 187], [1475, 115], [1520, 115]],
+  [[1430, 223], [1475, 223], [1475, 295], [1520, 295]],
+  [[1650, 344.5], [1650, 475], [1080, 475]],
+];
+const PLAN_Y = 700;
+const PLAN_STEP = { width: 380, height: 168 };
+const PLAN_STEPS = [
+  { name: "Schema", detail: "users and plans tables" },
+  { name: "API", detail: "settings routes" },
+  { name: "Jobs", detail: "email and push queue" },
+  { name: "Settings UI", detail: "Save calls the api" },
+];
+const planStepX = (stepIndex) => 120 + stepIndex * 427;
+const BOARD_LOOK = {
+  fill: "#15122a", stroke: "#a79fc4", title: "#e6e0f5", muted: "#a79fc4", wire: "#a79fc4",
+  strokeWidth: 2.5, radius: 12, inset: 20, mutedIndent: 22, iconSize: 24, arrowLength: 20, arrowHalfWidth: 8, wireDot: 5,
+};
+const STEP_STATUS_COLOR = { planned: BOARD_LOOK.muted, building: COLOR.waiting, landed: COLOR.running };
+const ICON_ELEMENTS = {"browser": ["<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>", "<path d=\"M10 4v4\"/>", "<path d=\"M2 8h20\"/>", "<path d=\"M6 4v4\"/>"], "phone": ["<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/>", "<path d=\"M12 18h.01\"/>"], "shield": ["<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>"], "api": ["<path d=\"M12 22v-5\"/>", "<path d=\"M9 8V2\"/>", "<path d=\"M15 8V2\"/>", "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>"], "activity": ["<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>"], "queue": ["<path d=\"M10 12h11\"/>", "<path d=\"M10 18h11\"/>", "<path d=\"M10 6h11\"/>", "<path d=\"M4 10h2\"/>", "<path d=\"M4 6h1v4\"/>", "<path d=\"M6 18H4c0-1 2-2 2-3s-1-1.5-2-1\"/>"], "cpu": ["<rect width=\"16\" height=\"16\" x=\"4\" y=\"4\" rx=\"2\"/>", "<rect width=\"6\" height=\"6\" x=\"9\" y=\"9\" rx=\"1\"/>", "<path d=\"M15 2v2\"/>", "<path d=\"M15 20v2\"/>", "<path d=\"M2 15h2\"/>", "<path d=\"M2 9h2\"/>", "<path d=\"M20 15h2\"/>", "<path d=\"M20 9h2\"/>", "<path d=\"M9 2v2\"/>", "<path d=\"M9 20v2\"/>"], "payment": ["<rect width=\"20\" height=\"14\" x=\"2\" y=\"5\" rx=\"2\"/>", "<line x1=\"2\" x2=\"22\" y1=\"10\" y2=\"10\"/>"], "database": ["<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/>", "<path d=\"M3 5V19A9 3 0 0 0 21 19V5\"/>", "<path d=\"M3 12A9 3 0 0 0 21 12\"/>"], "cache": ["<path d=\"M6 19v-3\"/>", "<path d=\"M10 19v-3\"/>", "<path d=\"M14 19v-3\"/>", "<path d=\"M18 19v-3\"/>", "<path d=\"M8 11V9\"/>", "<path d=\"M16 11V9\"/>", "<path d=\"M12 11V9\"/>", "<path d=\"M2 15h20\"/>", "<path d=\"M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z\"/>"]};
+const ARCH_ICONS = { web: "browser", phone: "phone", gateway: "shield", api: "api", ws: "activity", queue: "queue", worker: "cpu", billing: "payment", db: "database", cache: "cache" };
+
+function planStepAppearAt(stepIndex, time) {
+  return easeOutQuart(progressBetween(time, TIMELINE.planIn + stepIndex * 0.12, ARRIVE_SECONDS));
+}
+function stepStatusAt(stepIndex, time) {
+  if (time >= TIMELINE.landed[stepIndex]) return "landed";
+  if (time >= TIMELINE.building[stepIndex]) return "building";
+  return "planned";
+}
+function statusChangedAt(stepIndex, time) {
+  if (time >= TIMELINE.landed[stepIndex]) return TIMELINE.landed[stepIndex];
+  if (time >= TIMELINE.building[stepIndex]) return TIMELINE.building[stepIndex];
+  return -Infinity;
+}
+function drawIcon(name, x, y, size, color) {
+  return `<g transform="translate(${x} ${y}) scale(${size / 24})" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_ELEMENTS[name].join("")}</g>`;
+}
+function drawBoardRect(x, y, width, height, stroke) {
+  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${BOARD_LOOK.radius}" fill="${BOARD_LOOK.fill}" stroke="${stroke}" stroke-width="${BOARD_LOOK.strokeWidth}"/>`;
+}
+function drawBoardWire(points, draw, color = BOARD_LOOK.wire) {
+  if (draw <= 0) return "";
+  const pointList = points.map(([x, y]) => `${x - 960},${y - 540}`).join(" ");
+  const [startX, startY] = points[0];
+  const [beforeX, beforeY] = points[points.length - 2];
+  const [tipX, tipY] = points[points.length - 1];
+  const length = Math.hypot(tipX - beforeX, tipY - beforeY) || 1;
+  const directionX = (tipX - beforeX) / length;
+  const directionY = (tipY - beforeY) / length;
+  const baseX = tipX - directionX * BOARD_LOOK.arrowLength;
+  const baseY = tipY - directionY * BOARD_LOOK.arrowLength;
+  const half = BOARD_LOOK.arrowHalfWidth;
+  const head = `<polygon points="${tipX - 960},${tipY - 540} ${baseX - directionY * half - 960},${baseY + directionX * half - 540} ${baseX + directionY * half - 960},${baseY - directionX * half - 540}" fill="${color}" opacity="${clamp01((draw - 0.85) / 0.15)}"/>`;
+  return `<circle cx="${startX - 960}" cy="${startY - 540}" r="${BOARD_LOOK.wireDot}" fill="${color}"/>` +
+    `<polyline points="${pointList}" fill="none" stroke="${color}" stroke-width="${BOARD_LOOK.strokeWidth}" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="${1 - draw}"/>` + head;
+}
+function drawBoardLabel(x, y, text, opacity) {
+  return opacity > 0 ? textElement(x - 960, y - 540, text, { size: 22, weight: 700, fill: BOARD_LOOK.muted, opacity, spacing: 2.2 }) : "";
+}
+
+function drawArchitectureScene(time) {
+  const grid = `<rect x="-960" y="-540" width="1920" height="1080" fill="url(#dots)"/>`;
+  const wires = ARCH_WIRES.map((points, wireIndex) => drawBoardWire(points, easeOutQuart(progressBetween(time, TIMELINE.archWires[wireIndex], 0.5)))).join("");
+  const planWires = PLAN_STEPS.slice(1).map((_, wireIndex) => {
+    const y = PLAN_Y + PLAN_STEP.height / 2;
+    return drawBoardWire([[planStepX(wireIndex) + PLAN_STEP.width, y], [planStepX(wireIndex + 1), y]], easeOutQuart(progressBetween(time, TIMELINE.planIn + 0.45 + wireIndex * 0.1, 0.4)));
+  }).join("");
+  const boxes = ARCH_BOXES.map((box, boxIndex) => drawArchBox(box, boxIndex, time)).join("");
+  const steps = PLAN_STEPS.map((step, stepIndex) => drawPlanStep(step, stepIndex, time)).join("");
+  const archLabel = drawBoardLabel(ARCH_COLUMNS[0], ARCH_BOXES_TOP - 22, "ARCHITECTURE", easeOutQuart(progressBetween(time, TIMELINE.archBoxes[0], ARRIVE_SECONDS)));
+  const planLabel = drawBoardLabel(ARCH_COLUMNS[0], PLAN_Y - 22, "PLAN", planStepAppearAt(0, time));
+  return `<g transform="translate(960 540)">${grid}${wires}${planWires}${archLabel}${planLabel}${boxes}${steps}</g>`;
+}
+
+function drawArchBox(box, boxIndex, time) {
+  const appear = easeOutQuart(progressBetween(time, TIMELINE.archBoxes[boxIndex], ARRIVE_SECONDS));
+  if (appear <= 0) return "";
+  const x = box.x - 960;
+  const y = box.y - 540;
+  const titleX = x + BOARD_LOOK.inset + BOARD_LOOK.iconSize + 10;
+  return `<g opacity="${appear}">` + drawBoardRect(x, y, ARCH_BOX_SIZE.width, ARCH_BOX_SIZE.height, BOARD_LOOK.stroke) +
+    drawIcon(ARCH_ICONS[box.name], x + BOARD_LOOK.inset, y + 22, BOARD_LOOK.iconSize, BOARD_LOOK.title) +
+    textElement(titleX, y + 44, box.name, { size: 30, weight: 700, fill: BOARD_LOOK.title }) +
+    textElement(x + BOARD_LOOK.inset + BOARD_LOOK.mutedIndent, y + 80, box.detail, { size: 22, fill: BOARD_LOOK.muted }) + "</g>";
+}
+
+function drawPlanStep(step, stepIndex, time) {
+  const appear = planStepAppearAt(stepIndex, time);
+  if (appear <= 0) return "";
+  const x = planStepX(stepIndex) - 960;
+  const y = PLAN_Y - 540 + (1 - appear) * 24;
+  const status = stepStatusAt(stepIndex, time);
+  const flip = easeOutQuart(progressBetween(time, statusChangedAt(stepIndex, time), 0.3));
+  const statusY = y + 48 - (1 - flip) * 12;
+  return `<g opacity="${appear}">` + drawBoardRect(x, y, PLAN_STEP.width, PLAN_STEP.height, COLOR.accent) +
+    textElement(x + BOARD_LOOK.inset, y + 48, `${stepIndex + 1}`, { size: 34, weight: 700, fill: COLOR.accent }) +
+    textElement(x + PLAN_STEP.width - BOARD_LOOK.inset, statusY, status, { size: 34, weight: 700, fill: STEP_STATUS_COLOR[status], anchor: "end", opacity: flip }) +
+    textElement(x + BOARD_LOOK.inset, y + 104, step.name, { size: 46, weight: 700, fill: BOARD_LOOK.title }) +
+    textElement(x + BOARD_LOOK.inset, y + 146, step.detail, { size: 24, fill: BOARD_LOOK.title }) + "</g>";
+}
+
+const MARK = { x: 960, y: 360, size: 220 };
+const BOARD_OUT = { zoom: 0.72, centerX: 640, centerY: 470, phoneX: -340, phoneY: 470 };
+function drawSaveToArchitectureLink(time) {
+  const draw = easeOutQuart(progressBetween(time, TIMELINE.linkDraw, 0.6));
+  if (draw <= 0) return "";
+  const saveY = BOARD_OUT.phoneY + SAVE.movedTop + SAVE.height / 2;
+  const fromX = BOARD_OUT.phoneX + SAVE.right + 4;
+  const web = ARCH_BOXES[0];
+  const toY = web.y + ARCH_BOX_SIZE.height / 2;
+  const elbowX = (fromX + web.x) / 2;
+  return `<polyline points="${fromX},${saveY} ${elbowX},${saveY} ${elbowX},${toY} ${web.x - 4},${toY}" fill="none" stroke="${COLOR.accent}" stroke-width="4" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="${1 - draw}"/>`;
+}
+function drawCityStage(time) {
+  const out = easeInOutCubic(progressBetween(time, TIMELINE.boardOutStart, TIMELINE.boardOutEnd - TIMELINE.boardOutStart));
+  const zoom = Math.exp(lerp(0, Math.log(BOARD_OUT.zoom), out));
+  const centerX = lerp(960, BOARD_OUT.centerX, out);
+  const centerY = lerp(540, BOARD_OUT.centerY, out);
+  const phone = out > 0 ? `<g transform="translate(${BOARD_OUT.phoneX} ${BOARD_OUT.phoneY})">${drawPhone(TIMELINE.diveStart - 0.01)}</g>` : "";
+  return `<g transform="translate(960 540) scale(${zoom}) translate(${-centerX} ${-centerY})"><rect x="-3000" y="-2000" width="7920" height="5080" fill="url(#dots)"/>` +
+    `<rect x="0" y="0" width="1920" height="1080" fill="${COLOR.bg}" opacity="${1 - out}"/>` + drawArchitectureScene(time) + phone + drawSaveToArchitectureLink(time) + "</g>";
+}
+
+const CAMERA_SHOTS = {
+  inputClose: { zoom: 3.2, centerX: TERMINAL.x + 300, centerY: 640 },
+  wallClose: { zoom: 2.0, centerX: TERMINAL.x + 480, centerY: TOPBAR_HEIGHT + 270 },
+  wallWide: { zoom: 1.5, centerX: 800, centerY: 405 },
+  overview: { zoom: 1920 / DASHBOARD.width, centerX: DASHBOARD.width / 2, centerY: DASHBOARD.height / 2 },
+  pane: { zoom: 1 / PANE_FIT_SCALE, centerX: PANE.x + PANE.width / 2, centerY: PANE.bodyY + PANE.bodyHeight / 2 },
+  split: { zoom: 1.68, centerX: 870, centerY: 420 },
+};
+const CAMERA_MOVES = [
+  { start: 0.95, end: 1.8, to: CAMERA_SHOTS.wallClose },
+  { start: 2.0, end: 3.2, to: CAMERA_SHOTS.overview },
+  { start: TIMELINE.paneZoomIn, end: TIMELINE.paneZoomInEnd, to: CAMERA_SHOTS.pane },
+  { start: TIMELINE.paneZoomOut, end: TIMELINE.paneZoomOutEnd, to: CAMERA_SHOTS.overview },
+  { start: TIMELINE.paneZoomIn2, end: TIMELINE.paneZoomIn2End, to: CAMERA_SHOTS.pane },
+  { start: TIMELINE.splitStart, end: TIMELINE.splitEnd, to: CAMERA_SHOTS.split },
+  { start: TIMELINE.pullStart, end: TIMELINE.pullEnd, to: CAMERA_SHOTS.overview },
+];
+function mixShots(from, to, amount) {
+  return { zoom: Math.exp(lerp(Math.log(from.zoom), Math.log(to.zoom), amount)), centerX: lerp(from.centerX, to.centerX, amount), centerY: lerp(from.centerY, to.centerY, amount) };
+}
+const DIVE_ANCHOR_SHARE = 0.45;
+function diveAnchorAt(time) {
+  return easeInOutCubic(progressBetween(diveProgressAt(time), 0, DIVE_ANCHOR_SHARE));
+}
+function diveDashboardCameraAt(time) {
+  const from = CAMERA_SHOTS.overview;
+  const to = CAMERA_SHOTS.pane;
+  const zoom = diveDashboardZoomAt(time);
+  const remaining = ((1 - diveAnchorAt(time)) * from.zoom) / zoom;
+  return { zoom, centerX: to.centerX - remaining * (to.centerX - from.centerX), centerY: to.centerY - remaining * (to.centerY - from.centerY) };
+}
+function dashboardCameraAt(time) {
+  if (time >= TIMELINE.diveStart && time < TIMELINE.diveEnd) return diveDashboardCameraAt(time);
+  let shot = CAMERA_SHOTS.inputClose;
+  for (const move of CAMERA_MOVES) {
+    if (time < move.start) return shot;
+    if (time < move.end) return mixShots(shot, move.to, easeInOutCubic(progressBetween(time, move.start, move.end - move.start)));
+    shot = move.to;
+  }
+  return shot;
+}
+
+const PANE_FIT_MOVES = [
+  { start: TIMELINE.paneZoomIn, end: TIMELINE.paneZoomInEnd, to: 1 },
+  { start: TIMELINE.paneZoomOut, end: TIMELINE.paneZoomOutEnd, to: 0 },
+  { start: TIMELINE.diveEnd, end: TIMELINE.diveEnd, to: 1 },
+];
+function paneSceneScaleAt(time) {
+  let fit = 0;
+  for (const move of PANE_FIT_MOVES) {
+    if (time < move.start) break;
+    if (time < move.end) {
+      fit = lerp(fit, move.to, easeInOutCubic(progressBetween(time, move.start, move.end - move.start)));
+      break;
+    }
+    fit = move.to;
+  }
+  return Math.exp(lerp(Math.log(BOARD_SCALE), Math.log(PANE_FIT_SCALE), fit));
+}
+
+function boardOpenAt(time) {
+  return easeOutExpo(progressBetween(time, TIMELINE.boardOpen, 0.9));
+}
+const AGENT_WORKING_WINDOWS = [[TIMELINE.streamStart, TIMELINE.drewLine], [TIMELINE.agentFix, TIMELINE.replyLine], [TIMELINE.planPromptEnd, TIMELINE.planLandedLine]];
+function sessionStatusColor(time) {
+  if (AGENT_WORKING_WINDOWS.some(([start, end]) => time >= start && time < end)) return COLOR.running;
+  return time >= TIMELINE.streamStart ? COLOR.complete : COLOR.idle;
+}
+
+function drawSessionGlyph(x, y, color) {
+  return `<g transform="translate(${x} ${y})" stroke="${color}" stroke-width="1.6" stroke-linecap="round"><path d="M0 -6V6M-5.2 -3L5.2 3M-5.2 3L5.2 -3M-3 -5.2L3 5.2M3 -5.2L-3 5.2"/></g>`;
+}
+function drawMenuGlyph(x, y) {
+  return `<path d="M${x - 7} ${y - 5}h14M${x - 7} ${y}h14M${x - 7} ${y + 5}h14" stroke="${COLOR.text}" stroke-width="1.6" stroke-linecap="round"/>`;
+}
+function drawBoardGlyph(x, y, color) {
+  return `<g transform="translate(${x} ${y})" fill="none" stroke="${color}" stroke-width="1.5"><rect x="0" y="0" width="12" height="12" rx="1.5"/><path d="M0 4H12M4 4V12"/></g>`;
+}
+function drawCheckGlyph(x, y, color = COLOR.doneGlyph) {
+  return `<path d="M${x - 5} ${y}L${x - 1.5} ${y + 3.5}L${x + 5} ${y - 4}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function drawCloseGlyph(x, y) {
+  return `<path d="M${x - 4.5} ${y - 4.5}L${x + 4.5} ${y + 4.5}M${x + 4.5} ${y - 4.5}L${x - 4.5} ${y + 4.5}" stroke="${COLOR.text}" stroke-width="1.6" stroke-linecap="round"/>`;
+}
+function drawChevron(x, y, color) {
+  return `<path d="M${x - 3} ${y - 5}L${x + 2} ${y}L${x - 3} ${y + 5}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function drawIconButton(x, y, glyph) {
+  return `<rect x="${x}" y="${y}" width="28" height="28" rx="4" fill="none" stroke="${COLOR.borderDim}" stroke-width="1"/><g transform="translate(${x + 14} ${y + 14})" fill="none" stroke="${COLOR.text}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>`;
+}
+
+const TOP_TABS = [
+  { label: "Focus", glyph: `<path d="M-5 -2V-5H-2M2 -5H5V-2M5 2V5H2M-2 5H-5V2"/><circle r="1.8"/>` },
+  { label: "Hooks", glyph: `<path d="M1 -5V2A3 3 0 0 1 -5 2"/>` },
+  { label: "Trace", glyph: `<path d="M-6 0H-3L-1 -4L1 4L3 0H6"/>` },
+  { label: "Arena", glyph: `<circle cy="1" r="4.5"/><path d="M-2 -6H2M0 1V-1"/>` },
+  { label: "Settings", glyph: `<path d="M-6 -3H6M-6 3H6"/><circle cx="2" cy="-3" r="1.6"/><circle cx="-2" cy="3" r="1.6"/>` },
+];
+const TAB_STARTS = [247, 330, 413, 495, 577];
+const TAB_WIDTHS = [77, 77, 76, 76, 94];
+
+function drawTopBar() {
+  const parts = [
+    `<rect x="0" y="0" width="${DASHBOARD.width}" height="${TOPBAR_HEIGHT}" fill="${COLOR.chrome}"/>`,
+    `<path d="M0 ${TOPBAR_HEIGHT}h${DASHBOARD.width}" stroke="${COLOR.divider}" stroke-width="1"/>`,
+    `<path d="M38 18L47 27L38 36L29 27Z" fill="none" stroke="${COLOR.textHead}" stroke-width="2"/><path d="M38 24L41 27L38 30L35 27Z" fill="none" stroke="${COLOR.textHead}" stroke-width="1.6"/>`,
+    textElement(59, 34, "GLIMMERVOID", { size: 19, weight: 700, fill: COLOR.textHead, spacing: 1.9 }),
+    `<rect x="242" y="10" width="435" height="34" rx="7" fill="${COLOR.tabGroup}" stroke="${COLOR.borderDim}" stroke-width="1"/>`,
+  ];
+  TOP_TABS.forEach((tab, tabIndex) => {
+    const x = TAB_STARTS[tabIndex];
+    const isActive = tabIndex === 0;
+    if (isActive) parts.push(`<rect x="${x}" y="14" width="${TAB_WIDTHS[tabIndex]}" height="26" rx="5" fill="${COLOR.tabActive}" stroke="${COLOR.accentDim}" stroke-width="1"/>`);
+    parts.push(`<g transform="translate(${x + 16} 27)" fill="none" stroke="${isActive ? COLOR.accent : COLOR.textMuted}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${tab.glyph}</g>`);
+    parts.push(textElement(x + 30, 32, tab.label, { size: UI_TEXT, weight: isActive ? 700 : 400, fill: isActive ? COLOR.textHead : COLOR.textMuted }));
+  });
+  parts.push(drawIconButton(1177, 13, `<path d="M-4 -5H4V-1A4 4 0 0 1 -4 -1ZM0 3V5M-3 6H3"/>`));
+  parts.push(`<rect x="1221" y="13" width="101" height="28" rx="4" fill="none" stroke="${COLOR.accent}" stroke-width="1.2"/>`);
+  parts.push(`<path d="M1238 22v10M1233 27h10" stroke="${COLOR.accent}" stroke-width="1.6" stroke-linecap="round"/>`);
+  parts.push(textElement(1249, 32, "SESSION", { size: 12, weight: 700, fill: COLOR.accent, spacing: 0.6 }));
+  parts.push(drawIconButton(1339, 13, `<path d="M-2.5 -2.5A2.5 2.5 0 1 1 0 0V1.5M0 4.5V4.6"/>`));
+  parts.push(drawIconButton(1383, 13, `<path d="M-1 4V-5L3 -3"/><circle cx="-3" cy="4" r="2"/>`));
+  return parts.join("");
+}
+
+
+function truncateToWidth(text, maxCharacters) {
+  if (text.length <= maxCharacters) return text;
+  return `${text.slice(0, maxCharacters - 3).trimEnd()}...`;
+}
+
+function drawGroupHeader(y, label, count) {
+  const labelWidth = (label.length + 2 + String(count).length) * 13 * MONO_ADVANCE_EM;
+  return textElement(16, y + 5, `${label}  ${count}`, { size: 13, weight: 700, fill: COLOR.textMuted }) +
+    `<path d="M${16 + labelWidth + 8} ${y}H270" stroke="${COLOR.rule}" stroke-width="1"/>` +
+    `<path d="M289 ${y - 5}v10M284 ${y}h10" stroke="${COLOR.text}" stroke-width="1.5" stroke-linecap="round"/>`;
+}
+
+function drawSessionRow(y, { name, detail, status, elapsed, badge }) {
+  const isDone = status === "done";
+  const background = isDone ? `<rect x="8" y="${y}" width="303" height="64" fill="${COLOR.doneRow}"/>` : "";
+  const badgeMark = badge ? `<rect x="297" y="${y + 1}" width="13" height="15" fill="${COLOR.doneRow}" stroke="${COLOR.doneBadge}" stroke-width="1"/>` + textElement(300, y + 13, badge, { size: 11, fill: COLOR.doneGlyph }) : "";
+  const statusGlyph = {
+    done: drawCheckGlyph(24, y + 42),
+    watching: `<path d="M18 ${y + 42}l6 -4l6 4l-6 4Z" fill="none" stroke="${COLOR.watching}" stroke-width="1.4"/><circle cx="24" cy="${y + 42}" r="1.4" fill="${COLOR.watching}"/>`,
+    paused: `<path d="M21 ${y + 37}v10M27 ${y + 37}v10" stroke="${COLOR.attention}" stroke-width="2"/>`,
+  }[status];
+  const detailText = truncateToWidth(detail, elapsed ? 25 : 30);
+  return background + badgeMark + drawSessionGlyph(46, y + 19, COLOR.textMuted) + textElement(56, y + 24, name, { size: UI_TEXT, fill: COLOR.textHead }) +
+    statusGlyph + textElement(40, y + 45, detailText, { size: UI_TEXT, fill: COLOR.textMuted }) +
+    (elapsed ? textElement(241, y + 45, elapsed, { size: UI_TEXT, fill: COLOR.textMuted }) : "") + drawCloseGlyph(292, y + 41);
+}
+
+
+function drawSelectedSession(y, time) {
+  const boardRow = boardOpenAt(time);
+  const height = 62 + boardRow * 24;
+  const isWorking = sessionStatusColor(time) === COLOR.running;
+  const statusGlyph = isWorking ? `<circle cx="24" cy="${y + 34}" r="3.5" fill="${COLOR.running}" opacity="${0.55 + 0.45 * Math.abs(Math.sin(time * 4))}"/>` : drawCheckGlyph(24, y + 34);
+  return `<rect x="8.5" y="${y + 0.5}" width="302" height="${height}" fill="${COLOR.selectedRow}" stroke="${COLOR.accentDim}" stroke-width="1.2"/>` +
+    textElement(40, y + 18, OPERATOR_PROMPT, { size: UI_TEXT, fill: COLOR.textHead }) +
+    `<rect x="40" y="${y + 25}" width="229" height="20" fill="${COLOR.tabActive}"/>` + statusGlyph +
+    drawSessionGlyph(57, y + 35, COLOR.agentGlyph) + textElement(67, y + 40, "settings-redo", { size: UI_TEXT, weight: 700, fill: COLOR.textHead }) + drawCloseGlyph(292, y + 35) +
+    (boardRow > 0 ? `<g opacity="${boardRow}">${drawBoardGlyph(51, y + 52, COLOR.text)}${textElement(67, y + 63, "Settings screen", { size: UI_TEXT, fill: COLOR.textHead })}</g>` : "");
+}
+
+function drawSidebar(time) {
+  const shift = boardOpenAt(time) * 24;
+  return `<rect x="0" y="${TOPBAR_HEIGHT}" width="${SIDEBAR_WIDTH}" height="${STATUS_BAR.y - TOPBAR_HEIGHT}" fill="${COLOR.chrome}"/>` +
+    `<rect x="${SIDEBAR_WIDTH - 1}" y="${TOPBAR_HEIGHT}" width="1" height="${STATUS_BAR.y - TOPBAR_HEIGHT}" fill="${COLOR.divider}"/>` +
+    `<g transform="translate(0 -52)">` +
+    drawGroupHeader(151, "API", 2) +
+    drawSessionRow(165, { name: "soak-test", detail: "Start the load soak with the new pool", status: "watching", elapsed: "0:21" }) +
+    drawSessionRow(237, { name: "bump-node-22", detail: "Bump this service from Node 20 to 22", status: "done", badge: "2" }) +
+    drawGroupHeader(331, "WEB", 3) +
+    drawSelectedSession(347, time) +
+    `<g transform="translate(0 ${shift})">` +
+    drawSessionRow(419, { name: "flaky-upload-test", detail: "The upload test in tests/upload fails", status: "done", badge: "3" }) +
+    drawSessionRow(491, { name: "audit-images", detail: "List the images under public/img", status: "done", badge: "4" }) +
+    drawGroupHeader(585, "UI", 1) +
+    drawSessionRow(599, { name: "rename-color-token", detail: "Rename the CSS custom property", status: "paused" }) + "</g></g>";
+}
+
+function drawMascot(x, y) {
+  const cells = ["0011111100", "1110110111", "1111111111", "0010110100"];
+  return cells.map((row, rowIndex) => [...row].map((cell, columnIndex) => (cell === "1" ? `<rect x="${x + columnIndex * 7}" y="${y + rowIndex * 9}" width="7" height="9" fill="${COLOR.mascot}"/>` : "")).join("")).join("");
+}
+
+const PLAN_TOOL_CALLS = PLAN_STEPS.map((step, stepIndex) => [
+  ...(stepIndex > 0 ? [{ text: PLAN_STEPS[stepIndex - 1].name }, { text: " landed", fill: COLOR.running }, { text: ", " }] : []),
+  { text: step.name }, { text: " building", fill: COLOR.waiting },
+])
+  .concat([[{ text: PLAN_STEPS[PLAN_STEPS.length - 1].name }, { text: " landed", fill: COLOR.running }]])
+  .map((runs) => [{ text: "whiteboard ", fill: COLOR.textMuted }, { text: "put  " }, ...runs]);
+const toolCall = (detail) => [{ text: "whiteboard ", fill: COLOR.textMuted }, { text: detail }];
+const TERMINAL_ROW = TERMINAL_TEXT.lineHeight + 2;
+const TERMINAL_HISTORY = [
+  { kind: "prompt", text: OPERATOR_PROMPT, start: TIMELINE.promptStart, end: TIMELINE.promptEnd, y: TERMINAL_TEXT.firstBlockY },
+  { kind: "tool", runs: toolCall("put  Settings screen: 4 rows and Save"), start: TIMELINE.settingsToolCall, y: TERMINAL_TEXT.firstBlockY + 34 },
+  { kind: "agent", lines: ["Drew Settings on the board."], start: TIMELINE.drewLine, y: TERMINAL_TEXT.firstBlockY + 34 + TERMINAL_ROW + 8 },
+  { kind: "status", text: "* Worked for 5s, done 2:48 PM", start: TIMELINE.drewLine + 0.3, y: TERMINAL_TEXT.firstBlockY + 92 },
+  { kind: "prompt", text: "fix what I marked", start: TIMELINE.fixPromptStart, end: TIMELINE.fixPromptEnd, y: TERMINAL_TEXT.firstBlockY + 126 },
+  { kind: "tool", runs: toolCall("get  your circle and note"), start: TIMELINE.agentFix, y: TERMINAL_TEXT.firstBlockY + 160 },
+  { kind: "tool", runs: toolCall("put  Save moved under the rows"), start: TIMELINE.saveMove - 0.05, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW },
+  { kind: "tool", runs: toolCall("put  your ink cleared"), start: TIMELINE.inkClear - 0.05, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW * 2 },
+  { kind: "agent", lines: ["Moved Save up under the rows."], start: TIMELINE.replyLine, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW * 3 + 8 },
+  { kind: "prompt", text: "plan the backend", start: TIMELINE.planPromptStart, end: TIMELINE.planPromptEnd, y: TERMINAL_TEXT.firstBlockY + 256 },
+  { kind: "agent", lines: ["Drew the plan on the board."], start: TIMELINE.planIn, y: TERMINAL_TEXT.firstBlockY + 290 },
+  ...PLAN_TOOL_CALLS.map((runs, callIndex) => ({ kind: "tool", runs, start: callIndex === 0 ? TIMELINE.building[0] : TIMELINE.landed[callIndex - 1], y: TERMINAL_TEXT.firstBlockY + 316 + callIndex * TERMINAL_ROW })),
+  { kind: "agent", lines: ["All 4 plan steps landed."], start: TIMELINE.planLandedLine, y: TERMINAL_TEXT.firstBlockY + 316 + PLAN_TOOL_CALLS.length * TERMINAL_ROW + 16 },
+];
+const SUBMIT_DELAY_SECONDS = 0.15;
+function drawTerminalEntry(entry, time, width) {
+  const left = TERMINAL_TEXT.left;
+  if (entry.kind === "prompt") {
+    if (time < entry.end + SUBMIT_DELAY_SECONDS) return "";
+    return `<rect x="${TERMINAL.x + 7}" y="${entry.y - 12}" width="${width - 14}" height="${TERMINAL_TEXT.lineHeight + 4}" fill="${COLOR.promptBlock}"/>` +
+      drawChevron(TERMINAL.x + 13, entry.y - 4, COLOR.textMuted) + textElement(left, entry.y, entry.text, { size: UI_TEXT, fill: COLOR.textHead });
+  }
+  const appear = easeOutExpo(progressBetween(time, entry.start, 0.4));
+  if (appear <= 0) return "";
+  if (entry.kind === "status") return textElement(TERMINAL.x + 8, entry.y, entry.text, { size: UI_TEXT, fill: COLOR.textMuted, opacity: appear });
+  if (entry.kind === "tool") return `<g opacity="${appear}"><circle cx="${TERMINAL.x + 12}" cy="${entry.y - 4}" r="3.5" fill="${COLOR.running}"/>` + drawTextRuns(left, entry.y, entry.runs) + "</g>";
+  return `<g opacity="${appear}"><circle cx="${TERMINAL.x + 12}" cy="${entry.y - 4}" r="3.5" fill="${COLOR.textHead}"/>` +
+    entry.lines.map((line, lineIndex) => textElement(left, entry.y + lineIndex * TERMINAL_TEXT.lineHeight, line, { size: UI_TEXT, fill: COLOR.textHead })).join("") + "</g>";
+}
+
+function drawTextRuns(x, y, runs) {
+  let column = 0;
+  return runs.map(({ text, fill = COLOR.textHead }) => {
+    const run = textElement(x + column * UI_ADVANCE, y, text, { size: UI_TEXT, fill });
+    column += text.length;
+    return run;
+  }).join("");
+}
+function drawPlanWorkingLine(time) {
+  const stepIndex = TIMELINE.building.findIndex((start, index) => time >= start && time < TIMELINE.landed[index]);
+  if (stepIndex < 0) return "";
+  const elapsed = Math.floor(time - TIMELINE.building[0]) + 1;
+  const pulse = 0.55 + 0.45 * Math.cos(time * Math.PI * 2.5);
+  return textElement(TERMINAL.x + 8, TERMINAL_TEXT.inputY - 38, "*", { size: UI_TEXT, weight: 700, fill: COLOR.waiting, opacity: pulse }) + textElement(TERMINAL.x + 8 + 2 * UI_ADVANCE, TERMINAL_TEXT.inputY - 38, `Building ${PLAN_STEPS[stepIndex].name} (${elapsed}s)`, { size: UI_TEXT, fill: COLOR.waiting });
+}
+
+function inputTextAt(time) {
+  const typing = TERMINAL_HISTORY.find((entry) => entry.kind === "prompt" && time >= entry.start && time < entry.end + SUBMIT_DELAY_SECONDS);
+  if (!typing) return "";
+  return typing.text.slice(0, Math.floor(typing.text.length * progressBetween(time, typing.start, typing.end - typing.start)));
+}
+
+function drawTerminalInput(time, width) {
+  const typed = inputTextAt(time);
+  const ruleLeft = TERMINAL.x + 7;
+  const ruleRight = TERMINAL.x + width - 7;
+  const y = TERMINAL_TEXT.inputY;
+  const cursorX = TERMINAL_TEXT.left + typed.length * UI_ADVANCE + 1;
+  return `<path d="M${ruleLeft} ${y - 18}H${ruleRight}M${ruleLeft} ${y + 15}H${ruleRight}" stroke="${COLOR.textMuted}" stroke-width="1"/>` +
+    drawChevron(TERMINAL.x + 13, y - 4, COLOR.textHead) + textElement(TERMINAL_TEXT.left, y, typed, { size: UI_TEXT, fill: COLOR.textHead }) +
+    `<rect x="${cursorX}" y="${y - 12}" width="7" height="15" fill="${COLOR.accent}"/>` +
+    `<path d="M${TERMINAL.x + 25} ${y + 27}l6 4l-6 4ZM${TERMINAL.x + 32} ${y + 27}l6 4l-6 4Z" fill="${COLOR.bypass}"/>` +
+    textElement(TERMINAL.x + 47, y + 36, "bypass permissions on", { size: UI_TEXT, fill: COLOR.bypass }) +
+    textElement(TERMINAL.x + 47 + 22 * UI_ADVANCE, y + 36, "(shift+tab to cycle)", { size: UI_TEXT, fill: COLOR.textMuted });
+}
+
+function drawTerminal(time) {
+  const width = lerp(TERMINAL.fullWidth, TERMINAL.openWidth, boardOpenAt(time));
+  const headerTitle = truncateToWidth(OPERATOR_PROMPT, 50);
+  return `<rect x="${TERMINAL.x}" y="${TERMINAL.y}" width="${width}" height="${TERMINAL.height}" fill="${COLOR.page}"/>` +
+    `<rect x="${TERMINAL.x}" y="${TERMINAL.y}" width="${width}" height="${HEADER_HEIGHT}" fill="${COLOR.paneHeader}"/>` +
+    drawSessionGlyph(TERMINAL.x + 20, TERMINAL.y + 21, sessionStatusColor(time) === COLOR.running ? COLOR.agentGlyph : COLOR.textMuted) +
+    textElement(TERMINAL.x + 37, TERMINAL.y + 25, headerTitle, { size: UI_TEXT, fill: COLOR.textHead }) +
+    `<path d="M${TERMINAL.x + width - 58} ${TERMINAL.y + 15}v8M${TERMINAL.x + width - 62} ${TERMINAL.y + 19}h8M${TERMINAL.x + width - 62} ${TERMINAL.y + 27}h8" stroke="${COLOR.text}" stroke-width="1.5" stroke-linecap="round"/>` +
+    drawMenuGlyph(TERMINAL.x + width - 24, TERMINAL.y + 21) +
+    drawMascot(TERMINAL.x + 10, TERMINAL.y + HEADER_HEIGHT + 20) +
+    textElement(TERMINAL.x + 95, TERMINAL.y + HEADER_HEIGHT + 34, "Claude Code", { size: UI_TEXT, weight: 700, fill: COLOR.textHead }) +
+    textElement(TERMINAL.x + 95 + 12 * UI_ADVANCE, TERMINAL.y + HEADER_HEIGHT + 34, "v2.1.319", { size: UI_TEXT, fill: COLOR.textMuted }) +
+    textElement(TERMINAL.x + 95, TERMINAL.y + HEADER_HEIGHT + 50, "Haiku 5.5 with low effort", { size: UI_TEXT, fill: COLOR.textMuted }) +
+    TERMINAL_HISTORY.map((entry) => drawTerminalEntry(entry, time, width)).join("") + drawPlanWorkingLine(time) +
+    drawTerminalInput(time, width);
+}
+
+function drawBoardToolbar(x, y, selectedTool) {
+  const historyGlyphs = [
+    `<path d="M-5 -2V-5H-2M2 -5H5V-2M5 2V5H2M-2 5H-5V2"/>`,
+    `<path d="M-4 -1A4.5 4.5 0 1 1 -2 4M-4 -1V-5M-4 -1H0"/>`,
+    `<path d="M4 -1A4.5 4.5 0 1 0 2 4M4 -1V-5M4 -1H0"/>`,
+  ];
+  const toolGlyphs = [
+    `<path d="M-4 -5V4L-1 1.5L1.5 6L3.5 5L1 0.5H5Z"/>`,
+    `<rect x="-6" y="-4" width="12" height="8" rx="1"/>`,
+    `<path d="M0 -6L6 0L0 6L-6 0Z"/>`,
+    `<rect x="-6" y="-5" width="12" height="10" rx="1"/><path d="M-6 -1.5H6"/>`,
+    `<path d="M-5 -5H5V2L2 5H-5Z"/>`,
+    `<path d="M-5 -5H5M0 -5V5"/>`,
+    `<path d="M0 -6L1.8 -2L6 -1.6L2.8 1.2L3.8 5.5L0 3.2L-3.8 5.5L-2.8 1.2L-6 -1.6L-1.8 -2Z"/>`,
+    `<rect x="-3.5" y="-6" width="7" height="12" rx="1.5"/>`,
+    `<path d="M-5 5L5 -5M0 -5H5V0"/>`,
+    `<path d="M-6 2C-3 -4 0 5 3 -1S6 -2 6 -3"/>`,
+  ];
+  const drawGlyphs = (glyphs, left, selectedIndex) => glyphs.map((glyph, glyphIndex) => {
+    const centerX = left + 17 + glyphIndex * 30;
+    const isSelected = glyphIndex === selectedIndex;
+    const highlight = isSelected ? `<rect x="${centerX - 13}" y="${y + 6}" width="26" height="28" rx="4" fill="${COLOR.tabActive}"/>` : "";
+    return highlight + `<g transform="translate(${centerX} ${y + 20})" fill="none" stroke="${isSelected ? COLOR.accent : COLOR.text}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round">${glyph}</g>`;
+  }).join("");
+  const toolsLeft = x + 108;
+  return `<rect x="${x}" y="${y}" width="96" height="40" rx="5" fill="${COLOR.page}" stroke="${COLOR.divider}" stroke-width="1"/>` + drawGlyphs(historyGlyphs, x + 2, -1) +
+    `<rect x="${toolsLeft}" y="${y}" width="307" height="40" rx="5" fill="${COLOR.page}" stroke="${COLOR.divider}" stroke-width="1"/>` + drawGlyphs(toolGlyphs, toolsLeft + 2, selectedTool);
+}
+
+function drawBoardPane(time) {
+  const open = boardOpenAt(time);
+  if (open <= 0) return "";
+  const scene = time < TIMELINE.diveEnd ? drawBoardStage(time) : drawCityStage(time);
+  const sceneScale = paneSceneScaleAt(time);
+  const sceneOrigin = paneSceneOriginAt(sceneScale);
+  const boardCaption = time < TIMELINE.diveEnd ? "The settings screen, first pass" : time < TIMELINE.boardOutStart ? "How the backend gets built" : "Settings screen, backend and plan";
+  return `<g transform="translate(${(1 - open) * (PANE.width + 2)} 0)">` +
+    `<rect x="${PANE.x - 2}" y="${PANE.y}" width="2" height="${STATUS_BAR.y - PANE.y}" fill="${COLOR.divider}"/>` +
+    `<g clip-path="url(#pane-clip)"><rect x="${PANE.x}" y="${PANE.bodyY}" width="${PANE.width}" height="${PANE.bodyHeight}" fill="${COLOR.bg}"/>` +
+    `<g transform="translate(${sceneOrigin.x} ${sceneOrigin.y}) scale(${sceneScale})">${scene}</g></g>` +
+    drawBoardToolbar(PANE.x + 13, PANE.bodyY + 11, selectedBoardToolAt(time)) +
+    textElement(PANE.x + 66, STATUS_BAR.y - 32, boardCaption, { size: UI_TEXT, fill: COLOR.text }) +
+    `<rect x="${PANE.x}" y="${PANE.y}" width="${PANE.width}" height="${HEADER_HEIGHT}" fill="${COLOR.paneHeader}"/>` +
+    textElement(PANE.x + 12, PANE.y + 25, "Settings screen", { size: UI_TEXT, fill: COLOR.textHead }) +
+    textElement(PANE.x + 12 + 16 * UI_ADVANCE, PANE.y + 25, "edited just now", { size: UI_TEXT, fill: COLOR.textMuted }) +
+    drawMenuGlyph(PANE.x + PANE.width - 22, PANE.y + 21) + "</g>";
+}
+
+function drawDashboard(time) {
+  const camera = dashboardCameraAt(time);
+  const leave = easeInOutCubic(progressBetween(time, TIMELINE.dashboardLeave, 0.4));
+  if (leave >= 1) return "";
+  return `<g opacity="${1 - leave}" transform="translate(960 540) scale(${camera.zoom}) translate(${-camera.centerX} ${-camera.centerY})">` +
+    `<rect x="-1" y="-1" width="${DASHBOARD.width + 2}" height="${DASHBOARD.height + 2}" rx="8" fill="${COLOR.page}" stroke="${COLOR.border}" stroke-width="1.5"/>` +
+    drawTopBar() + drawSidebar(time) + drawTerminal(time) + drawBoardPane(time) + drawWall(time) + drawOverviewCursor(time) + "</g>";
+}
+
+const BRAND_BRACKETS = [
+  { d: "M33 29L50 12L67 29", dx: 0, dy: -1 },
+  { d: "M71 33L88 50L71 67", dx: 1, dy: 0 },
+  { d: "M67 71L50 88L33 71", dx: 0, dy: 1 },
+  { d: "M29 67L12 50L29 33", dx: -1, dy: 0 },
+];
+const BRAND_LIGHT = "M50 39L61 50L50 61L39 50Z";
+
+function drawEndCard(time) {
+  const markIn = progressBetween(time, TIMELINE.markIn, TIMELINE.markClamp - TIMELINE.markIn);
+  if (markIn <= 0) return "";
+  const clamp = easeOutExpo(markIn);
+  const spin = lerp(-360, 0, easeOutExpo(progressBetween(time, TIMELINE.markIn, 1.0)));
+  const lightOn = progressBetween(time, TIMELINE.markClamp, 0.25);
+  const brackets = BRAND_BRACKETS.map(({ d, dx, dy }) => `<path d="${d}" transform="translate(${dx * (1 - clamp) * 60} ${dy * (1 - clamp) * 60})" fill="none" stroke="${COLOR.textHead}" stroke-width="11" stroke-linejoin="miter" stroke-linecap="butt" opacity="${clamp01(markIn * 3)}"/>`).join("");
+  const light = `<g transform="translate(50 50) scale(${lerp(0.2, 1, easeOutExpo(lightOn))}) translate(-50 -50)" opacity="${lightOn}"><path d="${BRAND_LIGHT}" fill="${COLOR.accent}"/></g>`;
+  const wordmark = easeOutExpo(progressBetween(time, TIMELINE.markClamp + 0.3, ARRIVE_SECONDS));
+  const tagline = easeOutExpo(progressBetween(time, TIMELINE.markClamp + 0.7, ARRIVE_SECONDS));
+  const link = easeOutExpo(progressBetween(time, TIMELINE.markClamp + 1.1, ARRIVE_SECONDS));
+  return `<g transform="translate(${MARK.x} ${MARK.y}) rotate(${spin}) scale(${MARK.size / 108}) translate(-50 -50)">${brackets}${light}</g>` +
+    `<g opacity="${wordmark}" transform="translate(0 ${(1 - wordmark) * 20})">${textElement(960, 620, "GLIMMERVOID", { size: 84, weight: 700, fill: COLOR.textHead, anchor: "middle", spacing: 8.4 })}</g>` +
+    `<g opacity="${tagline}" transform="translate(0 ${(1 - tagline) * 20})">${textElement(960, 720, "One board. You and your agent.", { size: 44, fill: COLOR.text, anchor: "middle" })}</g>` +
+    `<g opacity="${link}" transform="translate(0 ${(1 - link) * 20})">${textElement(960, 800, "glimmervoid.dev", { size: 44, weight: 700, fill: COLOR.accent, anchor: "middle" })}</g>`;
+}
+
+const stage = document.getElementById("stage");
+const STAGE_DEFS = `<defs>${GLYPH_DEFS}<pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse"><circle cx="15" cy="15" r="1.8" fill="${COLOR.borderHover}"/></pattern>` +
+  `<clipPath id="pane-clip"><rect x="${PANE.x}" y="${PANE.bodyY}" width="${PANE.width}" height="${PANE.bodyHeight}"/></clipPath>` +
+  `<clipPath id="terminal-clip"><rect x="${TERMINAL.x}" y="${TERMINAL.y + HEADER_HEIGHT}" width="${TERMINAL.openWidth}" height="${TERMINAL.height - HEADER_HEIGHT}"/></clipPath></defs>`;
+
+function renderAt(realSeconds) {
+  const clampedReal = Math.min(realSeconds, window.totalSeconds - 0.001);
+  const time = Math.min(storyTimeAt(clampedReal), TIMELINE.total - 0.001);
+  stage.innerHTML = STAGE_DEFS + `<rect width="1920" height="1080" fill="${COLOR.bg}"/>` +
+    `<g opacity="${lerp(1, SCENE_DIM_OPACITY, sceneDimAt(clampedReal))}">${drawDashboard(time)}</g>` + drawTitleCards(clampedReal) + drawEndCard(time);
+}
+
+let isPlaying = false;
+let currentTime = 0;
+let lastFrameMs = 0;
+
+const NARRATION_DRIFT_SECONDS = 0.12;
+const VOLUME_STORAGE_KEY = "explainer-volume";
+
+const narration = document.getElementById("narration");
+const soundHint = document.getElementById("sound-hint");
+const volumeSlider = document.getElementById("volume");
+let isNarrationBlocked = false;
+
+function readStoredVolume() {
+  try {
+    const stored = localStorage.getItem(VOLUME_STORAGE_KEY);
+    return stored === null ? 0.8 : Number(stored);
+  } catch {
+    return 0.8;
+  }
+}
+
+function applyVolume(volume) {
+  narration.volume = Math.min(1, Math.max(0, volume));
+  volumeSlider.value = String(narration.volume);
+  try {
+    localStorage.setItem(VOLUME_STORAGE_KEY, String(narration.volume));
+  } catch {}
+}
+
+function isNarrationAudible() {
+  return !narration.paused && !narration.seeking;
+}
+
+function syncNarration() {
+  if (!isPlaying) {
+    narration.pause();
+    return;
+  }
+  if (Math.abs(narration.currentTime - currentTime) > NARRATION_DRIFT_SECONDS) narration.currentTime = currentTime;
+  if (!narration.paused || isNarrationBlocked) return;
+  narration.play().then(() => { soundHint.hidden = true; }).catch(() => {
+    isNarrationBlocked = true;
+    soundHint.hidden = false;
+  });
+}
+
+function unblockNarration() {
+  isNarrationBlocked = false;
+  syncNarration();
+}
+
+function wireNarrationControls() {
+  applyVolume(readStoredVolume());
+  volumeSlider.addEventListener("input", () => applyVolume(Number(volumeSlider.value)));
+  document.addEventListener("click", unblockNarration);
+  document.addEventListener("keydown", unblockNarration);
+}
+
+function showTime(seconds) {
+  currentTime = ((seconds % window.totalSeconds) + window.totalSeconds) % window.totalSeconds;
+  renderAt(currentTime);
+  syncNarration();
+}
+
+function setPlaying(shouldPlay) {
+  isPlaying = shouldPlay;
+  lastFrameMs = performance.now();
+  syncNarration();
+  if (isPlaying) requestAnimationFrame(tick);
+}
+
+function tick(nowMs) {
+  if (!isPlaying) return;
+  const elapsedSeconds = (nowMs - lastFrameMs) / 1000;
+  lastFrameMs = nowMs;
+  const nextTime = isNarrationAudible() ? narration.currentTime : currentTime + elapsedSeconds;
+  if (nextTime >= window.totalSeconds - 0.02) {
+    showTime(0);
+    narration.currentTime = 0;
+  }
+  if (nextTime < window.totalSeconds - 0.02) {
+    currentTime = nextTime;
+    renderAt(currentTime);
+  }
+  requestAnimationFrame(tick);
+}
+
+const stillMatch = location.hash.match(/^#t([\d.]+)$/);
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+wireNarrationControls();
+document.getElementById("pause").addEventListener("click", (event) => { event.stopPropagation(); setPlaying(!isPlaying); });
+document.getElementById("restart").addEventListener("click", (event) => { event.stopPropagation(); showTime(0); setPlaying(true); });
+if (stillMatch) renderAt(realTimeAt(Number(stillMatch[1])));
+if (!stillMatch && prefersReducedMotion) renderAt(realTimeAt(TIMELINE.planLandedLine + 0.4));
+if (!stillMatch && !prefersReducedMotion) { showTime(0); setPlaying(true); }
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+ "soundLevel": 1,
+ "sounds": [
+  {
+   "clip": "music/Ouroboros.mp3",
+   "at": "TIMELINE.drop",
+   "clipAt": 18,
+   "until": "TIMELINE.drop",
+   "filter": "highpass=f=350,highpass=f=350,lowpass=f=1600,lowpass=f=1600,afade=t=in:d=0.3",
+   "level": 0.425,
+   "stopBefore": 0.12,
+   "fadeOut": 0.01
+  },
+  {
+   "clip": "music/Ouroboros.mp3",
+   "at": "TIMELINE.drop",
+   "clipAt": 18,
+   "notBefore": "TIMELINE.drop",
+   "until": "TIMELINE.total",
+   "fadeOut": 2.3,
+   "level": 0.5,
+   "fadeIn": 0
+  }
+ ]
+}
