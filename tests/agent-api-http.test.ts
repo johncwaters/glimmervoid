@@ -616,7 +616,7 @@ test('limits tells a session which commands answer and its boundary', async () =
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', 'wake', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', false], ['wake', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],

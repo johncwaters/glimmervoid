@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { z } from 'zod';
 import type { DoormanGcpHost, DoormanTenant } from '../../shared/contracts/doorman.ts';
 import { gceWakeAction, isGceSettling } from './doorman-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 type HostAdapter = { wake(tenant: DoormanTenant): Promise<void>; stop(tenant: DoormanTenant): Promise<void> };
 
@@ -21,7 +22,7 @@ function isRetryableRefusal(error: unknown): boolean {
 const MetadataToken = z.object({ access_token: z.string().min(1) });
 const GceInstance = z.object({ status: z.string().min(1) });
 
-function createGcpHostAdapter({ fetchFn = fetch, now = Date.now, settleTimeoutMs, settlePollMs = SETTLE_POLL_MS }: {
+function createGcpHostAdapter({ fetchFn = fetch, now = clock.nowMs, settleTimeoutMs, settlePollMs = SETTLE_POLL_MS }: {
   fetchFn?: typeof fetch;
   now?: () => number;
   settleTimeoutMs: number;

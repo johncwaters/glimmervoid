@@ -5,6 +5,7 @@ import { glimmervoidHomeDir } from './config-store.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
 import { formatGithubUsage } from './github/core/github-usage-core.ts';
 import { githubUsageFilePath } from './github/github-usage-ledger.ts';
+import { clock } from '../shared/clock.ts';
 
 function readSnapshotText(filePath: string): string | null {
   try {
@@ -14,7 +15,7 @@ function readSnapshotText(filePath: string): string | null {
   }
 }
 
-async function runGithubUsageCli({ isJson, homeDir = glimmervoidHomeDir(), now = Date.now }: { isJson: boolean; homeDir?: string; now?: () => number }): Promise<number> {
+async function runGithubUsageCli({ isJson, homeDir = glimmervoidHomeDir(), now = clock.nowMs }: { isJson: boolean; homeDir?: string; now?: () => number }): Promise<number> {
   const filePath = githubUsageFilePath(homeDir);
   const snapshotText = readSnapshotText(filePath);
   if (snapshotText === null) {

@@ -7,6 +7,7 @@ import { loadJsonStateFile, loadedJsonValue, writeJsonAtomic } from '../json-fil
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import type { ReviewCommentDraft } from './review-state-core.ts';
 import { addComment, commentPasteText, emptyReviewState, markViewed, replyToComment, resolveComment } from './review-state-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 const REVIEWS_FOLDER_NAME = 'reviews';
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -29,7 +30,7 @@ interface ReviewPort {
   forgetSession(sessionId: string): Promise<void>;
 }
 
-function createReviewWiring({ reviewsRoot, broadcastControl, findSession, now = Date.now }: {
+function createReviewWiring({ reviewsRoot, broadcastControl, findSession, now = clock.nowMs }: {
   reviewsRoot: string;
   broadcastControl: (message: ControlMessageRecord) => void;
   findSession: (sessionId: string) => PasteTarget | null;

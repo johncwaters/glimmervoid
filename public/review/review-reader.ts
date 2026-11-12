@@ -17,6 +17,7 @@ import {
 import type { SessionReview } from './review-store.ts';
 import { onReviewChange, refreshReview, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
+import { clock } from '#shared/clock.ts';
 
 const CHANGES_PAGE_ID = 'changes';
 
@@ -342,7 +343,7 @@ function viewedToggleFor(sessionId: string, file: ReaderFile, notice: HTMLElemen
 }
 
 function sentTimeOf(comment: ReviewComment) {
-  return new Date(comment.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return clock.format(comment.sentAt, 'short-time');
 }
 
 function commentThread(sessionId: string, comment: ReviewComment, isOutdated: boolean) {

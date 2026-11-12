@@ -199,6 +199,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   }
 
   function noteWatcherFeatures(response: Response): void {
+    if (!response.ok) return;
     doesWatcherTakeAlarms = (response.headers.get(WATCHER_FEATURES_HEADER) ?? '').split(',').includes(ALARMS_FEATURE);
   }
 

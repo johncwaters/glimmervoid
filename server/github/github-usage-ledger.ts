@@ -6,6 +6,7 @@ import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_USAGE_WINDOW_MS, callsWithinWindow, githubUsageLogLine, summarizeGithubUsage } from './core/github-usage-core.ts';
 import type { GithubCall, GithubUsageRecorder } from './core/github-usage-core.ts';
 import type { GithubRateLimitResources } from './core/github-rate-limit-core.ts';
+import { clock as timeClock } from '../../shared/clock.ts';
 
 const GITHUB_USAGE_FILE_NAME = 'github-usage.json';
 const SNAPSHOT_INTERVAL_MS = 60_000;
@@ -15,7 +16,7 @@ function githubUsageFilePath(homeDir: string): string {
   return path.join(homeDir, GITHUB_USAGE_FILE_NAME);
 }
 
-function createGithubUsageLedger({ homeDir, readAccountPool, log, now = Date.now }: {
+function createGithubUsageLedger({ homeDir, readAccountPool, log, now = timeClock.nowMs }: {
   homeDir: string;
   readAccountPool: () => Promise<GithubRateLimitResources | null>;
   log: Pick<Console, 'info' | 'warn'>;
