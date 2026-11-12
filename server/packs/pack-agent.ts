@@ -5,11 +5,13 @@ import { PANEL_ACTION_MAX_BYTES, panelActionsJsonSchemaText } from '../../shared
 import { PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
 import { PACK_FILE_NAME, PackHeader, packJsonSchemaText } from '../../shared/contracts/pack.ts';
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
+import { ATTENTION_NOTE_MAX_CHARS } from '../../shared/contracts/session.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
-import { PACK_PANEL_CONTENT_POLICY } from './core/pack-core.ts';
+import { PACK_PANEL_CONTENT_POLICY, pendingPackNote } from './core/pack-core.ts';
 import { PACKS_DIR_NAME } from './pack-files.ts';
+import { installPack, removeInstalledPack } from './pack-install.ts';
 
 type PacksReadout = { text: string; hasProblem: boolean };
 type PackAgentDeps = {
@@ -34,8 +36,8 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
   return [
     'Glimmervoid packs',
     '',
-    `A pack is a folder holding a ${PACK_FILE_NAME} and the files it names, at most 1 MiB in all and without symlinks. Install one by placing its folder under ${path.join(homeDir, PACKS_DIR_NAME)}, or by listing its path under "packs" in Glimmervoid's config.json.`,
-    'Nothing in a pack runs or shows until the operator approves it in Settings, Packs, and any change to any file in it asks again. Never approve a pack for the operator; check it, then tell them it waits for approval.',
+    `A pack is a folder holding a ${PACK_FILE_NAME} and the files it names, at most 1 MiB in all and without symlinks. Install one with the packs tool action install (glimmervoid packs install <folder>), which checks the folder and copies it into ${path.join(homeDir, PACKS_DIR_NAME)}; installing again replaces that copy. remove deletes only a copy install made.`,
+    'Nothing in a pack runs or shows until the operator approves it in Settings, Packs, and any change to any file in it asks again. No tool action approves a pack: install it, then call request-approval with its name, which shows the operator what it adds and points them to Settings, Packs. status names its approval state, load errors and anything missing on this machine.',
     '',
     'Sections of pack.json, each checked on its own:',
     '- prFlows: commands My PRs runs on pull requests (prActions, sources, actions, rules).',
@@ -51,7 +53,7 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     'Examples to copy and adapt:',
     ...await exampleLines(examplePacksDir),
     '',
-    'Workflow: write the pack in any folder, run glimmervoid packs check <folder> (exits 1 and lists every problem, including files a page loads that are missing or remote), then glimmervoid packs preview <folder> to open its panels in a browser with sample data and its themes, without installing or approving anything. Then install it and tell the operator it waits for approval. The packs tool with action check runs the same check.',
+    'Workflow: write the pack in any folder, run glimmervoid packs check <folder> (exits 1 and lists every problem, including files a page loads that are missing or remote), then glimmervoid packs preview <folder> to open its panels in a browser with sample data and its themes, without installing or approving anything. Then install it and call request-approval. The packs tool actions check, install, status, request-approval and remove do the same over MCP.',
     '',
     ...schemaLines,
   ].join('\n');
@@ -67,12 +69,83 @@ function rowLines(row: PackRow): string[] {
   ];
 }
 
-export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAgentDeps): Promise<PacksReadout> {
-  if (request.command === 'guide') return { text: await packGuideText(deps, [`${PACK_FILE_NAME} JSON Schema:`, packJsonSchemaText(), 'Panel bridge messages JSON Schema:', packBridgeJsonSchemaText(), 'Panel action requests JSON Schema, by request.type:', panelActionsJsonSchemaText()]), hasProblem: false };
-  if (request.command === 'list') {
-    const rows = deps.packRows();
-    return { text: rows.length === 0 ? `No packs are installed; ${path.join(deps.homeDir, PACKS_DIR_NAME)} holds none and config.json lists none.` : rows.flatMap(rowLines).join('\n'), hasProblem: rows.some((row) => row.errors.length > 0) };
-  }
-  const report = await checkPack(request.path ?? '', deps.env, deps.isApproved);
+function packGrantsText(row: PackRow): string {
+  const prFlowCommandCount = row.prFlows?.pack?.commands.length ?? 0;
+  const grants = [
+    ...row.panels.map((panel) => `panel ${panel.label}${panel.reads.length === 0 ? '' : ` reading ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : ` acting on ${panel.acts.join(', ')}`}`),
+    ...(row.themes.length === 0 ? [] : [`${row.themes.length} theme${row.themes.length === 1 ? '' : 's'}`]),
+    ...(prFlowCommandCount === 0 ? [] : [`${prFlowCommandCount} My PRs command${prFlowCommandCount === 1 ? '' : 's'}`]),
+  ];
+  return grants.length === 0 ? 'it adds nothing yet' : `it adds ${grants.join('; ')}`;
+}
+
+export function packApprovalNote(row: PackRow): string {
+  const note = `${pendingPackNote(row)}${row.version === null ? '' : ` (v${row.version})`}: ${packGrantsText(row)}.`;
+  const ellipsis = String.fromCharCode(0x2026);
+  return note.length <= ATTENTION_NOTE_MAX_CHARS ? note : `${note.slice(0, ATTENTION_NOTE_MAX_CHARS - 1)}${ellipsis}`;
+}
+
+function packStatusText(row: PackRow): string {
+  const stateLine = {
+    approved: 'Approved: it is in use.',
+    pending: 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
+    invalid: 'Invalid: fix the errors below and install it again.',
+  }[row.state];
+  return [...rowLines(row), stateLine].join('\n');
+}
+
+function rowNamed(name: string, deps: PackAgentDeps): PackRow | null {
+  return deps.packRows().find((row) => row.name === name) ?? null;
+}
+
+function notFound(name: string): PacksReadout {
+  return { text: `No pack named '${name}' is loaded here; packs list names those that are. A pack installed a moment ago shows within a second.`, hasProblem: true };
+}
+
+async function installForAgent(sourceDir: string, deps: PackAgentDeps): Promise<PacksReadout> {
+  const outcome = await installPack(sourceDir, deps);
+  if (!outcome.ok) return { text: outcome.error, hasProblem: true };
+  const verb = outcome.hasReplaced ? 'Replaced' : 'Installed';
+  return { text: `${verb} ${outcome.name} at ${outcome.dir}. It waits for the operator to approve it in Settings, Packs; call request-approval with name ${outcome.name} to ask them.`, hasProblem: false };
+}
+
+function requestApprovalFor(name: string, deps: PackAgentDeps): PacksReadout {
+  const row = rowNamed(name, deps);
+  if (!row) return notFound(name);
+  if (row.state === 'approved') return { text: `${name} is already approved.`, hasProblem: true };
+  if (row.state === 'invalid') return { text: `${name} cannot be approved until its errors are fixed:\n${row.errors.join('\n')}`, hasProblem: true };
+  return { text: packApprovalNote(row), hasProblem: false };
+}
+
+async function removeForAgent(name: string, deps: PackAgentDeps): Promise<PacksReadout> {
+  const outcome = await removeInstalledPack(name, deps.homeDir, deps.env);
+  return outcome.ok ? { text: `Removed ${name} from ${outcome.dir}.`, hasProblem: false } : { text: outcome.error, hasProblem: true };
+}
+
+async function checkForAgent(packDir: string, deps: PackAgentDeps): Promise<PacksReadout> {
+  const report = await checkPack(packDir, deps.env, deps.isApproved);
   return { text: packReportText(report), hasProblem: packCheckHasProblem(report) };
+}
+
+export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAgentDeps): Promise<PacksReadout> {
+  switch (request.command) {
+    case 'guide':
+      return { text: await packGuideText(deps, [`${PACK_FILE_NAME} JSON Schema:`, packJsonSchemaText(), 'Panel bridge messages JSON Schema:', packBridgeJsonSchemaText(), 'Panel action requests JSON Schema, by request.type:', panelActionsJsonSchemaText()]), hasProblem: false };
+    case 'list': {
+      const rows = deps.packRows();
+      return { text: rows.length === 0 ? `No packs are installed; ${path.join(deps.homeDir, PACKS_DIR_NAME)} holds none and config.json lists none.` : rows.flatMap(rowLines).join('\n'), hasProblem: rows.some((row) => row.errors.length > 0) };
+    }
+    case 'check':
+      return checkForAgent(request.path ?? '', deps);
+    case 'install':
+      return installForAgent(request.path ?? '', deps);
+    case 'status': {
+      const row = rowNamed(request.name ?? '', deps);
+      return row ? { text: packStatusText(row), hasProblem: row.errors.length > 0 } : notFound(request.name ?? '');
+    }
+    case 'request-approval':
+      return requestApprovalFor(request.name ?? '', deps);
+    case 'remove':
+      return removeForAgent(request.name ?? '', deps);
+  }
 }

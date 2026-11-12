@@ -137,10 +137,14 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
 
   async function packs(session: Session, request: AgentPacksRequest): Promise<AgentReplyOf<'packs'>> {
     if (!operatorState) return refusal(503, 'packs are not available in this Glimmervoid');
-    if (request.command === 'check' && session.remoteWorkspace) return refusal(409, 'this session runs in a Coder workspace, so its pack folder is not on this machine to check');
+    if (request.path !== undefined && session.remoteWorkspace) return refusal(409, `this session runs in a Coder workspace, so its pack folder is not on this machine to ${request.command}`);
     const packPath = request.path === undefined ? undefined : path.resolve(session.effectiveCwd(), request.path);
-    const reply = await operatorState.readPacks({ command: request.command, ...(packPath === undefined ? {} : { path: packPath }) });
-    return { status: 200, body: { ok: true, ...reply } };
+    const reply = await operatorState.readPacks({ ...request, ...(packPath === undefined ? {} : { path: packPath }) });
+    if (request.command !== 'request-approval') return { status: 200, body: { ok: true, ...reply } };
+    if (reply.hasProblem) return refusal(409, reply.text);
+    const raised = session.raiseAttention('agent', reply.text);
+    if (!raised.ok) return refusal(429, raised.error);
+    return { status: 200, body: { ok: true, text: `Asked the operator to approve it in Settings, Packs: ${reply.text}`, hasProblem: false } };
   }
 
   async function comments(session: Session, request: AgentCommentsRequest): Promise<AgentReplyOf<'comments'>> {

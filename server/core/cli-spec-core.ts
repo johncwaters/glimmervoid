@@ -148,6 +148,7 @@ const PORT_OPTION: OptionSpec = { name: 'port', type: 'string', valueName: 'numb
 const JSON_OPTION: OptionSpec = { name: 'json', type: 'boolean', summary: 'Machine-readable output' };
 const SETTING_PATH = { usage: '<path>', min: 1, max: 1 };
 const PACK_FOLDER = { usage: '<folder>', min: 1, max: 1 };
+const PACK_NAME = { usage: '<name>', min: 1, max: 1 };
 
 const SETTINGS_NOTES = `<path> is a config.json key path such as posthog.trafficSpikeEnabled, or a setting id such as posthog-traffic-enabled.
 <value> is true or false for a toggle, a number, text, a comma-separated or JSON list, or JSON for a structured value.
@@ -238,7 +239,7 @@ const OWNED_COMMAND_SPECS = {
   },
   packs: {
     name: 'packs',
-    summary: 'Build a Glimmervoid pack: read the guide, check and preview a pack folder, list the installed packs',
+    summary: 'Build a Glimmervoid pack: read the guide, check, preview and install a pack folder, ask the operator to approve it, list and remove installed packs',
     subcommands: [
       { name: 'guide', summary: 'How to build a pack: its rules, the workflow and example packs to copy; --schema prints a JSON Schema', options: [{ name: 'schema', type: 'string', valueName: 'pack|bridge|actions|pr-flows', summary: 'Print only the pack.json (pack), panel bridge (bridge), panel action request (actions) or prFlows command output (pr-flows) JSON Schema' }] },
       { name: 'check', summary: 'Check a pack folder as Glimmervoid loads it, and every file its pages load; exits 1 on any problem', positionals: PACK_FOLDER, options: [JSON_OPTION], missingArgumentHint: 'check needs a pack folder, for example "glimmervoid packs check ./my-pack"' },
@@ -250,6 +251,10 @@ const OWNED_COMMAND_SPECS = {
         missingArgumentHint: 'preview needs a pack folder, for example "glimmervoid packs preview ./my-pack"',
       },
       { name: 'list', summary: 'The packs the running Glimmervoid found and whether each is approved; works inside a Glimmervoid session' },
+      { name: 'install', summary: 'Check a pack folder and copy it into the packs folder, where it waits for the operator to approve it; installing again replaces the copy; works inside a Glimmervoid session', positionals: PACK_FOLDER, missingArgumentHint: 'install needs a pack folder, for example "glimmervoid packs install ./my-pack"' },
+      { name: 'status', summary: "One pack's approval state, load errors and anything missing on this machine; works inside a Glimmervoid session", positionals: PACK_NAME, missingArgumentHint: 'status needs a pack name, for example "glimmervoid packs status my-pack"' },
+      { name: 'request-approval', summary: 'Ask the operator to approve an installed pack in Settings, Packs; works inside a Glimmervoid session', positionals: PACK_NAME, missingArgumentHint: 'request-approval needs a pack name, for example "glimmervoid packs request-approval my-pack"' },
+      { name: 'remove', summary: 'Delete a pack that install placed; a pack placed by hand stays; works inside a Glimmervoid session', positionals: PACK_NAME, missingArgumentHint: 'remove needs a pack name, for example "glimmervoid packs remove my-pack"' },
     ],
   },
   vault: {

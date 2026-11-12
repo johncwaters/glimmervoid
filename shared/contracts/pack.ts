@@ -65,6 +65,9 @@ export type PackUi = z.infer<typeof PackUi>;
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
+export const PacksInstalled = z.strictObject({ fingerprintsByName: z.record(z.string().min(1), z.string().min(1)).default({}) });
+export type PacksInstalled = z.infer<typeof PacksInstalled>;
+
 export type PackSection<Value> = { ok: true; value: Value } | { ok: false; errors: string[] };
 
 export type PackOnDisk = {

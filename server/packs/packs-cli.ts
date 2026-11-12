@@ -69,23 +69,23 @@ async function runGuide(homeDir: string, schemaName: string | null): Promise<num
   return 0;
 }
 
-async function runList(): Promise<number> {
+async function runViaRunningGlimmervoid(subcommand: string, body: Record<string, unknown>): Promise<number> {
   if (!process.env[AGENT_URL_ENV]) {
-    process.stderr.write('glimmervoid packs list reads the running Glimmervoid, so it works inside a Glimmervoid session; the operator sees the same list in Settings, Packs\n');
+    process.stderr.write(`glimmervoid packs ${subcommand} works on the running Glimmervoid, so it runs inside a Glimmervoid session; the operator sees the same packs in Settings, Packs\n`);
     return 1;
   }
   const { askAgentApi } = await import('../agent-api-cli.ts');
-  const reply = AGENT_REPLY_SCHEMAS.packs.safeParse(await askAgentApi('packs', { command: 'list' }));
+  const reply = AGENT_REPLY_SCHEMAS.packs.safeParse(await askAgentApi('packs', { command: subcommand, ...body }));
   if (!reply.success) {
-    process.stderr.write('glimmervoid packs list: Glimmervoid did not answer with a pack list\n');
+    process.stderr.write(`glimmervoid packs ${subcommand}: Glimmervoid did not answer\n`);
     return 1;
   }
   if (!reply.data.ok) {
-    process.stderr.write(`glimmervoid packs list: ${reply.data.error}\n`);
+    process.stderr.write(`glimmervoid packs ${subcommand}: ${reply.data.error}\n`);
     return 1;
   }
   process.stdout.write(`${reply.data.text}\n`);
-  return 0;
+  return reply.data.hasProblem && subcommand !== 'list' ? 1 : 0;
 }
 
 function decodedFilePath(urlPath: string): string | null {
@@ -153,12 +153,14 @@ async function runPreview(packDir: string, portText: string | null, env: NodeJS.
 export async function runPacksCli(parsed: ParsedRun): Promise<number> {
   const env = process.env;
   const homeDir = glimmervoidHomeDir(os.homedir(), env);
-  const [packFolder] = parsed.positionals;
+  const [packArgument] = parsed.positionals;
   const subcommand = parsed.commandPath[1];
   if (subcommand === 'guide') return runGuide(homeDir, typeof parsed.values.schema === 'string' ? parsed.values.schema : null);
-  if (subcommand === 'list') return runList();
-  if (packFolder === undefined) return 1;
-  const packDir = path.resolve(packFolder);
+  if (subcommand === 'list') return runViaRunningGlimmervoid('list', {});
+  if (packArgument === undefined) return 1;
+  if (subcommand === 'status' || subcommand === 'request-approval' || subcommand === 'remove') return runViaRunningGlimmervoid(subcommand, { name: packArgument });
+  const packDir = path.resolve(packArgument);
+  if (subcommand === 'install') return runViaRunningGlimmervoid('install', { path: packDir });
   if (subcommand === 'check') return runPackCheckCli({ packDir, isJson: parsed.values.json === true, env, homeDir });
   return runPreview(packDir, typeof parsed.values.port === 'string' ? parsed.values.port : null, env, homeDir);
 }

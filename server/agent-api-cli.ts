@@ -110,6 +110,11 @@ function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): 
   return { sub, when: when ?? '', text: joinedText(textWords) };
 }
 
+function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
+  if (packArgument === undefined) return { command };
+  return command === 'check' || command === 'install' ? { command, path: path.resolve(packArgument) } : { command, name: packArgument };
+}
+
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: ({ positionals }) => {
     const prompt = joinedText(positionals);
@@ -144,7 +149,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   settings: ({ positionals: [command, settingPath] }) => ({ command, ...(settingPath === undefined ? {} : { path: settingPath }) }),
   why: ({ positionals: [target] }) => (target ? { target: absoluteWhyTarget(target) } : null),
   whiteboard: whiteboardBody,
-  packs: ({ positionals: [command, packPath] }) => ({ command, ...(packPath === undefined ? {} : { path: path.resolve(packPath) }) }),
+  packs: packsBody,
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
   arena: arenaBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
