@@ -90,6 +90,7 @@ export function withBoardProjects<Row>(roster: GroupedRoster<Row>, boardProjectK
 export function visibleOrder<Row extends { id: string }>(
   groups: GroupedRoster<Row> | null | undefined,
   collapsedSet?: ReadonlySet<string> | null,
+  viewedId: string | null = null,
 ): string[] {
   if (!groups || !Array.isArray(groups.groups)) return [];
   const collapsed = collapsedSet || new Set<string>();
@@ -101,9 +102,13 @@ export function visibleOrder<Row extends { id: string }>(
   }
   const byKey = new Map(groups.groups.map((g) => [g.key, g]));
   for (const key of groups.order) {
-    if (collapsed.has(key)) continue;
     const g = byKey.get(key);
-    if (g) for (const row of g.rows) ids.push(row.id);
+    if (!g) continue;
+    const isFolded = collapsed.has(key);
+    for (const row of g.rows) {
+      if (isFolded && row.id !== viewedId) continue;
+      ids.push(row.id);
+    }
   }
   return ids;
 }

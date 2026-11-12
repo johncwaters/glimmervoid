@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fold a project away in the Focus rail.** Click a project's header to fold its sessions and boards out of sight, and click again to bring them back; the + still adds a session without unfolding. A folded project's header turns amber while any of its sessions needs your input. The session you are viewing keeps its row even inside a folded project, and the session shortcuts skip folded ones. Folds are remembered in this browser.
+
 ### Changed
 
 - **Double-clicking a full-size board picture, video or page no longer zooms it.** Clicking quickly in the viewer kept zooming it to 2x by accident. On desktop, zoom with Ctrl or Cmd and the scroll wheel, or a trackpad pinch. On a phone, double-tap still switches between fit and 2x.

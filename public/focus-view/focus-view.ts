@@ -11,10 +11,10 @@ import { buildNextAttentionKeys, setBoardSplitKeyClaimTest, SHORTCUT_PLATFORM } 
 import { railAriaKeyShortcuts } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
-import { placeRowsInOrder, writeAttributeIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
+import { placeRowsInOrder, writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { getRailWidth, getSplitBoardBySession, isRailStatusKeyOpen, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession } from '../ui-prefs.ts';
+import { getRailFoldedProjectKeys, getRailWidth, getSplitBoardBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from './attention-core.ts';
@@ -101,8 +101,20 @@ let draggedSessionId: string | null = null;
 let rosterRowById = new Map<string, RosterRow>();
 let rosterGroupKeyBySessionId = new Map<string, string>();
 
-const NO_COLLAPSED = new Set<string>();
-function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), NO_COLLAPSED); }
+const foldedProjectKeys = new Set(getRailFoldedProjectKeys());
+function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), foldedProjectKeys, getFocusedSessionId()); }
+
+function toggleProjectFold(projectKey: string) {
+  const shouldFold = !foldedProjectKeys.has(projectKey);
+  foldedProjectKeys.clear();
+  for (const storedKey of getRailFoldedProjectKeys()) foldedProjectKeys.add(storedKey);
+  if (shouldFold) foldedProjectKeys.add(projectKey);
+  if (!shouldFold) foldedProjectKeys.delete(projectKey);
+  setRailFoldedProjectKeys([...foldedProjectKeys]);
+  const visibleIds = railVisibleIds();
+  if (railTabStopId && !visibleIds.includes(railTabStopId)) setRailTabStop(visibleIds[0] ?? null);
+  refreshFocusRoster();
+}
 
 function setRailTabStop(id: string | null) {
   const prev = railTabStopId;
@@ -132,13 +144,16 @@ function ensureGroup(group: RosterGroup<RosterRow>) {
   if (!groupHeader || !list) {
     groupHeader = buildSessionGroupHeader({
       onAdd: quickAddSession,
+      onToggleFold: toggleProjectFold,
     });
     list = el('div', 'focus-rail-list');
     list.setAttribute('role', 'listbox');
     groupHeaderById.set(group.key, groupHeader);
     groupListById.set(group.key, list);
   }
-  paintSessionGroupHeader(groupHeader, group);
+  const isFolded = foldedProjectKeys.has(group.key);
+  paintSessionGroupHeader(groupHeader, group, { isFolded, hasWaitingSession: countAttentionByKind(group.rows).waitingCount > 0 });
+  writeDataIfChanged(list, 'folded', String(isFolded));
   writeAttributeIfChanged(list, 'aria-label', `${group.label} sessions`);
   return { header: groupHeader.header, list };
 }
@@ -370,7 +385,7 @@ function onRailKeydown(e: KeyboardEvent) {
 
 function railRowsInOrder() {
   if (!railEl) return [];
-  return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')].filter((row) => !row.closest('details:not([open])'));
+  return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')].filter((row) => !row.closest('details:not([open]), .focus-rail-list[data-folded="true"] > :not([data-viewed="true"], .focus-board-archive), .focus-rail-list[data-folded="true"] .focus-board-archive-list > :not([data-viewed="true"])'));
 }
 
 function orderedSessions() {
@@ -627,6 +642,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
       const attentionPosition = attentionPositionById.get(id) ?? null;
       const isPaintNeeded = !dirtySessionIds || isNewPill || dirtySessionIds.has(id) || paintedAttentionPositionById.get(id) !== attentionPosition;
       if (isPaintNeeded) paintPill(pill, row, attentionPosition);
+      writeDataIfChanged(pill._row, 'viewed', String(id === getFocusedSessionId()));
       paintPillSplit(pill, id, boardTitleById);
       paintedAttentionPositionById.set(id, attentionPosition);
     }
@@ -670,7 +686,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   }
 
   const previousRailOrder = lastRailOrder;
-  lastRailOrder = visibleOrder(groups, NO_COLLAPSED);
+  lastRailOrder = visibleOrder(groups);
 
   const staleFocusedId = getFocusedSessionId();
   if (staleFocusedId && !isSessionShown(staleFocusedId)) {
@@ -733,6 +749,7 @@ function paintedBoardRowOf(board: BoardSummary, placedBoardIds: Set<string>) {
   if (!row) { row = buildBoardRow(board.id); boardRowById.set(board.id, row); }
   paintBoardRow(row, row._refs, board.title, connectedSessionNameOf(board), pendingBoardDeleteStartedAt(board.id));
   row.classList.toggle('focused', board.id === centeredBoardId);
+  writeDataIfChanged(row._row, 'viewed', String(board.id === centeredBoardId));
   placedBoardIds.add(board.id);
   return row._row;
 }

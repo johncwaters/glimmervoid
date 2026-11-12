@@ -40,3 +40,12 @@
 @media (hover: hover) {
   .session-group-header:hover .session-group-label { color: var(--text); }
 }
+.session-group-header:has(> .session-group-fold:not([hidden])) { cursor: pointer; user-select: none; padding-left: 0; gap: 4px; }
+.session-group-header[data-folded="true"] .session-group-fold .line-icon { transform: rotate(-90deg); }
+.session-group-header[data-waiting="true"] :is(.session-group-label, .session-group-count, .session-group-fold) { color: var(--state-waiting); }
+.session-group-header[data-waiting="true"] .session-group-rule { background: color-mix(in oklab, var(--state-waiting) 60%, transparent); }
+.focus-rail-list[data-folded="true"] > :not([data-viewed="true"], .rail-unsplit-slot, .focus-board-archive:has([data-viewed="true"])) { display: none; }
+.focus-rail-list[data-folded="true"] .focus-board-archive-list > :not([data-viewed="true"]) { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .session-group-fold .line-icon { transition: transform 150ms ease; }
+}
