@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const MAX_NAMES_PER_NEED = 32;
+const MAX_NEED_REASON_LENGTH = 300;
 
 export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
@@ -29,6 +30,11 @@ export const AgentNeedRequest = z.object({
   names: z.array(SecretName, { error: 'names must be a list of secret names' })
     .min(1, { error: 'name at least one secret' })
     .max(MAX_NAMES_PER_NEED, { error: `name at most ${MAX_NAMES_PER_NEED} secrets at once` }),
+  reason: z.string({ error: 'reason must be a string' }).trim()
+    .min(1, { error: 'reason must not be empty' })
+    .max(MAX_NEED_REASON_LENGTH, { error: `reason must be at most ${MAX_NEED_REASON_LENGTH} characters` })
+    .regex(/^\P{Cc}*$/u, { error: 'reason cannot hold control characters' })
+    .optional(),
 }).strict();
 
 const NeedResult = z.object({
@@ -43,10 +49,15 @@ export const AgentNeedReply = z.object({
   envFile: z.string().nullable(),
 }).strict();
 
+export const AgentSecretsEnvReply = z.object({
+  ok: z.literal(true),
+  valuesByName: z.record(SecretName, z.string()),
+  missingNames: z.array(SecretName),
+}).strict();
+
 export const SecretApproval = z.object({
   isAllowed: z.boolean(),
 }).strict();
-
 
 export const WrittenSecretNames = z.object({
   version: z.literal(1),
@@ -92,6 +103,7 @@ export type SecretSourceTestResult = z.infer<typeof SecretSourceTestResult>;
 export type NeedStatus = z.infer<typeof NeedStatus>;
 export type AgentNeedRequest = z.infer<typeof AgentNeedRequest>;
 export type AgentNeedReply = z.infer<typeof AgentNeedReply>;
+export type AgentSecretsEnvReply = z.infer<typeof AgentSecretsEnvReply>;
 export type SecretApproval = z.infer<typeof SecretApproval>;
 export type SecretDecision = z.infer<typeof SecretDecision>;
 export type WrittenSecretNames = z.infer<typeof WrittenSecretNames>;

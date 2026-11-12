@@ -155,6 +155,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   checkout: checkoutRoute,
   packs: operatorStateRoute,
   need: needRoute,
+  secrets: needRoute,
   limits: () => ANSWERS,
   arena: arenaRoute,
   comments: commentsRoute,

@@ -73,6 +73,7 @@ interface AgentRequestByVerb {
   checkout: AgentCheckoutRequest;
   packs: AgentPacksRequest;
   need: AgentNeedRequest;
+  secrets: EmptyRequest;
   arena: AgentArenaRequest;
   comments: AgentCommentsRequest;
   wake: AgentWakeRequest;
@@ -218,6 +219,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   checkout: bodyParser(AgentCheckoutRequest),
   packs: bodyParser(AgentPacksRequest),
   need: bodyParser(AgentNeedRequest),
+  secrets: parseEmptyBody,
   arena: bodyParser(AgentArenaRequest),
   comments: bodyParser(AgentCommentsRequest),
   wake: bodyParser(AgentWakeRequest),
@@ -526,9 +528,19 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat',
     usage: 'need <NAME>...',
     positionals: { usage: '<NAME>...', min: 1, max: MAX_NAMES_PER_NEED },
-    options: [{ name: 'wait', type: 'boolean', summary: 'Wait a few minutes for the operator to approve instead of returning at once' }],
+    options: [
+      { name: 'wait', type: 'boolean', summary: 'Wait a few minutes for the operator to approve instead of returning at once' },
+      { name: 'reason', type: 'string', valueName: 'text', summary: 'Why the task needs these secrets, shown to the operator on the card as your claim' },
+    ],
     summary: "Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 no password manager vault chosen, 1 failed",
     missingArgumentHint: 'this command needs secret names, for example "glimmervoid need OPENAI_API_KEY"',
+  },
+  secrets: {
+    usage: 'secrets run -- <command>',
+    whenToUse: 'Use it to run a command that needs the secrets need delivered, instead of reading .env.local or printing a value',
+    summary: 'Run a command with the secrets this session may read set in its environment, never printing them; exits with the command\'s own code',
+    subcommands: [{ name: 'run', summary: 'Run a command with this session\'s secrets in its environment', positionals: { usage: '-- <command> [<argument>...]', min: 1, max: null }, missingArgumentHint: 'run needs a command, for example "glimmervoid secrets run -- npm test"' }],
+    missingArgumentHint: 'this command needs run and a command, for example "glimmervoid secrets run -- npm test"',
   },
   arena: {
     usage: 'arena start|races|race|judge|diff',

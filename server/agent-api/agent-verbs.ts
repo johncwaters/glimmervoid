@@ -58,6 +58,10 @@ function whiteboardCallerOf(session: Session) {
   return { id: session.id, name: session.name, project: session.path, cwd: session.effectiveCwd() };
 }
 
+function needingSessionOf(session: Session): { id: string; project: string; cwd: string } {
+  return { id: session.id, project: session.path, cwd: session.effectiveCwd() };
+}
+
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
@@ -397,7 +401,8 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     comments,
     checkout,
     packs,
-    need: async (session, { names }) => (secrets ? { status: 200, body: await secrets.need({ id: session.id, project: session.path, cwd: session.effectiveCwd() }, names) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    need: async (session, { names, reason }) => (secrets ? { status: 200, body: await secrets.need(needingSessionOf(session), names, reason ?? null) } : refusal(503, 'secrets are not available in this Glimmervoid')),
+    secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent(whiteboardCallerOf(session), request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),

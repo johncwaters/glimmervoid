@@ -215,10 +215,13 @@ const ATTENTION_TOOL: GroupedTool = {
 const SECRETS_TOOL: GroupedTool = {
   name: 'secrets',
   title: 'Glimmervoid secrets',
-  description: "Ask for API keys and other secrets by environment variable name instead of asking the operator to paste them into chat. The first time, the operator approves each name on this session's card; Glimmervoid then reads it from the operator's password manager and writes it to .env.local in this session's directory. Load that file, do not read it: use your framework's env loading or node --env-file=.env.local. The reply gives a status per name, never a value: delivered, pending (ask again later), denied, no-source (no password manager chosen yet) or failed.",
+  description: "Ask for API keys and other secrets by environment variable name instead of asking the operator to paste them into chat. The first time, the operator approves each name on this session's card; Glimmervoid then reads it from the operator's password manager and writes it to .env.local in this session's directory. Never read or print that file: run the command that needs them as glimmervoid secrets run -- <command>, or let your framework's env loading read it. Pass reason to tell the operator why the task needs them. The reply gives a status per name, never a value: delivered, pending (ask again later), denied, no-source (no password manager chosen yet) or failed.",
   loadsUpfront: false,
-  fields: { names: AgentNeedRequest.shape.names.describe('The secret names, for example ["OPENAI_API_KEY"]') },
-  actions: { need: routeTo('need', ['names'], { required: ['names'], hints: { ...WRITES, openWorld: true } }) },
+  fields: {
+    names: AgentNeedRequest.shape.names.describe('The secret names, for example ["OPENAI_API_KEY"]'),
+    reason: AgentNeedRequest.shape.reason.describe('Why the task needs these secrets, shown to the operator on the card as your claim'),
+  },
+  actions: { need: routeTo('need', ['names', 'reason'], { required: ['names'], hints: { ...WRITES, openWorld: true } }) },
 };
 
 function showPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {

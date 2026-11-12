@@ -4,7 +4,7 @@ import { STATES } from '../states.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
 import { AgentAccountId } from './agent-accounts.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
-import { AgentNeedReply } from './secrets.ts';
+import { AgentNeedReply, AgentSecretsEnvReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
 import { AgentWakeReply } from './wakes.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
@@ -134,7 +134,7 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'wake'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -350,6 +350,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   checkout: z.union([z.object({ ok: z.literal(true), path: z.string(), branch: z.string() }).strict(), AgentRefusal]),
   packs: z.union([z.object({ ok: z.literal(true), text: z.string(), hasProblem: z.boolean() }).strict(), AgentRefusal]),
   need: z.union([AgentNeedReply, AgentRefusal]),
+  secrets: z.union([AgentSecretsEnvReply, AgentRefusal]),
   limits: z.union([AgentLimitsReply, AgentRefusal]),
   answer: z.union([AgentOkReply, AgentRefusal]),
   arena: z.union([AgentArenaReply, AgentRefusal]),

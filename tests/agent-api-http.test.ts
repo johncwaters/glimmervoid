@@ -1,6 +1,8 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -9,6 +11,8 @@ import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
+import { runAgentApiCli } from '../server/agent-api-cli.ts';
+import { stableLauncherPath } from '../server/runtime-paths.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import type { AgentApiWiringOptions } from '../server/agent-api/agent-api-context.ts';
 import { createRaceLauncher } from '../server/race/race-launch.ts';
@@ -22,7 +26,7 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
-import { AGENT_REPLY_SCHEMAS, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
+import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
@@ -74,6 +78,7 @@ async function boot(prefix: string): Promise<BootedBackend> {
     projects: [{ id: SESSION_ID, name: 'agent api', path: projectDir }],
     repoRoots: [],
     autoResume: false,
+    secrets: { byProject: { [projectDir]: { RUN_TOKEN: { isAllowed: true }, UNWRITTEN_TOKEN: { isAllowed: true }, DENIED_TOKEN: { isAllowed: false } } } },
   }, null, 2), 'utf8');
   process.env.GLIMMERVOID_CONFIG = cfgPath;
 
@@ -118,6 +123,42 @@ test.after(async () => {
   await teardown(booted.enabled);
   if (booted.prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
   if (booted.prevEnv != null) process.env.GLIMMERVOID_CONFIG = booted.prevEnv;
+});
+
+test('secrets run hands the command only the allowed values in the env file, and exits with its code', async () => {
+  const { base, token, tmpDir } = enabledBackend();
+  const projectDir = path.join(tmpDir, 'project');
+  fs.writeFileSync(path.join(projectDir, '.env.local'), 'RUN_TOKEN=run-value\nDENIED_TOKEN=denied-value\nUNLISTED_TOKEN=unlisted-value\n', 'utf8');
+  const previousAgentUrl = process.env[AGENT_URL_ENV];
+  process.env[AGENT_URL_ENV] = `${base}/agent/${SESSION_ID}?t=${token}`;
+  const seenPath = path.join(tmpDir, 'seen.json');
+  const reportEnvironment = `require('node:fs').writeFileSync(${JSON.stringify(seenPath)}, JSON.stringify([process.env.RUN_TOKEN, process.env.DENIED_TOKEN, process.env.UNLISTED_TOKEN, process.env.UNWRITTEN_TOKEN])); process.exit(7)`;
+  try {
+    assert.equal(await runAgentApiCli(['secrets', 'run', '--', stableLauncherPath(), '-e', reportEnvironment]), 7);
+    assert.deepEqual(JSON.parse(fs.readFileSync(seenPath, 'utf8')), ['run-value', null, null, null]);
+    const reply = await post(base, 'secrets', {}, token);
+    assert.deepEqual(await reply.json(), { ok: true, valuesByName: { RUN_TOKEN: 'run-value' }, missingNames: ['UNWRITTEN_TOKEN'] });
+  } finally {
+    if (previousAgentUrl === undefined) delete process.env[AGENT_URL_ENV];
+    if (previousAgentUrl !== undefined) process.env[AGENT_URL_ENV] = previousAgentUrl;
+    fs.rmSync(path.join(projectDir, '.env.local'), { force: true });
+  }
+});
+
+test('one Ctrl-C to the terminal reaches a command under secrets run once, so it can stop cleanly', { skip: process.platform === 'win32' }, async () => {
+  const { base, token } = enabledBackend();
+  const countInterrupts = "let interrupts = 0; process.on('SIGINT', () => { interrupts += 1; if (interrupts > 1) process.exit(130); setTimeout(() => process.exit(0), 300); }); console.log('ready'); setInterval(() => {}, 1000);";
+  const wrapper = spawn(stableLauncherPath(), [path.join(import.meta.dirname, '..', 'bin', 'glimmervoid.ts'), 'secrets', 'run', '--', stableLauncherPath(), '-e', countInterrupts], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...process.env, [AGENT_URL_ENV]: `${base}/agent/${SESSION_ID}?t=${token}` },
+  });
+  const [readyChunk] = await once(wrapper.stdout, 'data');
+  assert.match(String(readyChunk), /ready/);
+  assert.ok(wrapper.pid);
+  process.kill(-wrapper.pid, 'SIGINT');
+  const [exitCode] = await once(wrapper, 'exit');
+  assert.equal(exitCode, 0, 'the command got one SIGINT and exited on its own');
 });
 
 test('the board answers a session presenting its own agent token', async () => {
@@ -626,12 +667,12 @@ test('limits tells a session which commands answer', async () => {
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'arena', 'comments', 'wake', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'show'].map((name) => ({ name, answers: true })),
     ]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['arena', false], ['comments', false], ['wake', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['secrets', false], ['arena', false], ['comments', false], ['wake', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],

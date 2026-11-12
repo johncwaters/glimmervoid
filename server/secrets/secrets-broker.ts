@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
+import type { AgentNeedReply, AgentSecretsEnvReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
 import type { ReadOutcome } from './core/fnox-core.ts';
@@ -50,7 +50,7 @@ interface SecretsBrokerOptions {
 }
 
 function deliveredNote(envFile: string): string {
-  return `written to ${envFile}; load it, do not read it (your framework's env loading, or node --env-file=${envFile})`;
+  return `written to ${envFile}; never read or print it: run the command that needs it as glimmervoid secrets run -- <command>, or let your framework's env loading read it`;
 }
 
 const NOTE_BY_STATUS: Readonly<Record<NeedStatus, string>> = Object.freeze({
@@ -235,6 +235,15 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     return { ok: true, results, envFile: results.some((result) => result.status === 'delivered') ? envFile : null };
   }
 
+  async function envFor(session: NeedingSession): Promise<AgentSecretsEnvReply> {
+    const alwaysAllowedNames = Object.entries(approvalsOf(readSecrets(), session.project)).filter(([, approval]) => approval.isAllowed).map(([name]) => name);
+    const readableNames = [...new Set([...alwaysAllowedNames, ...(allowedOnceNamesBySession.get(session.id) ?? []), ...deliveredNamesFor(session).keys()])].sort();
+    if (readableNames.length === 0) return { ok: true, valuesByName: {}, missingNames: [] };
+    const envValues = await readEnvValues(session.cwd);
+    const valuesByName = Object.fromEntries(readableNames.filter((name) => (envValues[name] ?? '') !== '').map((name) => [name, envValues[name] ?? '']));
+    return { ok: true, valuesByName, missingNames: readableNames.filter((name) => !(name in valuesByName)) };
+  }
+
   function reportAnswer(statuses: readonly NeedStatus[]): void {
     const countOf = (status: NeedStatus) => statuses.filter((answeredStatus) => answeredStatus === status).length;
     telemetry?.capture('vault_secret_answered', {
@@ -334,7 +343,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
+  return { events, need, envFor, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

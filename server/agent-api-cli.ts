@@ -1,12 +1,13 @@
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { z } from 'zod';
 
 import { resolveHookTarget } from '../session/core/hook-relay-core.ts';
 import { formatSessionLimits } from '../session/core/session-routes.ts';
-import { AgentNeedReply } from '../shared/contracts/secrets.ts';
+import { AgentNeedReply, AgentSecretsEnvReply } from '../shared/contracts/secrets.ts';
 import { AgentLimitsReply, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 import { Op, STEP_STATUSES, WhiteboardAgentReply } from '../shared/contracts/whiteboard.ts';
@@ -19,6 +20,8 @@ import { AGENT_COMMAND_HELP, REMOTE_URL_PATTERN, agentCommandSpec, isAgentApiVer
 import { parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
 import { parseJsonOrNull } from './core/json-core.ts';
+import { spawn } from './child-process-safe.ts';
+import { buildAgentSpawnCommand } from '../session/core/spawn-command.ts';
 import { needExitCode } from './secrets/core/secrets-broker-core.ts';
 import { clock } from '../shared/clock.ts';
 import { repoParts } from '../shared/contracts/github-ids.ts';
@@ -152,6 +155,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   whiteboard: whiteboardBody,
   packs: packsBody,
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
+  secrets: () => ({}),
   arena: arenaBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   wake: wakeBody,
@@ -450,6 +454,7 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'plan') return runPlanCommand(parsed);
   if (verb === 'whiteboard' && isLayoutCommand(parsed)) return runLayoutCommand(parsed);
   if (verb === 'need') return runNeedCommand(parsed);
+  if (verb === 'secrets') return runSecretsCommand(parsed);
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);
@@ -466,12 +471,20 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
 }
 
-async function askNeedOnce(names: readonly string[]): Promise<AgentNeedReply | string> {
-  const reply: unknown = await askAgentApi('need', { names }).catch((error: unknown) => ({ error: `Glimmervoid could not be reached: ${error instanceof Error ? error.message : String(error)}` }));
+function unreachableReply(error: unknown): { error: string } {
+  return { error: `Glimmervoid could not be reached: ${error instanceof Error ? error.message : String(error)}` };
+}
+
+function replyError(reply: unknown, fallback: string): string {
+  const error = typeof reply === 'object' && reply !== null ? (reply as { error?: unknown }).error : null;
+  return typeof error === 'string' ? error : fallback;
+}
+
+async function askNeedOnce(names: readonly string[], reason: string | null): Promise<AgentNeedReply | string> {
+  const reply: unknown = await askAgentApi('need', reason === null ? { names } : { names, reason }).catch(unreachableReply);
   const parsed = AgentNeedReply.safeParse(reply);
   if (parsed.success) return parsed.data;
-  const error = typeof reply === 'object' && reply !== null ? (reply as { error?: unknown }).error : null;
-  return typeof error === 'string' ? error : 'Glimmervoid gave no usable answer';
+  return replyError(reply, 'Glimmervoid gave no usable answer');
 }
 
 function isStillPending(reply: AgentNeedReply | string): boolean {
@@ -479,24 +492,76 @@ function isStillPending(reply: AgentNeedReply | string): boolean {
   return reply.results.some((result) => result.status === 'pending');
 }
 
-async function waitedNeedReply(names: readonly string[], { isWaiting }: { isWaiting: boolean }): Promise<AgentNeedReply | string> {
+async function waitedNeedReply(names: readonly string[], { isWaiting, reason }: { isWaiting: boolean; reason: string | null }): Promise<AgentNeedReply | string> {
   const deadlineMs = clock.nowMs() + NEED_WAIT_LIMIT_MS;
-  let reply = await askNeedOnce(names);
+  let reply = await askNeedOnce(names, reason);
   while (isWaiting && isStillPending(reply) && clock.nowMs() < deadlineMs) {
     await new Promise((resolve) => setTimeout(resolve, NEED_POLL_INTERVAL_MS));
-    reply = await askNeedOnce(names);
+    reply = await askNeedOnce(names, reason);
   }
   return reply;
 }
 
 async function runNeedCommand(parsed: ParsedArguments): Promise<number> {
-  const reply = await waitedNeedReply(parsed.positionals, { isWaiting: parsed.values.wait === true });
+  const reason = typeof parsed.values.reason === 'string' ? parsed.values.reason : null;
+  const reply = await waitedNeedReply(parsed.positionals, { isWaiting: parsed.values.wait === true, reason });
   if (typeof reply === 'string') {
     console.log(JSON.stringify({ ok: false, error: reply }));
     return 1;
   }
   console.log(JSON.stringify(reply));
   return needExitCode(Object.fromEntries(reply.results.map((result) => [result.name, result.status])));
+}
+
+async function askSecretsEnv(): Promise<AgentSecretsEnvReply | string> {
+  const reply: unknown = await askAgentApi('secrets', {}).catch(unreachableReply);
+  const parsed = AgentSecretsEnvReply.safeParse(reply);
+  if (parsed.success) return parsed.data;
+  return replyError(reply, 'Glimmervoid gave no usable answer');
+}
+
+function exitCodeOfSignal(signal: NodeJS.Signals): number {
+  return 128 + (os.constants.signals[signal] ?? 0);
+}
+
+function runWithEnvironment(command: string, commandArguments: readonly string[], valuesByName: Readonly<Record<string, string>>): Promise<number> {
+  return new Promise((resolve) => {
+    const launch = buildAgentSpawnCommand({ name: command, platform: process.platform, resolved: null, argGroups: [[...commandArguments]] });
+    const child = spawn(launch.file, launch.args, { stdio: 'inherit', env: { ...process.env, ...valuesByName } });
+    const waitForChild = () => {};
+    const forwardTerminate = () => { child.kill('SIGTERM'); };
+    const groupSignals: NodeJS.Signals[] = ['SIGINT', 'SIGHUP'];
+    for (const signal of groupSignals) process.on(signal, waitForChild);
+    process.on('SIGTERM', forwardTerminate);
+    const stopForwarding = () => {
+      for (const signal of groupSignals) process.off(signal, waitForChild);
+      process.off('SIGTERM', forwardTerminate);
+    };
+    child.once('error', (error) => {
+      stopForwarding();
+      console.error(`glimmervoid secrets run: could not start ${command}: ${error.message}`);
+      resolve(127);
+    });
+    child.once('exit', (code, signal) => {
+      stopForwarding();
+      resolve(signal === null ? (code ?? 1) : exitCodeOfSignal(signal));
+    });
+  });
+}
+
+async function runSecretsCommand(parsed: ParsedArguments): Promise<number> {
+  const [command, ...commandArguments] = parsed.positionals;
+  if (command === undefined) {
+    console.error('glimmervoid secrets run: run needs a command, for example "glimmervoid secrets run -- npm test"');
+    return 1;
+  }
+  const reply = await askSecretsEnv();
+  if (typeof reply === 'string') {
+    console.error(`glimmervoid secrets run: ${reply}`);
+    return 1;
+  }
+  if (reply.missingNames.length > 0) console.error(`glimmervoid secrets run: ${reply.missingNames.join(', ')} ${reply.missingNames.length === 1 ? 'is' : 'are'} allowed but not in the env file yet; run glimmervoid need for ${reply.missingNames.length === 1 ? 'it' : 'them'} first`);
+  return runWithEnvironment(command, commandArguments, reply.valuesByName);
 }
 
 function printDocText(replyText: string): number {
