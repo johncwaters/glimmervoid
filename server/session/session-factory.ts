@@ -12,6 +12,7 @@ import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions } from '../../session/sessions.ts';
 import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
@@ -38,10 +39,10 @@ interface SessionFactoryDependencies {
   commitSigningProgram?: string | null;
   homeDir?: string;
   getCoderEnv?: () => CoderWorkspacePort | null;
-  claudeToken?: () => ReturnType<RemoteLaunch['claudeToken']>;
+  claudeToken?: (accountFolder: string | null) => ReturnType<RemoteLaunch['claudeToken']>;
   codexVersion?: RemoteLaunch['codexVersion'];
-  codexLoginParams?: RemoteLaunch['codexLoginParams'];
-  codexRefreshResult?: RemoteLaunch['codexRefreshResult'];
+  codexLoginParams?: (accountFolder: string | null) => ReturnType<RemoteLaunch['codexLoginParams']>;
+  codexRefreshResult?: (accountFolder: string | null) => ReturnType<RemoteLaunch['codexRefreshResult']>;
 }
 
 interface CoderWorkspacePort {
@@ -56,7 +57,12 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     return usageConfig.enabled && usageConfig.planLimits;
   }
 
-  function remoteLaunchFor(builtProject: ProjectEntry, builtMapping: NonNullable<ProjectEntry['environment']>, config: GlimmervoidConfig): RemoteLaunch {
+  function accountFolderOf(accountHome: SessionAccountHome): { folder: string | null } | { refusal: string } {
+    if (accountHome.kind === 'refused') return { refusal: accountHome.reason };
+    return { folder: accountHome.kind === 'account' ? accountHome.account.folder : null };
+  }
+
+  function remoteLaunchFor(builtProject: ProjectEntry, builtMapping: NonNullable<ProjectEntry['environment']>, config: GlimmervoidConfig, accountHome: () => SessionAccountHome): RemoteLaunch {
     const projectId = builtProject.id;
     const liveMapping = config.projects.find((project) => project.id === projectId)?.environment;
     const mapping = liveMapping ?? builtMapping;
@@ -77,15 +83,24 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
         if (!coderEnv) throw new Error(refusal.reason);
         await coderEnv.uploadFile({ ...file, workspace: mapping.workspace });
       },
-      claudeToken: async () => (claudeToken ? claudeToken() : { ok: false, reason: 'no Claude Code login source is wired for remote sessions' }),
+      claudeToken: async () => {
+        if (!claudeToken) return { ok: false, reason: 'no Claude Code login source is wired for remote sessions' };
+        const account = accountFolderOf(accountHome());
+        if ('refusal' in account) return { ok: false, reason: account.refusal };
+        return claudeToken(account.folder);
+      },
       codexVersion: async () => (dependencies.codexVersion ? dependencies.codexVersion() : null),
       codexLoginParams: async () => {
         if (!dependencies.codexLoginParams) throw new Error('no Codex login source is wired for remote sessions');
-        return dependencies.codexLoginParams();
+        const account = accountFolderOf(accountHome());
+        if ('refusal' in account) throw new Error(account.refusal);
+        return dependencies.codexLoginParams(account.folder);
       },
       codexRefreshResult: async () => {
         if (!dependencies.codexRefreshResult) throw new Error('no Codex login source is wired for remote sessions');
-        return dependencies.codexRefreshResult();
+        const account = accountFolderOf(accountHome());
+        if ('refusal' in account) throw new Error(account.refusal);
+        return dependencies.codexRefreshResult(account.folder);
       },
     };
   }
@@ -98,6 +113,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const skipPermissions = projectSkipsPermissions(project, machineSkipsPermissionsByDefault(config));
     const hookToolConfig = (currentConfig: GlimmervoidConfig): GlimmervoidConfig => project.saneYolo === true ? { ...currentConfig, saneYolo: true } : currentConfig;
     const originalHookTools = dependencies.resolveHookTools(hookToolConfig(config));
+    const resolveAccountHome = (): SessionAccountHome => {
+      const liveConfig = dependencies.getConfig?.() ?? config;
+      const liveProject = liveConfig.projects.find((candidate) => candidate.id === project.id) ?? project;
+      return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
+    };
     const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
       worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
       isSettingOn: dependencies.configStore.isExperimentalBuild === true && (dependencies.getConfig?.() ?? config).coherence?.enabled !== false,
@@ -140,12 +160,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       prepareCoherence: builtMapping || isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
-      getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
-      resolveAccountHome: () => {
-        const liveConfig = dependencies.getConfig?.() ?? config;
-        const liveProject = liveConfig.projects.find((candidate) => candidate.id === project.id) ?? project;
-        return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
-      },
+      getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config, resolveAccountHome) : null,
+      resolveAccountHome,
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
     });

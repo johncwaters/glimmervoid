@@ -14,6 +14,7 @@ import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.t
 import { buildHostsSettings } from '../hosts/hosts-settings.ts';
 import { agentLoginOf, agentLoginSummary, openAgentAccountDialog, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
+import { buildLaneAccountsBlock } from './settings-accounts.ts';
 import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
 import { panelRefresher, pendingSaveById, setSettingsPayload, settingsPayload, storedValues, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
@@ -215,6 +216,7 @@ function buildAgentAccountsStatus() {
     for (const account of agentAccountsOf(agent)) block.appendChild(buildAgentAccountRow(agent, account));
     block.appendChild(button({ variant: 'secondary', label: 'Add account', action: 'add-agent-account', onClick: () => openAgentAccountDialog(agent) }));
   }
+  block.appendChild(buildLaneAccountsBlock(agentAccountActionStatus));
   block.appendChild(agentAccountActionStatus.element);
   return block;
 }

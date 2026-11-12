@@ -6,6 +6,20 @@ export const AgentAccountId = z.string({ error: 'an agent account id must be a s
   .regex(AGENT_ACCOUNT_ID_RE, { error: 'an agent account id must be 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit' });
 export type AgentAccountId = z.infer<typeof AgentAccountId>;
 
+const REMOTE_ACCOUNT_AGENT_IDS: readonly string[] = Object.freeze(['claude-code', 'codex']);
+
+export function canRunUnderAccountRemotely(agentId: string): boolean {
+  return REMOTE_ACCOUNT_AGENT_IDS.includes(agentId);
+}
+
+export const LANE_ACCOUNT_AGENT_ID = 'claude-code';
+
+export const LaneAccountLane = z.enum(['team-review', 'radar', 'community', 'task-title', 'question-manager']);
+export type LaneAccountLane = z.infer<typeof LaneAccountLane>;
+
+export const LaneAccounts = z.partialRecord(LaneAccountLane, AgentAccountId.nullable(), { error: 'laneAccounts must map a lane to an agentAccounts id, or to null for the machine login' });
+export type LaneAccounts = z.infer<typeof LaneAccounts>;
+
 export const AgentAccount = z.strictObject({
   id: AgentAccountId,
   agent: z.string({ error: 'agentAccounts[].agent must be a string' }).min(1, { error: 'agentAccounts[].agent must not be empty' }),
@@ -50,6 +64,7 @@ export const AgentAccountStatus = z.strictObject({
   usedBy: z.array(z.string()),
   isPending: z.boolean(),
   isDefault: z.boolean(),
+  lanes: z.array(LaneAccountLane),
 });
 export type AgentAccountStatus = z.infer<typeof AgentAccountStatus>;
 

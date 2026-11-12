@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AgentHookGroup, AgentNote } from '../hooks.ts';
-import { AgentAccountId, AgentAccountStatuses } from '../agent-accounts.ts';
+import { AgentAccountId, AgentAccountStatuses, LaneAccountLane } from '../agent-accounts.ts';
 import { requestId, loose, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, AgentLoginStatuses, TelegramDeliveryStatus } from './control-fields.ts';
 
 export const settingsClientVariants = [
@@ -16,6 +16,7 @@ export const settingsClientVariants = [
   loose('agent-account-code', { accountId: AgentAccountId, code: z.string(), requestId }),
   loose('agent-account-remove', { accountId: AgentAccountId, requestId }),
   loose('agent-account-default', { agent: z.string().min(1), accountId: AgentAccountId.nullable(), requestId }),
+  loose('agent-lane-account', { lane: LaneAccountLane, followsDefault: z.boolean(), accountId: AgentAccountId.nullable(), requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),

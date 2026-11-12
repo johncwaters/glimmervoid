@@ -9,6 +9,7 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowRules, withLaneAccessRules } from './core/lane-permissions-core.ts';
 import type { LaneAccessConfig } from './core/lane-permissions-core.ts';
 import { prepareLaneMcp } from './lane-mcp.ts';
@@ -58,6 +59,7 @@ interface LaneSpawnOptions {
   getLaneAccessConfig?: () => LaneAccessConfig;
   createSession?: (options: SessionOptions) => Session;
   prepareMcp?: typeof prepareLaneMcp;
+  accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }
 
 async function writeStandaloneDenySettings(permissions: unknown, userHooks: readonly UserHook[]): Promise<{ args: string[]; cleanup(): Promise<void> }> {
@@ -106,7 +108,7 @@ function createLaneSpawn({
   sessions = new Map(), closeSessionDataClients = () => {}, hookRouter = null, getHookPort = null,
   spawnGate = null, replayBufferKB = undefined, recordLane = null, laneName, getSaneYoloUnreadablePaths, allowTools = [],
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
-  prepareMcp = prepareLaneMcp, getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
+  prepareMcp = prepareLaneMcp, getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG, accountHomeFor = null,
 }: LaneSpawnOptions): LaneSpawn {
   return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === CODEX_AGENT_ID;
@@ -157,6 +159,7 @@ function createLaneSpawn({
         getHookPort,
         ...(laneMcp?.scratchAgentHome ? { scratchAgentHome: laneMcp.scratchAgentHome } : {}),
         ...(isCodex ? { isCleanHome: true } : {}),
+        ...(accountHomeFor && isClaude ? { resolveAccountHome: () => accountHomeFor(agent) } : {}),
       };
       try {
         const laneSession = createSession(options);

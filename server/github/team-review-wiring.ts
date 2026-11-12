@@ -13,6 +13,7 @@ import { createLaneRunner } from '../lanes/lane-runner.ts';
 import type { LaneRunnerGate, LaneStatusRecord, SharedClock } from '../lanes/lane-runner.ts';
 import { THREAD_JUDGE_TOOLS, createThreadJudge } from './team-review-thread-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createPrGh } from './pr-gh.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -62,6 +63,7 @@ interface TeamReviewWiringOptions {
   requestPrRefresh?: (key: string) => void;
   telemetry?: Pick<Telemetry, 'capture'> | null;
   githubAppToken?: () => string | null;
+  accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }
 
 function teamReviewShouldStart(config: TeamReviewWiringConfig, githubAppToken: string | null): LaneRunnerGate {
@@ -116,7 +118,7 @@ function createTeamReviewStateIo(statePath: string, log: Pick<Console, 'warn'>) 
 
 function createTeamReviewWiring({
   config, githubAppToken = () => null, store, reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, gitWorkspace,
-  recordLane = null, broadcast = () => {}, log = console,
+  recordLane = null, broadcast = () => {}, log = console, accountHomeFor = null,
   homeDir = glimmervoidHomeDir(),
   github = createPrGh(homeDir),
   repoCacheRoot = path.join(homeDir, 'team-review-repos'),
@@ -124,6 +126,7 @@ function createTeamReviewWiring({
   spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
     replayBufferKB: config.replayBufferKB, hookToolConfig: config, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()),
+    accountHomeFor,
   }),
   createPoller = createTeamReviewPoller,
   reapProcesses = reapTeamReviewProcesses,
@@ -169,7 +172,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github, store,
         spawnReview: trackReview,
-        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()) }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
+        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: () => laneAccessConfigOf(config, githubAppToken()), accountHomeFor }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;

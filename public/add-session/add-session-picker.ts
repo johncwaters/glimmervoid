@@ -3,6 +3,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import { sendControlRequest } from '../control-ws.ts';
 import { CoderEnvironmentOffers } from '#shared/contracts/control-messages.ts';
 import type { ConnectableAgent, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
+import { canRunUnderAccountRemotely } from '#shared/contracts/agent-accounts.ts';
 import { agentAccountsOf, agentLoginOf, agentLoginSummary, connectableAgentOf, onAgentAccountsChanged, onAgentLoginsChanged, refreshAgentAccounts, refreshAgentLogins } from '../agent-logins.ts';
 import { el, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
@@ -476,7 +477,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function pickableAccounts() {
-    if (selectedHostId !== null || selectedEnvironment !== null) return [];
+    if (selectedHostId !== null) return [];
+    if (selectedEnvironment !== null && !canRunUnderAccountRemotely(selectedAgentId)) return [];
     const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
     return accounts.some((account) => account.accountId !== null) ? accounts : [];
   }

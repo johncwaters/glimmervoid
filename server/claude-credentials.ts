@@ -58,6 +58,7 @@ function sleepUnlessAborted(durationMs: number, signal: AbortSignal | undefined)
 
 interface StoredLogin {
   token: LoginAccessToken;
+  configDir: string | null;
   source: LoginSource;
 }
 
@@ -93,26 +94,31 @@ function createClaudeCredentials({
 
   async function readStoredLogin(): Promise<StoredLogin | null> {
     const hostToken = await readLoginTokenIn(null);
-    if (hostToken) return { token: hostToken, source: 'host' };
+    if (hostToken) return { token: hostToken, configDir: null, source: 'host' };
     if (!connectedConfigDir) return null;
     const connectedToken = await readLoginTokenIn(connectedConfigDir);
-    return connectedToken ? { token: connectedToken, source: 'glimmervoid' } : null;
+    return connectedToken ? { token: connectedToken, configDir: connectedConfigDir, source: 'glimmervoid' } : null;
   }
 
-  async function refreshLogin(command: string, source: LoginSource | null, signal: AbortSignal | undefined): Promise<void> {
-    const configDir = source === 'glimmervoid' ? connectedConfigDir : null;
+  async function readAccountLogin(accountConfigDir: string): Promise<StoredLogin | null> {
+    const accountToken = await readLoginTokenIn(accountConfigDir);
+    return accountToken ? { token: accountToken, configDir: accountConfigDir, source: 'glimmervoid' } : null;
+  }
+
+  async function refreshLogin(command: string, configDir: string | null, signal: AbortSignal | undefined): Promise<void> {
     await runCommand(command, ['-p', 'Reply with OK.'], { env: loginEnvironment(env, configDir), timeoutMs: LOGIN_REFRESH_TIMEOUT_MS, signal });
   }
 
-  async function resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal): Promise<{ ok: true; token: string } | { ok: false; reason: string }> {
-    if (overrideToken) return { ok: true, token: overrideToken };
+  async function resolveArmToken(cellTimeoutSeconds: number, signal?: AbortSignal, accountConfigDir: string | null = null): Promise<{ ok: true; token: string } | { ok: false; reason: string }> {
+    if (overrideToken && accountConfigDir === null) return { ok: true, token: overrideToken };
+    const readLogin = accountConfigDir === null ? readStoredLogin : () => readAccountLogin(accountConfigDir);
     const cancelled = { ok: false as const, reason: 'the run was cancelled before the login was refreshed' };
     const commandMissing = { ok: false as const, reason: 'the claude command could not be found, so the Claude Code login cannot be refreshed' };
     let hasRefreshed = false;
     let hasWaitedForExpiry = false;
     let expiresAtBeforeRefresh: number | null = null;
     for (;;) {
-      const stored = await readStoredLogin();
+      const stored = await readLogin();
       const login = stored?.token ?? null;
       const decision = decideArmToken({ login, nowMs: now(), cellTimeoutSeconds, hasRefreshed, expiresAtBeforeRefresh, hasWaitedForExpiry });
       if (decision.kind === 'use') return { ok: true, token: decision.token };
@@ -126,7 +132,7 @@ function createClaudeCredentials({
         hasWaitedForExpiry = true;
       }
       expiresAtBeforeRefresh = login?.expiresAt ?? null;
-      await refreshLogin(refreshCommand, stored?.source ?? null, signal);
+      await refreshLogin(refreshCommand, stored?.configDir ?? accountConfigDir, signal);
       hasRefreshed = true;
     }
   }

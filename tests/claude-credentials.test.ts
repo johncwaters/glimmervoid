@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { createClaudeCredentials } from '../server/claude-credentials.ts';
 import type { CommandRunner, Sleeper } from '../server/claude-credentials.ts';
-import { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken } from '../server/core/claude-credentials-core.ts';
+import { EXPIRY_WAIT_GRACE_MS, LOGIN_REFRESH_MARGIN_MS, decideArmToken, keychainServiceFor } from '../server/core/claude-credentials-core.ts';
 
 const NOW = 1_800_000_000_000;
 const CELL_TIMEOUT_SECONDS = 1800;
@@ -146,4 +146,16 @@ test('off macOS the login token comes from the credentials file under the home d
   });
   assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS), { ok: true, token: 'file-token' });
   assert.deepEqual(readPaths, ['/home/operator/.claude/.credentials.json']);
+});
+
+test('an account session arms with the account folder login, refreshes it there, and ignores the host and override tokens', async () => {
+  const accountFolder = '/home/operator/.glimmervoid/agent-accounts/team';
+  const { calls, runCommand } = recordingRunner([storedCredentials(NOW + 60_000, 'stale-team-token'), storedCredentials(ENOUGH, 'team-token')]);
+  const env: NodeJS.ProcessEnv = { GLIMMERVOID_CLAUDE_OAUTH_TOKEN: 'setup-token-value' };
+  const credentials = createClaudeCredentials({ platform: 'darwin', env, now: () => NOW, claudeCommand: () => 'claude', runCommand });
+
+  assert.deepEqual(await credentials.resolveArmToken(CELL_TIMEOUT_SECONDS, undefined, accountFolder), { ok: true, token: 'team-token' });
+  const keychainServices = calls.filter((call) => call.command === 'security').map((call) => call.args[call.args.indexOf('-s') + 1]);
+  assert.deepEqual(keychainServices, [keychainServiceFor(accountFolder), keychainServiceFor(accountFolder)]);
+  assert.equal(calls.find((call) => call.command === 'claude')?.env?.CLAUDE_CONFIG_DIR, accountFolder);
 });

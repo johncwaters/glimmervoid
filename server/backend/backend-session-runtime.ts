@@ -93,28 +93,29 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   void agentConnect.refresh();
   void agentAccounts.refresh();
-  const codexLogin = async (resolveLogin: typeof codexCredentials.hostLogin) => {
-    const resolved = await resolveLogin();
+  const codexLogin = (resolved: Awaited<ReturnType<typeof codexCredentials.hostLogin>>) => {
     if (!resolved.ok) throw new Error(resolved.reason);
     return resolved.login;
   };
-  let lastForcedCodexRefreshAtMs: number | null = null;
-  const rateLimitedCodexRefresh = () => {
+  const lastForcedCodexRefreshAtMsByHome = new Map<string, number>();
+  const rateLimitedCodexRefresh = (accountCodexHome: string | null) => {
     const nowMs = clock.nowMs();
-    const isWithinForcedRefreshWindow = lastForcedCodexRefreshAtMs !== null && nowMs - lastForcedCodexRefreshAtMs < FORCED_CODEX_REFRESH_INTERVAL_MS;
-    if (isWithinForcedRefreshWindow) return codexCredentials.hostLogin();
-    lastForcedCodexRefreshAtMs = nowMs;
-    return codexCredentials.refreshedHostLogin();
+    const homeKey = accountCodexHome ?? '';
+    const lastForcedRefreshAtMs = lastForcedCodexRefreshAtMsByHome.get(homeKey);
+    const isWithinForcedRefreshWindow = lastForcedRefreshAtMs !== undefined && nowMs - lastForcedRefreshAtMs < FORCED_CODEX_REFRESH_INTERVAL_MS;
+    if (isWithinForcedRefreshWindow) return codexCredentials.hostLogin(accountCodexHome);
+    lastForcedCodexRefreshAtMsByHome.set(homeKey, nowMs);
+    return codexCredentials.refreshedHostLogin(accountCodexHome);
   };
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const makeSession = createSessionFactory({
     commitSigningProgram,
     getCoderEnv: dependencies.getCoderEnv,
-    claudeToken: () => claudeCredentials.resolveArmToken(REMOTE_SESSION_TOKEN_LIFETIME_SECONDS),
+    claudeToken: (accountFolder) => claudeCredentials.resolveArmToken(REMOTE_SESSION_TOKEN_LIFETIME_SECONDS, undefined, accountFolder),
     codexVersion: readHostCodexVersion,
-    codexLoginParams: async () => chatgptAuthTokensLogin(await codexLogin(codexCredentials.hostLogin)),
-    codexRefreshResult: async () => chatgptAuthTokensRefreshResult(await codexLogin(rateLimitedCodexRefresh)),
+    codexLoginParams: async (accountFolder) => chatgptAuthTokensLogin(await codexLogin(await codexCredentials.hostLogin(accountFolder))),
+    codexRefreshResult: async (accountFolder) => chatgptAuthTokensRefreshResult(await codexLogin(await rateLimitedCodexRefresh(accountFolder))),
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,

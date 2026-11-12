@@ -24,7 +24,7 @@ interface CodexCredentialsOptions {
 
 interface StoredLogin {
   login: CodexLogin;
-  source: LoginSource;
+  codexHome: string | null;
 }
 
 type CodexLoginResult = { ok: true; login: CodexLogin } | { ok: false; reason: string };
@@ -47,7 +47,7 @@ function createCodexCredentials({
   refreshHostLogin = refreshHostLoginOverAppServer,
   readTextFile = readTextFileOrNull,
 }: CodexCredentialsOptions) {
-  let inFlightRefresh: Promise<boolean> | null = null;
+  const inFlightRefreshByHome = new Map<string, Promise<boolean>>();
 
   async function readLoginIn(codexHome: string): Promise<CodexLogin | null> {
     const stored = await readTextFile(path.join(codexHome, 'auth.json'));
@@ -56,41 +56,51 @@ function createCodexCredentials({
 
   async function readStoredLogin(): Promise<StoredLogin | null> {
     const hostLogin = await readLoginIn(codexHomeDir(env, homeDir));
-    if (hostLogin) return { login: hostLogin, source: 'host' };
+    if (hostLogin) return { login: hostLogin, codexHome: null };
     if (!connectedCodexHome) return null;
     const connectedLogin = await readLoginIn(connectedCodexHome);
-    return connectedLogin ? { login: connectedLogin, source: 'glimmervoid' } : null;
+    return connectedLogin ? { login: connectedLogin, codexHome: connectedCodexHome } : null;
   }
 
-  function refreshEnvFor(source: LoginSource | null): NodeJS.ProcessEnv {
-    if (source !== 'glimmervoid' || !connectedCodexHome) return env;
-    return { ...env, CODEX_HOME: connectedCodexHome };
+  async function readAccountLogin(accountCodexHome: string): Promise<StoredLogin | null> {
+    const accountLogin = await readLoginIn(accountCodexHome);
+    return accountLogin ? { login: accountLogin, codexHome: accountCodexHome } : null;
   }
 
-  function refreshOnce(source: LoginSource | null): Promise<boolean> {
+  function refreshOnce(codexHome: string | null): Promise<boolean> {
     const command = codexCommand();
     if (!command) return Promise.resolve(false);
-    inFlightRefresh ??= refreshHostLogin(command, refreshEnvFor(source)).finally(() => { inFlightRefresh = null; });
-    return inFlightRefresh;
+    const homeKey = codexHome ?? '';
+    const inFlightRefresh = inFlightRefreshByHome.get(homeKey);
+    if (inFlightRefresh) return inFlightRefresh;
+    const refreshEnv = codexHome === null ? env : { ...env, CODEX_HOME: codexHome };
+    const refresh = refreshHostLogin(command, refreshEnv).finally(() => { inFlightRefreshByHome.delete(homeKey); });
+    inFlightRefreshByHome.set(homeKey, refresh);
+    return refresh;
   }
 
-  async function resolveLogin({ mustRefresh }: { mustRefresh: boolean }): Promise<CodexLoginResult> {
-    if (mustRefresh) await refreshOnce((await readStoredLogin())?.source ?? null);
+  async function resolveLogin({ mustRefresh, accountCodexHome }: { mustRefresh: boolean; accountCodexHome: string | null }): Promise<CodexLoginResult> {
+    const readLogin = accountCodexHome === null ? readStoredLogin : () => readAccountLogin(accountCodexHome);
+    if (mustRefresh) await refreshOnce((await readLogin())?.codexHome ?? accountCodexHome);
     let hasRefreshed = mustRefresh;
     for (;;) {
-      const stored = await readStoredLogin();
+      const stored = await readLogin();
       const decision = decideCodexLogin({ login: stored?.login ?? null, nowMs: now(), hasRefreshed });
       if (decision.kind === 'use') return { ok: true, login: decision.login };
       if (decision.kind === 'unavailable') return { ok: false, reason: decision.reason };
-      await refreshOnce(stored?.source ?? null);
+      await refreshOnce(stored?.codexHome ?? accountCodexHome);
       hasRefreshed = true;
     }
   }
 
   return {
-    loginSource: async (): Promise<LoginSource | null> => (await readStoredLogin())?.source ?? null,
-    hostLogin: () => resolveLogin({ mustRefresh: false }),
-    refreshedHostLogin: () => resolveLogin({ mustRefresh: true }),
+    loginSource: async (): Promise<LoginSource | null> => {
+      const stored = await readStoredLogin();
+      if (!stored) return null;
+      return stored.codexHome === null ? 'host' : 'glimmervoid';
+    },
+    hostLogin: (accountCodexHome: string | null = null) => resolveLogin({ mustRefresh: false, accountCodexHome }),
+    refreshedHostLogin: (accountCodexHome: string | null = null) => resolveLogin({ mustRefresh: true, accountCodexHome }),
   };
 }
 

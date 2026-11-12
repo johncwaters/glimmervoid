@@ -7,7 +7,8 @@ import { CONNECT_RECIPES, readAccountIdentity } from './core/agent-connect-core.
 import type { AccountIdentity } from './core/agent-connect-core.ts';
 import { prepareAccountHome } from '../../session/agent-home.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
-import type { AgentAccount, AgentAccountLogin, AgentAccountStatus } from '../../shared/contracts/agent-accounts.ts';
+import { LANE_ACCOUNT_AGENT_ID, LaneAccountLane } from '../../shared/contracts/agent-accounts.ts';
+import type { AgentAccount, AgentAccountLogin, AgentAccountStatus, LaneAccounts } from '../../shared/contracts/agent-accounts.ts';
 import type { AgentLoginStatus, ConnectableAgent } from '../../shared/contracts/control-messages.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 
@@ -70,6 +71,10 @@ function accountLaunch(agent: ConnectableAgent, launch: CommandLaunch, folder: s
   return { ...launch, env };
 }
 
+function withoutLanesOn(laneAccounts: LaneAccounts, accountId: string): LaneAccounts {
+  return Object.fromEntries(Object.entries(laneAccounts).filter(([, laneAccountId]) => laneAccountId !== accountId));
+}
+
 async function isFolderPresent(folder: string): Promise<boolean> {
   return fs.stat(folder).then((stats) => stats.isDirectory(), () => false);
 }
@@ -91,15 +96,22 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return configuredAccounts().some((account) => account.id === defaultId && account.agent === agent) ? defaultId : null;
   }
 
+  function lanesPinnedTo(agent: string, accountId: string | null): LaneAccountLane[] {
+    if (agent !== LANE_ACCOUNT_AGENT_ID) return [];
+    const laneAccounts = configStore.config.laneAccounts ?? {};
+    return LaneAccountLane.options.filter((lane) => laneAccounts[lane] === accountId);
+  }
+
   function statusOf(agent: ConnectableAgent, account: AgentAccount | null): AgentAccountStatus {
+    const lanes = lanesPinnedTo(agent, account?.id ?? null);
     const isDefault = defaultAccountIdOf(agent) === (account?.id ?? null);
     const identity = identityByKey.get(identityKey(agent, account?.id ?? null)) ?? null;
     const login = identity === null ? loginOf('signed-out', 'Checking the sign-in.') : loginOf(identity.isSignedIn ? 'signed-in' : 'signed-out');
     if (account === null) {
-      return { accountId: null, agent, label: identity?.label ?? 'Machine login', detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault };
+      return { accountId: null, agent, label: identity?.label ?? 'Machine login', detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault, lanes };
     }
     const pendingLogin = pendingById.get(account.id)?.login ?? null;
-    return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault };
+    return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault, lanes };
   }
 
   function uncheckedAgentStatuses(): AgentAccountStatus[] {
@@ -109,8 +121,8 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       const defaultId = configStore.config.agentAccountDefaults?.[agent] ?? null;
       const agentAccounts = accounts.filter((account) => account.agent === agent);
       const isMachineDefault = !agentAccounts.some((account) => account.id === defaultId);
-      const machineRow: AgentAccountStatus = { accountId: null, agent, label: 'Machine login', detail: null, login: loginOf('unchecked'), usedBy: [], isPending: false, isDefault: isMachineDefault };
-      return [machineRow, ...agentAccounts.map((account) => ({ accountId: account.id, agent, label: account.label, detail: null, login: loginOf('unchecked'), usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault: account.id === defaultId }))];
+      const machineRow: AgentAccountStatus = { accountId: null, agent, label: 'Machine login', detail: null, login: loginOf('unchecked'), usedBy: [], isPending: false, isDefault: isMachineDefault, lanes: [] };
+      return [machineRow, ...agentAccounts.map((account) => ({ accountId: account.id, agent, label: account.label, detail: null, login: loginOf('unchecked'), usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault: account.id === defaultId, lanes: [] }))];
     });
   }
 
@@ -121,7 +133,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       for (const account of configuredAccounts().filter((candidate) => candidate.agent === agent)) statuses.push(statusOf(agent, account));
       for (const pending of pendingById.values()) {
         if (pending.agent !== agent || pending.isExisting) continue;
-        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false });
+        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false, lanes: [] });
       }
     }
     statuses.push(...uncheckedAgentStatuses());
@@ -326,6 +338,8 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       if (config.agentAccounts.length === 0) delete config.agentAccounts;
       if (config.agentAccountDefaults?.[account.agent] === accountId) delete config.agentAccountDefaults[account.agent];
       if (config.agentAccountDefaults && Object.keys(config.agentAccountDefaults).length === 0) delete config.agentAccountDefaults;
+      config.laneAccounts = withoutLanesOn(config.laneAccounts ?? {}, accountId);
+      if (Object.keys(config.laneAccounts).length === 0) delete config.laneAccounts;
     });
     if (!freshConfig) return { ok: false, error: 'Could not write config.json' };
     if (isOwnedFolder) await deleteFolder(account.folder);
@@ -353,6 +367,22 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return { ok: true };
   }
 
+  function setLaneAccount(lane: LaneAccountLane, choice: { followsDefault: true } | { followsDefault: false; accountId: string | null }): AccountReply {
+    const account = choice.followsDefault || choice.accountId === null ? null : configuredAccounts().find((candidate) => candidate.id === choice.accountId && candidate.agent === LANE_ACCOUNT_AGENT_ID);
+    if (account === undefined) return { ok: false, error: 'That account is not a Claude Code account in config.json.' };
+    const freshConfig = configStore.save((config) => {
+      const laneAccounts = { ...(config.laneAccounts ?? {}) };
+      delete laneAccounts[lane];
+      if (!choice.followsDefault) laneAccounts[lane] = account?.id ?? null;
+      config.laneAccounts = laneAccounts;
+      if (Object.keys(laneAccounts).length === 0) delete config.laneAccounts;
+    });
+    if (!freshConfig) return { ok: false, error: 'Could not write config.json' };
+    onConfigSaved(freshConfig);
+    announce();
+    return { ok: true };
+  }
+
   async function signInRefusal(agent: string, accountId: string | null): Promise<{ error: string; needsSignIn: boolean } | null> {
     const accountAgent = ACCOUNT_AGENTS.find((candidate) => candidate === agent);
     if (!accountAgent) return null;
@@ -371,7 +401,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     for (const pending of pendingById.values()) pending.connect.stop();
   }
 
-  return { add, cancel, list, refresh, remove, setDefault, signIn, signInRefusal, stop, submitCode };
+  return { add, cancel, list, refresh, remove, setDefault, setLaneAccount, signIn, signInRefusal, stop, submitCode };
 }
 
 type AgentAccounts = ReturnType<typeof createAgentAccounts>;

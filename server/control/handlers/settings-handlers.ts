@@ -133,7 +133,7 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
 
 const AGENT_CONNECT_UNAVAILABLE = 'Agent sign-in is not available on this server.';
 const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
-type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-default';
+type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-default' | 'agent-lane-account';
 
 function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const {
@@ -462,6 +462,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-account-code': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.submitCode(msg.accountId, msg.code)),
     'agent-account-remove': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.remove(msg.accountId)),
     'agent-account-default': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setDefault(msg.agent, msg.accountId)),
+    'agent-lane-account': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setLaneAccount(msg.lane, msg.followsDefault ? { followsDefault: true } : { followsDefault: false, accountId: msg.accountId })),
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
     'list-agents': handleListAgents,
@@ -489,6 +490,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-account-code': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-remove': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-default': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-lane-account': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),

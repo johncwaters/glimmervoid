@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { resolveHookTools as resolveSharedHookTools, resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import type { HookToolConfig } from '../hook-tools.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
@@ -95,6 +96,7 @@ function createTeamReviewSpawn({
   resolveHookTools = resolveSharedHookTools,
   prepareMcp = prepareLaneMcp,
   getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG,
+  accountHomeFor = null,
 }: {
   reviewSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
@@ -109,6 +111,7 @@ function createTeamReviewSpawn({
   resolveHookTools?: typeof resolveSharedHookTools;
   prepareMcp?: typeof prepareLaneMcp;
   getLaneAccessConfig?: () => LaneAccessConfig;
+  accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }): TeamReviewSpawn {
   return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
@@ -149,6 +152,7 @@ function createTeamReviewSpawn({
         replayBufferKB,
         hookRouter,
         getHookPort,
+        ...(accountHomeFor ? { resolveAccountHome: () => accountHomeFor(agent ?? DEFAULT_AGENT_ID) } : {}),
       });
       registerEphemeralSession({
         map: reviewSessions, id, sess, closeSessionDataClients, logPrefix: laneName, name, recordLane,

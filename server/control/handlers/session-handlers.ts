@@ -231,7 +231,6 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function remoteAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     if (msg.repos) return { error: 'A workspace session cannot run in a Coder environment. Pick a single repository.' };
     if (msg.runInPlace === true) return { error: 'A session in a Coder environment always gets its own checkout, so it cannot run in this folder.' };
-    if (typeof msg.accountId === 'string') return { error: 'A Coder workspace session cannot run under an added account yet. Pick this machine\'s login.' };
     return null;
   }
 

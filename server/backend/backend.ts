@@ -190,7 +190,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
-    liveSessionNamesUsing: (accountId) => [...sessions.values()]
+    liveSessionNamesUsing: (accountId) => laneAssembly.allLiveSessions()
       .filter((session) => session.accountIdInUse === accountId || configStore.config.projects.some((project) => project.id === session.id && project.accountId === accountId))
       .map((session) => session.name),
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),

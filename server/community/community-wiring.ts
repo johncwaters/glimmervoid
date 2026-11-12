@@ -18,6 +18,7 @@ import { createCommunityPoller } from './community-poller.ts';
 import type { DiscordSource, SourceRows } from './community-poller.ts';
 import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
@@ -100,6 +101,7 @@ interface CommunitySpawnDependencies {
   spawnGate: SpawnGate;
   recordLane?: RecordLane | null;
   replayBufferKB?: number;
+  accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }
 
 function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookToolConfig, getLaneAccessConfig }: {
@@ -120,6 +122,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     laneName: core.COMMUNITY_LANE_ID,
     hookToolConfig,
     getLaneAccessConfig,
+    accountHomeFor: spawnDependencies.accountHomeFor ?? null,
   });
   const workRoot = path.join(homeDir, COMMUNITY_WORK_DIRNAME);
 
@@ -174,6 +177,7 @@ function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, 
     recordLane: spawnDependencies.recordLane ?? null,
     replayBufferKB: spawnDependencies.replayBufferKB,
     allowTools: COMMUNITY_JUDGE_TOOLS,
+    accountHomeFor: spawnDependencies.accountHomeFor ?? null,
   });
   return {
     channels: settings.discordChannels,

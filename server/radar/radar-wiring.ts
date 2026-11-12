@@ -10,6 +10,7 @@ import path from 'node:path';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
+import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { resolveHookTools as resolveSharedHookTools, resolveRequiredSaneYoloHookTools } from '../hook-tools.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
@@ -131,6 +132,7 @@ interface RadarWiringOptions {
   telemetry?: Pick<Telemetry, 'capture'> | null;
   posthogApiFor?: (connection: { host: string; apiKey: string }) => Pick<PosthogApi, 'runHogQL'>;
   prepareMcp?: typeof prepareLaneMcp;
+  accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }
 
 interface ResolvedProject {
@@ -269,6 +271,7 @@ function createRadarWiring({
   telemetry = null,
   posthogApiFor = createPosthogApi,
   prepareMcp = prepareLaneMcp,
+  accountHomeFor = null,
 }: RadarWiringOptions) {
   function activePosthogConfig(): RadarLaneConfig & { host: string; apiKey: string } {
     const posthogConfig = config.posthog;
@@ -316,6 +319,7 @@ function createRadarWiring({
       replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
+      ...(accountHomeFor ? { resolveAccountHome: () => accountHomeFor('claude-code') } : {}),
     });
     registerEphemeralSession({
       map: investigationSessions, id, sess, closeSessionDataClients, logPrefix: 'posthog', name, recordLane,

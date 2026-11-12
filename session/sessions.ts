@@ -27,6 +27,7 @@ import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { probeGraphicalSession } from "./graphical-session-probe.ts";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { prepareAccountHome } from "./agent-home.ts";
+import { canRunUnderAccountRemotely } from "../shared/contracts/agent-accounts.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
@@ -1894,6 +1895,12 @@ class Session extends EventEmitter {
     return { ...(this._spawnEnv || {}), ...this._accountEnv };
   }
 
+  _remoteAccountRefusal(account: { id: string; label: string }): string | null {
+    if (!canRunUnderAccountRemotely(this.agentId)) return `a Coder workspace ${this._adapter.label} session cannot run under the added account ${account.label}`;
+    this.accountIdInUse = account.id;
+    return null;
+  }
+
   async _prepareAccountEnv(isRemoteLaunch: boolean): Promise<string | null> {
     this._accountEnv = {};
     this._accountFolder = null;
@@ -1901,7 +1908,7 @@ class Session extends EventEmitter {
     const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
     if (accountHome.kind === "machine-login") return null;
     if (accountHome.kind === "refused") return accountHome.reason;
-    if (isRemoteLaunch) return `a Coder workspace session cannot run under the added account ${accountHome.account.label} yet`;
+    if (isRemoteLaunch) return this._remoteAccountRefusal(accountHome.account);
     const homeEnvName = this._adapter.accountHomeProfile?.homeEnvName ?? this._adapter.accountHomeEnvName;
     if (!homeEnvName) return `${this._adapter.label} sessions cannot run under an added account`;
     this.accountIdInUse = accountHome.account.id;

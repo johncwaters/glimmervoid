@@ -9,7 +9,7 @@ import { BranchGcControlSettings, GithubSettings,
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { isLinkUrlSafe } from './watcher-link.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
-import { AgentAccountDefaults, AgentAccountId, AgentAccounts } from './agent-accounts.ts';
+import { AgentAccountDefaults, AgentAccountId, AgentAccounts, LaneAccounts } from './agent-accounts.ts';
 import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
@@ -197,6 +197,7 @@ const FILE_CONFIG_SHAPE = {
   customAgents: CustomAgentDeclarations.optional(),
   agentAccounts: AgentAccounts.optional(),
   agentAccountDefaults: AgentAccountDefaults.optional(),
+  laneAccounts: LaneAccounts.optional(),
 };
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,

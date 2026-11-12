@@ -30,6 +30,7 @@ import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config
 import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
+import { laneAccountHomeFor } from '../../session/core/agent-account-core.ts';
 import fs from 'node:fs';
 import { jsonStateLoadError, loadJsonStateFileSync, writeJsonAtomic } from '../json-file.ts';
 import { CoderOwnedWorkspaces } from '../../shared/contracts/coder-owned-workspaces.ts';
@@ -234,11 +235,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     gitWorkspace,
     broadcast: broadcastControl,
     telemetry: laneTelemetry,
+    accountHomeFor: laneAccountHomeFor(() => configStore.config, 'radar'),
   });
   const community = createCommunityWiring({
     config, githubAppToken, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
     controlClientCount: viewerControlClientCount,
-    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB },
+    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
   });
   const githubStatus = createGithubStatus({ log: logger });
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
@@ -272,6 +274,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     repoCacheRoot: sharedRepoCacheRoot,
     repoCache: sharedRepoCache,
     telemetry: laneTelemetry,
+    accountHomeFor: laneAccountHomeFor(() => configStore.config, 'team-review'),
   });
   const sessionPrLink = createSessionPrLinkWiring({ store: githubStore.laneStore, git: gitWorkspace, log: logger });
   const starHint = createStarHintWiring({ statePath: configSiblingPath(configStore.configPath, 'feature-hints.json'), broadcast: broadcastControl, log: logger, controlClientCount: viewerControlClientCount });
@@ -408,6 +411,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
       replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      accountHomeFor: laneAccountHomeFor(() => configStore.config, 'task-title'),
     }),
   });
 
@@ -415,6 +419,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
     sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
     replayBufferKB: config.replayBufferKB, laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+    accountHomeFor: laneAccountHomeFor(() => configStore.config, 'question-manager'),
   }));
 
   const usage = createUsageWiring({

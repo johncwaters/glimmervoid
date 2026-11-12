@@ -159,7 +159,7 @@ interface ControlHandlerDeps {
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   coderEnv?: Pick<ReturnType<typeof createCoderEnvWiring>, 'reserve' | 'provision' | 'renew' | 'availableEnvironments' | 'settleRemoval'> | null;
   agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
-  agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'setDefault' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;
+  agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'setDefault' | 'setLaneAccount' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   remoteRepoGit?: Pick<GitWorkspaceInstance, 'originUrl' | 'detectDefaultBranch'> | null;
   starHint?: Pick<StarHintWiring, 'settleStar' | 'pendingHintMessages'> | null;
