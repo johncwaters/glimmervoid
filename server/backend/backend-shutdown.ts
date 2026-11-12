@@ -30,7 +30,6 @@ interface BackendShutdownDependencies {
   taskTitleRefiner?: Stoppable | null;
   raceSessions?: Map<string, ShutdownSession>;
   branchGc: Stoppable;
-  coderActivity: Stoppable;
   posthog: { stopPoller: () => unknown };
   teamReview?: { stopPoller: () => unknown } | null;
   myPrs?: { stopPoller: () => unknown } | null;
@@ -105,7 +104,6 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const remoteListenerPortFile = dependencies.remoteListenerPortFile;
     if (remoteListenerPortFile) stoppers.add('remote-listener-port-file', () => remoteListenerPortFile.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
-    stoppers.add('coder-activity', () => dependencies.coderActivity.stop());
     destroySessions([dependencies.agentSessions, dependencies.reviewSessions], pendingReaps);
     stoppers.add('posthog', () => dependencies.posthog.stopPoller());
     const teamReview = dependencies.teamReview;

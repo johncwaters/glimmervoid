@@ -20,8 +20,7 @@ import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
 import { runCommandSafely } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import { KILLABLE_STATES, STATES } from '../../shared/states.ts';
-import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
+import { KILLABLE_STATES } from '../../shared/states.ts';
 import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
 import { persistSessionField } from '../session/session-event-wiring.ts';
@@ -182,11 +181,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       .filter((sessionDirectory): sessionDirectory is string => Boolean(sessionDirectory))
       .map((sessionDirectory) => comparableDirectoryPath(sessionDirectory)))),
     ...(options.branchGcWiringOptions || {}),
-  });
-  const coderActivity = createCoderActivityWiring({
-    config,
-    countRunningSessions: () => allLiveSessions().filter((session) => session.state === STATES.RUNNING).length,
-    log: logger,
   });
   const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
   const coderOwnedWorkspacesPath = path.join(glimmervoidHomeDir(), 'coder-owned-workspaces.json');
@@ -483,7 +477,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function startRuntimeLanes(): void {
     const startSteps = [
       () => branchGc.start(),
-      () => coderActivity.start(),
       () => coderEnv.start(),
       () => posthog.startPoller(),
       () => community.startPoller(),
@@ -515,7 +508,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   function restartServiceLanes(): void {
     const restartSteps = [
       () => branchGc.restartIfConfigChanged(),
-      () => coderActivity.restartIfConfigChanged(),
       () => coderEnv.restartIfConfigChanged(),
       () => posthog.restartIfConfigChanged(),
       () => community.restartIfConfigChanged(),
@@ -533,7 +525,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     raceSessions,
     races,
     branchGc,
-    coderActivity,
     coderEnv,
     taskTitleRefiner,
     taskTitleSessions,

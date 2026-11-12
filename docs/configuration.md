@@ -267,7 +267,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `coder` |  | Set `coder.appSlug` to an existing `coder_app` slug on the workspace agent to prevent Coder autostop while Glimmervoid sessions are running. Requires `CODER_AGENT_URL` and `CODER_AGENT_TOKEN` (or `CODER_AGENT_TOKEN_FILE`) in the environment; Coder supplies them when started from a workspace terminal or startup script. |
+| `coder` |  | Coder environments that remote Coder sessions run in, under `coder.environments`. |
 | `guardrails` |  | Retired and ignored: sessions no longer run inside an OS sandbox, and a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. |
 | `agentAccounts` |  | Added agent accounts, each with `id`, `agent`, `label` and `folder` (the signed-in agent home that account runs from). A Claude Code account folder keeps its own login, `.claude.json` and org policy files, and links everything else to the real `~/.claude`; its `mcpServers` are copied from the real `.claude.json` at each spawn. |
 | `agentAccountDefaults` |  | The account Add session preselects for a new session of each agent, keyed by agent id, for example `{ "claude-code": "claude-a1b2c3" }`. Unset, or naming an account that no longer exists, a new session runs on the machine's own login. Set it with Make default in Settings > Accounts. A session from Quick session keeps its source session's account; sessions opened from an issue, a pull request or Arena run on the machine's own login. A Coder workspace session runs under a Claude Code or Codex account too: its armed token or login is read from that account's folder. |
