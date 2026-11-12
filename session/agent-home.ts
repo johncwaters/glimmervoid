@@ -7,6 +7,8 @@ import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { mergeSharedKeys } from "./core/agent-account-core.ts";
+import { takeClaudeConfigLock } from "./adapters/claude-trust.ts";
 import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
@@ -23,6 +25,7 @@ interface AgentHomeOptions {
   generatedHome?: string;
   generatedFiles?: Readonly<Record<string, string>>;
   isClean?: boolean;
+  isAccountHome?: boolean;
 }
 
 interface ScratchAgentHomeOptions {
@@ -165,9 +168,26 @@ function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   }
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+interface ConfigTexts {
+  realConfigText: string | null;
+  baseConfigText: string | null;
+  generatedConfigText: string | null;
+}
+
+function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedHome: string): ConfigTexts | { refusal: string } {
+  if (profile.config === null) return { realConfigText: null, baseConfigText: null, generatedConfigText: null };
   const realConfig = readRealConfig(realHome, profile.config.configName);
-  if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
+  if ("refusal" in realConfig) return realConfig;
+  return {
+    realConfigText: realConfig.text,
+    baseConfigText: readOptionalText(path.join(generatedHome, profile.config.baseName)),
+    generatedConfigText: readOptionalText(path.join(generatedHome, profile.config.configName)),
+  };
+}
+
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+  const configTexts = readConfigTexts(profile, realHome, generatedHome);
+  if ("refusal" in configTexts) return { kind: "refused", reason: configTexts.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
   const privateFolderNames = new Set(generatedEntries.filter((entry) => entry.kind === "folder").map((entry) => entry.name));
   return planAgentHome({
@@ -175,20 +195,19 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     realHome,
     realEntries: listRealEntries(realHome, privateFolderNames),
     generatedEntries,
-    realConfigText: realConfig.text,
-    baseConfigText: readOptionalText(path.join(generatedHome, profile.config.baseName)),
-    generatedConfigText: readOptionalText(path.join(generatedHome, profile.config.configName)),
+    ...configTexts,
     renderBlock,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
     isClean: isClean === true,
+    isAccountHome: isAccountHome === true,
   });
 }
 
 function stepEntryPath(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep): string {
-  if (step.kind === "write-config") return path.join(generatedHome, profile.config.configName);
-  if (step.kind === "write-base") return path.join(generatedHome, profile.config.baseName);
-  return path.join(generatedHome, step.name);
+  if (step.kind !== "write-config" && step.kind !== "write-base") return path.join(generatedHome, step.name);
+  if (profile.config === null) throw new Error(`a ${profile.vendor} home has no config file to write`);
+  return path.join(generatedHome, step.kind === "write-config" ? profile.config.configName : profile.config.baseName);
 }
 
 function promoteIntoRealHome(entryPath: string, target: string): void {
@@ -295,17 +314,17 @@ function linkHomeRootEntries(profile: AgentHomeProfile, realHome: string, genera
   return null;
 }
 
-function operatorLauncherConfigPath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
+function operatorLauncherConfigPath(profile: AgentHomeProfile, configName: string, env: AgentHomeEnv = process.env, homeDir: string = os.homedir()): string {
   const configuredHome = env[profile.homeEnvName]?.trim() ?? "";
-  if (configuredHome) return path.resolve(configuredHome, profile.config.configName);
-  return path.join(realAgentHome(profile, env, homeDir), profile.config.configName);
+  if (configuredHome) return path.resolve(configuredHome, configName);
+  return path.join(realAgentHome(profile, env, homeDir), configName);
 }
 
 function writeLauncherConfig(profile: AgentHomeProfile, options: AgentHomeOptions, generatedHome: string): string | null {
-  if (profile.renderLauncherConfig === null) return null;
+  if (profile.renderLauncherConfig === null || profile.config === null) return null;
   const launcherConfigPath = path.join(path.dirname(generatedHome), profile.config.configName);
   try {
-    const operatorLauncherText = readOptionalText(operatorLauncherConfigPath(profile, options.env, options.homeDir)) ?? "";
+    const operatorLauncherText = readOptionalText(operatorLauncherConfigPath(profile, profile.config.configName, options.env, options.homeDir)) ?? "";
     writeTextAtomicSync(launcherConfigPath, profile.renderLauncherConfig(operatorLauncherText), { mode: GENERATED_FILE_MODE, enforceMode: true });
     return null;
   } catch (error) {
@@ -361,6 +380,64 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   return { home: generatedHome };
 }
 
+function readJsonObjectFile(filePath: string): Record<string, unknown> | null {
+  const text = readOptionalText(filePath);
+  if (text === null || text.trim() === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return Object.fromEntries(Object.entries(parsed));
+  } catch {
+    return null;
+  }
+}
+
+function pickReadCandidate(candidatePaths: readonly string[]): string {
+  return candidatePaths.find((candidatePath) => statOrNull(candidatePath) !== null) ?? candidatePaths[candidatePaths.length - 1];
+}
+
+async function syncMixedAccountFiles(profile: AgentHomeProfile, accountFolder: string, env: AgentHomeEnv, homeDir: string): Promise<string | null> {
+  for (const mixedFile of profile.account?.mixedFiles ?? []) {
+    const realFilePath = pickReadCandidate(mixedFile.candidatePaths(env, homeDir));
+    const accountFilePath = pickReadCandidate(mixedFile.candidatePaths({ ...env, [profile.homeEnvName]: accountFolder }, homeDir));
+    const lockPath = await takeClaudeConfigLock(accountFilePath).catch(() => null);
+    if (lockPath === null) return `${accountFilePath} is locked by another process, so the shared keys of ${realFilePath} cannot be copied`;
+    try {
+      const accountFile = readJsonObjectFile(accountFilePath);
+      const realFile = readJsonObjectFile(realFilePath);
+      if (accountFile === null || realFile === null) continue;
+      const merged = mergeSharedKeys(accountFile, realFile, mixedFile.sharedKeys);
+      if (merged !== null) writeTextAtomicSync(accountFilePath, `${JSON.stringify(merged, null, 2)}\n`, { mode: GENERATED_FILE_MODE, enforceMode: true });
+    } catch (error) {
+      return `${accountFilePath} cannot take the shared keys of ${realFilePath}: ${errorMessage(error)}`;
+    } finally {
+      fs.rmSync(lockPath, { recursive: true, force: true });
+    }
+  }
+  return null;
+}
+
+function isSameFolder(firstPath: string, secondPath: string): boolean {
+  const firstStat = statOrNull(firstPath);
+  const secondStat = statOrNull(secondPath);
+  if (firstStat === null || secondStat === null) return path.resolve(firstPath) === path.resolve(secondPath);
+  return firstStat.dev === secondStat.dev && firstStat.ino === secondStat.ino;
+}
+
+async function prepareAccountHome(profile: AgentHomeProfile, { env, accountFolder, homeDir = os.homedir() }: { env: AgentHomeEnv; accountFolder: string; homeDir?: string }): Promise<{ home: string } | { refusal: string }> {
+  if (!profile.account) return { refusal: `${profile.vendor} has no account support` };
+  if (!path.isAbsolute(accountFolder)) return { refusal: `the account folder ${accountFolder} is not an absolute path` };
+  if (isSameFolder(realAgentHome(profile, env, homeDir), accountFolder)) return { refusal: `the account folder ${accountFolder} is the machine's own ${profile.vendor} home` };
+  if (statOrNull(accountFolder)?.isDirectory() !== true) return { refusal: `the account folder ${accountFolder} is missing; sign in to that account again` };
+  const linkRefusal = agentHomeLinkRefusal(accountFolder);
+  if (linkRefusal !== null) return { refusal: linkRefusal };
+  const prepared = prepareAgentHome(profile, { env, homeDir, renderBlock: () => "", generatedHome: accountFolder, isAccountHome: true });
+  if ("refusal" in prepared) return prepared;
+  const syncRefusal = await syncMixedAccountFiles(profile, accountFolder, env, homeDir);
+  if (syncRefusal !== null) return { refusal: syncRefusal };
+  return prepared;
+}
+
 function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
@@ -374,7 +451,7 @@ function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, ren
 }
 
 function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, home, configSuffix, files }: ScratchAgentHomeOptions): { home: string } | { refusal: string } {
-  if (profile.config.kind !== "toml") return { refusal: `a ${profile.vendor} lane home is not supported` };
+  if (profile.config?.kind !== "toml") return { refusal: `a ${profile.vendor} lane home is not supported` };
   const prepared = prepareAgentHome(profile, { env, renderBlock, generatedHome: home });
   if ("refusal" in prepared) return prepared;
   try {
@@ -391,7 +468,7 @@ function prepareScratchAgentHome(profile: AgentHomeProfile, { env, renderBlock, 
 
 function agentHomeNotes(profile: AgentHomeProfile, generatedHome: string, plan: Extract<AgentHomePlan, { kind: "ready" }>): string[] {
   const notes: string[] = [];
-  if (plan.hasStaleBlockInRealConfig) notes.push(`the real ${profile.config.configName} still holds an old Glimmervoid hooks block, which ${profile.vendor} sessions here ignore and you can delete`);
+  if (plan.hasStaleBlockInRealConfig) notes.push(`the real ${profile.config?.configName ?? "config"} still holds an old Glimmervoid hooks block, which ${profile.vendor} sessions here ignore and you can delete`);
   if (plan.privateNames.length > 0) notes.push(`kept only in the generated home: ${plan.privateNames.join(", ")}`);
   const conflictNames = childNamesOf(path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME));
   if (conflictNames.length > 0) notes.push(`${conflictNames.length} ${profile.vendor} copies set aside after a conflict in ${path.join(generatedHome, AGENT_HOME_CONFLICTS_NAME)}`);
@@ -461,7 +538,7 @@ function holdAgentHome(generatedHome: string): void {
   if (liveSessionCount === 1) takeSharedInUseLock(generatedHome);
 }
 
-const SECRET_CONFIG_NAMES: readonly string[] = [...new Set(AGENT_HOME_PROFILES.flatMap(({ config }) => [config.configName, config.baseName]))];
+const SECRET_CONFIG_NAMES: readonly string[] = [...new Set(AGENT_HOME_PROFILES.flatMap(({ config }) => config ? [config.configName, config.baseName] : []))];
 
 function releaseAgentHomeSecrets(generatedHome: string): void {
   for (const name of SECRET_CONFIG_NAMES) {
@@ -495,5 +572,5 @@ function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env): vo
   }
 }
 
-export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
 

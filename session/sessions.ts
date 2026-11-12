@@ -26,6 +26,8 @@ import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { probeGraphicalSession } from "./graphical-session-probe.ts";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
+import { prepareAccountHome } from "./agent-home.ts";
+import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
@@ -197,6 +199,7 @@ interface SessionOptions {
   settingsPermissions?: Record<string, unknown> | null;
   getRemoteLaunch?: (() => RemoteLaunch | null) | null;
   spawnEnv?: Record<string, string> | null;
+  resolveAccountHome?: (() => SessionAccountHome) | null;
   prependPathDirs?: string[];
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
@@ -307,6 +310,8 @@ class Session extends EventEmitter {
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
   _suppressResumeCapture: boolean;
   _spawnEnv: Record<string, string> | null;
+  _resolveAccountHome: (() => SessionAccountHome) | null;
+  _accountEnv: Record<string, string> = {};
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
@@ -393,6 +398,7 @@ class Session extends EventEmitter {
     getRemoteLaunch = null,
 
     spawnEnv = null,
+    resolveAccountHome = null,
     prependPathDirs = [],
 
     enableProjectMcp = false,
@@ -554,6 +560,7 @@ class Session extends EventEmitter {
     this._suppressResumeCapture = false;
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
+    this._resolveAccountHome = resolveAccountHome;
     this._prependPathDirs = prependPathDirs;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
@@ -618,7 +625,7 @@ class Session extends EventEmitter {
         name: () => this.name,
         promptSupervisionLine: () => this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null,
         effectiveCwd: () => this.effectiveCwd(),
-        spawnEnv: () => this._spawnEnv,
+        spawnEnv: () => this._launchSpawnEnv(),
         spawnCommand: () => this._spawnCommand,
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
@@ -1645,9 +1652,14 @@ class Session extends EventEmitter {
       return;
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
+    const accountRefusal = await this._prepareAccountEnv(remoteLaunch !== null);
+    if (accountRefusal !== null) {
+      this._abandonSpawn(new Error(accountRefusal));
+      return;
+    }
     await this._hooks.prepare();
     if (remoteLaunch === null && this._adapter.trustFolder) {
-      await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._spawnEnv }))
+      await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._launchSpawnEnv() }))
         .catch((error: unknown) => console.warn(`[session:${this.name}] ${errorMessage(error)}`));
     }
     if (isStartSuperseded()) return;
@@ -1669,8 +1681,8 @@ class Session extends EventEmitter {
     this._applyTitleContext();
     const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
-      ? { ...(this._spawnEnv || {}), ...injectedEnv }
-      : this._spawnEnv;
+      ? { ...(this._launchSpawnEnv() || {}), ...injectedEnv }
+      : this._launchSpawnEnv();
 
     const env = this._launch.buildEnv({
       prependPathDirs: this._prependPathDirs,
@@ -1871,6 +1883,25 @@ class Session extends EventEmitter {
     if (this._platform !== "linux") return false;
     if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) return false;
     return await this._probeGraphicalSession() === "inactive";
+  }
+
+  _launchSpawnEnv(): Record<string, string> | null {
+    if (Object.keys(this._accountEnv).length === 0) return this._spawnEnv;
+    return { ...(this._spawnEnv || {}), ...this._accountEnv };
+  }
+
+  async _prepareAccountEnv(isRemoteLaunch: boolean): Promise<string | null> {
+    this._accountEnv = {};
+    const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
+    if (accountHome.kind === "machine-login") return null;
+    if (accountHome.kind === "refused") return accountHome.reason;
+    if (isRemoteLaunch) return `a Coder workspace session cannot run under the added account ${accountHome.account.label} yet`;
+    const profile = this._adapter.accountHomeProfile;
+    if (!profile) return `${this._adapter.label} sessions cannot run under an added account`;
+    const prepared = await prepareAccountHome(profile, { env: process.env, accountFolder: accountHome.account.folder });
+    if ("refusal" in prepared) return `the account ${accountHome.account.label} cannot be used: ${prepared.refusal}`;
+    this._accountEnv = { [profile.homeEnvName]: prepared.home };
+    return null;
   }
 
   _abandonSpawn(cause: unknown): void {

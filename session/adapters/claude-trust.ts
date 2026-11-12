@@ -22,6 +22,27 @@ function sleepFor(durationMs: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, durationMs); });
 }
 
+async function tryTakeConfigLock(lockPath: string, now: () => number): Promise<boolean> {
+  try {
+    await fs.mkdir(lockPath);
+    return true;
+  } catch (error) {
+    if (errorCode(error) !== 'EEXIST') throw error;
+  }
+  const heldLock = await fs.stat(lockPath).catch(() => null);
+  if (heldLock && isConfigLockStale(heldLock.mtimeMs, now())) await fs.rmdir(lockPath).catch(() => {});
+  return false;
+}
+
+async function takeClaudeConfigLock(configuredPath: string, { now = clock.nowMs, sleep = sleepFor }: { now?: () => number; sleep?: (durationMs: number) => Promise<void> } = {}): Promise<string | null> {
+  const lockPath = `${configuredPath}${CLAUDE_CONFIG_LOCK_SUFFIX}`;
+  for (const delayMs of [0, ...CLAUDE_CONFIG_LOCK_RETRY_DELAYS_MS]) {
+    if (delayMs > 0) await sleep(delayMs);
+    if (await tryTakeConfigLock(lockPath, now)) return lockPath;
+  }
+  return null;
+}
+
 function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), now = clock.nowMs, platform = process.platform, sleep = sleepFor }: ClaudeFolderTrustOptions = {}) {
   async function resolveConfiguredPath(): Promise<string> {
     const [legacyConfigPath, currentConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
@@ -42,32 +63,12 @@ function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), no
     return decision;
   }
 
-  async function tryTakeConfigLock(lockPath: string): Promise<boolean> {
-    try {
-      await fs.mkdir(lockPath);
-      return true;
-    } catch (error) {
-      if (errorCode(error) !== 'EEXIST') throw error;
-    }
-    const heldLock = await fs.stat(lockPath).catch(() => null);
-    if (heldLock && isConfigLockStale(heldLock.mtimeMs, now())) await fs.rmdir(lockPath).catch(() => {});
-    return false;
-  }
-
-  async function takeConfigLock(repositoryRoot: string, configuredPath: string): Promise<string> {
-    const lockPath = `${configuredPath}${CLAUDE_CONFIG_LOCK_SUFFIX}`;
-    for (const delayMs of [0, ...CLAUDE_CONFIG_LOCK_RETRY_DELAYS_MS]) {
-      if (delayMs > 0) await sleep(delayMs);
-      if (await tryTakeConfigLock(lockPath)) return lockPath;
-    }
-    throw refusal(repositoryRoot, configuredPath, 'another process holds its lock');
-  }
-
   async function ensureTrusted(repositoryRoot: string): Promise<FolderTrustOutcome> {
     const configuredPath = await resolveConfiguredPath();
     const configPath = await fs.realpath(configuredPath).catch(() => configuredPath);
     if ((await readTrustDecision(repositoryRoot, configPath)).kind === 'trusted') return 'already-trusted';
-    const lockPath = await takeConfigLock(repositoryRoot, configuredPath);
+    const lockPath = await takeClaudeConfigLock(configuredPath, { now, sleep });
+    if (lockPath === null) throw refusal(repositoryRoot, configuredPath, 'another process holds its lock');
     try {
       const decision = await readTrustDecision(repositoryRoot, configPath);
       if (decision.kind === 'trusted') return 'already-trusted';
@@ -82,4 +83,4 @@ function createClaudeFolderTrust({ env = process.env, homeDir = os.homedir(), no
   return { ensureTrusted };
 }
 
-export { createClaudeFolderTrust };
+export { createClaudeFolderTrust, takeClaudeConfigLock };

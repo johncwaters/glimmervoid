@@ -10,7 +10,8 @@ import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { RemoteLaunch, SessionOptions } from '../../session/sessions.ts';
-import { getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
+import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
@@ -140,6 +141,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       getRemoteLaunch: builtMapping ? () => remoteLaunchFor(project, builtMapping, dependencies.getConfig?.() ?? config) : null,
+      resolveAccountHome: () => {
+        const liveConfig = dependencies.getConfig?.() ?? config;
+        const liveProject = liveConfig.projects.find((candidate) => candidate.id === project.id) ?? project;
+        return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
+      },
       ...overrides,
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
     });

@@ -752,6 +752,10 @@
     {
       "name": "reset",
       "definition": "A graphics card reset: the browser takes a board's WebGL context away (lost) and the board gets one back (restored or recreated); after repeated resets Chrome blocks graphics for the site until the browser restarts, and each one is logged as a board-graphics line and a board_graphics_reset event"
+    },
+    {
+      "name": "account",
+      "definition": "A signed-in agent login Glimmervoid can run a session under: the machine's own login, or an added account whose folder (agentAccounts[].folder) holds its own credentials and links the rest of the agent's real home; for Claude Code one email can hold several, one per organization"
     }
   ],
   "retired": [

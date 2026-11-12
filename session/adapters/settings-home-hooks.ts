@@ -30,8 +30,14 @@ interface SettingsHomeHooks {
   configFilePath(env?: Record<string, string | undefined>, homedir?: string): string;
 }
 
+function configNameOf(homeProfile: AgentHomeProfile, agentId: string): string {
+  if (homeProfile.config === null) throw new TypeError(`${agentId} settings hooks need a home profile with a config file`);
+  return homeProfile.config.configName;
+}
+
 function settingsHomeHooks({ agentId, relayedEvents, saneYoloEvent, saneYoloFlavor, homeProfile, hookEntryFor }: SettingsHomeHookVocabulary): SettingsHomeHooks {
   const hooksRefusal = `the hook relay path cannot be written into ${agentId} hooks`;
+  const configName = configNameOf(homeProfile, agentId);
 
   function expectedHooks(): string | null {
     const hooksByEvent: Record<string, unknown[]> = {};
@@ -52,7 +58,7 @@ function settingsHomeHooks({ agentId, relayedEvents, saneYoloEvent, saneYoloFlav
   }
 
   function configFilePath(env: Record<string, string | undefined> = process.env, homedir?: string): string {
-    return path.join(realAgentHome(homeProfile, env, homedir), homeProfile.config.configName);
+    return path.join(realAgentHome(homeProfile, env, homedir), configName);
   }
 
   return { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath };

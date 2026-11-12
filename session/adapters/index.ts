@@ -15,6 +15,7 @@ import type { TitleProfile } from "../../detection/osc-title-source.ts";
 import type { PathLookupExecFile, ResolvedCommand } from "../core/spawn-command.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import type { TaskTitleVocabulary } from "../core/task-title-core.ts";
+import type { AgentHomeProfile } from "../core/agent-home-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
 import type { PromptContextReply } from "../../shared/contracts/refocus.ts";
 
@@ -155,6 +156,7 @@ interface AgentAdapter {
   settingsArgs?(settingsPath: string): string[];
   trustFolder?(sessionFolder: string, env: SpawnEnv): Promise<void>;
   sessionIdOf?(payload: HookPayload): unknown;
+  accountHomeProfile?: AgentHomeProfile;
 }
 
 type AgentAdapterShape = AgentAdapter & Record<string, unknown>;

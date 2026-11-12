@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
+import { CLAUDE_HOME_PROFILE } from "../core/agent-home-core.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile } from "./index.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
@@ -173,6 +174,7 @@ const claudeCode = {
   buildArgs,
   settingsArgs,
   trustFolder,
+  accountHomeProfile: CLAUDE_HOME_PROFILE,
   capabilities: {
     hooks: true,
     awaitingInput: true,

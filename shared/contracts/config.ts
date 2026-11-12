@@ -9,6 +9,7 @@ import { BranchGcControlSettings, GithubSettings,
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { isLinkUrlSafe } from './watcher-link.ts';
 import { AgentHomeKind, AgentSetup } from './agent-models.ts';
+import { AgentAccountId, AgentAccounts } from './agent-accounts.ts';
 import { HostEntries } from './hosts.ts';
 import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
@@ -167,6 +168,7 @@ export const ProjectConfig = z.object({
   environment: ProjectEnvironment.optional(),
   agentSetup: AgentSetup.optional(),
   agentHome: AgentHomeKind.optional(),
+  accountId: AgentAccountId.optional(),
   raceId: RaceId.optional(),
   startSha: GitObjectSha.optional(),
   isStartPinned: z.boolean().optional(),
@@ -190,6 +192,7 @@ const FILE_CONFIG_SHAPE = {
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   customAgents: CustomAgentDeclarations.optional(),
+  agentAccounts: AgentAccounts.optional(),
 };
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,
@@ -219,6 +222,10 @@ export const Config = z.object({
       path: ['projects', index, 'agent'],
       message: `projects[${index}].agent "${agent}" names no known agent; declare it under customAgents or use one of ${[...declaredAgentIds].join(', ')}`,
     });
+  }
+  for (const [index, account] of (config.agentAccounts ?? []).entries()) {
+    if (declaredAgentIds.has(account.agent)) continue;
+    ctx.addIssue({ code: 'custom', path: ['agentAccounts', index, 'agent'], message: `agentAccounts[${index}].agent "${account.agent}" names no known agent` });
   }
   const declaredEnvironmentNames = new Set((config.coder?.environments ?? []).map((environment) => environment.name));
   for (const [index, project] of config.projects.entries()) {

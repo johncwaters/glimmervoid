@@ -2,6 +2,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
+import { listClaudeGlobalConfigPathCandidates } from "../../server/core/claude-config-paths-core.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
 import { isRecord } from "../../shared/coerce.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
@@ -148,7 +149,7 @@ const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "kimi" | "codex" | "gemini" | "qwen" | "copilot";
+type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot";
 
 interface TomlConfigFormat {
   kind: "toml";
@@ -171,6 +172,16 @@ interface JsonConfigFormat {
   hooksSwitch: JsonHooksSwitch;
 }
 
+interface MixedAccountFile {
+  sharedKeys: readonly string[];
+  candidatePaths(env: Readonly<Record<string, string | undefined>>, homeDir: string): readonly string[];
+}
+
+interface AgentAccountSeam {
+  isAccountEntryName(name: string): boolean;
+  mixedFiles: readonly MixedAccountFile[];
+}
+
 interface AgentHomeProfile {
   vendor: AgentHomeVendor;
   homeEnvName: string;
@@ -180,10 +191,11 @@ interface AgentHomeProfile {
   expandsHomeTilde: boolean;
   homeRootLinkNames: readonly string[];
   renderLauncherConfig: ((operatorLauncherText: string) => string) | null;
-  config: TomlConfigFormat | JsonConfigFormat;
+  config: TomlConfigFormat | JsonConfigFormat | null;
   generatedFileNames: readonly string[];
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
   cleanOmits: CleanHomeOmits | null;
+  account: AgentAccountSeam | null;
 }
 
 interface CleanHomeOmits {
@@ -219,6 +231,7 @@ interface AgentHomeInputs {
   sourceStamps: Readonly<Record<string, string>>;
   platform: NodeJS.Platform;
   isClean: boolean;
+  isAccountHome: boolean;
 }
 
 type AgentHomeStep =
@@ -380,7 +393,7 @@ function parseJsonObject(text: string): JsonObject | null {
 }
 
 function doesProjectConfigTurnHooksOff(profile: AgentHomeProfile, configText: unknown): boolean {
-  if (profile.config.kind !== "json") return false;
+  if (profile.config?.kind !== "json") return false;
   if (typeof configText !== "string") return true;
   const projectConfig = parseJsonObject(configText);
   if (!projectConfig) return true;
@@ -458,10 +471,22 @@ function cleanRealConfigText(inputs: AgentHomeInputs): string | null {
   return withoutOperatorTables(operatorText, omits.configTablePrefixes);
 }
 
-function generatedConfigFor(inputs: AgentHomeInputs): GeneratedConfig {
-  const format = inputs.profile.config;
+function generatedConfigFor(inputs: AgentHomeInputs, format: TomlConfigFormat | JsonConfigFormat): GeneratedConfig {
   if (format.kind === "json") return generatedJsonAgentConfig(inputs, format);
   return generatedAgentConfig({ ...inputs, realConfigText: cleanRealConfigText(inputs), format });
+}
+
+type ConfigStepsPlan = { steps: AgentHomeStep[]; hadBlock: boolean } | { refusal: string };
+
+function planConfigSteps(inputs: AgentHomeInputs): ConfigStepsPlan {
+  const format = inputs.profile.config;
+  if (format === null) return { steps: [], hadBlock: false };
+  const config = generatedConfigFor(inputs, format);
+  if ("refusal" in config) return { refusal: `the real ${format.configName} cannot take the hooks block: ${config.refusal}` };
+  const steps: AgentHomeStep[] = [];
+  if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
+  if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
+  return { steps, hadBlock: config.hadBlock };
 }
 
 function linkKindFor(kind: RealAgentHomeEntry["kind"], platform: NodeJS.Platform): AgentHomeLinkKind {
@@ -496,18 +521,23 @@ function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEn
   return adoption === "private" ? adoption : [adoption, link];
 }
 
+function isConfigFileName(name: string, profile: AgentHomeProfile): boolean {
+  return profile.config !== null && (name === profile.config.configName || name === profile.config.baseName);
+}
+
+function isAccountEntryName(name: string, inputs: AgentHomeInputs): boolean {
+  return inputs.isAccountHome && inputs.profile.account?.isAccountEntryName(name) === true;
+}
+
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
-  const { configName, baseName } = inputs.profile.config;
   if (inputs.isClean && inputs.profile.cleanOmits?.entryNames.includes(name)) return true;
-  return GENERATED_ONLY_NAMES.has(name) || name === configName || name === baseName || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform);
+  return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform) || isAccountEntryName(name, inputs);
 }
 
 function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
-  const config = generatedConfigFor(inputs);
-  if ("refusal" in config) return { kind: "refused", reason: `the real ${inputs.profile.config.configName} cannot take the hooks block: ${config.refusal}` };
-  const steps: AgentHomeStep[] = [];
-  if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
-  if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
+  const configPlan = planConfigSteps(inputs);
+  if ("refusal" in configPlan) return { kind: "refused", reason: configPlan.refusal };
+  const steps: AgentHomeStep[] = [...configPlan.steps];
   const generatedByName = new Map(inputs.generatedEntries.map((entry) => [entry.name, entry]));
   const realNames = new Set<string>();
   const privateNames: string[] = [];
@@ -528,7 +558,7 @@ function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
     kind: "ready",
     steps,
     privateNames,
-    hasStaleBlockInRealConfig: config.hadBlock,
+    hasStaleBlockInRealConfig: configPlan.hadBlock,
   };
 }
 
@@ -551,6 +581,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
+  account: null,
 });
 
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;
@@ -585,6 +616,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
+  account: null,
 });
 
 function renderGeminiLauncherConfig(operatorLauncherText: string): string {
@@ -617,6 +649,7 @@ const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
+  account: null,
 });
 
 const DISABLE_ALL_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
@@ -638,6 +671,7 @@ const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
+  account: null,
 });
 
 const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
@@ -653,6 +687,28 @@ const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
+  account: null,
+});
+
+const CLAUDE_ACCOUNT_ENTRY_PATTERN = /^(?:\.claude\.json(?:\..+)?|\.config\.json(?:\..+)?|\.credentials\.json|backups|mcp-needs-auth-cache\.json|(?:remote-settings|policy-limits)\.json(?:\..+)?)$/;
+
+const CLAUDE_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "claude",
+  homeEnvName: "CLAUDE_CONFIG_DIR",
+  defaultHomeFolderName: ".claude",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: null,
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+  cleanOmits: null,
+  account: Object.freeze({
+    isAccountEntryName: (name: string) => CLAUDE_ACCOUNT_ENTRY_PATTERN.test(name),
+    mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
+  }),
 });
 
 function expandHomeTilde(configuredHome: string, homeDir: string): string {
@@ -819,6 +875,7 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 
 export {
   AGENT_HOME_CONFIG_NAME,
+  CLAUDE_HOME_PROFILE,
   COPILOT_HOME_PROFILE,
   AGENT_HOME_PROFILES,
   resolveRealAgentHome,
