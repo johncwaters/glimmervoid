@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.4] - 2026-11-12
+
 ### Changed
 
 - **Server and doorman log lines carry their time.** Every line in `server.log` and the doorman's `doorman.log` now starts with its time in UTC, such as `2026-11-12T17:41:09.123Z`, so a GitHub refusal or a watcher problem can be lined up with what else happened then and with GitHub's reset times.
