@@ -35,8 +35,13 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge
   because: the tenant server sleeps through most hours, so only the doorman can keep a one-hour token fresh, and an installation token cannot read notifications, so it must never displace a personal read token
   kinds: none
-- hosts wake from their status: A doorman wakes and stops only a tenant whose entry names its host, resumes a suspended host, starts a terminated one, suspends only a running one, and waits out a host that is still changing state.
-  over: every instance status, a tenant with no host, and a stop racing a wake
-  via: a doorman reads a tenant host's status, then resumes it when suspended, starts it when terminated, suspends it only when running, and waits while it is changing state; a tenant with no host is never woken or metered
-  because: a suspended host cannot be suspended again and a host suspended past 60 days comes back terminated, so acting on a stale guess fails the wake, and the local doorman has no host to wake
+- hosts wake from their status: A doorman's GCE host adapter resumes a suspended instance, starts a terminated one, waits out a state change and a passing Compute API error, suspends only a running instance, and fails a stop that leaves the instance anywhere but stopped.
+  over: every instance status, a 429 or 5xx while reading the status, and a stop that finds the instance in repair
+  via: the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call
+  because: a suspended instance cannot be suspended again and one suspended past 60 days comes back terminated, so acting on a stale guess fails the wake, and a stop that silently did nothing would book a running host as asleep and let it run past its awake hours
+  kinds: none
+- edge wakes are limited: A doorman wakes a hosted tenant from its public hostname at most the configured number of times an hour, answers a browser opening a sleeping tenant at once with a page that reloads itself, and past the limit leaves the host asleep with a Retry-After.
+  over: a browser and a script hitting a sleeping tenant, repeated wakes inside one hour, and the wake the limit refuses
+  via: a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out
+  because: anyone who knows a tenant's hostname can send a request, and every wake spends at least the server's idle minutes of the tenant's awake hours, while the tenant's own watcher wakes carry real work
   kinds: none

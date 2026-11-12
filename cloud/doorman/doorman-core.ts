@@ -69,6 +69,20 @@ function isGceSettling(status: string): boolean {
   return GCE_SETTLING_STATUSES.has(status);
 }
 
+function recentEdgeWakeTimes(edgeWakeTimesMs: readonly number[], nowMs: number): number[] {
+  return edgeWakeTimesMs.filter((wokeAtMs) => nowMs - wokeAtMs < MS_PER_HOUR);
+}
+
+function edgeWakeRetryAfterMs(recentWakeTimesMs: readonly number[], nowMs: number, maxEdgeWakesPerHour: number): number | null {
+  if (recentWakeTimesMs.length < maxEdgeWakesPerHour) return null;
+  const slotFreedByMs = recentWakeTimesMs[recentWakeTimesMs.length - maxEdgeWakesPerHour] ?? nowMs;
+  return Math.max(1000, slotFreedByMs + MS_PER_HOUR - nowMs);
+}
+
+function wantsWakingPage(method: string | undefined, acceptHeader: string | undefined): boolean {
+  return method === 'GET' && acceptHeader !== undefined && acceptHeader.includes('text/html');
+}
+
 function headersAtEdge(headers: IncomingHttpHeaders, isBehindTlsEdge: boolean): IncomingHttpHeaders {
   const withoutIdentity = Object.fromEntries(Object.entries(headers).filter(([name]) => !name.startsWith(TAILSCALE_HEADER_PREFIX)));
   if (isBehindTlsEdge) return withoutIdentity;
@@ -171,5 +185,5 @@ function isOverCap(usage: AwakeUsage): boolean {
   return usage.capMs !== null && usage.usedMs >= usage.capMs;
 }
 
-export { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs };
+export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wantsWakingPage };
 export type { DoormanRoute, ForwardState, GceWakeAction, MeterTotal };

@@ -20,23 +20,24 @@ import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput } from '.
 import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
-import { headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs } from './doorman-core.ts';
+import { edgeWakeRetryAfterMs, headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wantsWakingPage } from './doorman-core.ts';
 import { createGcpHostAdapter } from './gcp-host.ts';
 import type { HostAdapter } from './gcp-host.ts';
 import { createGithubAppMinter } from './github-app.ts';
 import type { GithubAppMinter } from './github-app.ts';
 import type { DoormanRoute, ForwardState } from './doorman-core.ts';
 
-type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number };
-type WakeOutcome = 'answering' | 'no-adapter' | 'cooling-down' | 'unreachable' | 'over-cap';
-type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; stopStartedAtMs: number | null };
+type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number; maxEdgeWakesPerHour: number };
+type WakeOutcome = 'answering' | 'no-adapter' | 'cooling-down' | 'unreachable' | 'over-cap' | 'wake-limited';
+type WakeStartedBy = 'edge' | 'watcher';
+type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; edgeWakeTimesMs: number[]; stopStartedAtMs: number | null };
 type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; stop(): void };
 type HeldGithubToken = { token: string; expiresAtMs: number };
 type TenantGithubToken = { held: HeldGithubToken | null; mint: Promise<HeldGithubToken | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
 type TenantEntry = { tenant: DoormanTenant; gate: TenantGate; meter: AwakeMeter | null; watcher: TenantWatcher | null; watcherSecretHex: string | null; watcherStart: Promise<TenantWatcher | null> | null; github: TenantGithubToken };
 type DoormanLog = Pick<Console, 'log' | 'warn'>;
 
-const DEFAULT_TUNABLES: DoormanTunables = Object.freeze({ holdTimeoutMs: 60_000, wakeCooldownMs: 30_000, maxHeldPerTenant: 64, readinessPollMs: 500, meterTickMs: 60_000 });
+const DEFAULT_TUNABLES: DoormanTunables = Object.freeze({ holdTimeoutMs: 60_000, wakeCooldownMs: 30_000, maxHeldPerTenant: 64, readinessPollMs: 500, meterTickMs: 60_000, maxEdgeWakesPerHour: 4 });
 const READINESS_ATTEMPT_TIMEOUT_MS = 2000;
 const RETRY_AFTER_SECONDS = '5';
 const LOOPBACK_HOST = '127.0.0.1';
@@ -85,8 +86,34 @@ function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMont
   response.end(`This Glimmervoid host has used its ${awakeHoursPerMonth} awake hours for this month. It can wake again at ${usage.periodEndsAt}.\n`);
 }
 
-function refuseUpgrade(socket: Duplex, status: number): void {
-  if (socket.writable) socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status] ?? 'Error'}\r\nconnection: close\r\n\r\n`);
+function hostPage({ heading, lines, refreshSeconds }: { heading: string; lines: string[]; refreshSeconds: number | null }): string {
+  const refresh = refreshSeconds === null ? '' : `<meta http-equiv="refresh" content="${refreshSeconds}">`;
+  const paragraphs = lines.map((line) => `<p>${line}</p>`).join('');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${refresh}<title>${heading}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:20vh auto;padding:0 1.5rem;color:#d8d4e8;background:#0d0b14}h1{font-size:1.25rem;font-weight:600}</style></head><body><h1>${heading}</h1>${paragraphs}</body></html>`;
+}
+
+function answerHostPage(response: http.ServerResponse, page: string, retryAfterSeconds: number): void {
+  if (response.headersSent) {
+    response.destroy();
+    return;
+  }
+  response.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(retryAfterSeconds), 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'" });
+  response.end(page);
+}
+
+function answerWakingPage(response: http.ServerResponse): void {
+  answerHostPage(response, hostPage({ heading: 'Waking your Glimmervoid', lines: ['It was asleep to save its awake hours.', 'This takes about 15 seconds and the page reloads on its own.'], refreshSeconds: Number(RETRY_AFTER_SECONDS) }), Number(RETRY_AFTER_SECONDS));
+}
+
+function answerWakeLimited(response: http.ServerResponse, { retryAfterMs, isBrowser }: { retryAfterMs: number; isBrowser: boolean }) {
+  const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
+  if (!isBrowser) return answerStatus(response, 503, { 'retry-after': String(retryAfterSeconds) });
+  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  answerHostPage(response, hostPage({ heading: 'Woken too often this hour', lines: ['This Glimmervoid host was woken from outside too many times in the last hour, so it stays asleep to save its awake hours.', `It can be woken again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`], refreshSeconds: null }), retryAfterSeconds);
+}
+
+function refuseUpgrade(socket: Duplex, status: number, extraHeaderLines = ''): void {
+  if (socket.writable) socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status] ?? 'Error'}\r\n${extraHeaderLines}connection: close\r\n\r\n`);
   socket.destroy();
 }
 
@@ -150,8 +177,13 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     return entry.tenant.host === null ? null : hostAdapter;
   }
 
-  async function runWake(entry: TenantEntry, adapter: HostAdapter): Promise<WakeOutcome> {
-    await adapter.wake(entry.tenant).then(() => entry.meter?.note('woke'), (wakeError: unknown) => {
+  function noteHostWoke(entry: TenantEntry, startedBy: WakeStartedBy): void {
+    entry.meter?.note('woke');
+    if (startedBy === 'edge') entry.gate.edgeWakeTimesMs.push(now());
+  }
+
+  async function runWake(entry: TenantEntry, adapter: HostAdapter, startedBy: WakeStartedBy): Promise<WakeOutcome> {
+    await adapter.wake(entry.tenant).then(() => noteHostWoke(entry, startedBy), (wakeError: unknown) => {
       log.warn(`[doorman] waking ${entry.tenant.slug} failed: ${errorMessage(wakeError)}`);
     });
     const isAnswering = await waitUntilAnswering(entry.tenant.serverUrl, now() + tunables.holdTimeoutMs);
@@ -165,15 +197,21 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     return usage !== null && isOverCap(usage) ? usage : null;
   }
 
-  function wakeTenant(entry: TenantEntry): Promise<WakeOutcome> {
+  function edgeWakeRetryAfterFor(entry: TenantEntry): number | null {
+    entry.gate.edgeWakeTimesMs = recentEdgeWakeTimes(entry.gate.edgeWakeTimesMs, now());
+    return edgeWakeRetryAfterMs(entry.gate.edgeWakeTimesMs, now(), tunables.maxEdgeWakesPerHour);
+  }
+
+  function wakeTenant(entry: TenantEntry, startedBy: WakeStartedBy): Promise<WakeOutcome> {
     if (entry.gate.wakePromise !== null) return entry.gate.wakePromise;
     const adapter = adapterFor(entry);
     if (adapter === null) return Promise.resolve('no-adapter');
     if (overCapUsage(entry) !== null) return Promise.resolve('over-cap');
     if (!isWakeAllowed(entry.gate.lastWakeAtMs, now(), tunables.wakeCooldownMs)) return Promise.resolve('cooling-down');
+    if (startedBy === 'edge' && edgeWakeRetryAfterFor(entry) !== null) return Promise.resolve('wake-limited');
     entry.gate.state = nextForwardState(entry.gate.state, entry.gate.state === 'unreachable' ? 'cooldownPassedAndRequest' : 'connectFailed');
     entry.gate.lastWakeAtMs = now();
-    const wakePromise = runWake(entry, adapter).finally(() => {
+    const wakePromise = runWake(entry, adapter, startedBy).finally(() => {
       entry.gate.wakePromise = null;
     });
     entry.gate.wakePromise = wakePromise;
@@ -221,18 +259,33 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     if (entry.gate.heldCount >= tunables.maxHeldPerTenant) return 'over-capacity';
     entry.gate.heldCount += 1;
     try {
-      return await wakeTenant(entry);
+      return await wakeTenant(entry, 'edge');
     } finally {
       entry.gate.heldCount -= 1;
     }
   }
 
-  async function forwardAfterHold(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, bodyless: Readable | undefined): Promise<void> {
-    const outcome = await holdUntilAwake(entry);
+  function answerNotAwake(entry: TenantEntry, outcome: Exclude<WakeOutcome, 'answering'> | 'over-capacity', request: http.IncomingMessage, response: http.ServerResponse) {
     if (outcome === 'no-adapter') return answerStatus(response, 502);
     const overCap = outcome === 'over-cap' ? overCapUsage(entry) : null;
     if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now() });
-    if (outcome !== 'answering') return answerBusy(response);
+    const isBrowser = wantsWakingPage(request.method, request.headers.accept);
+    const limitedRetryAfterMs = outcome === 'wake-limited' ? edgeWakeRetryAfterFor(entry) : null;
+    if (limitedRetryAfterMs !== null) return answerWakeLimited(response, { retryAfterMs: limitedRetryAfterMs, isBrowser });
+    if (isBrowser) return answerWakingPage(response);
+    return answerBusy(response);
+  }
+
+  function answerWhileWaking(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, answerWakeStarted: () => void) {
+    const wake = wakeTenant(entry, 'edge');
+    if (entry.gate.wakePromise === wake) return answerWakeStarted();
+    void wake.then((outcome) => outcome === 'answering' ? answerWakeStarted() : answerNotAwake(entry, outcome, request, response));
+  }
+
+  async function forwardAfterHold(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, bodyless: Readable | undefined): Promise<void> {
+    if (wantsWakingPage(request.method, request.headers.accept)) return answerWhileWaking(entry, request, response, () => answerWakingPage(response));
+    const outcome = await holdUntilAwake(entry);
+    if (outcome !== 'answering') return answerNotAwake(entry, outcome, request, response);
     if (response.destroyed) return;
     forwardedFor(entry, request);
     await proxy.web(request, response, { target: entry.tenant.serverUrl, buffer: bodyless }).catch((forwardError: unknown) => {
@@ -255,10 +308,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
       noteHostDown(entry);
       const overCap = overCapUsage(entry);
       if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now() });
-      if (hasRequestBody(request)) {
-        void wakeTenant(entry);
-        return answerBusy(response);
-      }
+      if (hasRequestBody(request)) return answerWhileWaking(entry, request, response, () => answerBusy(response));
       return forwardAfterHold(entry, request, response, Readable.from([]));
     }
   }
@@ -267,13 +317,15 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     if (entry.gate.state !== 'answering') {
       const outcome = await holdUntilAwake(entry);
       if (outcome === 'no-adapter') return refuseUpgrade(socket, 502);
+      const limitedRetryAfterMs = outcome === 'wake-limited' ? edgeWakeRetryAfterFor(entry) : null;
+      if (limitedRetryAfterMs !== null) return refuseUpgrade(socket, 503, `retry-after: ${Math.ceil(limitedRetryAfterMs / 1000)}\r\n`);
       if (outcome !== 'answering') return refuseUpgrade(socket, 503);
     }
     forwardedFor(entry, request);
     await proxy.ws(request, socket, { target: entry.tenant.serverUrl }, head).catch((forwardError: unknown) => {
       if (isConnectFailure(forwardError) && adapterFor(entry) !== null) {
         noteHostDown(entry);
-        void wakeTenant(entry);
+        void wakeTenant(entry, 'edge');
       }
       refuseUpgrade(socket, 502);
     });
@@ -393,13 +445,13 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     }
     const forwardFetch: typeof fetch = async (input, init) => {
       if (entry.gate.state !== 'answering' && adapterFor(entry) !== null) {
-        const outcome = await wakeTenant(entry);
+        const outcome = await wakeTenant(entry, 'watcher');
         if (outcome !== 'answering') throw new Error(`tenant ${entry.tenant.slug} host did not wake: ${outcome}`);
       }
       try {
         return await fetch(input, init);
       } catch (fetchError) {
-        if (!isConnectFailure(causeOf(fetchError)) || await wakeTenant(entry) !== 'answering') throw fetchError;
+        if (!isConnectFailure(causeOf(fetchError)) || await wakeTenant(entry, 'watcher') !== 'answering') throw fetchError;
         return fetch(input, init);
       }
     };
@@ -478,7 +530,7 @@ function createDoorman({ table: initialTable, hostAdapter = null, tunables = DEF
     for (const tenant of nextTable.tenants) {
       if (entriesBySlug.has(tenant.slug)) continue;
       const meter = await meterFor(tenant);
-      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: null, stopStartedAtMs: null };
+      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: null, edgeWakeTimesMs: [], stopStartedAtMs: null };
       entriesBySlug.set(tenant.slug, { tenant, gate, meter, watcher: null, watcherSecretHex: null, watcherStart: null, github: { held: null, mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 } });
     }
     await Promise.all([...entriesBySlug.values()].map(refreshWatcher));

@@ -701,7 +701,7 @@ test('a hosted doorman refuses an unknown tenant host, passes the TLS edge heade
       stopCalls.push(slug);
     },
   };
-  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000 }, log: QUIET_LOG });
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables: { holdTimeoutMs: 5000, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000, maxEdgeWakesPerHour: 4 }, log: QUIET_LOG });
   const doormanPort = await doorman.listen(0);
   t.after(async () => {
     await doorman.close();
@@ -750,7 +750,7 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
       await new Promise((resolve) => tenantServer.close(resolve));
     },
   };
-  const tunables = { holdTimeoutMs: 5000, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 20 };
+  const tunables = { holdTimeoutMs: 5000, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 20, maxEdgeWakesPerHour: 4 };
   const table = { tenantDomain: 'tenants.example', tenants: [cappedTenant] };
   const tenantHost = 'cappedtenant0001.tenants.example';
   const firstDoorman = createDoorman({ table, hostAdapter, tunables, log: QUIET_LOG });
@@ -788,6 +788,56 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   }
   assert.equal(notifications.length, 1);
   assert.match(notifications[0], /used all .* awake hours for this month/);
+});
+
+test('a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out', async (t) => {
+  const tenantServer = http.createServer((_request, response) => response.end('awake'));
+  const tenantPort = await listenOnLoopback(tenantServer);
+  await new Promise((resolve) => tenantServer.close(resolve));
+  const { linkSecret, tenant } = await doormanTenant(t, 'limitedtenant001', `http://127.0.0.1:${tenantPort}`);
+  const wakeCalls: string[] = [];
+  const hostAdapter = {
+    wake: async ({ slug }: { slug: string }) => {
+      wakeCalls.push(slug);
+      if (wakeCalls.length === 1) throw new Error('ZONE_RESOURCE_POOL_EXHAUSTED');
+      await listenOnLoopback(tenantServer, tenantPort);
+    },
+    stop: async () => {
+      tenantServer.closeAllConnections();
+      await new Promise((resolve) => tenantServer.close(resolve));
+    },
+  };
+  const tunables = { holdTimeoutMs: 300, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000, maxEdgeWakesPerHour: 1 };
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: QUIET_LOG });
+  const doormanPort = await doorman.listen(0);
+  t.after(async () => {
+    await doorman.close();
+    tenantServer.closeAllConnections();
+    await new Promise((resolve) => tenantServer.close(resolve));
+  });
+  const tenantHost = 'limitedtenant001.tenants.example';
+  const browserHeaders = { accept: 'text/html,application/xhtml+xml' };
+
+  const wakingPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
+  assert.equal(wakingPage.status, 503);
+  assert.match(wakingPage.body, /Waking your Glimmervoid/);
+  assert.match(wakingPage.body, /http-equiv="refresh"/);
+  await eventually(() => wakeCalls.length === 1 ? true : undefined);
+  assert.deepEqual(await eventually(async () => {
+    const answer = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
+    return answer.status === 200 ? answer : undefined;
+  }), { status: 200, body: 'awake' });
+
+  const stopped = await requestHostStop(doormanPort, tenantHost, directionKey(linkSecret, 'server-to-watcher'));
+  assert.equal(stopped.status, 202);
+  await eventually(async () => (await fsp.readFile(path.join(tenant.watcherHome, 'awake-ledger.jsonl'), 'utf8').catch(() => '')).includes('slept') ? true : undefined);
+
+  const limited = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/api/state' });
+  assert.equal(limited.status, 503);
+  const limitedPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
+  assert.match(limitedPage.body, /Woken too often this hour/);
+  assert.doesNotMatch(limitedPage.body, /http-equiv="refresh"/);
+  assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
 });
 
 test('the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {

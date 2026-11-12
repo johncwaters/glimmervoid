@@ -16,7 +16,7 @@ export const DoormanGcpHost = z.strictObject({
   kind: z.literal('gcp'),
   project: z.string().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/),
   zone: z.string().regex(/^[a-z]+-[a-z]+[0-9]+-[a-z]$/),
-  instance: z.string().regex(/^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$/),
+  instance: z.string().regex(/^tenant-[-a-z0-9]{0,55}[a-z0-9]$/),
 });
 export type DoormanGcpHost = z.infer<typeof DoormanGcpHost>;
 
