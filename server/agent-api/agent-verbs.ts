@@ -19,7 +19,7 @@ import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { clock } from '../../shared/clock.ts';
-import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
+import { githubRepoSlugFromRemote, remoteMatchesGithubRepo } from '../github/core/team-review-core.ts';
 import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
 
@@ -44,10 +44,6 @@ function parseCheckoutTarget(repo: string): CheckoutTarget {
   if (REMOTE_URL_PATTERN.test(repo)) return { kind: 'unsupported' };
   if (repoParts(repo)) return githubCheckoutTarget(repo, `https://github.com/${repo}.git`);
   return { kind: 'local', repo };
-}
-
-function isSameGithubRepo(originUrl: string | null, slug: string): boolean {
-  return originUrl !== null && githubRepoSlugFromRemote(originUrl)?.toLowerCase() === slug.toLowerCase();
 }
 
 function pathExists(candidatePath: string): Promise<boolean> {
@@ -263,7 +259,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   async function claimRepoRootFolder(folder: string, slug: string, clones: NonNullable<typeof repoClones>): Promise<CheckoutResolution> {
     if (!(await hasGitFolder(folder))) return { ok: false, error: `${folder} exists but is not a git repository, so ${slug} cannot be cloned there; move it, or ${CLONE_BY_HAND_HINT}` };
     const originUrl = await clones.originUrl({ projectPath: folder });
-    if (isSameGithubRepo(originUrl, slug)) return { ok: true, repoPath: folder };
+    if (originUrl !== null && remoteMatchesGithubRepo(originUrl, slug)) return { ok: true, repoPath: folder };
     return { ok: false, error: `${folder} holds ${originUrl ?? 'a repository with no origin'}, not ${slug}; move it, or ${CLONE_BY_HAND_HINT}` };
   }
 
@@ -285,7 +281,8 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const projectPaths = config.projects.map((project) => project.path || '').filter((projectPath) => projectPath !== '');
     for (const projectPath of projectPaths) {
       if (!(await hasGitFolder(projectPath))) continue;
-      if (isSameGithubRepo(await repoClones.originUrl({ projectPath }), target.slug)) return { ok: true, repoPath: path.resolve(projectPath) };
+      const originUrl = await repoClones.originUrl({ projectPath });
+      if (originUrl !== null && remoteMatchesGithubRepo(originUrl, target.slug)) return { ok: true, repoPath: path.resolve(projectPath) };
     }
     const repoRoots = (config.repoRoots ?? []).map((root) => path.resolve(root));
     if (repoRoots.length === 0) return { ok: false, error: `${target.slug} is not on this machine and no repo root is set to clone it into; add a folder to repoRoots in Settings, or ${CLONE_BY_HAND_HINT}` };

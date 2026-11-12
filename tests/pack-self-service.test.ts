@@ -212,7 +212,7 @@ test('an approved pack launcher starts a session in its project with the pack mo
     assert.equal(project?.agentSetup?.model, 'gpt-6.1-sol');
     assert.deepEqual(project?.agentSetup?.options, [{ id: 'effort', value: 'low' }]);
 
-    fs.mkdirSync(clonedDir);
+    fs.mkdirSync(path.join(clonedDir, '.git'), { recursive: true });
     projectPaths.push(clonedDir);
     const afterClone = await launch('elsewhere', 'after-clone');
     assert.equal(afterClone?.ok, true, afterClone?.error ?? '');

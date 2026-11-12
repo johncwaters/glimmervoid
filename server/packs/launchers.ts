@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { errorMessage } from '../../shared/text.ts';
-import { buildProjectSlugIndex, isRepositoryProject, launcherAddSession, resolveLauncherProject } from './core/launcher-core.ts';
+import { isRepositoryProject, launcherAddSession, resolveLauncherProject } from './core/launcher-core.ts';
+import type { ProjectOrigin } from './core/launcher-core.ts';
 import type { createPackStore } from './pack-store.ts';
 
 type PackStore = ReturnType<typeof createPackStore>;
@@ -15,11 +17,11 @@ export function createPackLaunchers({ packStore, projectPaths, originUrl, operat
   onResolved: () => void;
   log: { warn: (message: string) => void };
 }) {
-  let slugIndex: ReadonlyMap<string, string> = new Map();
+  let projectOrigins: readonly ProjectOrigin[] = [];
   let existingFolders: ReadonlySet<string> = new Set();
   let refreshes: Promise<void> = Promise.resolve();
 
-  const resolve = (project: string) => resolveLauncherProject(project, slugIndex, existingFolders);
+  const resolve = (project: string) => resolveLauncherProject(project, projectOrigins, existingFolders);
 
   async function existingFoldersOf(projects: readonly string[]): Promise<Set<string>> {
     const folders = projects.filter((project) => !isRepositoryProject(project));
@@ -27,12 +29,17 @@ export function createPackLaunchers({ packStore, projectPaths, originUrl, operat
     return new Set(folders.filter((_folder, index) => found[index]));
   }
 
+  async function originOfRepository(projectPath: string): Promise<string | null> {
+    const hasGitFolder = await fs.promises.stat(path.join(projectPath, '.git')).then(() => true, () => false);
+    return hasGitFolder ? originUrl(projectPath).catch(() => null) : null;
+  }
+
   async function refreshNow(): Promise<void> {
     const projects = packStore.launcherProjectsInUse();
     const needsOrigins = projects.some(isRepositoryProject);
     const paths = needsOrigins ? [...new Set(projectPaths())] : [];
-    const origins = await Promise.all(paths.map((projectPath) => originUrl(projectPath).catch(() => null)));
-    slugIndex = buildProjectSlugIndex(paths.map((projectPath, index) => ({ path: projectPath, originUrl: origins[index] ?? null })));
+    const origins = await Promise.all(paths.map((projectPath) => originOfRepository(projectPath)));
+    projectOrigins = paths.map((projectPath, index) => ({ path: path.resolve(projectPath), originUrl: origins[index] ?? null }));
     existingFolders = await existingFoldersOf(projects);
     packStore.setLauncherResolver(resolve);
     onResolved();

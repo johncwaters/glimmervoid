@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { PackLauncher, PackSessions } from '../../../shared/contracts/pack.ts';
 import { choiceSelection } from '../../../shared/agent-models-core.ts';
 import { nextSuggestedName } from '../../../shared/session-naming.ts';
-import { githubRepoSlugFromRemote } from '../../github/core/team-review-core.ts';
+import { remoteMatchesGithubRepo } from '../../github/core/team-review-core.ts';
 import type { LauncherProjectResolution } from './pack-core.ts';
 
 type LauncherAddSession = {
@@ -19,21 +19,14 @@ export function isRepositoryProject(project: string): boolean {
   return !path.isAbsolute(project) && !path.win32.isAbsolute(project);
 }
 
-export function buildProjectSlugIndex(projects: readonly { path: string; originUrl: string | null }[]): ReadonlyMap<string, string> {
-  const pathBySlug = new Map<string, string>();
-  for (const project of projects) {
-    const slug = project.originUrl ? githubRepoSlugFromRemote(project.originUrl) : null;
-    if (slug && !pathBySlug.has(slug.toLowerCase())) pathBySlug.set(slug.toLowerCase(), project.path);
-  }
-  return pathBySlug;
-}
+export type ProjectOrigin = { path: string; originUrl: string | null };
 
-export function resolveLauncherProject(project: string, slugIndex: ReadonlyMap<string, string>, existingFolders: ReadonlySet<string>): LauncherProjectResolution {
+export function resolveLauncherProject(project: string, projectOrigins: readonly ProjectOrigin[], existingFolders: ReadonlySet<string>): LauncherProjectResolution {
   if (!isRepositoryProject(project)) {
     return existingFolders.has(project) ? { ok: true, path: project } : { ok: false, reason: `the folder ${project} does not exist on this machine` };
   }
-  const projectPath = slugIndex.get(project.toLowerCase());
-  return projectPath ? { ok: true, path: projectPath } : { ok: false, reason: `no project here has ${project} as its origin; add a session in that repository once` };
+  const match = projectOrigins.find((candidate) => candidate.originUrl !== null && remoteMatchesGithubRepo(candidate.originUrl, project));
+  return match ? { ok: true, path: match.path } : { ok: false, reason: `no project here has ${project} as its origin; add a session in that repository once` };
 }
 
 export function launcherAddSession({ launcher, sessions, projectPath, sessionNames, operatorSaneYolo }: {
