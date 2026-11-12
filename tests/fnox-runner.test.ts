@@ -16,6 +16,11 @@ log="$(dirname "$0")/op.log"
 reference=""
 for argument in "$@"; do reference="$argument"; done
 echo "start $reference" >> "$log"
+case "$1 $2 $reference" in
+  "whoami "*) echo "end $reference" >> "$log"; echo "[ERROR] account is not signed in" >&2; exit 1 ;;
+  "item list --vault=Shelf") echo "end $reference" >> "$log"; printf '[{"id":"one","title":"GH_TOKEN"}]'; exit 0 ;;
+  "item list --vault="*) echo "end $reference" >> "$log"; echo "[ERROR] \\"\${reference#--vault=}\\" isn't a vault in this account." >&2; exit 1 ;;
+esac
 case "$reference" in
   *SLOW*) sleep 2 ;;
   *) sleep 0.3 ;;
@@ -97,14 +102,16 @@ test('a read that times out stops the password manager it started before the nex
   }
 });
 
-test('a connection test asks the password manager who is signed in and reads no item', { skip: cannotRunFakeOp }, async () => {
+test('a connection test opens the Look in vault the way a read signs in, reads no secret, and names a vault that is not there', { skip: cannotRunFakeOp }, async () => {
   const { world, runner, opCalls } = makeFakeOpWorld();
   try {
-    const outcome = await runner.test({ manager: '1password', lookIn: 'Shelf' });
+    const opened = await runner.test({ manager: '1password', lookIn: 'Shelf' });
+    const missingVault = await runner.test({ manager: '1password', lookIn: 'Attic' });
 
-    assert.equal(outcome.ok, true, outcome.detail);
-    assert.match(outcome.message, /^Signed in to 1Password/);
-    assert.deepEqual(opCalls(), ['start whoami', 'end whoami']);
+    assert.deepEqual(opened, { ok: true, message: '1Password opened the vault Shelf', detail: '' });
+    assert.equal(missingVault.ok, false);
+    assert.equal(missingVault.message, '1Password has no vault Attic. Check Look in');
+    assert.deepEqual(opCalls(), ['start --vault=Shelf', 'end --vault=Shelf', 'start --vault=Attic', 'end --vault=Attic']);
   } finally {
     fs.rmSync(world, { recursive: true, force: true });
   }

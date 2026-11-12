@@ -161,6 +161,18 @@ test('a value another session approved for the project is masked in the session 
   assert.deepEqual(broker.deliveredValuesOf(NEEDING_SESSION.id), ['copied-into-this-worktree']);
 });
 
+test('asking again with a reason after the read was delivered opens no empty card', async () => {
+  const world = freshWorld({ valueByName: { API_KEY: 'the-value' } });
+  const { broker } = brokerOver(world);
+  await broker.need(NEEDING_SESSION, ['API_KEY'], 'To run the replay');
+  assert.equal(await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-once', names: ['API_KEY'] }), null);
+  await waitFor(() => broker.requestsSnapshot()[NEEDING_SESSION.id] === undefined, 'the card closes after the read');
+
+  const again = await broker.need(NEEDING_SESSION, ['API_KEY'], 'To run the replay');
+  assert.deepEqual(again.results.map((result) => result.status), ['delivered']);
+  assert.deepEqual(broker.requestsSnapshot(), {});
+});
+
 test('Deny holds the name for the project and closes the card', async () => {
   const world = freshWorld({ valueByName: { API_KEY: 'the-value' } });
   const { broker } = brokerOver(world);

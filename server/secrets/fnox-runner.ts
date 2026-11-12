@@ -31,6 +31,7 @@ interface FnoxLaunch {
   cwd: string;
   env: NodeJS.ProcessEnv;
   stdinText: string;
+  isStdoutKept: boolean;
 }
 
 const isWindows = process.platform === 'win32';
@@ -51,7 +52,7 @@ function killProcessTree(pid: number | undefined): void {
 function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNOX_READ_TIMEOUT_MS }: FnoxRunnerOptions): FnoxRunner {
   const queue = createSerialQueue();
 
-  function runFnoxProcess({ args, cwd, env, stdinText }: FnoxLaunch): Promise<FnoxRunResult> {
+  function runFnoxProcess({ args, cwd, env, stdinText, isStdoutKept }: FnoxLaunch): Promise<FnoxRunResult> {
     return new Promise((resolve) => {
       const child = spawn(fnoxPath, args, { cwd, env, detached: !isWindows, stdio: ['pipe', 'pipe', 'pipe'] });
       const stdoutChunks: Buffer[] = [];
@@ -88,7 +89,7 @@ function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNO
       }
 
       const deadline = setTimeout(stopTree, readTimeoutMs);
-      child.stdout?.on('data', collect(stdoutChunks));
+      child.stdout?.on('data', isStdoutKept ? collect(stdoutChunks) : () => undefined);
       child.stderr?.on('data', collect(stderrChunks));
       child.stdin?.on('error', () => undefined);
       child.on('error', (error: NodeJS.ErrnoException) => {
@@ -100,7 +101,7 @@ function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNO
     });
   }
 
-  async function runWithConfigFile(configText: string, argumentsFor: (configPath: string) => string[]): Promise<FnoxRunResult> {
+  async function runWithConfigFile(configText: string, argumentsFor: (configPath: string) => string[], isStdoutKept: boolean): Promise<FnoxRunResult> {
     await fs.mkdir(runsRoot, { recursive: true, mode: PRIVATE_FOLDER_MODE });
     const runFolder = await fs.mkdtemp(path.join(runsRoot, 'run-'));
     try {
@@ -109,23 +110,23 @@ function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNO
       const emptyConfigFolder = path.join(runFolder, 'global');
       await fs.writeFile(configPath, configText, { mode: PRIVATE_FILE_MODE, flag: 'wx' });
       await fs.mkdir(emptyConfigFolder, { mode: PRIVATE_FOLDER_MODE });
-      return await runFnoxProcess({ args: argumentsFor(configPath), cwd: runFolder, env: fnoxEnvironment(environment, emptyConfigFolder), stdinText: '' });
+      return await runFnoxProcess({ args: argumentsFor(configPath), cwd: runFolder, env: fnoxEnvironment(environment, emptyConfigFolder), stdinText: '', isStdoutKept });
     } finally {
       await fs.rm(runFolder, { recursive: true, force: true });
     }
   }
 
-  function runFnox(configText: string, argumentsFor: (configPath: string) => string[]): Promise<FnoxRunResult> {
-    if (isWindows) return runWithConfigFile(configText, argumentsFor);
-    return runFnoxProcess({ args: argumentsFor(STDIN_CONFIG_PATH), cwd: path.parse(runsRoot).root, env: fnoxEnvironment(environment, UNCREATABLE_CONFIG_FOLDER), stdinText: configText });
+  function runFnox(configText: string, argumentsFor: (configPath: string) => string[], isStdoutKept: boolean): Promise<FnoxRunResult> {
+    if (isWindows) return runWithConfigFile(configText, argumentsFor, isStdoutKept);
+    return runFnoxProcess({ args: argumentsFor(STDIN_CONFIG_PATH), cwd: path.parse(runsRoot).root, env: fnoxEnvironment(environment, UNCREATABLE_CONFIG_FOLDER), stdinText: configText, isStdoutKept });
   }
 
   function read(source: SecretSource, name: SecretName): Promise<ReadOutcome> {
-    return queue.run(async () => readOutcomeOf(await runFnox(fnoxConfigText(source, name), (configPath) => fnoxReadArguments(configPath, name)), source, name));
+    return queue.run(async () => readOutcomeOf(await runFnox(fnoxConfigText(source, name), (configPath) => fnoxReadArguments(configPath, name), true), source, name));
   }
 
   function test(source: SecretSource): Promise<SecretSourceTestResult> {
-    return runFnox(fnoxConfigText(source, null), fnoxTestArguments).then((result) => testOutcomeOf(result, source));
+    return runFnox(fnoxConfigText(source, null), fnoxTestArguments, false).then((result) => testOutcomeOf(result, source));
   }
 
   return { read, test };

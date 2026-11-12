@@ -38,6 +38,7 @@ export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
 export const ARENA_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';
 export const KEYBOARD_ICON_PATH = 'M1.5 4h13v8h-13z M4.5 6.5h0.01M8 6.5h0.01M11.5 6.5h0.01 M5 9.5h6';
+export const KEY_ICON_PATH = 'M2 8a3 3 0 1 0 6 0a3 3 0 1 0 -6 0z M8 8h6 M11.5 8v2.5 M14 8v2';
 export const SETTINGS_ICON_PATH = 'M2.5 5h11 M2.5 11h11 M6 3v4 M10 9v4';
 
 export function createLineIcon(strokePath: string, strokeWidth = '2'): SVGSVGElement {

@@ -56,7 +56,7 @@ function fnoxReadArguments(configPath: string, name: SecretName): string[] {
 }
 
 function fnoxTestArguments(configPath: string): string[] {
-  return ['-c', configPath, '--no-daemon', '--non-interactive', 'provider', 'test', FNOX_PROVIDER_NAME];
+  return ['-c', configPath, '--no-daemon', '--non-interactive', 'provider', 'discover', FNOX_PROVIDER_NAME];
 }
 
 function fnoxEnvironment(baseEnvironment: NodeJS.ProcessEnv, emptyConfigDirectory: string): NodeJS.ProcessEnv {
@@ -102,10 +102,13 @@ function readOutcomeOf(result: FnoxRunResult, source: SecretSource, name: Secret
 function testOutcomeOf(result: FnoxRunResult, source: SecretSource): SecretSourceTestResult {
   const label = SECRET_MANAGER_LABELS[source.manager];
   const detail = cleanDetail(result.stderr);
-  if (result.ok) return { ok: true, message: `Signed in to ${label}. The vault name is checked on the first read.`, detail: '' };
+  const lowerDetail = detail.replace(/[\s\u2502]+/g, ' ').toLowerCase();
+  if (result.ok) return { ok: true, message: `${label} opened the vault ${source.lookIn}`, detail: '' };
   if (result.wasKilled) return { ok: false, message: `${label} did not answer in time`, detail };
   if (result.failureCode !== null) return { ok: false, message: `Glimmervoid could not start its ${label} reader (${result.failureCode})`, detail };
-  if (detail.toLowerCase().includes('fnox::provider::cli_not_found')) return { ok: false, message: `${label} is not installed where Glimmervoid can run it`, detail };
+  if (lowerDetail.includes('fnox::provider::cli_not_found')) return { ok: false, message: `${label} is not installed where Glimmervoid can run it`, detail };
+  if (includesAny(lowerDetail, MISSING_VAULT_MARKERS)) return { ok: false, message: `${label} has no vault ${source.lookIn}. Check Look in`, detail };
+  if (includesAny(lowerDetail, REFUSED_MARKERS)) return { ok: false, message: `${label} was not confirmed`, detail };
   return { ok: false, message: `${label} did not sign in`, detail };
 }
 

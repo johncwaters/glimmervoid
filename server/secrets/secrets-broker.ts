@@ -108,6 +108,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   }
 
   function raiseCard(session: NeedingSession, names: readonly string[], reason: string | null): void {
+    if (names.length === 0) return;
     const card = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'asking', readingName: null, failure: null };
     const newNames = names.filter((name) => !card.names.includes(name));
     const isReasonNew = reason !== null && reason !== card.reason;
