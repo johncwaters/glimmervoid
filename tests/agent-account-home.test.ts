@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE } from '../session/core/agent-home-core.ts';
-import { prepareAccountHome } from '../session/agent-home.ts';
+import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE, KIMI_HOME_PROFILE } from '../session/core/agent-home-core.ts';
+import { holdPreparedAgentHome, prepareAccountHome, releaseAgentHome } from '../session/agent-home.ts';
 
 function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -90,6 +90,42 @@ test('a codex account home links the real setup and keeps its own login', async 
   assert.equal(fs.readlinkSync(path.join(accountFolder, 'skills')), path.join(realHome, 'skills'));
   assert.equal(fs.lstatSync(path.join(accountFolder, 'auth.json')).isSymbolicLink(), false);
   assert.deepEqual(readJson(path.join(accountFolder, 'auth.json')), { second: true });
+});
+
+test('a kimi account home links the real sessions and device id and keeps its own credentials, region and login slot', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-account-'));
+  const realHome = path.join(homeDir, '.kimi-code');
+  const accountFolder = path.join(homeDir, 'accounts', 'kimi-two');
+  fs.mkdirSync(path.join(realHome, 'sessions'), { recursive: true });
+  fs.mkdirSync(path.join(realHome, 'credentials'), { recursive: true });
+  fs.mkdirSync(path.join(accountFolder, 'credentials'), { recursive: true });
+  fs.writeFileSync(path.join(realHome, 'config.toml'), 'default_model = "k2"\n\n[providers."managed:kimi-code".oauth]\nkey = "oauth/kimi-code-env-global"\noauth_host = "https://auth.kimi.ai"\n');
+  fs.writeFileSync(path.join(accountFolder, 'config.toml'), 'default_model = "mine"\n\n[providers."managed:kimi-code".oauth]\nkey = "oauth/kimi-code"\noauth_host = "https://auth.kimi.com"\n');
+  fs.writeFileSync(path.join(realHome, 'device_id'), 'machine\n');
+  fs.writeFileSync(path.join(realHome, 'region'), 'global\n');
+  writeJson(path.join(realHome, 'credentials', 'kimi-code.json'), { personal: true });
+  writeJson(path.join(accountFolder, 'credentials', 'kimi-code.json'), { second: true });
+
+  const prepared = await prepareAccountHome(KIMI_HOME_PROFILE, { env: { HOME: homeDir }, accountFolder, homeDir });
+
+  assert.deepEqual(prepared, { home: accountFolder });
+  assert.equal(fs.readlinkSync(path.join(accountFolder, 'sessions')), path.join(realHome, 'sessions'));
+  assert.equal(fs.readlinkSync(path.join(accountFolder, 'device_id')), path.join(realHome, 'device_id'));
+  assert.equal(fs.existsSync(path.join(accountFolder, 'region')), false);
+  assert.equal(fs.lstatSync(path.join(accountFolder, 'credentials')).isSymbolicLink(), false);
+  assert.deepEqual(readJson(path.join(accountFolder, 'credentials', 'kimi-code.json')), { second: true });
+  const holdSessionConfig = () => {
+    assert.deepEqual(holdPreparedAgentHome(KIMI_HOME_PROFILE, { HOME: homeDir, KIMI_CODE_HOME: realHome }, () => '', () => ({}), false, accountFolder), { home: accountFolder });
+    const sessionConfig = fs.readFileSync(path.join(accountFolder, 'config.toml'), 'utf8');
+    releaseAgentHome(accountFolder);
+    return sessionConfig;
+  };
+  const firstSessionConfig = holdSessionConfig();
+  assert.match(firstSessionConfig, /default_model = "k2"/);
+  assert.match(firstSessionConfig, /key = "oauth\/kimi-code"\noauth_host = "https:\/\/auth\.kimi\.com"/);
+  assert.doesNotMatch(firstSessionConfig, /kimi-code-env-global/);
+  assert.equal(fs.existsSync(path.join(accountFolder, 'config.toml')), false);
+  assert.equal(holdSessionConfig(), firstSessionConfig);
 });
 
 test('a claude account home refuses a missing account folder and the machine home under any spelling', async () => {

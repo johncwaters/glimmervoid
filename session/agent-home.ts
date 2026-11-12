@@ -6,7 +6,7 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import { mergeSharedKeys } from "./core/agent-account-core.ts";
 import { takeClaudeConfigLock } from "./adapters/claude-trust.ts";
 import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
@@ -172,16 +172,18 @@ interface ConfigTexts {
   realConfigText: string | null;
   baseConfigText: string | null;
   generatedConfigText: string | null;
+  accountConfigText: string | null;
 }
 
 function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedHome: string): ConfigTexts | { refusal: string } {
-  if (profile.config === null) return { realConfigText: null, baseConfigText: null, generatedConfigText: null };
+  if (profile.config === null) return { realConfigText: null, baseConfigText: null, generatedConfigText: null, accountConfigText: null };
   const realConfig = readRealConfig(realHome, profile.config.configName);
   if ("refusal" in realConfig) return realConfig;
   return {
     realConfigText: realConfig.text,
     baseConfigText: readOptionalText(path.join(generatedHome, profile.config.baseName)),
     generatedConfigText: readOptionalText(path.join(generatedHome, profile.config.configName)),
+    accountConfigText: readOptionalText(path.join(generatedHome, AGENT_HOME_ACCOUNT_CONFIG_NAME)),
   };
 }
 
@@ -205,6 +207,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
 }
 
 function stepEntryPath(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep): string {
+  if (step.kind === "write-account-config") return path.join(generatedHome, AGENT_HOME_ACCOUNT_CONFIG_NAME);
   if (step.kind !== "write-config" && step.kind !== "write-base") return path.join(generatedHome, step.name);
   if (profile.config === null) throw new Error(`a ${profile.vendor} home has no config file to write`);
   return path.join(generatedHome, step.kind === "write-config" ? profile.config.configName : profile.config.baseName);
@@ -252,6 +255,7 @@ function applyStep(profile: AgentHomeProfile, generatedHome: string, step: Agent
   switch (step.kind) {
     case "write-config":
     case "write-base":
+    case "write-account-config":
       writeTextAtomicSync(entryPath, step.text, { mode: GENERATED_FILE_MODE, enforceMode: true });
       return;
     case "unlink":

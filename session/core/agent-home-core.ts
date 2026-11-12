@@ -146,7 +146,8 @@ const AGENT_HOME_CONFLICTS_NAME = ".glimmervoid-conflicts";
 const AGENT_HOME_BASE_NAME = ".glimmervoid-base.toml";
 const AGENT_HOME_JSON_BASE_NAME = ".glimmervoid-base.json";
 const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
-const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
+const AGENT_HOME_ACCOUNT_CONFIG_NAME = ".glimmervoid-account.toml";
+const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_ACCOUNT_CONFIG_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
 type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot" | "grok";
@@ -180,6 +181,7 @@ interface MixedAccountFile {
 
 interface AgentAccountSeam {
   isAccountEntryName(name: string): boolean;
+  isAccountConfigTable(tableId: string): boolean;
   mixedFiles: readonly MixedAccountFile[];
 }
 
@@ -228,6 +230,7 @@ interface AgentHomeInputs {
   realConfigText: string | null;
   baseConfigText: string | null;
   generatedConfigText: string | null;
+  accountConfigText: string | null;
   renderBlock: (operatorText: string) => string;
   sourceStamps: Readonly<Record<string, string>>;
   platform: NodeJS.Platform;
@@ -242,7 +245,8 @@ type AgentHomeStep =
   | { kind: "set-aside"; name: string }
   | { kind: "adopt"; name: string; target: string; childNames: readonly string[] }
   | { kind: "write-config"; text: string }
-  | { kind: "write-base"; text: string };
+  | { kind: "write-base"; text: string }
+  | { kind: "write-account-config"; text: string };
 
 type AgentHomePlan =
   | { kind: "ready"; steps: AgentHomeStep[]; privateNames: string[]; hasStaleBlockInRealConfig: boolean }
@@ -479,6 +483,33 @@ function generatedConfigFor(inputs: AgentHomeInputs, format: TomlConfigFormat | 
 
 type ConfigStepsPlan = { steps: AgentHomeStep[]; hadBlock: boolean } | { refusal: string };
 
+function accountConfigTablesOf(configText: string | null, seam: AgentAccountSeam): TomlUnit[] {
+  if (configText === null) return [];
+  return splitTomlUnits(configText).tables.filter((table) => seam.isAccountConfigTable(table.id));
+}
+
+function accountConfigTables(inputs: AgentHomeInputs): TomlUnit[] {
+  const seam = inputs.profile.account;
+  if (!inputs.isAccountHome || !seam || inputs.profile.config?.kind !== "toml") return [];
+  const liveTables = accountConfigTablesOf(inputs.generatedConfigText, seam);
+  return liveTables.length > 0 ? liveTables : accountConfigTablesOf(inputs.accountConfigText, seam);
+}
+
+function withLineEnd(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
+function withAccountConfigTables(configText: string, accountTables: readonly TomlUnit[]): string {
+  if (accountTables.length === 0) return configText;
+  const accountTableById = new Map(accountTables.map((table) => [table.id, table]));
+  const units = splitTomlUnits(configText);
+  const keptTables = units.tables.map((table) => accountTableById.get(table.id) ?? table);
+  const keptIds = new Set(keptTables.map((table) => table.id));
+  const addedTables = accountTables.filter((table) => !keptIds.has(table.id));
+  const tableTexts = [...keptTables, ...addedTables].map((table) => withLineEnd(table.text));
+  return [units.preamble, ...units.keys.map((key) => key.text), ...tableTexts].join("");
+}
+
 function planConfigSteps(inputs: AgentHomeInputs): ConfigStepsPlan {
   const format = inputs.profile.config;
   if (format === null) return { steps: [], hadBlock: false };
@@ -487,7 +518,11 @@ function planConfigSteps(inputs: AgentHomeInputs): ConfigStepsPlan {
   const config = generatedConfigFor(configInputs, format);
   if ("refusal" in config) return { refusal: `the real ${format.configName} cannot take the hooks block: ${config.refusal}` };
   const steps: AgentHomeStep[] = isAccountOwnConfig ? [{ kind: "set-aside", name: format.configName }] : [];
-  if (config.text !== configInputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
+  const accountTables = accountConfigTables(inputs);
+  const configText = withAccountConfigTables(config.text, accountTables);
+  if (configText !== configInputs.generatedConfigText) steps.push({ kind: "write-config", text: configText });
+  const accountConfigText = accountTables.map((table) => withLineEnd(table.text)).join("");
+  if (accountTables.length > 0 && accountConfigText !== inputs.accountConfigText) steps.push({ kind: "write-account-config", text: accountConfigText });
   if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
   return { steps, hadBlock: config.hadBlock };
 }
@@ -565,8 +600,12 @@ function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
   };
 }
 
-function accountSeamOf(accountEntryPattern: RegExp): AgentAccountSeam {
-  return Object.freeze({ isAccountEntryName: (name: string) => accountEntryPattern.test(name), mixedFiles: Object.freeze([]) });
+function accountSeamOf(accountEntryPattern: RegExp, accountConfigTablePattern: RegExp | null = null): AgentAccountSeam {
+  return Object.freeze({
+    isAccountEntryName: (name: string) => accountEntryPattern.test(name),
+    isAccountConfigTable: (tableId: string) => accountConfigTablePattern?.test(tableId) === true,
+    mixedFiles: Object.freeze([]),
+  });
 }
 
 const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
@@ -588,7 +627,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
   isPrivateEntryName: () => false,
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
-  account: null,
+  account: accountSeamOf(/^(?:credentials|oauth|region|region\.json)$/, /^\[[^[].*\.oauth#\d+$/),
 });
 
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;
@@ -730,6 +769,7 @@ const CLAUDE_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   cleanOmits: null,
   account: Object.freeze({
     isAccountEntryName: (name: string) => CLAUDE_ACCOUNT_ENTRY_PATTERN.test(name),
+    isAccountConfigTable: () => false,
     mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), seededKeys: Object.freeze(["hasCompletedOnboarding", "lastOnboardingVersion", "theme"]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
   }),
 });
@@ -904,6 +944,7 @@ export {
   AGENT_HOME_PROFILES,
   resolveRealAgentHome,
   AGENT_HOME_CONFLICTS_NAME,
+  AGENT_HOME_ACCOUNT_CONFIG_NAME,
   AGENT_HOME_IN_USE_LOCK_NAME,
   AGENT_HOME_SOURCES_NAME,
   BLOCK_END,
