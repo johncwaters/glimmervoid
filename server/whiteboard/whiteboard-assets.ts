@@ -13,6 +13,9 @@ import type { BoxMedia, Dial } from '../../shared/contracts/whiteboard.ts';
 import { DIAL_MANIFEST_SCAN_BYTES, dialManifestOf } from '../core/dial-manifest-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { clock } from '../../shared/clock.ts';
+import { packFileMime } from '../packs/core/pack-core.ts';
+import { bundleIdOf, collectPageBundle, manifestOf } from './page-bundle.ts';
+import type { StoredMember, UnloadedReference } from './page-bundle.ts';
 
 const ASSETS_FOLDER_NAME = 'assets';
 const ASSET_INPUT_CAP_BYTES = SHOWN_FILE_CAP_BYTES;
@@ -30,6 +33,10 @@ const ASSET_FILE_MODE = 0o600;
 const PREVIEW_SUFFIX = '.preview.webp';
 const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md)$/;
 const PREVIEW_FILENAME_RE = /^([0-9a-f]{64})\.preview\.webp$/;
+const MANIFEST_SUFFIX = '.bundle.json';
+const MANIFEST_FILENAME_RE = /^([0-9a-f]{64})\.bundle\.json$/;
+const MEMBER_HASH_RE = /^[0-9a-f]{64}$/;
+const MEMBERS_FOLDER_NAME = 'members';
 const INCOMING_PREFIX = '.incoming-';
 const ATTACH_HOLD_MS = 10 * 60_000;
 const STILL_IMAGE_FTYP_BRANDS = new Set(['mif1', 'msf1', 'mif2', 'avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'avci', 'avcs', 'jpeg', 'j2ki', 'j2is', 'crx ']);
@@ -68,7 +75,8 @@ interface ServableAsset {
   contentType: string;
 }
 
-type IngestOutcome = { ok: true; media: BoxMedia } | { ok: false; status: number; error: string };
+type IngestOutcome = { ok: true; media: BoxMedia; unloaded: readonly UnloadedReference[] } | { ok: false; status: number; error: string };
+type MemberHashByPath = ReadonlyMap<string, string>;
 type Refusal = Extract<IngestOutcome, { ok: false }>;
 type MediaSize = { width: number; height: number; hasPreview: boolean };
 
@@ -76,11 +84,13 @@ interface WhiteboardAssetStore {
   loaded: Promise<void>;
   has(assetId: string): boolean;
   ingestFile(sourcePath: string, name?: string): Promise<IngestOutcome>;
-  adoptIncoming(incomingPath: string, name: string): Promise<IngestOutcome>;
+  adoptIncoming(incomingPath: string, name: string, pageSourcePath: string | null): Promise<IngestOutcome>;
+  pageBundleIdOf(pageSourcePath: string, pageText: string, pageHash: string): Promise<string>;
   reserveIncomingPath(): Promise<string>;
   hold(assetId: string, holdMs: number): void;
   sweep(referencedAssetIds: ReadonlySet<string>): Promise<number>;
   servableOf(filename: string): ServableAsset | null;
+  servableMemberOf(assetId: string, memberPath: string): ServableAsset | null;
   mismatchOf(media: BoxMedia): string | null;
   dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset'>, drawnWidth: number, drawnHeight: number): Promise<string | null>;
   readDocText(media: Pick<BoxMedia, 'kind' | 'asset'>): Promise<string | null>;
@@ -122,6 +132,13 @@ async function docRefusalOf(incomingPath: string, name: string): Promise<Refusal
 
 function isRefusal(value: unknown): value is Refusal {
   return typeof value === 'object' && value !== null && 'ok' in value && value.ok === false;
+}
+
+function memberHashesOfManifest(manifestText: string): Map<string, string> | null {
+  const parsed: unknown = JSON.parse(manifestText);
+  if (typeof parsed !== 'object' || parsed === null || !('members' in parsed) || typeof parsed.members !== 'object' || parsed.members === null) return null;
+  const entries = Object.entries(parsed.members).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && MEMBER_HASH_RE.test(entry[1]));
+  return new Map(entries);
 }
 
 async function readFirstChunk(filePath: string): Promise<Buffer> {
@@ -303,7 +320,15 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
   const storedByAssetId = new Map<string, StoredAsset>();
   const heldUntilByAssetId = new Map<string, number>();
   const settledIngestByAssetId = new Map<string, Promise<void>>();
+  const membersRoot = path.join(assetsRoot, MEMBERS_FOLDER_NAME);
+  const memberHashByPathByAssetId = new Map<string, MemberHashByPath>();
   const loaded = fsp.readdir(assetsRoot).then(async (filenames) => {
+    for (const filename of filenames) {
+      const manifestAssetId = MANIFEST_FILENAME_RE.exec(filename)?.[1];
+      if (!manifestAssetId) continue;
+      const memberHashByPath = await fsp.readFile(path.join(assetsRoot, filename), 'utf8').then(memberHashesOfManifest).catch(() => null);
+      if (memberHashByPath) memberHashByPathByAssetId.set(manifestAssetId, memberHashByPath);
+    }
     const previewAssetIds = new Set(filenames.flatMap((filename) => PREVIEW_FILENAME_RE.exec(filename)?.[1] ?? []));
     for (const filename of filenames) {
       const match = ORIGINAL_FILENAME_RE.exec(filename);
@@ -324,6 +349,72 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return path.join(assetsRoot, `${assetId}${PREVIEW_SUFFIX}`);
   }
 
+  function manifestPathOf(assetId: string): string {
+    return path.join(assetsRoot, `${assetId}${MANIFEST_SUFFIX}`);
+  }
+
+  function memberPathOf(memberHash: string): string {
+    return path.join(membersRoot, memberHash);
+  }
+
+  async function readMember(sourcePath: string, remainingBytes: number, writeChunk: (chunk: Buffer) => Promise<unknown>): Promise<Exclude<StoredMember, { ok: true }> | { ok: true; hash: string; sizeBytes: number }> {
+    const source = await fsp.open(sourcePath, OPEN_WITHOUT_BLOCKING_ON_A_PIPE).catch(() => null);
+    if (source === null) return { ok: false, reason: 'unreadable' };
+    try {
+      const stats = await source.stat();
+      if (!stats.isFile()) return { ok: false, reason: 'not-a-regular-file' };
+      if (stats.size > remainingBytes) return { ok: false, reason: 'over-cap' };
+      const hash = crypto.createHash('sha256');
+      let copiedBytes = 0;
+      for await (const chunk of source.createReadStream({ autoClose: false })) {
+        copiedBytes += chunk.byteLength;
+        if (copiedBytes > remainingBytes) return { ok: false, reason: 'over-cap' };
+        hash.update(chunk);
+        await writeChunk(chunk);
+      }
+      return { ok: true, hash: hash.digest('hex'), sizeBytes: copiedBytes };
+    } finally {
+      await source.close().catch(() => {});
+    }
+  }
+
+  async function storeMember(sourcePath: string, remainingBytes: number): Promise<StoredMember> {
+    await fsp.mkdir(membersRoot, { recursive: true, mode: 0o700 });
+    const incomingPath = await reserveIncomingPath();
+    try {
+      const incoming = await fsp.open(incomingPath, 'wx', ASSET_FILE_MODE);
+      const member = await readMember(sourcePath, remainingBytes, (chunk) => incoming.write(chunk)).finally(() => incoming.close().catch(() => {}));
+      if (!member.ok) return member;
+      hold(member.hash, ATTACH_HOLD_MS);
+      await fsp.rename(incomingPath, memberPathOf(member.hash));
+      return { ...member, storedPath: memberPathOf(member.hash) };
+    } finally {
+      await fsp.rm(incomingPath, { force: true }).catch(() => {});
+    }
+  }
+
+  async function hashMember(sourcePath: string, remainingBytes: number): Promise<StoredMember> {
+    const member = await readMember(sourcePath, remainingBytes, async () => {});
+    return member.ok ? { ...member, storedPath: sourcePath } : member;
+  }
+
+  async function pageBundleIdOf(pageSourcePath: string, pageText: string, pageHash: string): Promise<string> {
+    const bundle = await collectPageBundle({ pagePath: pageSourcePath, pageText, capBytes: ASSET_INPUT_CAP_BYTES, storeMember: hashMember });
+    return bundleIdOf(pageHash, bundle.members);
+  }
+
+  async function bundledAssetIdOf(incomingPath: string, pageSourcePath: string): Promise<{ assetId: string; unloaded: readonly UnloadedReference[] }> {
+    const pageHash = await hashFile(incomingPath);
+    const pageText = await fsp.readFile(incomingPath, 'utf8');
+    const bundle = await collectPageBundle({ pagePath: pageSourcePath, pageText, capBytes: ASSET_INPUT_CAP_BYTES, storeMember });
+    const assetId = bundleIdOf(pageHash, bundle.members);
+    if (bundle.members.length === 0) return { assetId, unloaded: bundle.unloaded };
+    const manifest = manifestOf(pageHash, bundle.members);
+    await fsp.writeFile(manifestPathOf(assetId), JSON.stringify(manifest), { mode: ASSET_FILE_MODE });
+    memberHashByPathByAssetId.set(assetId, new Map(Object.entries(manifest.members)));
+    return { assetId, unloaded: bundle.unloaded };
+  }
+
   async function storeIncoming(incomingPath: string, assetId: string, sniffedExtension: string, name: string): Promise<IngestOutcome> {
     hold(assetId, ATTACH_HOLD_MS);
     const stored = storedByAssetId.get(assetId);
@@ -332,7 +423,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     if (!format) return refusal(415, `${name} is not a file a board takes; a board takes ${ACCEPTED_TEXT}`);
     const finalPath = originalPathOf(assetId, extension);
     const isOnDisk = await fsp.access(finalPath).then(() => true, () => false);
-    if (stored?.media && isOnDisk) return { ok: true, media: stored.media };
+    if (stored?.media && isOnDisk) return { ok: true, media: stored.media, unloaded: [] };
     const previewPath = previewPathOf(assetId);
     const draftPreviewPath = `${await reserveIncomingPath()}${PREVIEW_SUFFIX}`;
     try {
@@ -347,7 +438,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, link: null };
       storedByAssetId.set(assetId, { extension, hasPreview, dials, media });
       hold(assetId, ATTACH_HOLD_MS);
-      return { ok: true, media };
+      return { ok: true, media, unloaded: [] };
     } finally {
       await fsp.rm(draftPreviewPath, { force: true }).catch(() => {});
     }
@@ -366,7 +457,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     }
   }
 
-  async function adoptIncoming(incomingPath: string, name: string): Promise<IngestOutcome> {
+  async function adoptIncoming(incomingPath: string, name: string, pageSourcePath: string | null): Promise<IngestOutcome> {
     await loaded;
     try {
       const firstChunk = await readFirstChunk(incomingPath);
@@ -375,7 +466,10 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       if (!verdict.ok || !format || isStillImageInVideoContainer(firstChunk, verdict.extension)) return refusal(415, `${name} is not a file a board takes; a board takes ${ACCEPTED_TEXT}`);
       const docRefusal = format.kind === 'doc' ? await docRefusalOf(incomingPath, name) : null;
       if (docRefusal) return docRefusal;
-      return await storeIncomingInTurn(incomingPath, await hashFile(incomingPath), verdict.extension, name);
+      if (format.kind !== 'page' || pageSourcePath === null) return await storeIncomingInTurn(incomingPath, await hashFile(incomingPath), verdict.extension, name);
+      const bundled = await bundledAssetIdOf(incomingPath, pageSourcePath);
+      const stored = await storeIncomingInTurn(incomingPath, bundled.assetId, verdict.extension, name);
+      return stored.ok ? { ...stored, unloaded: bundled.unloaded } : stored;
     } catch (error) {
       logger.warn(`[whiteboard] board media could not be stored: ${errorMessage(error)}`);
       return refusal(500, `${name} could not be stored`);
@@ -394,7 +488,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       await fsp.rm(incomingPath, { force: true }).catch(() => {});
       return copyRefusal;
     }
-    return adoptIncoming(incomingPath, name);
+    return adoptIncoming(incomingPath, name, sourcePath);
   }
 
   async function reserveIncomingPath(): Promise<string> {
@@ -414,7 +508,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
   }
 
   async function removeStoredFiles(assetId: string, stored: StoredAsset): Promise<void> {
-    const filePaths = [originalPathOf(assetId, stored.extension), previewPathOf(assetId)];
+    const filePaths = [originalPathOf(assetId, stored.extension), previewPathOf(assetId), manifestPathOf(assetId)];
     await Promise.all(filePaths.map((filePath) => fsp.rm(filePath, { force: true }).catch((error: unknown) => {
       logger.warn(`[whiteboard] unused board media ${assetId} could not be deleted: ${errorMessage(error)}`);
     })));
@@ -426,8 +520,26 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       storedByAssetId.delete(assetId);
       heldUntilByAssetId.delete(assetId);
     }
+    for (const [assetId] of swept) memberHashByPathByAssetId.delete(assetId);
     await Promise.all(swept.map(([assetId, stored]) => removeStoredFiles(assetId, stored)));
+    await sweepMembers();
     return swept.length;
+  }
+
+  async function sweepMembers(): Promise<void> {
+    const keptMemberHashes = new Set([...memberHashByPathByAssetId.values()].flatMap((memberHashByPath) => [...memberHashByPath.values()]));
+    const memberFilenames = await fsp.readdir(membersRoot).catch(() => []);
+    const unusedMemberHashes = memberFilenames.filter((memberHash) => MEMBER_HASH_RE.test(memberHash) && !keptMemberHashes.has(memberHash) && !isHeld(memberHash));
+    for (const memberHash of unusedMemberHashes) heldUntilByAssetId.delete(memberHash);
+    await Promise.all(unusedMemberHashes.map((memberHash) => fsp.rm(memberPathOf(memberHash), { force: true }).catch((error: unknown) => {
+      logger.warn(`[whiteboard] unused page file ${memberHash} could not be deleted: ${errorMessage(error)}`);
+    })));
+  }
+
+  function servableMemberOf(assetId: string, memberPath: string): ServableAsset | null {
+    const memberHash = memberHashByPathByAssetId.get(assetId)?.get(memberPath);
+    if (!memberHash || !storedByAssetId.has(assetId)) return null;
+    return { path: memberPathOf(memberHash), contentType: packFileMime(memberPath) };
   }
 
   function servableOf(filename: string): ServableAsset | null {
@@ -475,7 +587,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, reserveIncomingPath, hold, sweep, servableOf, mismatchOf, dataUriOf, readDocText };
+  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, pageBundleIdOf, reserveIncomingPath, hold, sweep, servableOf, servableMemberOf, mismatchOf, dataUriOf, readDocText };
 }
 
 export { ASSET_INPUT_CAP_BYTES, createWhiteboardAssetStore };

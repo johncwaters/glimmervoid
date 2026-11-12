@@ -1,4 +1,4 @@
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
@@ -144,7 +144,7 @@ function postDialValues(frame: HTMLIFrameElement, dialValues: Readonly<Record<st
 }
 
 function pageFrameOf(media: PageMedia): HTMLIFrameElement {
-  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
+  const frame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
   frame.tabIndex = -1;
   return frame;
 }

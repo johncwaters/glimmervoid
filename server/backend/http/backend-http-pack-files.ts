@@ -3,7 +3,7 @@ import { packFileHeaders } from '../../packs/core/pack-core.ts';
 
 export type PackFileSource = (packName: string, accessKey: string, filePath: string) => Buffer | null;
 
-function requestedFilePath(splat: unknown): string | null {
+export function requestedFilePath(splat: unknown): string | null {
   if (!Array.isArray(splat) || splat.length === 0) return null;
   return splat.every((segment) => typeof segment === 'string') ? splat.join('/') : null;
 }

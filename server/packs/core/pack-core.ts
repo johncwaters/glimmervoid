@@ -35,7 +35,8 @@ const PACK_FILE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
-  '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
+  '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.avif': 'image/avif', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
+  '.mp4': 'video/mp4', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.csv': 'text/csv; charset=utf-8', '.wasm': 'application/wasm',
 };
 
 export const PACK_PANEL_CONTENT_POLICY = [
@@ -49,7 +50,7 @@ export const PACK_PANEL_CONTENT_POLICY = [
   "base-uri 'none'",
 ].join('; ');
 
-function packFileMime(filePath: string): string {
+export function packFileMime(filePath: string): string {
   return PACK_FILE_MIME_BY_EXTENSION[path.posix.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
 }
 
@@ -95,7 +96,7 @@ const ATTRIBUTE_VALUE = `(?:"([^"]{0,${MAX_REFERENCE_LENGTH}})"|'([^']{0,${MAX_R
 const HTML_REFERENCE_PATTERN = new RegExp(`\\b(src|href|poster|srcset|imagesrcset)\\s*=\\s*${ATTRIBUTE_VALUE}`, 'gi');
 const CSS_REFERENCE_PATTERN = new RegExp(`url\\(\\s*["']?([^"')]{0,${MAX_REFERENCE_LENGTH}})["']?\\s*\\)|@import\\s+["']([^"']{1,${MAX_REFERENCE_LENGTH}})["']`, 'gi');
 const INERT_REFERENCE_PATTERN = /^(?:#|data:|blob:|javascript:|about:|mailto:)/i;
-const REMOTE_REFERENCE_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+export const REMOTE_REFERENCE_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
 function withoutDelimited(text: string, opener: string, closer: string): string {
   const keptParts: string[] = [];
@@ -120,7 +121,7 @@ const JS_IMPORT_PATTERN = new RegExp(`\\b(?:import|export)\\b[^;'"]{0,${MAX_REFE
 const LINE_COMMENT_PATTERN = /^[ \t]*\/\/.*$/gm;
 const RELATIVE_IMPORT_PATTERN = /^\.{1,2}\//;
 
-function isScriptFile(filePath: string): boolean {
+export function isScriptFile(filePath: string): boolean {
   return filePath.endsWith('.js') || filePath.endsWith('.mjs');
 }
 
@@ -158,7 +159,7 @@ function rawReferencesIn(filePath: string, text: string): PageReference[] {
   return [...attributeReferences, ...inlineScriptsIn(withoutComments).flatMap(jsImportsIn), ...cssReferences];
 }
 
-function referencesIn(filePath: string, text: string): PageReference[] {
+export function referencesIn(filePath: string, text: string): PageReference[] {
   return rawReferencesIn(filePath, text).map((reference) => ({ ...reference, url: reference.url.trim() })).filter((reference) => reference.url !== '' && !INERT_REFERENCE_PATTERN.test(reference.url));
 }
 
@@ -179,7 +180,7 @@ function referenceError(filePath: string, { url: reference, isImport }: PageRefe
   return filesByPath.has(referencedPath) ? null : `${filePath} refers to ${reference}, which is not a file in the pack`;
 }
 
-function referencedPackPath(filePath: string, reference: string): string {
+export function referencedPackPath(filePath: string, reference: string): string {
   return path.posix.normalize(path.posix.join(path.posix.dirname(filePath), decodedPath(reference.replace(/[?#].*$/, ''))));
 }
 

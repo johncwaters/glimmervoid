@@ -57,6 +57,8 @@ export const Near = z.object({
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
 export const WHITEBOARD_PICTURE_ROUTE = '/whiteboards/pictures';
+export const WHITEBOARD_PAGE_ROUTE = '/whiteboards/pages';
+export const BOARD_PAGE_ENTRY_PATH = 'index.html';
 export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
@@ -462,6 +464,10 @@ const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {
   return `${media.asset}${BOARD_MEDIA_EXTENSION_BY_MIME[media.mime]}`;
+}
+
+export function boardPagePath(media: Pick<BoxMedia, 'asset'>): string {
+  return `${WHITEBOARD_PAGE_ROUTE}/${media.asset}/${BOARD_PAGE_ENTRY_PATH}`;
 }
 
 export function boardMediaDrawnFilename(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime' | 'hasPreview'>): string | null {

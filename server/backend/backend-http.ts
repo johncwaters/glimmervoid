@@ -41,13 +41,13 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PAGE_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH } from '../../shared/contracts/whiteboard.ts';
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
-import { servePackFile } from './http/backend-http-pack-files.ts';
+import { requestedFilePath, servePackFile } from './http/backend-http-pack-files.ts';
 import type { PackFileSource } from './http/backend-http-pack-files.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
 import { clock } from '../../shared/clock.ts';
@@ -287,6 +287,16 @@ function sendBoardPage(res: Response, servable: { path: string; contentType: str
   }, res, () => {});
 }
 
+const OPAQUE_ORIGIN = 'null';
+
+function serveBoardPageMember(req: Request, res: Response, member: { path: string; contentType: string }): void {
+  res.setHeader('Vary', 'Origin');
+  if (req.headers.origin === OPAQUE_ORIGIN) res.setHeader('Access-Control-Allow-Origin', OPAQUE_ORIGIN);
+  fsp.stat(member.path).then((stats) => sendBoardAssetBytes(req, res, member, stats.size), () => {
+    if (!res.headersSent) res.status(404).end();
+  });
+}
+
 function isPage(servable: { contentType: string }): boolean {
   return servable.contentType.startsWith('text/html');
 }
@@ -327,7 +337,7 @@ async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: 
   try {
     const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: ASSET_INPUT_CAP_BYTES });
     if (!received.ok) return received.reason === 'over-cap' ? overCap : { ok: false, ...UPLOAD_FAILURE_REPLIES[received.reason] };
-    return await assets.adoptIncoming(incomingPath, name);
+    return await assets.adoptIncoming(incomingPath, name, null);
   } finally {
     await fsp.rm(incomingPath, { force: true }).catch(() => {});
   }
@@ -722,6 +732,27 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       return;
     }
     serveBoardAsset(req, res, servable);
+  });
+
+  app.get(`${WHITEBOARD_PAGE_ROUTE}/:assetId/*memberPath`, (req, res) => {
+    const assets = dependencies.getWhiteboardAssets?.() ?? null;
+    const memberPath = requestedFilePath(req.params.memberPath);
+    const assetId = String(req.params.assetId);
+    if (memberPath === BOARD_PAGE_ENTRY_PATH) {
+      const page = assets?.servableOf(`${assetId}.html`) ?? null;
+      if (!page) {
+        res.status(404).end();
+        return;
+      }
+      serveBoardAsset(req, res, page);
+      return;
+    }
+    const member = memberPath === null ? null : assets?.servableMemberOf(assetId, memberPath) ?? null;
+    if (!member) {
+      res.status(404).end();
+      return;
+    }
+    serveBoardPageMember(req, res, member);
   });
 
   app.get(`${WHITEBOARD_PICTURE_ROUTE}/:boardId/:filename`, (req, res) => {

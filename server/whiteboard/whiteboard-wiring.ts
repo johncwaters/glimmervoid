@@ -36,6 +36,8 @@ import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue, createSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { unloadedNote } from './page-bundle.ts';
+import type { UnloadedReference } from './page-bundle.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
@@ -201,6 +203,11 @@ function elementIdsNamedBy(op: Op): string[] {
 
 function refusal(status: number, error: string): WhiteboardReply {
   return { status, body: { ok: false, error } };
+}
+
+function withUnloadedNote(note: string, unloaded: readonly UnloadedReference[]): string {
+  const unloadedText = unloadedNote(unloaded);
+  return unloadedText === null ? note : `${note}. ${unloadedText}`;
 }
 
 function attachedMediaUse(media: BoxMedia): string {
@@ -963,7 +970,7 @@ function createWhiteboardWiring({
     if (caller.remoteWorkspace) return refusal(409, `attach reads files on the Glimmervoid machine, and this session runs in the Coder workspace ${caller.remoteWorkspace}, so its files are not there`);
     const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
-    const note = `put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`;
+    const note = withUnloadedNote(`put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`, ingested.unloaded);
     return { status: 200, body: { ok: true, media: ingested.media, note } };
   }
 
@@ -1025,14 +1032,14 @@ function createWhiteboardWiring({
     const media = linked ? { ...ingested.media, link: { path: linked.linkPath, syncedHash: ingested.media.asset } } : ingested.media;
     const card = { media, title: pageTitle ?? fileName, caption };
     const author: Author = { id: caller.id, name: caller.name };
-    const reply = await placeShownCard(target.boardId, card, author);
+    const reply = await placeShownCard(target.boardId, card, author, ingested.unloaded);
     if (reply.status === 200 && target.provisionalTitle !== null) {
       onBoardNamedProvisionally({ boardId: target.boardId, provisionalTitle: target.provisionalTitle, sessionId: caller.id, cardTitle: card.title, caption });
     }
     return reply;
   }
 
-  function placeShownCard(boardId: string, card: ShownCard, author: Author): Promise<WhiteboardReply> {
+  function placeShownCard(boardId: string, card: ShownCard, author: Author, unloaded: readonly UnloadedReference[]): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
         logger.warn(`[whiteboard] board ${record.board.id} could not be laid out to place a shown file: ${errorMessage(error)}`);
@@ -1046,7 +1053,7 @@ function createWhiteboardWiring({
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
-      const note = `showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`;
+      const note = withUnloadedNote(`showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`, unloaded);
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
   }

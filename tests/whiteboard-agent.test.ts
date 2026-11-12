@@ -1,6 +1,7 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -1335,6 +1336,82 @@ test('show puts each file on a board the session is connected to, creating one n
 
   const remote = await wiring.handleAgent({ ...shower, remoteWorkspace: 'coder-box' }, { sub: 'show', path: 'login.png' });
   assert.equal(remote.status, 409);
+});
+
+test('a shown page brings the files it refers to by relative path, served beside it, and the reply names each local file that did not load', { skip: process.platform === 'win32' }, async () => {
+  const plannerDir = path.join(fixture.tmpDir, PLANNER_ID);
+  const pageDir = path.join(plannerDir, 'evidence');
+  fs.mkdirSync(path.join(pageDir, 'shots'), { recursive: true });
+  fs.mkdirSync(path.join(pageDir, 'fonts'), { recursive: true });
+  const shotBytes = Buffer.from('not really a png, bytes are bytes');
+  fs.writeFileSync(path.join(pageDir, 'shots', 'before.png'), shotBytes);
+  fs.writeFileSync(path.join(pageDir, 'fonts', 'mono.woff2'), 'font bytes');
+  fs.writeFileSync(path.join(pageDir, 'style.css'), 'body { font-family: m; } @font-face { font-family: m; src: url("fonts/mono.woff2"); }');
+  fs.writeFileSync(path.join(pageDir, 'app.js'), "import { shout } from './lib.js';\nshout();");
+  fs.writeFileSync(path.join(pageDir, 'lib.js'), 'export function shout() {}');
+  fs.writeFileSync(path.join(plannerDir, 'outside.png'), 'outside bytes');
+  fs.symlinkSync(path.join(plannerDir, 'outside.png'), path.join(pageDir, 'linked-out.png'));
+  fs.writeFileSync(path.join(pageDir, 'report.html'), '<!doctype html><html><head><title>Before and after</title><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script></head><body><img src="shots/before.png?v=2"><img src="../outside.png"><img src="linked-out.png"><img src="missing.png"><img src="/abs.png"><img src="https://example.com/remote.png"></body></html>');
+
+  const shown = await whiteboard(PLANNER_ID, { sub: 'show', path: 'evidence/report.html' });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  const note = String(shown.body.note);
+  assert.match(note, /4 local files the page refers to do not load: \.\.\/outside\.png in report\.html \(outside the page folder\), linked-out\.png in report\.html \(outside the page folder\), missing\.png in report\.html \(missing\), \/abs\.png in report\.html \(an absolute path/);
+  assert.doesNotMatch(note, /remote\.png|before\.png|lib\.js/);
+  const board = (shown.body as { board: { id: string } }).board.id;
+  const { board: shownBoard } = await boardOf(PLANNER_ID, board);
+  const shownBoxId = /as box (\S+) /.exec(note)?.[1] ?? '';
+  const pageMedia = shownBoard.elements[shownBoxId]?.media as { kind: string; asset: string } | undefined;
+  assert.equal(pageMedia?.kind, 'page');
+
+  const pageUrl = (memberPath: string) => `${running().base}/whiteboards/pages/${pageMedia.asset}/${memberPath}`;
+  const servedPage = await fetch(pageUrl('index.html'));
+  assert.equal(servedPage.status, 200);
+  assert.match(String(servedPage.headers.get('content-security-policy')), /^sandbox allow-scripts/);
+  assert.match(await servedPage.text(), /<img src="shots\/before\.png\?v=2">/);
+  const servedShot = await fetch(pageUrl('shots/before.png'));
+  assert.deepEqual([servedShot.status, servedShot.headers.get('content-type'), servedShot.headers.get('content-security-policy')], [200, 'image/png', "default-src 'none'; sandbox"]);
+  assert.deepEqual(Buffer.from(await servedShot.arrayBuffer()), shotBytes);
+  const servedModule = await fetch(pageUrl('lib.js'), { headers: { origin: 'null' } });
+  assert.deepEqual([servedModule.status, servedModule.headers.get('content-type'), servedModule.headers.get('access-control-allow-origin')], [200, 'text/javascript; charset=utf-8', 'null']);
+  assert.equal((await fetch(pageUrl('fonts/mono.woff2'))).status, 200, 'a font a referenced stylesheet loads is bundled too');
+  assert.equal((await fetch(pageUrl('linked-out.png'))).status, 404);
+  assert.equal((await fetch(pageUrl('report.html'))).status, 404);
+});
+
+test('a linked page keeps its bundle on each read, follows edits to a file it refers to, and still shows when one of them cannot be read', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-page-'));
+  const worktree = path.join(boardsRoot, 'worktree');
+  fs.mkdirSync(path.join(worktree, 'report'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'report', 'shot.png'), 'first shot');
+  fs.writeFileSync(path.join(worktree, 'report', 'locked.png'), 'locked shot');
+  fs.chmodSync(path.join(worktree, 'report', 'locked.png'), 0o000);
+  const pageText = '<!doctype html><html><body><img src="shot.png"><img src="locked.png"></body></html>';
+  fs.writeFileSync(path.join(worktree, 'report', 'page.html'), pageText);
+  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
+  const linker = { id: 'link-page-agent', name: 'linker', project: worktree, cwd: worktree };
+
+  const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'report/page.html', link: true });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  assert.match(String((shown.body as { note: string }).note), /locked\.png in page\.html \(not readable\)/);
+  const boardId = (shown.body as { board: { id: string } }).board.id;
+  const linkedMediaOf = async () => {
+    const card = (await wiring.handleOperator.get(boardId)).board?.elements.get('shown-1');
+    return card?.kind === 'box' ? card.media : null;
+  };
+  const shownAsset = (await linkedMediaOf())?.asset;
+  const pageFileHash = crypto.createHash('sha256').update(pageText).digest('hex');
+  assert.notEqual(shownAsset, pageFileHash);
+  const versionAfterRead = (await wiring.handleOperator.get(boardId)).board?.version;
+  assert.equal((await linkedMediaOf())?.asset, shownAsset);
+  assert.equal((await wiring.handleOperator.get(boardId)).board?.version, versionAfterRead, 'an unchanged linked page is in sync, so a read writes nothing');
+
+  fs.writeFileSync(path.join(worktree, 'report', 'shot.png'), 'second shot');
+  const followed = await linkedMediaOf();
+  assert.notEqual(followed?.asset, shownAsset);
+  assert.notEqual(followed?.asset, pageFileHash);
+  assert.equal(followed?.link?.syncedHash, followed?.asset);
+  fs.chmodSync(path.join(worktree, 'report', 'locked.png'), 0o600);
 });
 
 test('a linked card follows its file in the code session worktree on each read, writes it on an operator save unless either side moved, refuses a path outside it, and keeps its last text with the reason once the file or session is gone', async () => {

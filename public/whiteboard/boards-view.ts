@@ -4,7 +4,7 @@ import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
@@ -568,7 +568,7 @@ function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
   const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
   if (media?.kind === 'page') {
-    const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${originalHref}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+    const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
     tunePageOnLoad(pageFrame, document.body, () => pressedDialValuesOf(pressedImage));
     return pageFrame;
   }

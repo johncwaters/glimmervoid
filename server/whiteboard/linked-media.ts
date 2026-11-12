@@ -56,29 +56,35 @@ async function openLinkedFile(root: string | null, media: LinkedMedia, opensForW
   return { ok: false, problem: `The linked file is over ${capBytesOf(media) / 1024} KiB` };
 }
 
-async function hashOfHandle(handle: FileHandle): Promise<string> {
-  const hash = crypto.createHash('sha256');
-  for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) hash.update(chunk);
-  return hash.digest('hex');
+async function contentsOfHandle(handle: FileHandle): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 })) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
-async function readFileReading(root: string | null, media: LinkedMedia): Promise<{ reading: FileReading; handle: FileHandle | null }> {
+async function readingHashOf(file: OpenedFile, media: LinkedMedia, assets: WhiteboardAssetStore): Promise<string> {
+  const contents = await contentsOfHandle(file.handle);
+  const fileHash = crypto.createHash('sha256').update(contents).digest('hex');
+  if (media.kind !== 'page') return fileHash;
+  return assets.pageBundleIdOf(file.realPath, contents.toString('utf8'), fileHash);
+}
+
+async function readFileReading(root: string | null, media: LinkedMedia, assets: WhiteboardAssetStore): Promise<{ reading: FileReading; file: OpenedFile | null }> {
   const opened = await openLinkedFile(root, media, false);
-  if (!opened.ok) return { reading: { ok: false, problem: opened.problem }, handle: null };
-  const { handle } = opened.file;
+  if (!opened.ok) return { reading: { ok: false, problem: opened.problem }, file: null };
   try {
-    return { reading: { ok: true, hash: await hashOfHandle(handle) }, handle };
+    return { reading: { ok: true, hash: await readingHashOf(opened.file, media, assets) }, file: opened.file };
   } catch {
-    await handle.close().catch(() => {});
-    return { reading: { ok: false, problem: 'The linked file cannot be read' }, handle: null };
+    await opened.file.handle.close().catch(() => {});
+    return { reading: { ok: false, problem: 'The linked file cannot be read' }, file: null };
   }
 }
 
-function ingestFromHandle(assets: WhiteboardAssetStore, handle: FileHandle, media: LinkedMedia): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
-  return ingestChunks(assets, handle.createReadStream({ autoClose: false, start: 0 }), media);
+function ingestFromFile(assets: WhiteboardAssetStore, file: OpenedFile, media: LinkedMedia): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
+  return ingestChunks(assets, file.handle.createReadStream({ autoClose: false, start: 0 }), media, media.kind === 'page' ? file.realPath : null);
 }
 
-async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<Buffer> | Iterable<Buffer>, media: LinkedMedia): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
+async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<Buffer> | Iterable<Buffer>, media: LinkedMedia, pageSourcePath: string | null): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
   const incomingPath = await assets.reserveIncomingPath();
   try {
     const incoming = await fsp.open(incomingPath, 'wx', 0o600);
@@ -87,7 +93,7 @@ async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<
     } finally {
       await incoming.close();
     }
-    const ingested = await assets.adoptIncoming(incomingPath, path.basename(media.link.path));
+    const ingested = await assets.adoptIncoming(incomingPath, path.basename(media.link.path), pageSourcePath);
     if (!ingested.ok) return { ok: false, problem: ingested.error };
     if (ingested.media.kind !== media.kind) return { ok: false, problem: `The linked file is no longer a ${media.kind === 'doc' ? 'Markdown document' : 'HTML page'}` };
     return { ok: true, media: ingested.media };
@@ -107,23 +113,23 @@ function linkedMediaOp(boxId: string, syncedMedia: BoxMedia): Op {
 async function syncLinkedBox(board: Board, boxId: string, root: string | null, assets: WhiteboardAssetStore): Promise<{ op: Op | null; linkState: LinkStateOfBox | null }> {
   const media = linkedMediaOf(board, boxId);
   if (!media) return { op: null, linkState: null };
-  const { reading, handle } = await readFileReading(root, media);
+  const { reading, file } = await readFileReading(root, media, assets);
   try {
     const state = linkStateOf(media, reading);
     const linkState = { boxId, state, text: linkStateText(state, reading) };
-    if (state !== 'file-ahead' || !handle) return { op: null, linkState: state === 'in-sync' ? null : linkState };
-    const ingested = await ingestFromHandle(assets, handle, media).catch((error: unknown) => ({ ok: false as const, problem: `The linked file could not be copied to the board: ${errorMessage(error)}` }));
+    if (state !== 'file-ahead' || !file) return { op: null, linkState: state === 'in-sync' ? null : linkState };
+    const ingested = await ingestFromFile(assets, file, media).catch((error: unknown) => ({ ok: false as const, problem: `The linked file could not be copied to the board: ${errorMessage(error)}` }));
     if (!ingested.ok) return { op: null, linkState: { boxId, state: 'broken', text: ingested.problem } };
     return { op: linkedMediaOp(boxId, syncedMediaOf(media, ingested.media)), linkState: null };
   } finally {
-    await handle?.close().catch(() => {});
+    await file?.handle.close().catch(() => {});
   }
 }
 
 async function writeLinkedDoc(boxId: string, file: OpenedFile, media: LinkedMedia, syncedHash: string, text: string, assets: WhiteboardAssetStore): Promise<LinkedDocSave> {
   const written = await overwriteIfUnchanged(file, text, syncedHash);
   if (!written.ok) return { ok: false, error: written.error, isConflict: written.conflict };
-  const ingested = await ingestFromHandle(assets, file.handle, media);
+  const ingested = await ingestFromFile(assets, file, media);
   if (!ingested.ok) return { ok: false, error: `The file was saved, but the card could not take it: ${ingested.problem}`, isConflict: false };
   const syncedMedia = syncedMediaOf(media, ingested.media);
   return { ok: true, op: linkedMediaOp(boxId, syncedMedia), media: syncedMedia };
@@ -136,7 +142,7 @@ async function saveLinkedDoc(board: Board, boxId: string, root: string | null, t
   const { syncedHash } = media.link;
   if (syncedHash === null) return { ok: false, error: 'The card has not been synced with its file yet; open the board again before saving', isConflict: true };
   if (Buffer.byteLength(text, 'utf8') > BOARD_DOC_CAP_BYTES) return { ok: false, error: `A linked document holds at most ${BOARD_DOC_CAP_BYTES / 1024} KiB`, isConflict: false };
-  const textAsCard = await ingestChunks(assets, [Buffer.from(text, 'utf8')], media).catch((error: unknown) => ({ ok: false as const, problem: errorMessage(error) }));
+  const textAsCard = await ingestChunks(assets, [Buffer.from(text, 'utf8')], media, null).catch((error: unknown) => ({ ok: false as const, problem: errorMessage(error) }));
   if (!textAsCard.ok) return { ok: false, error: `Nothing was saved: this text cannot be a Markdown card (${textAsCard.problem})`, isConflict: false };
   const opened = await openLinkedFile(root, media, true);
   if (!opened.ok) return { ok: false, error: opened.problem, isConflict: false };
