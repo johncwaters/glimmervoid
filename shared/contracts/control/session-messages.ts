@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
+import { WakeId, WakeView } from '../wakes.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
@@ -33,6 +34,7 @@ export const sessionClientVariants = [
   loose('set-session-title', { id: sessionId, title: TaskTitle }),
   loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
+  loose('cancel-wake', { id: sessionId, wake: WakeId }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
@@ -57,6 +59,7 @@ export const sessionServerVariants = [
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
+  loose('session-wakes', { id: sessionId, wakes: z.array(WakeView) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
   loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),

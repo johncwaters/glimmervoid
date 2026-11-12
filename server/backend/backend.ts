@@ -786,6 +786,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessions,
     agentSessions,
     markChildWorktreeDiscard: (childId) => agentApi?.markChildWorktreeDiscard(childId),
+    sessionWakes: {
+      pendingWakesBySession: () => agentApi?.sessionWakes.pendingWakesBySession() ?? [],
+      cancelForOperator: async (sessionId, wakeId) => agentApi ? agentApi.sessionWakes.cancelForOperator(sessionId, wakeId) : 'Wakes are not available yet',
+    },
     config,
     configStore,
     broadcastControl,

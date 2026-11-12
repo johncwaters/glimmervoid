@@ -85,6 +85,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', reference: 'op://dev/openai/credential', isAllowed: true }] }] },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
+  { type: 'session-wakes', id: 'session-1', wakes: [{ id: 'w4', kind: 'cron', pattern: '0 9 * * 1-5', text: 'run nightly QA and report', nextFireAt: NOW, nextFire: '09:00 tomorrow (in 14h)' }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
   { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },

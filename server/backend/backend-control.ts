@@ -8,7 +8,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
-import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl } from '../control-handlers.ts';
+import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, SessionWakesControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
@@ -69,6 +69,7 @@ interface BackendControlDependencies {
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
   markChildWorktreeDiscard: (childId: string) => void;
+  sessionWakes: SessionWakesControl;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
@@ -135,6 +136,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     sessions,
     agentSessions: dependencies.agentSessions,
     markChildWorktreeDiscard: dependencies.markChildWorktreeDiscard,
+    sessionWakes: dependencies.sessionWakes,
     config,
     configStore,
     broadcastControl,

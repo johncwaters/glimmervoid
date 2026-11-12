@@ -1,6 +1,7 @@
 import { refreshFavicon } from '../../favicon.ts';
 import { forgetSessionInSavedOrder, setFocusMergeStatus } from '../../focus-view/focus-view.ts';
 import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
+import { setSessionWakes } from '../../session-card/session-wakes.ts';
 import { alertFromNotify } from '../../notifications.ts';
 import { requestSessionRemovalNow } from '../../session-actions.ts';
 import { handleDebugStateRefresh, handleDebugStateResponse } from '../../session-card/card-debug.ts';
@@ -19,6 +20,7 @@ const messageHandlers = {
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
   'session-prs': (msg) => setSessionLinkedPrs(msg.id, msg.linkedPrs),
+  'session-wakes': (msg) => setSessionWakes(msg.id, msg.wakes),
   'session-renamed':    (msg) => { renameSessionCard(msg.id, msg.newName); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-modified':   (msg) => {
     rebuildSessionCard(msg.id, msg.session, msg.state, msg, msg.linkedPrs);

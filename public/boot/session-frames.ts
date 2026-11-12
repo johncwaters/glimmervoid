@@ -7,6 +7,7 @@ import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-v
 import { refreshIssuesSessionState } from '../github/issues-store.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
 import { forgetSessionLinkedPrs, setSessionLinkedPrs } from '../github/session-pr-chips.ts';
+import { forgetSessionWakes, setSessionWakes } from '../session-card/session-wakes.ts';
 import { refreshPhoneBoard } from '../phone/phone-shell-gate.ts';
 import { decideReloadOnBuild } from '../server-build-core.ts';
 import { sessionQuestionManagerOf, setSessionQuestionManager, setSessionSaneYolo } from '../session-card/card-dom.ts';
@@ -59,6 +60,7 @@ function forgetSession(sessionId: string) {
   forgetSessionCoherence(sessionId);
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
+  forgetSessionWakes(sessionId);
   forgetManagerDecisions(sessionId);
   forgetAttentionNotes(sessionId);
   forgetSessionHost(sessionId);
@@ -92,6 +94,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: s
     if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
     setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
+    setSessionWakes(s.id, []);
     setSessionFailureReason(s.id, s.failureReason);
     setSessionAttentionNotes(s.id, s.attentionNotes);
 

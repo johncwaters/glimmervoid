@@ -50,6 +50,7 @@ import type { RaceWiring } from './race/race-wiring.ts';
 import { createRadarHandlers } from './control/handlers/radar-handlers.ts';
 import { createServerHandlers } from './control/handlers/server-handlers.ts';
 import { createSessionHandlers } from './control/handlers/session-handlers.ts';
+import type { WakeView } from '../shared/contracts/wakes.ts';
 import { createSettingsHandlers } from './control/handlers/settings-handlers.ts';
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
 import { createReviewHandlers } from './control/handlers/review-handlers.ts';
@@ -89,11 +90,17 @@ interface MyPrMergeControl {
   setMergeWhenReady?: (request: MyPrMergeWhenReadyRequest) => Promise<Omit<MyPrMergeWhenReadyResult, 'key'>>;
 }
 
+interface SessionWakesControl {
+  pendingWakesBySession(): { sessionId: string; wakes: WakeView[] }[];
+  cancelForOperator(sessionId: string, wakeId: string): Promise<string | null>;
+}
+
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
   changeMaps?: ChangeMapService;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
+  sessionWakes?: SessionWakesControl | null;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;
@@ -276,4 +283,4 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
 export {
   registerControlHandlers,
 };
-export type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, TeamReviewActionControl };
+export type { CommunityActionControl, ControlHandlerDeps, SessionWakesControl, MyPrMergeControl, RadarFixControl, TeamReviewActionControl };

@@ -10,6 +10,7 @@ import { createChildChannels } from './agent-api/child-channels.ts';
 import { createAgentSpawner } from './agent-api/agent-spawn.ts';
 import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
 import { createWakeWiring } from './wakes/wake-wiring.ts';
+import type { WakeWiring } from './wakes/wake-wiring.ts';
 import { clock } from '../shared/clock.ts';
 
 interface AgentWireReply {
@@ -27,6 +28,7 @@ interface AgentApiPort {
   refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
   watchSessionWakes(session: Session): void;
+  sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator'>;
 }
 
 function createAgentApiWiring({
@@ -68,6 +70,7 @@ function createAgentApiWiring({
     findLiveSession: (sessionId) => listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null,
     budget: channels,
     spawnGate,
+    onSessionWakesChange: (sessionId, sessionWakes) => broadcastControl({ type: 'session-wakes', id: sessionId, wakes: sessionWakes }),
     setTimeoutFn,
     clearTimeoutFn,
     now,
@@ -102,7 +105,7 @@ function createAgentApiWiring({
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 
-  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession };
+  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession, sessionWakes: wakes };
 }
 
 export { createAgentApiWiring };
