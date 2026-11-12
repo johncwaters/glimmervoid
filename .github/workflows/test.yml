@@ -1,5 +1,6 @@
 name: test
 
+# Release-only by design: Actions minutes are limited, so scripts/release.ts dispatches this before tagging; add no push or pull_request trigger.
 on:
   workflow_call:
   workflow_dispatch:
@@ -72,30 +73,40 @@ jobs:
       - name: smoke start
         shell: pwsh
         run: |
-          $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
-          $portProbe.Start()
-          $port = $portProbe.LocalEndpoint.Port
-          $portProbe.Stop()
           $launcher = (Get-Command glimmervoid.cmd).Source
-          $server = Start-Process -FilePath $launcher -ArgumentList '--no-open', '--port', $port -PassThru -NoNewWindow -RedirectStandardOutput server.log -RedirectStandardError server-error.log
-          $deadline = (Get-Date).AddSeconds(60)
-          $isDashboardServed = $false
-          while (-not $isDashboardServed -and -not $server.HasExited -and (Get-Date) -lt $deadline) {
-            try {
-              $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5
-              $isDashboardServed = $response.StatusCode -eq 200
-            } catch {
-              Start-Sleep -Seconds 1
+          function Invoke-SmokeStart {
+            $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $portProbe.Start()
+            $port = $portProbe.LocalEndpoint.Port
+            $portProbe.Stop()
+            $server = Start-Process -FilePath $launcher -ArgumentList '--no-open', '--port', $port -PassThru -NoNewWindow -RedirectStandardOutput server.log -RedirectStandardError server-error.log
+            $deadline = (Get-Date).AddSeconds(60)
+            $isDashboardServed = $false
+            while (-not $isDashboardServed -and -not $server.HasExited -and (Get-Date) -lt $deadline) {
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -UseBasicParsing -TimeoutSec 5
+                $isDashboardServed = $response.StatusCode -eq 200
+              } catch {
+                Start-Sleep -Seconds 1
+              }
             }
+            $hasServerExitedOnItsOwn = $server.HasExited
+            if (-not $hasServerExitedOnItsOwn) { taskkill /T /F /PID $server.Id | Out-Null }
+            Get-Content server.log, server-error.log | Write-Host
+            if ($isDashboardServed) { return 'served' }
+            $isPortTaken = $hasServerExitedOnItsOwn -and (Select-String -Path server-error.log -Pattern "^Port $port is already in use" -Quiet)
+            if ($isPortTaken) { return 'port-taken' }
+            throw "glimmervoid did not serve http://127.0.0.1:$port/ with 200 within 60 s"
           }
-          if (-not $server.HasExited) { taskkill /T /F /PID $server.Id | Out-Null }
-          Get-Content server.log, server-error.log
-          if (-not $isDashboardServed) { throw "glimmervoid did not serve http://127.0.0.1:$port/ with 200 within 60 s" }
-          exit 0
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            if ((Invoke-SmokeStart) -eq 'served') { exit 0 }
+            Write-Host "attempt $attempt lost its probed port to another process; probing a fresh one"
+          }
+          throw "every one of 3 probed ports was taken before glimmervoid bound it"
 
   site:
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
