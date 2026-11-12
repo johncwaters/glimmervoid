@@ -243,6 +243,36 @@ test('a traversal dressed as a pair path does not escape the pairing gate', asyn
   }
 });
 
+test('a board page frame opens only with the pairing cookie, then loads its files by key alone the way the local listener does', async () => {
+  const { backend, tmpDir, localPort, remotePort } = ctx();
+  const pageDir = fs.mkdtempSync(path.join(tmpDir, 'page-'));
+  const shotBytes = Buffer.from('shot bytes');
+  fs.writeFileSync(path.join(pageDir, 'shot.png'), shotBytes);
+  fs.writeFileSync(path.join(pageDir, 'page.html'), '<!doctype html><img src="shot.png">');
+  const ingested = await backend.whiteboards.assets.ingestFile(path.join(pageDir, 'page.html'));
+  assert.ok(ingested.ok, JSON.stringify(ingested));
+  const openPath = `/frames/open/whiteboards/pages/${ingested.media.asset}/index.html?tuned=1`;
+
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${openPath}`, { redirect: 'manual' })).status, 401);
+  const cookie = await pairDevice();
+  const opened = await fetch(`http://127.0.0.1:${remotePort}${openPath}`, { redirect: 'manual', headers: { Cookie: cookie } });
+  assert.equal(opened.status, 302);
+  const keyedPagePath = String(opened.headers.get('location'));
+  const locallyOpened = await fetch(`http://127.0.0.1:${localPort}${openPath}`, { redirect: 'manual' });
+  assert.equal(locallyOpened.headers.get('location'), keyedPagePath, 'both listeners hand out the same frame URL');
+
+  const keyedShotPath = keyedPagePath.replace(/index\.html\?tuned=1$/, 'shot.png');
+  const shot = await fetch(`http://127.0.0.1:${remotePort}${keyedShotPath}`, { headers: { origin: 'null' } });
+  assert.equal(shot.status, 200, 'a frame file loads with no cookie');
+  assert.deepEqual(Buffer.from(await shot.arrayBuffer()), shotBytes);
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${keyedPagePath}`)).status, 200);
+  const wrongKeyPath = keyedShotPath.replace(/^\/frames\/[0-9a-f]{64}\//, `/frames/${'0'.repeat(64)}/`);
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${wrongKeyPath}`)).status, 404);
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}/frames/whiteboards/pages/${ingested.media.asset}/shot.png`)).status, 404);
+  const otherScopePath = keyedShotPath.replace(ingested.media.asset, 'f'.repeat(64));
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${otherScopePath}`)).status, 404, 'a key opens only the frame it was minted for');
+});
+
 test('a Restart frees the remote listener port before the replacement server starts', async () => {
   const { backend, remotePort, remoteListeningWhenRestartRan } = ctx();
   await backend.requestRestart();

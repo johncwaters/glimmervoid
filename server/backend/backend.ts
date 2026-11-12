@@ -869,6 +869,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     version: packageJson.version,
     getSession: getSessionAny,
     getLane: laneAssembly.current,
+    whiteboards,
     bindHost: bindDecision.host,
     remote: {
       configuredPort: remote.port,

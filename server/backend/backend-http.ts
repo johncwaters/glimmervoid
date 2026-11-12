@@ -41,14 +41,14 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PAGE_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH } from '../../shared/contracts/whiteboard.ts';
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
-import { requestedFilePath, servePackFile } from './http/backend-http-pack-files.ts';
-import type { PackFileSource } from './http/backend-http-pack-files.ts';
+import { mountFrameOpenRoute, mountKeyedFrameRoutes, servePackFile } from './http/backend-http-frames.ts';
+import type { PackFileSource } from './http/backend-http-frames.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
 import { clock } from '../../shared/clock.ts';
 
@@ -114,6 +114,7 @@ interface BackendHttpDependencies {
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
   getPackFile?: PackFileSource;
+  frameSecret?: Buffer;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getWhiteboardLayouts?: () => WhiteboardLayouts | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
@@ -306,6 +307,24 @@ function serveBoardPageMember(req: Request, res: Response, member: { path: strin
   fsp.stat(member.path).then((stats) => sendBoardAssetBytes(req, res, member, stats.size), () => {
     if (!res.headersSent) res.status(404).end();
   });
+}
+
+function serveBoardPageFile(req: Request, res: Response, assets: WhiteboardAssetStore | null, assetId: string, memberPath: string): void {
+  if (memberPath === BOARD_PAGE_ENTRY_PATH) {
+    const page = assets?.servableOf(`${assetId}.html`) ?? null;
+    if (!page) {
+      res.status(404).end();
+      return;
+    }
+    serveBoardAsset(req, res, page);
+    return;
+  }
+  const member = assets?.servableMemberOf(assetId, memberPath) ?? null;
+  if (!member) {
+    res.status(404).end();
+    return;
+  }
+  serveBoardPageMember(req, res, member);
 }
 
 function isPage(servable: { contentType: string }): boolean {
@@ -592,6 +611,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     isLinkPreviewEnabled = () => false,
     fetchLinkPreview = async () => ({}),
     getSession,
+    frameSecret = crypto.randomBytes(32),
     logger = console,
   } = dependencies;
   const app = express();
@@ -605,11 +625,13 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   app.get('/packs/:packName/:accessKey/files/*filePath', (req, res) => {
     servePackFile(req, res, dependencies.getPackFile ?? null);
   });
+  mountKeyedFrameRoutes(app, { secret: frameSecret, serveBoardPageFile: (req, res, assetId, memberPath) => serveBoardPageFile(req, res, dependencies.getWhiteboardAssets?.() ?? null, assetId, memberPath) });
 
   if (remoteAuth) {
     app.use(remoteAuth.httpMiddleware);
     remoteAuth.mountPairRoutes(app);
   }
+  mountFrameOpenRoute(app, frameSecret);
 
   app.get('/control-token', (req, res) => {
     const origin = req.headers.origin;
@@ -743,27 +765,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       return;
     }
     serveBoardAsset(req, res, servable);
-  });
-
-  app.get(`${WHITEBOARD_PAGE_ROUTE}/:assetId/*memberPath`, (req, res) => {
-    const assets = dependencies.getWhiteboardAssets?.() ?? null;
-    const memberPath = requestedFilePath(req.params.memberPath);
-    const assetId = String(req.params.assetId);
-    if (memberPath === BOARD_PAGE_ENTRY_PATH) {
-      const page = assets?.servableOf(`${assetId}.html`) ?? null;
-      if (!page) {
-        res.status(404).end();
-        return;
-      }
-      serveBoardAsset(req, res, page);
-      return;
-    }
-    const member = memberPath === null ? null : assets?.servableMemberOf(assetId, memberPath) ?? null;
-    if (!member) {
-      res.status(404).end();
-      return;
-    }
-    serveBoardPageMember(req, res, member);
   });
 
   app.get(`${WHITEBOARD_PICTURE_ROUTE}/:boardId/:filename`, (req, res) => {

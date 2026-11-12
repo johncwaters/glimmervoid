@@ -1366,7 +1366,13 @@ test('a shown page brings the files it refers to by relative path, served beside
   const pageMedia = shownBoard.elements[shownBoxId]?.media as { kind: string; asset: string } | undefined;
   assert.equal(pageMedia?.kind, 'page');
 
-  const pageUrl = (memberPath: string) => `${running().base}/whiteboards/pages/${pageMedia.asset}/${memberPath}`;
+  const opened = await fetch(`${running().base}/frames/open/whiteboards/pages/${pageMedia.asset}/index.html?tuned=1`, { redirect: 'manual' });
+  assert.equal(opened.status, 302);
+  const keyedPagePath = String(opened.headers.get('location'));
+  assert.match(keyedPagePath, new RegExp(`^/frames/[0-9a-f]{64}/whiteboards/pages/${pageMedia.asset}/index\\.html\\?tuned=1$`));
+  const keyedPageBase = `${running().base}${keyedPagePath.replace(/index\.html\?tuned=1$/, '')}`;
+  const pageUrl = (memberPath: string) => `${keyedPageBase}${memberPath}`;
+  assert.equal((await fetch(pageUrl('shots/before.png').replace(/\/frames\/[0-9a-f]{64}\//, `/frames/${'0'.repeat(64)}/`))).status, 404, 'a wrong key serves nothing');
   const servedPage = await fetch(pageUrl('index.html'));
   assert.equal(servedPage.status, 200);
   assert.match(String(servedPage.headers.get('content-security-policy')), /^sandbox allow-scripts/);
