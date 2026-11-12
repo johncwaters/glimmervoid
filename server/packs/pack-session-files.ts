@@ -79,6 +79,7 @@ function createPackSessionFiles({ root }: { root: string }): PackSessionFiles {
         warnings.push(`The pack ${contribution.packName} gives sessions nothing: ${folder} cannot be written: ${writeError}`);
         continue;
       }
+      warnings.push(...planned.warnings);
       written.push(contribution);
     }
     return { written, warnings };

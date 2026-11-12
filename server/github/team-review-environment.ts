@@ -6,6 +6,7 @@ import { cachedAgentResolvability } from '../../session/adapters/index.ts';
 import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
 import type { ReviewAgentOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
+import { parseSkillFrontmatter } from '../../shared/skill-frontmatter-core.ts';
 import { clock } from '../../shared/clock.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
@@ -40,7 +41,7 @@ async function scanSkillFolder(skillsFolder: string, source: ReviewSkillOffer['s
   const skills: ReviewSkillOffer[] = [];
   for (const entryName of entryNames) {
     const markdown = await readTextOrNull(path.join(skillsFolder, entryName, SKILL_FILE_NAME));
-    const frontmatter = markdown === null ? null : environmentCore.parseSkillFrontmatter(markdown);
+    const frontmatter = markdown === null ? null : parseSkillFrontmatter(markdown);
     if (frontmatter) skills.push({ name: `${namePrefix}${frontmatter.name}`, description: frontmatter.description, source });
   }
   return skills;

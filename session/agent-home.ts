@@ -6,10 +6,10 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import { mergeSharedKeys } from "./core/agent-account-core.ts";
 import { takeClaudeConfigLock } from "./adapters/claude-trust.ts";
-import type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
+import type { AgentHomeLinkKind, AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
 
 const GENERATED_HOME_MODE = 0o700;
 const GENERATED_FILE_MODE = 0o600;
@@ -26,6 +26,7 @@ interface AgentHomeOptions {
   generatedFiles?: Readonly<Record<string, string>>;
   isClean?: boolean;
   isAccountHome?: boolean;
+  packSkillDirs?: readonly string[];
 }
 
 interface ScratchAgentHomeOptions {
@@ -187,11 +188,12 @@ function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedH
   };
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const configTexts = readConfigTexts(profile, realHome, generatedHome);
   if ("refusal" in configTexts) return { kind: "refused", reason: configTexts.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
   const privateFolderNames = new Set(generatedEntries.filter((entry) => entry.kind === "folder").map((entry) => entry.name));
+  if (packSkillDirs.length > 0) privateFolderNames.add(SKILLS_ENTRY_NAME);
   return planAgentHome({
     profile,
     realHome,
@@ -203,6 +205,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     platform,
     isClean: isClean === true,
     isAccountHome: isAccountHome === true,
+    packSkillDirs,
   });
 }
 
@@ -250,6 +253,54 @@ function adoptFolder(entryPath: string, target: string, childNames: readonly str
   fs.rmdirSync(entryPath);
 }
 
+function createLink(entryPath: string, target: string, linkKind: AgentHomeLinkKind): void {
+  if (linkKind === "hardlink") {
+    fs.linkSync(target, entryPath);
+    return;
+  }
+  fs.symlinkSync(target, entryPath, linkKind === "junction" ? "junction" : undefined);
+}
+
+function linkChild(childPath: string, target: string, platform: NodeJS.Platform): void {
+  const targetStat = statOrNull(target);
+  if (targetStat === null) return;
+  createLink(childPath, target, linkKindFor(targetStat.isDirectory() ? "folder" : "file", platform));
+}
+
+function writePackSkillsFolder(generatedHome: string, entryPath: string, links: readonly { name: string; target: string }[]): void {
+  fs.mkdirSync(entryPath, { recursive: true, mode: GENERATED_HOME_MODE });
+  fs.writeFileSync(path.join(entryPath, PACK_SKILLS_MARKER_NAME), "", { mode: GENERATED_FILE_MODE });
+  const targetByChildName = new Map(links.map((link) => [link.name, link.target]));
+  for (const childName of childNamesOf(entryPath)) {
+    if (childName === PACK_SKILLS_MARKER_NAME) continue;
+    const childPath = path.join(entryPath, childName);
+    const childStat = fs.lstatSync(childPath);
+    const target = targetByChildName.get(childName);
+    if (target !== undefined && isLinkTo(childPath, childStat, target)) {
+      targetByChildName.delete(childName);
+      continue;
+    }
+    if (childStat.isSymbolicLink()) {
+      fs.unlinkSync(childPath);
+      continue;
+    }
+    if (target !== undefined) setAside(generatedHome, childPath, `${SKILLS_ENTRY_NAME}-${childName}`);
+  }
+  for (const [childName, target] of targetByChildName) linkChild(path.join(entryPath, childName), target, process.platform);
+}
+
+function clearPackSkillsFolder(generatedHome: string, entryPath: string, keepsAgentWrites: boolean): void {
+  for (const childName of childNamesOf(entryPath)) {
+    const childPath = path.join(entryPath, childName);
+    if (childName === PACK_SKILLS_MARKER_NAME || fs.lstatSync(childPath).isSymbolicLink()) {
+      fs.unlinkSync(childPath);
+      continue;
+    }
+    if (!keepsAgentWrites) setAside(generatedHome, childPath, `${SKILLS_ENTRY_NAME}-${childName}`);
+  }
+  if (childNamesOf(entryPath).length === 0) fs.rmdirSync(entryPath);
+}
+
 function applyStep(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep): void {
   const entryPath = stepEntryPath(profile, generatedHome, step);
   switch (step.kind) {
@@ -270,12 +321,14 @@ function applyStep(profile: AgentHomeProfile, generatedHome: string, step: Agent
     case "adopt":
       adoptFolder(entryPath, step.target, step.childNames);
       return;
+    case "write-pack-skills":
+      writePackSkillsFolder(generatedHome, entryPath, step.links);
+      return;
+    case "clear-pack-skills":
+      clearPackSkillsFolder(generatedHome, entryPath, step.keepsAgentWrites);
+      return;
   }
-  if (step.linkKind === "hardlink") {
-    fs.linkSync(step.target, entryPath);
-    return;
-  }
-  fs.symlinkSync(step.target, entryPath, step.linkKind === "junction" ? "junction" : undefined);
+  createLink(entryPath, step.target, step.linkKind);
 }
 
 function stepFailure(profile: AgentHomeProfile, generatedHome: string, step: AgentHomeStep, error: unknown): string {
@@ -456,26 +509,26 @@ function releaseUnheldAccountHomeSecrets(profile: AgentHomeProfile, accountFolde
   releaseUnheldAgentHomeSecrets(accountHomeOf(profile, accountFolder));
 }
 
-function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, accountFolder: string): { home: string } | { refusal: string } {
+function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, accountFolder: string, packSkillDirs: readonly string[]): { home: string } | { refusal: string } {
   const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
   if (refusal !== null) return { refusal };
   const accountHome = accountHomeOf(profile, accountFolder);
   holdAgentHome(accountHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true, packSkillDirs });
   if ("refusal" in prepared) releaseAgentHome(accountHome);
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null): { home: string } | { refusal: string } {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null, packSkillDirs: readonly string[] = []): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
-  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, renderBlock, renderGeneratedFiles, accountFolder);
+  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, renderBlock, renderGeneratedFiles, accountFolder, packSkillDirs);
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean, packSkillDirs });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }

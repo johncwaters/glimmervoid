@@ -603,6 +603,7 @@ class Session extends EventEmitter {
       extraUserHooks,
       scratchAgentHome,
       isCleanHome,
+      packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
@@ -1662,6 +1663,7 @@ class Session extends EventEmitter {
     this._resetDetectionSources({ quiet: false });
 
     const remoteLaunch = this._getRemoteLaunch();
+    this._spawnPackLaunch = remoteLaunch === null && !this._isCleanHome ? this._getPackAgentLaunch() : null;
     if (remoteLaunch !== null && this.agentId !== DEFAULT_AGENT_ID && this.agentId !== "codex") {
       this._abandonSpawn(new Error("A Coder workspace session runs Claude Code or Codex only"));
       return;
@@ -1727,7 +1729,6 @@ class Session extends EventEmitter {
     this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
     this._resumeNoteAwaitingTurn = this._pendingResumeNote;
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
-    this._spawnPackLaunch = remoteLaunch === null && !this.ephemeral && !this._isCleanHome ? this._getPackAgentLaunch() : null;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,

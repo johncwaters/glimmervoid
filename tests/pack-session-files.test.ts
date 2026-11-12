@@ -48,7 +48,7 @@ async function startedSession(directory: string, packSessionFiles: PackSessionFi
   }
 }
 
-test('an approved pack reaches a Claude Code session as a plugin of approved-byte copies and a first-prompt context line, and never a clean-home or ephemeral one', async () => {
+test('an approved pack reaches a Claude Code session as a plugin of approved-byte copies and a first-prompt context line, and its spawned children, never a clean-home one', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-session-'));
   try {
     const root = path.join(directory, 'pack-session-files');
@@ -66,10 +66,11 @@ test('an approved pack reaches a Claude Code session as a plugin of approved-byt
     assert.deepEqual(operator.launchArgs.slice(pluginAt, pluginAt + 2), ['--plugin-dir', path.join(folder, 'claude')], operator.launchArgs.join(' '));
     assert.ok(operator.promptNotes.some((note) => note.includes(`Pack acme-team context: ${contextPath}.`)), operator.promptNotes.join('\n'));
 
-    for (const isolated of [await startedSession(directory, packSessionFiles, 'clean'), await startedSession(directory, packSessionFiles, 'operator', { ephemeral: true })]) {
-      assert.equal(isolated.launchArgs.includes('--plugin-dir'), false, isolated.launchArgs.join(' '));
-      assert.equal(isolated.promptNotes.some((note) => note.includes('Pack acme-team')), false);
-    }
+    const spawnedChild = await startedSession(directory, packSessionFiles, 'operator', { ephemeral: true });
+    assert.equal(spawnedChild.launchArgs.includes('--plugin-dir'), true, spawnedChild.launchArgs.join(' '));
+    const cleanHome = await startedSession(directory, packSessionFiles, 'clean');
+    assert.equal(cleanHome.launchArgs.includes('--plugin-dir'), false, cleanHome.launchArgs.join(' '));
+    assert.equal(cleanHome.promptNotes.some((note) => note.includes('Pack acme-team')), false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -93,7 +94,7 @@ test('a re-approved pack keeps the copy live sessions started with until the nex
 
     await restarted.sync([]);
     assert.deepEqual(fs.readdirSync(root), []);
-    assert.deepEqual(restarted.launch(), { contextLines: [], claudePluginDirs: [] });
+    assert.deepEqual(restarted.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [] });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

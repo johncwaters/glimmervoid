@@ -8,6 +8,7 @@ import copilot from '../session/adapters/copilot.ts';
 import kimi from '../session/adapters/kimi.ts';
 import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
+import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
 const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), isCleanHome: false };
@@ -540,5 +541,45 @@ test('a copilot spawn trusts its folder root in the real copilot state file once
     assert.deepEqual(promotedState, { firstLaunchAt: 'then', trustedFolders: ['/elsewhere', worktreeRoot, otherRoot], loggedInUsers: [{ login: 'operator' }] });
   } finally {
     fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a kimi home carries approved pack skills as namespaced copies beside the operator skills, keeps an agent-written skill, and gives the real skills folder back untouched once no pack has skills', async () => {
+  const packRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-skills-'));
+  try {
+    const packSessionFiles = createPackSessionFiles({ root: packRoot });
+    const skillText = '---\nname: deploy\ndescription: Ship it\n---\nSay REDLYNX.\n';
+    const skill = (skillName: string) => ({ skillName, filesByPath: new Map([['SKILL.md', Buffer.from(skillText)], ['run.sh', Buffer.from('echo run\n')]]) });
+    await packSessionFiles.sync([{ packName: 'acme', fingerprint: 'f'.repeat(64), context: null, skills: [skill('deploy'), skill('mine')] }]);
+    const packSkillDirs = packSessionFiles.launch()?.namedSkillDirs ?? [];
+    withKimiHomes(({ realHome, env }) => {
+      assert.equal(kimi.hooks.injection.kind, 'generated-home');
+      if (kimi.hooks.injection.kind !== 'generated-home') return;
+      const injection = kimi.hooks.injection;
+      fs.mkdirSync(path.join(realHome, 'skills', 'acme-mine'), { recursive: true });
+      fs.writeFileSync(path.join(realHome, 'skills', 'acme-mine', 'SKILL.md'), 'operator skill\n');
+      const prepared = injection.prepareHome(env, { ...KIMI_LAUNCH, packSkillDirs });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      const generatedSkills = path.join(prepared.home, 'skills');
+      try {
+        assert.equal(fs.lstatSync(generatedSkills).isDirectory(), true);
+        assert.match(fs.readFileSync(path.join(generatedSkills, 'acme-deploy', 'SKILL.md'), 'utf8'), /^---\nname: acme-deploy\ndescription: Ship it\n---\nSay REDLYNX\.\n$/);
+        assert.equal(fs.readFileSync(path.join(generatedSkills, 'acme-mine', 'SKILL.md'), 'utf8'), 'operator skill\n');
+        fs.mkdirSync(path.join(generatedSkills, 'agent-made'));
+        injection.releaseHome(prepared.home);
+        const preparedAgain = injection.prepareHome(env, { ...KIMI_LAUNCH, packSkillDirs });
+        assert.ok('home' in preparedAgain, 'refusal' in preparedAgain ? preparedAgain.refusal : '');
+        assert.equal(fs.existsSync(path.join(generatedSkills, 'agent-made')), true);
+        injection.releaseHome(preparedAgain.home);
+        const preparedWithoutPacks = injection.prepareHome(env, KIMI_LAUNCH);
+        assert.ok('home' in preparedWithoutPacks, 'refusal' in preparedWithoutPacks ? preparedWithoutPacks.refusal : '');
+        assert.equal(fs.realpathSync(generatedSkills), fs.realpathSync(path.join(realHome, 'skills')));
+        assert.deepEqual(fs.readdirSync(path.join(realHome, 'skills')), ['acme-mine']);
+      } finally {
+        injection.releaseHome(prepared.home);
+      }
+    });
+  } finally {
+    fs.rmSync(packRoot, { recursive: true, force: true });
   }
 });

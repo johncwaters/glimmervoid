@@ -48,7 +48,7 @@ interface SettingsFileInjection {
 interface HookedAgentHome {
   homeEnvName: string;
   readTrust(sessionFolder: string): Promise<void>;
-  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder?: string | null): { home: string; isTrusted: boolean } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder?: string | null, packSkillDirs?: readonly string[]): { home: string; isTrusted: boolean } | { refusal: string };
   releaseHome(home: string, sessionFolder: string): void;
 }
 
@@ -93,6 +93,7 @@ interface GeneratedHomeLaunch {
   folderTrustRoot: string;
   isCleanHome: boolean;
   accountFolder?: string | null;
+  packSkillDirs?: readonly string[];
 }
 
 interface GeneratedHomeInjection {
