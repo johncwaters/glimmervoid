@@ -1,5 +1,6 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -589,7 +590,7 @@ test('a started PR action takes one final report from the holder of its token th
 test('a pack copied into the packs directory waits for one approval in Settings listing its files, commands and requires, then shows its namespaced buttons and actions in My PRs and stays approved across a restart; any file edit re-asks, even after the folder is replaced, and a missing require turns it off with a note', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-packs-'));
   const statePath = path.join(homeDir, 'packs-state.json');
-  const packStore = createPackStore({ homeDir, statePath, env: process.env, log: console, reloadDebounceMs: 10 });
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath, env: process.env, log: console, reloadDebounceMs: 10 });
   try {
     const packDir = path.join(homeDir, 'packs', 'sample');
     const copySamplePackScopedToAcmeApp = () => {
@@ -642,7 +643,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
 
     await approveThePack();
     assert.deepEqual(await packStore.approve(sampleRow()?.fingerprint ?? ''), { ok: false, error: 'That pack changed or is already approved; check the list again.' });
-    const restartedStore = createPackStore({ homeDir, statePath, env: process.env, log: console });
+    const restartedStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath, env: process.env, log: console });
     await restartedStore.start();
     assert.equal(restartedStore.statusFrame().packs.find((row) => row.name === 'sample')?.state, 'approved');
     restartedStore.stop();
@@ -673,8 +674,8 @@ test('a pack copied into the packs directory waits for one approval in Settings 
 
 test('a pack approval survives approving another pack while it is unreadable, an approved pack missing a require shows no theme, and an approval that cannot be saved is refused', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-approvals-'));
-  const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
-  const blockedStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs', 'alpha', 'pack.json', 'packs-state.json'), env: process.env, log: { warn: () => {} } });
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
+  const blockedStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: path.join(homeDir, 'packs', 'alpha', 'pack.json', 'packs-state.json'), env: process.env, log: { warn: () => {} } });
   try {
     for (const name of ['alpha', 'beta']) {
       fs.mkdirSync(path.join(homeDir, 'packs', name), { recursive: true });

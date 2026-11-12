@@ -47,7 +47,7 @@ import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.t
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
 import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
-import { mountFrameOpenRoute, mountKeyedFrameRoutes, servePackFile } from './http/backend-http-frames.ts';
+import { mountFrameOpenRoute, mountKeyedFrameRoutes } from './http/backend-http-frames.ts';
 import type { PackFileSource } from './http/backend-http-frames.ts';
 import { serveClientDir } from './http/backend-http-static.ts';
 import { clock } from '../../shared/clock.ts';
@@ -622,10 +622,11 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     next();
   });
 
-  app.get('/packs/:packName/:accessKey/files/*filePath', (req, res) => {
-    servePackFile(req, res, dependencies.getPackFile ?? null);
+  mountKeyedFrameRoutes(app, {
+    secret: frameSecret,
+    serveBoardPageFile: (req, res, assetId, memberPath) => serveBoardPageFile(req, res, dependencies.getWhiteboardAssets?.() ?? null, assetId, memberPath),
+    packFileSource: dependencies.getPackFile ?? null,
   });
-  mountKeyedFrameRoutes(app, { secret: frameSecret, serveBoardPageFile: (req, res, assetId, memberPath) => serveBoardPageFile(req, res, dependencies.getWhiteboardAssets?.() ?? null, assetId, memberPath) });
 
   if (remoteAuth) {
     app.use(remoteAuth.httpMiddleware);

@@ -220,6 +220,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     recordOutcome,
     logger: console,
   };
+  const frameSecret = crypto.randomBytes(32);
   const app = createBackendHttpApp({
     ...agentIngressDependencies,
     staticDir,
@@ -233,7 +234,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     openUrlOnHost: createHostUrlOpener(),
     isLinkPreviewEnabled: () => config.linkPreviews !== false,
     fetchLinkPreview: createLinkPreviewFetcher(),
-    getPackFile: (packName, accessKey, filePath) => laneAssembly.packStore.servableFile(packName, accessKey, filePath),
+    getPackFile: (packName, fingerprint, filePath) => laneAssembly.packStore.servableFile(packName, fingerprint, filePath),
+    frameSecret,
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
   agentIngressServer.listen(0, AGENT_INGRESS_HOST);
@@ -361,6 +363,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let githubAppTokenOfLink: () => string | null = () => null;
   const laneAssembly = createBackendLanes({
     config,
+    frameSecret,
     githubAppToken: () => githubAppTokenOfLink(),
     appVersion: packageJson.version,
     provenanceWriterId,

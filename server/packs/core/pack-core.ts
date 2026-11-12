@@ -20,15 +20,21 @@ function packPanels(pack: PackOnDisk): PackUi['panels'] {
   return pack.ui?.ok ? pack.ui.value.panels : [];
 }
 
-function packFileUrl(pack: PackOnDisk, accessKey: string, filePath: string): string {
-  return `/packs/${encodeURIComponent(pack.header.name)}/${accessKey}/files/${filePath.split('/').map(encodeURIComponent).join('/')}`;
+type FramePathOf = (innerPath: string) => string | null;
+
+function packFileUrl(pack: PackOnDisk, filePath: string, framePathOf: FramePathOf): string | null {
+  return framePathOf(`packs/${pack.header.name}/${pack.fingerprint}/${filePath}`);
 }
 
-export function approvedPackPanels(packs: readonly PackOnDisk[], accessKeyOf: (pack: PackOnDisk) => string): PacksStatus['panels'] {
-  return packs.flatMap((pack) => packPanels(pack).map((panel) => ({
-    viewId: `pack:${pack.header.name}/${panel.id}`, pack: pack.header.name, label: panel.label, entryUrl: packFileUrl(pack, accessKeyOf(pack), panel.entry),
-    iconUrl: panel.icon ? packFileUrl(pack, accessKeyOf(pack), panel.icon) : null, reads: panel.reads, acts: panel.acts,
-  })));
+export function approvedPackPanels(packs: readonly PackOnDisk[], framePathOf: FramePathOf): PacksStatus['panels'] {
+  return packs.flatMap((pack) => packPanels(pack).flatMap((panel) => {
+    const entryUrl = packFileUrl(pack, panel.entry, framePathOf);
+    if (entryUrl === null) return [];
+    return [{
+      viewId: `pack:${pack.header.name}/${panel.id}`, pack: pack.header.name, label: panel.label, entryUrl,
+      iconUrl: panel.icon ? packFileUrl(pack, panel.icon, framePathOf) : null, reads: panel.reads, acts: panel.acts,
+    }];
+  }));
 }
 
 const PACK_FILE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {

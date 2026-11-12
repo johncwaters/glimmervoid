@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,6 +7,7 @@ import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
+import { keyedFramePath } from '../core/frame-capability-core.ts';
 import { approvedPackPanels, approvedPackThemes, packRow, pendingPackNote } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
@@ -23,22 +23,22 @@ type PackStore = EventEmitter & {
   stop(): void;
   setListedPaths(listedPaths: readonly string[]): void;
   statusFrame(): PacksStatus;
-  servableFile(packName: string, accessKey: string, filePath: string): Buffer | null;
+  servableFile(packName: string, fingerprint: string, filePath: string): Buffer | null;
   approvedPacks(): Promise<ApprovedPacks>;
   approve(fingerprint: string): Promise<PackApproveResult>;
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
 };
 
-export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
+export function createPackStore({ homeDir, statePath, env, log, frameSecret, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
   homeDir: string;
+  frameSecret: Buffer;
   statePath: string | null;
   env: NodeJS.ProcessEnv;
   log: PackStoreLogger;
   reloadDebounceMs?: number;
 }): PackStore {
   const emitter = new EventEmitter();
-  const accessKeySecret = crypto.randomBytes(32);
   let approvedFingerprints = new Set<string>();
   let approvalsLoadError: string | null = null;
   let approvalWrites: Promise<unknown> = Promise.resolve();
@@ -170,19 +170,11 @@ export function createPackStore({ homeDir, statePath, env, log, reloadDebounceMs
 
   function statusFrame(): PacksStatus {
     const inUse = packsInUse();
-    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, packAccessKey), warnings: homeWarning === null ? [] : [homeWarning] };
+    return { type: 'packs-status', packs: rows(), themes: approvedPackThemes(inUse), panels: approvedPackPanels(inUse, (innerPath) => keyedFramePath(frameSecret, innerPath)), warnings: homeWarning === null ? [] : [homeWarning] };
   }
 
-  function packAccessKey(pack: PackOnDisk): string {
-    return crypto.createHmac('sha256', accessKeySecret).update(`${pack.header.name}\0${pack.fingerprint}`).digest('hex');
-  }
-
-  function servableFile(packName: string, accessKey: string, filePath: string): Buffer | null {
-    const offeredKey = Buffer.from(accessKey);
-    const pack = packsInUse().find((candidate) => {
-      const expectedKey = Buffer.from(packAccessKey(candidate));
-      return candidate.header.name === packName && expectedKey.length === offeredKey.length && crypto.timingSafeEqual(expectedKey, offeredKey);
-    });
+  function servableFile(packName: string, fingerprint: string, filePath: string): Buffer | null {
+    const pack = packsInUse().find((candidate) => candidate.header.name === packName && candidate.fingerprint === fingerprint);
     return pack?.filesByPath.get(filePath) ?? null;
   }
 

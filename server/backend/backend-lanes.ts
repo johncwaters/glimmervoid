@@ -86,6 +86,7 @@ interface BackendLaneOptions {
 
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
+  frameSecret: Buffer;
   appVersion: string;
   configStore: ConfigStore;
   githubAppToken: () => string | null;
@@ -114,6 +115,7 @@ interface BackendLaneDependencies {
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
     config,
+    frameSecret,
     configStore,
     githubAppToken,
     sessions,
@@ -294,7 +296,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       }),
     }),
   });
-  const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger });
+  const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger, frameSecret });
   const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {

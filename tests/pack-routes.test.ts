@@ -1,5 +1,6 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -14,24 +15,25 @@ import { PACK_DATA_MAX_BYTES, PanelToHost } from '../shared/contracts/pack-bridg
 import { PANEL_ACTION_MAX_BYTES, panelActionDecision } from '../shared/pack-action-core.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
-test('a pack panel file is served only from an approved pack at its current content through its access key, even where remote pairing guards every other route, inside a sandbox that allows no connections, and the dashboard frames nothing from another origin', async () => {
+test('a pack panel file is served only from an approved pack at its current content through its keyed frame URL, even where remote pairing guards every other route, inside a sandbox that allows no connections, and the dashboard frames nothing from another origin', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-routes-'));
   const packDir = path.join(homeDir, 'packs', 'ci');
   fs.mkdirSync(path.join(packDir, 'panel'), { recursive: true });
   fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: 'ci', version: 1, ui: { panels: [{ id: 'board', label: 'CI', entry: 'panel/index.html' }] } }));
   fs.writeFileSync(path.join(packDir, 'panel', 'index.html'), '<!doctype html><p>ci</p>');
-  const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
+  const frameSecret = crypto.randomBytes(32);
+  const packStore = createPackStore({ homeDir, frameSecret, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} } });
   const server = http.createServer(createBackendHttpApp({
     staticDir: null, configStore: { configPath: path.join(homeDir, 'config.json') }, remote: { allowedOrigins: [] }, remoteAuth: { httpMiddleware: (_req, res) => { res.status(401).end(); }, mountPairRoutes: () => {} }, allowedHosts: [], listenerPortsFor: () => [], pageToken: 'page',
     hookRouter: { handle: () => ({ status: 200, reason: 'ok' }) }, getSession: () => null, getUsage: () => ({ ingestStatusline: () => {} }),
     getPackFile: (packName, fingerprint, filePath) => packStore.servableFile(packName, fingerprint, filePath),
+    frameSecret,
   }));
   try {
     await packStore.start();
     const port = await listenOnLoopback(server);
     const fetchPath = (urlPath: string) => fetch(`http://127.0.0.1:${port}${urlPath}`);
     const pendingRow = packStore.statusFrame().packs[0];
-    assert.equal((await fetchPath(`/packs/ci/${pendingRow?.fingerprint}/files/panel/index.html`)).status, 404);
     assert.deepEqual(packStore.statusFrame().panels, []);
     const guardedRoute = await fetchPath('/control-token');
     assert.equal(guardedRoute.status, 401);
@@ -41,8 +43,8 @@ test('a pack panel file is served only from an approved pack at its current cont
     const [panel] = packStore.statusFrame().panels;
     assert.equal(panel?.viewId, 'pack:ci/board');
     const pendingUrl = panel?.entryUrl ?? '';
-    assert.match(pendingUrl, /^\/packs\/ci\/[0-9a-f]{64}\/files\/panel\/index\.html$/);
-    assert.equal((await fetchPath(`/packs/ci/${pendingRow?.fingerprint}/files/panel/index.html`)).status, 404);
+    assert.equal(pendingUrl, `/frames/${pendingUrl.split('/')[2]}/packs/ci/${pendingRow?.fingerprint}/panel/index.html`);
+    assert.equal((await fetchPath(`/packs/ci/${pendingUrl.split('/')[2]}/files/panel/index.html`)).status, 401, 'the old access key route is gone');
     const served = await fetchPath(pendingUrl);
     assert.equal(served.status, 200);
     assert.equal(await served.text(), '<!doctype html><p>ci</p>');
@@ -60,7 +62,7 @@ test('a pack panel file is served only from an approved pack at its current cont
 
     assert.equal((await fetchPath(pendingUrl.replace('panel/index.html', 'panel%2F..%2F..%2Fpack.json'))).status, 404);
     assert.equal((await fetchPath(pendingUrl.replace('index.html', 'missing.html'))).status, 404);
-    assert.equal((await fetchPath(`/packs/ci/${'0'.repeat(64)}/files/panel/index.html`)).status, 404);
+    assert.equal((await fetchPath(pendingUrl.replace(/^\/frames\/[0-9a-f]{64}\//, `/frames/${'0'.repeat(64)}/`))).status, 404);
 
     fs.writeFileSync(path.join(packDir, 'panel', 'index.html'), '<!doctype html><p>changed</p>');
     await packStore.approvedPacks();
@@ -80,7 +82,7 @@ function writePanelPack(packDir: string, packName: string): void {
 }
 
 async function startPackStorage(homeDir: string) {
-  const packStore = createPackStore({ homeDir, statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: path.join(homeDir, 'packs-state.json'), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   await packStore.start();
   const approvePending = async () => {
     for (const row of packStore.statusFrame().packs.filter((candidate) => candidate.state === 'pending')) assert.deepEqual(await packStore.approve(row.fingerprint ?? ''), { ok: true });

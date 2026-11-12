@@ -3,7 +3,7 @@ import { keyedFramePath, verifiedFrameRequest } from '../../core/frame-capabilit
 import { packFileHeaders } from '../../packs/core/pack-core.ts';
 import { FRAME_OPEN_ROUTE, FRAME_ROUTE } from '../../../shared/contracts/whiteboard.ts';
 
-export type PackFileSource = (packName: string, accessKey: string, filePath: string) => Buffer | null;
+export type PackFileSource = (packName: string, fingerprint: string, filePath: string) => Buffer | null;
 const FRAME_OPEN_KEY = FRAME_OPEN_ROUTE.slice(FRAME_ROUTE.length + 1);
 
 type BoardPageFileServer = (req: Request, res: Response, assetId: string, memberPath: string) => void;
@@ -13,10 +13,8 @@ function requestedFilePath(splat: unknown): string | null {
   return splat.every((segment) => typeof segment === 'string') ? splat.join('/') : null;
 }
 
-export function servePackFile(req: Request, res: Response, packFileSource: PackFileSource | null): void {
-  const filePath = requestedFilePath(req.params.filePath);
-  const bytes = filePath === null ? null : packFileSource?.(String(req.params.packName), String(req.params.accessKey), filePath) ?? null;
-  if (filePath === null || bytes === null) {
+function servePackFile(req: Request, res: Response, bytes: Buffer | null, filePath: string): void {
+  if (bytes === null) {
     res.status(404).end();
     return;
   }
@@ -26,7 +24,7 @@ export function servePackFile(req: Request, res: Response, packFileSource: PackF
   res.end(bytes);
 }
 
-export function mountKeyedFrameRoutes(app: Express, { secret, serveBoardPageFile }: { secret: Buffer; serveBoardPageFile: BoardPageFileServer }): void {
+export function mountKeyedFrameRoutes(app: Express, { secret, serveBoardPageFile, packFileSource }: { secret: Buffer; serveBoardPageFile: BoardPageFileServer; packFileSource: PackFileSource | null }): void {
   app.get(`${FRAME_ROUTE}/:key/*innerPath`, (req, res, next) => {
     const innerPath = requestedFilePath(req.params.innerPath);
     const frame = innerPath === null ? null : verifiedFrameRequest(secret, String(req.params.key), innerPath);
@@ -41,6 +39,10 @@ export function mountKeyedFrameRoutes(app: Express, { secret, serveBoardPageFile
     const [family, kind, scopeId] = frame.scope;
     if (family === 'whiteboards' && kind === 'pages' && scopeId !== undefined) {
       serveBoardPageFile(req, res, scopeId, frame.restPath);
+      return;
+    }
+    if (family === 'packs' && kind !== undefined && scopeId !== undefined) {
+      servePackFile(req, res, packFileSource?.(kind, scopeId, frame.restPath) ?? null, frame.restPath);
       return;
     }
     res.status(404).end();
