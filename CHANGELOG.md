@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`glimmervoid vault` no longer reports its connection file as malformed while Glimmervoid is starting.** Glimmervoid now writes the file whole in one step, so a vault companion started at the same moment reads either the old file or the new one, never a half-written one.
 - **New worktrees install dependencies even when Glimmervoid was started without npm or pnpm on its PATH.** A Glimmervoid started from a login item, a service manager or a desktop launcher often gets a short PATH that leaves out Homebrew, Volta, pnpm and similar folders, so every new worktree showed "spawn pnpm ENOENT". Glimmervoid now also looks in your login shell's PATH and in the usual install folders, once per run, and uses what it finds for dependency installs only. When the tool really is missing, the warning says so in plain words instead of quoting the spawn error. A worktree removed before its install started no longer shows a warning.
 - **Close the keyboard on your phone.** The terminal's key row now ends with a keyboard key: press it to put the keyboard away and read the whole terminal, and press it again (or tap the terminal) to type. The key is highlighted while the keyboard is open. On an iPhone the keyboard's Return key now reads "send", since it submits your prompt, so it no longer looks like Safari's checkmark is the way to send.
 

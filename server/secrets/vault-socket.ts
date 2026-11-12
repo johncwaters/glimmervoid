@@ -9,6 +9,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { isAuthorizedCompanion, localCompanionSocketUrl } from '../core/vault-listener-core.ts';
 import { VAULT_REPLACED_CLOSE_CODE, VAULT_SOCKET_PATH, VaultCompanionMessage, VaultJob } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
+import { writeTextAtomic } from '../json-file.ts';
 import type { CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 import { clock } from '../../shared/clock.ts';
 
@@ -185,8 +186,7 @@ function createVaultSocket({ envToken, companionFile, legacyCompanionFile = null
     if (url === null) return;
     const text = `${JSON.stringify(isPerBootToken ? { url, token } : { url })}\n`;
     await fsp.mkdir(path.dirname(companionFile), { recursive: true, mode: COMPANION_FOLDER_MODE });
-    await fsp.writeFile(companionFile, text, { mode: COMPANION_FILE_MODE });
-    await fsp.chmod(companionFile, COMPANION_FILE_MODE);
+    await writeTextAtomic(companionFile, text, { mode: COMPANION_FILE_MODE, enforceMode: true });
     if (legacyCompanionFile !== null) await fsp.rm(legacyCompanionFile, { force: true });
     publishedText = text;
     process.once('exit', forgetLocalAddress);
