@@ -28,7 +28,6 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/trace-wiring.ts': { awakeOnly: 'prunes local trace files' },
   'server/uploads-wiring.ts': { awakeOnly: 'prunes local uploads' },
   'server/race/race-wiring.ts': { awakeOnly: 'judges local races that only run while awake' },
-  'server/secrets/vault-socket.ts': { awakeOnly: 'heartbeat to a connected vault companion' },
   'server/ws-heartbeat.ts': { awakeOnly: 'pings connected dashboard sockets' },
   'server/packs/core/pack-preview-core.ts': { awakeOnly: 'browser script text for a pack preview page, not a server timer' },
 };

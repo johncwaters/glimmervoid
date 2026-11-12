@@ -527,7 +527,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     usage: 'need <NAME>...',
     positionals: { usage: '<NAME>...', min: 1, max: MAX_NAMES_PER_NEED },
     options: [{ name: 'wait', type: 'boolean', summary: 'Wait a few minutes for the operator to approve instead of returning at once' }],
-    summary: "Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 companion offline, 1 failed",
+    summary: "Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 no password manager vault chosen, 1 failed",
     missingArgumentHint: 'this command needs secret names, for example "glimmervoid need OPENAI_API_KEY"',
   },
   arena: {
@@ -563,5 +563,5 @@ function agentCommandSpec(verb: AgentApiVerb): CommandSpec {
   return { name: verb, summary, missingArgumentHint, positionals, options, subcommands, isPassthrough };
 }
 
-export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, tokensMatch, MAX_LIVE_CHILDREN, REMOTE_URL_PATTERN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
+export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REMOTE_URL_PATTERN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
 export type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree };

@@ -213,12 +213,10 @@ const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be a
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
 
 const vaultShape = {
-  host: optionalString('vault.host', true),
-  port: z.number({ error: 'vault.port must be a port from 1 to 65535 or null' }).int().min(ranges.FIXED_PORT_RANGE.min).max(ranges.FIXED_PORT_RANGE.max).nullable().optional(),
   lookIn: SecretLookIn.optional(),
 };
 const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
-export const VaultFileSettings = z.object({ ...vaultShape, token: z.string().optional(), manager: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
+export const VaultFileSettings = z.object({ ...vaultShape, manager: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();
 
 export const WorktreeFileSettings = z.object({
   root: optionalString('worktree.root'),

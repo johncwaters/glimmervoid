@@ -13,7 +13,7 @@ function selectedScenariosFor(changedPath: string): string[] {
 }
 
 test('a change selects the scenarios whose code it reaches, and a docs-only change selects none', { skip: process.platform === 'win32' }, () => {
-  assert.ok(selectedScenariosFor('server/secrets/vault-socket.ts').includes('tests/e2e/vault-telemetry.e2e.ts'));
+  assert.ok(selectedScenariosFor('server/secrets/secrets-broker.ts').includes('tests/e2e/vault-telemetry.e2e.ts'));
   assert.ok(selectedScenariosFor('server/github/github-store-probes.ts').includes('tests/e2e/watcher.e2e.ts'));
   assert.deepEqual(selectedScenariosFor('docs/configuration.md'), []);
 });

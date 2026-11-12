@@ -54,7 +54,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
   doorman             Run the doorman, which forwards each tenant's traffic, wakes its server and hosts its watcher
 
 Inside a Glimmervoid session:
@@ -76,7 +75,7 @@ Inside a Glimmervoid session:
   why <file>:<line>   Name the session, agent, task and prompt that made the commit owning a line (or pass a commit sha). Use it before changing code another session wrote, to learn what that session was asked
   whiteboard new|list|connect|disconnect|get|put|render|delete|plan Create, connect to, read, edit, plan on and delete a shared whiteboard the operator and connected sessions edit together. Use it to plan or explain a design with the operator or other sessions
   checkout <repo>     Make a worktree of a configured project, a local git repository or a GitHub owner/repo, owned by this session and removed when it closes; a GitHub repo not on this machine is cloned into the first repo root first. Use it instead of git worktree add or git clone when this session must change a repository it was not started in
-  need <NAME>...      Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 companion offline, 1 failed. Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat
+  need <NAME>...      Ask for secrets by environment variable name; once the operator approves, Glimmervoid writes them to .env.local in this session's directory and never shows the values; exits 0 delivered, 10 pending, 20 denied, 30 no password manager vault chosen, 1 failed. Use it when the task needs an API key or other secret, instead of asking the operator to paste it into chat
   arena start|races|race|judge|diff Start an Arena race, list races, read one race, start judging it, or read one contestant's diff (arena start <spec json>, arena race <race>, arena judge <race>, arena diff <race> <contestant>). Use it to race one prompt across agent setups in this session's project, follow a race, judge it, or read a contestant's diff
   comments list|reply|resolve List the open review comments the operator left on this session's changes, reply to one (comments reply <id> <text>), or resolve one (comments resolve <id>). Use it when the operator leaves a review comment on your changes, to answer it and close it
   wake in|at|cron|list|cancel Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron "0 9 * * 1-5" <text>, wake list, wake cancel <id>); times use the operator's timezone. Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping

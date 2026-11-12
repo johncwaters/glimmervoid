@@ -85,8 +85,6 @@ import { createFnoxRunner } from '../secrets/fnox-runner.ts';
 import { createWrittenSecretNames } from '../secrets/written-secret-names.ts';
 import { SecretSource } from '../../shared/contracts/secrets.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
-import { createVaultSocket } from '../secrets/vault-socket.ts';
-import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
@@ -398,21 +396,15 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
-  const vaultEnvToken = config.vault?.token ?? null;
-  const vaultBind = decideVaultBind({ host: config.vault?.host ?? null, port: config.vault?.port ?? null, envToken: vaultEnvToken });
-  const vaultSocket = createVaultSocket({
-    envToken: vaultEnvToken,
-    companionFile: vaultCompanionPath(glimmervoidHomeDir()),
-    legacyCompanionFile: legacyVaultCompanionPath(glimmervoidHomeDir()),
-    onCompanionChanged: () => undefined,
-    telemetry,
-  });
   const vaultSourceFor = (lookIn: unknown) => SecretSource.safeParse({ manager: config.vault?.manager ?? '1password', lookIn });
   const testSecretSource = async (lookIn: string): Promise<SecretSourceTestResult> => {
     const source = vaultSourceFor(lookIn);
     if (!source.success) return { ok: false, message: source.error.issues[0]?.message ?? 'Glimmervoid cannot use that vault', detail: '' };
     return fnoxRunner.test(source.data);
   };
+  for (const retiredCompanionFile of [vaultCompanionPath(glimmervoidHomeDir()), legacyVaultCompanionPath(glimmervoidHomeDir())]) {
+    fs.promises.rm(retiredCompanionFile, { force: true }).catch((error: unknown) => console.warn(`[vault] could not remove the retired companion file ${retiredCompanionFile}: ${errorMessage(error)}`));
+  }
   const fnoxRunner = createFnoxRunner({ fnoxPath: resolveFnoxPath(), runsRoot: path.join(glimmervoidHomeDir(), 'fnox-runs'), environment: process.env });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
@@ -884,13 +876,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         });
         remoteHttpServer.on('upgrade', handleUpgrade);
         lifecycleServers.push(remoteHttpServer);
-      },
-    },
-    vault: {
-      bind: vaultBind,
-      attach(vaultHttpServer: Server) {
-        vaultSocket.attach(vaultHttpServer);
-        lifecycleServers.push(vaultHttpServer);
       },
     },
   };

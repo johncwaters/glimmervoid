@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An agent's secret request now reads from your password manager the moment you allow it.** The card on the session shows which names the agent wants, where the value comes from and where it goes, with Deny, Always allow and Allow once. While Glimmervoid waits on 1Password the card says so. A failed read shows a plain message and the password manager's own output under Show details, and leaves the buttons ready to retry. You no longer type `op://` references on the card or keep `glimmervoid vault` running. Type the 1Password vault Glimmervoid reads from in Settings > Vault > Look in; Test connection checks that you are signed in to 1Password, and the vault name itself is checked on the first read. Until a vault is set, an agent's `glimmervoid need` answers `no-source` (exit code 30) and the card offers Choose source. Saved approvals that named a vault item are removed on upgrade, so each name asks once more.
 
+### Removed
+
+- **The 1Password vault companion.** `glimmervoid vault` is gone, and so are `vault.host`, `vault.port` and `vault.token` in config.json and `GLIMMERVOID_VAULT_TOKEN`: Glimmervoid reads secrets itself from the vault set in Settings > Vault. On upgrade the three keys are removed from config.json with a log line saying so, and the companion's connection file is deleted.
+
 - **Double-clicking a full-size board picture, video or page no longer zooms it.** Clicking quickly in the viewer kept zooming it to 2x by accident. On desktop, zoom with Ctrl or Cmd and the scroll wheel, or a trackpad pinch. On a phone, double-tap still switches between fit and 2x.
 
 ### Fixed

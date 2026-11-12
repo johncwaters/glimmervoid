@@ -67,4 +67,4 @@ function decideBindHost({ envHost, insecureBind }: { envHost?: unknown; insecure
   return { host, allowed: false, reason: 'non-loopback' };
 }
 
-export { remoteListenerPortPath, resolveLocalPort, normalizeRemoteConfig, validateRemoteConfig, decideBindHost, isLoopbackHost };
+export { remoteListenerPortPath, resolveLocalPort, normalizeRemoteConfig, validateRemoteConfig, decideBindHost };

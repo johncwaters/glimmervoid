@@ -4,7 +4,6 @@ interface EnvSecretBinding {
   blockName: string;
   secretKey: string;
   environmentVariable: string;
-  isEnvironmentOnly: boolean;
 }
 
 interface ResolvedEnvSecret extends EnvSecretBinding {
@@ -14,15 +13,12 @@ interface ResolvedEnvSecret extends EnvSecretBinding {
 type ConfigBlocks = Record<string, unknown>;
 
 const ENV_SECRET_BINDINGS: readonly EnvSecretBinding[] = Object.freeze([
-  { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY', isEnvironmentOnly: false },
-  { blockName: 'posthog', secretKey: 'readApiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_READ_API_KEY', isEnvironmentOnly: false },
-  { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN', isEnvironmentOnly: false },
-  { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN', isEnvironmentOnly: false },
-  { blockName: 'vault', secretKey: 'token', environmentVariable: 'GLIMMERVOID_VAULT_TOKEN', isEnvironmentOnly: true },
+  { blockName: 'posthog', secretKey: 'apiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_API_KEY' },
+  { blockName: 'posthog', secretKey: 'readApiKey', environmentVariable: 'GLIMMERVOID_POSTHOG_READ_API_KEY' },
+  { blockName: 'telegram', secretKey: 'botToken', environmentVariable: 'GLIMMERVOID_TELEGRAM_BOT_TOKEN' },
+  { blockName: 'github', secretKey: 'readToken', environmentVariable: 'GLIMMERVOID_GITHUB_READ_TOKEN' },
 ]);
 
-const ENVIRONMENT_ONLY_BINDINGS = ENV_SECRET_BINDINGS.filter((binding) => binding.isEnvironmentOnly);
-const STORED_SECRET_BINDINGS = ENV_SECRET_BINDINGS.filter((binding) => !binding.isEnvironmentOnly);
 
 type StoredSecrets = Readonly<Record<string, string>>;
 
@@ -32,7 +28,7 @@ function storedSecretKey(binding: EnvSecretBinding): string {
 
 function secretsHeldIn(config: ConfigBlocks): StoredSecrets {
   const heldByKey: Record<string, string> = {};
-  for (const binding of STORED_SECRET_BINDINGS) {
+  for (const binding of ENV_SECRET_BINDINGS) {
     const block = config[binding.blockName];
     if (!isRecord(block)) continue;
     const value = block[binding.secretKey];
@@ -44,7 +40,7 @@ function secretsHeldIn(config: ConfigBlocks): StoredSecrets {
 
 function heldSecrets(storedSecrets: StoredSecrets, envSecrets: readonly ResolvedEnvSecret[]): ResolvedEnvSecret[] {
   const envProvidedKeys = new Set(envSecrets.map(storedSecretKey));
-  const fromStore = STORED_SECRET_BINDINGS.flatMap((binding) => {
+  const fromStore = ENV_SECRET_BINDINGS.flatMap((binding) => {
     const key = storedSecretKey(binding);
     const value = storedSecrets[key];
     if (typeof value !== 'string' || value.length === 0 || envProvidedKeys.has(key)) return [];
@@ -57,7 +53,7 @@ function nextStoredSecrets(storedSecrets: StoredSecrets, effectiveConfig: Config
   const envProvidedKeys = new Set(envSecrets.map(storedSecretKey));
   const heldInConfig = secretsHeldIn(effectiveConfig);
   const nextByKey: Record<string, string> = {};
-  for (const binding of STORED_SECRET_BINDINGS) {
+  for (const binding of ENV_SECRET_BINDINGS) {
     const key = storedSecretKey(binding);
     const value = envProvidedKeys.has(key) ? storedSecrets[key] : heldInConfig[key];
     if (typeof value !== 'string' || value.length === 0) continue;
@@ -83,9 +79,8 @@ function copyOfBlock(config: ConfigBlocks, blockName: string): Record<string, un
 }
 
 function withEnvSecrets<T extends ConfigBlocks>(config: T, envSecrets: readonly ResolvedEnvSecret[]): T {
-  const withoutFileHeldEnvironmentOnlySecrets = withoutEnvSecrets(config, ENVIRONMENT_ONLY_BINDINGS);
-  if (envSecrets.length === 0) return withoutFileHeldEnvironmentOnlySecrets;
-  const overlaid: ConfigBlocks = { ...withoutFileHeldEnvironmentOnlySecrets };
+  if (envSecrets.length === 0) return config;
+  const overlaid: ConfigBlocks = { ...config };
   for (const secret of envSecrets) {
     overlaid[secret.blockName] = { ...copyOfBlock(overlaid, secret.blockName), [secret.secretKey]: secret.value };
   }

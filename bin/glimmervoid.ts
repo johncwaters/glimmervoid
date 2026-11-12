@@ -40,7 +40,6 @@ Commands:
   pair --list         List paired devices
   pair --revoke <id>  Revoke a paired device
   agent setup grok    Install the Grok hook relay, which does nothing outside Glimmervoid
-  vault               Run the vault companion that reads approved secrets from 1Password; --server <url> serves another machine
   doorman             Run the doorman, which forwards each tenant's traffic, wakes its server and hosts its watcher
 
 Inside a Glimmervoid session:
@@ -123,10 +122,6 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   'pr-action': async (parsed) => {
     const { runPrActionReportCli } = await import('../server/pr-flows-cli.ts');
     return runPrActionReportCli(parsed);
-  },
-  vault: async ({ values }) => {
-    const { runVaultCli } = await import('../cloud/vault/vault-cli.ts');
-    return runVaultCli({ serverUrl: typeof values.server === 'string' ? values.server : null, accountName: typeof values.account === 'string' ? values.account : null, newItemsVault: typeof values['new-items-vault'] === 'string' ? values['new-items-vault'] : null });
   },
   doorman: async ({ values }) => {
     const { runDoormanCli } = await import('../cloud/doorman/doorman.ts');

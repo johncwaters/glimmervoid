@@ -134,6 +134,16 @@ function dropRetiredSecretReferences(config: GlimmervoidConfig): string | null {
   return `[config] Removed ${droppedCount} saved secret approval${droppedCount === 1 ? '' : 's'} that named a vault item: secrets now read from the vault set in Settings > Vault, so each name asks again once.`;
 }
 
+
+function dropRetiredVaultCompanion(config: GlimmervoidConfig): string | null {
+  const vault: unknown = config.vault;
+  if (!isRecord(vault)) return null;
+  const droppedKeys = (['host', 'port', 'token'] as const).filter((key) => Object.hasOwn(vault, key));
+  if (droppedKeys.length === 0) return null;
+  for (const key of droppedKeys) delete vault[key];
+  return `[config] Removed ${droppedKeys.map((key) => `vault.${key}`).join(', ')}: the 1Password vault companion is gone, and secrets read from the vault set in Settings > Vault.`;
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -217,4 +227,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredVaultCompanion, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

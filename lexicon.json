@@ -620,11 +620,11 @@
     },
     {
       "name": "vault companion",
-      "definition": "The glimmervoid vault process on the operator's machine that holds a WebSocket to a Glimmervoid server's vault companion listener and reads approved secrets from the operator's vault (1Password) through a vault adapter; with none connected an approved secret answers companion offline (also: companion)"
+      "definition": "The retired glimmervoid vault process that read approved secrets from 1Password over a WebSocket to the server; removed when secrets moved to the pinned fnox helper, and now named only in history, the migration that drops vault.host, vault.port and vault.token, and the boot cleanup of its connection file (also: companion)"
     },
     {
       "name": "connection",
-      "definition": "A live WebSocket between two Glimmervoid parts: a dashboard's control or data WebSocket to the server, or the vault companion's WebSocket to a server's vault companion listener; a dropped one is retried with backoff"
+      "definition": "A live WebSocket between two Glimmervoid parts, such as a dashboard's control or data WebSocket to the server; a dropped one is retried with backoff"
     },
     {
       "name": "pane",
@@ -684,11 +684,11 @@
     },
     {
       "name": "secrets",
-      "definition": "Credentials a session needs by name (API keys, tokens): the operator approves each on the session's secret request card, the vault companion reads its value from the operator's vault through a saved reference, and Glimmervoid writes it to the session's env file and masks it everywhere it shows; Settings, Vault lists the approvals (also: secret)"
+      "definition": "Credentials a session needs by name (API keys, tokens): the operator approves each on the session's secret request card, Glimmervoid reads its value from the operator's password manager vault set in Settings, Vault, writes it to the session's env file and masks it everywhere it shows; Settings, Vault lists the approvals (also: secret)"
     },
     {
       "name": "vault",
-      "definition": "The feature that keeps the secrets agents may read: Settings, Vault lists each project's approved secrets with revoke, the vault companion address and port, and the GitHub read token lanes use; glimmervoid need, the MCP secrets tool and the glimmervoid vault companion are its other surfaces"
+      "definition": "The feature that keeps the secrets agents may read: Settings, Vault holds the password manager vault to look in with Test connection, each project's approved secrets with revoke, and the GitHub read token lanes use; glimmervoid need and the MCP secrets tool are its other surfaces"
     },
     {
       "name": "guardrails",

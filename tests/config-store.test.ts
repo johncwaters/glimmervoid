@@ -395,12 +395,14 @@ test('a config file naming retired remote Coder sessions loses the coder block, 
   });
 });
 
-test('a saved secret approval that names a vault item is dropped on load, and a name-only approval stays', () => {
+test('a saved secret approval that names a vault item and the vault companion keys are dropped on load, and a name-only approval and the vault stay', () => {
   const byProject = { '/repo/app': { OLD_KEY: { reference: 'op://vault/item/field', isAllowed: true }, NEW_KEY: { isAllowed: true } }, '/repo/old': { GONE: { reference: 'op://vault/gone/field', isAllowed: false } } };
-  withStore({ projects: [], secrets: { byProject } }, (store, configPath) => {
+  withStore({ projects: [], secrets: { byProject }, vault: { host: '0.0.0.0', port: 7444, token: 'retired-token', lookIn: 'Agents' } }, (store, configPath) => {
     const expected = { byProject: { '/repo/app': { NEW_KEY: { isAllowed: true } } } };
     assert.deepEqual(store.config.secrets, expected);
-    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).secrets, expected);
+    const savedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    assert.deepEqual(savedConfig.secrets, expected);
+    assert.deepEqual(savedConfig.vault, { lookIn: 'Agents' });
   });
 });
 
@@ -632,7 +634,7 @@ test('a config.json still carrying the retired postTurnChecks block loads and le
 });
 
 test('the environment secret bindings shown in Settings and the password leaves of the registry are the same set, so each shows as configured and never as its value', () => {
-  const settingsBindings = ENV_SECRET_BINDINGS.filter((binding) => !binding.isEnvironmentOnly);
+  const settingsBindings = ENV_SECRET_BINDINGS;
   const boundPaths = settingsBindings.map((binding) => `${binding.blockName}.${binding.secretKey}`).sort();
   const passwordPaths = [...settingsOf(SETTINGS_REGISTRY.sections), ...SETTINGS_REGISTRY.fileOnly]
     .filter((setting) => setting.control === 'password')

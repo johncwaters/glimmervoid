@@ -43,8 +43,6 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
   vault: {
-    host: '127.0.0.1',
-    port: null,
     lookIn: '',
   },
 

@@ -243,15 +243,6 @@ const OWNED_COMMAND_SPECS = {
       { name: 'update', summary: 'Pull every pack source, or the one given, and reinstall its enabled packs, which wait for approval again when changed; works inside a Glimmervoid session', positionals: OPTIONAL_PACK_SOURCE_URL },
     ],
   },
-  vault: {
-    name: 'vault',
-    summary: "Run the vault companion on the operator's machine: read approved secrets from 1Password for a Glimmervoid server's sessions",
-    options: [
-      { name: 'server', type: 'string', valueName: 'url', summary: 'The Glimmervoid server to serve, with GLIMMERVOID_VAULT_TOKEN set (default: the Glimmervoid running on this machine)' },
-      { name: 'account', type: 'string', valueName: 'name', summary: 'The 1Password account to read from, as the desktop app names it' },
-      { name: 'new-items-vault', type: 'string', valueName: 'name', summary: 'The 1Password vault that values pasted on a secret request card go into (the card can name another)' },
-    ],
-  },
   doorman: {
     name: 'doorman',
     summary: "Run the doorman: forward each tenant's traffic to its server, wake a sleeping server first, and run each tenant's watcher",
