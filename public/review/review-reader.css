@@ -2,7 +2,7 @@
 .review-reader[hidden] { display: none; }
 .review-reader:focus { outline: none; }
 .review-reader-status { margin: 0; padding: 8px 12px; color: var(--text-head); font-size: var(--type-meta); border-bottom: 1px solid var(--border-dim); }
-.review-reader[data-placement="overlay"] { position: relative; z-index: 5; min-height: 0; }
+.review-reader[data-placement="overlay"] { position: absolute; inset: var(--session-page-top, 0px) 0 0 0; z-index: 14; min-height: 0; }
 .review-reader-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(220px, 32%) minmax(0, 1fr); }
 .review-reader-files { min-height: 0; overflow-y: auto; padding: 10px 0; border-right: 1px solid var(--border-dim); --review-row-pad: 12px; --review-stat-gap: 8px; }
 .review-reader-totals { display: flex; gap: var(--review-stat-gap); margin: 0 0 8px; padding: 0 var(--review-row-pad); font: var(--type-meta) var(--font-mono); }

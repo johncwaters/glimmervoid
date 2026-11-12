@@ -971,16 +971,31 @@ export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {
   if (active) refreshFocusRoster();
 }
 
+let pageHeaderObserver: ResizeObserver | null = null;
+
+function keepSessionPageBelowHeader(card: HTMLElement) {
+  pageHeaderObserver?.disconnect();
+  const header = card.querySelector<HTMLElement>(':scope > .session-card-header');
+  if (!header) return;
+  const placeBelowHeader = () => card.style.setProperty('--session-page-top', `${header.offsetHeight}px`);
+  placeBelowHeader();
+  pageHeaderObserver = new ResizeObserver(placeBelowHeader);
+  pageHeaderObserver.observe(header);
+}
+
 const focusPageHost: SessionPageHost = {
   placement: 'overlay',
   sessionId: () => (active && centerEl && !centeredBoardId ? getFocusedSessionId() : null),
   elementFor: () => {
     const centeredCard = sessionUIs.get(getFocusedSessionId() ?? '')?.card;
     if (!centeredCard) throw new Error('Focus view has no centered session');
+    keepSessionPageBelowHeader(centeredCard);
     return centeredCard;
   },
   didShow: () => {},
   didHide: () => {
+    pageHeaderObserver?.disconnect();
+    pageHeaderObserver = null;
     const centeredId = getFocusedSessionId();
     if (centeredId) focusTerminalAfterSettle(sessionUIs.get(centeredId), centeredId);
   },

@@ -110,7 +110,6 @@ Cmd on a Mac, Alt elsewhere:
 | `Cmd/Alt+J` | Next session that needs you |
 | `Cmd/Alt+1` to `9` | Jump to a session |
 | `Cmd/Alt+Up` / `Down` | Move through the rail |
-| `Cmd/Alt+I` | Merge the selected session |
 | `Cmd/Alt+U` | Resolve a parked merge, or resync the base branch |
 | `Cmd/Alt+0` | Add a session |
 
