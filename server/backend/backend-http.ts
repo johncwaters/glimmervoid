@@ -292,6 +292,10 @@ const OPAQUE_ORIGIN = 'null';
 function serveBoardPageMember(req: Request, res: Response, member: { path: string; contentType: string }): void {
   res.setHeader('Vary', 'Origin');
   if (req.headers.origin === OPAQUE_ORIGIN) res.setHeader('Access-Control-Allow-Origin', OPAQUE_ORIGIN);
+  if (isPage(member)) {
+    serveBoardAsset(req, res, member);
+    return;
+  }
   fsp.stat(member.path).then((stats) => sendBoardAssetBytes(req, res, member, stats.size), () => {
     if (!res.headersSent) res.status(404).end();
   });

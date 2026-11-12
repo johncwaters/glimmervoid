@@ -8,7 +8,7 @@ import { isScriptFile, referencedPackPath, referencesIn, REMOTE_REFERENCE_PATTER
 const MAX_PAGE_BUNDLE_MEMBERS = 256;
 const MAX_LISTED_UNLOADED = 10;
 
-type UnloadedReason = 'missing' | 'outside-folder' | 'absolute' | 'not-a-regular-file' | 'unreadable' | 'over-cap';
+type UnloadedReason = 'missing' | 'outside-folder' | 'absolute' | 'entry-name' | 'not-a-regular-file' | 'unreadable' | 'over-cap';
 
 type UnloadedReference = { url: string; from: string; reason: UnloadedReason };
 
@@ -26,6 +26,7 @@ const UNLOADED_REASON_TEXT: Readonly<Record<UnloadedReason, string>> = {
   missing: 'missing',
   'outside-folder': 'outside the page folder',
   absolute: 'an absolute path, which leaves the page folder',
+  'entry-name': `named ${BOARD_PAGE_ENTRY_PATH}, the name the board gives the shown page itself`,
   'not-a-regular-file': 'not a regular file',
   unreadable: 'not readable',
   'over-cap': `past the bundle limit of ${MAX_PAGE_BUNDLE_MEMBERS} files or the board file size cap`,
@@ -56,7 +57,7 @@ async function collectPageBundle({ pagePath, pageText, capBytes, storeMember }: 
   const pageName = path.basename(pagePath);
   const members: BundleMember[] = [];
   const unloaded: UnloadedReference[] = [];
-  const seenMemberPaths = new Set<string>([BOARD_PAGE_ENTRY_PATH]);
+  const seenMemberPaths = new Set<string>();
   const pendingReferences = pendingReferencesIn(BOARD_PAGE_ENTRY_PATH, pageName, pageText);
   let remainingBytes = capBytes - Buffer.byteLength(pageText);
   const markUnloaded = (reference: PendingReference, reason: UnloadedReason) => unloaded.push({ url: reference.url, from: reference.fromName, reason });
@@ -70,6 +71,10 @@ async function collectPageBundle({ pagePath, pageText, capBytes, storeMember }: 
     const memberPath = referencedPackPath(reference.fromMemberPath, reference.url);
     if (memberPath === '.' || memberPath.endsWith('/') || seenMemberPaths.has(memberPath)) continue;
     seenMemberPaths.add(memberPath);
+    if (memberPath === BOARD_PAGE_ENTRY_PATH) {
+      if (pageName !== BOARD_PAGE_ENTRY_PATH) markUnloaded(reference, 'entry-name');
+      continue;
+    }
     if (memberPath.startsWith('../')) {
       markUnloaded(reference, 'outside-folder');
       continue;

@@ -13,6 +13,7 @@ import type { OpenedFile } from '../contained-file.ts';
 import type { DocRefusal } from '../session/core/session-docs-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
+import { unloadedNote } from './page-bundle.ts';
 
 type LinkedMedia = BoxMedia & { link: MediaLink };
 
@@ -80,11 +81,13 @@ async function readFileReading(root: string | null, media: LinkedMedia, assets: 
   }
 }
 
-function ingestFromFile(assets: WhiteboardAssetStore, file: OpenedFile, media: LinkedMedia): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
+type LinkedIngest = { ok: true; media: BoxMedia; unloadedText: string | null } | { ok: false; problem: string };
+
+function ingestFromFile(assets: WhiteboardAssetStore, file: OpenedFile, media: LinkedMedia): Promise<LinkedIngest> {
   return ingestChunks(assets, file.handle.createReadStream({ autoClose: false, start: 0 }), media, media.kind === 'page' ? file.realPath : null);
 }
 
-async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<Buffer> | Iterable<Buffer>, media: LinkedMedia, pageSourcePath: string | null): Promise<{ ok: true; media: BoxMedia } | { ok: false; problem: string }> {
+async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<Buffer> | Iterable<Buffer>, media: LinkedMedia, pageSourcePath: string | null): Promise<LinkedIngest> {
   const incomingPath = await assets.reserveIncomingPath();
   try {
     const incoming = await fsp.open(incomingPath, 'wx', 0o600);
@@ -96,7 +99,7 @@ async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<
     const ingested = await assets.adoptIncoming(incomingPath, path.basename(media.link.path), pageSourcePath);
     if (!ingested.ok) return { ok: false, problem: ingested.error };
     if (ingested.media.kind !== media.kind) return { ok: false, problem: `The linked file is no longer a ${media.kind === 'doc' ? 'Markdown document' : 'HTML page'}` };
-    return { ok: true, media: ingested.media };
+    return { ok: true, media: ingested.media, unloadedText: unloadedNote(ingested.unloaded) };
   } finally {
     await fsp.rm(incomingPath, { force: true }).catch(() => {});
   }
@@ -120,7 +123,8 @@ async function syncLinkedBox(board: Board, boxId: string, root: string | null, a
     if (state !== 'file-ahead' || !file) return { op: null, linkState: state === 'in-sync' ? null : linkState };
     const ingested = await ingestFromFile(assets, file, media).catch((error: unknown) => ({ ok: false as const, problem: `The linked file could not be copied to the board: ${errorMessage(error)}` }));
     if (!ingested.ok) return { op: null, linkState: { boxId, state: 'broken', text: ingested.problem } };
-    return { op: linkedMediaOp(boxId, syncedMediaOf(media, ingested.media)), linkState: null };
+    const syncedLinkState = ingested.unloadedText === null ? null : { boxId, state: 'in-sync' as const, text: ingested.unloadedText };
+    return { op: linkedMediaOp(boxId, syncedMediaOf(media, ingested.media)), linkState: syncedLinkState };
   } finally {
     await file?.handle.close().catch(() => {});
   }

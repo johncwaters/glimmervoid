@@ -1349,14 +1349,16 @@ test('a shown page brings the files it refers to by relative path, served beside
   fs.writeFileSync(path.join(pageDir, 'style.css'), 'body { font-family: m; } @font-face { font-family: m; src: url("fonts/mono.woff2"); }');
   fs.writeFileSync(path.join(pageDir, 'app.js'), "import { shout } from './lib.js';\nshout();");
   fs.writeFileSync(path.join(pageDir, 'lib.js'), 'export function shout() {}');
+  fs.writeFileSync(path.join(pageDir, 'notes.html'), '<!doctype html><p>notes</p>');
+  fs.writeFileSync(path.join(pageDir, 'index.html'), '<!doctype html><p>a sibling index</p>');
   fs.writeFileSync(path.join(plannerDir, 'outside.png'), 'outside bytes');
   fs.symlinkSync(path.join(plannerDir, 'outside.png'), path.join(pageDir, 'linked-out.png'));
-  fs.writeFileSync(path.join(pageDir, 'report.html'), '<!doctype html><html><head><title>Before and after</title><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script></head><body><img src="shots/before.png?v=2"><img src="../outside.png"><img src="linked-out.png"><img src="missing.png"><img src="/abs.png"><img src="https://example.com/remote.png"></body></html>');
+  fs.writeFileSync(path.join(pageDir, 'report.html'), '<!doctype html><html><head><title>Before and after</title><link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script></head><body><img src="shots/before.png?v=2"><img src="../outside.png"><img src="linked-out.png"><img src="missing.png"><img src="/abs.png"><img src="https://example.com/remote.png"><a href="notes.html">notes</a><a href="index.html">index</a></body></html>');
 
   const shown = await whiteboard(PLANNER_ID, { sub: 'show', path: 'evidence/report.html' });
   assert.equal(shown.status, 200, JSON.stringify(shown.body));
   const note = String(shown.body.note);
-  assert.match(note, /4 local files the page refers to do not load: \.\.\/outside\.png in report\.html \(outside the page folder\), linked-out\.png in report\.html \(outside the page folder\), missing\.png in report\.html \(missing\), \/abs\.png in report\.html \(an absolute path/);
+  assert.match(note, /5 local files the page refers to do not load: \.\.\/outside\.png in report\.html \(outside the page folder\), linked-out\.png in report\.html \(outside the page folder\), missing\.png in report\.html \(missing\), \/abs\.png in report\.html \(an absolute path, which leaves the page folder\), index\.html in report\.html \(named index\.html/);
   assert.doesNotMatch(note, /remote\.png|before\.png|lib\.js/);
   const board = (shown.body as { board: { id: string } }).board.id;
   const { board: shownBoard } = await boardOf(PLANNER_ID, board);
@@ -1376,6 +1378,8 @@ test('a shown page brings the files it refers to by relative path, served beside
   assert.deepEqual([servedModule.status, servedModule.headers.get('content-type'), servedModule.headers.get('access-control-allow-origin')], [200, 'text/javascript; charset=utf-8', 'null']);
   assert.equal((await fetch(pageUrl('fonts/mono.woff2'))).status, 200, 'a font a referenced stylesheet loads is bundled too');
   assert.equal((await fetch(pageUrl('linked-out.png'))).status, 404);
+  const servedSubPage = await fetch(pageUrl('notes.html'));
+  assert.match(String(servedSubPage.headers.get('content-security-policy')), /^sandbox allow-scripts/, 'a page the shown page links to runs as a page, not as inert media');
   assert.equal((await fetch(pageUrl('report.html'))).status, 404);
 });
 
@@ -1411,6 +1415,11 @@ test('a linked page keeps its bundle on each read, follows edits to a file it re
   assert.notEqual(followed?.asset, shownAsset);
   assert.notEqual(followed?.asset, pageFileHash);
   assert.equal(followed?.link?.syncedHash, followed?.asset);
+
+  fs.writeFileSync(path.join(worktree, 'report', 'page.html'), `${pageText}<img src="gone.png">`);
+  const resynced = await wiring.handleAgent(linker, { sub: 'get', board: boardId, review: true });
+  const resyncedLinkStates = (resynced.body as { review: { linkStates: { text: string }[] } }).review.linkStates;
+  assert.match(resyncedLinkStates[0]?.text ?? '', /gone\.png in page\.html \(missing\)/, 'a page edit that breaks a reference is reported on the read that follows it');
   fs.chmodSync(path.join(worktree, 'report', 'locked.png'), 0o600);
 });
 

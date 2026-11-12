@@ -410,7 +410,13 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     const assetId = bundleIdOf(pageHash, bundle.members);
     if (bundle.members.length === 0) return { assetId, unloaded: bundle.unloaded };
     const manifest = manifestOf(pageHash, bundle.members);
-    await fsp.writeFile(manifestPathOf(assetId), JSON.stringify(manifest), { mode: ASSET_FILE_MODE });
+    const draftManifestPath = await reserveIncomingPath();
+    try {
+      await fsp.writeFile(draftManifestPath, JSON.stringify(manifest), { mode: ASSET_FILE_MODE, flag: 'wx' });
+      await fsp.rename(draftManifestPath, manifestPathOf(assetId));
+    } finally {
+      await fsp.rm(draftManifestPath, { force: true }).catch(() => {});
+    }
     memberHashByPathByAssetId.set(assetId, new Map(Object.entries(manifest.members)));
     return { assetId, unloaded: bundle.unloaded };
   }
