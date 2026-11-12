@@ -94,7 +94,7 @@ function hasSameRequest(sessionId: string): boolean {
 
 function paintSecretRequest(sessionId: string) {
   const ui = sessionUIs.get(sessionId);
-  if (ui && hasSameRequest(sessionId) && requestElementBySessionId.get(sessionId)?.parentElement === ui.termWrap) return;
+  if (ui && hasSameRequest(sessionId) && requestElementBySessionId.get(sessionId)?.parentElement === ui.card) return;
   requestElementBySessionId.get(sessionId)?.remove();
   requestElementBySessionId.delete(sessionId);
   vaultInputBySessionId.delete(sessionId);
@@ -103,7 +103,7 @@ function paintSecretRequest(sessionId: string) {
   const request = buildRequest(sessionId, names);
   request.dataset.names = names.join(' ');
   requestElementBySessionId.set(sessionId, request);
-  ui.termWrap.append(request);
+  ui.termWrap.before(request);
 }
 
 function setRequestNames(sessionId: string, names: readonly string[]) {

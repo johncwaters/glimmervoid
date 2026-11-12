@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A vault secret request no longer covers the terminal.** The request to allow an agent's secrets now sits on the session card above the terminal instead of floating over its newest output, so you can read what the agent said about the request while you answer it. The terminal gets shorter while the request waits and returns to full height once you allow or deny.
+
 - **`glimmervoid vault` no longer reports its connection file as malformed while Glimmervoid is starting.** Glimmervoid now writes the file whole in one step, so a vault companion started at the same moment reads either the old file or the new one, never a half-written one.
 
 ## [0.57.2] - 2026-11-11
