@@ -58,5 +58,4 @@ function withoutNameEntry(lines: string[]): string[] {
   return [...lines.slice(0, nameIndex), ...lines.slice(entryEnd)];
 }
 
-export type { SkillFrontmatter };
 export { parseSkillFrontmatter, renameSkillFrontmatter };
