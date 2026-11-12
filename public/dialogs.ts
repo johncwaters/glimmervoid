@@ -144,7 +144,10 @@ export function openAgentAccountDialog(agent: ConnectableAgent, existingAccountI
     title: existingAccountId === null ? `Add a ${name} account` : `Sign in to ${readAccount()?.label ?? name}`,
     hidesStartWhenSignedIn: true,
     intro: `The account gets its own folder and login. Settings, hooks, skills, plugins, MCP servers and conversations stay shared with ${name} on this machine. The sign-in runs here and is never recorded.`,
-    readLogin: () => readAccount()?.login ?? null,
+    readLogin: () => {
+      const login = readAccount()?.login ?? null;
+      return login === null || login.state === 'unchecked' ? null : { ...login, state: login.state };
+    },
     summary: () => agentAccountSummary(readAccount()),
     subscribe: onAgentAccountsChanged,
     refresh: refreshAgentAccounts,

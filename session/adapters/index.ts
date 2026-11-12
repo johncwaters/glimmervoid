@@ -48,7 +48,7 @@ interface SettingsFileInjection {
 interface HookedAgentHome {
   homeEnvName: string;
   readTrust(sessionFolder: string): Promise<void>;
-  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean): { home: string; isTrusted: boolean } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder?: string | null): { home: string; isTrusted: boolean } | { refusal: string };
   releaseHome(home: string, sessionFolder: string): void;
 }
 
@@ -92,6 +92,7 @@ interface GeneratedHomeLaunch {
   listenerPort: number;
   folderTrustRoot: string;
   isCleanHome: boolean;
+  accountFolder?: string | null;
 }
 
 interface GeneratedHomeInjection {
@@ -157,9 +158,14 @@ interface AgentAdapter {
   trustFolder?(sessionFolder: string, env: SpawnEnv): Promise<void>;
   sessionIdOf?(payload: HookPayload): unknown;
   accountHomeProfile?: AgentHomeProfile;
+  accountHomeEnvName?: string;
 }
 
 type AgentAdapterShape = AgentAdapter & Record<string, unknown>;
+
+function canRunUnderAccount(adapter: Pick<AgentAdapter, "accountHomeProfile" | "accountHomeEnvName"> | null | undefined): boolean {
+  return Boolean(adapter?.accountHomeProfile || adapter?.accountHomeEnvName);
+}
 
 const DEFAULT_AGENT_ID = claudeCode.id;
 
@@ -313,6 +319,7 @@ function resetCommandCache(): void {
 
 export {
   BUILT_IN_AGENTS,
+  canRunUnderAccount,
   DEFAULT_AGENT_ID,
   listAgentIds,
   isKnownAgentId,

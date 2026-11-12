@@ -152,7 +152,7 @@ function buildAgentLoginsStatus() {
   return block;
 }
 
-const ACCOUNT_AGENTS = ['claude-code'] as const;
+const ACCOUNT_AGENTS = ['claude-code', 'codex'] as const;
 const agentAccountActionStatus = createActionStatus('settings-agent-accounts-status');
 
 const ACCOUNT_STATE_TEXT: Readonly<Record<AgentAccountStatus['login']['state'], string>> = Object.freeze({
@@ -160,6 +160,7 @@ const ACCOUNT_STATE_TEXT: Readonly<Record<AgentAccountStatus['login']['state'], 
   'signed-out': 'Signed out',
   connecting: 'Signing in',
   failed: 'Sign-in failed',
+  unchecked: 'Sign-in not checked',
 });
 
 async function removeAgentAccount(account: AgentAccountStatus) {

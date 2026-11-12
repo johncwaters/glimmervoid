@@ -90,9 +90,9 @@ const { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath } = 
 
 const COPILOT_STATE_NAME = "config.json";
 
-function trustSessionFolder(env: Record<string, string | undefined>, folder: string): void {
+function trustSessionFolder(env: Record<string, string | undefined>, folder: string, accountFolder: string | null): void {
   const realStatePath = path.join(realAgentHome(COPILOT_HOME_PROFILE, env), COPILOT_STATE_NAME);
-  const sessionStatePath = path.join(generatedAgentHomePath(COPILOT_HOME_PROFILE, env), COPILOT_STATE_NAME);
+  const sessionStatePath = path.join(accountFolder ?? generatedAgentHomePath(COPILOT_HOME_PROFILE, env), COPILOT_STATE_NAME);
   const trustWarning = ensureCopilotFolderTrust(copilotStateFileToTrust(realStatePath, sessionStatePath), folder);
   if (trustWarning) console.warn(`[copilot] ${trustWarning}`);
 }
@@ -100,8 +100,8 @@ function trustSessionFolder(env: Record<string, string | undefined>, folder: str
 function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const managedHooks = expectedHooks();
   if (managedHooks === null) return { refusal: hooksRefusal };
-  trustSessionFolder(env, launch.folderTrustRoot);
-  return holdPreparedAgentHome(COPILOT_HOME_PROFILE, env, () => managedHooks);
+  trustSessionFolder(env, launch.folderTrustRoot, launch.accountFolder ?? null);
+  return holdPreparedAgentHome(COPILOT_HOME_PROFILE, env, () => managedHooks, undefined, undefined, launch.accountFolder ?? null);
 }
 
 function prepareScratchHome(): { refusal: string } {
@@ -149,6 +149,7 @@ const copilot = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  accountHomeProfile: COPILOT_HOME_PROFILE,
   sessionIdOf,
   mapHookToSignal,
   configFilePath,

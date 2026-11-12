@@ -116,6 +116,9 @@ export const CustomAgentDeclaration = z.object({
   args: z.array(z.string({ error: 'customAgents[].args must be an array of strings' }), { error: 'customAgents[].args must be an array of strings' }).default([]),
   idleTitle: z.string({ error: 'customAgents[].idleTitle must be a string' }).optional(),
   busyTitle: z.string({ error: 'customAgents[].busyTitle must be a string' }).optional(),
+  homeEnvName: z.string({ error: 'customAgents[].homeEnvName must be a string' })
+    .regex(/^[A-Z_][A-Z0-9_]*$/, { error: 'customAgents[].homeEnvName must be an environment variable name in capital letters, digits and underscores' })
+    .optional(),
 }).strict();
 
 const CustomAgentDeclarations = z.array(CustomAgentDeclaration, { error: 'customAgents must be an array' })

@@ -312,6 +312,7 @@ class Session extends EventEmitter {
   _spawnEnv: Record<string, string> | null;
   _resolveAccountHome: (() => SessionAccountHome) | null;
   _accountEnv: Record<string, string> = {};
+  _accountFolder: string | null = null;
   accountIdInUse: string | null = null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
@@ -594,6 +595,7 @@ class Session extends EventEmitter {
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
       agentEnv: () => this._launch.buildEnv(),
+      accountFolder: () => this._accountFolder,
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
         this._approvals.releaseAfterHookEvent(event, payload);
@@ -1894,21 +1896,33 @@ class Session extends EventEmitter {
 
   async _prepareAccountEnv(isRemoteLaunch: boolean): Promise<string | null> {
     this._accountEnv = {};
+    this._accountFolder = null;
     this.accountIdInUse = null;
     const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
     if (accountHome.kind === "machine-login") return null;
     if (accountHome.kind === "refused") return accountHome.reason;
     if (isRemoteLaunch) return `a Coder workspace session cannot run under the added account ${accountHome.account.label} yet`;
-    const profile = this._adapter.accountHomeProfile;
-    if (!profile) return `${this._adapter.label} sessions cannot run under an added account`;
+    const homeEnvName = this._adapter.accountHomeProfile?.homeEnvName ?? this._adapter.accountHomeEnvName;
+    if (!homeEnvName) return `${this._adapter.label} sessions cannot run under an added account`;
     this.accountIdInUse = accountHome.account.id;
-    const prepared = await prepareAccountHome(profile, { env: process.env, accountFolder: accountHome.account.folder });
-    if ("refusal" in prepared) {
+    const refusal = await this._prepareAccountFolder(accountHome.account.folder);
+    if (refusal !== null) {
       this.accountIdInUse = null;
-      return `the account ${accountHome.account.label} cannot be used: ${prepared.refusal}`;
+      return `the account ${accountHome.account.label} cannot be used: ${refusal}`;
     }
-    this._accountEnv = { [profile.homeEnvName]: prepared.home };
+    this._accountFolder = accountHome.account.folder;
+    this._accountEnv = { [homeEnvName]: accountHome.account.folder };
     return null;
+  }
+
+  async _prepareAccountFolder(accountFolder: string): Promise<string | null> {
+    const profile = this._adapter.accountHomeProfile;
+    if (profile) {
+      const prepared = await prepareAccountHome(profile, { env: process.env, accountFolder });
+      return "refusal" in prepared ? prepared.refusal : null;
+    }
+    const folderStat = await fs.promises.stat(accountFolder).catch(() => null);
+    return folderStat?.isDirectory() ? null : `the account folder ${accountFolder} is missing`;
   }
 
   _abandonSpawn(cause: unknown): void {

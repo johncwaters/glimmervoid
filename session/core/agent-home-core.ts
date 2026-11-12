@@ -149,7 +149,7 @@ const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot";
+type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot" | "grok";
 
 interface TomlConfigFormat {
   kind: "toml";
@@ -174,6 +174,7 @@ interface JsonConfigFormat {
 
 interface MixedAccountFile {
   sharedKeys: readonly string[];
+  seededKeys: readonly string[];
   candidatePaths(env: Readonly<Record<string, string | undefined>>, homeDir: string): readonly string[];
 }
 
@@ -481,10 +482,12 @@ type ConfigStepsPlan = { steps: AgentHomeStep[]; hadBlock: boolean } | { refusal
 function planConfigSteps(inputs: AgentHomeInputs): ConfigStepsPlan {
   const format = inputs.profile.config;
   if (format === null) return { steps: [], hadBlock: false };
-  const config = generatedConfigFor(inputs, format);
+  const isAccountOwnConfig = inputs.isAccountHome && inputs.generatedConfigText !== null && inputs.baseConfigText === null;
+  const configInputs = isAccountOwnConfig ? { ...inputs, generatedConfigText: null } : inputs;
+  const config = generatedConfigFor(configInputs, format);
   if ("refusal" in config) return { refusal: `the real ${format.configName} cannot take the hooks block: ${config.refusal}` };
-  const steps: AgentHomeStep[] = [];
-  if (config.text !== inputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
+  const steps: AgentHomeStep[] = isAccountOwnConfig ? [{ kind: "set-aside", name: format.configName }] : [];
+  if (config.text !== configInputs.generatedConfigText) steps.push({ kind: "write-config", text: config.text });
   if (config.base !== inputs.baseConfigText) steps.push({ kind: "write-base", text: config.base });
   return { steps, hadBlock: config.hadBlock };
 }
@@ -562,6 +565,10 @@ function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
   };
 }
 
+function accountSeamOf(accountEntryPattern: RegExp): AgentAccountSeam {
+  return Object.freeze({ isAccountEntryName: (name: string) => accountEntryPattern.test(name), mixedFiles: Object.freeze([]) });
+}
+
 const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "kimi",
   homeEnvName: "KIMI_CODE_HOME",
@@ -616,7 +623,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
-  account: null,
+  account: accountSeamOf(/^auth\.(?:json|lock)$/),
 });
 
 function renderGeminiLauncherConfig(operatorLauncherText: string): string {
@@ -649,7 +656,7 @@ const GEMINI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
-  account: null,
+  account: accountSeamOf(/^(?:oauth_creds|google_accounts|google_account_id)\.json$/),
 });
 
 const DISABLE_ALL_HOOKS_SWITCH: JsonHooksSwitch = Object.freeze({
@@ -671,7 +678,7 @@ const QWEN_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
-  account: null,
+  account: accountSeamOf(/^oauth_creds\.json$/),
 });
 
 const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
@@ -687,7 +694,23 @@ const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
-  account: null,
+  account: accountSeamOf(/^config\.json$/),
+});
+
+const GROK_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "grok",
+  homeEnvName: "GROK_HOME",
+  defaultHomeFolderName: ".grok",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: null,
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+  cleanOmits: null,
+  account: accountSeamOf(/^(?:auth|credentials|user-settings)\.json$/),
 });
 
 const CLAUDE_ACCOUNT_ENTRY_PATTERN = /^(?:\.claude\.json(?:\..+)?|\.config\.json(?:\..+)?|\.credentials\.json|backups|mcp-needs-auth-cache\.json|(?:remote-settings|policy-limits)\.json(?:\..+)?)$/;
@@ -707,7 +730,7 @@ const CLAUDE_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   cleanOmits: null,
   account: Object.freeze({
     isAccountEntryName: (name: string) => CLAUDE_ACCOUNT_ENTRY_PATTERN.test(name),
-    mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
+    mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), seededKeys: Object.freeze(["hasCompletedOnboarding", "lastOnboardingVersion", "theme"]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
   }),
 });
 
@@ -876,6 +899,7 @@ function renderCodexHooksBlock(options: CodexHooksBlockOptions): string {
 export {
   AGENT_HOME_CONFIG_NAME,
   CLAUDE_HOME_PROFILE,
+  GROK_HOME_PROFILE,
   COPILOT_HOME_PROFILE,
   AGENT_HOME_PROFILES,
   resolveRealAgentHome,

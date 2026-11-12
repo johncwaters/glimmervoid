@@ -33,7 +33,7 @@ export const AgentAccountDefaults = z.record(
 export type AgentAccountDefaults = z.infer<typeof AgentAccountDefaults>;
 
 export const AgentAccountLogin = z.strictObject({
-  state: z.enum(['signed-in', 'signed-out', 'connecting', 'failed']),
+  state: z.enum(['signed-in', 'signed-out', 'connecting', 'failed', 'unchecked']),
   verificationUrl: z.string().nullable(),
   userCode: z.string().nullable(),
   needsPastedCode: z.boolean(),

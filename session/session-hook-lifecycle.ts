@@ -65,6 +65,7 @@ interface SessionHookOptions {
   effectiveCwd: () => string;
   folderTrustRoot: () => string;
   agentEnv: () => Record<string, string | undefined>;
+  accountFolder: () => string | null;
   ingestSignal: (signal: HookSignal) => void;
   observeHook: ((event: string, payload: Record<string, unknown>) => void) | null;
   recordDecision: (entry: DecisionEntry) => void;
@@ -204,7 +205,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
     const sessionFolder = options.effectiveCwd();
-    const prepared = home.prepareHome(process.env, sessionFolder, options.isCleanHome ?? false);
+    const prepared = home.prepareHome(process.env, sessionFolder, options.isCleanHome ?? false, options.accountFolder());
     if ("refusal" in prepared) return prepared;
     heldGeneratedHome = { releaseHome: (heldHome) => home.releaseHome(heldHome, sessionFolder), home: prepared.home };
     return prepared;
@@ -285,7 +286,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);

@@ -10,15 +10,18 @@ import type { AgentId, RegistryProject } from './core/session-registry-core.ts';
 import { diffProjects, machineSkipsPermissionsByDefault, shouldStartAfterModify } from './core/session-registry-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import type { WorktreeSettings } from '../../shared/contracts/index.ts';
+import type { AgentAccount } from '../../shared/contracts/agent-accounts.ts';
 import type { SessionWorktree, WorktreeArgs } from '../git/git-workspace.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { removeSessionTempFolder } from '../session-temp/session-temp.ts';
 import { releaseEveryUnheldAgentHomeSecrets } from '../../session/agent-home.ts';
+import { getAdapter } from '../../session/adapters/index.ts';
 import { clock } from '../../shared/clock.ts';
 
 interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
   worktree?: WorktreeSettings;
+  agentAccounts?: AgentAccount[];
 }
 
 interface RegistryGitWorkspace {
@@ -203,7 +206,10 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
   function startAutoResume(): void {
     pendingAutoResumeOnListening = null;
-    releaseEveryUnheldAgentHomeSecrets();
+    releaseEveryUnheldAgentHomeSecrets(process.env, (config.agentAccounts ?? []).flatMap((account) => {
+      const profile = getAdapter(account.agent)?.accountHomeProfile;
+      return profile ? [{ profile, folder: account.folder }] : [];
+    }));
     void runAutoResume(sessions, config, dependencies.spawnGate, dependencies.logger);
   }
 

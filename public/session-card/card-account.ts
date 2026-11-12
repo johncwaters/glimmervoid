@@ -64,7 +64,7 @@ function buildAccountChoice(account: AgentAccountStatus, currentAccountId: strin
   radio.className = 'dialog-checkbox';
   radio.value = account.accountId ?? '';
   radio.checked = account.accountId === currentAccountId;
-  const isSignedOut = account.login.state !== 'signed-in';
+  const isSignedOut = account.login.state === 'signed-out';
   choice.append(radio, el('span', null, isSignedOut ? `${account.label} (signed out)` : account.label));
   return choice;
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CLAUDE_HOME_PROFILE } from '../session/core/agent-home-core.ts';
+import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE } from '../session/core/agent-home-core.ts';
 import { prepareAccountHome } from '../session/agent-home.ts';
 
 function writeJson(filePath: string, value: unknown): void {
@@ -25,13 +25,13 @@ function claudeAccountScratch() {
   writeJson(path.join(realHome, 'settings.json'), { hooks: {} });
   writeJson(path.join(realHome, '.credentials.json'), { personal: true });
   writeJson(path.join(realHome, 'policy-limits.json'), { personal: true });
-  writeJson(path.join(homeDir, '.claude.json'), { oauthAccount: { org: 'personal' }, mcpServers: { posthog: { url: 'p' } } });
+  writeJson(path.join(homeDir, '.claude.json'), { oauthAccount: { org: 'personal' }, mcpServers: { posthog: { url: 'p' } }, hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.0', theme: 'dark' });
   writeJson(path.join(accountFolder, '.claude.json'), { oauthAccount: { org: 'team' }, mcpServers: { stale: {} } });
   writeJson(path.join(accountFolder, 'policy-limits.json'), { team: true });
   return { homeDir, realHome, accountFolder };
 }
 
-test('a claude account home shares the real setup, keeps its own login and policy, and takes the real MCP servers', async () => {
+test('a claude account home shares the real setup, keeps its own login and policy, and takes the real MCP servers and onboarding', async () => {
   const { homeDir, realHome, accountFolder } = claudeAccountScratch();
   const env = { HOME: homeDir };
 
@@ -44,7 +44,52 @@ test('a claude account home shares the real setup, keeps its own login and polic
   assert.equal(fs.existsSync(path.join(accountFolder, '.credentials.json')), false);
   assert.deepEqual(readJson(path.join(accountFolder, 'policy-limits.json')), { team: true });
   assert.deepEqual(readJson(path.join(realHome, 'policy-limits.json')), { personal: true });
-  assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, mcpServers: { posthog: { url: 'p' } } });
+  assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, mcpServers: { posthog: { url: 'p' } }, hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.0', theme: 'dark' });
+});
+
+test('a claude account home keeps its own onboarding when the machine config has none', async () => {
+  const { homeDir, accountFolder } = claudeAccountScratch();
+  writeJson(path.join(homeDir, '.claude.json'), { userID: 'x' });
+  writeJson(path.join(accountFolder, '.claude.json'), { oauthAccount: { org: 'team' }, hasCompletedOnboarding: true, theme: 'light' });
+
+  await prepareAccountHome(CLAUDE_HOME_PROFILE, { env: { HOME: homeDir }, accountFolder, homeDir });
+
+  assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, hasCompletedOnboarding: true, theme: 'light' });
+});
+
+test('a codex account home sets its own config aside and leaves no copy of the machine config behind', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-account-'));
+  const realHome = path.join(homeDir, '.codex');
+  const accountFolder = path.join(homeDir, 'accounts', 'codex-own');
+  fs.mkdirSync(realHome, { recursive: true });
+  fs.mkdirSync(accountFolder, { recursive: true });
+  fs.writeFileSync(path.join(realHome, 'config.toml'), 'API_TOKEN = "machine"\n');
+  fs.writeFileSync(path.join(accountFolder, 'config.toml'), 'model = "mine"\n');
+
+  await prepareAccountHome(CODEX_HOME_PROFILE, { env: { HOME: homeDir }, accountFolder, homeDir });
+
+  const keptNames = fs.readdirSync(path.join(accountFolder, '.glimmervoid-conflicts'));
+  assert.equal(keptNames.length, 1);
+  assert.equal(fs.readFileSync(path.join(accountFolder, '.glimmervoid-conflicts', keptNames[0]), 'utf8'), 'model = "mine"\n');
+  assert.equal(fs.existsSync(path.join(accountFolder, 'config.toml')), false);
+});
+
+test('a codex account home links the real setup and keeps its own login', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-account-'));
+  const realHome = path.join(homeDir, '.codex');
+  const accountFolder = path.join(homeDir, 'accounts', 'codex-two');
+  fs.mkdirSync(path.join(realHome, 'skills'), { recursive: true });
+  fs.mkdirSync(accountFolder, { recursive: true });
+  fs.writeFileSync(path.join(realHome, 'config.toml'), 'model = "gpt"\n');
+  writeJson(path.join(realHome, 'auth.json'), { personal: true });
+  writeJson(path.join(accountFolder, 'auth.json'), { second: true });
+
+  const prepared = await prepareAccountHome(CODEX_HOME_PROFILE, { env: { HOME: homeDir }, accountFolder, homeDir });
+
+  assert.deepEqual(prepared, { home: accountFolder });
+  assert.equal(fs.readlinkSync(path.join(accountFolder, 'skills')), path.join(realHome, 'skills'));
+  assert.equal(fs.lstatSync(path.join(accountFolder, 'auth.json')).isSymbolicLink(), false);
+  assert.deepEqual(readJson(path.join(accountFolder, 'auth.json')), { second: true });
 });
 
 test('a claude account home refuses a missing account folder and the machine home under any spelling', async () => {

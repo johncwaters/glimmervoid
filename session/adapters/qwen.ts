@@ -11,6 +11,7 @@ import type {
   AgentArgsOptions,
   AgentHookProfile,
   AgentTitleProfile,
+  GeneratedHomeLaunch,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
@@ -84,10 +85,10 @@ const { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath } = 
   hookEntryFor: (commandHook) => ({ hooks: [commandHook] }),
 });
 
-function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const managedHooks = expectedHooks();
   if (managedHooks === null) return { refusal: hooksRefusal };
-  return holdPreparedAgentHome(QWEN_HOME_PROFILE, env, () => managedHooks);
+  return holdPreparedAgentHome(QWEN_HOME_PROFILE, env, () => managedHooks, undefined, undefined, launch.accountFolder ?? null);
 }
 
 function prepareScratchHome(): { refusal: string } {
@@ -135,6 +136,7 @@ const qwen = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  accountHomeProfile: QWEN_HOME_PROFILE,
   sessionIdOf,
   mapHookToSignal,
   configFilePath,

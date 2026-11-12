@@ -38,9 +38,15 @@ function resolveNewSessionAccount({ accounts, defaults, requestedAccountId, agen
   return { accountId: account.id };
 }
 
-function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKeys: readonly string[]): JsonObject | null {
+function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKeys: readonly string[], seededKeys: readonly string[] = []): JsonObject | null {
   const merged: JsonObject = { ...accountFile };
   let hasChanged = false;
+  for (const key of seededKeys) {
+    if (!Object.hasOwn(realFile, key)) continue;
+    if (Object.hasOwn(accountFile, key) && JSON.stringify(accountFile[key]) === JSON.stringify(realFile[key])) continue;
+    merged[key] = realFile[key];
+    hasChanged = true;
+  }
   for (const key of sharedKeys) {
     const isInReal = Object.hasOwn(realFile, key);
     const isInAccount = Object.hasOwn(accountFile, key);

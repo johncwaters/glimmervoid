@@ -421,16 +421,16 @@ function releaseTrustedFolder(sessionFolder: string): void {
   trustedFolderByPath.delete(sessionFolder);
 }
 
-function prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean): { home: string; isTrusted: boolean } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder: string | null = null): { home: string; isTrusted: boolean } | { refusal: string } {
   const hooks = codexHomeHooks();
   if (!hooks) return { refusal: HOOKS_BLOCK_REFUSAL };
   const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
-  const generatedHome = generatedAgentHomePath(CODEX_HOME_PROFILE, env, undefined, isCleanHome);
+  const generatedHome = accountFolder ?? generatedAgentHomePath(CODEX_HOME_PROFILE, env, undefined, isCleanHome);
   holdTrustedFolder(sessionFolder);
   const trustedFolders = [...trustedFolderByPath.keys()];
   const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, isCleanHome);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, isCleanHome, accountFolder);
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;
@@ -498,6 +498,7 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  accountHomeProfile: CODEX_HOME_PROFILE,
   buildHookArgs,
   buildHookCommand,
   mayContributeHooks,

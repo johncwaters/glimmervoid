@@ -406,7 +406,7 @@ async function syncMixedAccountFiles(profile: AgentHomeProfile, accountFolder: s
       const accountFile = readJsonObjectFile(accountFilePath);
       const realFile = readJsonObjectFile(realFilePath);
       if (accountFile === null || realFile === null) continue;
-      const merged = mergeSharedKeys(accountFile, realFile, mixedFile.sharedKeys);
+      const merged = mergeSharedKeys(accountFile, realFile, mixedFile.sharedKeys, mixedFile.seededKeys);
       if (merged !== null) writeTextAtomicSync(accountFilePath, `${JSON.stringify(merged, null, 2)}\n`, { mode: GENERATED_FILE_MODE, enforceMode: true });
     } catch (error) {
       return `${accountFilePath} cannot take the shared keys of ${realFilePath}: ${errorMessage(error)}`;
@@ -424,22 +424,48 @@ function isSameFolder(firstPath: string, secondPath: string): boolean {
   return firstStat.dev === secondStat.dev && firstStat.ino === secondStat.ino;
 }
 
+function accountHomeOf(profile: AgentHomeProfile, accountFolder: string): string {
+  return path.join(accountFolder, profile.homeEnvSubfolder ?? "");
+}
+
+function accountFolderRefusal(profile: AgentHomeProfile, env: AgentHomeEnv, accountFolder: string, homeDir: string): string | null {
+  if (!profile.account) return `${profile.vendor} has no account support`;
+  if (!path.isAbsolute(accountFolder)) return `the account folder ${accountFolder} is not an absolute path`;
+  if (isSameFolder(realAgentHome(profile, env, homeDir), accountHomeOf(profile, accountFolder))) return `the account folder ${accountFolder} is the machine's own ${profile.vendor} home`;
+  if (statOrNull(accountFolder)?.isDirectory() !== true) return `the account folder ${accountFolder} is missing; sign in to that account again`;
+  return agentHomeLinkRefusal(accountFolder);
+}
+
 async function prepareAccountHome(profile: AgentHomeProfile, { env, accountFolder, homeDir = os.homedir() }: { env: AgentHomeEnv; accountFolder: string; homeDir?: string }): Promise<{ home: string } | { refusal: string }> {
-  if (!profile.account) return { refusal: `${profile.vendor} has no account support` };
-  if (!path.isAbsolute(accountFolder)) return { refusal: `the account folder ${accountFolder} is not an absolute path` };
-  if (isSameFolder(realAgentHome(profile, env, homeDir), accountFolder)) return { refusal: `the account folder ${accountFolder} is the machine's own ${profile.vendor} home` };
-  if (statOrNull(accountFolder)?.isDirectory() !== true) return { refusal: `the account folder ${accountFolder} is missing; sign in to that account again` };
-  const linkRefusal = agentHomeLinkRefusal(accountFolder);
-  if (linkRefusal !== null) return { refusal: linkRefusal };
-  const prepared = prepareAgentHome(profile, { env, homeDir, renderBlock: () => "", generatedHome: accountFolder, isAccountHome: true });
+  const refusal = accountFolderRefusal(profile, env, accountFolder, homeDir);
+  if (refusal !== null) return { refusal };
+  const prepared = prepareAgentHome(profile, { env, homeDir, renderBlock: () => (profile.config?.kind === "json" ? "{}" : ""), generatedHome: accountHomeOf(profile, accountFolder), isAccountHome: true });
   if ("refusal" in prepared) return prepared;
+  releaseUnheldAccountHomeSecrets(profile, accountFolder);
   const syncRefusal = await syncMixedAccountFiles(profile, accountFolder, env, homeDir);
   if (syncRefusal !== null) return { refusal: syncRefusal };
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean): { home: string } | { refusal: string } {
+function releaseUnheldAccountHomeSecrets(profile: AgentHomeProfile, accountFolder: string): void {
+  if (profile.config === null) return;
+  releaseUnheldAgentHomeSecrets(accountHomeOf(profile, accountFolder));
+}
+
+function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, accountFolder: string): { home: string } | { refusal: string } {
+  const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
+  if (refusal !== null) return { refusal };
+  const accountHome = accountHomeOf(profile, accountFolder);
+  holdAgentHome(accountHome);
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true });
+  if ("refusal" in prepared) releaseAgentHome(accountHome);
+  return prepared;
+}
+
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
+  if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
+  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, renderBlock, renderGeneratedFiles, accountFolder);
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
@@ -565,7 +591,8 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
-function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env): void {
+function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env, accountHomes: readonly { profile: AgentHomeProfile; folder: string }[] = []): void {
+  for (const { profile, folder } of accountHomes) releaseUnheldAccountHomeSecrets(profile, folder);
   for (const profile of AGENT_HOME_PROFILES) {
     releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env));
     if (profile.cleanOmits) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true));

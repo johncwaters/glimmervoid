@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { hookLaunch } from "../../server/runtime-paths.ts";
+import { GROK_HOME_PROFILE } from "../core/agent-home-core.ts";
 import { buildAgentEnv } from "../core/spawn-env.ts";
 import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { renderGrokHooksFile, classifyGrokHooksFile } from "../core/grok-hooks-file-core.ts";
@@ -277,6 +278,7 @@ const grok = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  accountHomeProfile: GROK_HOME_PROFILE,
   sessionIdOf,
   mapHookPayload,
   mapHookToSignal,

@@ -9,7 +9,7 @@ import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, Ta
 import { sanitizeWorktreeName } from '../../../shared/paths.ts';
 import { KILLABLE_STATES, STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
-import { DEFAULT_AGENT_ID, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, canRunUnderAccount, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
 import { resolveNewSessionAccount } from '../../../session/core/agent-account-core.ts';
 import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
@@ -546,7 +546,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if ('refusal' in plan) return { error: plan.refusal };
     if (plan.accountId === (project.accountId ?? null)) return null;
     const adapter = getAdapter(session.agentId);
-    if (plan.accountId !== null && !adapter?.accountHomeProfile) return { error: `${adapter?.label ?? session.agentId} sessions cannot run under an added account yet.` };
+    if (plan.accountId !== null && !canRunUnderAccount(adapter)) return { error: `${adapter?.label ?? session.agentId} sessions cannot run under an added account yet.` };
     const signInRefusal = await agentAccounts?.signInRefusal(session.agentId, plan.accountId) ?? null;
     if (signInRefusal) return signInRefusal;
     if (sessions.get(session.id) !== session) return { error: SESSION_GONE_TEXT };

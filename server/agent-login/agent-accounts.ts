@@ -40,7 +40,7 @@ interface AgentAccountsOptions {
 
 type AccountReply = { ok: true; accountId?: string } | { ok: false; error: string };
 
-const ACCOUNT_AGENTS: readonly ConnectableAgent[] = Object.freeze(['claude-code']);
+const ACCOUNT_AGENTS: readonly ConnectableAgent[] = Object.freeze(['claude-code', 'codex']);
 
 function loginOf(state: AgentAccountLogin['state'], reason: string | null = null): AgentAccountLogin {
   return { state, verificationUrl: null, userCode: null, needsPastedCode: false, reason };
@@ -96,10 +96,22 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     const identity = identityByKey.get(identityKey(agent, account?.id ?? null)) ?? null;
     const login = identity === null ? loginOf('signed-out', 'Checking the sign-in.') : loginOf(identity.isSignedIn ? 'signed-in' : 'signed-out');
     if (account === null) {
-      return { accountId: null, agent, label: identity?.label ?? 'This machine', detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault };
+      return { accountId: null, agent, label: identity?.label ?? 'Machine login', detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault };
     }
     const pendingLogin = pendingById.get(account.id)?.login ?? null;
     return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault };
+  }
+
+  function uncheckedAgentStatuses(): AgentAccountStatus[] {
+    const accounts = configuredAccounts().filter((account) => !ACCOUNT_AGENTS.some((agent) => agent === account.agent));
+    const agents = [...new Set(accounts.map((account) => account.agent))];
+    return agents.flatMap((agent) => {
+      const defaultId = configStore.config.agentAccountDefaults?.[agent] ?? null;
+      const agentAccounts = accounts.filter((account) => account.agent === agent);
+      const isMachineDefault = !agentAccounts.some((account) => account.id === defaultId);
+      const machineRow: AgentAccountStatus = { accountId: null, agent, label: 'Machine login', detail: null, login: loginOf('unchecked'), usedBy: [], isPending: false, isDefault: isMachineDefault };
+      return [machineRow, ...agentAccounts.map((account) => ({ accountId: account.id, agent, label: account.label, detail: null, login: loginOf('unchecked'), usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault: account.id === defaultId }))];
+    });
   }
 
   function list(): AgentAccountStatus[] {
@@ -112,6 +124,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
         statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false });
       }
     }
+    statuses.push(...uncheckedAgentStatuses());
     return statuses;
   }
 

@@ -62,6 +62,7 @@ function createCustomAdapter(declaration: CustomAgentDeclaration, { initialPromp
     buildSpawnCommand,
     buildEnv,
     buildArgs,
+    ...(declaration.homeEnvName ? { accountHomeEnvName: declaration.homeEnvName } : {}),
   };
 }
 
