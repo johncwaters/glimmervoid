@@ -33,18 +33,28 @@ test('every example pack passes the same check an agent runs, with no problem', 
   }
 });
 
+function isSelfContainedPanel(panelDir: string): boolean {
+  return !fs.existsSync(path.join(panelDir, 'panel.js'));
+}
+
 test('every example panel subscribes to exactly the topics it declares and shares one bridge helper', () => {
   const bridgeHelpers = new Set<string>();
+  const selfContainedPages = new Map<string, string>();
   for (const exampleName of exampleNames) {
     for (const panel of manifestOf(exampleName).ui?.panels ?? []) {
       const panelDir = path.join(EXAMPLE_PACKS_DIR, exampleName, path.dirname(panel.entry));
-      const subscribed = subscribedTopicsIn(fs.readFileSync(path.join(panelDir, 'panel.js'), 'utf8'));
+      const isSelfContained = isSelfContainedPanel(panelDir);
+      const panelScript = fs.readFileSync(isSelfContained ? path.join(EXAMPLE_PACKS_DIR, exampleName, panel.entry) : path.join(panelDir, 'panel.js'), 'utf8');
+      const subscribed = subscribedTopicsIn(panelScript);
       assert.deepEqual([...subscribed].sort(), [...panel.reads].sort(), `${exampleName}/${panel.id}`);
       for (const topic of subscribed) assert.ok(PackBridgeTopic.safeParse(topic).success, topic);
-      bridgeHelpers.add(fs.readFileSync(path.join(panelDir, 'bridge.js'), 'utf8'));
+      if (isSelfContained) selfContainedPages.set(`${exampleName}/${panel.id}`, panelScript);
+      if (!isSelfContained) bridgeHelpers.add(fs.readFileSync(path.join(panelDir, 'bridge.js'), 'utf8'));
     }
   }
   assert.equal(bridgeHelpers.size, 1, 'every bridge.js copy is identical');
+  const [bridgeHelper] = bridgeHelpers;
+  for (const [panelName, page] of selfContainedPages) assert.ok(page.includes(bridgeHelper.trimEnd()), `${panelName} inlines the shared bridge.js unchanged`);
 });
 
 test('the packs guide an agent reads names every example and carries both schemas', async () => {

@@ -3,15 +3,670 @@
 <head>
   <meta charset="utf-8">
   <title>PR table</title>
-  <link rel="stylesheet" href="panel.css">
+  <style>
+:root { color-scheme: dark light; --good: var(--state-done, #a3e635); --bad: var(--state-failed, #ef4444); --warn: var(--state-waiting, #f5c542); --info: var(--accent, #60a5fa); }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg, #121214); color: var(--text, #e6e6ea); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.bar { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 16px 6px; color: var(--text-dim, #9a9aa3); font-size: 13px; }
+.sheet { overflow-x: auto; padding: 0 4px 16px; }
+.section { position: relative; min-width: 1080px; margin-bottom: 18px; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th { text-align: left; font-weight: 400; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-muted, #7c7c86); padding: 8px 10px; border-bottom: 1px solid var(--border, #2a2a30); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+td { padding: 0 10px; height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+td.dim { color: var(--text-muted, #7c7c86); }
+td.title { color: var(--text-head, #f4f4f6); }
+td.when-merged { color: var(--warn); }
+td.empty { color: var(--text-muted, #7c7c86); height: 44px; }
+.num { color: var(--text-head, #f4f4f6); text-decoration: underline; text-underline-offset: 3px; }
+.pill { display: block; width: 100%; text-align: center; border: 1px solid var(--text-muted, #7c7c86); border-radius: 4px; padding: 1px 6px; font-size: 13px; color: var(--text-dim, #9a9aa3); overflow: hidden; text-overflow: ellipsis; }
+.pill.good { border-color: var(--good); color: var(--good); }
+.pill.bad { border-color: var(--bad); color: var(--bad); }
+.pill.warn { border-color: var(--warn); color: var(--warn); }
+.good-text { color: var(--good); }
+.bad-text { color: var(--bad); }
+.warn-text { color: var(--warn); }
+.info-text { color: var(--info); }
+.add { color: var(--good); margin-right: 4px; }
+.del { color: var(--bad); }
+.merge-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 4px 0; }
+td.merge { white-space: normal; overflow: visible; }
+button { font: inherit; font-size: 13px; color: var(--text, #e6e6ea); background: var(--bg-surface, #1c1c20); border: 1px solid var(--border, #2a2a30); border-radius: 6px; padding: 3px 12px; cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: var(--border-hover, #44444c); }
+button:disabled { opacity: 0.5; cursor: default; }
+.merge-status { font-size: 12px; color: var(--text-dim, #9a9aa3); }
+.ambient { position: absolute; pointer-events: none; background: #000; }
+.ambient canvas { display: block; width: 100%; height: 100%; }
+.ambient-label { position: absolute; right: 6px; bottom: 2px; font-size: 11px; color: rgba(255, 255, 255, 0.6); text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.ambient.rain { background: transparent; }
+.notice { max-width: 720px; margin: 24px 16px; padding: 16px 18px; border: 1px solid var(--border, #2a2a30); border-radius: 8px; background: var(--bg-surface, #1c1c20); }
+.notice h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--text-head, #f4f4f6); }
+.notice p { margin: 0 0 12px; color: var(--text-dim, #9a9aa3); }
+.notice-log { margin: 0; padding: 8px 10px 8px 30px; max-height: 260px; overflow: auto; border-radius: 6px; background: var(--bg, #121214); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-muted, #7c7c86); white-space: pre-wrap; word-break: break-word; }
+  </style>
 </head>
 <body>
   <header class="bar">
-    <span class="counts" id="counts">Waiting for Glimmervoid.</span>
+    <span class="counts" id="counts">Connecting to Glimmervoid.</span>
     <span class="updated" id="updated"></span>
   </header>
   <main class="sheet" id="sheet"></main>
-  <script src="bridge.js"></script>
-  <script src="panel.js"></script>
+  <script>
+window.glimmervoid = {
+  subscribe(topics, onTopic) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (message?.v !== 1) return;
+      if (message.kind === 'hello') onTopic('hello', message.granted);
+      if (message.kind === 'topic') onTopic(message.topic, message.data);
+    });
+    window.parent.postMessage({ v: 1, kind: 'subscribe', topics }, '*');
+  },
+
+  act(request) {
+    const id = `action-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    return new Promise((resolve) => {
+      const onResult = (event) => {
+        if (event.source !== window.parent || event.data?.v !== 1 || event.data.kind !== 'action-result' || event.data.id !== id) return;
+        window.removeEventListener('message', onResult);
+        resolve(event.data);
+      };
+      window.addEventListener('message', onResult);
+      window.parent.postMessage({ v: 1, kind: 'action', id, request }, '*');
+    });
+  },
+
+  applyTheme(theme) {
+    for (const [property, value] of Object.entries(theme.colors)) document.documentElement.style.setProperty(property, value);
+  },
+
+  element(tagName, className, text) {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  },
+};
+  </script>
+  <script>
+window.panelDiagnostics = (() => {
+  const LOG_PREFIX = '[pr-table]';
+  const MAX_LOG_LINES = 40;
+  const SUBSCRIBE_RETRY_MS = 2000;
+  const NO_HELLO_NOTICE_MS = 5000;
+  const NO_DATA_NOTICE_MS = 15000;
+  const startedAt = Date.now();
+  const logLines = [];
+  let hasHello = false;
+  let hasRendered = false;
+  let hasStandingDiagnosis = false;
+  let shownNotice = null;
+
+  function log(text, level = 'info') {
+    const line = `+${Date.now() - startedAt}ms ${text}`;
+    logLines.push(line);
+    if (logLines.length > MAX_LOG_LINES) logLines.shift();
+    console[level](LOG_PREFIX, line);
+    if (shownNotice !== null) showNotice(shownNotice.title, shownNotice.detail);
+  }
+
+  function setStatus(text) {
+    const status = document.getElementById('counts');
+    if (status) status.textContent = text;
+  }
+
+  function showNotice(title, detail) {
+    if (hasRendered) return;
+    shownNotice = { title, detail };
+    const sheet = document.getElementById('sheet');
+    if (!sheet) return;
+    const notice = document.createElement('section');
+    notice.className = 'notice';
+    const heading = document.createElement('h2');
+    heading.textContent = title;
+    const explanation = document.createElement('p');
+    explanation.textContent = detail;
+    const logList = document.createElement('ol');
+    logList.className = 'notice-log';
+    for (const line of logLines) {
+      const item = document.createElement('li');
+      item.textContent = line;
+      logList.append(item);
+    }
+    notice.append(heading, explanation, logList);
+    sheet.replaceChildren(notice);
+  }
+
+  function fail(where, error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`${where}: ${message}`, 'error');
+    if (error instanceof Error && error.stack) console.error(LOG_PREFIX, error.stack);
+    hasRendered = false;
+    hasStandingDiagnosis = true;
+    setStatus('Something went wrong.');
+    showNotice(where, `${message}. The log below and the browser console (filter "${LOG_PREFIX}") say what happened before it.`);
+  }
+
+  function markRendered() {
+    const isFirstRender = !hasRendered;
+    hasRendered = true;
+    hasStandingDiagnosis = false;
+    shownNotice = null;
+    if (isFirstRender) log('table rendered');
+  }
+
+  function connect(topics, onTopic) {
+    if (window.parent === window) {
+      log('not inside a frame, so there is no Glimmervoid dashboard to talk to', 'warn');
+      setStatus('Not connected.');
+      showNotice('Open this panel from Glimmervoid', 'This page talks to the Glimmervoid dashboard that frames it. Opened on its own, it has nobody to ask for pull requests.');
+      return;
+    }
+    let attempt = 0;
+    const sendSubscribe = () => {
+      attempt += 1;
+      log(`subscribe attempt ${attempt}: ${topics.join(', ')}`);
+      window.parent.postMessage({ v: 1, kind: 'subscribe', topics }, '*');
+    };
+    const retryTimer = setInterval(() => {
+      if (hasHello) return;
+      sendSubscribe();
+    }, SUBSCRIBE_RETRY_MS);
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (message?.v !== 1) return;
+      if (message.kind === 'hello') {
+        hasHello = true;
+        clearInterval(retryTimer);
+        const granted = Array.isArray(message.granted) ? message.granted : [];
+        const missing = topics.filter((topic) => !granted.includes(topic));
+        log(`hello: granted ${granted.join(', ') || 'nothing'}`);
+        setStatus('Connected. Waiting for pull requests.');
+        if (missing.includes('reviews')) {
+          hasStandingDiagnosis = true;
+          log(`not granted: ${missing.join(', ')}`, 'warn');
+          showNotice('No access to pull requests', 'Glimmervoid did not grant the reviews topic. Reinstall the pack and approve it again in Settings, Packs.');
+        }
+        return;
+      }
+      if (message.kind !== 'topic') return;
+      try {
+        onTopic(message.topic, message.data);
+      } catch (error) {
+        fail(`Handling the ${message.topic} topic failed`, error);
+      }
+    });
+    setTimeout(() => {
+      if (hasHello) return;
+      log('no hello from the dashboard yet', 'warn');
+      showNotice('Glimmervoid has not answered', 'The panel keeps asking the dashboard for data. Reload the dashboard; if this stays, the log below shows how far it got.');
+    }, NO_HELLO_NOTICE_MS);
+    setTimeout(() => {
+      if (!hasHello || hasRendered || hasStandingDiagnosis) return;
+      log('connected, but no reviews topic yet', 'warn');
+      showNotice('Connected, no pull requests yet', 'Glimmervoid answered but has not sent pull request data. It arrives after the first GitHub poll; check that the GitHub CLI is signed in.');
+    }, NO_DATA_NOTICE_MS);
+    sendSubscribe();
+  }
+
+  window.addEventListener('error', (event) => fail('Script error', event.error ?? event.message));
+  window.addEventListener('unhandledrejection', (event) => fail('Unhandled promise rejection', event.reason));
+  log(`panel loaded, ${navigator.userAgent}`);
+
+  window.glimmervoid.subscribe = connect;
+  return { log, fail, markRendered };
+})();
+  </script>
+  <script>
+const element = (...args) => window.glimmervoid.element(...args);
+
+const NEON_PALETTE = ['#ff2bd6', '#ffe53b', '#2bf0ff', '#3bff7a'];
+const OCEAN_PALETTE = ['#3b82f6', '#22d3ee', '#8b5cf6', '#60a5fa', '#a78bfa'];
+const MIDDLE_DOT = String.fromCharCode(0xb7);
+const LIFE_CELL_PX = 9;
+const LIFE_STEP_MS = 140;
+const LIFE_STALE_GENERATIONS = 24;
+const LIFE_SEED_DENSITY = 0.22;
+const RAIN_STEP_MS = 33;
+const SPLASH_LIFETIME_STEPS = 18;
+const RECENT_ACTIVITY_MS = 24 * 60 * 60 * 1000;
+const MAX_MERGED_ROWS = 10;
+const UPDATED_TICK_MS = 30 * 1000;
+
+const COLUMNS = [
+  { id: 'repo', width: '9%' }, { id: 'status', width: '10%' }, { id: 'ci', width: '8.5%' }, { id: 'number', width: '7%' },
+  { id: 'title', width: '19.5%' }, { id: 'reviews', width: '9.5%' }, { id: 'activity', width: '5.5%' }, { id: 'age', width: '4%' },
+  { id: 'when', width: '6.5%' }, { id: 'size', width: '8%' }, { id: 'cc', width: '3.5%' }, { id: 'merge', width: '9%' },
+];
+
+const SECTIONS = {
+  inReview: { titleHeader: 'In review', reviewsHeader: 'Reviews', whenHeader: 'Upd', emptyText: 'Nothing in review', ambient: false },
+  queued: { titleHeader: 'Merge queue', reviewsHeader: 'Queue says', whenHeader: 'Since', emptyText: 'Nothing in the merge queue', ambient: false },
+  merged: { titleHeader: 'Recently merged', reviewsHeader: '', whenHeader: 'Merged', emptyText: 'Nothing merged recently', ambient: true },
+};
+
+function pickIndex(length) {
+  return Math.floor(Math.random() * length);
+}
+
+function sizeCanvas(canvas) {
+  const pixelRatio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  canvas.width = Math.max(1, Math.round(width * pixelRatio));
+  canvas.height = Math.max(1, Math.round(height * pixelRatio));
+  const context = canvas.getContext('2d');
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  return { context, width, height };
+}
+
+function createLife(width, height) {
+  const columns = Math.max(1, Math.floor(width / LIFE_CELL_PX));
+  const rows = Math.max(1, Math.floor(height / LIFE_CELL_PX));
+  let cells = new Uint8Array(columns * rows);
+  let nextCells = new Uint8Array(columns * rows);
+  const neighborCounts = new Uint8Array(NEON_PALETTE.length + 1);
+  const populationHistory = [];
+
+  function seed() {
+    for (let index = 0; index < cells.length; index++) cells[index] = Math.random() < LIFE_SEED_DENSITY ? 1 + pickIndex(NEON_PALETTE.length) : 0;
+    populationHistory.length = 0;
+  }
+
+  function nextCell(column, row) {
+    neighborCounts.fill(0);
+    let liveNeighbors = 0;
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      const neighborRow = (row + rowOffset + rows) % rows;
+      for (let columnOffset = -1; columnOffset <= 1; columnOffset++) {
+        if (rowOffset === 0 && columnOffset === 0) continue;
+        const colorIndex = cells[neighborRow * columns + ((column + columnOffset + columns) % columns)];
+        if (colorIndex === 0) continue;
+        liveNeighbors++;
+        neighborCounts[colorIndex]++;
+      }
+    }
+    const current = cells[row * columns + column];
+    if (current !== 0) return liveNeighbors === 2 || liveNeighbors === 3 ? current : 0;
+    if (liveNeighbors !== 3) return 0;
+    let dominantColorIndex = 1;
+    for (let colorIndex = 2; colorIndex < neighborCounts.length; colorIndex++) {
+      if (neighborCounts[colorIndex] > neighborCounts[dominantColorIndex]) dominantColorIndex = colorIndex;
+    }
+    return dominantColorIndex;
+  }
+
+  function isStale(population) {
+    populationHistory.push(population);
+    if (populationHistory.length > LIFE_STALE_GENERATIONS) populationHistory.shift();
+    if (population < cells.length * 0.03) return true;
+    if (populationHistory.length < LIFE_STALE_GENERATIONS) return false;
+    return Math.max(...populationHistory) - Math.min(...populationHistory) <= 2;
+  }
+
+  function step() {
+    let population = 0;
+    for (let row = 0; row < rows; row++) {
+      for (let column = 0; column < columns; column++) {
+        const colorIndex = nextCell(column, row);
+        nextCells[row * columns + column] = colorIndex;
+        if (colorIndex !== 0) population++;
+      }
+    }
+    [cells, nextCells] = [nextCells, cells];
+    if (isStale(population)) seed();
+  }
+
+  function draw(context) {
+    context.clearRect(0, 0, width, height);
+    for (let index = 0; index < cells.length; index++) {
+      if (cells[index] === 0) continue;
+      context.fillStyle = NEON_PALETTE[cells[index] - 1];
+      context.fillRect((index % columns) * LIFE_CELL_PX, Math.floor(index / columns) * LIFE_CELL_PX, LIFE_CELL_PX - 1, LIFE_CELL_PX - 1);
+    }
+  }
+
+  seed();
+  return { step, draw, stepMs: LIFE_STEP_MS };
+}
+
+function createRain(width, height) {
+  const dropCount = Math.max(4, Math.round(width / 9));
+  const newDrop = (canStartInView) => ({
+    x: Math.random() * width,
+    y: canStartInView ? Math.random() * height : -Math.random() * height,
+    length: 6 + Math.random() * 12,
+    speed: 1.2 + Math.random() * 2.6,
+    color: OCEAN_PALETTE[pickIndex(OCEAN_PALETTE.length)],
+  });
+  const drops = Array.from({ length: dropCount }, () => newDrop(true));
+  const splashes = [];
+
+  function step() {
+    for (const [index, drop] of drops.entries()) {
+      drop.y += drop.speed;
+      if (drop.y - drop.length < height) continue;
+      splashes.push({ x: drop.x, color: drop.color, age: 0 });
+      drops[index] = newDrop(false);
+    }
+    for (const splash of splashes) splash.age += 1;
+    while (splashes.length > 0 && splashes[0].age > SPLASH_LIFETIME_STEPS) splashes.shift();
+  }
+
+  function draw(context) {
+    context.clearRect(0, 0, width, height);
+    context.lineWidth = 1.5;
+    context.globalAlpha = 0.85;
+    for (const drop of drops) {
+      context.strokeStyle = drop.color;
+      context.beginPath();
+      context.moveTo(drop.x, drop.y - drop.length);
+      context.lineTo(drop.x, drop.y);
+      context.stroke();
+    }
+    for (const splash of splashes) {
+      context.fillStyle = splash.color;
+      context.globalAlpha = 1 - splash.age / SPLASH_LIFETIME_STEPS;
+      for (const direction of [-1, 0, 1]) context.fillRect(splash.x + direction * splash.age * 0.7, height - 2 - (splash.age % 4), 1.5, 1.5);
+    }
+    context.globalAlpha = 1;
+  }
+
+  return { step, draw, stepMs: RAIN_STEP_MS };
+}
+
+const SIMULATIONS = { life: createLife, rain: createRain };
+
+function startAmbient(canvas, kind) {
+  const { context, width, height } = sizeCanvas(canvas);
+  const simulation = SIMULATIONS[kind](width, height);
+  simulation.draw(context);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return () => {};
+  let frameRequest = 0;
+  let lastStepAt = 0;
+  const tick = (now) => {
+    frameRequest = requestAnimationFrame(tick);
+    if (now - lastStepAt < simulation.stepMs) return;
+    lastStepAt = now;
+    simulation.step();
+    simulation.draw(context);
+  };
+  frameRequest = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(frameRequest);
+}
+
+function formatAge(milliseconds) {
+  const minutes = Math.max(0, Math.floor(milliseconds / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function ageSince(timestamp) {
+  const milliseconds = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp ?? '');
+  return Number.isFinite(milliseconds) ? formatAge(Date.now() - milliseconds) : '';
+}
+
+function repoName(fullName) {
+  return fullName.split('/').pop();
+}
+
+function collectPullRequests(groups) {
+  const pullRequestsByKey = new Map();
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (item.source === 'mine') pullRequestsByKey.set(item.pr.key, item.pr);
+    }
+  }
+  pruneMergeStates(pullRequestsByKey);
+  const all = [...pullRequestsByKey.values()];
+  const byNewest = (field) => (left, right) => Date.parse(right[field] ?? '') - Date.parse(left[field] ?? '');
+  return {
+    inReview: all.filter((pr) => pr.state === 'OPEN' && !pr.isInMergeQueue).sort(byNewest('updatedAt')),
+    queued: all.filter((pr) => pr.state === 'OPEN' && pr.isInMergeQueue).sort((left, right) => (left.mergeQueuePosition ?? Infinity) - (right.mergeQueuePosition ?? Infinity)),
+    merged: all.filter((pr) => pr.state === 'MERGED').sort(byNewest('mergedAt')).slice(0, MAX_MERGED_ROWS),
+  };
+}
+
+function pill(text, tone) {
+  return element('span', tone ? `pill ${tone}` : 'pill', text);
+}
+
+function statusPill(pr) {
+  if (pr.isDraft) return pill('Draft');
+  if (pr.reviewDecision === 'APPROVED') return pill('Approved', 'good');
+  if (pr.reviewDecision === 'CHANGES_REQUESTED') return pill('Changes requested', 'bad');
+  return pill('Review required');
+}
+
+const CI_PILLS = { SUCCESS: ['CI passed', 'good'], FAILURE: ['CI failing', 'bad'], ERROR: ['CI failing', 'bad'], PENDING: ['CI running', 'warn'], EXPECTED: ['CI running', 'warn'] };
+
+function ciPill(pr) {
+  const entry = CI_PILLS[pr.checks.state];
+  return entry ? pill(entry[0], entry[1]) : null;
+}
+
+function reviewsText(pr) {
+  if (pr.unresolvedThreads > 0) return [`${pr.unresolvedThreads} open thread${pr.unresolvedThreads === 1 ? '' : 's'}`, 'warn-text'];
+  if (pr.approvals > 0) return [`${pr.approvals} approved`, 'good-text'];
+  return ['', null];
+}
+
+function queueSaysText(pr) {
+  if (pr.mergeQueueFailure) return [pr.mergeQueueFailure.message, 'bad-text'];
+  if (pr.isMergeQueueHeldForRepairPush) return ['held for a repair push', 'warn-text'];
+  if (pr.mergeQueuePosition) return [`position ${pr.mergeQueuePosition}`, null];
+  return ['queued', null];
+}
+
+function recentActivityCount(pr) {
+  return pr.threads.filter((thread) => Date.now() - Date.parse(thread.lastActivityAt) < RECENT_ACTIVITY_MS).length;
+}
+
+function sizeCell(cell, pr) {
+  if (pr.additions === undefined || pr.deletions === undefined) return;
+  cell.append(element('span', 'add', `+${pr.additions}`), element('span', 'del', `-${pr.deletions}`));
+}
+
+const mergeStateByKey = new Map();
+const FAILING_CHECK_STATES = new Set(['FAILURE', 'ERROR']);
+
+function isMergeable(pr) {
+  if (pr.state !== 'OPEN' || pr.isDraft || pr.isInMergeQueue) return false;
+  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return false;
+  if (pr.checks.failing.length > 0 || FAILING_CHECK_STATES.has(pr.checks.state)) return false;
+  return pr.stage === 'ready';
+}
+
+function pruneMergeStates(pullRequestsByKey) {
+  for (const [key, mergeState] of mergeStateByKey) {
+    const pr = pullRequestsByKey.get(key);
+    const isStillTheArmedHead = pr !== undefined && pr.headRefOid === mergeState.headRefOid;
+    if (isStillTheArmedHead && (mergeState.isBusy || isMergeable(pr))) continue;
+    mergeStateByKey.delete(key);
+  }
+}
+
+const MERGE_OUTCOME_TEXT = { queued: 'Added to the merge queue', merged: 'Merged', 'auto-merge': 'Auto-merge turned on', unconfirmed: 'Sent; GitHub has not confirmed yet' };
+
+async function sendMerge(pr, armedHeadRefOid) {
+  mergeStateByKey.set(pr.key, { headRefOid: armedHeadRefOid, isBusy: true, isConfirming: false, statusText: 'Merging' });
+  render();
+  const answer = await window.glimmervoid.act({ type: 'my-pr-merge', repo: pr.repo, number: pr.number, headRefOid: armedHeadRefOid });
+  const isMerged = answer.ok && answer.result?.ok !== false;
+  const statusText = isMerged ? (MERGE_OUTCOME_TEXT[answer.result?.kind] ?? 'Sent') : (answer.result?.error ?? answer.error ?? 'Refused');
+  mergeStateByKey.set(pr.key, { headRefOid: armedHeadRefOid, isBusy: false, isConfirming: false, statusText: answer.timedOut ? 'No answer yet; check before trying again' : statusText });
+  render();
+}
+
+function setMergeState(pr, isConfirming) {
+  mergeStateByKey.set(pr.key, { headRefOid: pr.headRefOid, isBusy: false, isConfirming, statusText: null });
+  render();
+}
+
+function actionButton(label, onClick, isDisabled) {
+  const button = element('button', null, label);
+  button.type = 'button';
+  button.disabled = isDisabled;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function mergeCell(cell, pr) {
+  if (!isMergeable(pr)) return;
+  const mergeState = mergeStateByKey.get(pr.key) ?? { isBusy: false, isConfirming: false, statusText: null };
+  const wrapper = element('div', 'merge-cell');
+  wrapper.append(actionButton('Add to queue', () => setMergeState(pr, true), mergeState.isBusy || mergeState.isConfirming));
+  if (mergeState.isConfirming) wrapper.append(actionButton('Confirm', () => sendMerge(pr, mergeState.headRefOid), false), actionButton('Cancel', () => setMergeState(pr, false), false));
+  if (mergeState.statusText) wrapper.append(element('span', 'merge-status', mergeState.statusText));
+  cell.append(wrapper);
+}
+
+function textCell(text, className) {
+  return element('td', className ?? null, text);
+}
+
+function pullRequestRow(sectionId, pr) {
+  const row = element('tr');
+  const isMerged = sectionId === 'merged';
+  const statusCell = element('td');
+  const ciCell = element('td');
+  if (!isMerged) statusCell.append(statusPill(pr));
+  const ci = isMerged ? null : ciPill(pr);
+  if (ci) ciCell.append(ci);
+  const numberCell = element('td');
+  numberCell.append(element('span', 'num', `#${pr.number}`));
+  const [sideText, sideTone] = sectionId === 'queued' ? queueSaysText(pr) : sectionId === 'inReview' ? reviewsText(pr) : ['', null];
+  const activityCount = recentActivityCount(pr);
+  const whenValue = { inReview: pr.updatedAt, queued: pr.stageSinceMs, merged: pr.mergedAt }[sectionId];
+  const sizeTd = element('td');
+  sizeCell(sizeTd, pr);
+  const ccText = !isMerged && pr.reviewItems.length > 0 ? String(pr.reviewItems.length) : '';
+  const mergeTd = element('td', 'merge');
+  if (sectionId === 'inReview') mergeCell(mergeTd, pr);
+  const titleCell = textCell(pr.title, 'title');
+  titleCell.title = pr.title;
+  row.append(
+    textCell(repoName(pr.repo), 'dim'), statusCell, ciCell, numberCell, titleCell,
+    textCell(sideText, sideTone), textCell(activityCount > 0 ? `${activityCount} new` : '', 'info-text'),
+    textCell(ageSince(pr.createdAt), 'dim'), textCell(ageSince(whenValue), isMerged ? 'when-merged' : 'dim'),
+    sizeTd, textCell(ccText, 'warn-text'), mergeTd,
+  );
+  return row;
+}
+
+function headerRow(section) {
+  const labels = ['Repo', 'Status', 'CI', 'PR', section.titleHeader, section.reviewsHeader, 'Activity', 'Age', section.whenHeader, 'Size', 'CC', 'Merge'];
+  const row = element('tr');
+  row.append(...labels.map((label) => element('th', null, label)));
+  return row;
+}
+
+function sectionTable(sectionId, pullRequests) {
+  const section = SECTIONS[sectionId];
+  const wrapper = element('section', 'section');
+  wrapper.dataset.section = sectionId;
+  const table = element('table');
+  const columnGroup = element('colgroup');
+  for (const column of COLUMNS) {
+    const columnElement = element('col');
+    columnElement.style.width = column.width;
+    columnGroup.append(columnElement);
+  }
+  const head = element('thead');
+  head.append(headerRow(section));
+  const body = element('tbody');
+  if (pullRequests.length === 0) {
+    const emptyRow = element('tr');
+    const emptyCell = element('td', 'empty', section.emptyText);
+    emptyCell.colSpan = COLUMNS.length;
+    emptyRow.append(emptyCell);
+    body.append(emptyRow);
+  }
+  body.append(...pullRequests.map((pr) => pullRequestRow(sectionId, pr)));
+  table.append(columnGroup, head, body);
+  wrapper.append(table);
+  return wrapper;
+}
+
+let stopAmbients = [];
+
+function overlayAmbient(wrapper, firstCell, lastCell, kind, label) {
+  const wrapperBox = wrapper.getBoundingClientRect();
+  const firstBox = firstCell.getBoundingClientRect();
+  const lastBox = lastCell.getBoundingClientRect();
+  const overlay = element('div', `ambient ${kind}`);
+  Object.assign(overlay.style, {
+    left: `${firstBox.left - wrapperBox.left}px`, top: `${firstBox.top - wrapperBox.top}px`,
+    width: `${lastBox.right - firstBox.left}px`, height: `${lastBox.bottom - firstBox.top}px`,
+  });
+  const canvas = element('canvas');
+  overlay.append(canvas, element('span', 'ambient-label', label));
+  wrapper.append(overlay);
+  stopAmbients.push(startAmbient(canvas, kind));
+}
+
+function layoutAmbients() {
+  for (const stop of stopAmbients) stop();
+  stopAmbients = [];
+  for (const overlay of document.querySelectorAll('.ambient')) overlay.remove();
+  const wrapper = document.querySelector('[data-section="merged"]');
+  const rows = wrapper ? [...wrapper.querySelectorAll('tbody tr')].filter((row) => row.cells.length === COLUMNS.length) : [];
+  if (rows.length === 0) return;
+  const columnIndex = (id) => COLUMNS.findIndex((column) => column.id === id);
+  const firstRow = rows[0];
+  const lastRow = rows.at(-1);
+  overlayAmbient(wrapper, firstRow.cells[columnIndex('status')], lastRow.cells[columnIndex('ci')], 'life', `life ${MIDDLE_DOT} neon`);
+  overlayAmbient(wrapper, firstRow.cells[columnIndex('cc')], lastRow.cells[columnIndex('merge')], 'rain', `rain ${MIDDLE_DOT} ocean`);
+}
+
+let latestGroups = null;
+let lastUpdateAt = null;
+
+function renderUpdated() {
+  document.getElementById('updated').textContent = lastUpdateAt === null ? '' : `updated ${formatAge(Date.now() - lastUpdateAt)} ago`;
+}
+
+function render() {
+  if (latestGroups === null) return;
+  const pullRequests = collectPullRequests(latestGroups);
+  document.getElementById('counts').textContent = `${pullRequests.inReview.length} in review, ${pullRequests.queued.length} queued, ${pullRequests.merged.length} merged`;
+  document.getElementById('sheet').replaceChildren(...Object.keys(SECTIONS).map((sectionId) => sectionTable(sectionId, pullRequests[sectionId])));
+  renderUpdated();
+  layoutAmbients();
+}
+
+let resizeFrame = 0;
+new ResizeObserver(() => {
+  cancelAnimationFrame(resizeFrame);
+  resizeFrame = requestAnimationFrame(layoutAmbients);
+}).observe(document.body);
+
+setInterval(renderUpdated, UPDATED_TICK_MS);
+
+function describeGroups(groups) {
+  return Array.isArray(groups) ? `${groups.length} groups, ${groups.reduce((total, group) => total + (group.items?.length ?? 0), 0)} items` : `no groups (${typeof groups})`;
+}
+
+function renderSafely() {
+  try {
+    render();
+    window.panelDiagnostics.markRendered();
+  } catch (error) {
+    window.panelDiagnostics.fail('Rendering the table failed', error);
+  }
+}
+
+window.glimmervoid.subscribe(['reviews', 'theme'], (topic, data) => {
+  if (topic === 'theme') window.glimmervoid.applyTheme(data);
+  if (topic !== 'reviews') return;
+  window.panelDiagnostics.log(`reviews topic: ${describeGroups(data?.groups)}`);
+  latestGroups = Array.isArray(data?.groups) ? data.groups : [];
+  lastUpdateAt = Date.now();
+  renderSafely();
+});
+  </script>
 </body>
 </html>
