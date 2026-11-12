@@ -169,15 +169,25 @@ async function removeAgentAccount(account: AgentAccountStatus) {
   if (reply.error) agentAccountActionStatus.show('error', reply.error);
 }
 
+async function makeAgentAccountDefault(agent: string, account: AgentAccountStatus) {
+  const reply = await requestWithStatus('agent-account-default', { agent, accountId: account.accountId }, agentAccountActionStatus, { busyText: `Making ${account.label} the default.` });
+  if (reply?.type !== 'agent-accounts') return;
+  applyAgentAccounts(reply.accounts);
+  if (reply.error) agentAccountActionStatus.show('error', reply.error);
+}
+
 function buildAgentAccountRow(agent: (typeof ACCOUNT_AGENTS)[number], account: AgentAccountStatus) {
   const row = el('div', 'settings-telegram-test');
-  const description = [account.label, account.detail, account.accountId === null ? 'this machine' : null, ACCOUNT_STATE_TEXT[account.login.state]]
+  const description = [account.label, account.detail, account.accountId === null ? 'this machine' : null, ACCOUNT_STATE_TEXT[account.login.state], account.isDefault ? 'default for new sessions' : null]
     .filter((part) => part !== null && part !== '')
     .join(', ');
   row.appendChild(el('div', 'settings-readonly', description));
+  if (!account.isDefault && !account.isPending) {
+    row.appendChild(button({ variant: 'secondary', label: 'Make default', action: 'make-default-agent-account', onClick: () => { void makeAgentAccountDefault(agent, account); } }));
+  }
   if (account.accountId === null) return row;
   const accountId = account.accountId;
-  if (account.login.state !== 'signed-in') {
+  if (account.login.state !== 'signed-in' && !account.isPending) {
     row.appendChild(button({ variant: 'secondary', label: 'Sign in', action: 'sign-in-agent-account', onClick: () => openAgentAccountDialog(agent, accountId) }));
   }
   row.appendChild(button({

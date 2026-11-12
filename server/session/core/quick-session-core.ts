@@ -18,6 +18,7 @@ interface QuickSessionRequest {
   agent?: string;
   dangerouslySkipPermissions?: boolean;
   environment?: string;
+  accountId?: string | null;
 }
 
 type UnnamedQuickSessionRequest = Omit<QuickSessionRequest, 'name'>;
@@ -60,6 +61,7 @@ function requestFromProject(project: ProjectConfig): UnnamedQuickSessionRequest 
     agent: project.agent,
     dangerouslySkipPermissions: project.dangerouslySkipPermissions,
     environment: project.environment?.name,
+    accountId: project.accountId ?? null,
   };
 }
 

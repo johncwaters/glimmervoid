@@ -3,7 +3,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import { sendControlRequest } from '../control-ws.ts';
 import { CoderEnvironmentOffers } from '#shared/contracts/control-messages.ts';
 import type { ConnectableAgent, CoderEnvironmentOffer, ServerMessage } from '#shared/contracts/control-messages.ts';
-import { agentLoginOf, agentLoginSummary, connectableAgentOf, onAgentLoginsChanged, refreshAgentLogins } from '../agent-logins.ts';
+import { agentAccountsOf, agentLoginOf, agentLoginSummary, connectableAgentOf, onAgentAccountsChanged, onAgentLoginsChanged, refreshAgentAccounts, refreshAgentLogins } from '../agent-logins.ts';
 import { el, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
 import { button } from '../ui/button.ts';
@@ -144,6 +144,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
   const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = queryTag(dialog, '#add-session-path', 'input');
+  const accountEl = query(dialog, '#add-session-account');
+  const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
   const agentLoginEl = query(dialog, '#add-session-agent-login');
   const agentLoginTextEl = query(dialog, '#add-session-agent-login-text');
   const environmentHintEl = query(dialog, '#add-session-environment-hint');
@@ -197,6 +199,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let chosenPlace: string | null = null;
   let openSlot: AddSessionSlot | null = null;
   let operatorTouch: 'untouched' | 'acted' | 'reopened' = 'untouched';
+  let operatorAccountChoice: { agentId: string; accountId: string } | null = null;
 
   function requestOnSelectedHost(type: string, payload: Record<string, unknown>) {
     const options = { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS };
@@ -469,7 +472,40 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (isShell && selectedEnvironment) selectEnvironment(null);
     renderPermissionHint();
     showAgentLogin();
+    showAccountPick();
   }
+
+  function pickableAccounts() {
+    if (selectedHostId !== null || selectedEnvironment !== null) return [];
+    const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
+    return accounts.some((account) => account.accountId !== null) ? accounts : [];
+  }
+
+  function showAccountPick() {
+    if (!dialog.isConnected) {
+      unsubscribeAgentAccounts();
+      return;
+    }
+    const accounts = pickableAccounts();
+    accountEl.hidden = accounts.length === 0;
+    const optionValueOf = (accountId: string | null) => accountId ?? '';
+    const chosenValue = operatorAccountChoice?.agentId === selectedAgentId ? operatorAccountChoice.accountId : null;
+    const defaultValue = optionValueOf(accounts.find((account) => account.isDefault)?.accountId ?? null);
+    accountSelect.replaceChildren(...accounts.map((account) => {
+      const stateText = account.login.state === 'signed-in' ? '' : ' (signed out)';
+      const option = el('option', '', `${account.label}${account.accountId === null ? ', this machine' : ''}${stateText}`);
+      option.value = optionValueOf(account.accountId);
+      return option;
+    }));
+    const isChosenListed = chosenValue !== null && accounts.some((account) => optionValueOf(account.accountId) === chosenValue);
+    accountSelect.value = isChosenListed ? chosenValue : defaultValue;
+  }
+  accountSelect.addEventListener('change', () => {
+    markOperatorActed();
+    operatorAccountChoice = { agentId: selectedAgentId, accountId: accountSelect.value };
+  });
+  const unsubscribeAgentAccounts = onAgentAccountsChanged(showAccountPick);
+  refreshAgentAccounts();
 
   function showAgentLogin() {
     if (!dialog.isConnected) {
@@ -496,6 +532,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (selectedEnvironment && target.kind === 'workspace') returnToProjects();
     renderPermissionHint();
     showAgentLogin();
+    showAccountPick();
     renderList();
   }
 
@@ -682,6 +719,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
     if (selectedEnvironment && target.kind !== 'workspace') shared.environment = selectedEnvironment.name;
+    if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
     const task = taskField?.taskInput.value.trim() ?? '';
     if (task && !isShell) shared.prompt = task;
     if (target.kind === 'project') {

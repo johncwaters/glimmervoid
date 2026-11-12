@@ -25,6 +25,13 @@ export const AgentAccounts = z.array(AgentAccount, { error: 'agentAccounts must 
     }
   });
 
+export const AgentAccountDefaults = z.record(
+  z.string({ error: 'agentAccountDefaults keys must be agent ids' }),
+  AgentAccountId,
+  { error: 'agentAccountDefaults must map an agent id to an agentAccounts id' },
+);
+export type AgentAccountDefaults = z.infer<typeof AgentAccountDefaults>;
+
 export const AgentAccountLogin = z.strictObject({
   state: z.enum(['signed-in', 'signed-out', 'connecting', 'failed']),
   verificationUrl: z.string().nullable(),
@@ -41,6 +48,8 @@ export const AgentAccountStatus = z.strictObject({
   detail: z.string().nullable(),
   login: AgentAccountLogin,
   usedBy: z.array(z.string()),
+  isPending: z.boolean(),
+  isDefault: z.boolean(),
 });
 export type AgentAccountStatus = z.infer<typeof AgentAccountStatus>;
 

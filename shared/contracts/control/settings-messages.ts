@@ -15,6 +15,7 @@ export const settingsClientVariants = [
   loose('agent-account-cancel', { accountId: AgentAccountId, requestId }),
   loose('agent-account-code', { accountId: AgentAccountId, code: z.string(), requestId }),
   loose('agent-account-remove', { accountId: AgentAccountId, requestId }),
+  loose('agent-account-default', { agent: z.string().min(1), accountId: AgentAccountId.nullable(), requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),

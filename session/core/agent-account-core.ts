@@ -15,6 +15,29 @@ function resolveSessionAccountHome(accounts: readonly AgentAccount[], accountId:
   return { kind: "account", account };
 }
 
+type NewSessionAccount = { accountId: string | null } | { refusal: string };
+
+interface NewSessionAccountRequest {
+  accounts: readonly AgentAccount[];
+  defaults: Readonly<Record<string, string>>;
+  requestedAccountId: string | null | undefined;
+  agentId: string;
+  isRemote: boolean;
+}
+
+function resolveNewSessionAccount({ accounts, defaults, requestedAccountId, agentId, isRemote }: NewSessionAccountRequest): NewSessionAccount {
+  if (requestedAccountId === undefined) {
+    const defaultAccount = accounts.find((account) => account.id === defaults[agentId] && account.agent === agentId);
+    return { accountId: defaultAccount && !isRemote ? defaultAccount.id : null };
+  }
+  if (requestedAccountId === null) return { accountId: null };
+  const account = accounts.find((candidate) => candidate.id === requestedAccountId);
+  if (!account) return { refusal: `The account ${requestedAccountId} is not in config.json.` };
+  if (account.agent !== agentId) return { refusal: `The account ${account.label} belongs to ${account.agent}, not ${agentId}.` };
+  if (isRemote) return { refusal: `A Coder workspace session cannot run under the added account ${account.label} yet.` };
+  return { accountId: account.id };
+}
+
 function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKeys: readonly string[]): JsonObject | null {
   const merged: JsonObject = { ...accountFile };
   let hasChanged = false;
@@ -34,5 +57,5 @@ function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKe
   return hasChanged ? merged : null;
 }
 
-export { mergeSharedKeys, resolveSessionAccountHome };
+export { mergeSharedKeys, resolveNewSessionAccount, resolveSessionAccountHome };
 export type { SessionAccountHome };

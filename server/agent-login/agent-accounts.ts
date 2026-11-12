@@ -86,14 +86,20 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return `${agent}\u0000${accountId ?? ''}`;
   }
 
+  function defaultAccountIdOf(agent: ConnectableAgent): string | null {
+    const defaultId = configStore.config.agentAccountDefaults?.[agent] ?? null;
+    return configuredAccounts().some((account) => account.id === defaultId && account.agent === agent) ? defaultId : null;
+  }
+
   function statusOf(agent: ConnectableAgent, account: AgentAccount | null): AgentAccountStatus {
+    const isDefault = defaultAccountIdOf(agent) === (account?.id ?? null);
     const identity = identityByKey.get(identityKey(agent, account?.id ?? null)) ?? null;
     const login = identity === null ? loginOf('signed-out', 'Checking the sign-in.') : loginOf(identity.isSignedIn ? 'signed-in' : 'signed-out');
     if (account === null) {
-      return { accountId: null, agent, label: identity?.label ?? 'This machine', detail: identity?.detail ?? null, login, usedBy: [] };
+      return { accountId: null, agent, label: identity?.label ?? 'This machine', detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault };
     }
     const pendingLogin = pendingById.get(account.id)?.login ?? null;
-    return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id) };
+    return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault };
   }
 
   function list(): AgentAccountStatus[] {
@@ -103,7 +109,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       for (const account of configuredAccounts().filter((candidate) => candidate.agent === agent)) statuses.push(statusOf(agent, account));
       for (const pending of pendingById.values()) {
         if (pending.agent !== agent || pending.isExisting) continue;
-        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [] });
+        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false });
       }
     }
     return statuses;
@@ -305,6 +311,8 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     const freshConfig = configStore.save((config) => {
       config.agentAccounts = (config.agentAccounts ?? []).filter((candidate) => candidate.id !== accountId);
       if (config.agentAccounts.length === 0) delete config.agentAccounts;
+      if (config.agentAccountDefaults?.[account.agent] === accountId) delete config.agentAccountDefaults[account.agent];
+      if (config.agentAccountDefaults && Object.keys(config.agentAccountDefaults).length === 0) delete config.agentAccountDefaults;
     });
     if (!freshConfig) return { ok: false, error: 'Could not write config.json' };
     if (isOwnedFolder) await deleteFolder(account.folder);
@@ -314,11 +322,29 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return { ok: true };
   }
 
+  function setDefault(agent: string, accountId: string | null): AccountReply {
+    const accountAgent = ACCOUNT_AGENTS.find((candidate) => candidate === agent);
+    if (!accountAgent) return { ok: false, error: `${agent} cannot hold an added account yet.` };
+    const account = accountId === null ? null : configuredAccounts().find((candidate) => candidate.id === accountId && candidate.agent === agent);
+    if (account === undefined) return { ok: false, error: 'That account is not in config.json.' };
+    const freshConfig = configStore.save((config) => {
+      const defaults = { ...(config.agentAccountDefaults ?? {}) };
+      delete defaults[accountAgent];
+      if (account !== null) defaults[accountAgent] = account.id;
+      config.agentAccountDefaults = defaults;
+      if (Object.keys(defaults).length === 0) delete config.agentAccountDefaults;
+    });
+    if (!freshConfig) return { ok: false, error: 'Could not write config.json' };
+    onConfigSaved(freshConfig);
+    announce();
+    return { ok: true };
+  }
+
   function stop(): void {
     for (const pending of pendingById.values()) pending.connect.stop();
   }
 
-  return { add, cancel, list, refresh, remove, signIn, stop, submitCode };
+  return { add, cancel, list, refresh, remove, setDefault, signIn, stop, submitCode };
 }
 
 type AgentAccounts = ReturnType<typeof createAgentAccounts>;

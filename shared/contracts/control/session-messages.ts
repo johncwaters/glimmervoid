@@ -3,6 +3,7 @@ import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTi
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ManagerDecision } from '../question-manager.ts';
+import { AgentAccountId } from '../agent-accounts.ts';
 import { ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
@@ -20,6 +21,7 @@ export const sessionClientVariants = [
     saneYolo: z.boolean().optional(),
     runInPlace: z.boolean().optional(),
     environment: z.string().optional(),
+    accountId: AgentAccountId.nullable().optional(),
     resumeSessionId: z.string().optional(),
     prompt: z.string().max(4000).optional(),
     requestId,

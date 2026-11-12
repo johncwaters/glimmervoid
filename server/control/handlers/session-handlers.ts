@@ -10,6 +10,7 @@ import { sanitizeWorktreeName } from '../../../shared/paths.ts';
 import { STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { DEFAULT_AGENT_ID, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
+import { resolveNewSessionAccount } from '../../../session/core/agent-account-core.ts';
 import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
 import { planQuickSession } from '../../session/core/quick-session-core.ts';
@@ -119,6 +120,17 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
     const requestedAgent = typeof msg.agent === 'string' ? msg.agent.trim() : '';
 
+    const sessionAccount = resolveNewSessionAccount({
+      accounts: config.agentAccounts ?? [],
+      defaults: config.agentAccountDefaults ?? {},
+      requestedAccountId: msg.accountId,
+      agentId: requestedAgent || DEFAULT_AGENT_ID,
+      isRemote: remote !== undefined,
+    });
+    if ('refusal' in sessionAccount) {
+      refuseAddSession(msg, ws, { error: sessionAccount.refusal });
+      return null;
+    }
     const skipPerms = typeof msg.dangerouslySkipPermissions === 'boolean'
       ? msg.dangerouslySkipPermissions
       : machineSkipsPermissionsByDefault(config);
@@ -132,6 +144,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       saneYolo: skipPerms && msg.saneYolo === true,
       requireExistingPath: !repos,
       environment: remote?.environment,
+      accountId: sessionAccount.accountId,
       runSettings: runSettingsWithConversation(msg, runSettings),
     });
     if (!created.ok) {
@@ -217,6 +230,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function remoteAddSessionRefusal(msg: AddSessionRequest): AddSessionRefusal | null {
     if (msg.repos) return { error: 'A workspace session cannot run in a Coder environment. Pick a single repository.' };
     if (msg.runInPlace === true) return { error: 'A session in a Coder environment always gets its own checkout, so it cannot run in this folder.' };
+    if (typeof msg.accountId === 'string') return { error: 'A Coder workspace session cannot run under an added account yet. Pick this machine\'s login.' };
     return null;
   }
 
