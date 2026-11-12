@@ -137,7 +137,7 @@ interface ControlHandlerDeps {
   myPrs?: MyPrMergeControl | null;
   prFlows?: Pick<PrFlowsWiring, 'dispose' | 'undo' | 'saveRule' | 'approve' | 'statusFrame' | 'runPrAction'> | null;
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }> } | null;
-  packLaunchers?: Pick<PackLaunchers, 'launchRequest'> | null;
+  packLaunchers?: Pick<PackLaunchers, 'launchRequest' | 'attachSessionStarter'> | null;
   packData?: PackData | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];

@@ -16,6 +16,10 @@ export function packsStatePath(homeDir: string): string {
   return path.join(homeDir, PACKS_STATE_FILE_NAME);
 }
 
+export function packLauncherRunsPath(homeDir: string): string {
+  return path.join(homeDir, 'pack-launcher-runs.json');
+}
+
 export function readApprovedPackFingerprints(homeDir: string): Set<string> {
   const statePath = packsStatePath(homeDir);
   if (!fs.existsSync(statePath)) return new Set();

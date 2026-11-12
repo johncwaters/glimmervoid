@@ -1,3 +1,4 @@
+import { Cron } from 'croner';
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { CatalogAgentId, SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
@@ -66,6 +67,18 @@ export const PackUi = z.strictObject({
 export type PackUi = z.infer<typeof PackUi>;
 
 const LaunchValue = z.string().regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'a model or effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' });
+const CRON_FIELD_COUNT = 5;
+
+function isFiveFieldCron(pattern: string): boolean {
+  if (pattern.split(/\s+/).length !== CRON_FIELD_COUNT) return false;
+  try {
+    new Cron(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const LAUNCHER_PROJECT_PATTERN = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|\/.+|[A-Za-z]:[\\/].*)$/;
 
 export const PackLauncher = z.strictObject({
@@ -77,6 +90,8 @@ export const PackLauncher = z.strictObject({
   model: LaunchValue.max(200).optional().describe('The model passed to the agent, as its own --model flag takes it; absent uses the agent default'),
   effort: LaunchValue.max(40).optional().describe('The reasoning effort passed to the agent, such as low, medium or high; absent uses the agent default'),
   prompt: z.string().trim().min(1).max(4000).regex(/^[\P{C}\n\t]*$/u, { error: 'a launcher prompt holds no control, format or invisible characters besides newlines and tabs, so the operator approves exactly what the session gets' }).describe('The first prompt the session gets'),
+  schedule: z.string().trim().max(100).refine(isFiveFieldCron, { error: 'a launcher schedule is a cron pattern of five fields such as "0 9 * * 1-5"' }).optional()
+    .describe('A cron pattern of five fields in the operator timezone; the launcher also starts its session on this schedule, skipping a run while its last scheduled session is still live, and never catching up runs missed while Glimmervoid was down'),
 });
 export type PackLauncher = z.infer<typeof PackLauncher>;
 
@@ -93,6 +108,8 @@ export const PackSessions = z.strictObject({
   saneYolo: z.boolean().optional().describe('With dangerouslySkipPermissions, also catch risky commands with Sane YOLO; absent follows the operator\'s default'),
 });
 export type PackSessions = z.infer<typeof PackSessions>;
+
+export const PackLauncherRuns = z.strictObject({ sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}) });
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;

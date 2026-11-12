@@ -5,6 +5,7 @@ import type { WorkflowRule } from '../../shared/contracts/workflows.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from '../core/memory-admission-core.ts';
 import type { ProjectEntry, GlimmervoidConfig } from './config-types.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
+import { PACK_SCHEDULED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
 
 const DEFAULT_CONFIG = {
   port: 3000,
@@ -28,6 +29,8 @@ const DEFAULT_CONFIG = {
   replayBufferKB: 512,
 
   sessionMemoryReserveMB: DEFAULT_SESSION_MEMORY_RESERVE_MB,
+
+  packScheduledSessionsMax: PACK_SCHEDULED_SESSIONS_DEFAULT,
 
   recordSignals: true,
 

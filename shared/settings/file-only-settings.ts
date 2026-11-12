@@ -12,6 +12,8 @@ import {
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE,
+  PACK_SCHEDULED_SESSIONS_DEFAULT,
+  PACK_SCHEDULED_SESSIONS_RANGE,
   REPLAY_BUFFER_KB_RANGE,
   TASK_TITLE_TIMEOUT_RANGE,
   USAGE_INTEGER_RANGES,
@@ -19,7 +21,7 @@ import {
   WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE,
 } from '../settings-ranges.ts';
 import { USAGE_COST_MODES } from '../usage-config.ts';
-import { FILE_ONLY, RECURRENCES, ACTIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, MINUTES_STORED_AS_SECONDS, HOURS_STORED_AS_MS, HOURS_STORED_AS_MINUTES, USERS, MULTIPLIER, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
+import { FILE_ONLY, RECURRENCES, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, MINUTES_STORED_AS_SECONDS, HOURS_STORED_AS_MS, HOURS_STORED_AS_MINUTES, USERS, MULTIPLIER, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
 import type { SettingsSetting } from './registry-fields.ts';
 import { DEFAULT_MODELS } from '../contracts/agent-models.ts';
 
@@ -51,6 +53,12 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-session-memory-reserve', path: 'sessionMemoryReserveMB', title: 'Session memory reserve', group: 'machine-sessions',
     description: 'Free memory an automatic session start waits for; 0 starts sessions without checking.',
     control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'headroom'], defaultValue: 600,
+    takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-pack-scheduled-sessions', path: 'packScheduledSessionsMax', title: 'Scheduled pack sessions', group: 'machine-sessions',
+    description: 'Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped.',
+    control: 'number', range: PACK_SCHEDULED_SESSIONS_RANGE, unit: SESSIONS, keywords: ['packs', 'launchers', 'cron', 'schedule'], defaultValue: PACK_SCHEDULED_SESSIONS_DEFAULT,
     takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {

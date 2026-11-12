@@ -48,7 +48,7 @@ function sessionsLine(sessions: PackRow['sessions']): string | null {
 function launcherLines(row: PackRow): HTMLElement[] {
   return row.launchers.flatMap((launcher) => {
     const setup = [launcher.model, launcher.effort].filter((choice): choice is string => choice !== null);
-    const heading = `Launcher: ${launcher.label} starts ${launcher.agent}${setup.length === 0 ? '' : ` (${setup.join(', ')})`} in ${launcher.project} with this prompt:`;
+    const heading = `Launcher: ${launcher.label} starts ${launcher.agent}${setup.length === 0 ? '' : ` (${setup.join(', ')})`} in ${launcher.project}${launcher.schedule === null ? '' : `, and also on the cron schedule ${launcher.schedule} in your timezone,`} with this prompt:`;
     return [el('p', 'settings-view-setting-description', heading), el('pre', 'settings-view-pack-prompt', launcher.prompt)];
   });
 }

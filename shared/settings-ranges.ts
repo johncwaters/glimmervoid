@@ -25,6 +25,8 @@ export const REVIEWS_TURN_LIMIT_DEFAULT = 5;
 
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
+export const PACK_SCHEDULED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 20 });
+export const PACK_SCHEDULED_SESSIONS_DEFAULT = 3;
 export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
 export const FIXED_PORT_RANGE = Object.freeze({ min: 1, max: PORT_RANGE.max });
 export const TASK_TITLE_TIMEOUT_RANGE = Object.freeze({ min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 });
@@ -88,6 +90,7 @@ export const SETTINGS_RANGES = Object.freeze({
   REPLAY_BUFFER_KB_RANGE,
   REVIEWS_TURN_LIMIT_RANGE,
   MEMORY_RESERVE_MB_RANGE,
+  PACK_SCHEDULED_SESSIONS_RANGE,
   TASK_TITLE_TIMEOUT_RANGE,
   USAGE_BUDGET_RANGE,
   USAGE_RETAIN_DAYS_RANGE,

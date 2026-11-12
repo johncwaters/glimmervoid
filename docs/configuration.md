@@ -43,6 +43,7 @@ How sessions start, where projects are found, and branch cleanup.
 | `sessionOrder` | Session order | `[]` | Order of sessions within each project in the sidebar and the phone Board, as session ids; a session not listed goes after the listed ones. **File-only.** Set by dragging sessions in the sidebar, or pressing and holding them on the phone Board. |
 | `operatorTimezone` | Operator timezone | `null` | Timezone that wake times, day boundaries and shown times use; until a dashboard reports one, the machine timezone. **File-only.** Set by the dashboard from the browser timezone each time it connects with a different one. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `packScheduledSessionsMax` | Scheduled pack sessions | `3` | Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Sane YOLO
 

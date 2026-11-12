@@ -20,7 +20,7 @@ export const PackRow = z.strictObject({
   prFlows: PrFlowPendingApproval.nullable(),
   themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode })),
   panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
-  launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string() })),
+  launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string(), schedule: z.string().nullable() })),
   sessions: z.strictObject({ dangerouslySkipPermissions: z.boolean(), saneYolo: z.boolean().optional() }).nullable(),
   errors: z.array(z.string()),
 });

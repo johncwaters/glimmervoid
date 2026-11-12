@@ -20,7 +20,7 @@ import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
 import { runCommandSafely } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import { STATES } from '../../shared/states.ts';
+import { KILLABLE_STATES, STATES } from '../../shared/states.ts';
 import { createCoderActivityWiring } from '../coder-activity-wiring.ts';
 import { createCoderEnvWiring } from '../coder/coder-env-wiring.ts';
 import { resolveCoderEnvironment } from '../coder/core/coder-env-core.ts';
@@ -52,7 +52,7 @@ import { createPrGh } from '../github/pr-gh.ts';
 import { createGithubUsageLedger } from '../github/github-usage-ledger.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
-import { packsStatePath } from '../packs/pack-files.ts';
+import { packLauncherRunsPath, packsStatePath } from '../packs/pack-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
 import { createPackLaunchers } from '../packs/launchers.ts';
 import { createPackStore } from '../packs/pack-store.ts';
@@ -76,6 +76,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { repoNotesRefFor } from '../commit-sessions.ts';
 import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
 import { clock as timeClock } from '../../shared/clock.ts';
+import { PACK_SCHEDULED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
 
 const RACE_JUDGE_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Write']);
 const RACE_CHECK_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -313,6 +314,11 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     packStore, projectPaths: () => configStore.config.projects.map((project) => project.path || '').filter(Boolean),
     originUrl: (projectPath) => gitWorkspace.originUrl({ projectPath }), operatorSaneYolo: () => configStore.config.saneYolo !== false,
     onResolved: broadcastPacksIfChanged, log: logger,
+    runsPath: packLauncherRunsPath(glimmervoidHome),
+    isSessionLive: (sessionId) => { const session = sessions.get(sessionId); return session !== undefined && KILLABLE_STATES.includes(session.state); },
+    liveSessionNames: () => [...sessions.values(), ...agentSessions.values()].map((session) => session.name),
+    maxScheduledSessions: () => configStore.config.packScheduledSessionsMax ?? PACK_SCHEDULED_SESSIONS_DEFAULT,
+    timezone: () => timeClock.timezone(),
   });
   const prFlows = createPrFlowsWiring({
     statePath: path.join(glimmervoidHome, 'pr-flows-state.json'), openPrs: () => myPrs.getStatus().prs.filter((pr) => pr.state === 'OPEN'),

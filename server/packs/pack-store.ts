@@ -8,8 +8,8 @@ import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
-import { approvedLauncher, approvedPackLaunchers, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote } from './core/pack-core.ts';
-import type { LauncherProjectResolution } from './core/pack-core.ts';
+import { approvedLauncher, approvedPackLaunchers, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
+import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
@@ -32,6 +32,7 @@ type PackStore = EventEmitter & {
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
   launcherProjectsInUse(): string[];
   launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
+  scheduledLaunchersInUse(): ScheduledPackLauncher[];
 };
 
 export function createPackStore({ homeDir, statePath, env, log, frameSecret, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -271,5 +272,6 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     launcherProjectsInUse: () => launcherProjects(packsInUse()),
     launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
+    scheduledLaunchersInUse: () => scheduledLaunchers(packsInUse()),
   });
 }

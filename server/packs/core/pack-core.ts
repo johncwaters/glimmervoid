@@ -98,6 +98,12 @@ export function approvedLauncher(packs: readonly PackOnDisk[], packName: string,
   return { launcher, sessions: packSessionSettings(pack) };
 }
 
+export type ScheduledPackLauncher = { pack: string; launcher: PackLauncher; schedule: string };
+
+export function scheduledLaunchers(packs: readonly PackOnDisk[]): ScheduledPackLauncher[] {
+  return packs.flatMap((pack) => packLaunchers(pack).flatMap((launcher) => (launcher.schedule ? [{ pack: pack.header.name, launcher, schedule: launcher.schedule }] : [])));
+}
+
 export function launcherProjects(packs: readonly PackOnDisk[]): string[] {
   return [...new Set(packs.flatMap((pack) => packLaunchers(pack).map((launcher) => launcher.project)))];
 }
@@ -113,7 +119,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
-    launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt })),
+    launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), errors: sectionErrors,
   };
 }

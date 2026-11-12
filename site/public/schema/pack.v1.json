@@ -639,6 +639,11 @@
             "maxLength": 4000,
             "pattern": "^[\\P{C}\\n\\t]*$",
             "description": "The first prompt the session gets"
+          },
+          "schedule": {
+            "description": "A cron pattern of five fields in the operator timezone; the launcher also starts its session on this schedule, skipping a run while its last scheduled session is still live, and never catching up runs missed while Glimmervoid was down",
+            "type": "string",
+            "maxLength": 100
           }
         },
         "required": [

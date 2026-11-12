@@ -10,7 +10,7 @@ import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { readPacksForAgent } from '../server/packs/pack-agent.ts';
-import { PACKS_DIR_NAME, packsStatePath } from '../server/packs/pack-files.ts';
+import { PACKS_DIR_NAME, packLauncherRunsPath, packsStatePath } from '../server/packs/pack-files.ts';
 import { createPackLaunchers } from '../server/packs/launchers.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
@@ -177,6 +177,7 @@ test('an approved pack launcher starts a session in its project with the pack mo
   const packLaunchers = createPackLaunchers({
     packStore, projectPaths: () => projectPaths, originUrl: async (projectPath) => (projectPath === clonedDir ? 'git@github.com:example-org/not-cloned.git' : 'git@github.com:example-org/other.git'),
     operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: () => {} },
+    runsPath: null, isSessionLive: () => true, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC',
   });
   const config: GlimmervoidConfig = { projects: [] };
   const connection = connectControl<{ requestId?: string; ok?: boolean; error?: string | null }>(createControlServer(controlDeps(config, { packLaunchers, generateProjectId: () => `launched-${config.projects.length}` })));
@@ -217,6 +218,97 @@ test('an approved pack launcher starts a session in its project with the pack mo
     const afterClone = await launch('elsewhere', 'after-clone');
     assert.equal(afterClone?.ok, true, afterClone?.error ?? '');
     assert.equal(config.projects.find((added) => added.name === 'Elsewhere')?.path, clonedDir);
+  } finally {
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a scheduled pack launcher starts a session on its cron in the operator timezone, skips a run while its last one is live across a restart, while its project matches nothing or when it comes due late, and never catches up missed runs', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-schedules-'));
+  const projectDir = path.join(homeDir, 'nightly-project');
+  fs.mkdirSync(projectDir);
+  const packDir = path.join(homeDir, PACKS_DIR_NAME, 'nightly');
+  fs.mkdirSync(packDir, { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({
+    name: 'nightly', version: 1,
+    launchers: [
+      { id: 'checks', label: 'Nightly checks', project: projectDir, agent: 'codex', prompt: 'Run the nightly checks.', schedule: '0 3 * * *' },
+      { id: 'elsewhere', label: 'Elsewhere', project: 'example-org/not-cloned', agent: 'codex', prompt: 'Hello', schedule: '0 3 * * *' },
+    ],
+  }));
+  const hourMs = 60 * 60 * 1000;
+  const firstFireAt = Date.parse('2026-11-13T03:00:00Z');
+  let nowMs = firstFireAt - hourMs;
+  const armedTimers: { fire: () => void; delayMs: number }[] = [];
+  const endedSessionIds = new Set<string>();
+  let operatorTimezone = 'UTC';
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  const config: GlimmervoidConfig = { projects: [] };
+  const launcherDeps = {
+    packStore, projectPaths: () => [projectDir], originUrl: async () => 'git@github.com:example-org/other.git',
+    operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: () => {} }, runsPath: packLauncherRunsPath(homeDir),
+    isSessionLive: (sessionId: string) => config.projects.some((project) => project.id === sessionId) && !endedSessionIds.has(sessionId),
+    liveSessionNames: () => config.projects.map((project) => project.name), maxScheduledSessions: () => 3, timezone: () => operatorTimezone,
+    now: () => nowMs,
+    setTimeoutFn: (fire: () => void, delayMs: number) => {
+      armedTimers.push({ fire, delayMs });
+      return setTimeout(() => {}, 0);
+    },
+  };
+  const packLaunchers = createPackLaunchers(launcherDeps);
+  createControlServer(controlDeps(config, { packLaunchers, generateProjectId: () => `scheduled-${config.projects.length}` }));
+  const fireArmedTimer = async (atMs: number) => {
+    nowMs = atMs;
+    const timersBefore = armedTimers.length;
+    armedTimers.at(-1)?.fire();
+    await waitFor(() => armedTimers.length > timersBefore);
+  };
+  try {
+    await packStore.start();
+    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'nightly'));
+    const pendingRow = packStore.statusFrame().packs.find((row) => row.name === 'nightly');
+    assert.deepEqual(pendingRow?.launchers.map((launcher) => launcher.schedule), ['0 3 * * *', '0 3 * * *'], 'the approval screen gets each schedule word for word');
+    await packLaunchers.refresh();
+    assert.equal(armedTimers.length, 0, 'an unapproved pack schedules nothing');
+
+    assert.deepEqual(await packStore.approve(pendingRow?.fingerprint ?? ''), { ok: true });
+    await packLaunchers.refresh();
+    assert.equal(armedTimers.at(-1)?.delayMs, hourMs);
+
+    await fireArmedTimer(firstFireAt);
+    assert.deepEqual(config.projects.map((project) => project.name), ['Nightly checks'], 'the launcher whose project matches nothing does not fire');
+    assert.equal(armedTimers.at(-1)?.delayMs, 24 * hourMs);
+
+    await fireArmedTimer(firstFireAt + 24 * hourMs);
+    assert.equal(config.projects.length, 1, 'a run is skipped while the last scheduled session is live');
+
+    endedSessionIds.add(config.projects[0]?.id ?? '');
+    await fireArmedTimer(firstFireAt + 48 * hourMs);
+    assert.deepEqual(config.projects.map((project) => project.name), ['Nightly checks', 'Nightly checks (2)']);
+
+    nowMs = firstFireAt + 96 * hourMs + hourMs / 2;
+    const restarted = createPackLaunchers(launcherDeps);
+    const startedAfterRestart: string[] = [];
+    await restarted.refresh();
+    restarted.attachSessionStarter(async (request) => {
+      startedAfterRestart.push(request.name);
+      return { ok: true, sessionId: request.name };
+    });
+    assert.equal(armedTimers.at(-1)?.delayMs, 24 * hourMs - hourMs / 2, 'after downtime the next run is the next cron time, not the missed ones');
+    assert.deepEqual(startedAfterRestart, []);
+
+    await fireArmedTimer(firstFireAt + 120 * hourMs);
+    assert.deepEqual(startedAfterRestart, [], 'the run started before the restart is still live, so this one is skipped');
+
+    endedSessionIds.add(config.projects[1]?.id ?? '');
+    await fireArmedTimer(firstFireAt + 144 * hourMs + 2 * hourMs);
+    assert.deepEqual(startedAfterRestart, [], 'a run that comes due hours late, as after the host slept, is skipped as missed');
+
+    nowMs = firstFireAt + 168 * hourMs - 2 * hourMs;
+    operatorTimezone = 'Europe/Berlin';
+    await restarted.refresh();
+    assert.equal(armedTimers.at(-1)?.delayMs, hourMs, 'a timezone change moves the next run to 03:00 in the new timezone');
   } finally {
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });

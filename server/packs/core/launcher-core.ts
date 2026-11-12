@@ -29,6 +29,23 @@ export function resolveLauncherProject(project: string, projectOrigins: readonly
   return match ? { ok: true, path: match.path } : { ok: false, reason: `no project here has ${project} as its origin; add a session in that repository once` };
 }
 
+type ScheduledFireDecision = 'start' | 'skip-missed' | 'skip-running' | 'skip-cap' | 'skip-unresolved';
+
+export function decideScheduledFire({ lateByMs, missedGraceMs, isProjectResolved, isPreviousRunLive, liveScheduledCount, maxScheduledSessions }: {
+  lateByMs: number;
+  missedGraceMs: number;
+  isProjectResolved: boolean;
+  isPreviousRunLive: boolean;
+  liveScheduledCount: number;
+  maxScheduledSessions: number;
+}): ScheduledFireDecision {
+  if (lateByMs > missedGraceMs) return 'skip-missed';
+  if (!isProjectResolved) return 'skip-unresolved';
+  if (isPreviousRunLive) return 'skip-running';
+  if (liveScheduledCount >= maxScheduledSessions) return 'skip-cap';
+  return 'start';
+}
+
 export function launcherAddSession({ launcher, sessions, projectPath, sessionNames, operatorSaneYolo }: {
   launcher: PackLauncher;
   sessions: PackSessions | null;

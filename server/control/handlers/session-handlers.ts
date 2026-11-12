@@ -33,6 +33,9 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 import { clock } from '../../../shared/clock.ts';
 
 type AddSessionRefusal = { error: string };
+type AddSessionOutcome = { ok: true; sessionId: string } | { ok: false; error: string };
+type AddSessionReply = (outcome: AddSessionOutcome) => void;
+type HeadlessAddSession = Pick<AddSessionRequest, 'name' | 'path'> & Partial<AddSessionRequest>;
 type AddSessionRequest = ClientMessageOf<'add-session'>;
 type RunSettings = Partial<ProjectEntry>;
 type RemovalRefusal = { ok: false; error: string; canDiscardWork?: boolean; keptPaths?: KeptWorkPath[] };
@@ -86,19 +89,36 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   }
 
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
-    return addSession(request, ws, {});
+    return addSession(request, socketReply(ws, request), {});
   }
 
-  function addSession(request: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings): Promise<void> | undefined {
+  function socketReply(ws: ControlSocket, msg: AddSessionRequest): AddSessionReply {
+    return (outcome) => {
+      if (msg.requestId) {
+        replyTo(ws, msg, 'add-session-result', outcome.ok ? { ok: true, error: null, sessionId: outcome.sessionId } : { ok: false, error: outcome.error });
+        return;
+      }
+      if (!outcome.ok) sendError(ws, outcome.error);
+    };
+  }
+
+  function startSession(request: HeadlessAddSession): Promise<AddSessionOutcome> {
+    return new Promise((resolve) => {
+      Promise.resolve(addSession({ ...request, type: 'add-session', requestId: undefined }, resolve, {}))
+        .catch((error: unknown) => resolve({ ok: false, error: errorMessage(error) }));
+    });
+  }
+
+  function addSession(request: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings): Promise<void> | undefined {
     const msg = withShellDefaults(request);
     const refusal = shellAddSessionRefusal(msg) ?? addSessionRefusal(msg);
     if (refusal) {
-      refuseAddSession(msg, ws, refusal);
+      refuseAddSession(msg, reply, refusal);
       return undefined;
     }
     const environmentName = typeof msg.environment === 'string' ? msg.environment.trim() : '';
-    if (environmentName) return createRemoteAddedSession(msg, ws, runSettings, environmentName);
-    createAddedSession(msg, ws, runSettings);
+    if (environmentName) return createRemoteAddedSession(msg, reply, runSettings, environmentName);
+    createAddedSession(msg, reply, runSettings);
     return undefined;
   }
 
@@ -112,7 +132,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'add-session-result', { ok: false, error: outcome.error });
       return;
     }
-    await addSession({ type: 'add-session', requestId: msg.requestId, ...outcome.request }, ws, {});
+    const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...outcome.request };
+    await addSession(request, socketReply(ws, request), {});
   }
 
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): Promise<void> | undefined {
@@ -126,10 +147,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       project: config.projects.find((project) => project.id === source.id) ?? null,
       sessionNames: liveSessionNames(),
     });
-    return addSession({ type: 'add-session', requestId: msg.requestId, ...plan.request }, ws, plan.runSettings);
+    const request: AddSessionRequest = { type: 'add-session', requestId: msg.requestId, ...plan.request };
+    return addSession(request, socketReply(ws, request), plan.runSettings);
   }
 
-  function createAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
+  function createAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings, remote?: { id: string; environment: NonNullable<ProjectEntry['environment']> }): ProjectEntry | null {
     const name = (msg.name || '').trim();
     const projectPath = (msg.path || '').trim();
     const repos = msg.repos;
@@ -164,11 +186,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       runSettings: requestedRunSettings(msg, runSettings),
     });
     if (!created.ok) {
-      refuseAddSession(msg, ws, { error: created.error });
+      refuseAddSession(msg, reply, { error: created.error });
       return null;
     }
     sendFirstPrompt(created.project.id, msg.prompt);
-    if (msg.requestId) replyTo(ws, msg, 'add-session-result', { ok: true, error: null, sessionId: created.project.id });
+    reply({ ok: true, sessionId: created.project.id });
     console.log(`[control] Added session via UI: ${created.project.name}${skipPerms ? ' (skip permissions)' : ' (permission prompts)'}${remote ? ` (Coder environment ${remote.environment.name})` : ''}`);
     return created.project;
   }
@@ -249,19 +271,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  async function createRemoteAddedSession(msg: AddSessionRequest, ws: ControlSocket, runSettings: RunSettings, environmentName: string): Promise<void> {
+  async function createRemoteAddedSession(msg: AddSessionRequest, reply: AddSessionReply, runSettings: RunSettings, environmentName: string): Promise<void> {
     const refusal = remoteAddSessionRefusal(msg);
     if (refusal) {
-      refuseAddSession(msg, ws, refusal);
+      refuseAddSession(msg, reply, refusal);
       return;
     }
     if (!coderEnv || !remoteRepoGit) {
-      refuseAddSession(msg, ws, { error: 'Coder environments are unavailable on this host' });
+      refuseAddSession(msg, reply, { error: 'Coder environments are unavailable on this host' });
       return;
     }
     const source = await remoteRepoSource(path.resolve((msg.path || '').trim()));
     if (!source.ok) {
-      refuseAddSession(msg, ws, { error: source.error });
+      refuseAddSession(msg, reply, { error: source.error });
       return;
     }
     const { repoRemoteUrl, baseBranch } = source;
@@ -273,10 +295,10 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       liveCount: liveWorkspaceCount(environmentName),
     });
     if (!reserved.ok) {
-      refuseAddSession(msg, ws, { error: reserved.reason });
+      refuseAddSession(msg, reply, { error: reserved.reason });
       return;
     }
-    const project = createAddedSession(msg, ws, runSettings, { id, environment: reserved.mapping });
+    const project = createAddedSession(msg, reply, runSettings, { id, environment: reserved.mapping });
     if (!project) return;
     void coderEnv.provision({ projectId: id, mapping: reserved.mapping, repoRemoteUrl, baseBranch }).then((provisioned) => {
       if (!provisioned.ok) console.warn(`[control] Coder provision failed for ${project.name}: ${provisioned.reason}`);
@@ -350,13 +372,9 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
-  function refuseAddSession(msg: AddSessionRequest, ws: ControlSocket, refusal: AddSessionRefusal): void {
+  function refuseAddSession(msg: AddSessionRequest, reply: AddSessionReply, refusal: AddSessionRefusal): void {
     console.warn(`[control] add-session refused: name=${sanitizeOneLine(msg.name, CLIENT_LOG_TEXT_MAX_CHARS)} path=${sanitizeOneLine(msg.path, CLIENT_LOG_TEXT_MAX_CHARS)}: ${refusal.error}`);
-    if (msg.requestId) {
-      replyTo(ws, msg, 'add-session-result', { ok: false, ...refusal });
-      return;
-    }
-    sendError(ws, refusal.error);
+    reply({ ok: false, error: refusal.error });
   }
 
   function handleStartSession(msg: ClientMessageOf<'start-session'>, ws: ControlSocket): void {
@@ -788,6 +806,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
+  packLaunchers?.attachSessionStarter(startSession);
   return { handlers, invalidReplies, connectFrames: sessionWakeFrames, removeExitedSession, discardSession };
 }
 

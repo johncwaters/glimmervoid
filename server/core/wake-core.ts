@@ -221,5 +221,5 @@ function soonestFireAt(wakes: readonly Wake[]): number | null {
   return fireTimes.length === 0 ? null : Math.min(...fireTimes);
 }
 
-export { admitWake, afterFire, alarmsOf, soonestFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
+export { admitWake, afterFire, alarmsOf, nextCronFireAt, soonestFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
 export type { OperatorWakeFacts, WakeFailureCause, WakeLimits };
