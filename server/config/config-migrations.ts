@@ -97,6 +97,12 @@ function dropRetiredIssues(config: GlimmervoidConfig): string | null {
   return '[config] Removed issues: the Issues tab is gone.';
 }
 
+function dropRetiredHosts(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'hosts')) return null;
+  delete config.hosts;
+  return '[config] Removed hosts: linked hosts are gone; sessions on those machines keep running there.';
+}
+
 interface KeyMove {
   from: string;
   to: string;
@@ -180,4 +186,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

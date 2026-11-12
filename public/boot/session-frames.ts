@@ -25,7 +25,6 @@ import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
-import { forgetSessionHost, hostOfSession, rememberSessionHost, sessionsOfHost } from '../hosts/session-hosts.ts';
 
 
 function refreshAttentionSurfaces() {
@@ -62,32 +61,23 @@ function forgetSession(sessionId: string) {
   forgetSessionWakes(sessionId);
   forgetManagerDecisions(sessionId);
   forgetAttentionNotes(sessionId);
-  forgetSessionHost(sessionId);
 }
 
-function forgetHostSessions(hostId: string) {
-  for (const sessionId of sessionsOfHost(hostId)) forgetSession(sessionId);
-}
-
-function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null) {
+function forgetSessionsMissingFromSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   const liveSessionIds = new Set(rows.map((row) => row.id));
   for (const cachedSessionId of [...sessionUIs.keys()]) {
-    if (hostOfSession(cachedSessionId) !== hostId) continue;
     if (!liveSessionIds.has(cachedSessionId)) forgetSession(cachedSessionId);
   }
 }
 
-function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions'], hostId: string | null = null) {
-  if (hostId) for (const row of rows) rememberSessionHost(row.id, hostId);
-  forgetSessionsMissingFromSnapshot(rows, hostId);
-  if (!hostId) {
-    applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
-      id: session.id,
-      name: session.name,
-      agent: session.agent,
-      permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
-    })));
-  }
+function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
+  forgetSessionsMissingFromSnapshot(rows);
+  applySettingsProjects(rows.filter((session) => !session.ephemeral).map((session) => ({
+    id: session.id,
+    name: session.name,
+    agent: session.agent,
+    permissionMode: session.dangerouslySkipPermissions ? 'Skip permissions' : 'Default',
+  })));
   for (const s of rows) {
     if (hasSession(s.id)) catchUpExistingCard(s);
     if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
@@ -225,7 +215,6 @@ function handleSessionStatus(msg: SessionStatusMessage) {
 }
 
 export {
-  forgetHostSessions,
   forgetSession,
   handleSessionStatus,
   handleSnapshot,

@@ -20,8 +20,6 @@ import { elapsedText } from '#shared/display-text.ts';
 import { getAddSessionStarts, setAddSessionStarts } from '../ui-prefs.ts';
 import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, rememberStart, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
-import { hostStatuses } from '../hosts/host-status.ts';
-import { requestOnHost } from '../hosts/host-clients.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
@@ -72,7 +70,7 @@ type AddSessionSlot = 'place' | 'agent' | 'project';
 
 const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['place', 'agent', 'project'];
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
-const HOST_PLACE_PREFIX = 'host:';
+const LOCAL_PLACE = 'local';
 const ENVIRONMENT_PLACE_PREFIX = 'environment:';
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
 const UNPROTECTED_SKIPS_TEXT = 'Sane YOLO is not available here, so this session skips permission prompts unprotected.';
@@ -185,8 +183,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let agentOptions: { id: string; label: string }[] = [];
   let defaultAgentId = DEFAULT_AGENT_ID;
   let selectedAgentId = NO_AGENT_ID;
-  let selectedHostId: string | null = null;
-  let hostLoadGeneration = 0;
   let localCoderEnvironments: CoderEnvironmentOffer[] = [];
   let selectedEnvironment: CoderEnvironmentOffer | null = null;
   let hasSettingsLoaded = false;
@@ -205,15 +201,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let operatorTouch: 'untouched' | 'acted' | 'reopened' = 'untouched';
   let operatorAccountChoice: { agentId: string; accountId: string } | null = null;
 
-  function requestOnSelectedHost(type: string, payload: Record<string, unknown>) {
-    const options = { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS };
-    return selectedHostId ? requestOnHost(selectedHostId, type, payload, options) : sendControlRequest(type, payload, options);
-  }
-  function whileHostUnchanged<Value>(apply: (value: Value) => void) {
-    const generation = hostLoadGeneration;
-    return (value: Value) => {
-      if (generation === hostLoadGeneration) apply(value);
-    };
+  function requestControl(type: string, payload: Record<string, unknown>) {
+    return sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
   }
 
   const isShellChosen = () => selectedAgentId === SHELL_AGENT_ID;
@@ -223,7 +212,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return agentOptions.some((agentOption) => agentOption.id === rememberedAgentId) ? rememberedAgentId : defaultAgentId;
   };
 
-  const isPlaceShown = () => hostStatuses().length > 0 || localCoderEnvironments.length > 0;
+  const isPlaceShown = () => localCoderEnvironments.length > 0;
   const isSlotEmpty: Record<AddSessionSlot, () => boolean> = {
     place: () => isPlaceShown() && chosenPlace === null,
     agent: () => selectedAgentId === NO_AGENT_ID && (!isAgentListSettled || agentOptions.length > 0),
@@ -232,8 +221,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const firstEmptySlot = () => ADD_SESSION_SLOTS.find((slot) => isSlotEmpty[slot]()) ?? null;
 
   function placeName() {
-    if (selectedEnvironment) return selectedEnvironment.name;
-    return hostStatuses().find((status) => status.id === selectedHostId)?.name ?? 'this machine';
+    return selectedEnvironment?.name ?? 'this machine';
   }
 
   function renderSentence() {
@@ -314,14 +302,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       choosePlace(place);
       advanceFromPick(target === targetBeforePick);
     });
-    const hostRows = hostStatuses().map((status) => {
-      const isConnected = status.state === 'connected';
-      const rowEl = buildPlaceRow(isConnected ? status.name : `${status.name} (${status.state})`, `${HOST_PLACE_PREFIX}${status.id}`);
-      rowEl.disabled = !isConnected;
-      return rowEl;
-    });
     const environmentRows = localCoderEnvironments.map((environment) => buildPlaceRow(environment.name, `${ENVIRONMENT_PLACE_PREFIX}${environment.name}`));
-    return [buildPlaceRow('this machine', HOST_PLACE_PREFIX), ...hostRows, ...environmentRows];
+    return [buildPlaceRow('this machine', LOCAL_PLACE), ...environmentRows];
   }
 
   function buildProjectRows() {
@@ -480,7 +462,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function pickableAccounts() {
-    if (selectedHostId !== null) return [];
     if (selectedEnvironment !== null && !canRunUnderAccountRemotely(selectedAgentId)) return [];
     const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
     return accounts.some((account) => account.accountId !== null) ? accounts : [];
@@ -543,13 +524,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function choosePlace(place: string) {
     chosenPlace = place;
-    const hostId = place.startsWith(HOST_PLACE_PREFIX) ? place.slice(HOST_PLACE_PREFIX.length) || null : null;
     const environmentName = place.startsWith(ENVIRONMENT_PLACE_PREFIX) ? place.slice(ENVIRONMENT_PLACE_PREFIX.length) : null;
-    if (hostId !== selectedHostId) {
-      selectedHostId = hostId;
-      resetForHostChange();
-      loadFromSelectedHost();
-    }
     selectEnvironment(environmentName);
   }
 
@@ -579,7 +554,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function showRepoRootsAdder(message: ServerMessage) {
-    if (selectedHostId) return;
     const isScan = message.type === 'repo-roots-scanned';
     repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
     repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
@@ -589,8 +563,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function fillProjectList() {
     btnScanAgain.disabled = true;
     scanStatus.show('busy', 'Scanning your repository roots');
-    return requestOnSelectedHost('scan-repo-roots', { includeSuggestions: true, includeActivity: true })
-      .then(whileHostUnchanged((message: ServerMessage) => {
+    return requestControl('scan-repo-roots', { includeSuggestions: true, includeActivity: true })
+      .then((message: ServerMessage) => {
         if (message.type === 'repo-roots-scanned' && message.error) { showScanFailure(message.error); return; }
         scanStatus.clear();
         btnScanAgain.hidden = true;
@@ -598,8 +572,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         scannedProjects = scannedProjectsOf(message);
         rebuildRows();
         if (scannedProjects.length === 0) showRepoRootsAdder(message);
-      }))
-      .catch(whileHostUnchanged((reason: unknown) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); }));
+      })
+      .catch((reason: unknown) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); });
   }
 
   findInput.addEventListener('input', () => {
@@ -619,12 +593,10 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
   pathInput.addEventListener('input', renderSentence);
 
-  const shownWarnings: HTMLElement[] = [];
   function showWarning(text: string) {
     const warningEl = el('p', 'dialog-hint dialog-hint-warning', text);
     warningEl.setAttribute('role', 'status');
     errorEl.before(warningEl);
-    shownWarnings.push(warningEl);
     return warningEl;
   }
   function clearAgentWarning() {
@@ -644,10 +616,10 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function loadAgents() {
     agentsLoadCount += 1;
     const agentsLoadNumber = agentsLoadCount;
-    const whileLatestAgents = <Value>(apply: (value: Value) => void) => whileHostUnchanged((value: Value) => {
+    const whileLatestAgents = <Value>(apply: (value: Value) => void) => (value: Value) => {
       if (agentsLoadNumber === agentsLoadCount) apply(value);
-    });
-    return requestOnSelectedHost('list-agents', {})
+    };
+    return requestControl('list-agents', {})
       .then(whileLatestAgents((message: ServerMessage) => {
         applySpawnAvailability(decideAgentAvailability(message));
         const decision = decideAgentPicker(message.type === 'agents-listed' ? message.agents : []);
@@ -684,20 +656,18 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     renderPermissionHint();
     settingsLoadCount += 1;
     const settingsLoadNumber = settingsLoadCount;
-    const whileLatestSettings = <Value>(apply: (value: Value) => void) => whileHostUnchanged((value: Value) => {
+    const whileLatestSettings = <Value>(apply: (value: Value) => void) => (value: Value) => {
       if (settingsLoadNumber === settingsLoadCount) apply(value);
-    });
-    return requestOnSelectedHost('get-settings', {})
+    };
+    return requestControl('get-settings', {})
       .then(whileLatestSettings((message: ServerMessage) => {
         if (message.type === 'settings-error') {
           failSettingsClosed(`Could not load your settings (${message.message}), so the session follows your machine permission setting.`);
           return;
         }
         if (message.type !== 'settings') return;
-        if (!selectedHostId) {
-          localCoderEnvironments = offeredCoderEnvironments(message.settings);
-          settleOpenSlot();
-        }
+        localCoderEnvironments = offeredCoderEnvironments(message.settings);
+        settleOpenSlot();
         isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
         isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
         skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
@@ -783,7 +753,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function renderLaunchers() {
-    const launchers = selectedHostId === null ? packsSnapshot()?.launchers ?? [] : [];
+    const launchers = packsSnapshot()?.launchers ?? [];
     launchersEl.hidden = launchers.length === 0;
     launchersEl.replaceChildren(...launchers.map(buildLauncher));
   }
@@ -793,8 +763,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     btnConfirm.disabled = true;
     lockPicking(true);
     startStatus.show('busy', 'Starting the session');
-    const showRefusal = whileHostUnchanged((text: string) => { errorEl.textContent = text; });
-    requestOnSelectedHost(requestType, message)
+    const showRefusal = (text: string) => { errorEl.textContent = text; };
+    requestControl(requestType, message)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           rememberSuccessfulStart(rememberedPath);
@@ -812,36 +782,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         lockPicking(false);
         if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
       });
-  }
-
-  function resetForHostChange() {
-    hostLoadGeneration += 1;
-    for (const warningEl of shownWarnings.splice(0)) warningEl.remove();
-    errorEl.textContent = '';
-    isSpawnBlocked = false;
-    btnConfirm.disabled = isAddPending;
-    agentOptions = [];
-    defaultAgentId = DEFAULT_AGENT_ID;
-    isAgentListSettled = false;
-    hasSettingsLoaded = false;
-    isSaneYoloInstalled = false;
-    isSaneYoloSettingOn = true;
-    skipsPermissionsByDefault = false;
-    scannedProjects = [];
-    recentRows = [];
-    target = NO_TARGET;
-    lastProjectTarget = NO_TARGET;
-    repoRootsEl.hidden = true;
-    pathInput.value = '';
-    setAgent(NO_AGENT_ID);
-    renderList();
-    renderLaunchers();
-  }
-
-  function loadFromSelectedHost() {
-    void fillProjectList();
-    void loadAgents();
-    void loadSettings();
   }
 
   btnConfirm.addEventListener('click', submit);
@@ -864,7 +804,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   });
   renderLaunchers();
   advance();
-  loadFromSelectedHost();
+  refresh();
 
   function refresh() {
     void fillProjectList();

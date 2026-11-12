@@ -36,7 +36,7 @@ export function buildSessionGroupHeader({ onAdd, onToggleFold }: {
   return { header, foldButton, label, count, addButton };
 }
 
-export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterGroup<unknown>, { isHostShown = false, isFolded = false, hasWaitingSession = false }: { isHostShown?: boolean; isFolded?: boolean; hasWaitingSession?: boolean } = {}) {
+export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterGroup<unknown>, { isFolded = false, hasWaitingSession = false }: { isFolded?: boolean; hasWaitingSession?: boolean } = {}) {
   const { header, foldButton, label, count, addButton } = refs;
   writeDataIfChanged(header, 'key', group.key);
   writeDataIfChanged(header, 'path', group.projectPath ?? '');
@@ -44,7 +44,7 @@ export function paintSessionGroupHeader(refs: SessionGroupHeader, group: RosterG
   writeDataIfChanged(header, 'folded', String(isFolded));
   writeDataIfChanged(header, 'waiting', String(isFolded && hasWaitingSession));
   writeAttributeIfChanged(foldButton, 'aria-expanded', String(!isFolded));
-  writeTextIfChanged(label, isHostShown && group.hostName ? `${group.hostName} / ${group.label}` : group.label);
+  writeTextIfChanged(label, group.label);
   writeTextIfChanged(count, String(group.rows.length));
   writeHiddenIfChanged(count, group.rows.length === 0);
   writeHiddenIfChanged(addButton, group.projectPath === null);

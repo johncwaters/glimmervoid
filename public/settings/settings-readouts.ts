@@ -11,7 +11,6 @@ import { secretEnvironmentSource, workflowRuleSummaryLines, workflowRuleToggleRo
 import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
-import { buildHostsSettings } from '../hosts/hosts-settings.ts';
 import { agentLoginOf, agentLoginSummary, openAgentAccountDialog, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
 import { buildLaneAccountsBlock } from './settings-accounts.ts';
@@ -240,7 +239,6 @@ function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'agent-accounts') return buildAgentAccountsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
-  if (setting.status === 'hosts') return buildHostsSettings();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
   if (setting.status === 'workflows') return buildWorkflowsStatus();

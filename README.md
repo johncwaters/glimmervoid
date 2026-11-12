@@ -120,7 +120,6 @@ glimmervoid                    # start the server on port 3000
 glimmervoid --port 3001        # start on another port
 glimmervoid doctor             # check the install, PATH, agents and native module
 glimmervoid settings list      # read and change settings from the terminal
-glimmervoid host add devbox --ssh devbox  # link another machine running Glimmervoid
 glimmervoid pair --name phone  # pair a remote device
 ```
 

@@ -24,8 +24,6 @@ export const settingsClientVariants = [
   loose('request-hooks-report', { requestId }),
   loose('save-hook', { hook: z.record(z.string(), z.unknown()), requestId }),
   loose('delete-hook', { id: z.string(), requestId }),
-  loose('add-host', { host: z.record(z.string(), z.unknown()), requestId }),
-  loose('remove-host', { id: z.string(), requestId }),
 ] as const;
 
 export const settingsServerVariants = [
@@ -44,7 +42,6 @@ export const settingsServerVariants = [
   loose('agent-logins', { requestId, logins: AgentLoginStatuses, error: optionalError }),
   loose('agent-accounts', { requestId, accounts: AgentAccountStatuses, accountId: AgentAccountId.optional(), error: optionalError }),
   loose('start-remote-setup-result', { requestId, ok: z.boolean(), error: optionalError, sessionId: z.string().optional(), sessionName: z.string().optional() }),
-  loose('host-change-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('delete-hook-result', { requestId, ok: z.boolean(), error: optionalError, id: z.string().optional() }),
   loose('hooks-updated', { count: z.number().int().nonnegative() }),
   loose('settings', { settings: opaqueObject, requestId }),

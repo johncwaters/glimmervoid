@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { sessionLinkedToPr } from '../github/core/team-review-core.ts';
-import type { WebSocket } from 'ws';
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
@@ -104,7 +103,6 @@ interface BackendLaneDependencies {
   onControlConnection: (handleConnection: ControlConnectionHandler) => void;
   viewerControlClientCount: () => number;
   isViewerConnected: () => boolean;
-  isHubControlSocket: (socket: WebSocket) => boolean;
   options: BackendLaneOptions;
   notificationManager: { trigger(sessionName: string, category: string, message: string): unknown };
   telemetry: Telemetry;
@@ -132,7 +130,6 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     onControlConnection,
     viewerControlClientCount,
     isViewerConnected,
-    isHubControlSocket,
     options,
     notificationManager,
     telemetry,
@@ -451,8 +448,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
   });
-  onControlConnection((socket) => {
-    if (isHubControlSocket(socket)) return;
+  onControlConnection(() => {
     void usage.start();
   });
   const fixedLaneEntries = {

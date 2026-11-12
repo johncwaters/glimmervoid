@@ -36,8 +36,6 @@ import { createPaneLayout } from './pane-layout.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPageHost } from '../session-pages/session-pages.ts';
 import { closeSessionPage, createSessionPageButtons, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../session-pages/session-pages.ts';
-import { placeHostHeaders } from '../hosts/host-headers.ts';
-import { hostGroupOf } from '../hosts/session-hosts.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 
@@ -48,7 +46,6 @@ const TERMINAL_AND_BOARD: ReadonlySet<Pane> = new Set<Pane>(['terminal', 'board'
 const BOARD_ONLY: ReadonlySet<Pane> = new Set<Pane>(['board']);
 
 const projectPathOf = (row: RosterRow) => row.ui.path;
-const hostOfRow = (row: RosterRow) => hostGroupOf(row.id);
 
 type FocusPill = ReturnType<typeof buildPill>;
 
@@ -141,12 +138,7 @@ function setRailTabStop(id: string | null) {
 }
 
 function groupsOf(order: RosterRow[]) {
-  return groupRoster(order, projectPathOf, raceGroupOf, hostOfRow);
-}
-
-function firstGroupHeaderOf(groups: readonly RosterGroup<RosterRow>[], hostId: string | null): HTMLElement | null {
-  const firstGroup = groups.find((group) => group.hostId === hostId);
-  return firstGroup ? groupHeaderById.get(firstGroup.key)?.header ?? null : null;
+  return groupRoster(order, projectPathOf, raceGroupOf);
 }
 
 function ensureGroup(group: RosterGroup<RosterRow>) {
@@ -632,7 +624,7 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   rosterGroupKeyBySessionId = new Map(groups.groups.flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
   const boardSummaries = boardSummariesOf();
   if (centeredBoardId && !boardSummaries.some((summary) => summary.id === centeredBoardId)) centeredBoardId = null;
-  const groupKeyBySessionId = new Map(groups.groups.filter((group) => group.hostId === null).flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
+  const groupKeyBySessionId = new Map(groups.groups.flatMap((group) => group.rows.map((row) => [row.id, group.key] as const)));
   const boardsOfProject = boardsByProject(boardSummaries.filter((board) => !isBoardDeleting(board.id)), currentLiveSplits(), groupKeyBySessionId);
   const railGroups = withBoardProjects(groups, boardsOfProject.keys());
   const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
@@ -668,11 +660,10 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   for (const group of railGroups.groups) {
     const { header, list } = ensureGroup(group);
     if (!groupsAlreadyInPlace) mountedRail.append(header, list);
-    const projectBoards = group.hostId === null ? boardsOfProject.get(group.key) : undefined;
+    const projectBoards = boardsOfProject.get(group.key);
     placeList(group.rows, list, projectBoards ? boardNodesOf(group.key, projectBoards, placedBoardIds) : []);
   }
   removeUnplacedBoardRows(placedBoardIds, presentKeys);
-  placeHostHeaders(mountedRail, { firstGroupHeaderOf: (hostId) => firstGroupHeaderOf(railGroups.groups, hostId), trailingNode: null });
 
   for (const [key, groupHeader] of [...groupHeaderById]) {
     if (!presentKeys.has(key)) {

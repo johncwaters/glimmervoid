@@ -17,9 +17,6 @@ import type { InstalledHookFlags } from '../../../session/core/user-hooks-core.t
 import { agentHookGroupOf, HOOK_EVENT_CATALOG, ID_RE as HOOK_ID_RE, MAX_TIMEOUT_SEC as HOOK_MAX_TIMEOUT_SEC, normalizeHook, rawStoredHooks, readStoredHooks, removeHook, upsertHook } from '../../../session/core/user-hooks-core.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
-import { addHostTo, removeHostFrom } from '../../hosts/core/host-registry-core.ts';
-import type { HostRegistryChange } from '../../hosts/core/host-registry-core.ts';
-import type { HostEntry } from '../../../shared/contracts/hosts.ts';
 import type { ProjectEntry } from '../../config-store.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
@@ -402,31 +399,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     console.log(`[control] delete-hook: ${id}`);
   }
 
-  function changeHosts(msg: ClientMessageOf<'add-host' | 'remove-host'>, ws: ControlSocket, change: (hosts: readonly HostEntry[]) => HostRegistryChange): void {
-    const reply = (error: string | null) => replyTo(ws, msg, 'host-change-result', { ok: error === null, error });
-    const refusal: { error: string | null } = { error: null };
-    const freshConfig = configStore.save((cfg) => {
-      const changed = change(cfg.hosts ?? []);
-      if (!changed.ok) {
-        refusal.error = changed.error;
-        return ABORT_CONFIG_SAVE;
-      }
-      if (changed.hosts.length === 0) delete cfg.hosts;
-      if (changed.hosts.length > 0) cfg.hosts = changed.hosts;
-      return undefined;
-    });
-    if (refusal.error !== null) {
-      reply(refusal.error);
-      return;
-    }
-    if (!freshConfig) {
-      reply(settingsNotSavedText(configStore.lastSaveFailureReason()));
-      return;
-    }
-    applySettingsReload(freshConfig);
-    reply(null);
-  }
-
   async function handlePackApprove(msg: ClientMessageOf<'pack-approve'>, ws: ControlSocket): Promise<void> {
     const reply = (outcome: { ok: boolean; error?: string }) => replyTo(ws, msg, 'pack-approve-result', outcome);
     const parsed = PackApproveRequest.safeParse({ fingerprint: msg.fingerprint });
@@ -476,8 +448,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
-    'add-host': (msg, ws) => changeHosts(msg, ws, (hosts) => addHostTo(hosts, msg.host)),
-    'remove-host': (msg, ws) => changeHosts(msg, ws, (hosts) => removeHostFrom(hosts, msg.id)),
     'pack-approve': handlePackApprove,
     'pack-data-get': handlePackDataGet,
     'pack-data-set': handlePackDataSet,
@@ -508,8 +478,6 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': (_msg, requestId, message) => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
-    'add-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
-    'remove-host': (_msg, requestId, message) => ({ type: 'host-change-result', requestId, ok: false, error: message }),
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),

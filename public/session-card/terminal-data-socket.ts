@@ -10,7 +10,6 @@ import { clearPageToken, loadPageToken, pageToken, withPageToken } from '../ws-t
 import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState } from './grid-core.ts';
-import { dataAttachPrefix, hostOfSession } from '../hosts/session-hosts.ts';
 import { dataAttachPath, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
 import { uiState } from '../ui-state-core.ts';
 import { resetTerminalSecretMask } from './terminal-secret-mask.ts';
@@ -199,7 +198,7 @@ const prewarmedDataSocketBySessionId = new Map<string, PrewarmedDataSocket>();
 
 function prewarmDataSocket(sessionId: string) {
   if (!pageToken() || prewarmedDataSocketBySessionId.has(sessionId) || sessionUIs.get(sessionId)?.dataWs) return;
-  const attachPath = dataAttachPrefix(sessionId) + dataAttachPath(sessionId, false, false);
+  const attachPath = dataAttachPath(sessionId, false, false);
   const socket = new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
   socket.binaryType = 'arraybuffer';
   const bufferedMessages: MessageEvent[] = [];
@@ -276,7 +275,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const linesFromBottomToRestore = deepHistoryLinesFromBottom ?? restoredLinesFromBottom;
   let isAwaitingSnapshotScroll = false;
   const isAttachedFlowing = isTerminalOutputWanted(sessionId);
-  const attachPath = dataAttachPrefix(sessionId) + dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing);
+  const attachPath = dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing);
   const prewarmed = claimPrewarmedDataSocket(sessionId, attachPath);
   const ws = prewarmed?.socket ?? new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
   isOutputFlowingBySocket.set(ws, isAttachedFlowing);
@@ -345,7 +344,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     reportFastTerminalClose(ui, socketLife, event);
     if (isAttachedFlowing && !isHandshakeAbandoned) noteWakeMark('terminal-closed');
     sessionUisReattachingQuietly.delete(ui);
-    if (!hasEverOpened && !isHandshakeAbandoned && !hostOfSession(sessionId)) clearPageToken();
+    if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
     if (!isTerminalOutputWanted(sessionId)) {
       detachUntilShown(sessionId, ui, term);
       return;

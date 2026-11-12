@@ -5,15 +5,7 @@ export interface RosterGroup<Row> {
   label: string;
   title: string;
   projectPath: string | null;
-  hostId: string | null;
-  hostName: string | null;
   rows: Row[];
-}
-
-interface RosterHost {
-  id: string;
-  name: string;
-  rank: number;
 }
 
 interface GroupedRoster<Row> {
@@ -34,57 +26,44 @@ export function groupRoster<Row extends { id: string }>(
   orderedRows: readonly Row[] | null | undefined,
   pathOf: (row: Row) => unknown,
   namedGroupOf: (row: Row) => { key: string; label: string; title: string } | null = () => null,
-  hostOf: (row: Row) => RosterHost | null = () => null,
 ): GroupedRoster<Row> {
   const rows = Array.isArray(orderedRows) ? orderedRows : [];
   const byKey = new Map<string, RosterGroup<Row>>();
-  const hostRankByKey = new Map<string, number>();
   for (const row of rows) {
     const namedGroup = namedGroupOf(row);
-    const host = hostOf(row);
     const raw = pathOf(row);
-    const baseKey = namedGroup?.key ?? (raw ? String(raw) : NO_PATH_KEY);
-    const key = host ? `${host.id}\n${baseKey}` : baseKey;
+    const key = namedGroup?.key ?? (raw ? String(raw) : NO_PATH_KEY);
     let g = byKey.get(key);
     if (!g) {
-      const hostFields = { hostId: host?.id ?? null, hostName: host?.name ?? null };
       g = namedGroup
-        ? { ...namedGroup, key, projectPath: null, ...hostFields, rows: [] }
-        : { key, label: baseKey === NO_PATH_KEY ? NO_PATH_KEY : basename(baseKey), title: baseKey, projectPath: baseKey === NO_PATH_KEY || host ? null : baseKey, ...hostFields, rows: [] };
+        ? { ...namedGroup, key, projectPath: null, rows: [] }
+        : { key, label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key), title: key, projectPath: key === NO_PATH_KEY ? null : key, rows: [] };
       byKey.set(key, g);
-      hostRankByKey.set(key, host ? host.rank : -1);
     }
     g.rows.push(row);
   }
-  const groups = [...byKey.values()];
-
-  return sortedRoster(groups, hostRankByKey);
+  return sortedRoster([...byKey.values()]);
 }
 
-function sortedRoster<Row>(groups: RosterGroup<Row>[], hostRankByKey: ReadonlyMap<string, number>): GroupedRoster<Row> {
+function sortedRoster<Row>(groups: RosterGroup<Row>[]): GroupedRoster<Row> {
   groups.sort((a, b) =>
-    (hostRankByKey.get(a.key) ?? -1) - (hostRankByKey.get(b.key) ?? -1)
-    || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
+    a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
     || a.key.localeCompare(b.key));
-  const isAllLocal = groups.every((group) => group.hostId === null);
-  return { flat: groups.length <= 1 && isAllLocal, order: groups.map((g) => g.key), groups };
+  return { flat: groups.length <= 1, order: groups.map((g) => g.key), groups };
 }
 
 export function withBoardProjects<Row>(roster: GroupedRoster<Row>, boardProjectKeys: Iterable<string>): GroupedRoster<Row> {
   const presentKeys = new Set(roster.order);
   const missingKeys = [...new Set(boardProjectKeys)].filter((key) => !presentKeys.has(key));
   if (missingKeys.length === 0) return roster;
-  const hostRankByKey = new Map(roster.groups.map((group) => [group.key, group.hostId === null ? -1 : roster.order.indexOf(group.key)]));
   const boardOnlyGroups = missingKeys.map((key): RosterGroup<Row> => ({
     key,
     label: key === NO_PATH_KEY ? NO_PATH_KEY : basename(key),
     title: key,
     projectPath: key === NO_PATH_KEY ? null : key,
-    hostId: null,
-    hostName: null,
     rows: [],
   }));
-  return sortedRoster([...roster.groups, ...boardOnlyGroups], hostRankByKey);
+  return sortedRoster([...roster.groups, ...boardOnlyGroups]);
 }
 
 export function visibleOrder<Row extends { id: string }>(

@@ -16,11 +16,9 @@ import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { classifyRequestOrigin, decideUpgradeAccess } from '../core/request-trust.ts';
 import type { RequestTrust } from '../core/request-trust.ts';
 import { classifyUpgradePath, dataSessionIdFromUrl, upgradeTokenFromUrl } from '../core/upgrade-route.ts';
-import { refuseHostUpgrade } from '../hosts/host-relay.ts';
 import { resolveSessionSize } from '../core/viewer-size-core.ts';
 import { createWsSender } from '../ws-sender.ts';
 import type { WsSender } from '../ws-sender.ts';
-import type { HubPhoneAlertFrame } from '../../shared/contracts/hosts.ts';
 import { clock } from '../../shared/clock.ts';
 
 type ControlBroadcast = (message: ControlMessageRecord) => void;
@@ -29,8 +27,7 @@ type ControlSocket = WebSocket & { glimmervoidTrust?: RequestTrust };
 
 type UpgradeSocket = Duplex & { localPort?: number };
 
-const HUB_ROLE_HEADER = 'x-glimmervoid-role';
-const HUB_ROLE = 'hub';
+const RETIRED_HUB_ROLE_HEADER = 'x-glimmervoid-role';
 
 interface ViewerSizeRecord {
   cols: number;
@@ -48,7 +45,6 @@ interface BackendWebSocketDependencies {
   getSession: (id: string) => Session | null;
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
-  relayToHost?: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
 }
 
 type ControlConnectionHandler = (socket: WebSocket, request: IncomingMessage) => void;
@@ -62,9 +58,6 @@ interface BackendWebSockets {
   broadcastControl: ControlBroadcast;
   viewerControlClientCount(): number;
   isViewerConnected(): boolean;
-  isHubControlSocket(socket: WebSocket): boolean;
-  hubControlClientCount(): number;
-  sendToHubControlSockets(frame: HubPhoneAlertFrame): number;
   closeSessionDataClients(sessionId: string): void;
   attachDataConnection(): void;
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
@@ -108,11 +101,9 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     getSession,
     recordOutcome = () => {},
     logger,
-    relayToHost = (_request, socket) => refuseHostUpgrade(socket),
   } = dependencies;
   const controlWss = new WebSocketServer({ noServer: true, maxPayload: CONTROL_FRAME_MAX_BYTES, perMessageDeflate: true });
   const dataWss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: true });
-  const hubControlSockets = new Set<WebSocket>();
   const controlConnectionHandlers: ControlConnectionHandler[] = [(socket) => {
     recordOutcome('controlWsOpened');
     socket.on('close', () => recordOutcome('controlWsClosed'));
@@ -139,22 +130,11 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
   }
 
   function viewerControlClientCount(): number {
-    return controlWss.clients.size - hubControlSockets.size;
-  }
-
-  function sendToHubControlSockets(frame: HubPhoneAlertFrame): number {
-    const payload = JSON.stringify(frame);
-    let sentCount = 0;
-    for (const socket of hubControlSockets) {
-      if (socket.readyState !== 1) continue;
-      socket.send(payload);
-      sentCount += 1;
-    }
-    return sentCount;
+    return controlWss.clients.size;
   }
 
   function isViewerConnected(): boolean {
-    return [...controlWss.clients].some((client) => client.readyState === 1 && !hubControlSockets.has(client));
+    return [...controlWss.clients].some((client) => client.readyState === 1);
   }
 
   function closeSessionDataClients(sessionId: string): void {
@@ -370,7 +350,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     }
 
     const authenticated = trust === 'remote' ? remoteAuth.isUpgradeAuthorized(request) : false;
-    const dashboardRoute = route === 'control' || route === 'data' || route === 'host';
+    const dashboardRoute = route === 'control' || route === 'data';
     const decision = decideUpgradeAccess({
       trust,
       origin: request.headers.origin,
@@ -386,18 +366,14 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
       return;
     }
 
-    if (route === 'host') {
-      relayToHost(request, socket, head);
+    if (route === 'control' && request.headers[RETIRED_HUB_ROLE_HEADER] === 'hub') {
+      socket.write('HTTP/1.1 410 Gone\r\nConnection: close\r\n\r\n');
+      socket.destroy();
       return;
     }
     if (route === 'control') {
-      const isHubRole = trust === 'local' && request.headers[HUB_ROLE_HEADER] === HUB_ROLE;
       controlWss.handleUpgrade(request, socket, head, (webSocket) => {
         (webSocket as ControlSocket).glimmervoidTrust = trust;
-        if (isHubRole) {
-          hubControlSockets.add(webSocket);
-          webSocket.once('close', () => hubControlSockets.delete(webSocket));
-        }
         controlWss.emit('connection', webSocket, request);
       });
       return;
@@ -418,9 +394,6 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     broadcastControl,
     viewerControlClientCount,
     isViewerConnected,
-    isHubControlSocket: (socket) => hubControlSockets.has(socket),
-    hubControlClientCount: () => hubControlSockets.size,
-    sendToHubControlSockets,
     closeSessionDataClients,
     attachDataConnection,
     handleUpgrade,

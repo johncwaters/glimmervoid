@@ -19,12 +19,10 @@ import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
-import { hostGroupOf } from '../hosts/session-hosts.ts';
 
 type BoardRow = SessionRow<SessionUi>;
 
 const projectPathOf = (row: BoardRow) => row.ui.path;
-const hostOfRow = (row: BoardRow) => hostGroupOf(row.id);
 
 interface GroupRefs extends SessionGroupHeader {
   rows: HTMLDivElement;
@@ -114,7 +112,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
   function paintGroup(section: HTMLElement, group: RosterGroup<BoardRow>) {
     const refs = groupRefs.get(section);
     if (!refs) return;
-    paintSessionGroupHeader(refs, group, { isHostShown: true });
+    paintSessionGroupHeader(refs, group);
     refs.rows.setAttribute('aria-label', `${group.label} sessions`);
   }
 
@@ -124,7 +122,7 @@ export function createBoardScreen({ onSelectSession, shownSessionId }: { onSelec
 
   function refresh() {
     const orderedRows = currentOrderedRows();
-    const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf, hostOfRow);
+    const boardGroups = groupRoster(orderedRows, projectPathOf, raceGroupOf);
     boardRowsInOrder = boardGroups.groups.flatMap((group) => group.rows);
     groupKeyBySessionId.clear();
     for (const group of boardGroups.groups) for (const entry of group.rows) groupKeyBySessionId.set(entry.id, group.key);

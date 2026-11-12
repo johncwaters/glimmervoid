@@ -145,15 +145,6 @@ class NotificationManager extends EventEmitter {
     this._markPhoneReached(entry);
   }
 
-  armPendingPhoneEscalations(): void {
-    for (const [sessionName, entry] of this._entries) {
-      if (entry.state !== NS.DELIVERED && entry.state !== NS.ESCALATED) continue;
-      if (isQuietCategory(entry.category)) continue;
-      const remainingMs = Math.max(0, entry.pendingSinceMs + this._phoneEscalationMs - this._now());
-      this._armPhoneEscalation(sessionName, entry, remainingMs);
-    }
-  }
-
   updateSettings({ escalationIntervalMs, alertGroupWindowMs, phoneEscalationMs }: NotificationManagerOptions): void {
     if (escalationIntervalMs != null) this._escalationIntervalMs = escalationIntervalMs;
     if (alertGroupWindowMs != null) this._alertGroupWindowMs = alertGroupWindowMs;
