@@ -3,6 +3,8 @@ import { isLoopbackHostname, loopbackOverrideOrigin } from '../loopback-hosts.ts
 
 export const NUDGES_PATH = '/link/nudges';
 export const WATCHER_PATH_PREFIX = '/link/watcher/';
+export const WATCHER_FEATURES_HEADER = 'x-glimmervoid-watcher-features';
+export const ALARMS_FEATURE = 'alarms';
 export const PROBE_SET_PATH = `${WATCHER_PATH_PREFIX}probe-set`;
 export const CREDENTIALS_PATH = `${WATCHER_PATH_PREFIX}credentials`;
 export const STATUS_PATH = `${WATCHER_PATH_PREFIX}status`;
@@ -41,9 +43,18 @@ export const Probe = z.strictObject({
 });
 export type Probe = z.infer<typeof Probe>;
 
+export const MAX_ALARMS = 200;
+
+export const Alarm = z.strictObject({
+  id: z.string().regex(/^[a-z0-9:._-]{1,120}$/),
+  at: z.iso.datetime(),
+});
+export type Alarm = z.infer<typeof Alarm>;
+
 export const ProbeSet = z.strictObject({
   revision: z.string().min(1).max(128),
   probes: z.array(Probe).max(200).refine((probes) => new Set(probes.map((probe) => probe.id)).size === probes.length, 'probe ids must be unique'),
+  alarms: z.array(Alarm).max(MAX_ALARMS).optional(),
 });
 export type ProbeSet = z.infer<typeof ProbeSet>;
 
@@ -53,7 +64,7 @@ export type ProbeFailure = z.infer<typeof ProbeFailure>;
 export const Nudge = z.strictObject({
   nudgeId: z.uuid(),
   probeId: z.string().nullable(),
-  kind: z.enum(['changed', 'failing', 'recovered', 'check-in']),
+  kind: z.enum(['changed', 'failing', 'recovered', 'check-in', 'alarm']),
   failure: ProbeFailure.nullable(),
   at: z.iso.datetime(),
 });

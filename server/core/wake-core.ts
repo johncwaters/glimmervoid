@@ -4,6 +4,7 @@ import { decideWake } from './child-channel-core.ts';
 import { RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { Wake, WakeKind, WakeSchedule, WakeView } from '../../shared/contracts/wakes.ts';
+import type { Alarm } from '../../shared/contracts/watcher-link.ts';
 
 interface WakeLimits {
   maxPendingPerSession: number;
@@ -207,5 +208,18 @@ function describeWakeLine(wake: Wake, formatTime: (ms: number) => string): strin
   return `Glimmervoid wake ${wake.id} (you set it at ${formatTime(wake.setAt)}${cronPart}): ${wake.text}`;
 }
 
-export { admitWake, afterFire, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
+function alarmsOf(wakes: readonly Wake[], maxAlarms: number): Alarm[] {
+  return wakes
+    .filter((wake) => wake.status === 'pending')
+    .sort((left, right) => left.nextFireAt - right.nextFireAt)
+    .slice(0, maxAlarms)
+    .map((wake) => ({ id: `wake:${wake.id}`, at: new Date(wake.nextFireAt).toISOString() }));
+}
+
+function soonestFireAt(wakes: readonly Wake[]): number | null {
+  const fireTimes = wakes.filter((wake) => wake.status === 'pending').map((wake) => wake.nextFireAt);
+  return fireTimes.length === 0 ? null : Math.min(...fireTimes);
+}
+
+export { admitWake, afterFire, alarmsOf, soonestFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
 export type { OperatorWakeFacts, WakeFailureCause, WakeLimits };

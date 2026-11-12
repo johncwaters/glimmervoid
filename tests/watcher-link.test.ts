@@ -96,7 +96,12 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
       };
     },
   });
-  answerNudge = link.answerNudgeRequest;
+  const refusedNudges = { remaining: 0 };
+  answerNudge = (request, response) => {
+    if (refusedNudges.remaining === 0) return link.answerNudgeRequest(request, response);
+    refusedNudges.remaining -= 1;
+    response.writeHead(503).end();
+  };
   link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [probe], onNudge: (nudge) => nudges.push(nudge), onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: (problem) => watcherProblems.push(problem) });
   t.after(async () => {
     link.stop();
@@ -104,7 +109,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
     await fsp.rm(watcherHome, { recursive: true, force: true });
   });
   await link.start();
-  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher, capturedEvents };
+  return { linkSecret, clock, github, nudges, coveredProbeCounts, watcherProblems, linkCredentials, link, watcher, capturedEvents, refusedNudges };
 }
 
 test('a probe whose GitHub answer changes nudges its lane, and the lane hears the watcher covers that probe', async (t) => {
@@ -120,6 +125,26 @@ test('a probe whose GitHub answer changes nudges its lane, and the lane hears th
   const nudge = await eventually(() => nudges[0]);
   assert.equal(nudge.probeId, LIGHT_PROBE.id);
   assert.equal(nudge.kind, 'changed');
+});
+
+test('a pending wake reaches the watcher as an alarm and comes back once at its time as an alarm nudge, sent again while the server refuses it', async (t) => {
+  const { clock, link, watcher, refusedNudges } = await startLinkedWatcher(t);
+  const alarmNudges: string[] = [];
+  const alarm = { id: 'wake:w1', at: new Date(clock.nowMs + 10 * 60_000).toISOString() };
+  link.registerAlarmSource({ alarms: () => [alarm], onAlarm: (alarmId) => alarmNudges.push(alarmId) });
+  await eventually(() => watcher.runner?.status().probeSetRevision?.length ? true : undefined);
+  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(alarmNudges, []);
+
+  refusedNudges.remaining = 1;
+  clock.nowMs += 10 * 60_000;
+  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
+  await eventually(() => alarmNudges.length > 0 ? true : undefined);
+  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(refusedNudges.remaining, 0);
+  assert.deepEqual(alarmNudges, [alarm.id]);
 });
 
 test('a probe GitHub refuses by status or by a GraphQL error shows on its lane as a watcher problem, leaves watcher coverage until it recovers, and runs again at once on a new token', async (t) => {
@@ -300,7 +325,7 @@ test('the server refuses a nudge that is forged, stale, replayed or signed with 
   assert.equal(health.status, 200);
 });
 
-test('a server asks its doorman to stop its host once, after 20 awake minutes with no agent working, running background work or waiting on a wakeup, never counts suspended time, and reports the request with the background work left unfinished past its limit', async (t) => {
+test('a server asks its doorman to stop its host once, after 20 awake minutes with no agent working, running background work, waiting on a wakeup or a wake due inside those minutes, never counts suspended time, and reports the request with the background work left unfinished past its limit', async (t) => {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-idle-stop-'));
   const linkSecret = crypto.randomBytes(32);
   const stopRequests: string[] = [];
@@ -340,10 +365,12 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
   const noExpiredWork = { subagent: 0, shell: 0 };
   let liveSessions: { state: SessionState; hasBackgroundWork: boolean; expiredOpenWork: typeof noExpiredWork }[] = [];
   const stopReports: unknown[] = [];
+  let nextWakeAt: number | null = null;
   const idleStop = startIdleStop({
     liveSessions: () => liveSessions,
     requestHostStop: link.requestHostStop,
     reportStopRequested: (report) => stopReports.push(report),
+    nextWakeAt: () => nextWakeAt,
     now: () => clock.nowMs,
     log: QUIET_LOG,
   });
@@ -359,12 +386,17 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
     passAwakeMinutes(30);
     liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: true, expiredOpenWork: noExpiredWork }];
     passAwakeMinutes(30);
+    liveSessions = [{ state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: noExpiredWork }];
+    nextWakeAt = clock.nowMs + 25 * 60_000;
+    passAwakeMinutes(24);
+    nextWakeAt = null;
     liveSessions = [{ state: STATES.STARTING, hasBackgroundWork: false, expiredOpenWork: noExpiredWork }];
     passAwakeMinutes(1);
     liveSessions = [
       { state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: { subagent: 1, shell: 2 } },
       { state: STATES.IDLE, hasBackgroundWork: false, expiredOpenWork: noExpiredWork },
     ];
+    nextWakeAt = clock.nowMs + 3 * 60 * 60_000;
     passAwakeMinutes(19.75);
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.deepEqual(stopRequests, []);

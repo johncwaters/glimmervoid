@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { signedHeaders } from '../link/core/link-signing-core.ts';
 import { githubApiOrigin, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
-import type { Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { Alarm, Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
 import { NO_CREDENTIALS } from './watcher-home.ts';
@@ -21,6 +21,10 @@ const GRAPHQL_PATH = '/graphql';
 
 function requestFingerprint(probe: Probe): string {
   return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null])).digest('hex');
+}
+
+function alarmKeyOf(alarm: Alarm): string {
+  return `${alarm.id}@${alarm.at}`;
 }
 
 function credentialKindsChanged(previous: WatcherCredentials, next: WatcherCredentials): Set<Probe['credential']> {
@@ -167,6 +171,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
   let credentials: WatcherCredentials = NO_CREDENTIALS;
   let effectiveCredentials: WatcherCredentials = NO_CREDENTIALS;
   let memoryByProbeId = new Map<string, ProbeMemory>();
+  let sentAlarmKeys = new Set<string>();
   let wakeTimer: NodeJS.Timeout | null = null;
   let checkInTimer: NodeJS.Timeout | null = null;
   let runState: 'idle' | 'running' | 'stopped' = 'idle';
@@ -209,12 +214,26 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     if (outcome.nudge !== null) nudges.send(outcome.nudge, probe.id, outcome.memory.failure);
   }
 
+  function unsentAlarms(): Alarm[] {
+    return (probeSet?.alarms ?? []).filter((alarm) => !sentAlarmKeys.has(alarmKeyOf(alarm)));
+  }
+
+  function sendDueAlarms(nowMs: number): void {
+    for (const alarm of unsentAlarms()) {
+      if (Date.parse(alarm.at) > nowMs) continue;
+      sentAlarmKeys.add(alarmKeyOf(alarm));
+      nudges.send('alarm', alarm.id, null);
+    }
+  }
+
   function scheduleWake(): void {
     if (wakeTimer !== null) clearTimeout(wakeTimer);
     wakeTimer = null;
-    if (runState === 'stopped' || probeSet === null || probeSet.probes.length === 0) return;
+    if (runState === 'stopped' || probeSet === null) return;
     const nowMs = now();
-    const earliestRunAtMs = Math.min(...probeSet.probes.map((probe) => nextRunAtMs(probe, memoryOf(probe), nowMs)));
+    const runTimes = [...probeSet.probes.map((probe) => nextRunAtMs(probe, memoryOf(probe), nowMs)), ...unsentAlarms().map((alarm) => Date.parse(alarm.at))];
+    if (runTimes.length === 0) return;
+    const earliestRunAtMs = Math.min(...runTimes);
     wakeTimer = setTimeout(() => void runDueProbes(), Math.min(MAX_TIMER_DELAY_MS, Math.max(0, earliestRunAtMs - nowMs)));
   }
 
@@ -222,6 +241,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     if (runState !== 'idle' || probeSet === null) return;
     runState = 'running';
     const nowMs = now();
+    sendDueAlarms(nowMs);
     const dueProbes = probeSet.probes.filter((probe) => nextRunAtMs(probe, memoryOf(probe), nowMs) <= nowMs);
     for (const probe of dueProbes) {
       if (runState !== 'running') return;
@@ -236,7 +256,9 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     probeSet = nextProbeSet;
     const liveProbeIds = new Set(nextProbeSet.probes.map((probe) => probe.id));
     memoryByProbeId = new Map([...memoryByProbeId].filter(([probeId]) => liveProbeIds.has(probeId)));
-    log.log(`[watcher] probe set ${nextProbeSet.revision} holds ${nextProbeSet.probes.length} probes`);
+    const liveAlarmKeys = new Set((nextProbeSet.alarms ?? []).map(alarmKeyOf));
+    sentAlarmKeys = new Set([...sentAlarmKeys].filter((alarmKey) => liveAlarmKeys.has(alarmKey)));
+    log.log(`[watcher] probe set ${nextProbeSet.revision} holds ${nextProbeSet.probes.length} probes and ${liveAlarmKeys.size} alarms`);
     scheduleWake();
   }
 
