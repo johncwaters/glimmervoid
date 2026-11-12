@@ -470,7 +470,7 @@ function createSessionWorktreeLifecycle({
     let targetSha: string | null = null;
     let baseRef: string | null = null;
     try {
-      status = await run(["status", "--porcelain", "-z"]);
+      status = await run(["status", "--porcelain", "-z", "--untracked-files=all"]);
       changedFileStamps = await readChangedFileStamps(worktreeDir, status);
       head = (await run(["rev-parse", "HEAD"])).trim();
       baseRef = (await resolveVerifiedBaseRef(opts)).ref;
