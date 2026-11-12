@@ -764,6 +764,14 @@
     {
       "name": "android chrome",
       "definition": "Google Chrome on an Android phone or tablet, one of the two phone browsers the dashboard's touch features are built and device-tested for, beside Safari on iPhone"
+    },
+    {
+      "name": "compose bar",
+      "definition": "The text field with a Send button above the key strip on a touch Terminal screen: native autocorrect, dictation and paste, and Send pastes the text into the session then presses Enter"
+    },
+    {
+      "name": "raw typing",
+      "definition": "The touch Terminal input mode where the soft keyboard types straight into the PTY with the compose bar hidden; on while a full-screen app holds the alternate screen, or when the operator chooses Raw in the More keys"
     }
   ],
   "retired": [
