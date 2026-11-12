@@ -756,6 +756,10 @@
     {
       "name": "account",
       "definition": "A signed-in agent login Glimmervoid can run a session under: the machine's own login, or an added account whose folder (agentAccounts[].folder) holds its own credentials and links the rest of the agent's real home; for Claude Code one email can hold several, one per organization"
+    },
+    {
+      "name": "launcher",
+      "definition": "A pack launcher: a button a pack declares under launchers (label, project, agent, optional model, effort and cron schedule, first prompt) that starts a session once the operator approves the pack; also the script or function that starts a process, such as the glimmervoid bin launcher or an agent's launch command"
     }
   ],
   "retired": [

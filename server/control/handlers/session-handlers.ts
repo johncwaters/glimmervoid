@@ -161,7 +161,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
       return;
     }
-    const pasted = session.pasteTextWhenReady(msg.text, { submit: true });
+    const pasted = session.deliver(msg.text, { when: 'ready', submit: true });
     console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
     replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
   }
@@ -196,7 +196,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       isRemote: remote !== undefined,
     });
     if ('refusal' in sessionAccount) {
-      refuseAddSession(msg, ws, { error: sessionAccount.refusal });
+      refuseAddSession(msg, reply, { error: sessionAccount.refusal });
       return null;
     }
     const skipPerms = typeof msg.dangerouslySkipPermissions === 'boolean'
