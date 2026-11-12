@@ -146,6 +146,8 @@ const AGENT_HOME_CONFLICTS_NAME = ".glimmervoid-conflicts";
 const AGENT_HOME_BASE_NAME = ".glimmervoid-base.toml";
 const AGENT_HOME_JSON_BASE_NAME = ".glimmervoid-base.json";
 const AGENT_HOME_IN_USE_LOCK_NAME = ".glimmervoid-in-use.lock";
+const PACK_SKILLS_MARKER_NAME = ".glimmervoid-pack-skills";
+const SKILLS_ENTRY_NAME = "skills";
 const AGENT_HOME_ACCOUNT_CONFIG_NAME = ".glimmervoid-account.toml";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_ACCOUNT_CONFIG_NAME]);
 const FILE_STAMP_PREFIX = "file:";
@@ -236,6 +238,12 @@ interface AgentHomeInputs {
   platform: NodeJS.Platform;
   isClean: boolean;
   isAccountHome: boolean;
+  packSkillDirs: readonly string[];
+}
+
+interface PackSkillsLink {
+  name: string;
+  target: string;
 }
 
 type AgentHomeStep =
@@ -246,7 +254,9 @@ type AgentHomeStep =
   | { kind: "adopt"; name: string; target: string; childNames: readonly string[] }
   | { kind: "write-config"; text: string }
   | { kind: "write-base"; text: string }
-  | { kind: "write-account-config"; text: string };
+  | { kind: "write-account-config"; text: string }
+  | { kind: "write-pack-skills"; name: string; links: readonly PackSkillsLink[] }
+  | { kind: "clear-pack-skills"; name: string; keepsAgentWrites: boolean };
 
 type AgentHomePlan =
   | { kind: "ready"; steps: AgentHomeStep[]; privateNames: string[]; hasStaleBlockInRealConfig: boolean }
@@ -572,16 +582,54 @@ function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
   return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform) || isAccountEntryName(name, inputs);
 }
 
+function isPackSkillsFolder(entry: GeneratedAgentHomeEntry | undefined): boolean {
+  return entry?.kind === "folder" && entry.childNames.includes(PACK_SKILLS_MARKER_NAME);
+}
+
+function wantsPackSkills(inputs: AgentHomeInputs): boolean {
+  return !inputs.isClean && inputs.packSkillDirs.length > 0;
+}
+
+function realSkillsFolder(inputs: AgentHomeInputs): RealAgentHomeEntry | undefined {
+  return inputs.realEntries.find((entry) => entry.name === SKILLS_ENTRY_NAME && entry.kind === "folder");
+}
+
+function packSkillsLinks(inputs: AgentHomeInputs): PackSkillsLink[] {
+  const realSkills = realSkillsFolder(inputs);
+  const links = (realSkills?.childNames ?? []).filter((childName) => childName !== PACK_SKILLS_MARKER_NAME).map((childName) => ({ name: childName, target: path.join(inputs.realHome, SKILLS_ENTRY_NAME, childName) }));
+  const takenNames = new Set(links.map((link) => link.name));
+  for (const packSkillDir of inputs.packSkillDirs) {
+    const skillName = path.basename(packSkillDir);
+    if (takenNames.has(skillName)) continue;
+    takenNames.add(skillName);
+    links.push({ name: skillName, target: packSkillDir });
+  }
+  return links;
+}
+
+function planPackSkills(inputs: AgentHomeInputs, generated: GeneratedAgentHomeEntry | undefined): AgentHomeStep[] {
+  const hasRealSkills = realSkillsFolder(inputs) !== undefined;
+  if (!wantsPackSkills(inputs)) return isPackSkillsFolder(generated) ? [{ kind: "clear-pack-skills", name: SKILLS_ENTRY_NAME, keepsAgentWrites: !hasRealSkills }] : [];
+  const steps: AgentHomeStep[] = [];
+  const isAgentFolderToKeep = generated?.kind === "folder" && !hasRealSkills;
+  if (generated !== undefined && !isPackSkillsFolder(generated) && !isAgentFolderToKeep) steps.push(generated.kind === "link" ? { kind: "unlink", name: SKILLS_ENTRY_NAME } : { kind: "set-aside", name: SKILLS_ENTRY_NAME });
+  steps.push({ kind: "write-pack-skills", name: SKILLS_ENTRY_NAME, links: packSkillsLinks(inputs) });
+  return steps;
+}
+
 function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
   const configPlan = planConfigSteps(inputs);
   if ("refusal" in configPlan) return { kind: "refused", reason: configPlan.refusal };
   const steps: AgentHomeStep[] = [...configPlan.steps];
   const generatedByName = new Map(inputs.generatedEntries.map((entry) => [entry.name, entry]));
+  steps.push(...planPackSkills(inputs, generatedByName.get(SKILLS_ENTRY_NAME)));
+  if (isPackSkillsFolder(generatedByName.get(SKILLS_ENTRY_NAME))) generatedByName.delete(SKILLS_ENTRY_NAME);
   const realNames = new Set<string>();
   const privateNames: string[] = [];
   for (const real of inputs.realEntries) {
     if (isKeptOutOfLinks(real.name, inputs)) continue;
     realNames.add(real.name);
+    if (real.name === SKILLS_ENTRY_NAME && wantsPackSkills(inputs)) continue;
     const entrySteps = planEntryLink(real, generatedByName.get(real.name), inputs);
     if (entrySteps === "private") {
       privateNames.push(real.name);
@@ -590,6 +638,7 @@ function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
     steps.push(...entrySteps);
   }
   for (const generated of inputs.generatedEntries) {
+    if (generated.name === SKILLS_ENTRY_NAME && wantsPackSkills(inputs)) continue;
     if (generated.kind === "link" && !realNames.has(generated.name)) steps.push({ kind: "unlink", name: generated.name });
   }
   return {
@@ -948,6 +997,8 @@ export {
   AGENT_HOME_IN_USE_LOCK_NAME,
   AGENT_HOME_SOURCES_NAME,
   BLOCK_END,
+  PACK_SKILLS_MARKER_NAME,
+  SKILLS_ENTRY_NAME,
   BLOCK_START,
   CODEX_HOME_PROFILE,
   GEMINI_HOME_PROFILE,
@@ -962,4 +1013,4 @@ export {
   tomlBasicString,
   renderKimiHooksBlock,
 };
-export type { AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, ProjectHookTrust, RealAgentHomeEntry };
+export type { AgentHomeLinkKind, AgentHomePlan, AgentHomeProfile, AgentHomeStep, CodexHomeHook, GeneratedAgentHomeEntry, ProjectHookTrust, RealAgentHomeEntry };

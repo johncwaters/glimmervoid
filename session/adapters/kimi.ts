@@ -183,10 +183,10 @@ function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: numb
   });
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null, packSkillDirs = [] }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
-  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, listenerPort, isCleanHome, accountFolder), isCleanHome, accountFolder);
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, listenerPort, isCleanHome, accountFolder), isCleanHome, accountFolder, packSkillDirs);
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {

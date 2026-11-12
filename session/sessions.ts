@@ -595,6 +595,7 @@ class Session extends EventEmitter {
       extraUserHooks,
       scratchAgentHome,
       isCleanHome,
+      packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
@@ -1640,6 +1641,7 @@ class Session extends EventEmitter {
     this.emit("rebaseline");
     this._resetDetectionSources({ quiet: false });
 
+    this._spawnPackLaunch = !this._isCleanHome ? this._getPackAgentLaunch() : null;
     const accountRefusal = await this._prepareAccountEnv();
     if (accountRefusal !== null) {
       this._abandonSpawn(new Error(accountRefusal));
@@ -1697,7 +1699,6 @@ class Session extends EventEmitter {
     this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
     this._resumeNoteAwaitingTurn = this._pendingResumeNote;
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
-    this._spawnPackLaunch = !this.ephemeral && !this._isCleanHome ? this._getPackAgentLaunch() : null;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
