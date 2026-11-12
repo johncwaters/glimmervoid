@@ -72,11 +72,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,
     },
     {
-      id: 'agent-logins', path: 'status:agent-logins', title: 'Agent logins',
-      description: 'How Claude Code and Codex sign in inside a Coder workspace.',
-      control: 'readonly', keywords: ['claude', 'codex', 'sign in', 'login', 'coder', 'remote'], status: 'agent-logins', ...READOUT,
-    },
-    {
       id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
       description: 'Also delete stale remote branches with no proof they were merged.',
       control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
@@ -144,33 +139,24 @@ export const MACHINE_VAULT: SettingsSection = {
   ],
 };
 
-export const MACHINE_REMOTE: SettingsSection = {
-  id: 'machine-remote',
-  level: 'machine',
-  title: 'Remote',
-  description: 'Sessions in Coder workspaces, and a session that sets up Glimmervoid on another machine.',
-  legacyIds: ['machine-hosts'],
-  settings: [
-    {
-      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
-      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
-      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
-      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
-    },
-  ],
-};
-
 export const MACHINE_SERVER: SettingsSection = {
   id: 'machine-server',
   level: 'machine',
   title: 'Server',
-  description: 'Restart or shut down the Glimmervoid server.',
+  description: 'Restart or shut down the Glimmervoid server, or set it up on another machine.',
+  legacyIds: ['machine-remote', 'machine-hosts'],
   settings: [
     {
       id: 'server-power', path: 'status:server-power', title: 'Restart or shut down',
       description: 'Ends every running session first.',
       control: 'readonly', keywords: ['power', 'restart', 'shutdown', 'stop', 'quit', 'reboot', 'server'],
       status: 'server-power', ...READOUT,
+    },
+    {
+      id: 'remote-setup', path: 'status:remote-setup', title: 'Remote host setup',
+      description: 'Start a session that helps you run Glimmervoid on another Linux machine over ssh.',
+      control: 'readonly', keywords: ['remote', 'ssh', 'server', 'devbox', 'tailscale', 'pair', 'host'], status: 'remote-setup', ...READOUT,
+      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'remote-setup' }],
     },
   ],
 };

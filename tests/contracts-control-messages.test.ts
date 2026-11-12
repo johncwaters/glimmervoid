@@ -149,7 +149,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'telegram-test-result', requestId: 'telegram-test-1', ok: false, error: 'Telegram answered 401: Unauthorized', telegramDelivery: { setupWarning: null, lastFailure: { message: 'Telegram answered 401: Unauthorized', failedAt: NOW } } },
   { type: 'telegram-test-result', requestId: 'telegram-test-2', ok: false, error: 'Telegram is not running on this server.', telegramDelivery: null },
   { type: 'pong', requestId: 'ping-1' },
-  { type: 'agent-logins', requestId: 'logins-1', logins: [{ agent: 'codex', state: 'connecting', source: null, verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'WXYZ-12345', needsPastedCode: false, reason: null }] },
   { type: 'agent-accounts', requestId: 'accounts-1', accounts: [{ accountId: 'claude-a1b2c3', agent: 'claude-code', label: 'Team Max', detail: null, login: { state: 'signed-in', verificationUrl: null, userCode: null, needsPastedCode: false, reason: null }, usedBy: [], isPending: false, isDefault: true, lanes: ['team-review'] }], error: null },
   { type: 'agents-listed', requestId: 'agents-1', agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: true }] },
   { type: 'github-teams-listed', requestId: 'teams-1', viewer: 'octocat', teams: [{ org: 'PostHog', slug: 'team-devex', name: 'DevEx' }], orgs: ['PostHog'], error: null },

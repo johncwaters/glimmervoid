@@ -73,7 +73,6 @@ interface BackendControlDependencies {
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
   controlReplayLog: ReplayLog;
-  agentConnect: NonNullable<ControlHandlerDeps['agentConnect']>;
   agentAccounts: NonNullable<ControlHandlerDeps['agentAccounts']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
   telegramDelivery: TelegramDeliveryControl;
@@ -189,7 +188,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     coherenceFeed: dependencies.coherenceFeed,
-    agentConnect: dependencies.agentConnect,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
   });

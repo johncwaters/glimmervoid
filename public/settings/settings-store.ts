@@ -1,6 +1,5 @@
 import type { UpdateJournal } from '#shared/contracts/update-journal.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { applyAgentLogins } from '../agent-logins.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { IDLE_UPDATE_REQUEST, NOT_CONNECTED_TEXT, reduceUpdateRequest, updateErrorText } from '../updates-view-core.ts';
 import type { UpdateRequestEvent, UpdateRequestState, UpdateStatusView } from '../updates-view-core.ts';
@@ -135,7 +134,6 @@ export function returnToSettingsList(): void {
 export function applySettingsBroadcast(freshSettings: unknown): void {
   if (!freshSettings) return;
   settingsPayload = freshSettings as SettingsPayload;
-  applyAgentLogins(settingsPayload.agentLogins);
   notify({ kind: 'broadcast' });
 }
 

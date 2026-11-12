@@ -1,6 +1,6 @@
 import type { SettingsSetting, SettingsSection, SettingsGroup, SettingsRegistry } from './registry-fields.ts';
 import { BROWSER_APPEARANCE, BROWSER_NOTIFICATIONS, BROWSER_SHORTCUTS } from './browser-sections.ts';
-import { MACHINE_TELEGRAM, MACHINE_SESSIONS, MACHINE_ACCOUNTS, MACHINE_SAFETY, MACHINE_VAULT, MACHINE_UPDATES, MACHINE_REMOTE, MACHINE_SERVER, MACHINE_USAGE, MACHINE_PRIVACY } from './machine-sections.ts';
+import { MACHINE_TELEGRAM, MACHINE_SESSIONS, MACHINE_ACCOUNTS, MACHINE_SAFETY, MACHINE_VAULT, MACHINE_UPDATES, MACHINE_SERVER, MACHINE_USAGE, MACHINE_PRIVACY } from './machine-sections.ts';
 import { LANES_POSTHOG, LANES_TEAM_REVIEW, LANES_MY_PRS, LANES_COHERENCE, LANES_COMMUNITY } from './lanes-sections.ts';
 import { FILE_ONLY_SETTINGS } from './file-only-settings.ts';
 
@@ -22,7 +22,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   MACHINE_SAFETY,
   MACHINE_VAULT,
   MACHINE_UPDATES,
-  MACHINE_REMOTE,
+ 
   MACHINE_SERVER,
   MACHINE_USAGE,
   LANES_POSTHOG,

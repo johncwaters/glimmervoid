@@ -26,7 +26,6 @@ import { isFlyingAnimalsEnabled, resetFlyingAnimalsAdvanced, getSoundId } from '
 import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settingsFeatureTabViews, settingsPayloadSnapshot, subscribeSettings, takePendingSettingsActivation, returnToSettingsList } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
-import { onAgentLoginsChanged } from '../dialogs.ts';
 import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, syncSettingsViewMapToBuild, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
@@ -657,7 +656,6 @@ onLayoutChange(() => {
   refreshFlyingAnimalsAvailability();
 });
 
-onAgentLoginsChanged(refreshSettingsStatus);
 onAgentAccountsChanged(refreshSettingsStatus);
 refreshAgentAccounts();
 

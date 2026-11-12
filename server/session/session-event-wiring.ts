@@ -228,7 +228,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         isConfiguredSession: project !== undefined,
         mergeStatus: session.mergeStatus,
         isWorkspace: session.isWorkspace,
-        hasRemoteEnvironment: Boolean(project?.environment),
       });
       if (exitClose === 'remove') {
         dependencies.logger.log(`[${session.name}] agent quit on its own, removing the session`);

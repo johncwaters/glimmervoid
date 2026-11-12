@@ -1,5 +1,5 @@
 import { cachedAgentResolvability, isBuiltInAgentId } from '../session/adapters/index.ts';
-import type { AgentLoginStatus, CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
+import type { CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliveryStatus } from '../shared/contracts/index.ts';
 import type { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts';
 import { currentTeamReviewEnvironment } from './github/team-review-environment.ts';
@@ -14,7 +14,6 @@ interface SettingsPayloadOptions {
     isExperimentalBuild?: boolean;
   };
   telegramDelivery?: TelegramDeliveryStatus | null;
-  agentLogins?: AgentLoginStatus[] | null;
   readTeamReviewEnvironment?: () => TeamReviewEnvironment;
   readAgentModels?: () => AgentModelCatalog;
 }
@@ -34,7 +33,7 @@ function summarizeCustomAgents(declarations: readonly CustomAgentDeclaration[]):
 }
 
 function buildSettingsPayload({
-  configStore, telegramDelivery = null, agentLogins = null, readTeamReviewEnvironment = currentTeamReviewEnvironment, readAgentModels = currentAgentModelCatalog,
+  configStore, telegramDelivery = null, readTeamReviewEnvironment = currentTeamReviewEnvironment, readAgentModels = currentAgentModelCatalog,
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
@@ -42,7 +41,6 @@ function buildSettingsPayload({
     saneYoloAvailable: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'),
     customAgents: summarizeCustomAgents(configStore.config.customAgents ?? []),
     telegramDelivery,
-    agentLogins,
     teamReviewEnvironment: readTeamReviewEnvironment(),
     agentModels: readAgentModels(),
   };

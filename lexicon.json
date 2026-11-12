@@ -274,7 +274,7 @@
     },
     {
       "name": "settings",
-      "definition": "The dashboard's Settings view, whose sections (Remote, Appearance, Sane YOLO, Packs, Vault and others) edit the operator config"
+      "definition": "The dashboard's Settings view, whose sections (Appearance, Sane YOLO, Packs, Vault, Server and others) edit the operator config"
     },
     {
       "name": "focus",

@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Lines with emoji no longer scramble in a session's terminal.** Tables and status lines that start with an emoji showed shifted columns and leftover letters, because the dashboard counted an emoji as one column while Claude Code, Codex and Kimi Code count it as two. The terminal and the screen kept for reconnects now use the same widths as the agents.
 
+### Removed
+
+- **Glimmervoid no longer reports activity to Coder.** When Glimmervoid ran inside a Coder workspace with `coder.appSlug` set, it told Coder whether sessions were working so the workspace stayed up. That reporting is gone, so a Coder workspace running Glimmervoid now follows only its own idle rules.
+- **Linked hosts are gone.** This dashboard no longer links other machines running Glimmervoid over ssh: the `glimmervoid host` command, the Linked hosts list in Settings, the host headers in the sidebar, the host choice in Add Session and Telegram alerts relayed from a linked host have been removed. A `hosts` block left in config.json is dropped at startup with one log line, and sessions already running on those machines keep running there; open each machine's own dashboard to reach them. Remote host setup still installs Glimmervoid on another machine, without the final linking step.
+- **Remote Coder sessions are gone.** Add Session no longer offers a Coder environment, and sessions no longer run Claude Code or Codex inside a `gv-` Coder workspace. The Remote Coder sessions setting and the `coder` block in config.json are dropped at startup with one log line, along with any session that ran in a Coder workspace and the list of workspaces Glimmervoid created. Glimmervoid does not delete those workspaces: list leftovers with `coder list` and remove each `gv-` workspace you no longer need with `coder delete <name>`.
+- **Agent logins and the Connect button are gone.** Settings no longer shows an Agent logins readout, and Glimmervoid no longer signs Claude Code or Codex in for remote sessions. The `agent-logins` folder beside your config.json, which held those sign-ins, is deleted at startup, and `GLIMMERVOID_CLAUDE_OAUTH_TOKEN` is no longer read. Accounts you added in Settings > Accounts are untouched. The Settings > Remote section is gone: Remote host setup moved to Settings > Server and offers whichever of Claude Code and Codex is installed on this machine.
+
 ## [0.57.4] - 2026-11-12
 
 ### Changed
@@ -37,9 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **The Issues tab is gone.** The experimental tab that listed GitHub issues from your projects and teams and opened a session from one has been removed, along with its Settings switch, its background polling and its watcher lane. An `issues` block left in config.json is dropped at startup with one log line, and the old issues cache file in your Glimmervoid folder is deleted.
-- **Glimmervoid no longer reports activity to Coder.** When Glimmervoid ran inside a Coder workspace with `coder.appSlug` set, it told Coder whether sessions were working so the workspace stayed up. That reporting is gone, so a Coder workspace running Glimmervoid now follows only its own idle rules.
-- **Linked hosts are gone.** This dashboard no longer links other machines running Glimmervoid over ssh: the `glimmervoid host` command, the Linked hosts list in Settings, the host headers in the sidebar, the host choice in Add Session and Telegram alerts relayed from a linked host have been removed. A `hosts` block left in config.json is dropped at startup with one log line, and sessions already running on those machines keep running there; open each machine's own dashboard to reach them. Remote host setup still installs Glimmervoid on another machine, without the final linking step.
-- **Remote Coder sessions are gone.** Add Session no longer offers a Coder environment, and sessions no longer run Claude Code or Codex inside a `gv-` Coder workspace. The Remote Coder sessions setting and the `coder` block in config.json are dropped at startup with one log line, along with any session that ran in a Coder workspace and the list of workspaces Glimmervoid created. Glimmervoid does not delete those workspaces: list leftovers with `coder list` and remove each `gv-` workspace you no longer need with `coder delete <name>`.
 
 ### Fixed
 

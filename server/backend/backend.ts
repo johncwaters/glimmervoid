@@ -191,7 +191,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       .map((session) => session.name),
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
-  const { agentAccounts, agentConnect, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
+  const { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -245,7 +245,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   httpServer.once('close', () => {
     agentIngressServer.close();
     agentIngressServer.closeAllConnections();
-    agentConnect.stop();
     agentAccounts.stop();
   });
 
@@ -782,7 +781,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     broadcastControl,
     controlReplayLog,
-    agentConnect,
     agentAccounts,
     remoteSetup,
     telegramDelivery: notifications.telegramDelivery,
@@ -830,7 +828,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
-  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, agentLogins: agentConnect.logins() }) });
+  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore }) });
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();

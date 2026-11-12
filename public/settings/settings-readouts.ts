@@ -11,7 +11,7 @@ import { secretEnvironmentSource, workflowRuleSummaryLines, workflowRuleToggleRo
 import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
-import { agentLoginOf, agentLoginSummary, openAgentAccountDialog, openAgentConnectDialog, openRemoteSetupDialog } from '../dialogs.ts';
+import { openAgentAccountDialog, openRemoteSetupDialog } from '../dialogs.ts';
 import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
 import { buildLaneAccountsBlock } from './settings-accounts.ts';
 import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
@@ -137,17 +137,6 @@ function buildUsageStatus() {
   return block;
 }
 
-function buildAgentLoginsStatus() {
-  const block = el('div', 'settings-view-status-block');
-  for (const agent of ['claude-code', 'codex'] as const) {
-    const row = el('div', 'settings-telegram-test');
-    const connectButton = button({ variant: 'secondary', label: 'Connect', action: 'connect-agent-login', onClick: () => openAgentConnectDialog(agent) });
-    row.append(el('div', 'settings-readonly', agentLoginSummary(agentLoginOf(agent), agent)), connectButton);
-    block.appendChild(row);
-  }
-  return block;
-}
-
 const ACCOUNT_AGENTS = ['claude-code', 'codex'] as const;
 const agentAccountActionStatus = createActionStatus('settings-agent-accounts-status');
 
@@ -232,7 +221,6 @@ function buildServerPowerStatus() {
 
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'server-power') return buildServerPowerStatus();
-  if (setting.status === 'agent-logins') return buildAgentLoginsStatus();
   if (setting.status === 'agent-accounts') return buildAgentAccountsStatus();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();

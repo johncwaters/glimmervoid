@@ -101,8 +101,9 @@ async function deleteRetiredIssuesCache(glimmervoidHome: string, log: Pick<Conso
   }
 }
 
-async function deleteRetiredCoderOwnedWorkspaces(glimmervoidHome: string, log: Pick<Console, 'warn'> = console): Promise<void> {
+async function deleteRetiredRemoteSessionData(glimmervoidHome: string, agentLoginsFolderPath: string, log: Pick<Console, 'warn'> = console): Promise<void> {
   await sweepRetiredPath({ retiredPath: path.join(glimmervoidHome, RETIRED_CODER_OWNED_WORKSPACES_FILE), kind: 'file', cause: 'remote-sessions', checkPassed: 'remote-coder-sessions-retired' }, log);
+  await sweepRetiredPath({ retiredPath: agentLoginsFolderPath, kind: 'folder', cause: 'remote-sessions', checkPassed: 'agent-connect-retired' }, log);
 }
 
-export { deleteRetiredBenchmarkRuns, deleteRetiredCoderOwnedWorkspaces, deleteRetiredIssuesCache, deleteRetiredPlans };
+export { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans, deleteRetiredRemoteSessionData };

@@ -1,4 +1,3 @@
-import path from 'node:path';
 import http from 'node:http';
 import { HookRouter } from '../../detection/hook-source.ts';
 import { sweepOrphans } from '../../detection/settings-injector.ts';
@@ -12,12 +11,8 @@ import { resolveHookTools } from '../hook-tools.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
 import { selfLaunch } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
-import { createClaudeCredentials } from '../claude-credentials.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
-import { createAgentConnect } from '../agent-login/agent-connect.ts';
 import { createAgentAccounts } from '../agent-login/agent-accounts.ts';
-import codexAdapter from '../../session/adapters/codex.ts';
-import { createCodexCredentials } from '../codex-credentials.ts';
 import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
@@ -53,16 +48,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     log: dependencies.logger,
   });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
-  const claudeCommand = () => commandFor('claude-code').path;
-  const agentLoginsRoot = configSiblingPath(dependencies.configStore.configPath, 'agent-logins');
-  const claudeCredentials = createClaudeCredentials({ claudeCommand, connectedConfigDir: path.join(agentLoginsRoot, 'claude-code') });
-  const codexCredentials = createCodexCredentials({
-    connectedCodexHome: path.join(agentLoginsRoot, 'codex'),
-    codexCommand: () => {
-      const command = codexAdapter.buildSpawnCommand({ platform: process.platform, resolved: commandFor(codexAdapter), settingsArgs: [], agentArgs: [] });
-      return { file: command.file, argsBeforeAppServer: command.args };
-    },
-  });
   const launchAgentCommand = (agent: string, agentArgs: string[]) => {
     const adapter = getAdapter(agent);
     const resolved = adapter ? commandFor(adapter) : null;
@@ -70,12 +55,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     const command = adapter.buildSpawnCommand({ platform: process.platform, resolved, settingsArgs: [], agentArgs });
     return { ...command, env: adapter.buildEnv(process.env, null) };
   };
-  const agentConnect = createAgentConnect({
-    loginsRoot: agentLoginsRoot,
-    loginSource: (agent) => (agent === 'codex' ? codexCredentials.loginSource() : claudeCredentials.loginSource()),
-    launchFor: launchAgentCommand,
-    onChange: (logins) => dependencies.getBroadcastControl()?.({ type: 'agent-logins', logins }),
-  });
   const agentAccounts = createAgentAccounts({
     accountsRoot: configSiblingPath(dependencies.configStore.configPath, 'agent-accounts'),
     configStore: dependencies.configStore,
@@ -84,7 +63,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     onConfigSaved: dependencies.onConfigSaved,
     onChange: (accounts) => dependencies.getBroadcastControl()?.({ type: 'agent-accounts', accounts }),
   });
-  void agentConnect.refresh();
   void agentAccounts.refresh();
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
@@ -103,7 +81,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       : null,
   });
 
-  return { agentAccounts, agentConnect, agentIngressServer, claudeCommand, claudeCredentials, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
+  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

@@ -12,7 +12,7 @@ import {
 } from './core/telemetry-core.ts';
 import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
 import { listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
-import { codexHomeDir } from './core/codex-credentials-core.ts';
+import { codexHomes } from './usage/core/usage-scan-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
@@ -485,9 +485,10 @@ function createAccountIdReader({ env, homeDir, readTextFile = readTextFileOrNull
   }
 
   return async () => {
+    const codexHome = codexHomes(env, homeDir)[0];
     const [claudeConfigText, codexAuthText] = await Promise.all([
       readClaudeConfigText(),
-      readTextFile(path.join(codexHomeDir(env, homeDir), 'auth.json')),
+      codexHome ? readTextFile(path.join(codexHome, 'auth.json')) : Promise.resolve(null),
     ]);
     return {
       claudeAccountUuid: claudeConfigText === null ? null : claudeAccountUuidOf(claudeConfigText),

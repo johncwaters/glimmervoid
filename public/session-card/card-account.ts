@@ -9,7 +9,7 @@ import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { SessionUi } from './card-registry.ts';
 import { buildDialogShell } from './modal.ts';
 
-type AccountSignIn = (agent: string, accountId: string | null) => void;
+type AccountSignIn = (agent: string, accountId: string) => void;
 let openAccountSignIn: AccountSignIn | null = null;
 
 export function setAccountSignIn(signIn: AccountSignIn) {
@@ -97,8 +97,9 @@ export function openSwitchAccountDialog(sessionId: string) {
   btnCancel.addEventListener('click', close);
   btnSignIn.addEventListener('click', () => {
     const accountId = pickedAccountId();
+    if (!accountId) return;
     close();
-    openAccountSignIn?.(agent, accountId ?? null);
+    openAccountSignIn?.(agent, accountId);
   });
   btnSwitch.addEventListener('click', () => {
     const accountId = pickedAccountId();
@@ -117,7 +118,7 @@ export function openSwitchAccountDialog(sessionId: string) {
         btnSwitch.disabled = false;
         statusEl.textContent = '';
         errorEl.textContent = reply.type === 'switch-session-account-result' ? reply.error ?? 'Could not switch the account.' : 'Unexpected reply';
-        btnSignIn.hidden = openAccountSignIn === null || reply.type !== 'switch-session-account-result' || reply.needsSignIn !== true;
+        btnSignIn.hidden = openAccountSignIn === null || !accountId || reply.type !== 'switch-session-account-result' || reply.needsSignIn !== true;
       })
       .catch((error) => {
         if (!overlay.isConnected) return;

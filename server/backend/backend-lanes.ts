@@ -7,7 +7,7 @@ import type { ControlBroadcast, ControlConnectionHandler } from './backend-webso
 import { comparableDirectoryPath } from '../../shared/canonical-paths.ts';
 import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
-import { deleteRetiredBenchmarkRuns, deleteRetiredCoderOwnedWorkspaces, deleteRetiredIssuesCache, deleteRetiredPlans } from './retired-feature-data.ts';
+import { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans, deleteRetiredRemoteSessionData } from './retired-feature-data.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
 import { contestantDiff } from '../race/race-diff.ts';
 import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
@@ -452,7 +452,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void deleteRetiredBenchmarkRuns(glimmervoidHome, gitWorkspace, logger),
       () => void deleteRetiredPlans(configSiblingPath(configStore.configPath, 'plans'), logger),
       () => void deleteRetiredIssuesCache(glimmervoidHome, logger),
-      () => void deleteRetiredCoderOwnedWorkspaces(glimmervoidHome, logger),
+      () => void deleteRetiredRemoteSessionData(glimmervoidHome, configSiblingPath(configStore.configPath, 'agent-logins'), logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),

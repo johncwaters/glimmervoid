@@ -3,7 +3,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import { sendControlRequest } from './control-ws.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, InstallDetail } from '#shared/contracts/control-messages.ts';
-import { agentAccountOf, agentAccountSummary, agentLoginOf, agentLoginSummary, applyAgentAccounts, applyAgentLogins, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, onAgentLoginsChanged, refreshAgentAccounts, refreshAgentLogins } from './agent-logins.ts';
+import { agentAccountOf, agentAccountSummary, applyAgentAccounts, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, refreshAgentAccounts } from './agent-logins.ts';
 import { el, query, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
@@ -13,8 +13,6 @@ import { onSessionTick } from './session-card/session-tick.ts';
 import { formatAgo } from './poll-ago.ts';
 import { formatTrailOffset, trailContentKey, trailStatusText, trailTimelineRows } from './radar/radar-core.ts';
 import type { InvestigationView } from './radar/radar-core.ts';
-
-export { agentLoginOf, agentLoginSummary, onAgentLoginsChanged } from './agent-logins.ts';
 
 type SignInLogin = Pick<AgentLoginStatus, 'state' | 'verificationUrl' | 'userCode' | 'needsPastedCode'>;
 
@@ -110,23 +108,6 @@ function mountSignInDialog(binding: SignInDialogBinding) {
   binding.refresh();
 }
 
-export function openAgentConnectDialog(agent: ConnectableAgent) {
-  const name = CONNECTABLE_AGENT_NAMES[agent];
-  const send = (type: string, payload: Record<string, unknown>) => sendSignInRequest(type, { agent, ...payload }, 'agent-logins', (reply) => applyAgentLogins(reply.logins));
-  mountSignInDialog({
-    title: `Connect ${name}`,
-    hidesStartWhenSignedIn: false,
-    intro: `Glimmervoid signs ${name} in for its own remote sessions and keeps that login in its own folder, apart from any login you already have on this machine. The sign-in runs here and is never recorded.`,
-    readLogin: () => agentLoginOf(agent),
-    summary: () => agentLoginSummary(agentLoginOf(agent), agent),
-    subscribe: onAgentLoginsChanged,
-    refresh: refreshAgentLogins,
-    start: () => send('agent-connect', { action: 'start' }),
-    cancel: () => send('agent-connect', { action: 'cancel' }),
-    submitCode: (code) => send('agent-connect-code', { code }),
-  });
-}
-
 export function openAgentAccountDialog(agent: ConnectableAgent, existingAccountId: string | null = null) {
   const name = CONNECTABLE_AGENT_NAMES[agent];
   let accountId = existingAccountId;
@@ -165,31 +146,48 @@ export function openRemoteSetupDialog() {
   agentChoices.setAttribute('role', 'radiogroup');
   const status = createActionStatus();
   const startButton = button({ variant: 'primary', label: 'Start setup' });
+  startButton.disabled = true;
   btnCancel.addEventListener('click', close);
   actions.append(startButton);
   dialog.append(warning, agentLabel, agentChoices, status.element, actions);
+  let installedAgents: { id: ConnectableAgent; label: string }[] = [];
   let chosenAgent: ConnectableAgent | null = null;
   let isStarting = false;
 
   function renderAgentChoices() {
-    if (!dialog.isConnected) {
-      unsubscribe();
-      return;
-    }
-    const signedInAgents = ConnectableAgent.options.filter((agent) => agentLoginOf(agent)?.state === 'signed-in');
-    if (chosenAgent === null || !signedInAgents.includes(chosenAgent)) chosenAgent = signedInAgents[0] ?? null;
-    agentChoices.replaceChildren(...signedInAgents.map((agent) => {
+    if (chosenAgent === null || !installedAgents.some((agent) => agent.id === chosenAgent)) chosenAgent = installedAgents[0]?.id ?? null;
+    agentChoices.replaceChildren(...installedAgents.map((agent) => {
       const option = el('label', 'settings-view-toggle hooks-choice');
       const input = el('input', 'settings-view-checkbox');
       input.type = 'radio';
       input.name = 'remote-setup-agent';
-      input.checked = agent === chosenAgent;
-      input.addEventListener('change', () => { chosenAgent = agent; });
-      option.append(input, el('span', null, CONNECTABLE_AGENT_NAMES[agent]));
+      input.checked = agent.id === chosenAgent;
+      input.addEventListener('change', () => { chosenAgent = agent.id; });
+      option.append(input, el('span', null, agent.label));
       return option;
     }));
-    if (signedInAgents.length === 0) agentChoices.append(el('span', '', 'Sign in to Claude Code or Codex on this machine first.'));
+    if (installedAgents.length === 0) agentChoices.append(el('span', '', 'Install Claude Code or Codex on this machine first.'));
     startButton.disabled = isStarting || chosenAgent === null;
+  }
+
+  async function loadInstalledAgents() {
+    status.show('busy', 'Checking which agents are installed.');
+    try {
+      const reply = await sendControlRequest('list-agents', {}, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+      if (reply.type !== 'agents-listed') {
+        status.show('error', 'The agent list did not load.');
+        return;
+      }
+      installedAgents = reply.agents.flatMap((agent) => {
+        const parsedAgent = ConnectableAgent.safeParse(agent.id);
+        if (!parsedAgent.success || !agent.resolvable) return [];
+        return [{ id: parsedAgent.data, label: agent.label }];
+      });
+      status.clear();
+      renderAgentChoices();
+    } catch (reason) {
+      status.show('error', `The server did not answer (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}).`);
+    }
   }
 
   startButton.addEventListener('click', async () => {
@@ -212,9 +210,7 @@ export function openRemoteSetupDialog() {
     }
   });
 
-  const unsubscribe = onAgentLoginsChanged(renderAgentChoices);
-  renderAgentChoices();
-  refreshAgentLogins();
+  void loadInstalledAgents();
 }
 
 

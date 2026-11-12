@@ -34,7 +34,6 @@ import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
-import type { createAgentConnect } from './agent-login/agent-connect.ts';
 import type { AgentAccounts } from './agent-login/agent-accounts.ts';
 import type { RemoteSetupAgent, RemoteSetupOutcome } from './remote-setup-wiring.ts';
 import { createControlContext } from './control/control-context.ts';
@@ -158,7 +157,6 @@ interface ControlHandlerDeps {
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
-  agentConnect?: Pick<ReturnType<typeof createAgentConnect>, 'logins' | 'refresh' | 'start' | 'cancel' | 'submitCode'> | null;
   agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'setDefault' | 'setLaneAccount' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;
   starHint?: Pick<StarHintWiring, 'settleStar' | 'pendingHintMessages'> | null;

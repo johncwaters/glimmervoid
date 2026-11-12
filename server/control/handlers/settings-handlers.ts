@@ -128,7 +128,6 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
   return null;
 }
 
-const AGENT_CONNECT_UNAVAILABLE = 'Agent sign-in is not available on this server.';
 const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
 type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-default' | 'agent-lane-account';
 
@@ -140,13 +139,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     applyConfigReload,
     applySettingsReload,
     telegramDelivery = null,
-    agentConnect = null,
     agentAccounts = null,
     remoteSetup = null,
   } = deps;
 
   function buildSettingsPayload() {
-    return buildSettingsPayloadFrom({ configStore, telegramDelivery: telegramDelivery?.status() ?? null, agentLogins: agentConnect?.logins() ?? null });
+    return buildSettingsPayloadFrom({ configStore, telegramDelivery: telegramDelivery?.status() ?? null});
   }
 
   function handleGetSettings(msg: ClientMessageOf<'get-settings'>, ws: ControlSocket): void {
@@ -155,43 +153,16 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       requestId: msg.requestId || null,
       settings: buildSettingsPayload()
     }));
-    void agentConnect?.refresh();
-  }
-
-  async function handleGetAgentLogins(msg: ClientMessageOf<'get-agent-logins'>, ws: ControlSocket): Promise<void> {
-    if (!agentConnect) {
-      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
-      return;
-    }
-    replyTo(ws, msg, 'agent-logins', { logins: await agentConnect.refresh() });
   }
 
   async function handleStartRemoteSetup(msg: ClientMessageOf<'start-remote-setup'>, ws: ControlSocket): Promise<void> {
     const reply = (payload: Record<string, unknown>) => replyTo(ws, msg, 'start-remote-setup-result', { ok: false, error: null, ...payload });
     if (!remoteSetup) { reply({ error: 'Remote host setup is not available on this server.' }); return; }
-    const login = agentConnect?.logins().find((status) => status.agent === msg.agent);
-    if (login?.state !== 'signed-in') { reply({ error: `Sign in to ${msg.agent} before starting the remote setup session.` }); return; }
+    const { label, resolvable } = describeAgentResolvability(msg.agent);
+    if (!resolvable) { reply({ error: `Install ${label} on this machine before starting the remote setup session.` }); return; }
     const outcome = await remoteSetup.start(msg.agent);
     if (!outcome.ok) { reply({ error: outcome.error }); return; }
     reply({ ok: true, sessionId: outcome.sessionId, sessionName: outcome.sessionName });
-  }
-
-  async function handleAgentConnect(msg: ClientMessageOf<'agent-connect'>, ws: ControlSocket): Promise<void> {
-    if (!agentConnect) {
-      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
-      return;
-    }
-    const outcome = msg.action === 'start' ? await agentConnect.start(msg.agent) : agentConnect.cancel(msg.agent);
-    replyTo(ws, msg, 'agent-logins', { logins: agentConnect.logins(), error: outcome.ok ? undefined : outcome.error });
-  }
-
-  function handleAgentConnectCode(msg: ClientMessageOf<'agent-connect-code'>, ws: ControlSocket): void {
-    if (!agentConnect) {
-      replyTo(ws, msg, 'agent-logins', { logins: [], error: AGENT_CONNECT_UNAVAILABLE });
-      return;
-    }
-    const outcome = agentConnect.submitCode(msg.agent, msg.code);
-    replyTo(ws, msg, 'agent-logins', { logins: agentConnect.logins(), error: outcome.ok ? undefined : outcome.error });
   }
 
   async function answerAgentAccounts(msg: ClientMessageOf<AgentAccountMessageType>, ws: ControlSocket, act: (accounts: NonNullable<typeof agentAccounts>) => Promise<{ ok: true; accountId?: string } | { ok: false; error: string }>): Promise<void> {
@@ -428,10 +399,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   const handlers = {
     'get-settings': handleGetSettings,
-    'get-agent-logins': handleGetAgentLogins,
-    'agent-connect': handleAgentConnect,
     'start-remote-setup': handleStartRemoteSetup,
-    'agent-connect-code': handleAgentConnectCode,
     'get-agent-accounts': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => { await accounts.refresh(); return { ok: true }; }),
     'agent-account-add': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.add(msg.agent)),
     'agent-account-sign-in': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.signIn(msg.accountId)),
@@ -458,10 +426,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   const invalidReplies = {
     'get-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
-    'get-agent-logins': (_msg, requestId, message) => ({ type: 'agent-logins', requestId, logins: [], error: message }),
-    'agent-connect': (_msg, requestId, message) => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'start-remote-setup': (_msg, requestId, message) => ({ type: 'start-remote-setup-result', requestId, ok: false, error: message }),
-    'agent-connect-code': (_msg, requestId, message) => ({ type: 'agent-logins', requestId, logins: [], error: message }),
     'get-agent-accounts': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-add': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-sign-in': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
