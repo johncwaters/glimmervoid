@@ -50,17 +50,17 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
 
 <style>
   .animals-intro { margin-bottom: 16px; color: var(--text-dim); }
-  .animals-more { margin-top: 12px; color: var(--text-dim); font-size: 15px; }
+  .animals-more { margin-top: 12px; color: var(--text-dim); font-size: var(--type-body); }
   .animal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
   .animal-tile { border: 1px solid var(--border-dim); border-radius: 5px; background: var(--bg-card); padding: 10px 12px 12px; min-width: 0; }
-  .animal-tile .name { font-size: 14px; color: var(--text-dim); }
+  .animal-tile .name { font-size: var(--type-body); color: var(--text-dim); }
   .flying-animal-preview { position: relative; height: 64px; overflow: hidden; }
   .egg-sky { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
   .flying-animal-preview-stage { position: absolute; left: calc(65% - var(--nyan-width) / 2); top: 13px; width: var(--nyan-width); height: var(--nyan-height); }
   @media (max-width: 640px) {
     .animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
     .animal-tile { padding: 6px 8px 8px; }
-    .animal-tile .name { font-size: 12px; }
+    .animal-tile .name { font-size: var(--type-meta); }
     .flying-animal-preview { height: 40px; }
     .flying-animal-preview-stage { top: 2px; scale: 0.6; transform-origin: 50% 0; }
   }

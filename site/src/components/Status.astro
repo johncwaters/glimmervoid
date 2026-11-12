@@ -193,14 +193,14 @@ function terminalVariantsFor(task: string) {
 </script>
 
 <style>
-  .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 16px; }
+  .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px; }
   .attention-board :global(.attention-banner) { position: relative; margin-bottom: 0; }
   .attention-board :global(.attention-banner-jump .kbd) { font-family: var(--font-mono); font-weight: 700; line-height: 1; color: var(--text-head); }
   .callout-stack { display: grid; margin: 10px 0 8px; }
   .callout-stack > * { grid-area: 1 / 1; margin: 0; }
-  .all-clear-hint { font-size: 14px; color: var(--text-dim); opacity: 0; transition: opacity var(--transition-fast); }
+  .all-clear-hint { font-size: var(--type-body); color: var(--text-dim); opacity: 0; transition: opacity var(--transition-fast); }
   .attention-board[data-line-empty] .all-clear-hint { opacity: 1; }
-  .jump-callout { font-size: 14px; font-weight: 700; color: var(--state-waiting); transition: opacity var(--transition-fast); }
+  .jump-callout { font-size: var(--type-body); font-weight: 700; color: var(--state-waiting); transition: opacity var(--transition-fast); }
   .attention-board[data-line-empty] .jump-callout { opacity: 0; }
   .jump-arrow { display: inline-block; animation: jump-nudge 1.6s infinite; }
   .attention-board:not([data-on-screen="true"]) .jump-arrow { animation-play-state: paused; }
@@ -211,7 +211,7 @@ function terminalVariantsFor(task: string) {
     70% { translate: 0 0; animation-timing-function: var(--ease-out-expo); }
   }
   .session-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .session-rows li { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 10px 12px; border-radius: 4px; font-size: 14px; overflow: hidden; transition: transform 900ms var(--ease-out-expo); }
+  .session-rows li { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; padding: 10px 12px; border-radius: 4px; font-size: var(--type-body); overflow: hidden; transition: transform 900ms var(--ease-out-expo); }
   .session-rows li::before { content: ''; position: absolute; inset: 0; border-radius: 4px; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); opacity: 0; transition: opacity 900ms var(--ease-out-expo); }
   .session-rows li[data-focus="true"] { transform: scale(1.015); animation: focus-arrive 720ms var(--ease-out-expo) both; }
   .session-rows li[data-focus="true"]::before { opacity: 1; }
@@ -223,8 +223,8 @@ function terminalVariantsFor(task: string) {
   }
   .session-terminal { position: relative; flex-basis: 100%; display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 500ms var(--ease-out-expo), opacity 300ms var(--ease-out-expo); }
   .session-rows li[data-focus="true"][data-opened-as="WAITING"] .session-terminal[data-opened-as="WAITING"], .session-rows li[data-focus="true"][data-opened-as="FAILED"] .session-terminal[data-opened-as="FAILED"], .session-rows li[data-focus="true"][data-opened-as="COMPLETE"] .session-terminal[data-opened-as="COMPLETE"] { grid-template-rows: 1fr; opacity: 1; }
-  .session-terminal-screen { min-height: 0; overflow: hidden; margin: 0; display: grid; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .terminal-title { margin-top: 10px; padding: 6px 10px; border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; background: var(--bg); color: var(--text-dim); font-size: 12px; }
+  .session-terminal-screen { min-height: 0; overflow: hidden; margin: 0; display: grid; font-family: var(--font-mono); font-size: var(--type-meta); line-height: 1.6; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .terminal-title { margin-top: 10px; padding: 6px 10px; border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; background: var(--bg); color: var(--text-dim); font-size: var(--type-meta); }
   .terminal-line, .terminal-prompt { padding: 0 10px; border-inline: 1px solid var(--border); background: var(--bg); }
   .terminal-title + .terminal-line { padding-top: 8px; }
   .terminal-prompt { padding-bottom: 8px; border-bottom: 1px solid var(--border); border-radius: 0 0 4px 4px; color: var(--accent); }
@@ -239,22 +239,22 @@ function terminalVariantsFor(task: string) {
   .label-stack { justify-items: end; margin-right: 10px; }
   .session-rows svg { width: 16px; height: 16px; }
   .session-task { flex: 1; min-width: 0; color: var(--text-head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-state { font-size: 13px; font-weight: 700; }
+  .session-state { font-size: var(--type-meta); font-weight: 700; }
   .session-rows li[data-state="RUNNING"] { --st: var(--state-running); }
   .session-rows li[data-state="WAITING"] { --st: var(--state-waiting); }
   .session-rows li[data-state="COMPLETE"] { --st: var(--state-complete); }
   .session-rows li[data-state="FAILED"] { --st: var(--state-failed); }
   .session-rows li[data-state="RUNNING"] [data-icon-for="RUNNING"], .session-rows li[data-state="RUNNING"] [data-label-for="RUNNING"], .session-rows li[data-state="WAITING"] [data-icon-for="WAITING"], .session-rows li[data-state="WAITING"] [data-label-for="WAITING"], .session-rows li[data-state="COMPLETE"] [data-icon-for="COMPLETE"], .session-rows li[data-state="COMPLETE"] [data-label-for="COMPLETE"], .session-rows li[data-state="FAILED"] [data-icon-for="FAILED"], .session-rows li[data-state="FAILED"] [data-label-for="FAILED"] { opacity: 1; transition: opacity var(--arrive-ms) var(--ease-out-expo) var(--leave-ms); }
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
-  .queue-question { border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
+  .queue-question { border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: var(--type-body); padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-question:hover { border-color: var(--accent); color: var(--text-head); }
   .agent-support { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px 16px; margin-top: 24px; max-width: 760px; }
-  .agent-row-label { margin: 0; font-size: 13px; font-weight: 700; color: var(--text-dim); }
+  .agent-row-label { margin: 0; font-size: var(--type-meta); font-weight: 700; color: var(--text-dim); }
   .agent-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .agent-chips li { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text); }
-  .agent-chips.is-full li { padding: 6px 14px 6px 6px; font-size: 15px; font-weight: 700; color: var(--text-head); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-  .agent-chips.is-also li { padding: 3px 10px; font-size: 12px; color: var(--text-dim); }
-  .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); }
+  .agent-chips.is-full li { padding: 6px 14px 6px 6px; font-size: var(--type-body); font-weight: 700; color: var(--text-head); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+  .agent-chips.is-also li { padding: 3px 10px; font-size: var(--type-meta); color: var(--text-dim); }
+  .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; background: var(--bg); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; color: var(--accent); }
   @media (max-width: 640px) { .agent-support { grid-template-columns: minmax(0, 1fr); gap: 8px; } .agent-chips.is-full { margin-bottom: 8px; } }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }

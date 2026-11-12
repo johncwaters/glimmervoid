@@ -23,3 +23,12 @@ exemptions:
   - paths: [server/native-probes.ts, public/session-card/terminal-secret-mask.ts]
     kinds: [color]
     why: A codec probe pixel and a mask fallback are functional values, never seen as brand color.
+  - paths: [site/src/components/Boards.astro, site/src/components/Celebrations.astro, site/src/components/Features.astro, site/src/components/SaneYolo.astro, site/src/components/Status.astro, site/src/components/UsedBy.astro, site/src/styles/global.css]
+    kinds: [motion]
+    why: The website's demo loops replay real dashboard moments as art-directed scenes, timed as choreography rather than state signals.
+  - paths: [site/src/styles/global.css, site/src/components/**, site/src/layouts/**, site/src/pages/**]
+    kinds: [font-size]
+    why: Fluid clamp() headings on the website scale with the viewport above the dashboard type scale; every fixed size uses a type token.
+  - paths: [site/src/components/Boards.astro]
+    kinds: [radius]
+    why: The phone and device frames there draw real hardware corners, not glimmervoid chrome.

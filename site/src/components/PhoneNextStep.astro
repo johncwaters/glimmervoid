@@ -20,11 +20,11 @@ const { location } = Astro.props;
 <style>
   .phone-next-step { display: none; }
   @media (max-width: 640px) and (pointer: coarse) {
-    .phone-next-step { display: flex; flex-direction: column; gap: 12px; width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 14px; }
+    .phone-next-step { display: flex; flex-direction: column; gap: 12px; width: 100%; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 14px; }
     .phone-next-step.is-hero { align-items: center; text-align: center; }
     .phone-next-step.is-install { margin-top: 12px; }
   }
-  .phone-next-note { color: var(--text-dim); font-size: 14px; }
+  .phone-next-note { color: var(--text-dim); font-size: var(--type-body); }
   .phone-next-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
   .phone-next-step.is-hero .phone-next-actions { justify-content: center; }
   .phone-next-actions .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding-inline: 8px; text-align: center; text-decoration: none; }

@@ -33,7 +33,7 @@ const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-heigh
 </script>
 
 <style>
-  .consent-banner { position: fixed; z-index: 10; inset-inline: 16px; bottom: 16px; max-width: 760px; margin-inline: auto; display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 32px rgb(0 0 0 / 0.5); font-size: 15px; }
+  .consent-banner { position: fixed; z-index: 10; inset-inline: 16px; bottom: 16px; max-width: 760px; margin-inline: auto; display: flex; align-items: center; gap: 16px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 8px 32px color-mix(in srgb, var(--shadow-tint) 50%, transparent); font-size: var(--type-body); }
   .consent-banner[hidden] { display: none; }
   .consent-animal { position: relative; flex: none; width: var(--nyan-width); height: var(--nyan-height); }
   .consent-banner p { flex: 1; margin: 0; color: var(--text); }

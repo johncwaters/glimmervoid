@@ -104,7 +104,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .ledger thead th { padding-block: 16px; }
   .ledger .column-name, .ledger .posture, .ledger .verdict, .ledger .detail { display: block; }
   .ledger .posture { margin-top: 4px; }
-  .ledger .column-name, .ledger .aspect { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
+  .ledger .column-name, .ledger .aspect { font-size: var(--type-body); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--text-dim); }
   .ledger thead .yes .column-name { color: var(--accent); }
   .ledger thead .no .column-name { color: var(--text-head); }
   .ledger .posture, .ledger .verdict { font-weight: 700; color: var(--text-head); }
@@ -113,10 +113,10 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .ledger .verdict::before { display: inline-block; width: 1.4em; text-indent: 0; }
   .ledger .yes .verdict::before { content: '\2713'; color: var(--state-running); }
   .ledger .no .verdict::before { content: '\2715'; color: var(--text-dim); }
-  .ledger .detail { font-size: 15px; color: var(--text-dim); }
+  .ledger .detail { font-size: var(--type-body); color: var(--text-dim); }
   .ledger .detail { margin-top: 2px; padding-left: 1.4em; }
   .ledger code, .yolo-copy code { font-size: inherit; overflow-wrap: anywhere; }
-  .yolo-copy p { color: var(--text-dim); font-size: 17px; }
+  .yolo-copy p { color: var(--text-dim); font-size: var(--type-doc-body); }
   .ledger-details { margin-top: 40px; }
   .ledger-details summary { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--accent); }
   .ledger-details summary::after { content: '+'; }
@@ -124,14 +124,14 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .ledger-intro { margin: 8px 0 20px; max-width: 70ch; color: var(--text-dim); }
   .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 0; }
   .yolo-copy { display: flex; flex-direction: column; gap: 14px; max-width: 60ch; }
-  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 0 0 8px; }
+  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 0 0 8px; }
   .yolo-session { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-dim); }
-  .yolo-badge { margin-left: auto; font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 18px; padding: 0 6px; border-radius: 2px; color: var(--perms-warn); border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent); background: color-mix(in oklab, var(--perms-warn) 14%, transparent); }
+  .yolo-badge { margin-left: auto; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 18px; padding: 0 6px; border-radius: 2px; color: var(--perms-warn); border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent); background: color-mix(in oklab, var(--perms-warn) 14%, transparent); }
   .yolo-icon { flex: none; width: 13px; height: 13px; }
   .yolo-icon.is-working { color: var(--state-running); }
   .yolo-icon.is-ran { color: var(--state-complete); }
   .yolo-icon.is-caught { color: var(--state-waiting); }
-  .yolo-terminal { list-style: none; margin: 0; padding: 12px 16px 0; min-height: calc(4 * 26px + 12px); display: flex; flex-direction: column; font-family: var(--font-mono); font-size: 14px; }
+  .yolo-terminal { list-style: none; margin: 0; padding: 12px 16px 0; min-height: calc(4 * 26px + 12px); display: flex; flex-direction: column; font-family: var(--font-mono); font-size: var(--type-body); }
   .yolo-terminal li { display: flex; align-items: center; gap: 8px; height: 26px; white-space: nowrap; transition: height 320ms var(--ease-out-expo), opacity 200ms linear; }
   .yolo-terminal li[data-state="hidden"], .yolo-terminal li[data-state="gone"] { height: 0; opacity: 0; }
   .yolo-terminal li[data-state="clearing"] { opacity: 0; transition: opacity 320ms linear; }
@@ -152,7 +152,7 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .yolo-mesh { fill: none; stroke: var(--accent-dim); stroke-width: 1; }
   .yolo-mesh.is-strained { stroke: var(--accent); stroke-width: 1.5; }
   .yolo-net-edge { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .yolo-ball { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 34% 30%, color-mix(in oklab, var(--state-waiting) 55%, white) 0, var(--state-waiting) 42%, color-mix(in oklab, var(--state-waiting) 50%, black) 100%); box-shadow: 0 5px 10px -4px rgb(0 0 0 / 0.75); opacity: 0; transition: opacity 320ms linear; will-change: translate, rotate; }
+  .yolo-ball { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 34% 30%, color-mix(in oklab, var(--state-waiting) 55%, white) 0, var(--state-waiting) 42%, color-mix(in oklab, var(--state-waiting) 50%, black) 100%); box-shadow: 0 5px 10px -4px color-mix(in srgb, var(--shadow-tint) 75%, transparent); opacity: 0; transition: opacity 320ms linear; will-change: translate, rotate; }
   .yolo-ball svg { display: block; width: 100%; height: 100%; fill: none; stroke: color-mix(in oklab, var(--state-waiting) 45%, black); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
   .yolo-ball[data-on="true"] { opacity: 1; transition: none; }
   .yolo-ball[data-crumpling="true"] { animation: yolo-crumple 280ms var(--ease-out-expo); }
@@ -173,8 +173,8 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
     .ledger th, .ledger td { padding: 10px 12px; min-width: 0; }
     .ledger .aspect { grid-column: 1 / -1; padding: 12px 12px 0; }
     .ledger tbody td.yes { border-left: 0; }
-    .ledger .posture, .ledger .verdict { font-size: 15px; }
-    .ledger .detail { font-size: 14px; }
+    .ledger .posture, .ledger .verdict { font-size: var(--type-body); }
+    .ledger .detail { font-size: var(--type-body); }
   }
 </style>
 

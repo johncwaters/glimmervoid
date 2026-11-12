@@ -20,9 +20,9 @@ import { FAQ_ENTRIES } from '../lib/faq.ts';
   .faq-entry { border-bottom: 1px solid var(--border); }
   .faq-entry summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 14px 0; cursor: pointer; list-style: none; }
   .faq-entry summary::-webkit-details-marker { display: none; }
-  .faq-entry summary::after { content: '+'; flex: none; color: var(--accent); font-size: 20px; }
+  .faq-entry summary::after { content: '+'; flex: none; color: var(--accent); font-size: var(--type-display); }
   .faq-entry[open] summary::after { content: '-'; }
   .faq-entry summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .faq-entry h3 { margin: 0; font-size: 16px; }
+  .faq-entry h3 { margin: 0; font-size: var(--type-doc-body); }
   .faq-entry p { margin: 0 0 18px; color: var(--text-dim); }
 </style>

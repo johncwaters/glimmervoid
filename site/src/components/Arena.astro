@@ -103,9 +103,9 @@ const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each o
 
 <style>
   .arena-race .main { stroke: var(--text-dim); stroke-width: 3; fill: none; }
-  .arena-race .lbl-main { font-size: 13px; fill: var(--text-head); font-weight: 700; }
-  .arena-race .lbl { font-size: 12px; fill: var(--text-dim); }
-  .arena-race .note { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+  .arena-race .lbl-main { font-size: var(--type-meta); fill: var(--text-head); font-weight: 700; }
+  .arena-race .lbl { font-size: var(--type-meta); fill: var(--text-dim); }
+  .arena-race .note { font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.02em; }
   .arena-race .prompt-note { fill: var(--text-head); }
   .arena-race .kept-note { fill: var(--state-complete); }
   .arena-race .prompt-dot { fill: var(--bg-card); stroke: var(--text-head); stroke-width: 2.5; }
@@ -122,14 +122,14 @@ const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each o
   .arena-race .lane .branch, .arena-race .lane .commit-dot { stroke: var(--lane); }
   .arena-race .lane .lbl { fill: var(--lane); }
   .arena-race .judge { fill: var(--bg-surface); stroke: var(--border); }
-  .arena-race .judge-title { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--text-head); }
-  .arena-race .rank-number { font-size: 13px; font-weight: 700; fill: var(--accent); }
+  .arena-race .judge-title { font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--text-head); }
+  .arena-race .rank-number { font-size: var(--type-meta); font-weight: 700; fill: var(--accent); }
   .arena-race .rank.winner .lbl { fill: var(--text-head); font-weight: 700; }
   .arena-race .merged { fill: var(--state-complete); }
   .arena-race .loser { transition: opacity 600ms var(--ease-out-expo); }
   .arena-race[data-settled="true"] .loser { opacity: 0.3; }
-  .arena-race .diagram-compact .lbl, .arena-race .diagram-compact .lbl-main { font-size: 13px; }
-  .arena-race .diagram-compact .note { font-size: 12.5px; }
+  .arena-race .diagram-compact .lbl, .arena-race .diagram-compact .lbl-main { font-size: var(--type-meta); }
+  .arena-race .diagram-compact .note { font-size: var(--type-meta); }
 </style>
 
 <script>

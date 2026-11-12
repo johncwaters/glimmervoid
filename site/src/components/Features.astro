@@ -93,16 +93,16 @@ const FEATURES = [
       "streamer streamer upload radar"
       "resume worktrees coder coder";
   }
-  .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); padding: 16px 18px; }
-  .feature-name { color: var(--text-head); font-weight: 700; font-size: 15px; }
-  .is-feature .feature-name { font-size: 22px; }
-  .feature-line { color: var(--text-dim); font-size: 13px; }
-  .tile .experimental-tag { align-self: flex-start; margin: auto 0 0; padding: 0 6px; font-size: 10px; font-weight: 700; line-height: 18px; border: 1px solid var(--border); border-radius: 4px; }
+  .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
+  .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
+  .is-feature .feature-name { font-size: var(--type-doc-h2); }
+  .feature-line { color: var(--text-dim); font-size: var(--type-meta); }
+  .tile .experimental-tag { align-self: flex-start; margin: auto 0 0; padding: 0 6px; font-size: var(--type-meta); font-weight: 700; line-height: 18px; border: 1px solid var(--border); border-radius: 4px; }
   .tile .feature-line + .experimental-tag { margin-top: auto; }
   .tile:has(.experimental-tag) .feature-line { margin-bottom: 10px; }
   .tile-visual { margin-top: auto; padding-top: 18px; }
   .usage-bars { padding-top: 24px; display: flex; flex-direction: column; gap: 10px; }
-  .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 7px; background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 35%, transparent)); }
+  .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 999px; background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 35%, transparent)); }
   .trace-steps { padding-top: 24px; display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border); margin-left: 4px; padding-left: 14px; }
   .trace-step { position: relative; display: block; height: 8px; width: calc(var(--length) * 100%); border-radius: 4px; background: var(--border); }
   .trace-step::before { content: ''; position: absolute; left: -19px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--state-complete); }
@@ -130,9 +130,9 @@ const FEATURES = [
     100% { opacity: 0.15; scale: 1; }
   }
   .issue-to-session { display: flex; flex-direction: column; gap: 6px; }
-  .issue-row, .issue-session { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
-  .issue-number { font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
-  .issue-title, .issue-session-line { display: block; flex: 1; height: 5px; border-radius: 3px; background: var(--border); }
+  .issue-row, .issue-session { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); }
+  .issue-number { font-family: var(--font-mono); font-size: var(--type-meta); color: var(--accent); }
+  .issue-title, .issue-session-line { display: block; flex: 1; height: 5px; border-radius: 2px; background: var(--border); }
   .issue-session-line { max-width: 70%; }
   .issue-session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--state-running); }
   .branch-merge { display: block; width: 100%; max-width: 180px; height: auto; overflow: visible; }
@@ -156,8 +156,8 @@ const FEATURES = [
   @keyframes land-commit { 0%, 30% { opacity: 0; } 38%, 100% { opacity: 1; } }
   @keyframes show-merge { 0%, 60% { opacity: 0; scale: 0.4; } 70%, 100% { opacity: 1; scale: 1; } }
   .branch-merge-dot { transform-box: fill-box; transform-origin: center; }
-  .masked-secret { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); }
-  .mask { display: block; flex: 1; max-width: 160px; height: 14px; border-radius: 3px; background: repeating-linear-gradient(90deg, var(--text-dim) 0 6px, transparent 6px 10px); opacity: 0.5; }
+  .masked-secret { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--text-dim); }
+  .mask { display: block; flex: 1; max-width: 160px; height: 14px; border-radius: 2px; background: repeating-linear-gradient(90deg, var(--text-dim) 0 6px, transparent 6px 10px); opacity: 0.5; }
   @media (max-width: 820px) {
     .bento {
       gap: 8px;
@@ -172,7 +172,7 @@ const FEATURES = [
         "upload resume"
         "worktrees coder";
     }
-    .tile { padding: 12px 14px; border-radius: 12px; }
+    .tile { padding: 12px 14px; border-radius: var(--radius-lg); }
     .tile:not(.is-feature) .feature-line { display: none; }
     .radar-scope { width: min(100%, 96px); }
     .tile-visual { padding-top: 12px; }

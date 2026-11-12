@@ -46,7 +46,7 @@ const MARQUEE_ENTRIES = Array.from({ length: REPEATS_PER_HALF * 2 }, (_, repeatI
     flex: none; height: 72px; padding-inline: 44px; display: flex; align-items: center; justify-content: center;
     color: var(--text-head);
   }
-  .supporter-name { font-weight: 700; font-size: 36px; line-height: 1; letter-spacing: -0.01em; }
+  .supporter-name { font-weight: 700; font-size: var(--type-doc-h1); line-height: 1; letter-spacing: -0.01em; }
   @keyframes marquee-scroll { to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) {
     .marquee { margin-inline: 0; mask-image: none; }

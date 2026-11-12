@@ -55,30 +55,30 @@ import Animals from './Animals.astro';
 </script>
 
 <style>
-  .celebration-demo { margin-bottom: 48px; display: flex; flex-direction: column; gap: 18px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); padding: 22px 22px 16px; }
+  .celebration-demo { margin-bottom: 48px; display: flex; flex-direction: column; gap: 18px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 22px 22px 16px; }
   .trophy-stage { display: flex; align-items: center; gap: 18px; }
-  .celebration-demo .celebration-tray .btn-celebrations { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 2px solid var(--border-hover); border-radius: 10px; background: transparent; color: var(--text-dim); cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
+  .celebration-demo .celebration-tray .btn-celebrations { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 2px solid var(--border-hover); border-radius: var(--radius-lg); background: transparent; color: var(--text-dim); cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
   .celebration-demo .celebration-tray .btn-celebrations:disabled { cursor: default; }
   .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { color: var(--state-complete); border-color: color-mix(in srgb, var(--state-complete) 55%, transparent); }
   .celebration-demo .celebration-tray[data-state="playing"] .btn-celebrations { color: var(--state-complete); opacity: 0.6; }
   .celebration-demo .celebration-tray .btn-celebrations-icon { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .celebration-demo .celebration-tray .celebration-tray-count { top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; line-height: 22px; }
+  .celebration-demo .celebration-tray .celebration-tray-count { top: -9px; right: -9px; min-width: 22px; height: 22px; border-radius: 999px; font-size: var(--type-meta); line-height: 22px; }
   .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations { background: color-mix(in srgb, var(--state-complete) 12%, transparent); }
-  .celebration-demo .celebration-tray::before { content: ''; position: absolute; inset: 0; border: 2px solid var(--state-complete); border-radius: 10px; opacity: 0; pointer-events: none; }
+  .celebration-demo .celebration-tray::before { content: ''; position: absolute; inset: 0; border: 2px solid var(--state-complete); border-radius: var(--radius-lg); opacity: 0; pointer-events: none; }
   .celebration-demo .celebration-tray[data-state="queued"]::before { animation: trophy-pulse 1.6s var(--ease-out-expo) infinite; }
   .celebration-demo .celebration-tray[data-state="queued"] .btn-celebrations-icon { animation: trophy-wiggle 1.6s infinite; }
-  .trophy-callout { margin: 0; font-size: 16px; font-weight: 700; color: var(--state-complete); transition: opacity var(--transition-fast); }
+  .trophy-callout { margin: 0; font-size: var(--type-doc-body); font-weight: 700; color: var(--state-complete); transition: opacity var(--transition-fast); }
   .trophy-arrow { display: inline-block; animation: trophy-nudge 1.6s infinite; }
   .celebration-demo:not([data-on-screen="true"]) .celebration-tray[data-state="queued"]::before, .celebration-demo:not([data-on-screen="true"]) .celebration-tray[data-state="queued"] .btn-celebrations-icon, .celebration-demo:not([data-on-screen="true"]) .trophy-arrow { animation-play-state: paused; }
   .celebration-demo:has(.celebration-tray:not([data-state="queued"])) .trophy-callout { opacity: 0; }
   .queue-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border-dim); }
-  .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; padding: 0 14px; min-height: 40px; cursor: pointer; }
+  .queue-merge { height: var(--header-control-height); border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: var(--type-body); padding: 0 14px; min-height: 40px; cursor: pointer; }
   .queue-merge:hover { border-color: var(--accent); color: var(--text-head); }
   @media (max-width: 640px) {
     .celebration-demo { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%; gap: 12px; margin-bottom: 28px; padding: 14px; }
     .trophy-stage { gap: 10px; }
     .celebration-demo .celebration-tray .btn-celebrations { width: 52px; height: 52px; }
-    .trophy-callout { font-size: 14px; }
+    .trophy-callout { font-size: var(--type-body); }
     .queue-row { padding-top: 0; border-top: 0; }
   }
   @keyframes trophy-pulse {
