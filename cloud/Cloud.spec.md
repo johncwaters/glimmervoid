@@ -45,3 +45,8 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out
   because: anyone who knows a tenant's hostname can send a request, and every wake spends at least the server's idle minutes of the tenant's awake hours, while the tenant's own watcher wakes carry real work
   kinds: none
+- a wake rechecks the watcher: A server whose idle-stop tick sees the wall clock jump more than 30 s past the tick runs its remote watcher status check at once, and a steady tick never does.
+  over: a steady tick, a jump just under 30 s, and a three hour sleep
+  via: a server that wakes from a sleep longer than 30 s rechecks its remote watcher at once instead of waiting out the status timer, and a steady tick never does
+  because: node timers stop while the machine sleeps, so after a long suspend the status check and the GitHub App token, whose expiry is on the wall clock, would wait out a minute or more of paused countdown
+  kinds: none

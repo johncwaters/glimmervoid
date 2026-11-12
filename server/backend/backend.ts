@@ -686,6 +686,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
     reportStopRequested: (properties) => telemetry.capture('idle_stop_requested', properties),
+    onHostWoke: watcherLink.hostWoke,
   });
   const awakeUsageAlerts = startAwakeUsageAlerts({
     readAwakeUsage: watcherLink.readAwakeUsage,

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A hosted Glimmervoid catches up as soon as it wakes.** After its machine sleeps for more than 30 seconds, the server rechecks its watcher link at once, which also fetches a fresh GitHub App token when the old one expired, instead of waiting out timers that stood still during the sleep.
 - **Dashboard motion and corners follow one scale.** Small hover and chevron transitions, the loading shell fades and the focus toolbar breathe now use the same timings as the rest of the dashboard, a few corners that were slightly rounder or sharper than their neighbors now match, and the health monitor's Anomalies heading no longer carries a warning glyph.
 - **Removing a session with unsaved work asks inside its own row.** The Focus rail row, or its row on the phone Focus screen, shows the server's full reason with Remove and Keep on a line below, Keep where the X was, instead of opening a dialog. Keep, Esc or a click elsewhere keeps the session; Remove starts the usual 8-second Undo countdown before the work is deleted. A session whose row is off screen is brought into view first.
 

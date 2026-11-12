@@ -7,7 +7,7 @@ type WatcherStarter = (options: {
   onListening: (watcherUrl: string) => void;
   onEnded: () => void;
   log?: Pick<Console, 'log' | 'warn'>;
-}) => { start(): void; stop(): void };
+}) => { start(): void; stop(): void; checkNow(): void };
 
 const STATUS_CHECK_MS = 60_000;
 const STATUS_TIMEOUT_MS = 15_000;
@@ -31,6 +31,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
     let isStopped = false;
     let answeringUrl: string | null = null;
     let unansweredCheckCount = 0;
+    let isCheckWantedNow = false;
     let lastPrepareProblem: string | null = null;
 
     async function isWatcherAnswering(watcherUrl: string): Promise<boolean> {
@@ -88,8 +89,11 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
 
     function scheduleCheck(delayMs: number): void {
       checkTimer = setTimeout(() => {
+        checkTimer = null;
         void checkWatcher().finally(() => {
-          if (!isStopped) scheduleCheck(nextCheckDelayMs());
+          if (isStopped) return;
+          scheduleCheck(isCheckWantedNow ? 0 : nextCheckDelayMs());
+          isCheckWantedNow = false;
         });
       }, delayMs);
       checkTimer.unref();
@@ -99,13 +103,23 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
       scheduleCheck(0);
     }
 
+    function checkNow(): void {
+      if (isStopped) return;
+      if (checkTimer === null) {
+        isCheckWantedNow = true;
+        return;
+      }
+      clearTimeout(checkTimer);
+      scheduleCheck(0);
+    }
+
     function stop(): void {
       isStopped = true;
       if (checkTimer !== null) clearTimeout(checkTimer);
       checkTimer = null;
     }
 
-    return { start, stop };
+    return { start, stop, checkNow };
   };
 }
 

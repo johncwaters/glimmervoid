@@ -515,7 +515,11 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = Dat
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage, whenLinked };
+  function hostWoke(): void {
+    supervisor?.checkNow();
+  }
+
+  return { start, stop, registerProbeSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

@@ -92,6 +92,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
           });
         },
         stop: () => {},
+        checkNow: () => {},
       };
     },
   });
@@ -379,6 +380,71 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
   }
   assert.deepEqual(stopRequests, ['stop']);
   assert.deepEqual(stopReports, [{ outcome: 'stopping', sessions_with_expired_work: 1, expired_subagent_count: 1, expired_shell_count: 2 }]);
+});
+
+test('a server that wakes from a sleep longer than 30 s rechecks its remote watcher at once instead of waiting out the status timer, and a steady tick never does', async (t) => {
+  const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-host-wake-'));
+  const linkSecret = crypto.randomBytes(32);
+  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const sender = createNudgeSender({ serverUrl: 'http://127.0.0.1:9', signingKey: directionKey(linkSecret, 'watcher-to-server'), log: QUIET_LOG });
+  const runner = createProbeRunner({ home, nudges: sender, log: QUIET_LOG });
+  const watcherListener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), log: QUIET_LOG });
+  await runner.start();
+  const watcherPort = await watcherListener.listen(0);
+  let statusCheckCount = 0;
+  const countingFetch: typeof fetch = (input, init) => {
+    if (String(input).endsWith(STATUS_PATH)) statusCheckCount += 1;
+    return fetch(input, init);
+  };
+  const link = createWatcherLink({
+    linkSecret,
+    log: QUIET_LOG,
+    credentials: () => ({ github: null, posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, fetchFn: countingFetch }),
+  });
+  t.after(async () => {
+    link.stop();
+    runner.stop();
+    sender.stop();
+    await watcherListener.close();
+    await fsp.rm(watcherHome, { recursive: true, force: true });
+  });
+  await link.start();
+  await eventually(() => statusCheckCount === 1 ? true : undefined);
+
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const clock = { nowMs: 0 };
+  const sleptReports: number[] = [];
+  const idleStop = startIdleStop({
+    liveSessions: () => [],
+    requestHostStop: link.requestHostStop,
+    reportStopRequested: () => {},
+    onHostWoke: (sleptMs) => {
+      sleptReports.push(sleptMs);
+      link.hostWoke();
+    },
+    now: () => clock.nowMs,
+    log: QUIET_LOG,
+  });
+  try {
+    for (let tick = 0; tick < 8; tick += 1) {
+      clock.nowMs += 15_000;
+      t.mock.timers.tick(15_000);
+    }
+    clock.nowMs += 15_000 + 29_000;
+    t.mock.timers.tick(15_000);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(sleptReports, []);
+    assert.equal(statusCheckCount, 1);
+
+    clock.nowMs += 15_000 + 3 * 60 * 60_000;
+    t.mock.timers.tick(15_000);
+    await eventually(() => statusCheckCount === 2 ? true : undefined);
+  } finally {
+    idleStop.stop();
+    t.mock.timers.reset();
+  }
+  assert.deepEqual(sleptReports, [3 * 60 * 60_000]);
 });
 
 test('a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers', async (t) => {
