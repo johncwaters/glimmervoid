@@ -1,7 +1,7 @@
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { storeReadingLaneClock } from './github-store-wiring.ts';
 import * as core from './core/team-review-core.ts';
-import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS, isRateLimitText, refusingReadsText } from './core/github-rate-limit-core.ts';
 import { secondaryRateLimitWaitMs } from '../lanes/core/lane-backoff.ts';
 import type { TeamReviewCandidate } from './core/team-review-core.ts';
 import { createTickLoop } from '../lanes/lane-runner.ts';
@@ -109,9 +109,16 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     return JSON.stringify(queue.map((candidate) => [candidate.key, prsByKey.get(comparablePrKey(candidate))?.headRefOid ?? null]));
   }
 
+  function refusedOutcome(retryAfterMs: number): TickOutcome {
+    runtime.pollingError = refusingReadsText(now() + retryAfterMs);
+    return { failed: true, retryAfterMs, error: runtime.pollingError };
+  }
+
   async function rateLimitedOutcome(): Promise<TickOutcome> {
     const rateLimitWaitMs = await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES) ?? secondaryRateLimitWaitMs(runtime.pollingError);
-    return rateLimitWaitMs === null ? { failed: true, error: runtime.pollingError ?? undefined } : { failed: true, retryAfterMs: rateLimitWaitMs, error: runtime.pollingError ?? undefined };
+    if (rateLimitWaitMs !== null) return refusedOutcome(rateLimitWaitMs);
+    if (isRateLimitText(runtime.pollingError)) runtime.pollingError = refusingReadsText(null);
+    return { failed: true, error: runtime.pollingError ?? undefined };
   }
 
   async function runTick(): Promise<TickOutcome | undefined> {
@@ -122,10 +129,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
       log.warn(`[${core.TEAM_REVIEW_LANE_ID}] candidate search failed: ${runtime.pollingError}`);
       return null;
     });
-    if (runtime.tickRateLimitWaitMs !== null) {
-      runtime.pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: runtime.tickRateLimitWaitMs, error: runtime.pollingError };
-    }
+    if (runtime.tickRateLimitWaitMs !== null) return refusedOutcome(runtime.tickRateLimitWaitMs);
     if (searched === null) {
       runtime.pollingError ??= 'Could not look up your GitHub account or team members.';
       return rateLimitedOutcome();
@@ -142,20 +146,14 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     runtime.self = searched.viewer;
     const { candidates, prsByKey, isComplete } = candidatesFrom(searched);
     const rateLimitWaitMs = isComplete ? null : await store.rateLimitWaitMs(now(), TEAM_REVIEW_RATE_LIMIT_RESOURCES);
-    if (rateLimitWaitMs !== null) {
-      runtime.pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: rateLimitWaitMs, error: runtime.pollingError };
-    }
+    if (rateLimitWaitMs !== null) return refusedOutcome(rateLimitWaitMs);
     const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
     const planned = headsToReview(candidates, prsByKey);
     const isStarted = await startReviews(planned.queue);
     const areThreadsChanged = runtime.tickRateLimitWaitMs === null ? await handleAnsweredThreads(candidates) : false;
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
-    if (runtime.tickRateLimitWaitMs !== null) {
-      runtime.pollingError = 'GitHub rate limit asks to wait.';
-      return { failed: true, retryAfterMs: runtime.tickRateLimitWaitMs, error: runtime.pollingError };
-    }
+    if (runtime.tickRateLimitWaitMs !== null) return refusedOutcome(runtime.tickRateLimitWaitMs);
     if (runtime.hasSlotFreedSinceSlotCount && runtime.waitingForSlot.length > 0 && !loop.isStopped()) {
       setTimeoutFn(() => { void loop.tick(); }, 0);
     }

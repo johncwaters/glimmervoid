@@ -73,18 +73,31 @@ function uniqueValidPrs(prs: readonly PrReference[]): PrReference[] {
   return [...byKey.values()];
 }
 
-function conditionalGetResult(response: CommandResult): ConditionalGetResult {
-  const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(response.out);
-  if (!statusLine) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
-  const status = Number(statusLine[1]);
-  const headerBoundary = /\r?\n\r?\n/.exec(response.out);
-  const headerText = headerBoundary ? response.out.slice(0, headerBoundary.index) : response.out;
+interface GhHttpResponse {
+  status: number;
+  headers: Map<string, string>;
+  body: string | null;
+}
+
+function ghHttpResponseOf(output: string): GhHttpResponse | null {
+  const statusLine = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})(?:\s|$)/.exec(output);
+  if (!statusLine) return null;
+  const headerBoundary = /\r?\n\r?\n/.exec(output);
+  const headerText = headerBoundary ? output.slice(0, headerBoundary.index) : output;
   const headers = new Map<string, string>();
   for (const line of headerText.split(/\r?\n/).slice(1)) {
     const colonIndex = line.indexOf(':');
     if (colonIndex < 1) continue;
     headers.set(line.slice(0, colonIndex).trim().toLowerCase(), line.slice(colonIndex + 1).trim());
   }
+  const body = headerBoundary ? output.slice(headerBoundary.index + headerBoundary[0].length) : null;
+  return { status: Number(statusLine[1]), headers, body };
+}
+
+function conditionalGetResult(response: CommandResult): ConditionalGetResult {
+  const httpResponse = ghHttpResponseOf(response.out);
+  if (httpResponse === null) return { kind: 'error', message: response.err.trim() || 'invalid gh HTTP response' };
+  const { status, headers, body: bodyText } = httpResponse;
   const etag = headers.get('etag');
   const lastModified = headers.get('last-modified');
   const pollInterval = headers.get('x-poll-interval');
@@ -99,14 +112,14 @@ function conditionalGetResult(response: CommandResult): ConditionalGetResult {
   const isRateLimited = headers.get('x-ratelimit-remaining') === '0' || headers.has('retry-after') || secondaryRateLimitWaitMs(message) !== null;
   if (status === 401 || (status === 403 && !isRateLimited)) return { kind: 'forbidden', message };
   if (status !== 200 || !response.ok) return { kind: 'error', message };
-  if (!headerBoundary) return { kind: 'error', message: 'invalid gh HTTP response' };
+  if (bodyText === null) return { kind: 'error', message: 'invalid gh HTTP response' };
   try {
-    const body: unknown = JSON.parse(response.out.slice(headerBoundary.index + headerBoundary[0].length));
+    const body: unknown = JSON.parse(bodyText);
     return { kind: 'ok', body, ...metadata };
   } catch (error) {
     return { kind: 'error', message: errorMessage(error) };
   }
 }
 
-export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs };
+export { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, ghHttpResponseOf, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs };
 export type { ConditionalGetResult, RestValidators };

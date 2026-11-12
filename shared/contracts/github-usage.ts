@@ -23,11 +23,27 @@ export const GithubResourceUsage = z.object({
 });
 export type GithubResourceUsage = z.infer<typeof GithubResourceUsage>;
 
+export const GithubRefusalUsage = z.object({
+  resource: GithubUsageResource,
+  refusals: z.number().int().nonnegative(),
+  latest: z.object({
+    atMs: z.number(),
+    operation: z.string(),
+    caller: z.string(),
+    used: z.number().nullable(),
+    resetAtMs: z.number().nullable(),
+    retryAfterSeconds: z.number().nullable(),
+  }),
+  resetsAtMs: z.array(z.number()),
+});
+export type GithubRefusalUsage = z.infer<typeof GithubRefusalUsage>;
+
 export const GithubUsageSnapshot = z.object({
   writtenAtMs: z.number(),
   windowMs: z.number(),
   recordingSinceMs: z.number(),
   operations: z.array(GithubOperationUsage),
   resources: z.array(GithubResourceUsage),
+  refusals: z.array(GithubRefusalUsage).default([]),
 });
 export type GithubUsageSnapshot = z.infer<typeof GithubUsageSnapshot>;

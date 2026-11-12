@@ -5,7 +5,8 @@ import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { GithubRateLimitResources, githubRateLimitWaitMs } from './core/github-rate-limit-core.ts';
+import { GithubRateLimitResources, REFUSAL_RETRY_ATTEMPTS, githubRateLimitWaitMs, githubRefusalOf, isGraphqlMutation, refusalRetryDelayMs } from './core/github-rate-limit-core.ts';
+import { setTimeout as waitFor } from 'node:timers/promises';
 import { UNATTRIBUTED_OPERATION, githubCallPoints, githubCallResources, isNotModifiedResponse, withRateLimitCost } from './core/github-usage-core.ts';
 import type { GithubUsageRecorder } from './core/github-usage-core.ts';
 import { z } from 'zod';
@@ -25,7 +26,7 @@ import type { GithubTeam } from '../../shared/contracts/control-messages.ts';
 import { MERGED_PRS_QUERY, MY_PR_CHECK_CONTEXTS_QUERY, MY_PR_MERGE_STATE_QUERY, MY_PR_THREADS_QUERY, REBASE_PR_MUTATION, REPLY_THREAD_MUTATION, RESOLVE_THREAD_MUTATION, REVIEW_THREAD_FIELDS, TEAM_PROFILE_QUERY, UNRESOLVE_THREAD_MUTATION, TEAM_THREAD_COMMENT_FIELDS, TEAM_THREAD_FIELDS, behindCountsQuery, reviewCaseDataQuery, githubPrDetailsQuery, githubPrsLightByKeyQuery, githubPrsLightSearchQuery, reviewThreadsBatchQuery, teamThreadsQuery } from './pr-gh/pr-gh-queries.ts';
 import type { PrHeadReference, PrReference } from './pr-gh/pr-gh-queries.ts';
 import { COMPARE_RESPONSE, CREATED_REVIEW, GH_LOGIN, GH_MEMBERS, GH_TEAMS, GITHUB_NOTIFICATIONS, GITHUB_PRS_LIGHT_RESPONSE, GITHUB_PR_DETAIL_REPOSITORY, GITHUB_PR_LIGHT_REPOSITORY, GRAPHQL_BEHIND_REPOSITORY, GRAPHQL_RESPONSE, GRAPHQL_THREADS_REPOSITORY, MERGED_PRS_RESPONSE, PR_DIFF, TEAM_PROFILE } from './pr-gh/pr-gh-responses.ts';
-import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
+import { aliasesOfErrors, aliasesReportedGone, conditionalGetResult, ghHttpResponseOf, isPrNumber, mergeKindFromPrState, reviewSnapshotKey, uniqueValidPrs } from './pr-gh/pr-gh-parsing.ts';
 import type { ConditionalGetResult, RestValidators } from './pr-gh/pr-gh-parsing.ts';
 
 type GhMergeFlag = '--merge' | '--squash' | '--rebase';
@@ -121,7 +122,13 @@ function scopedToOperations(methods: PrGh): PrGh {
   return Object.assign({}, methods, scopedMethods);
 }
 
-function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null): PrGh {
+const GH_SERVER_CALLER = 'server';
+
+function ghFailure(error: unknown): CommandResult {
+  return { ok: false, out: '', err: errorMessage(error) };
+}
+
+function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null, waitMs: (delayMs: number) => Promise<unknown> = waitFor): PrGh {
   function recordUsage(args: readonly string[], response: CommandResult): void {
     if (usage === null) return;
     const isOk = response.ok || isNotModifiedResponse(response.out);
@@ -130,13 +137,24 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
   }
 
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
-    const response = await commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs).catch((error: unknown): CommandResult => ({ ok: false, out: '', err: errorMessage(error) }));
+    const response = await commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs).catch(ghFailure);
     recordUsage(args, response);
     return response;
   }
 
-  function runGraphql(query: string, fieldArgs: readonly string[], timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
-    return runGh(['api', 'graphql', '-f', `query=${withRateLimitCost(query)}`, ...fieldArgs], undefined, false, timeoutMs);
+  async function runGraphql(query: string, fieldArgs: readonly string[], timeoutMs = GH_READ_TIMEOUT_MS, attempt = 1): Promise<CommandResult> {
+    const args = ['api', 'graphql', '-i', '-f', `query=${withRateLimitCost(query)}`, ...fieldArgs];
+    const response = await commandRunner('gh', args, cwd, undefined, false, timeoutMs).catch(ghFailure);
+    const httpResponse = ghHttpResponseOf(response.out);
+    const bodyResponse = httpResponse === null ? response : { ...response, out: (httpResponse.body ?? '').trim() };
+    recordUsage(args, bodyResponse);
+    const refusal = httpResponse === null ? null : githubRefusalOf(httpResponse.status, httpResponse.headers, httpResponse.body ?? '');
+    if (refusal === null) return bodyResponse;
+    usage?.recordRefusal({ ...refusal, operation: operationScope.getStore() ?? UNATTRIBUTED_OPERATION, resource: 'graphql', caller: GH_SERVER_CALLER });
+    const retryDelayMs = refusalRetryDelayMs(refusal, attempt);
+    if (isGraphqlMutation(query) || attempt > REFUSAL_RETRY_ATTEMPTS || retryDelayMs === null) return bodyResponse;
+    await waitMs(retryDelayMs);
+    return runGraphql(query, fieldArgs, timeoutMs, attempt + 1);
   }
 
   async function rateLimitResources(): Promise<GithubRateLimitResources | null> {

@@ -1,16 +1,19 @@
 import { z } from 'zod';
 
 import { GITHUB_USAGE_RESOURCES } from '../../../shared/contracts/github-usage.ts';
-import type { GithubOperationUsage, GithubResourceUsage, GithubUsageResource, GithubUsageSnapshot } from '../../../shared/contracts/github-usage.ts';
+import type { GithubOperationUsage, GithubRefusalUsage, GithubResourceUsage, GithubUsageResource, GithubUsageSnapshot } from '../../../shared/contracts/github-usage.ts';
 import { parseJsonOrNull } from '../../core/json-core.ts';
-import { GITHUB_RATE_LIMIT_WINDOW_MS } from './github-rate-limit-core.ts';
-import type { GithubRateLimitResources } from './github-rate-limit-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS, utcClockText } from './github-rate-limit-core.ts';
+import type { GithubRateLimitResources, GithubRefusal } from './github-rate-limit-core.ts';
 
 export const GITHUB_USAGE_WINDOW_MS = GITHUB_RATE_LIMIT_WINDOW_MS;
 export const UNATTRIBUTED_OPERATION = 'unattributed';
 
 export type GithubCall = { atMs: number; operation: string; resource: GithubUsageResource; points: number; isOk: boolean };
-export type GithubUsageRecorder = { record(call: Omit<GithubCall, 'atMs'>): void };
+export type GithubRefusalRecord = GithubRefusal & { atMs: number; operation: string; resource: GithubUsageResource; caller: string };
+export type GithubUsageRecorder = { record(call: Omit<GithubCall, 'atMs'>): void; recordRefusal(refusal: Omit<GithubRefusalRecord, 'atMs'>): void };
+
+const MAX_REPORTED_RESETS = 8;
 
 const GITHUB_SEARCH_WINDOW_MS = 60_000;
 const RESOURCE_WINDOW_MS: Readonly<Record<GithubUsageResource, number>> = { graphql: GITHUB_RATE_LIMIT_WINDOW_MS, core: GITHUB_RATE_LIMIT_WINDOW_MS, search: GITHUB_SEARCH_WINDOW_MS };
@@ -56,7 +59,7 @@ export function githubCallResources(ghArgs: readonly string[]): readonly GithubU
   return ['core'];
 }
 
-export function callsWithinWindow(calls: readonly GithubCall[], nowMs: number): GithubCall[] {
+export function callsWithinWindow<Entry extends { atMs: number }>(calls: readonly Entry[], nowMs: number): Entry[] {
   const windowStartMs = nowMs - GITHUB_USAGE_WINDOW_MS;
   return calls.filter((call) => call.atMs > windowStartMs);
 }
@@ -91,15 +94,40 @@ function resourceUsage(resource: GithubUsageResource, calls: readonly GithubCall
   };
 }
 
-export function summarizeGithubUsage(calls: readonly GithubCall[], account: GithubRateLimitResources | null, nowMs: number, recordingSinceMs: number): GithubUsageSnapshot {
+function refusalUsage(resource: GithubUsageResource, refusals: readonly GithubRefusalRecord[]): GithubRefusalUsage[] {
+  const resourceRefusals = refusals.filter((refusal) => refusal.resource === resource);
+  const latest = resourceRefusals.at(-1);
+  if (latest === undefined) return [];
+  const resetsAtMs = [...new Set(resourceRefusals.flatMap((refusal) => refusal.resetAtMs ?? []))].sort((left, right) => left - right).slice(-MAX_REPORTED_RESETS);
+  const { atMs, operation, caller, used, resetAtMs, retryAfterSeconds } = latest;
+  return [{ resource, refusals: resourceRefusals.length, latest: { atMs, operation, caller, used, resetAtMs, retryAfterSeconds }, resetsAtMs }];
+}
+
+export function summarizeGithubUsage(calls: readonly GithubCall[], refusals: readonly GithubRefusalRecord[], account: GithubRateLimitResources | null, nowMs: number, recordingSinceMs: number): GithubUsageSnapshot {
   const recentCalls = callsWithinWindow(calls, nowMs);
+  const recentRefusals = callsWithinWindow(refusals, nowMs);
   return {
     writtenAtMs: nowMs,
     windowMs: GITHUB_USAGE_WINDOW_MS,
     recordingSinceMs,
     operations: operationUsages(recentCalls),
     resources: GITHUB_USAGE_RESOURCES.map((resource) => resourceUsage(resource, recentCalls, account, nowMs)),
+    refusals: GITHUB_USAGE_RESOURCES.flatMap((resource) => refusalUsage(resource, recentRefusals)),
   };
+}
+
+function resetsText(resetsAtMs: readonly number[]): string {
+  return resetsAtMs.length === 0 ? 'unknown' : resetsAtMs.map((resetAtMs) => `${utcClockText(resetAtMs)}Z`).join(',');
+}
+
+function refusalText(usage: GithubRefusalUsage): string {
+  return `${usage.resource} ${usage.refusals}x, last ${usage.latest.operation} used ${usage.latest.used ?? 'unknown'}, resets ${resetsText(usage.resetsAtMs)}`;
+}
+
+export function githubRefusalLogLine(refusal: GithubRefusalRecord): string {
+  const resetText = refusal.resetAtMs === null ? 'unknown' : new Date(refusal.resetAtMs).toISOString();
+  const retryAfterText = refusal.retryAfterSeconds === null ? '' : `, retry-after ${refusal.retryAfterSeconds}s`;
+  return `[github-usage] refused ${refusal.resource} ${refusal.operation} (${refusal.caller}): used ${refusal.used ?? 'unknown'}, resets ${resetText}${retryAfterText}`;
 }
 
 function minutesBetween(fromMs: number, toMs: number): number {
@@ -139,12 +167,14 @@ export function formatGithubUsage(snapshot: GithubUsageSnapshot, nowMs: number):
     `Glimmervoid calls in the last ${Math.round(snapshot.windowMs / 60_000)} min:`,
     `  ${'resource'.padEnd(8)} ${'operation'.padEnd(26)} ${'calls'.padStart(6)} ${'points'.padStart(7)}`,
   ];
-  if (snapshot.operations.length === 0) return [...lines, '  none'].join('\n');
-  return [...lines, ...snapshot.operations.map(operationLine)].join('\n');
+  const operationLines = snapshot.operations.length === 0 ? ['  none'] : snapshot.operations.map(operationLine);
+  const refusalLines = snapshot.refusals.length === 0 ? [] : ['', 'GitHub refusals in the last hour:', ...snapshot.refusals.map((usage) => `  ${refusalText(usage)}`)];
+  return [...lines, ...operationLines, ...refusalLines].join('\n');
 }
 
 export function githubUsageLogLine(snapshot: GithubUsageSnapshot, maxOperations: number): string {
   const resourcesText = snapshot.resources.map((usage) => `${usage.resource} ${accountShareText(usage)}`).join('; ');
   const topOperationsText = snapshot.operations.slice(0, maxOperations).map((usage) => `${usage.operation} ${usage.calls}x/${usage.points}pt`).join(', ');
-  return `[github-usage] ${resourcesText}; top: ${topOperationsText || 'none'}`;
+  const refusalsText = snapshot.refusals.length === 0 ? '' : `; refused: ${snapshot.refusals.map(refusalText).join('; ')}`;
+  return `[github-usage] ${resourcesText}; top: ${topOperationsText || 'none'}${refusalsText}`;
 }
