@@ -3,7 +3,9 @@ import type { InertiaState, VelocitySample } from './touch-scroll-core.ts';
 import {
   beginInertia,
   cellHeightFromElement,
+  isLongPress,
   isScrollGesture,
+  isWithinTapSlop,
   MAX_WHEEL_ROWS_PER_STEP,
   pushVelocitySample,
   releaseVelocity,
@@ -11,6 +13,9 @@ import {
   shouldSendWheelReport,
   stepInertia,
 } from './touch-scroll-core.ts';
+import { LONG_PRESS_MS } from './touch-select-core.ts';
+
+const SELECTION_LAYER_SELECTOR = '.terminal-select-mirror';
 
 const DOM_DELTA_LINE = 1;
 
@@ -29,7 +34,7 @@ function findTouch(touchList: TouchList, identifier: number) {
   return null;
 }
 
-export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
+export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPress: (clientX: number, clientY: number) => void) {
   if (hasNativeTouchScroll(term)) return;
 
   const isPhoneLayout = () => document.documentElement.dataset.layout === 'phone';
@@ -37,7 +42,11 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
   let activeTouchId: number | null = null;
   let startX = 0;
   let startY = 0;
+  let lastX = 0;
   let lastY = 0;
+  let touchStartedAtMs = 0;
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let didLongPress = false;
   let isScrolling = false;
   let pendingPx = 0;
   let velocitySamples: VelocitySample[] = [];
@@ -58,7 +67,22 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
     return cellHeightFromElement(screen?.clientHeight || term.element?.clientHeight || 0, term.rows);
   };
 
+  const cancelLongPress = () => {
+    if (longPressTimer !== null) clearTimeout(longPressTimer);
+    longPressTimer = null;
+  };
+
+  const fireLongPress = () => {
+    longPressTimer = null;
+    if (activeTouchId === null || isScrolling || !isPhoneLayout()) return;
+    const heldMs = performance.now() - touchStartedAtMs;
+    if (!isLongPress({ deltaXPx: lastX - startX, deltaYPx: lastY - startY, heldMs, longPressMs: LONG_PRESS_MS })) return;
+    didLongPress = true;
+    onLongPress(lastX, lastY);
+  };
+
   const endGesture = () => {
+    cancelLongPress();
     activeTouchId = null;
     isScrolling = false;
     pendingPx = 0;
@@ -113,7 +137,9 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
   termWrap.addEventListener('touchstart', (event) => {
     cancelInertia();
 
-    if (!isPhoneLayout() || event.touches.length !== 1) {
+    didLongPress = false;
+    const startsOnSelectionLayer = event.target instanceof Element && event.target.closest(SELECTION_LAYER_SELECTOR) !== null;
+    if (!isPhoneLayout() || event.touches.length !== 1 || startsOnSelectionLayer) {
       endGesture();
       return;
     }
@@ -121,18 +147,24 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
     activeTouchId = touch.identifier;
     startX = touch.clientX;
     startY = touch.clientY;
+    lastX = touch.clientX;
     lastY = touch.clientY;
+    touchStartedAtMs = performance.now();
+    longPressTimer = setTimeout(fireLongPress, LONG_PRESS_MS);
     isScrolling = false;
     pendingPx = 0;
     velocitySamples = [];
   }, { passive: true });
 
   termWrap.addEventListener('touchmove', (event) => {
-    if (activeTouchId === null || !isPhoneLayout()) return;
+    if (activeTouchId === null || didLongPress || !isPhoneLayout()) return;
     const touch = findTouch(event.touches, activeTouchId);
     if (!touch) return;
 
     if (!isScrolling) {
+      lastX = touch.clientX;
+      lastY = touch.clientY;
+      if (!isWithinTapSlop(touch.clientX - startX, touch.clientY - startY)) cancelLongPress();
       if (!isScrollGesture(touch.clientX - startX, touch.clientY - startY)) return;
       isScrolling = true;
 
@@ -163,6 +195,12 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
   }, { passive: false });
 
   termWrap.addEventListener('touchend', (event) => {
+    if (didLongPress) {
+      didLongPress = false;
+      if (event.cancelable) event.preventDefault();
+      endGesture();
+      return;
+    }
     if (!isScrolling || routesToApplication()) {
       endGesture();
       return;
@@ -175,7 +213,7 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal) {
     if (velocityPxPerMs === 0) return;
 
     startInertia(velocityPxPerMs, performance.now(), carriedPx);
-  }, { passive: true });
+  }, { passive: false });
 
   termWrap.addEventListener('touchcancel', () => {
     cancelInertia();

@@ -792,6 +792,14 @@
     {
       "name": "raw typing",
       "definition": "The touch Terminal input mode where the soft keyboard types straight into the PTY with the compose bar hidden; on while a full-screen app holds the alternate screen, or when the operator chooses Raw in the More keys"
+    },
+    {
+      "name": "selection mirror",
+      "definition": "The transparent text layer a long-press lays over a touch Terminal screen, one row per visible terminal row, so the phone draws its own selection handles and Copy menu over the canvas"
+    },
+    {
+      "name": "select sheet",
+      "definition": "The full-screen sheet the Select key opens on a touch Terminal screen: the terminal's screen and scrollback as plain text for native selection, with Copy screen and Copy output"
     }
   ],
   "retired": [

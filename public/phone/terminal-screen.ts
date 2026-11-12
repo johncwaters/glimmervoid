@@ -6,6 +6,8 @@ import { button } from '../ui/button.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-titles.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
+import { openSelectSheet } from '../session-card/select-sheet.ts';
+import { copyLastOutput, copyScreen } from '../session-card/touch-select.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
@@ -16,6 +18,7 @@ import { createSessionPageButtons } from '../session-pages/session-pages.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { decideIsRawTyping, decideStripContext, isTextForCompose } from '../mobile-keys.ts';
+import type { TerminalTextAction } from '../mobile-keys.ts';
 import { createComposeBar } from '../touch/compose-bar.ts';
 import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
@@ -64,6 +67,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     toggleKeyboard: toggleActiveInputKeyboard,
     toggleRawTyping,
     pasteText: pasteIntoActiveInput,
+    runTextAction: runTerminalTextAction,
   });
   screen.append(topBar, cardSlot, emptyEl, keyStatus.element, composeBar.element, keyStrip);
 
@@ -101,6 +105,24 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     if (text !== '') ui.term.paste(text);
     sendToShownTerminal('\r');
     return true;
+  }
+
+  function runTerminalTextAction(action: TerminalTextAction) {
+    const ui = shownId ? sessionUIs.get(shownId) : null;
+    if (!ui?.term) {
+      keyStatus.show('error', NOT_CONNECTED_TEXT);
+      return;
+    }
+    if (action === 'select') {
+      blurActiveInput();
+      openSelectSheet(ui);
+      return;
+    }
+    if (action === 'copy-screen') {
+      copyScreen(ui);
+      return;
+    }
+    copyLastOutput(ui);
   }
 
   function pasteIntoActiveInput(text: string) {
