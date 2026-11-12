@@ -160,8 +160,21 @@ function dispatch(command: string): void {
     paint();
     return;
   }
+  if (command === 'fullscreen') {
+    process.stdout.write(`${ESC}[?1049h${ESC}[2J${ESC}[Hfullscreen app`);
+    return;
+  }
+  if (command === 'leave-fullscreen') {
+    process.stdout.write(`${ESC}[?1049l`);
+    return;
+  }
   if (command === 'ask') {
     postHook('permissionrequest', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    return;
+  }
+  if (command === 'work') {
+    postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
+    setTitle(WORKING_GLYPH, 'working');
     return;
   }
   if (command === 'stop') {

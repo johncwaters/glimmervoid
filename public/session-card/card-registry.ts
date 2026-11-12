@@ -40,6 +40,7 @@ export interface SessionUi {
   abortController: AbortController;
   currentState: string;
   agent?: string | null;
+  agentDrawsAlternateScreen?: boolean;
   isBorrowed: boolean;
   pendingPromptKind: string | null;
   activeAgents?: number;

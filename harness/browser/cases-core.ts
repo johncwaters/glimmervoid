@@ -14,6 +14,8 @@ export type Step =
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
+  | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
+  | { kind: 'assert-key-strip-fullscreen-app'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
@@ -71,6 +73,7 @@ export interface Scenario {
   companionViewport?: string;
   viewports?: readonly string[];
   proveFailure?: boolean;
+  agent?: string;
 }
 
 export interface ResolvedScenario extends Omit<Scenario, 'steps'> {
@@ -286,6 +289,19 @@ export const SCENARIOS: readonly Scenario[] = [
     phoneOnly: true,
     viewports: ['phone-393'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'remove-from-phone-terminal' }],
+  },
+  {
+    name: 'touch-key-strip-contexts',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-key-strip-contexts' }, { kind: 'shot', name: 'key-strip' }],
+  },
+  {
+    name: 'touch-key-strip-fullscreen-app',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    agent: 'shell',
+    steps: [{ kind: 'open' }, { kind: 'assert-key-strip-fullscreen-app' }, { kind: 'shot', name: 'key-strip-fullscreen' }],
   },
   {
     name: 'phone-changes-back',
