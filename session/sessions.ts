@@ -94,10 +94,9 @@ import type { HookPayload } from "../shared/contracts/index.ts";
 import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 import { clock } from '../shared/clock.ts';
+import { cleanPastedText } from './core/input-delivery-core.ts';
+import type { DeliverOptions, DeliveryOutcome } from './core/input-delivery-core.ts';
 
-const PTY_PROMPT_SETTLE_MS = 1500;
-const PTY_PROMPT_SUBMIT_DELAY_MS = 300;
-const PASTE_BREAKING_CONTROL_BYTES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
   spawn_cwd_missing: "The session folder no longer exists. Re-add the session on a folder that exists.",
 };
@@ -247,6 +246,7 @@ class Session extends EventEmitter {
   taskTitle: string | null;
   taskTitleIsCustom: boolean;
   _taskTitleSources: TaskTitleSources;
+  _lastOperatorInputAt: number;
   _taskTitleStateSignature: string | undefined;
   _taskTitleReadSequence: number;
   _recentTaskPrompts: string[];
@@ -476,11 +476,13 @@ class Session extends EventEmitter {
 
     this._ptyAlive = false;
     this._recorder = null;
+    this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
     this._output = createSessionOutput({
       maxBytes: replayBufferKB * 1024,
       getState: () => this.state,
       isDestroyed: () => this._destroyed,
       hasLivePty: () => this.hasLivePty,
+      lastOperatorInputAt: () => this._lastOperatorInputAt,
       write: (text) => this.write(text),
       start: () => { this.start(); },
       restart: () => { this.restart(); },
@@ -679,7 +681,7 @@ class Session extends EventEmitter {
         }),
         emit: (event, detail) => this.emit(event, detail),
         recordDecision: (entry) => this._recordDecision(entry),
-        pasteText: (text) => this.pasteText(text),
+        deliver: (text, options) => this.deliver(text, options),
         holdWorktreeReaders: () => holdAllWorktreeReaders(this._worktreeReaderHolds),
       },
     });
@@ -1378,11 +1380,19 @@ class Session extends EventEmitter {
 
   pasteMergePrompt() { return this.worktreeLifecycle.pasteMergePrompt(); }
 
-  pasteText(text: string) { return this._output.pasteText(text); }
+  deliver(text: string, options: DeliverOptions): DeliveryOutcome {
+    return this._output.deliver(cleanPastedText(text), options);
+  }
 
-  pasteTextWhenReady(text: string, { timeoutMs = 120000, submit = false }: { timeoutMs?: number; submit?: boolean } = {}) {
-    const pastableText = text.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
-    return this._output.pasteTextWhenReady(pastableText, { timeoutMs, settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: submit ? PTY_PROMPT_SUBMIT_DELAY_MS : null });
+  pasteText(text: string): { ok: boolean; reason?: string } {
+    const outcome = this.deliver(text, { when: "now", submit: false });
+    return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
+  }
+
+  pasteTextWhenReady(text: string, { timeoutMs, submit = false }: { timeoutMs?: number; submit?: boolean } = {}): { ok: boolean; deferred?: true; reason?: string } {
+    const outcome = this.deliver(text, { when: "ready", submit, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+    if (!outcome.ok) return { ok: false, reason: outcome.reason };
+    return outcome.kind === "queued" ? { ok: true, deferred: true } : { ok: true };
   }
 
   hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
@@ -1809,7 +1819,7 @@ class Session extends EventEmitter {
       if (this._destroyed || !this._ptyAlive || resumeNote === null) return;
       this._dropResumeNote();
       console.warn(`[session:${this.name}] no turn started from the resume note within ${Math.round(this._titleQuietFallbackMs / 1000)}s - pasting it into the terminal`);
-      this.pasteTextWhenReady(resumeNote, { submit: true });
+      this.deliver(resumeNote, { when: "ready", submit: true });
     }, { unref: true });
   }
 
@@ -1880,8 +1890,7 @@ class Session extends EventEmitter {
 
   _deliverPtyInitialPrompt(prompt: string | null): void {
     if (!prompt || !this._can("ptyInitialPrompt")) return;
-    const pastablePrompt = prompt.replaceAll(PASTE_BREAKING_CONTROL_BYTES, "");
-    this._output.pasteTextWhenReady(pastablePrompt, { settleMs: PTY_PROMPT_SETTLE_MS, submitDelayMs: PTY_PROMPT_SUBMIT_DELAY_MS });
+    this.deliver(prompt, { when: "ready", submit: true });
   }
 
   async _shouldDetachDesktopBus(): Promise<boolean> {
@@ -2107,12 +2116,14 @@ class Session extends EventEmitter {
   }
 
   noteOperatorDraft(): void {
+    this._lastOperatorInputAt = clock.nowMs();
     this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
   }
 
   noteOperatorInput(input: string): void {
     if (isOperatorKeystroke(input)) {
+      this._lastOperatorInputAt = clock.nowMs();
       this._approvals.yieldManagerDecisions();
       this.emit("operator-input");
     }

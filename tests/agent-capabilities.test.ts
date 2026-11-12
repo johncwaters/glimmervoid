@@ -271,6 +271,24 @@ for (const agent of ['kimi', 'claude-code']) {
       assert.deepEqual(session.pasteTextWhenReady('Sent after a dialog was answered', { submit: true }), { ok: true });
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.deepEqual(writes.slice(15), ['\x1b[B', '\r', '\x1b[200~Sent after a dialog was answered\x1b[201~']);
+      session.transition('task_complete');
+      session.write('\r');
+      const settlements: string[] = [];
+      assert.deepEqual(session.deliver('Typed over by the operator\x07', { when: 'ready', submit: true, onSettled: (settlement) => settlements.push(settlement) }), { ok: true, kind: 'pasted' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      session.write('h');
+      session.noteOperatorInput('h');
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(18), ['\r', '\x1b[200~Typed over by the operator\x1b[201~', 'h']);
+      assert.deepEqual(settlements, ['withheld']);
+      session.write('\r');
+      session.transition('new_output');
+      session.deliver('/tmp/shot.png ', { when: 'now', submit: false });
+      session.write('\r');
+      session.transition('task_complete');
+      session.deliver('Sent after an upload the operator sent mid-turn', { when: 'ready', submit: true });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.deepEqual(writes.slice(21), ['\r', '\x1b[200~/tmp/shot.png \x1b[201~', '\r', '\x1b[200~Sent after an upload the operator sent mid-turn\x1b[201~', '\r']);
     } finally {
       session.destroy();
     }

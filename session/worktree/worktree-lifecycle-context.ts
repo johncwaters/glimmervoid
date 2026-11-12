@@ -5,6 +5,7 @@ import type { createWorktreeWatcher } from "../../detection/worktree-watch.ts";
 import type { createIntegrationRefWatcher } from "../../detection/integration-ref-watch.ts";
 import type { createRerereWatcher } from "../../detection/rerere-watch.ts";
 import type { MergeStatus } from "../core/worktree-state.ts";
+import type { DeliverOptions, DeliveryOutcome } from "../core/input-delivery-core.ts";
 import type { DecisionEntry } from "../core/decision-log.ts";
 import type { WorktreeArgs } from "../../server/git/git-workspace.ts";
 import type { GitWorkspaceInstance } from "../../server/git/git-workspace.ts";
@@ -113,7 +114,7 @@ interface SessionPort {
   projectPath?: () => string;
   emit: (event: string, detail: Record<string, unknown>) => void;
   recordDecision: (entry: DecisionEntry) => void;
-  pasteText: (text: string) => Record<string, unknown>;
+  deliver: (text: string, options: DeliverOptions) => DeliveryOutcome;
   holdWorktreeReaders?: () => Promise<() => void>;
 }
 

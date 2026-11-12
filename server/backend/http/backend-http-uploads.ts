@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import type { Session } from '../../../session/sessions.ts';
-import { MAX_UPLOAD_BYTES, exceedsUploadCap, framePathPaste, planUploadRetention } from '../../core/upload-core.ts';
+import { MAX_UPLOAD_BYTES, exceedsUploadCap, planUploadRetention } from '../../core/upload-core.ts';
 
 async function sweepSessionUploads(dir: string, justWritten: string): Promise<void> {
   let entries: string[] | null = null;
@@ -101,13 +101,12 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
       answer(failure.status, { error: failure.error });
       return;
     }
-    if (!sess.hasLivePty) {
+    if (!sess.deliver(`${savedPath} `, { when: 'now', submit: false }).ok) {
       logger.warn(`[upload] session ${sess.id} refused: session has no live terminal, after ${outcome.sizeBytes} bytes`);
       answer(409, { error: 'session has no live terminal' });
       fsp.unlink(savedPath).catch(() => {});
       return;
     }
-    sess.write(framePathPaste(savedPath));
     sess.noteOperatorDraft();
     answer(200, { ok: true, path: savedPath });
     void sweepSessionUploads(dir, filename);

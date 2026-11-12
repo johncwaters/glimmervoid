@@ -428,13 +428,13 @@ function createSessionWorktreeLifecycle({
     if (session.isDestroyed) return { ok: false, reason: "destroyed" };
     if (lifecycleState.mergeStatus !== "parked") return { ok: false, reason: "not-parked" };
     if (!session.hasLivePty) return { ok: false, reason: "no-pty" };
-    return port.pasteText(buildMergePrompt({
+    return port.deliver(buildMergePrompt({
       branch: lifecycleState.workspace?.branch || undefined,
       target: effectiveIntegrationBranch() || undefined,
       reason: lifecycleState.mergeReason || undefined,
       conflicts: lifecycleState.mergeConflicts,
       worktreeDir: lifecycleState.worktreeDir || undefined,
-    }));
+    }), { when: "now", submit: false });
   }
 
   function statusPathsOf(porcelainZ: string): string[] {

@@ -11,9 +11,6 @@ const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 const UPLOAD_RETAIN_FILES = 20;
 
-const PASTE_START = '\x1b[200~';
-const PASTE_END = '\x1b[201~';
-
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 
 const CLIENT_NAME_EXTENSION_RE = /\.([A-Za-z0-9]{1,16})$/;
@@ -73,10 +70,6 @@ function buildUploadFilename({ now, randomSuffix, extension }: { now: number; ra
   return `${stamp}-${randomSuffix}${extension}`;
 }
 
-function framePathPaste(absolutePath: string): string {
-  return `${PASTE_START}${absolutePath} ${PASTE_END}`;
-}
-
 function planUploadRetention(
   filenames: unknown,
   { keep = UPLOAD_RETAIN_FILES, justWritten = null }: { keep?: number; justWritten?: string | null } = {},
@@ -100,4 +93,4 @@ function imageMimeForUploadFilename(name: string): string | null {
   return imageEntry ? imageEntry[0] : null;
 }
 
-export { MAX_UPLOAD_BYTES, buildUploadFilename, decideUploadType, exceedsUploadCap, framePathPaste, imageMimeForUploadFilename, isSafePathSegment, planUploadRetention };
+export { MAX_UPLOAD_BYTES, buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment, planUploadRetention };

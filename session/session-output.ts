@@ -1,17 +1,13 @@
 import { createOutputRing } from "./core/output-ring.ts";
 import type { OutputRingSlice, OutputRingStats } from "./core/output-ring.ts";
+import { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, canLandNow, canSubmit, framePaste } from "./core/input-delivery-core.ts";
+import type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen } from "./core/input-delivery-core.ts";
 import { SCREEN_KEEPER_SEED_LIMIT, SCREEN_RESET } from "./core/screen-keeper-core.ts";
 import { createScreenKeeper } from "./screen-keeper.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
-
-const PASTE_READY_STATES: Set<SessionState> = new Set([
-  STATES.IDLE,
-  STATES.RUNNING,
-  STATES.WAITING,
-  STATES.COMPLETE,
-]);
+import { clock } from "../shared/clock.ts";
 
 interface StateChange {
   to: SessionState;
@@ -27,6 +23,7 @@ interface SessionOutputOptions {
   getState: () => SessionState;
   isDestroyed: () => boolean;
   hasLivePty: () => boolean;
+  lastOperatorInputAt: () => number;
   write: (text: string) => void;
   start: () => void;
   restart: () => void;
@@ -36,22 +33,12 @@ interface SessionOutputOptions {
   onPasteExpired?: (text: string) => void;
 }
 
-type PasteResult = {
-  ok: boolean;
-  reason?: string;
-  deferred?: boolean;
-};
+type SettleListener = (settlement: DeliverySettlement) => void;
 
-interface PasteWhenReadyOptions {
-  timeoutMs?: number;
-  settleMs?: number;
-  submitDelayMs?: number | null;
-}
-
-interface QueuedPaste {
+interface QueuedDelivery {
   text: string;
-  settleMs: number;
-  submitDelayMs: number | null;
+  submit: boolean;
+  onSettled: SettleListener | undefined;
   expiryTimer: NodeJS.Timeout;
 }
 
@@ -68,8 +55,7 @@ interface SessionOutput {
   reset(): void;
   setMax(bytes: number): void;
   stats(): OutputRingStats;
-  pasteText(text: string): PasteResult;
-  pasteTextWhenReady(text: string, options?: PasteWhenReadyOptions): PasteResult;
+  deliver(text: string, options: DeliverOptions): DeliveryOutcome;
   clearPendingPaste(): void;
   hasPendingPaste(): boolean;
   forgetUnsubmittedComposerPaste(): void;
@@ -78,15 +64,21 @@ interface SessionOutput {
   disposeScreenKeeper(): void;
 }
 
+function settleLater(onSettled: SettleListener | undefined, settlement: DeliverySettlement): void {
+  if (!onSettled) return;
+  queueMicrotask(() => onSettled(settlement));
+}
+
 function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   const ring = createOutputRing(options.maxBytes);
   const keeperFactory = options.screenKeeperFactory || createScreenKeeper;
   let keeper: ReturnType<ScreenKeeperFactory> | null = null;
   let keeperBaseOffset = 0;
-  const queuedPastes: QueuedPaste[] = [];
+  const queuedDeliveries: QueuedDelivery[] = [];
   let isWatchingForReady = false;
   let isDrainingQueue = false;
   let drainTimer: NodeJS.Timeout | null = null;
+  let pendingSubmitListener: SettleListener | undefined;
   let hasUnsubmittedPasteInComposer = false;
   let lastCols: number | null = null;
   let lastRows: number | null = null;
@@ -98,112 +90,120 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   }
 
   function clearPendingPaste(): void {
-    for (const queued of queuedPastes) clearTimeout(queued.expiryTimer);
-    queuedPastes.length = 0;
+    const droppedListeners = queuedDeliveries.map((queued) => queued.onSettled);
+    for (const queued of queuedDeliveries) clearTimeout(queued.expiryTimer);
+    queuedDeliveries.length = 0;
     if (drainTimer) clearTimeout(drainTimer);
     drainTimer = null;
     isDrainingQueue = false;
+    droppedListeners.push(pendingSubmitListener);
+    pendingSubmitListener = undefined;
     stopWatchingForReady();
-  }
-
-  function pasteText(text: string): PasteResult {
-    if (!options.hasLivePty()) return { ok: false, reason: "no-pty" };
-    options.write(`\x1b[200~${text}\x1b[201~`);
-    return { ok: true };
+    for (const onSettled of droppedListeners) settleLater(onSettled, "dropped");
   }
 
   function forgetUnsubmittedComposerPaste(): void {
     hasUnsubmittedPasteInComposer = false;
   }
 
-  function pasteIntoComposer(text: string, requestedSubmitDelayMs: number | null): { pasted: PasteResult; submitDelayMs: number | null } {
-    const submitDelayMs = hasUnsubmittedPasteInComposer ? null : requestedSubmitDelayMs;
-    const pasted = pasteText(text);
-    if (pasted.ok && submitDelayMs === null) hasUnsubmittedPasteInComposer = true;
-    return { pasted, submitDelayMs };
+  function hasPastesAhead(): boolean {
+    return queuedDeliveries.length > 0 || isDrainingQueue;
   }
 
-  function submitThenPasteNextQueued(submitDelayMs: number): void {
+  function pasteIntoComposer(text: string, when: DeliveryWhen, wantsSubmit: boolean): boolean {
+    options.write(framePaste(text));
+    if (when !== "ready") return wantsSubmit;
+    const willSubmit = wantsSubmit && !hasUnsubmittedPasteInComposer;
+    if (!willSubmit) hasUnsubmittedPasteInComposer = true;
+    return willSubmit;
+  }
+
+  function submitIfStillAllowed(when: DeliveryWhen, pastedAt: number): DeliverySettlement {
+    if (options.isDestroyed() || !options.hasLivePty()) return "dropped";
+    if (!canSubmit({ when, state: options.getState(), pastedAt, lastOperatorInputAt: options.lastOperatorInputAt() })) {
+      if (when === "ready") hasUnsubmittedPasteInComposer = true;
+      return "withheld";
+    }
+    options.write("\r");
+    return "submitted";
+  }
+
+  function submitAfterDelayThenContinue(when: DeliveryWhen, pastedAt: number, onSettled: SettleListener | undefined): void {
     isDrainingQueue = true;
+    pendingSubmitListener = onSettled;
     drainTimer = setTimeout(() => {
-      if (options.hasLivePty()) options.write("\r");
+      pendingSubmitListener = undefined;
+      settleLater(onSettled, submitIfStillAllowed(when, pastedAt));
       pasteNextQueued();
-    }, submitDelayMs);
+    }, SUBMIT_DELAY_MS);
     drainTimer.unref();
   }
 
-  function pasteAndSubmit(text: string, requestedSubmitDelayMs: number | null): PasteResult {
-    const { pasted, submitDelayMs } = pasteIntoComposer(text, requestedSubmitDelayMs);
-    if (!pasted.ok || submitDelayMs === null) return pasted;
-    submitThenPasteNextQueued(submitDelayMs);
-    return pasted;
+  function landPaste(text: string, when: DeliveryWhen, wantsSubmit: boolean, onSettled: SettleListener | undefined): boolean {
+    const pastedAt = clock.nowMs();
+    if (pasteIntoComposer(text, when, wantsSubmit)) {
+      submitAfterDelayThenContinue(when, pastedAt, onSettled);
+      return true;
+    }
+    settleLater(onSettled, "pasted");
+    return false;
   }
 
   function pasteNextQueued(): void {
     drainTimer = null;
-    const next = queuedPastes.shift();
-    if (!next || options.isDestroyed()) {
+    const next = queuedDeliveries.shift();
+    if (!next) {
       clearPendingPaste();
       return;
     }
     clearTimeout(next.expiryTimer);
-    const { pasted, submitDelayMs } = pasteIntoComposer(next.text, next.submitDelayMs);
-    if (!pasted.ok) {
+    if (options.isDestroyed() || !options.hasLivePty()) {
+      settleLater(next.onSettled, "dropped");
       clearPendingPaste();
       return;
     }
-    if (submitDelayMs === null) {
-      pasteNextQueued();
-      return;
-    }
-    submitThenPasteNextQueued(submitDelayMs);
+    if (landPaste(next.text, "ready", next.submit, next.onSettled)) return;
+    pasteNextQueued();
   }
 
   function startDrainingQueue(): void {
-    const head = queuedPastes[0];
-    if (!head) return;
+    if (queuedDeliveries.length === 0) return;
     isDrainingQueue = true;
-    if (head.settleMs <= 0) {
-      pasteNextQueued();
-      return;
-    }
-    drainTimer = setTimeout(pasteNextQueued, head.settleMs);
+    drainTimer = setTimeout(pasteNextQueued, PASTE_SETTLE_MS);
     drainTimer.unref();
   }
 
   function onStateChangeWhilePasteQueued({ to }: StateChange): void {
-    if (!PASTE_READY_STATES.has(to)) return;
+    if (!canLandNow("ready", to)) return;
     stopWatchingForReady();
     startDrainingQueue();
   }
 
-  function dropExpiredPaste(expired: QueuedPaste): void {
-    const expiredIndex = queuedPastes.indexOf(expired);
+  function dropExpiredDelivery(expired: QueuedDelivery): void {
+    const expiredIndex = queuedDeliveries.indexOf(expired);
     if (expiredIndex === -1) return;
-    queuedPastes.splice(expiredIndex, 1);
+    queuedDeliveries.splice(expiredIndex, 1);
     options.onPasteExpired?.(expired.text);
-    if (queuedPastes.length === 0 && !isDrainingQueue) stopWatchingForReady();
+    settleLater(expired.onSettled, "expired");
+    if (queuedDeliveries.length === 0 && !isDrainingQueue) stopWatchingForReady();
   }
 
-  function enqueueAheadOfUnsubmittedPastes(queued: QueuedPaste): void {
-    const firstUnsubmittedIndex = queued.submitDelayMs === null ? -1 : queuedPastes.findIndex((waiting) => waiting.submitDelayMs === null);
+  function enqueueAheadOfUnsubmittedPastes(queued: QueuedDelivery): void {
+    const firstUnsubmittedIndex = queued.submit ? queuedDeliveries.findIndex((waiting) => !waiting.submit) : -1;
     if (firstUnsubmittedIndex === -1) {
-      queuedPastes.push(queued);
+      queuedDeliveries.push(queued);
       return;
     }
-    queuedPastes.splice(firstUnsubmittedIndex, 0, queued);
+    queuedDeliveries.splice(firstUnsubmittedIndex, 0, queued);
   }
 
-  function pasteTextWhenReady(text: string, { timeoutMs = 120000, settleMs = 0, submitDelayMs = null }: PasteWhenReadyOptions = {}): PasteResult {
-    if (options.isDestroyed()) return { ok: false, reason: "destroyed" };
+  function queueUntilReady(text: string, submit: boolean, timeoutMs: number, onSettled: SettleListener | undefined): DeliveryOutcome {
     const stateBeforeWaiting = options.getState();
-    const hasPastesAhead = queuedPastes.length > 0 || isDrainingQueue;
-    if (!hasPastesAhead && options.hasLivePty() && PASTE_READY_STATES.has(stateBeforeWaiting)) return pasteAndSubmit(text, submitDelayMs);
-    const queued: QueuedPaste = {
+    const queued: QueuedDelivery = {
       text,
-      settleMs,
-      submitDelayMs,
-      expiryTimer: setTimeout(() => dropExpiredPaste(queued), timeoutMs),
+      submit,
+      onSettled,
+      expiryTimer: setTimeout(() => dropExpiredDelivery(queued), timeoutMs),
     };
     queued.expiryTimer.unref();
     enqueueAheadOfUnsubmittedPastes(queued);
@@ -213,7 +213,17 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     }
     if (stateBeforeWaiting === STATES.DORMANT) options.start();
     if (RESTARTABLE_STATES.includes(stateBeforeWaiting)) options.restart();
-    return { ok: true, deferred: true };
+    return { ok: true, kind: "queued" };
+  }
+
+  function deliver(text: string, { when, submit, timeoutMs = QUEUED_DELIVERY_TIMEOUT_MS, onSettled }: DeliverOptions): DeliveryOutcome {
+    if (options.isDestroyed()) return { ok: false, kind: "refused", reason: "destroyed" };
+    const isReadyToLand = !hasPastesAhead() && options.hasLivePty() && canLandNow(when, options.getState());
+    if (when === "ready" && !isReadyToLand) return queueUntilReady(text, submit, timeoutMs, onSettled);
+    if (!options.hasLivePty()) return { ok: false, kind: "refused", reason: "no-pty" };
+    if (when === "idle" && !isReadyToLand) return { ok: false, kind: "refused", reason: "not-idle" };
+    landPaste(text, when, submit && !hasPastesAhead(), onSettled);
+    return { ok: true, kind: "pasted" };
   }
 
   function ptySize(): { cols: number; rows: number } {
@@ -283,10 +293,9 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     reset,
     setMax: (bytes) => ring.setMax(bytes),
     stats: () => ring.stats(),
-    pasteText,
-    pasteTextWhenReady,
+    deliver,
     clearPendingPaste,
-    hasPendingPaste: () => queuedPastes.length > 0,
+    hasPendingPaste: () => queuedDeliveries.length > 0,
     forgetUnsubmittedComposerPaste,
     rememberSize,
     ptySize,

@@ -296,6 +296,7 @@ test('output pushed during a sliced serialize is held so the deep snapshot match
     getState: () => STATES.RUNNING,
     isDestroyed: () => false,
     hasLivePty: () => true,
+    lastOperatorInputAt: () => Number.NEGATIVE_INFINITY,
     write: noop,
     start: noop,
     restart: noop,

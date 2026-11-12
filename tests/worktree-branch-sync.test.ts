@@ -56,7 +56,7 @@ function createLifecycle(repositoryPath: string) {
       state: () => ({ state: 'IDLE', isDestroyed: false, isTeardownPending: false, hasLivePty: false }),
       emit: () => {},
       recordDecision: () => {},
-      pasteText: () => ({}),
+      deliver: () => ({ ok: true, kind: "pasted" }),
     },
   });
 }

@@ -32,7 +32,7 @@ function lifecycleWithHeldMerge(hasUnmergedWork = true) {
       state: () => ({ state: sessionState, isDestroyed: false, isTeardownPending: false, hasLivePty: true }),
       emit: () => {},
       recordDecision: () => {},
-      pasteText: () => ({ ok: true }),
+      deliver: () => ({ ok: true, kind: "pasted" }),
     },
   });
   lifecycle.adoptWorktree({ worktreeDir: projectPath, branch: 'session-branch', base: 'main', watch: false, emit: false });
