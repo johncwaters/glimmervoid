@@ -76,9 +76,9 @@ test('add-session with a prompt submits it as the new session first prompt once 
       for (const project of config.projects) {
         if (sessions.has(project.id)) continue;
         const session = plainSession(project.id, project.name, project.path);
-        session.pasteTextWhenReady = (text, options = {}) => {
+        session.deliver = (text, options) => {
           pastedPrompts.push({ text, submit: options.submit });
-          return { ok: true, deferred: true };
+          return { ok: true, kind: 'queued' };
         };
         sessions.set(project.id, session);
       }

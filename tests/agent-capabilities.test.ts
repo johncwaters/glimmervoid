@@ -232,14 +232,14 @@ for (const agent of ['kimi', 'claude-code']) {
     });
     try {
       await session.start();
-      assert.deepEqual(session.pasteTextWhenReady('Read before sending'), { ok: true, deferred: true });
-      assert.equal(session.pasteTextWhenReady('Race task', { submit: true }).ok, true);
-      assert.deepEqual(session.pasteTextWhenReady('Second race task', { submit: true }), { ok: true, deferred: true });
+      assert.deepEqual(session.deliver('Read before sending', { when: 'ready', submit: false }), { ok: true, kind: 'queued' });
+      assert.equal(session.deliver('Race task', { when: 'ready', submit: true }).ok, true);
+      assert.deepEqual(session.deliver('Second race task', { when: 'ready', submit: true }), { ok: true, kind: 'queued' });
       session.transition('first_output');
       await new Promise((resolve) => setTimeout(resolve, 200));
       const writesBeforeSettle = [...writes];
       const isPendingDuringSettle = session.hasPendingPaste();
-      assert.deepEqual(session.pasteTextWhenReady('Settle window task', { submit: true }), { ok: true, deferred: true });
+      assert.deepEqual(session.deliver('Settle window task', { when: 'ready', submit: true }), { ok: true, kind: 'queued' });
       await new Promise((resolve) => setTimeout(resolve, 2600));
       assert.deepEqual(writesBeforeSettle, []);
       assert.equal(isPendingDuringSettle, true);
@@ -250,17 +250,17 @@ for (const agent of ['kimi', 'claude-code']) {
         '\x1b[200~Settle window task\x1b[201~', '\r',
         '\x1b[200~Read before sending\x1b[201~',
       ]);
-      assert.deepEqual(session.pasteTextWhenReady('Fix it'), { ok: true });
+      assert.deepEqual(session.deliver('Fix it', { when: 'ready', submit: false }), { ok: true, kind: 'pasted' });
       assert.equal(writes[7], '\x1b[200~Fix it\x1b[201~');
-      assert.deepEqual(session.pasteTextWhenReady('Sent while the operator still reads', { submit: true }), { ok: true });
+      assert.deepEqual(session.deliver('Sent while the operator still reads', { when: 'ready', submit: true }), { ok: true, kind: 'pasted' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.deepEqual(writes.slice(8), ['\x1b[200~Sent while the operator still reads\x1b[201~']);
       session.write('\r');
-      assert.deepEqual(session.pasteTextWhenReady('Sent after the operator submitted', { submit: true }), { ok: true });
+      assert.deepEqual(session.deliver('Sent after the operator submitted', { when: 'ready', submit: true }), { ok: true, kind: 'pasted' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.deepEqual(writes.slice(9), ['\r', '\x1b[200~Sent after the operator submitted\x1b[201~', '\r']);
-      assert.deepEqual(session.pasteTextWhenReady('Sent at once', { submit: true }), { ok: true });
-      assert.deepEqual(session.pasteTextWhenReady('Held until that one is sent'), { ok: true, deferred: true });
+      assert.deepEqual(session.deliver('Sent at once', { when: 'ready', submit: true }), { ok: true, kind: 'pasted' });
+      assert.deepEqual(session.deliver('Held until that one is sent', { when: 'ready', submit: false }), { ok: true, kind: 'queued' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.deepEqual(writes.slice(12), ['\x1b[200~Sent at once\x1b[201~', '\r', '\x1b[200~Held until that one is sent\x1b[201~']);
       session.transition('prompt_detected');
@@ -268,7 +268,7 @@ for (const agent of ['kimi', 'claude-code']) {
         session.write(dialogKey);
         session.noteOperatorInput(dialogKey);
       }
-      assert.deepEqual(session.pasteTextWhenReady('Sent after a dialog was answered', { submit: true }), { ok: true });
+      assert.deepEqual(session.deliver('Sent after a dialog was answered', { when: 'ready', submit: true }), { ok: true, kind: 'pasted' });
       await new Promise((resolve) => setTimeout(resolve, 500));
       assert.deepEqual(writes.slice(15), ['\x1b[B', '\r', '\x1b[200~Sent after a dialog was answered\x1b[201~']);
       session.transition('task_complete');

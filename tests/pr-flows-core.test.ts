@@ -31,6 +31,7 @@ import { ReviewDraft, TeamReviewThreadNode } from '../shared/contracts/team-revi
 import { isIncludedByDefault, otherReviewRows } from '../public/github/team-review-view-core.ts';
 import { DEFAULT_CONFIG, validateConfig } from '../server/config-store.ts';
 import { threadRows } from '../public/github/my-prs-view-core.ts';
+import type { DeliverOptions, DeliveryOutcome } from '../session/core/input-delivery-core.ts';
 
 function openPr(): GithubPrDetailNode {
   return GithubPrDetailNode.parse({
@@ -163,7 +164,7 @@ test('a fix-local rule pastes the comment without submitting it', async () => {
   const threads = [threadNode('PRRT_1', 'src/a.ts', 3, 'outsider', 'nit: run this')];
   const myPr = () => myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, threads)));
   const pastes: boolean[] = [];
-  const session = { pasteTextWhenReady: (_text: string, options: { submit: boolean }) => { pastes.push(options.submit); return { ok: true }; }, hasPendingPaste: () => false };
+  const session = { deliver: (_text: string, options: DeliverOptions): DeliveryOutcome => { pastes.push(options.submit); return { ok: true, kind: 'pasted' }; }, hasPendingPaste: () => false };
   const prFlows = createPrFlowsWiring({
     statePath: null, openPrs: () => [myPr()], broadcast: () => {}, log: console,
     linkedSession: () => session, readConfigFile: async () => ({ prFlows: { rules: [{ name: 'nits', text: 'nit', action: 'fix-local' }] } }), appendRule: async () => true,
@@ -366,7 +367,7 @@ test('a rule naming a pack source by <pack>/<id> acts on its findings and never 
 test('a configured action runs on an item by rule or click, shows done or failed, and the linked session hears when the branch moved under it', async () => {
   let head = 'b'.repeat(40);
   const pastes: string[] = [];
-  const session = { pasteTextWhenReady: (text: string) => { pastes.push(text); return { ok: true }; }, hasPendingPaste: () => false };
+  const session = { deliver: (text: string): DeliveryOutcome => { pastes.push(text); return { ok: true, kind: 'pasted' }; }, hasPendingPaste: () => false };
   const frames: PrFlowsStatus[] = [];
   const threads = [threadNode('t1', 'src/a.ts', 10, 'greptile[bot]', 'Null name'), threadNode('t2', 'src/b.ts', 5, 'carol', 'Rename')];
   const currentPr = () => ({ ...myPrFromGithubPr(GithubPr.parse(normalizeGithubPr(openPr(), 0, threads))), headRefOid: head });

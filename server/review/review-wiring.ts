@@ -8,6 +8,7 @@ import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import type { ReviewCommentDraft } from './review-state-core.ts';
 import { addComment, commentPasteText, emptyReviewState, markViewed, replyToComment, resolveComment } from './review-state-core.ts';
 import { clock } from '../../shared/clock.ts';
+import type { DeliverOptions, DeliveryOutcome } from '../../session/core/input-delivery-core.ts';
 
 const REVIEWS_FOLDER_NAME = 'reviews';
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -15,7 +16,7 @@ const SESSION_GONE_ERROR = 'That session is no longer on the dashboard.';
 const COMMENT_DELIVERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 interface PasteTarget {
-  pasteTextWhenReady(text: string, options: { submit: boolean; timeoutMs: number }): { ok: boolean; reason?: string };
+  deliver(text: string, options: DeliverOptions): DeliveryOutcome;
 }
 
 type ReviewOutcome = { ok: true } | { ok: false; error: string };
@@ -84,8 +85,8 @@ function createReviewWiring({ reviewsRoot, broadcastControl, findSession, now = 
         state: next,
         after: (): ReviewOutcome => {
           if (!sent) return { ok: true };
-          const pasted = session.pasteTextWhenReady(commentPasteText(sent), { submit: true, timeoutMs: COMMENT_DELIVERY_TIMEOUT_MS });
-          return pasted.ok ? { ok: true } : { ok: false, error: `The comment was saved, but it could not be sent to the agent (${pasted.reason ?? 'unknown'})` };
+          const pasted = session.deliver(commentPasteText(sent), { when: 'ready', submit: true, timeoutMs: COMMENT_DELIVERY_TIMEOUT_MS });
+          return pasted.ok ? { ok: true } : { ok: false, error: `The comment was saved, but it could not be sent to the agent (${pasted.reason})` };
         },
       };
     });

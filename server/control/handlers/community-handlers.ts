@@ -39,9 +39,9 @@ function createCommunityHandlers(context: ControlContext, deps: ControlHandlerDe
     if (!created.ok) { reply({ error: created.error }); return; }
     const session = sessions.get(created.project.id);
     if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
-    const pasted = session.pasteTextWhenReady(seeded.prompt);
+    const pasted = session.deliver(seeded.prompt, { when: 'ready', submit: false });
     if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
-    reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
+    reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.kind === 'queued' });
     console.log(`[control] open-community-session: item=${msg.key} -> session=${session.name}`);
   }
 

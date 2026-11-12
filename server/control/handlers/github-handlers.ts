@@ -93,9 +93,9 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
       if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
       const link = manualPrLink(msg.key, (typeof getMyPrsStatus === 'function' ? getMyPrsStatus() : null)?.prs ?? [], clock.nowMs());
       if (link) session.linkPrManually(link);
-      const pasted = session.pasteTextWhenReady(prSessionPrompt({ repo: checkout.repo, detail: checkout.detail, draft: checkout.draft }));
+      const pasted = session.deliver(prSessionPrompt({ repo: checkout.repo, detail: checkout.detail, draft: checkout.draft }), { when: 'ready', submit: false });
       if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
-      reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.deferred === true });
+      reply({ ok: true, sessionId: session.id, sessionName: session.name, pending: pasted.kind === 'queued' });
       console.log(`[control] open-team-review-session: pr=${msg.key} -> session=${session.name}`);
     } catch (error) {
       reply({ error: `Could not open a session for ${msg.key}: ${errorMessage(error)}` });

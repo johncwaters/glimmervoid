@@ -104,10 +104,10 @@ function createRadarHandlers(context: ControlContext, deps: ControlHandlerDeps):
       host: found.host,
       url: found.issue.url,
     });
-    const res = sess.pasteTextWhenReady(prompt);
+    const res = sess.deliver(prompt, { when: 'ready', submit: false });
     if (!res.ok) { reply({ error: `Could not write to "${sess.name}" (${res.reason})` }); return; }
     sess.noteOperatorDraft();
-    reply({ ok: true, sessionId: sess.id, sessionName: sess.name, pending: res.deferred === true });
+    reply({ ok: true, sessionId: sess.id, sessionName: sess.name, pending: res.kind === 'queued' });
     console.log(`[control] posthog-open-session: issue=${ref.issueId} -> session=${sess.name}`);
   }
 
@@ -154,7 +154,7 @@ function createRadarHandlers(context: ControlContext, deps: ControlHandlerDeps):
     if (!created.ok) { reply({ error: created.error }); return; }
     const session = sessions.get(created.project.id);
     if (!session) { reply({ error: `Session "${created.project.name}" is not loaded` }); return; }
-    const pasted = session.pasteTextWhenReady(radarLaneCore.approvedFixSessionPrompt(pending));
+    const pasted = session.deliver(radarLaneCore.approvedFixSessionPrompt(pending), { when: 'ready', submit: false });
     if (!pasted.ok) { reply({ error: `Could not write to "${session.name}" (${pasted.reason})` }); return; }
     const settled = await radarFixes.settlePendingFix(ref.id, { releaseBranch: false });
     if (!settled.ok) console.warn(`[control] radar-approve-fix: ${settled.error}`);

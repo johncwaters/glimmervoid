@@ -166,7 +166,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       console.warn(`[control] First prompt dropped: session ${sessionId} is not loaded`);
       return;
     }
-    const pasted = session.pasteTextWhenReady(firstPrompt, { submit: true });
+    const pasted = session.deliver(firstPrompt, { when: 'ready', submit: true });
     if (!pasted.ok) console.warn(`[control] First prompt not sent to "${session.name}" (${pasted.reason})`);
   }
 

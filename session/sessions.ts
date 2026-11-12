@@ -1389,11 +1389,6 @@ class Session extends EventEmitter {
     return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
   }
 
-  pasteTextWhenReady(text: string, { timeoutMs, submit = false }: { timeoutMs?: number; submit?: boolean } = {}): { ok: boolean; deferred?: true; reason?: string } {
-    const outcome = this.deliver(text, { when: "ready", submit, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
-    if (!outcome.ok) return { ok: false, reason: outcome.reason };
-    return outcome.kind === "queued" ? { ok: true, deferred: true } : { ok: true };
-  }
 
   hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
 

@@ -8,11 +8,12 @@ import { acceptReport, branchMovedNote, isCommandStillRunning, newPrActionRun, c
 import type { PrFlowsExternal } from './pr-flows-external.ts';
 import type { PackOnDisk } from '../../shared/contracts/pack.ts';
 import { clock } from '../../shared/clock.ts';
+import type { DeliverOptions, DeliveryOutcome } from '../../session/core/input-delivery-core.ts';
 
 const UNTRUSTED_COMMENT_MAX_CHARS = 4000;
 
 interface PasteTarget {
-  pasteTextWhenReady(text: string, options: { submit: boolean }): { ok: boolean; reason?: string; deferred?: boolean };
+  deliver(text: string, options: DeliverOptions): DeliveryOutcome;
   hasPendingPaste(): boolean;
 }
 
@@ -154,9 +155,9 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     if (!session) return { ok: false, error: 'No live session is linked to this pull request.' };
     if (session.hasPendingPaste()) return { ok: false, error: 'The linked session already has a prompt waiting to be pasted, so nothing was sent.' };
     const fence = (label: string, text: string) => fencedUntrusted(label, text, UNTRUSTED_COMMENT_MAX_CHARS);
-    const pasted = session.pasteTextWhenReady(fixLocallyPrompt(pr.url, item, fence), { submit: disposal.ruleName === null });
-    if (!pasted.ok) return { ok: false, error: `Could not write to the linked session (${pasted.reason ?? 'unknown reason'}).` };
-    if (pasted.deferred === true && disposal.ruleName === null) return { ok: true, isPending: true };
+    const pasted = session.deliver(fixLocallyPrompt(pr.url, item, fence), { when: 'ready', submit: disposal.ruleName === null });
+    if (!pasted.ok) return { ok: false, error: `Could not write to the linked session (${pasted.reason}).` };
+    if (pasted.kind === 'queued' && disposal.ruleName === null) return { ok: true, isPending: true };
     await recordHandled(disposal, item);
     return { ok: true };
   }
@@ -237,7 +238,7 @@ function createPrFlowsWiring({ statePath, openPrs, linkedSession, readConfigFile
     if (dueRuns.length === 0) return;
     const session = linkedSession(pr.key);
     if (!session || session.hasPendingPaste()) return;
-    const pasted = session.pasteTextWhenReady(branchMovedNote(pr.url, [...new Set(dueRuns.map((run) => run.label))], pr.headRefOid), { submit: true });
+    const pasted = session.deliver(branchMovedNote(pr.url, [...new Set(dueRuns.map((run) => run.label))], pr.headRefOid), { when: 'ready', submit: true });
     if (!pasted.ok) return;
     for (const run of dueRuns) run.isBranchMoveTold = true;
   }

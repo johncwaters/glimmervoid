@@ -65,7 +65,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['session/session-output.ts', 3],
   ['session/session-recorder.ts', 12],
   ['session/session-worktree-lifecycle.ts', 11],
-  ['session/sessions.ts', 41],
+  ['session/sessions.ts', 40],
   ['session/worktree/worktree-provisioning.ts', 4],
 ]);
 

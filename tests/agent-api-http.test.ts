@@ -661,7 +661,7 @@ test('an agent lists, answers and resolves the review comments the operator sent
   const reviews = createReviewWiring({
     reviewsRoot,
     broadcastControl: () => {},
-    findSession: (sessionId) => (sessionId === 'parent' ? { pasteTextWhenReady: (text) => { pastedTexts.push(text); return { ok: true }; } } : null),
+    findSession: (sessionId) => (sessionId === 'parent' ? { deliver: (text) => { pastedTexts.push(text); return { ok: true, kind: 'pasted' }; } } : null),
   });
   const fixture = wiringFixture({ reviewComments: reviews });
   try {
@@ -1200,7 +1200,7 @@ test('a draft the operator stages at an idle parent holds off the wake so a stop
     await fixture.parent.start();
     fixture.parent.transition('first_output');
     assert.equal(fixture.parent.state, STATES.IDLE);
-    assert.equal(fixture.parent.pasteTextWhenReady('half done').ok, true);
+    assert.equal(fixture.parent.deliver('half done', { when: 'ready', submit: false }).ok, true);
     fixture.parent.noteOperatorDraft();
     advanceBy(1000);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });

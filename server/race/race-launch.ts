@@ -57,7 +57,7 @@ function createRaceLauncher({ races, sessions, config, createProjectSession }: R
     if (!created.ok) return { ok: false as const, error: created.error };
     const session = sessions.get(created.project.id);
     if (!session) return { ok: false as const, error: `Session "${created.project.name}" is not loaded` };
-    const pasted = session.pasteTextWhenReady(contestantPrompt(spec, contestant), { submit: true, timeoutMs: CONTESTANT_PROMPT_TIMEOUT_MS });
+    const pasted = session.deliver(contestantPrompt(spec, contestant), { when: 'ready', submit: true, timeoutMs: CONTESTANT_PROMPT_TIMEOUT_MS });
     if (!pasted.ok) return { ok: false as const, error: `Could not send the prompt to "${session.name}" (${pasted.reason})` };
     return { ok: true as const, sessionId: session.id };
   }
