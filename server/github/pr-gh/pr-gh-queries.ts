@@ -16,7 +16,7 @@ const CHECK_CONTEXT_FIELDS = '__typename ... on CheckRun { name conclusion statu
 const MY_PR_CHECK_CONTEXTS_QUERY = `query($id: ID!, $cursor: String!) { node(id: $id) { ... on StatusCheckRollup { contexts(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } }`;
 
 const MY_PR_FIELDS_FRAGMENT = `fragment myPrFields on PullRequest {
-  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision
+  __typename id number title url isDraft state createdAt mergedAt updatedAt baseRefName baseRefOid headRefName isCrossRepository headRefOid isInMergeQueue mergeable mergeStateStatus reviewDecision additions deletions
   repository { nameWithOwner viewerDefaultMergeMethod }
   commits(last: 1) { nodes { commit { statusCheckRollup { id state contexts(first: 100) { pageInfo { hasNextPage endCursor } nodes { ${CHECK_CONTEXT_FIELDS} } } } } } }
   reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved } }

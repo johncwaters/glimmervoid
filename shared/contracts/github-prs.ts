@@ -58,6 +58,7 @@ export const GithubPr = z.strictObject({
   approvals: MyPr.shape.approvals, reviews: z.array(MyPr.shape.reviews.element.extend({ commit: CommitSha.nullable() }).strict()),
   reviewHistory: z.array(MyPr.shape.reviews.element.extend({ commit: CommitSha.nullable() }).strict()).optional(),
   opinionatedWriterReviewStates: z.array(z.string()),
+  additions: MyPr.shape.additions, deletions: MyPr.shape.deletions,
 }).refine((pr) => pr.key === comparablePrKey(pr));
 export type GithubPr = z.infer<typeof GithubPr>;
 

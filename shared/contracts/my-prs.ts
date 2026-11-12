@@ -94,6 +94,7 @@ export const MyPr = z.object({
   keepMergeableAttempt: MyPrKeepMergeableAttempt.optional(), isKeepMergeableFixInFlight: z.boolean().optional(),
   mergeQueuePosition: z.number().int().positive().nullable().optional(), isMergeQueueHeldForRepairPush: z.boolean().optional(), mergeQueueFailure: MyPrMergeQueueFailure.optional(),
   stageSinceMs: z.number().finite().optional(),
+  additions: nonnegativeInteger.optional(), deletions: nonnegativeInteger.optional(),
 }).refine((pr) => pr.key === `${pr.repo}#${pr.number}`);
 export type MyPr = z.infer<typeof MyPr>;
 
@@ -138,6 +139,7 @@ export const MyPrSearchNode = z.object({
   state: z.enum(['OPEN', 'MERGED', 'CLOSED']), createdAt: z.string(), mergedAt: z.string().nullable(), updatedAt: z.string(), baseRefName: z.string(), baseRefOid: CommitSha, headRefName: z.string().min(1), isCrossRepository: z.boolean(),
   headRefOid: CommitSha, isInMergeQueue: z.boolean(), mergeable: z.enum(['MERGEABLE', 'CONFLICTING', 'UNKNOWN']),
   mergeStateStatus: z.string(), reviewDecision: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED']).nullable(),
+  additions: nonnegativeInteger.optional(), deletions: nonnegativeInteger.optional(),
   repository: z.object({ nameWithOwner: repositoryName, viewerDefaultMergeMethod: MyPrMergeMethod }),
   commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({
     id: z.string().regex(NODE_ID_RE).optional(), state: z.enum(['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED']).nullable(),

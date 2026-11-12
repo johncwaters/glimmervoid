@@ -36,6 +36,8 @@ export function normalizeGithubPr(node: GithubPrDetailNode, behindBy: number | n
     reviews: node.latestReviews.nodes.map(pullRequestReview),
     reviewHistory: (node.reviewHistory?.nodes ?? []).map(pullRequestReview),
     opinionatedWriterReviewStates: (node.writerOpinionatedReviews?.nodes ?? []).map((review) => review.state),
+    ...(node.additions === undefined ? {} : { additions: node.additions }),
+    ...(node.deletions === undefined ? {} : { deletions: node.deletions }),
   };
 }
 
