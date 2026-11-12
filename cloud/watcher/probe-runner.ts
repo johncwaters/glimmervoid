@@ -180,9 +180,9 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     const fingerprint = requestFingerprint(probe);
     const memory = memoryByProbeId.get(probe.id);
     if (memory?.requestFingerprint === fingerprint) return memory;
-    const freshMemory = freshProbeMemory(fingerprint);
-    memoryByProbeId.set(probe.id, freshMemory);
-    return freshMemory;
+    const changedMemory = memory === undefined ? freshProbeMemory(fingerprint) : { ...memory, requestFingerprint: fingerprint, etag: null, bodySha256: null };
+    memoryByProbeId.set(probe.id, changedMemory);
+    return changedMemory;
   }
 
   async function responseOf(probe: Probe, memory: ProbeMemory): Promise<ProbeResponse> {
@@ -208,8 +208,13 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
   async function runProbe(probe: Probe): Promise<void> {
     const memory = memoryOf(probe);
     const response = await responseOf(probe, memory);
-    if (memoryByProbeId.get(probe.id) !== memory) return;
     const outcome = probeOutcome(memory, response, now());
+    const currentMemory = memoryByProbeId.get(probe.id);
+    if (currentMemory !== memory) {
+      const isRequestChangeOnly = currentMemory !== undefined && currentMemory.requestFingerprint !== memory.requestFingerprint && currentMemory.lastRunAtMs === memory.lastRunAtMs;
+      if (isRequestChangeOnly) memoryByProbeId.set(probe.id, { ...currentMemory, lastRunAtMs: outcome.memory.lastRunAtMs, retryAfterMs: outcome.memory.retryAfterMs });
+      return;
+    }
     memoryByProbeId.set(probe.id, outcome.memory);
     if (outcome.nudge !== null) nudges.send(outcome.nudge, probe.id, outcome.memory.failure);
   }

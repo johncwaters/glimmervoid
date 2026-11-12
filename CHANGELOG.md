@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The Issues tab is gone.** The experimental tab that listed GitHub issues from your projects and teams and opened a session from one has been removed, along with its Settings switch, its background polling and its watcher lane. An `issues` block left in config.json is dropped at startup with one log line, and the old issues cache file in your Glimmervoid folder is deleted.
 
+### Fixed
+
+- **The watcher no longer burns your GitHub rate limit.** Since the watcher moved into the local doorman, a pull request you got a notification about could reset its GitHub probes dozens of times a minute, and each reset sent a fresh GitHub read, using up the hourly GraphQL budget so Reviews, My PRs and the PR store stalled. A changed probe now waits out its normal interval.
+
 ## [0.57.3] - 2026-11-12
 
 ### Added

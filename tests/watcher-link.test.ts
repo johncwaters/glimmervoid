@@ -215,7 +215,7 @@ test('with no GitHub read token the watcher runs no GitHub probe, the log says o
   assert.deepEqual(github.requests, ['Bearer read-token']);
 });
 
-test('a GraphQL rate limit answered with 200 waits for its reset even when the same token is delivered again', async (t) => {
+test('a GraphQL rate limit answered with 200 waits for its reset even when the same token is delivered again or the probe request changes', async (t) => {
   const homeDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-watcher-runner-'));
   t.after(() => fsp.rm(homeDir, { recursive: true, force: true }));
   const clock = { nowMs: Date.now() };
@@ -237,6 +237,10 @@ test('a GraphQL rate limit answered with 200 waits for its reset even when the s
   await runner.applyCredentials({ github: 'read-token', posthog: null });
   await runner.applyProbeSet({ revision: 'one-probe', probes: [LIGHT_PROBE] });
   await eventually(() => runner.status().probes[0]?.status === 'failing' ? true : undefined);
+
+  await runner.applyProbeSet({ revision: 'changed-request', probes: [{ ...LIGHT_PROBE, body: '{"query":"query { viewer { id } }"}' }] });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(sentTokens.length, 1);
 
   clock.nowMs += 61_000;
   await runner.applyCredentials({ github: 'read-token', posthog: null });
