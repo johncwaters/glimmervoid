@@ -55,7 +55,7 @@ export function createPackLaunchers({
   let scheduleTimer: TimerHandle | null = null;
   const nextFireAtByKey = new Map<string, number>();
   const sessionIdByRunKey = new Map<string, string>();
-  let runsLoad: Promise<void> | null = null;
+  let runsLoad: Promise<boolean> | null = null;
   let runWrites: Promise<void> = Promise.resolve();
 
   const resolve = (project: string) => resolveLauncherProject(project, projectOrigins, existingFolders);
@@ -136,12 +136,18 @@ export function createPackLaunchers({
     return [...sessionIdByRunKey.values()].filter(isSessionLive).length;
   }
 
-  function loadRuns(): Promise<void> {
-    runsLoad ??= runsPath === null ? Promise.resolve() : loadJsonStateFile({ filePath: runsPath, parse: (raw) => PackLauncherRuns.safeParse(raw).data ?? null }).then((outcome) => {
+  function loadRuns(): Promise<boolean> {
+    runsLoad ??= runsPath === null ? Promise.resolve(true) : loadJsonStateFile({ filePath: runsPath, parse: (raw) => PackLauncherRuns.safeParse(raw).data ?? null }).then((outcome) => {
+      if (outcome.status === 'unreadable') {
+        runsLoad = null;
+        log.warn(`[packs] could not read the scheduled launcher runs from ${runsPath}, so scheduled runs wait until it reads: ${errorMessage(outcome.error)}`);
+        return false;
+      }
       const loaded = loadedJsonValue(outcome);
       for (const [runKey, sessionId] of Object.entries(loaded?.sessionIdByRun ?? {})) {
         if (!sessionIdByRunKey.has(runKey)) sessionIdByRunKey.set(runKey, sessionId);
       }
+      return true;
     });
     return runsLoad;
   }
@@ -165,7 +171,7 @@ export function createPackLaunchers({
 
   async function fireScheduled(scheduled: ScheduledPackLauncher, lateByMs: number): Promise<void> {
     if (!startSession) return;
-    await loadRuns();
+    if (!await loadRuns()) return;
     const runKey = runKeyOf(scheduled);
     const previousSessionId = sessionIdByRunKey.get(runKey);
     const resolution = await resolveFresh(scheduled.launcher.project);

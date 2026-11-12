@@ -23,7 +23,7 @@ const SAFE_GIT_CONFIG = ['-c', `core.hooksPath=${os.devNull}`, '-c', 'core.symli
 type SourceEntry = PackSourcesFile['sources'][number];
 type SourcePack = { name: string; dir: string };
 type SourceOutcome = { ok: true; text: string } | { ok: false; error: string };
-type SourceUpdate = { isUpdated: boolean; text: string };
+type SourceUpdate = { isUpdated: boolean; text: string; enabledPacks: string[] };
 type GitRunner = typeof runGit;
 
 type PackSourcesDeps = {
@@ -61,7 +61,8 @@ export function createPackSources({ homeDir, env, packRows, isApproved, onChange
   const sourcesDir = path.join(homeDir, PACK_SOURCES_DIR_NAME);
   const ledgerPath = path.join(homeDir, PACK_SOURCES_FILE_NAME);
   const installDeps = { homeDir, env, packRows, isApproved };
-  const gitEnv: NodeJS.ProcessEnv = { ...env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
+  const envWithoutGit = Object.fromEntries(Object.entries(env).filter(([name]) => !name.startsWith('GIT_')));
+  const gitEnv: NodeJS.ProcessEnv = { ...envWithoutGit, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: sourcesDir };
   const gitOptions = (cwd: string) => ({ cwd, replaceEnv: gitEnv, timeoutMs: GIT_TIMEOUT_MS, preferStderr: true });
   let rows: PackSourceRow[] = [];
   let changes: Promise<unknown> = Promise.resolve();
@@ -130,11 +131,24 @@ export function createPackSources({ homeDir, env, packRows, isApproved, onChange
     return { ok: true, text: `Added the pack source ${target.slug} from ${target.url}; ${packsText}. Each stays off until the operator enables it in Settings, Packs, and then waits for approval.` };
   }
 
-  async function reinstallEnabled(source: SourceEntry): Promise<{ isComplete: boolean; lines: string[] }> {
+  async function reinstallEnabled(source: SourceEntry): Promise<{ isComplete: boolean; lines: string[]; enabledPacks: string[] }> {
     const packs = await packFoldersIn(path.join(sourcesDir, source.slug), 0);
     const lines: string[] = [];
+    const enabledPacks: string[] = [];
     let isComplete = true;
     for (const name of source.enabledPacks) {
+      const installedCheck = await fs.promises.lstat(path.join(homeDir, PACKS_DIR_NAME, name)).then(() => 'present' as const, (error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? 'removed' as const : errorMessage(error)));
+      if (installedCheck !== 'present' && installedCheck !== 'removed') {
+        enabledPacks.push(name);
+        isComplete = false;
+        lines.push(`${name} was not reinstalled, because its installed folder could not be read: ${installedCheck}`);
+        continue;
+      }
+      if (installedCheck === 'removed') {
+        lines.push(`${name} was removed since it was enabled, so it is off now and not reinstalled`);
+        continue;
+      }
+      enabledPacks.push(name);
       const pack = packs.find((candidate) => candidate.name === name);
       if (!pack) {
         lines.push(`${name} is gone from the source; its installed copy stays until removed`);
@@ -144,17 +158,29 @@ export function createPackSources({ homeDir, env, packRows, isApproved, onChange
       if (!installed.ok) isComplete = false;
       lines.push(installed.ok ? `${name} reinstalled; it waits for approval again if any file changed` : `${name} was not reinstalled: ${installed.error}`);
     }
-    return { isComplete, lines };
+    return { isComplete, lines, enabledPacks };
+  }
+
+  async function isOwnClone(cloneDir: string): Promise<boolean> {
+    const cloneStat = await fs.promises.lstat(cloneDir).catch(() => null);
+    if (!cloneStat?.isDirectory()) return false;
+    const gitStat = await fs.promises.lstat(path.join(cloneDir, '.git')).catch(() => null);
+    if (!gitStat?.isDirectory()) return false;
+    const realSourcesDir = await fs.promises.realpath(sourcesDir).catch(() => null);
+    const realCloneDir = await fs.promises.realpath(cloneDir).catch(() => null);
+    return realSourcesDir !== null && realCloneDir !== null && path.dirname(realCloneDir) === realSourcesDir;
   }
 
   async function updateOne(source: SourceEntry): Promise<SourceUpdate> {
     const cloneDir = path.join(sourcesDir, source.slug);
-    const fetched = await runGitFn([...SAFE_GIT_CONFIG, 'fetch', '--depth', '1', '--no-tags', 'origin', 'HEAD'], gitOptions(cloneDir));
-    if (!fetched.ok) return { isUpdated: false, text: `${source.slug}: ${gitFailureText('git fetch', fetched.err)}` };
-    const reset = await runGitFn([...SAFE_GIT_CONFIG, 'reset', '--hard', 'FETCH_HEAD'], gitOptions(cloneDir));
-    if (!reset.ok) return { isUpdated: false, text: `${source.slug}: ${gitFailureText('git reset', reset.err)}` };
+    if (!await isOwnClone(cloneDir)) return { isUpdated: false, enabledPacks: source.enabledPacks, text: `${source.slug}: ${cloneDir} is not the clone Glimmervoid made; remove the source and add it again` };
+    const cloneGit = [...SAFE_GIT_CONFIG, `--git-dir=${path.join(cloneDir, '.git')}`, `--work-tree=${cloneDir}`];
+    const fetched = await runGitFn([...cloneGit, 'fetch', '--depth', '1', '--no-tags', 'origin', 'HEAD'], gitOptions(cloneDir));
+    if (!fetched.ok) return { isUpdated: false, enabledPacks: source.enabledPacks, text: `${source.slug}: ${gitFailureText('git fetch', fetched.err)}` };
+    const reset = await runGitFn([...cloneGit, 'reset', '--hard', 'FETCH_HEAD'], gitOptions(cloneDir));
+    if (!reset.ok) return { isUpdated: false, enabledPacks: source.enabledPacks, text: `${source.slug}: ${gitFailureText('git reset', reset.err)}` };
     const reinstalled = await reinstallEnabled(source);
-    return { isUpdated: reinstalled.isComplete, text: [`${source.slug}: updated from ${source.url}`, ...reinstalled.lines.map((line) => `  ${line}`)].join('\n') };
+    return { isUpdated: reinstalled.isComplete, enabledPacks: reinstalled.enabledPacks, text: [`${source.slug}: updated from ${source.url}`, ...reinstalled.lines.map((line) => `  ${line}`)].join('\n') };
   }
 
   async function updateNow(slug: string | null): Promise<SourceOutcome> {
@@ -162,8 +188,14 @@ export function createPackSources({ homeDir, env, packRows, isApproved, onChange
     if (!read.ok) return read;
     const chosen = slug === null ? read.sources : read.sources.filter((source) => source.slug === slug);
     if (chosen.length === 0) return { ok: false, error: slug === null ? 'There are no pack sources to update' : `No pack source ${slug}` };
+    const enabledPacksBySlug = new Map<string, string[]>();
     const updates: SourceUpdate[] = [];
-    for (const source of chosen) updates.push(await updateOne(source));
+    for (const source of chosen) {
+      const update = await updateOne(source);
+      enabledPacksBySlug.set(source.slug, update.enabledPacks);
+      updates.push(update);
+    }
+    await writeSources(read.sources.map((source) => ({ ...source, enabledPacks: enabledPacksBySlug.get(source.slug) ?? source.enabledPacks })));
     const text = updates.map((update) => update.text).join('\n');
     return updates.every((update) => update.isUpdated) ? { ok: true, text } : { ok: false, error: text };
   }

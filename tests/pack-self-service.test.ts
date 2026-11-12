@@ -359,14 +359,23 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     assert.equal(armedTimers.at(-1)?.delayMs, 24 * hourMs - hourMs / 2, 'after downtime the next run is the next cron time, not the missed ones');
     assert.deepEqual(startedAfterRestart, []);
 
+    const runsPath = packLauncherRunsPath(homeDir);
+    const savedRunsPath = `${runsPath}.saved`;
+    fs.renameSync(runsPath, savedRunsPath);
+    fs.mkdirSync(runsPath);
     await fireArmedTimer(firstFireAt + 120 * hourMs);
+    assert.deepEqual(startedAfterRestart, [], 'an unreadable record of past runs skips the run instead of starting a second session');
+    fs.rmdirSync(runsPath);
+    fs.renameSync(savedRunsPath, runsPath);
+
+    await fireArmedTimer(firstFireAt + 144 * hourMs);
     assert.deepEqual(startedAfterRestart, [], 'the run started before the restart is still live, so this one is skipped');
 
     endedSessionIds.add(config.projects[1]?.id ?? '');
-    await fireArmedTimer(firstFireAt + 144 * hourMs + 2 * hourMs);
+    await fireArmedTimer(firstFireAt + 168 * hourMs + 2 * hourMs);
     assert.deepEqual(startedAfterRestart, [], 'a run that comes due hours late, as after the host slept, is skipped as missed');
 
-    nowMs = firstFireAt + 168 * hourMs - 2 * hourMs;
+    nowMs = firstFireAt + 192 * hourMs - 2 * hourMs;
     operatorTimezone = 'Europe/Berlin';
     await restarted.refresh();
     assert.equal(armedTimers.at(-1)?.delayMs, hourMs, 'a timezone change moves the next run to 03:00 in the new timezone');
@@ -522,6 +531,22 @@ test('an agent adds a git pack source whose packs stay off until the operator en
     assert.equal(failedUpdate.body.hasProblem, true, 'an update whose fetch fails reports a problem');
     assert.deepEqual(await fixture.packSources.remove(otherSource?.slug ?? ''), { ok: true, text: `Removed the pack source ${otherSource?.slug}` });
     assert.equal(fixture.rowNamed('night-shift')?.dir.endsWith('night-shift'), true, 'removing the other source leaves the first source install');
+
+    assert.equal((await fixture.packs({ command: 'remove', name: 'night-shift' })).body.hasProblem, false);
+    await waitFor(() => fixture.rowNamed('night-shift') === undefined);
+    const afterRemoval = await fixture.packs({ command: 'update' });
+    assert.match(afterRemoval.body.text ?? '', /night-shift was removed since it was enabled/);
+    await waitFor(() => fixture.packSources.rows()[0]?.packs[0]?.isEnabled === false);
+    assert.equal(fixture.rowNamed('night-shift'), undefined, 'an update never brings back a pack removed since it was enabled');
+
+    const elsewhereDir = path.join(fixture.homeDir, 'elsewhere-checkout');
+    fs.renameSync(source?.dir ?? '', elsewhereDir);
+    fs.symlinkSync(elsewhereDir, source?.dir ?? '');
+    const redirected = await fixture.packs({ command: 'update' });
+    assert.equal(redirected.body.hasProblem, true);
+    assert.match(redirected.body.text ?? '', /is not the clone Glimmervoid made/, 'update refuses a clone folder replaced by a link to another checkout');
+    fs.rmSync(source?.dir ?? '');
+    fs.renameSync(elsewhereDir, source?.dir ?? '');
 
     const removed = await fixture.packSources.remove(source?.slug ?? '');
     assert.ok(removed.ok, removed.ok ? '' : removed.error);
