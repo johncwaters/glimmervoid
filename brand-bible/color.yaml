@@ -364,3 +364,5 @@ literalColorsAllowedIn:
   - shared/brand-mark.ts
   - public/favicon.svg
   - public/favicon-core.ts
+  - public/index.html
+  - server/remote-auth.ts

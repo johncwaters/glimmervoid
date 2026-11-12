@@ -2,12 +2,24 @@ owner: John C. Waters
 reviewers: []
 reviewEveryMonths: 6
 exemptions:
-  - paths: [public/**/posthog*, site/src/**/posthog*]
+  - paths: [public/**/posthog*, site/src/**/posthog*, public/agent-brand-colors.ts]
     kinds: [color]
-    why: Third-party logos keep their owners' colors.
+    why: Third-party logos and agent marks keep their owners' colors.
   - paths: [site/public/used-by/**]
     kinds: [color, asset]
     why: Logos of projects using glimmervoid belong to their owners.
-  - paths: [public/merge-celebration/**, public/*animal*.ts, public/nyan*.ts, site/src/lib/animal-*.ts, site/src/components/Animals.astro]
-    kinds: [motion]
+  - paths: [public/merge-celebration/**, public/*animal*.ts, public/flying-animals.css, public/nyan*.ts, site/src/lib/animal-*.ts, site/src/components/Animals.astro]
+    kinds: [motion, color]
     why: Merge celebrations, flying animals and the nyan cat are choreography, art-directed timing rather than state signals; their rules inside public/style.css stay flagged until they move to their own stylesheets.
+  - paths: [public/whiteboard/**, shared/contracts/whiteboard.ts, shared/whiteboard-svg-core.ts]
+    kinds: [color]
+    why: Board ink and sticky note tones are drawing colors the operator picks on the board, the same in every theme, not chrome.
+  - paths: [server/packs/core/pack-preview-core.ts]
+    kinds: [color]
+    why: The pack preview renders a sample pack's own theme, so its colors are that pack's, not glimmervoid's.
+  - paths: [public/perf.html]
+    kinds: [color, font-size]
+    why: A hand-run perf harness page that never ships to the operator's dashboard.
+  - paths: [server/native-probes.ts, public/session-card/terminal-secret-mask.ts]
+    kinds: [color]
+    why: A codec probe pixel and a mask fallback are functional values, never seen as brand color.

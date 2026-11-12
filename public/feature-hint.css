@@ -18,7 +18,7 @@
   border-radius: var(--radius);
   background: var(--bg-surface);
   color: var(--text);
-  box-shadow: 0 8px 24px color-mix(in srgb, #000 35%, transparent);
+  box-shadow: var(--shadow-lg);
   animation: feature-hint-bubble-in 0.3s ease-out 0.9s both;
 }
 
