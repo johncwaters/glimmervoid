@@ -13,6 +13,7 @@ import { EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
 import type { AgentSetup, CatalogAgentId } from '../../shared/contracts/agent-models.ts';
 import { currentAgentModelCatalog } from '../../server/agent-models/agent-models.ts';
 import { AUTO_CONTINUE_PROMPT } from '../../session/core/auto-resume.ts';
+import { packsStatePath, PACKS_DIR_NAME, readPackDir } from '../../server/packs/pack-files.ts';
 
 import WebSocket from 'ws';
 
@@ -207,6 +208,63 @@ async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, 
   check('the launch carried the model setup flags', launchedArgs.some((spawnArgs) => expectedFlags.every((flag) => spawnArgs.includes(flag))));
   check('the first prompt reached the agent', scenarioHooks.some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
 }
+const SHOULD_RUN_ONLY_PACK_AGENT_PROBE = process.argv.includes('--only-pack-agent');
+const PACK_AGENT_PROBE_PACK_NAME = 'probe-pack';
+const PACK_AGENT_PROBE_SKILL_WORD = 'quartzheron';
+const PACK_AGENT_PROBE_CONTEXT_WORD = 'emberfinch';
+const PACK_AGENT_PROBE_PROMPT = `You have a skill named lookup from the pack ${PACK_AGENT_PROBE_PACK_NAME}, and Glimmervoid may have named a pack context file with this prompt. Use that skill and read that file, then reply with only the two code words they give, separated by a space.`;
+
+async function installApprovedProbePack(glimmervoidHome: string): Promise<void> {
+  const packDir = path.join(glimmervoidHome, PACKS_DIR_NAME, PACK_AGENT_PROBE_PACK_NAME);
+  fs.mkdirSync(path.join(packDir, 'skills', 'lookup'), { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({ name: PACK_AGENT_PROBE_PACK_NAME, version: 1, agent: { context: 'CONTEXT.md', skills: ['skills/lookup'] } }));
+  fs.writeFileSync(path.join(packDir, 'CONTEXT.md'), `The context code word is ${PACK_AGENT_PROBE_CONTEXT_WORD}.\n`);
+  fs.writeFileSync(path.join(packDir, 'skills', 'lookup', 'SKILL.md'), `---\nname: lookup\ndescription: Gives the lookup code word. Use when asked to use the lookup skill.\n---\nThe lookup code word is ${PACK_AGENT_PROBE_SKILL_WORD}.\n`);
+  const read = await readPackDir(packDir, process.env);
+  if (!read.ok) throw new Error(`the probe pack is invalid: ${read.errors.join('; ')}`);
+  fs.writeFileSync(packsStatePath(glimmervoidHome), JSON.stringify({ approvedFingerprints: [read.pack.fingerprint] }));
+}
+
+async function waitForPackSessionFiles(configPath: string): Promise<void> {
+  const root = path.join(path.dirname(configPath), 'pack-session-files');
+  const deadline = Date.now() + PROBE_STEP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const folders = fs.existsSync(root) ? fs.readdirSync(root) : [];
+    if (folders.some((folder) => folder.startsWith(`${PACK_AGENT_PROBE_PACK_NAME}-`) && !folder.includes('.partial-'))) return;
+    await delay(250);
+  }
+  throw new Error(`no approved pack copy appeared in ${root}`);
+}
+
+interface PackAgentProbe {
+  session: Session;
+  configPath: string;
+  hookRecords: ProbeHookRecord[];
+  fixtureTarget: ProbeFixtureTarget;
+  check: (label: string, condition: boolean) => void;
+  answerWaiting: () => Promise<void>;
+  afterStart?: () => Promise<void>;
+  startSession?: () => Promise<void>;
+}
+
+async function runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {}, startSession = () => session.start() }: PackAgentProbe): Promise<void> {
+  console.log('\npack-agent-context-skills:');
+  await waitForPackSessionFiles(configPath);
+  session._initialPrompt = PACK_AGENT_PROBE_PROMPT;
+  const scenarioStart = hookRecords.length;
+  const outputOffset = session.getOutputOffset();
+  await startSession();
+  await afterStart();
+  await runTurnToCompletion(session, answerWaiting, 'the pack turn');
+  await delay(3000);
+  const scenarioHooks = hookRecords.slice(scenarioStart);
+  console.log(`  [fixture] ${writeHookFixture('pack-agent-context-skills', scenarioHooks, fixtureTarget)}`);
+  console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
+  const screenText = stripVTControlCharacters(session.getBufferSince(outputOffset).data);
+  check('the agent answered with the pack skill code word', screenText.includes(PACK_AGENT_PROBE_SKILL_WORD));
+  check('the agent answered with the pack context code word', screenText.includes(PACK_AGENT_PROBE_CONTEXT_WORD));
+}
+
 interface ResumeContinueProbe {
   session: Session;
   hookRecords: ProbeHookRecord[];
@@ -356,11 +414,14 @@ export {
   screenShowsSpawnHint,
   screenShowsStartLine,
   screenShowsWhiteboardAnswer,
+  installApprovedProbePack,
   runModelSetupProbe,
+  runPackAgentProbe,
   runResumeContinueProbe,
   SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_MODEL_SETUP_PROBE,
+  SHOULD_RUN_ONLY_PACK_AGENT_PROBE,
   SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,

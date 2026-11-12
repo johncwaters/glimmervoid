@@ -107,6 +107,13 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     fixtureByAgent: { 'claude-code': 'v2-claude-code-background-self-wake.jsonl', codex: 'v2-codex-background-self-wake.jsonl', kimi: 'v2-kimi-background-self-wake.jsonl' },
   },
   {
+    name: 'pack-agent-context-skills',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    waitingNotification: 'allowed',
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-pack-agent-context-skills.jsonl', codex: 'v2-codex-pack-agent-context-skills.jsonl', kimi: 'v2-kimi-pack-agent-context-skills.jsonl' },
+  },
+  {
     name: 'resume-continue',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
