@@ -12,7 +12,7 @@ import codex from '../session/adapters/codex.ts';
 import type { Session } from '../session/sessions.ts';
 import {
   createProbeChecks, delay, HINT_PROBE_PROMPT, queueWhiteboardEditFor, sanitizeProbeText, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, runModelSetupProbe, runResumeContinueProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, installApprovedProbePack, runModelSetupProbe, runPackAgentProbe, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, runResumeContinueProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -225,6 +225,7 @@ async function main(): Promise<void> {
   process.env.GLIMMERVOID_CONFIG = configPath;
   const glimmervoidHome = path.join(tmpDir, 'glimmervoid-home');
   process.env.GLIMMERVOID_HOME = glimmervoidHome;
+  if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) await installApprovedProbePack(glimmervoidHome);
   process.env.CODEX_HOME = makeProbeCodexHome(tmpDir, projectDir);
 
   const server = http.createServer();
@@ -267,6 +268,10 @@ async function main(): Promise<void> {
   try {
     if (SHOULD_RUN_ONLY_MODEL_SETUP_PROBE) {
       await runModelSetupProbe({ session, agent: 'codex', hookRecords, fixtureTarget, check, answerWaiting: async () => { await delay(1500); session.write('y'); } });
+      return;
+    }
+    if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) {
+      await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: async () => { await delay(1500); session.write('y'); } });
       return;
     }
     console.log('\nSpawn:');
