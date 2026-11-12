@@ -582,7 +582,10 @@ async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
 
 const WIDE_TABLE_WIDTH_PX = 3000;
 const PROBE_PAGE_HTML = `<!doctype html><html><body><input aria-label="probe field"><script>
-addEventListener('load', () => setTimeout(() => document.body.insertAdjacentHTML('beforeend', '<table aria-label="wide table" style="width:${WIDE_TABLE_WIDTH_PX}px"><tr><td>first column</td><td style="text-align:right">last column</td></tr></table>'), 50));
+const wideTableHost = document.createElement('div');
+wideTableHost.style.height = '40px';
+document.body.append(wideTableHost);
+addEventListener('load', () => setTimeout(() => wideTableHost.attachShadow({ mode: 'open' }).innerHTML = '<table aria-label="wide table" style="width:${WIDE_TABLE_WIDTH_PX}px"><tr><td>first column</td><td style="text-align:right">last column</td></tr></table>', 1500));
 addEventListener('keydown', (event) => event.stopImmediatePropagation(), true);
 const readings = {};
 try { readings.dom = String(parent.document.body.childElementCount); } catch { readings.dom = 'blocked'; }

@@ -19,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Double-clicking, double-tapping and drag-panning a zoomed HTML page in the full-screen board viewer work again.** The page stopped reporting these gestures to the viewer, so a double click did not zoom and a mouse drag inside a zoomed page did not pan it.
 - **`glimmervoid vault` no longer reports its connection file as malformed while Glimmervoid is starting.** Glimmervoid now writes the file whole in one step, so a vault companion started at the same moment reads either the old file or the new one, never a half-written one.
 
 ## [0.57.2] - 2026-11-11

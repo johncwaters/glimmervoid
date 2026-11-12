@@ -723,7 +723,11 @@ function createViewerSizing(zoomStage: HTMLElement, mediaSheet: HTMLElement): Vi
   };
   const refit = () => {
     const visibleWidthPx = mediaSheet.clientWidth - VIEWER_HANDLE_WIDTH_PX;
-    if (operatorWidthPx !== null || contentWidthPx === null || visibleWidthPx <= 0) return;
+    if (operatorWidthPx !== null || visibleWidthPx <= 0) return;
+    if (contentWidthPx === null) {
+      showAtScale(1);
+      return;
+    }
     showAtScale(Math.max(MIN_PAGE_SCALE, Math.min(1, visibleWidthPx / contentWidthPx)));
   };
   new ResizeObserver(refit).observe(zoomStage);
@@ -736,9 +740,8 @@ function createViewerSizing(zoomStage: HTMLElement, mediaSheet: HTMLElement): Vi
       refit();
     },
     takeNewPage: () => {
-      if (operatorWidthPx !== null) return;
       contentWidthPx = null;
-      showAtScale(1);
+      refit();
     },
     takeOperatorWidth: (widthPx) => {
       operatorWidthPx = widthPx;
