@@ -8,6 +8,16 @@ export const VAULT_REPLACED_CLOSE_CODE = 4000;
 export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
 
+const MAX_LOOK_IN_LENGTH = 200;
+
+export const SecretManager = z.enum(['1password']);
+
+export const SecretSource = z.object({
+  manager: SecretManager,
+  lookIn: z.string().trim().min(1, { error: 'name where the password manager should look' }).max(MAX_LOOK_IN_LENGTH)
+    .regex(/^\P{Cc}*$/u, { error: 'a password manager location cannot hold control characters' }),
+}).strict();
+
 const NEED_STATUSES = ['delivered', 'pending', 'denied', 'companion-offline', 'failed'] as const;
 export const NeedStatus = z.enum(NEED_STATUSES);
 
@@ -116,6 +126,8 @@ export const VaultCompanionFile = z.object({
 }).strict();
 
 export type SecretName = z.infer<typeof SecretName>;
+export type SecretManager = z.infer<typeof SecretManager>;
+export type SecretSource = z.infer<typeof SecretSource>;
 export type NeedStatus = z.infer<typeof NeedStatus>;
 export type AgentNeedRequest = z.infer<typeof AgentNeedRequest>;
 export type AgentNeedReply = z.infer<typeof AgentNeedReply>;

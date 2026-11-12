@@ -120,6 +120,21 @@ function readFfmpegPath(): string | null {
   }
 }
 
+let fnoxPath: string | null = null;
+
+function resolveFnoxPath(): string {
+  if (fnoxPath) return fnoxPath;
+  fnoxPath = runtimePaths.fnoxPath({ execPath: process.execPath, platform: process.platform, fnoxVersion: readPinnedFnoxVersion() });
+  return fnoxPath;
+}
+
+function readPinnedFnoxVersion(): string {
+  if (mode === 'binary') return '';
+  const pin: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'scripts', 'fnox-release.json'), 'utf8'));
+  if (typeof pin !== 'object' || pin === null || !('version' in pin) || typeof pin.version !== 'string') throw new Error('scripts/fnox-release.json names no fnox version');
+  return pin.version;
+}
+
 function binaryRuntimeDir(): string {
   const { version } = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version: string };
   return path.join(glimmervoidHomeDir(os.homedir(), process.env), 'runtime', version);
@@ -168,4 +183,4 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
