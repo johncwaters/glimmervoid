@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Fold a project away in the Focus rail.** Click a project's header to fold its sessions and boards out of sight, and click again to bring them back; the + still adds a session without unfolding. A folded project's header turns amber while any of its sessions needs your input. The session you are viewing keeps its row even inside a folded project, and the session shortcuts skip folded ones. Folds are remembered in this browser.
+- **Fold a project away in the Focus rail.** Click a project's header to fold its sessions and boards out of sight, and click again to bring them back; the + still adds a session without unfolding. A folded project's header turns amber while any of its sessions needs your input. The session you are viewing keeps its row even inside a folded project, and the session shortcuts skip folded ones. The rows slide shut and open and the amber fades in, unless your system asks for reduced motion. Folds are remembered in this browser.
 
 ### Changed
 

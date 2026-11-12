@@ -44,8 +44,21 @@
 .session-group-header[data-folded="true"] .session-group-fold .line-icon { transform: rotate(-90deg); }
 .session-group-header[data-waiting="true"] :is(.session-group-label, .session-group-count, .session-group-fold) { color: var(--state-waiting); }
 .session-group-header[data-waiting="true"] .session-group-rule { background: color-mix(in oklab, var(--state-waiting) 60%, transparent); }
-.focus-rail-list[data-folded="true"] > :not([data-viewed="true"], .rail-unsplit-slot, .focus-board-archive:has([data-viewed="true"])) { display: none; }
-.focus-rail-list[data-folded="true"] .focus-board-archive-list > :not([data-viewed="true"]) { display: none; }
+.focus-rail-list[data-folded="true"] > :not([data-viewed="true"], .rail-unsplit-slot, .focus-board-archive:has([data-viewed="true"])),
+.focus-rail-list[data-folded="true"] .focus-board-archive-list > :not([data-viewed="true"]) {
+  height: 0;
+  min-height: 0;
+  border-bottom-width: 0;
+  overflow: clip;
+  opacity: 0;
+  visibility: hidden;
+}
 @media (prefers-reduced-motion: no-preference) {
-  .session-group-fold .line-icon { transition: transform 150ms ease; }
+  .session-group-fold .line-icon { transition: transform var(--transition-fast); }
+  .session-group-header :is(.session-group-label, .session-group-count) { transition: color var(--transition-med); }
+  .session-group-rule { transition: background var(--transition-med); }
+  .focus-rail[data-fold-motion="true"] :is(.focus-rail-list, .focus-board-archive-list) { interpolate-size: allow-keywords; }
+  .focus-rail[data-fold-motion="true"] :is(.focus-rail-list, .focus-board-archive-list) > * {
+    transition: height var(--transition-med), border-bottom-width var(--transition-med), opacity var(--transition-med), visibility var(--transition-med);
+  }
 }

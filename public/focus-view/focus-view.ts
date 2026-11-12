@@ -104,7 +104,18 @@ let rosterGroupKeyBySessionId = new Map<string, string>();
 const foldedProjectKeys = new Set(getRailFoldedProjectKeys());
 function railVisibleIds() { return visibleOrder(groupsOf(orderedSessions()), foldedProjectKeys, getFocusedSessionId()); }
 
+const FOLD_MOTION_MS = 300;
+let foldMotionTimer: ReturnType<typeof setTimeout> | undefined;
+
+function markFoldMotion() {
+  if (!railEl) return;
+  railEl.dataset.foldMotion = 'true';
+  clearTimeout(foldMotionTimer);
+  foldMotionTimer = setTimeout(() => { if (railEl) delete railEl.dataset.foldMotion; }, FOLD_MOTION_MS);
+}
+
 function toggleProjectFold(projectKey: string) {
+  markFoldMotion();
   const shouldFold = !foldedProjectKeys.has(projectKey);
   foldedProjectKeys.clear();
   for (const storedKey of getRailFoldedProjectKeys()) foldedProjectKeys.add(storedKey);

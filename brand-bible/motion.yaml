@@ -27,7 +27,7 @@ rules:
     why: One-off timings drift until no two parts of the dashboard move alike.
   - rule: A state loop stops after 3 cycles, except a status icon, which runs while its state holds.
     why: A card pulsing for minutes reads as noise, while a small icon carries the state continuously.
-  - rule: Animate transform and opacity only; never shift layout.
-    why: The terminal must never jump under the operator's eyes.
+  - rule: Animate transform and opacity only, and never shift the terminal or center pane's layout; only a rail row an operator fold collapses may animate its height.
+    why: The terminal must never jump under the operator's eyes, while a fold whose rows vanish in one frame loses the operator's place in the rail.
   - rule: Under prefers-reduced-motion, animation and transitions stop.
     why: Reduced motion is honored strictly, not softened.
