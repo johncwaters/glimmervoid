@@ -1,0 +1,75 @@
+{
+ "soundLevel": 1,
+ "sounds": [
+  {
+   "clip": "music/Ouroboros.mp3",
+   "at": "5.75",
+   "clipAt": 18,
+   "until": "5.75",
+   "filter": "highpass=f=350,highpass=f=350,lowpass=f=1600,lowpass=f=1600,afade=t=in:d=0.3",
+   "level": 0.425,
+   "stopBefore": 0.12,
+   "fadeOut": 0.01
+  },
+  {
+   "clip": "music/Ouroboros.mp3",
+   "at": "5.75",
+   "clipAt": 18,
+   "notBefore": "5.75",
+   "until": "TIMELINE.total",
+   "fadeOut": 2.3,
+   "level": 0.5,
+   "fadeIn": 0
+  },
+  {
+   "clip": "sfx/reverse_swell_short.wav",
+   "at": "5.75",
+   "clipAt": 0.65,
+   "level": 0.2
+  },
+  {
+   "clip": "sfx/whoosh_fast_crisp.wav",
+   "at": "TIMELINE.boardSlideIn + 0.2",
+   "align": "peak",
+   "level": 0.15
+  },
+  {
+   "clip": "sfx/ui_pop_soft.wav",
+   "at": "TIMELINE.phoneIn",
+   "level": 0.15
+  },
+  {
+   "clip": "sfx/swipe_paper.wav",
+   "at": "TIMELINE.penStart + 0.35",
+   "align": "peak",
+   "level": 0.135
+  },
+  {
+   "clip": "sfx/ui_pop_wide.wav",
+   "at": "TIMELINE.stickyDrop + 0.1",
+   "level": 0.15
+  },
+  {
+   "clip": "sfx/whoosh_fast_tight.wav",
+   "at": "TIMELINE.saveMove + 0.3",
+   "align": "peak",
+   "level": 0.135
+  },
+  {
+   "clip": "sfx/swipe_glide.wav",
+   "at": "TIMELINE.archPan + 0.45",
+   "align": "peak",
+   "level": 0.135
+  },
+  {
+   "clip": "sfx/sub_drop_punch.wav",
+   "at": "TIMELINE.markClamp",
+   "level": 0.075
+  },
+  {
+   "clip": "sfx/sub_drop_punch.wav",
+   "at": "5.75",
+   "level": 0.075
+  }
+ ]
+}

@@ -24,6 +24,10 @@ harness/site-capture/out/
 harness/site-capture/recordings/
 site/.astro/
 marketing/social/out/
+marketing/video/*/music/
+marketing/video/*/sfx/
+marketing/video/*/mix.*
+marketing/video/*/glimmervoid-*.html
 
 # compiled-commit runner scratch
 .compiled-commit-tmp/
