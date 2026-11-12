@@ -2,18 +2,18 @@ import type { Session } from '../../session/sessions.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { canSubmitWake, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
+import { SUBMIT_DELAY_MS } from '../../session/core/input-delivery-core.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
 import type { AgentApiRuntime, ChannelLink, SessionWakeBudget } from './agent-api-context.ts';
 import type { AttentionNoteOrigin } from '../../shared/contracts/session.ts';
 import type { OperatorWakeFacts } from '../core/wake-core.ts';
 
-const WAKE_SUBMIT_DELAY_MS = 150;
 
 interface StateChange {
   from: SessionState;
@@ -82,28 +82,29 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return sessionsWithWakeLineInFlight.has(session);
   }
 
-  function submitPastedWakeLine(recipient: Session, pastedAt: number): boolean {
-    if (recipient._destroyed) return false;
-    const budget = wakeBudgetOf(recipient);
-    if (!canSubmitWake({ recipientState: recipient.state, pastedAt, lastOperatorInputAt: budget.lastOperatorInputAt })) return false;
-    recipient.write('\r');
-    budget.wakesSinceOperatorInput += 1;
-    return true;
-  }
-
   function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void): boolean {
-    if (isWakeLineInFlight(recipient) || !recipient.pasteText(line).ok) return false;
+    if (isWakeLineInFlight(recipient)) return false;
+    const delivered = recipient.deliver(line, {
+      when: 'idle',
+      submit: true,
+      onSettled: (settlement) => {
+        sessionsWithWakeLineInFlight.delete(recipient);
+        const isSubmitted = settlement === 'submitted';
+        if (isSubmitted) wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
+        onSettled(isSubmitted);
+      },
+    });
+    if (!delivered.ok) return false;
     sessionsWithWakeLineInFlight.add(recipient);
-    const pastedAt = now();
-    unrefTimer(setTimeoutFn(() => {
-      sessionsWithWakeLineInFlight.delete(recipient);
-      onSettled(submitPastedWakeLine(recipient, pastedAt));
-    }, WAKE_SUBMIT_DELAY_MS));
     return true;
   }
 
-  function typeWakeLine(link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
-    if (submitWakeLine(recipient, describeWakeLine(channel, side), () => link.pendingWakeSides.delete(side))) link.pendingWakeSides.add(side);
+  function typeWakeLine(childId: string, link: ChannelLink, channel: AgentChannel, side: ChannelSide, recipient: Session): void {
+    if (!submitWakeLine(recipient, describeWakeLine(channel, side), () => link.pendingWakeSides.delete(side))) {
+      scheduleWakeRetry(childId, link, side, SUBMIT_DELAY_MS);
+      return;
+    }
+    link.pendingWakeSides.add(side);
   }
 
   function wakeRecipient(childId: string, side: ChannelSide): void {
@@ -113,7 +114,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     const recipient = recipientOf(link, side);
     if (recipient._destroyed) return;
     if (isWakeLineInFlight(recipient) && !link.pendingWakeSides.has(side)) {
-      scheduleWakeRetry(childId, link, side, WAKE_SUBMIT_DELAY_MS);
+      scheduleWakeRetry(childId, link, side, SUBMIT_DELAY_MS);
       return;
     }
     const decision = decideWake({
@@ -132,7 +133,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
         flagWakeCap(recipient, 'child-wake-cap', describeWakeCapNote(channel));
         return;
       case 'wake':
-        typeWakeLine(link, channel, side, recipient);
+        typeWakeLine(childId, link, channel, side, recipient);
         return;
     }
   }

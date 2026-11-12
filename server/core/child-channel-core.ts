@@ -176,13 +176,8 @@ function decideWake(facts: WakeFacts): WakeDecision {
   return { kind: 'wake' };
 }
 
-function canSubmitWake({ recipientState, pastedAt, lastOperatorInputAt }: { recipientState: SessionState; pastedAt: number; lastOperatorInputAt: number }): boolean {
-  if (lastOperatorInputAt >= pastedAt) return false;
-  return WAKEABLE_STATES.includes(recipientState);
-}
-
 export {
-  canSubmitWake, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
   openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelSide };

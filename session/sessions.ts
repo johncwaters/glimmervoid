@@ -1384,11 +1384,6 @@ class Session extends EventEmitter {
     return this._output.deliver(cleanPastedText(text), options);
   }
 
-  pasteText(text: string): { ok: boolean; reason?: string } {
-    const outcome = this.deliver(text, { when: "now", submit: false });
-    return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
-  }
-
 
   hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
 

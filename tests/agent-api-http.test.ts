@@ -43,6 +43,7 @@ import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { SUBMIT_DELAY_MS } from '../session/core/input-delivery-core.ts';
 
 const SESSION_ID = 'agent-api-session';
 const GIT = hasGit();
@@ -218,6 +219,25 @@ interface ManualClock {
   now: () => number;
   setTimeoutFn: SetTimeoutFn;
   clearTimeoutFn: ClearTimeoutFn;
+}
+
+function settleDeliveriesOnClock(session: Session, clock: ManualClock, onPaste: (text: string) => void): void {
+  session.deliver = (text, { submit, onSettled }) => {
+    onPaste(text);
+    let hasOperatorTyped = false;
+    const noteOperatorTyping = () => { hasOperatorTyped = true; };
+    session.once('operator-input', noteOperatorTyping);
+    clock.setTimeoutFn(() => {
+      session.off('operator-input', noteOperatorTyping);
+      if (!submit || hasOperatorTyped) {
+        onSettled?.(submit ? 'withheld' : 'pasted');
+        return;
+      }
+      session.write('\r');
+      onSettled?.('submitted');
+    }, SUBMIT_DELAY_MS);
+    return { ok: true, kind: 'pasted' };
+  };
 }
 
 function manualClock() {
@@ -1009,7 +1029,7 @@ for (const ending of [
     for (const hasParentRead of [true, false]) {
       const fixture = wiringFixture({ clock });
       const pasted: string[] = [];
-      fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
+      settleDeliveriesOnClock(fixture.parent, clock, (text) => pasted.push(text));
       fixture.parent.write = () => {};
       try {
         const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the title screen' });
@@ -1048,7 +1068,7 @@ test('a child that fails wakes its parent even after the parent read its report'
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
   const pasted: string[] = [];
-  fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
+  settleDeliveriesOnClock(fixture.parent, clock, (text) => pasted.push(text));
   fixture.parent.write = () => {};
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the title screen' });
@@ -1076,48 +1096,75 @@ test('a child that fails wakes its parent even after the parent read its report'
 test('a spawned child that stops wakes its idle parent with one submitted line, up to the cap, then again once the operator has typed', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
-  const pasted: string[] = [];
   const written: string[] = [];
   const attentionNotes: string[] = [];
-  fixture.parent.pasteText = (text) => { pasted.push(text); return { ok: true }; };
   fixture.parent.write = (text) => { written.push(text); };
   fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
+  const pasted = () => written.filter((text) => text.startsWith('\x1b[200~')).map((text) => text.slice(6, -6));
+  const enters = () => written.filter((text) => text === '\r');
+  const waitForSubmitDelay = () => new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
   try {
     const spawned = await fixture.spawn(fixture.parent, { prompt: 'build U2' });
     const childId = String(spawned.body.sessionId);
     const child = fixture.created[0];
-    fixture.parent.transition('user_start');
-    fixture.parent.transition('spawn_success', { spawnCwdExists: true });
+    await fixture.parent.start();
     fixture.parent.transition('first_output');
     assert.equal(fixture.parent.state, STATES.IDLE);
-    const endChildTurn = () => {
+    const endChildTurn = async () => {
       child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
       advanceBy(1000);
+      await waitForSubmitDelay();
     };
 
     child.emit('hook-event', { event: 'Stop', payload: { last_assistant_message: 'held U2 over a HIGH finding' } });
-    endChildTurn();
-    assert.deepEqual(pasted, [`Glimmervoid: ${String(spawned.body.name)}, the session you spawned, has news. Run glimmervoid read ${childId} and act on it.`]);
-    assert.deepEqual(written, ['\r']);
+    await endChildTurn();
+    assert.deepEqual(pasted(), [`Glimmervoid: ${String(spawned.body.name)}, the session you spawned, has news. Run glimmervoid read ${childId} and act on it.`]);
+    assert.deepEqual(enters(), ['\r']);
     const notes = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels[0]?.entries ?? [];
     assert.deepEqual(notes.map(({ from }) => from), ['glimmervoid']);
     assert.match(notes[0]?.text ?? '', /finished a turn and is Idle\. Its last message:\nheld U2 over a HIGH finding$/);
 
-    for (let turn = 0; turn < 10; turn += 1) endChildTurn();
-    assert.deepEqual([pasted.length, written.length, attentionNotes.length], [10, 10, 1], 'the eleventh wake flags the operator instead of typing');
+    for (let turn = 0; turn < 10; turn += 1) await endChildTurn();
+    assert.deepEqual([pasted().length, enters().length, attentionNotes.length], [10, 10, 1], 'the eleventh wake flags the operator instead of typing');
 
     fixture.parent.emit('operator-input');
-    endChildTurn();
-    assert.equal(pasted.length, 10, 'no wake while the operator typed in the last 30 seconds');
+    await endChildTurn();
+    assert.equal(pasted().length, 10, 'no wake while the operator typed in the last 30 seconds');
     advanceBy(30_000);
     advanceBy(1000);
-    assert.deepEqual([pasted.length, written.length], [11, 11], 'operator input resets the cap and the held wake fires after the hold-off');
+    await waitForSubmitDelay();
+    assert.deepEqual([pasted().length, enters().length], [11, 11], 'operator input resets the cap and the held wake fires after the hold-off');
 
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
-    advanceBy(50);
-    fixture.parent.noteOperatorInput('r');
     advanceBy(1000);
-    assert.deepEqual([pasted.length, written.length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+    fixture.parent.noteOperatorInput('r');
+    await waitForSubmitDelay();
+    assert.deepEqual([pasted().length, enters().length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a child wake refused while a prompt is still queued for its parent is typed once that prompt has landed', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const written: string[] = [];
+  fixture.parent.write = (text) => { written.push(text); };
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    assert.equal(fixture.parent.deliver('radar fix prompt', { when: 'ready', submit: false }).kind, 'queued');
+    child.emit('hook-event', { event: 'Stop', payload: { last_assistant_message: 'done' } });
+    fixture.parent.transition('first_output');
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(1000);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    advanceBy(1000);
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+    assert.equal(written[0], '\x1b[200~radar fix prompt\x1b[201~');
+    assert.match(written[1] ?? '', /has news/);
+    assert.equal(written[2], '\r');
   } finally {
     fixture.destroyAll();
   }
@@ -1130,7 +1177,7 @@ test('a session wakes itself through the wake verb, malformed wakes are refused 
   const written: string[] = [];
   const attentionOrigins: string[] = [];
   const inputOrder: string[] = [];
-  fixture.parent.pasteText = (text) => { pasted.push(text); inputOrder.push('paste'); return { ok: true }; };
+  settleDeliveriesOnClock(fixture.parent, clock, (text) => { pasted.push(text); inputOrder.push('paste'); });
   fixture.parent.write = (text) => { written.push(text); inputOrder.push('enter'); };
   fixture.parent.raiseAttention = (origin) => { attentionOrigins.push(origin); return { ok: true, pending: false }; };
   const wake = (payload: Record<string, unknown>) => fixture.wiring.handle(fixture.parent, 'wake', payload);
@@ -1155,7 +1202,7 @@ test('a session wakes itself through the wake verb, malformed wakes are refused 
     assert.deepEqual((await wake({ sub: 'cancel', wake: 'w2' })).body, { ok: true, cancelled: 'w2' });
     assert.equal((await wake({ sub: 'cancel', wake: 'w2' })).status, 404);
     advanceBy(60_000);
-    advanceBy(200);
+    advanceBy(300);
     assert.equal(pasted.length, 1);
     assert.match(pasted[0] ?? '', /^Glimmervoid wake w1 \(you set it at \d\d:\d\d\): check the rollout$/);
     assert.deepEqual(written, ['\r']);
@@ -1190,9 +1237,7 @@ test('a session wakes itself through the wake verb, malformed wakes are refused 
 test('a draft the operator stages at an idle parent holds off the wake so a stopping child never submits it', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
-  const wakePastes: string[] = [];
   const written: string[] = [];
-  fixture.parent.pasteText = (text) => { wakePastes.push(text); return { ok: true }; };
   fixture.parent.write = (text) => { written.push(text); };
   try {
     await fixture.spawn(fixture.parent, { prompt: 'build U2' });
@@ -1206,7 +1251,7 @@ test('a draft the operator stages at an idle parent holds off the wake so a stop
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
     assert.match(written.join(''), /^\x1b\[200~half done/);
-    assert.deepEqual([wakePastes.length, written.filter((text) => text === '\r').length], [0, 0]);
+    assert.deepEqual([written.filter((text) => text.includes('has news')).length, written.filter((text) => text === '\r').length], [0, 0]);
   } finally {
     fixture.destroyAll();
   }
