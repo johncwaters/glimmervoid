@@ -176,6 +176,18 @@ function launcherLines(row: PackRow): HTMLElement[] {
   });
 }
 
+const PACK_AGENT_GRANT_TEXT = "Every session's agent follows these skills and reads this file.";
+
+function agentLines(row: PackRow): HTMLElement[] {
+  const agent = row.agent;
+  if (agent === null || (agent.context === null && agent.skills.length === 0)) return [];
+  return [
+    el('p', 'settings-view-warning', PACK_AGENT_GRANT_TEXT),
+    ...(agent.context === null ? [] : [el('p', 'settings-view-setting-description', `Context file ${agent.context.path}:`), el('pre', 'settings-view-pack-prompt', agent.context.text)]),
+    ...agent.skills.flatMap((skill) => [el('p', 'settings-view-setting-description', `Skill ${skill.name} (${skill.path}/SKILL.md):`), el('pre', 'settings-view-pack-prompt', skill.text)]),
+  ];
+}
+
 function packLines(row: PackRow): HTMLElement[] {
   const sessionsText = sessionsLine(row.sessions);
   const lines = [
@@ -192,6 +204,7 @@ function packLines(row: PackRow): HTMLElement[] {
     ...panelLines(row),
     ...steeringWarning(row),
     ...launcherLines(row),
+    ...agentLines(row),
     ...(sessionsText === null ? [] : [el('p', 'settings-view-warning', sessionsText)]),
     ...row.errors.map((error) => el('p', 'settings-view-warning', error)),
     ...(row.prFlows ? approvalDetails(row.prFlows) : []),

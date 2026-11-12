@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackHeader, PackLaunchers, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackAgent, PackHeader, PackLaunchers, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -116,6 +116,18 @@ function withPanelFilesPresent(ui: PackSection<PackUi> | null, rawUi: unknown, f
   return missing.length === 0 ? ui : { ok: false, errors: missing };
 }
 
+function missingAgentFiles(agent: PackAgent, filesByPath: ReadonlyMap<string, Buffer>): string[] {
+  const contextErrors = agent.context === undefined || filesByPath.has(agent.context) ? [] : [`${PACK_FILE_NAME} agent.context: ${agent.context} is not a file in the pack`];
+  const skillErrors = agent.skills.filter((skillFolder) => !filesByPath.has(`${skillFolder}/SKILL.md`)).map((skillFolder) => `${PACK_FILE_NAME} agent.skills: ${skillFolder} holds no SKILL.md`);
+  return [...contextErrors, ...skillErrors];
+}
+
+function withAgentFilesPresent(agent: PackSection<PackAgent> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackAgent> | null {
+  if (agent === null || !agent.ok) return agent;
+  const missing = missingAgentFiles(agent.value, filesByPath);
+  return missing.length === 0 ? agent : { ok: false, errors: missing };
+}
+
 function manifestJson(manifest: Buffer): { ok: true; value: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, value: JSON.parse(manifest.toString('utf8')) };
@@ -157,12 +169,13 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const launchers = parseSection(PackLaunchers, header.data.launchers, 'launchers');
   const sessions = parseSection(PackSessions, header.data.sessions, 'sessions');
   const status = parseSection(PackStatus, header.data.status, 'status');
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status].flatMap(sectionErrors)], filesByPath, header: header.data };
+  const agent = withAgentFilesPresent(parseSection(PackAgent, header.data.agent, 'agent'), read.filesByPath);
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, agent, missingRequires: await missingRequires(header.data.requires, env),
     },
   };
 }

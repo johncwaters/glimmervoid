@@ -47,6 +47,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packLauncherRunsPath, packsStatePath } from '../packs/pack-files.ts';
 import { createPackSources } from '../packs/pack-sources.ts';
+import type { PackSessionFiles } from '../packs/pack-session-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
 import { createPackLaunchers } from '../packs/launchers.ts';
 import { createPackStore } from '../packs/pack-store.ts';
@@ -105,6 +106,7 @@ interface BackendLaneDependencies {
   provenanceWriterId: () => Promise<string>;
   renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
   retitleProvisionalBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
+  packSessionFiles: Pick<PackSessionFiles, 'sync'>;
 }
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
@@ -130,6 +132,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     telemetry,
     logger,
     provenanceWriterId,
+    packSessionFiles,
   } = dependencies;
   const memoryAdmission = createMemoryAdmission({
     readHeadroom: () => readMemoryHeadroom(),
@@ -437,8 +440,13 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => teamReview.startPoller(),
       () => myPrs.startPoller(),
       () => {
+        const syncPackSessionFiles = () => packSessionFiles.sync(packStore.agentContributionsInUse()).then(
+          ({ warnings }) => { for (const warning of warnings) logger.warn(`[packs] ${warning}`); },
+          (error: unknown) => logger.warn(`[packs] could not write pack skills and context for sessions: ${errorMessage(error)}`),
+        );
         packStore.on('changed', () => {
           broadcastPacksIfChanged();
+          void syncPackSessionFiles();
           void providerStatus.track(packStore.statusUrlsInUse());
           void packLaunchers.refresh();
           void prFlows.applyRules();
