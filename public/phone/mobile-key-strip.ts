@@ -1,8 +1,8 @@
 import { el } from '../dom-helpers.ts';
 import { createPressable } from '../ui/pressable.ts';
-import type { MobileKey } from '../mobile-keys.ts';
+import type { MobileKey, TerminalTextAction } from '../mobile-keys.ts';
 import type { StickyModifierEvent, StickyModifierState, StripContext } from '../mobile-keys.ts';
-import { ALT_SLOT, ARROW_KEY_IDS, ARROWS_SLOT, arrowStepsForDrag, CONTROL_SLOT, isClipboardKey, isUploadKey, MORE_SHEET_SLOTS, mobileKeyBytes, MOBILE_KEYS, nextStickyModifierState, RAW_TYPING_SLOT, STRIP_SLOTS_BY_CONTEXT } from '../mobile-keys.ts';
+import { ALT_SLOT, ARROW_KEY_IDS, ARROWS_SLOT, arrowStepsForDrag, CONTROL_SLOT, isClipboardKey, isUploadKey, MORE_SHEET_SLOTS, terminalTextActionOf, mobileKeyBytes, MOBILE_KEYS, nextStickyModifierState, RAW_TYPING_SLOT, STRIP_SLOTS_BY_CONTEXT } from '../mobile-keys.ts';
 import { uploadFileToSession } from '../session-upload.ts';
 import { createLineIcon, KEYBOARD_ICON_PATH } from '../svg-dom.ts';
 
@@ -31,6 +31,7 @@ interface MobileKeyStripOptions {
   toggleKeyboard: () => void;
   toggleRawTyping: () => void;
   pasteText: (text: string) => void;
+  runTextAction: (action: TerminalTextAction) => void;
 }
 
 const DOUBLE_TAP_WINDOW_MS = 350;
@@ -69,7 +70,7 @@ function createStickyModifier(label: string, slotId: string) {
   };
 }
 
-export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggleKeyboard, toggleRawTyping, pasteText }: MobileKeyStripOptions) {
+export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggleKeyboard, toggleRawTyping, pasteText, runTextAction }: MobileKeyStripOptions) {
   const strip = el('div', 'phone-key-strip');
   strip.setAttribute('role', 'toolbar');
   strip.setAttribute('aria-label', 'Terminal keys');
@@ -195,6 +196,11 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggle
     }
     if (isClipboardKey(key)) {
       pasteFromClipboard(pasteText, reportProblem);
+      return;
+    }
+    const textAction = terminalTextActionOf(key);
+    if (textAction) {
+      runTextAction(textAction);
       return;
     }
     sendWithModifiers(mobileKeyBytes(key.id));

@@ -2,6 +2,10 @@ const CLIPBOARD_ACTION = 'clipboard';
 
 const UPLOAD_ACTION = 'upload';
 
+export type TerminalTextAction = 'select' | 'copy-screen' | 'copy-output';
+
+const TERMINAL_TEXT_ACTIONS: ReadonlySet<string> = new Set<TerminalTextAction>(['select', 'copy-screen', 'copy-output']);
+
 const ARROW_PAD_STEP_PX = 24;
 
 export interface MobileKey {
@@ -31,6 +35,9 @@ export const MOBILE_KEYS: readonly Readonly<MobileKey>[] = Object.freeze([
   Object.freeze({ id: 'q', label: 'q', bytes: 'q', title: 'Type q' }),
   Object.freeze({ id: 'paste', label: 'Paste', bytes: null, action: CLIPBOARD_ACTION, title: 'Paste from the clipboard' }),
   Object.freeze({ id: 'attach', label: 'Attach', bytes: null, action: UPLOAD_ACTION, title: 'Upload a photo or file to this session' }),
+  Object.freeze({ id: 'select', label: 'Select', bytes: null, action: 'select', title: 'Select text from the terminal' }),
+  Object.freeze({ id: 'copy-screen', label: 'Copy screen', bytes: null, action: 'copy-screen', title: 'Copy the text on screen' }),
+  Object.freeze({ id: 'copy-output', label: 'Copy output', bytes: null, action: 'copy-output', title: 'Copy the last command output' }),
 ]);
 
 export const ARROW_KEY_IDS: readonly string[] = Object.freeze(['left', 'up', 'down', 'right']);
@@ -49,7 +56,7 @@ export const STRIP_SLOTS_BY_CONTEXT: Readonly<Record<StripContext, readonly stri
   fullscreen: Object.freeze(['esc', CONTROL_SLOT, 'tab', ARROWS_SLOT, 'q', 'enter']),
 });
 
-export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'paste', 'attach', RAW_TYPING_SLOT]);
+export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'paste', 'attach', 'select', 'copy-screen', 'copy-output', RAW_TYPING_SLOT]);
 
 const WORKING_STATES: ReadonlySet<string> = new Set(['INITIALIZING', 'STARTING', 'RUNNING']);
 
@@ -115,6 +122,15 @@ export function mobileKeyBytes(id: string) {
 
 export function isClipboardKey(key: Pick<MobileKey, 'action'> | null | undefined) {
   return !!key && key.action === CLIPBOARD_ACTION;
+}
+
+function isTerminalTextAction(action: string | undefined): action is TerminalTextAction {
+  return action !== undefined && TERMINAL_TEXT_ACTIONS.has(action);
+}
+
+export function terminalTextActionOf(key: Pick<MobileKey, 'action'> | null | undefined): TerminalTextAction | null {
+  const action = key?.action;
+  return isTerminalTextAction(action) ? action : null;
 }
 
 export function isUploadKey(key: Pick<MobileKey, 'action'> | null | undefined) {

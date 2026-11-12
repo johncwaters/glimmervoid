@@ -368,3 +368,61 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { displa
 .phone-nav-menu-item:active { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .phone-nav-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .phone-nav-menu-item[aria-current="page"] { color: var(--accent); }
+
+.phone-card-slot .terminal-wrap .terminal-select-mirror {
+  position: absolute;
+  z-index: 5;
+  overflow: hidden;
+  color: transparent;
+  caret-color: transparent;
+  white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
+}
+
+.terminal-select-mirror-row { height: 1lh; }
+
+.terminal-select-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg);
+}
+
+.terminal-select-sheet-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-select-sheet-footer {
+  display: grid;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.terminal-select-sheet-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.terminal-select-mirror-wide {
+  display: inline-block;
+  letter-spacing: 0;
+}

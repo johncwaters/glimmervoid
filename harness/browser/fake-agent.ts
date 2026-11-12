@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace } from './frame-core.ts';
+import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, SECRET_ROW_NUMBER, SECRET_ROW_VALUE, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -142,6 +142,14 @@ function dispatch(command: string): void {
   }
   if (command === 'link-motion') {
     writeRow(LINK_ROW_NUMBER + 2, `${MOTION_REPORT_PREFIX} ${motionReportsSinceLinkPaint}`);
+    return;
+  }
+  if (command === 'wide-row') {
+    writeRow(WIDE_ROW_NUMBER, `${WIDE_ROW_LEAD} ${WIDE_ROW_TARGET}`);
+    return;
+  }
+  if (command === 'secret-row') {
+    writeRow(SECRET_ROW_NUMBER, `GITHUB_TOKEN=${SECRET_ROW_VALUE}`);
     return;
   }
   if (command === 'history' || command === 'mouse-history') {
