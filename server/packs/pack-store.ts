@@ -8,7 +8,7 @@ import type { PackMcpServer, PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
-import { NO_OPERATOR_MCP_SERVER_NAMES, approvedPackPanels, approvedPackThemes, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote } from './core/pack-core.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, approvedPackPanels, declaredPackSecretsOf, approvedPackThemes, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote } from './core/pack-core.ts';
 import type { OperatorMcpServerNames } from './core/pack-core.ts';
 import { readCodexOperatorServerNames, readOperatorMcpServerNames } from './operator-mcp-servers.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readExamplePacks, readPackDir } from './pack-files.ts';
@@ -35,6 +35,7 @@ type PackStore = EventEmitter & {
   panelPackDir(packName: string): string | null;
   mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
   addExample(name: string): Promise<PackApproveResult>;
+  declaredSecrets(): { name: string; packs: string[] }[];
 };
 
 export function createPackStore({ homeDir, statePath, env, log, examplePacksDir = null, appendListedPath = null, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -315,6 +316,10 @@ export function createPackStore({ homeDir, statePath, env, log, examplePacksDir 
     return { ok: true };
   }
 
+  function declaredSecrets(): { name: string; packs: string[] }[] {
+    return declaredPackSecretsOf(currentReads().flatMap(({ read }) => (read.ok && approvedFingerprints.has(read.pack.fingerprint) ? [read.pack] : [])));
+  }
+
   async function mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]> {
     const packs = packsInUse();
     if (packs.every((pack) => packMcpServers(pack).length === 0)) return [];
@@ -322,5 +327,5 @@ export function createPackStore({ homeDir, statePath, env, log, examplePacksDir 
     return packMcpServersForAgent(agentId, packs, { ...operatorMcpServerNames, codex: codexNames });
   }
 
-  return Object.assign(emitter, { start, stop, mcpServersForSession, addExample, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  return Object.assign(emitter, { start, stop, mcpServersForSession, addExample, declaredSecrets, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }

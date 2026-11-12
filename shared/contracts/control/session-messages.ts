@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { ManagerDecision } from '../question-manager.ts';
-import { ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
+import { PackSecretLink, PackSecretRow, ProjectApprovals, SecretDecision, SecretName, SecretRevoke } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
@@ -38,6 +38,7 @@ export const sessionClientVariants = [
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
   loose('secret-decision', SecretDecision.shape),
   loose('secret-revoke', SecretRevoke.shape),
+  loose('pack-secret-link', PackSecretLink.shape),
 ] as const;
 
 export const sessionServerVariants = [
@@ -94,5 +95,5 @@ export const sessionServerVariants = [
   }),
   loose('session-secret-request', { id: sessionId, names: z.array(SecretName), newItemsVault: z.string().nullable() }),
   loose('secret-requests-snapshot', { requests: z.record(z.string(), z.array(SecretName)), newItemsVault: z.string().nullable() }),
-  loose('secret-approvals', { projects: z.array(ProjectApprovals) }),
+  loose('secret-approvals', { projects: z.array(ProjectApprovals), packSecrets: z.array(PackSecretRow) }),
 ] as const;

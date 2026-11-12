@@ -1,13 +1,14 @@
 import { EventEmitter } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 
-import type { AgentNeedReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRevoke, CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
+import type { AgentNeedReply, NeedStatus, PackSecretRow, ProjectApprovals, SecretDecision, SecretRevoke, CreateJob, CreatedResult, ResolveJob, ResolvedResult } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
 import type { CreateMiss } from './vault-socket.ts';
 import { MAX_VAULT_NAME_LENGTH } from '../../shared/contracts/secrets.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
-import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, withApprovals, withoutApproval, withoutApprovals } from './core/secrets-broker-core.ts';
+import { approvalRowsOf, approvalsOf, packLinksOf, withPackLink, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, withApprovals, withoutApproval, withoutApprovals } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
 
 interface NeedingSession {
@@ -39,6 +40,14 @@ interface SecretsBrokerOptions {
   readEnvValues?: (directory: string) => Promise<Readonly<Record<string, string>>>;
   now?: () => number;
   telemetry?: Pick<Telemetry, 'capture'> | null;
+  declaredPackSecrets?: () => readonly { name: string; packs: readonly string[] }[];
+  companionGraceMs?: number;
+  packSecretReadTimeoutMs?: number;
+}
+
+interface PackSecretsRead {
+  valueByName: Record<string, string>;
+  problemByName: Record<string, string>;
 }
 
 function deliveredNote(envFile: string): string {
@@ -62,9 +71,11 @@ const CREATE_MISS_REFUSALS: Readonly<Record<CreateMiss, string>> = Object.freeze
   'no-answer': 'The vault companion did not answer in time, so the items may or may not exist; check the vault for them, then give their references instead of pasting again.',
 });
 const REFERENCE_NOT_FOUND_NOTE = 'the vault has no item at the saved reference; the operator was asked for a new one';
+const COMPANION_POLL_MS = 250;
 const COMPANION_LOST_NOTE = 'the vault companion did not answer, so ask again once glimmervoid vault is running';
 
-function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = Date.now, telemetry = null }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = () => false, readVault = async () => null, createInVault = async () => 'offline', newItemsVault = () => null, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), now = Date.now, telemetry = null, declaredPackSecrets = () => [], companionGraceMs = 15_000, packSecretReadTimeoutMs = 10_000 }: SecretsBrokerOptions) {
+  let companionGracePollsLeft = Math.ceil(companionGraceMs / COMPANION_POLL_MS);
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, PendingCard>();
@@ -342,6 +353,68 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     return approvalRowsOf(readSecrets());
   }
 
+  function packSecretRows(): PackSecretRow[] {
+    const referenceByName = packLinksOf(readSecrets());
+    const packsByName = new Map<string, string[]>();
+    for (const declared of declaredPackSecrets()) packsByName.set(declared.name, [...(packsByName.get(declared.name) ?? []), ...declared.packs]);
+    for (const name of Object.keys(referenceByName)) if (!packsByName.has(name)) packsByName.set(name, []);
+    return [...packsByName].sort(([left], [right]) => left.localeCompare(right)).map(([name, packs]) => ({ name, packs: [...new Set(packs)].sort(), reference: referenceByName[name] ?? null }));
+  }
+
+  function approvalsMessage(): { type: 'secret-approvals'; projects: ProjectApprovals[]; packSecrets: PackSecretRow[] } {
+    return { type: 'secret-approvals', projects: approvalRows(), packSecrets: packSecretRows() };
+  }
+
+  async function linkPackSecret({ name, reference }: { name: string; reference: string }): Promise<string | null> {
+    if (reference !== '' && (await namesWithNoVaultItem({ [name]: reference })).length > 0) return `The vault has no item at the reference given for ${name}.`;
+    const isSaved = await writeSecrets((rawSecrets) => withPackLink(rawSecrets, name, reference));
+    if (!isSaved) return 'Glimmervoid could not save the change to config.json.';
+    events.emit('approvals-changed');
+    return null;
+  }
+
+  async function isCompanionOnlineSoon(): Promise<boolean> {
+    while (!isCompanionOnline() && companionGracePollsLeft > 0) {
+      companionGracePollsLeft -= 1;
+      await delay(COMPANION_POLL_MS);
+    }
+    return isCompanionOnline();
+  }
+
+  async function readVaultWithin(items: ResolveJob['items']): Promise<ResolvedResult['items'] | null> {
+    const timeout = new AbortController();
+    try {
+      return await Promise.race([readVault(items), delay(packSecretReadTimeoutMs, null, { signal: timeout.signal })]);
+    } finally {
+      timeout.abort();
+    }
+  }
+
+  async function readPackSecrets(sessionId: string, names: readonly string[]): Promise<PackSecretsRead> {
+    const referenceByName = packLinksOf(readSecrets());
+    const problemByName: Record<string, string> = {};
+    const items = names.flatMap((name) => {
+      const reference = referenceByName[name];
+      if (reference) return [{ name, reference }];
+      problemByName[name] = 'it is not linked to a vault item in Settings, Vault';
+      return [];
+    });
+    if (items.length === 0) return { valueByName: {}, problemByName };
+    if (!(await isCompanionOnlineSoon())) return { valueByName: {}, problemByName: { ...problemByName, ...Object.fromEntries(items.map((item) => [item.name, 'the vault companion is not connected; run glimmervoid vault'])) } };
+    const resolvedItems = await readVaultWithin(items);
+    const valueByName: Record<string, string> = {};
+    for (const item of items) {
+      const resolved = resolvedItems?.find((candidate) => candidate.name === item.name);
+      if (resolved && 'value' in resolved && resolved.value !== '') {
+        valueByName[item.name] = resolved.value;
+        continue;
+      }
+      problemByName[item.name] = resolved && 'failure' in resolved ? `the vault could not read it (${resolved.failure.kind}): ${resolved.failure.message}` : COMPANION_LOST_NOTE;
+    }
+    if (Object.keys(valueByName).length > 0) addDeliveredValues(sessionId, Object.values(valueByName));
+    return { valueByName, problemByName };
+  }
+
   function deliveredValuesOf(sessionId: string): string[] {
     return [...(deliveredValuesBySession.get(sessionId) ?? [])];
   }
@@ -352,7 +425,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, isCompanionOnline = ()
     closeCard(sessionId);
   }
 
-  return { events, need, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, newItemsVault, deliveredValuesOf, seedMasks };
+  return { events, need, decide, revoke, requestsSnapshot, approvalRows, approvalsMessage, linkPackSecret, readPackSecrets, forgetSession, refreshCards, newItemsVault, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

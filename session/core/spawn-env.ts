@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AGENT_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
-import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX } from "../../mcp/core/agent-config.ts";
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 import { ENV_SECRET_BINDINGS } from "../../server/core/config-secrets-core.ts";
 
@@ -88,7 +88,7 @@ function buildAgentEnv(
 ): SpawnEnv {
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
-  for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  scrubGlimmervoidKeys(env);
   for (const key of LAUNCHING_TERMINAL_IDENTITY_KEYS) delete env[key];
   if (isSaneYoloGuarded(extraEnv)) scrubInheritedSafetyNetEnv(env);
   Object.assign(env, extraEnv || {});
@@ -99,9 +99,14 @@ function buildAgentEnv(
   return env;
 }
 
+function scrubGlimmervoidKeys(env: SpawnEnv): void {
+  for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  for (const key of Object.keys(env)) if (key.startsWith(PACK_SECRET_ENV_PREFIX)) delete env[key];
+}
+
 function withoutGlimmervoidSecrets(env: SpawnEnv): SpawnEnv {
   const scrubbed: SpawnEnv = { ...env };
-  for (const key of GLIMMERVOID_SCRUB_KEYS) delete scrubbed[key];
+  scrubGlimmervoidKeys(scrubbed);
   return scrubbed;
 }
 

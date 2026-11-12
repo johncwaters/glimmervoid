@@ -609,6 +609,11 @@
                 "type": "string",
                 "format": "uri",
                 "description": "The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login"
+              },
+              "secret": {
+                "description": "A bearer token sent to this server: the operator links the name once to a vault item in Settings, Vault, and glimmervoid reads it at spawn and passes it by environment variable, never argv; sessions leave the server out while it cannot be read",
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"
               }
             },
             "required": [

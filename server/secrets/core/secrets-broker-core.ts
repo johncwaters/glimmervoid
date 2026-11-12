@@ -93,6 +93,26 @@ function approvalRowsOf(rawSecrets: unknown): ProjectApprovals[] {
   })).filter((row) => row.approvals.length > 0);
 }
 
+function packLinksOf(rawSecrets: unknown): Record<string, string> {
+  const links = secretsRecordOf(rawSecrets)?.packs;
+  if (!isPlainRecord(links)) return {};
+  const referenceByName: Record<string, string> = {};
+  for (const [name, entry] of Object.entries(links)) {
+    const approval = SecretApproval.safeParse(entry);
+    if (SecretName.safeParse(name).success && approval.success && approval.data.reference !== null) referenceByName[name] = approval.data.reference;
+  }
+  return referenceByName;
+}
+
+function withPackLink(rawSecrets: unknown, name: string, reference: string): Record<string, unknown> | null {
+  const secretsRecord = secretsRecordOf(rawSecrets);
+  if (!secretsRecord) return null;
+  const links = isPlainRecord(secretsRecord.packs) ? secretsRecord.packs : {};
+  const { [name]: _replaced, ...otherLinks } = links;
+  const nextLinks = reference === '' ? otherLinks : { ...otherLinks, [name]: { reference, isAllowed: true } };
+  return { ...secretsRecord, packs: nextLinks };
+}
+
 function withProjectEntries(rawSecrets: unknown, project: string, entries: Record<string, unknown>): Record<string, unknown> | null {
   const secretsRecord = secretsRecordOf(rawSecrets);
   const byProject = byProjectOf(rawSecrets);
@@ -130,5 +150,5 @@ function denialEndsAtMs(nowMs: number): number {
   return nowMs + DENIAL_HOLD_MS;
 }
 
-export { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, needExitCode, withApprovals, withoutApproval, withoutApprovals };
+export { approvalRowsOf, approvalsOf, packLinksOf, withPackLink, decideNeed, denialEndsAtMs, missingReferenceNames, namesStillSavedAt, needExitCode, withApprovals, withoutApproval, withoutApprovals };
 export type { ProjectSecretState };

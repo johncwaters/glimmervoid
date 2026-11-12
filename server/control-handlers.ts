@@ -147,7 +147,7 @@ interface ControlHandlerDeps {
   conversationProjectsDir?: string;
   readTracePage?: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs?: SessionDocsPort | null;
-  secrets?: Pick<SecretsBroker, 'decide' | 'revoke'> | null;
+  secrets?: Pick<SecretsBroker, 'decide' | 'revoke' | 'linkPackSecret'> | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;

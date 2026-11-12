@@ -8,6 +8,9 @@ import path from 'node:path';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createSecretsBroker } from '../server/secrets/secrets-broker.ts';
+import { mcpLaunchFor } from '../mcp/core/agent-config.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, packMcpLaunchOf, packMcpServersForAgent } from '../server/packs/core/pack-core.ts';
+import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
@@ -119,4 +122,60 @@ test('an approved reference the vault no longer has brings the card back instead
   assert.match(reply.results[0]?.note ?? '', /the operator was asked for a new one/);
   assert.deepEqual(broker.requestsSnapshot(), { [NEEDING_SESSION.id]: ['API_KEY'] });
   assert.deepEqual(broker.approvalRows(), []);
+});
+
+test('a pack server secret linked once in Settings reaches every agent by environment variable name, never argv, and a server whose secret is unlinked stays out', async () => {
+  const tokenValue = 'executor-bearer-value';
+  let savedSecrets: unknown = {};
+  const broker = createSecretsBroker({
+    readSecrets: () => savedSecrets,
+    writeSecrets: async (mutate) => {
+      const nextSecrets = mutate(savedSecrets);
+      if (nextSecrets === null) return false;
+      savedSecrets = nextSecrets;
+      return true;
+    },
+    isCompanionOnline: () => true,
+    readVault: async (items) => items.map((item) => (item.reference === 'op://dev/executor/token' ? { name: item.name, value: tokenValue } : { name: item.name, failure: { kind: 'not-found' as const, message: 'no such item' } })),
+    declaredPackSecrets: () => [{ name: 'EXECUTOR_TOKEN', packs: ['executor'] }, { name: 'OTHER_TOKEN', packs: ['other'] }],
+  });
+  assert.equal(await broker.linkPackSecret({ name: 'EXECUTOR_TOKEN', reference: 'op://dev/executor/typo' }), 'The vault has no item at the reference given for EXECUTOR_TOKEN.');
+  assert.equal(await broker.linkPackSecret({ name: 'EXECUTOR_TOKEN', reference: 'op://dev/executor/token' }), null);
+  assert.deepEqual(broker.approvalsMessage().packSecrets, [
+    { name: 'EXECUTOR_TOKEN', packs: ['executor'], reference: 'op://dev/executor/token' },
+    { name: 'OTHER_TOKEN', packs: ['other'], reference: null },
+  ]);
+  const servers = [
+    { name: 'executor', url: 'http://127.0.0.1:4312/mcp', secret: 'EXECUTOR_TOKEN' },
+    { name: 'other', url: 'https://other.example/mcp', secret: 'OTHER_TOKEN' },
+    { name: 'open', url: 'https://open.example/mcp' },
+  ];
+  const secretsRead = await broker.readPackSecrets('pack-session', ['EXECUTOR_TOKEN', 'OTHER_TOKEN']);
+  assert.match(secretsRead.problemByName.OTHER_TOKEN ?? '', /not linked/);
+  assert.deepEqual(broker.deliveredValuesOf('pack-session'), [tokenValue], 'the session masks the token in its output');
+  const launch = packMcpLaunchOf(servers, secretsRead.valueByName);
+  assert.deepEqual(launch.servers.map((server) => server.name), ['executor', 'open']);
+  assert.deepEqual(launch.env, { GLIMMERVOID_PACK_EXECUTOR_TOKEN: tokenValue });
+  for (const agentId of ['claude-code', 'codex']) {
+    const argv = mcpLaunchFor({ agentId, listenerPort: null, sessionId: 'pack-session', agentToken: null, packServers: launch.servers }).args.join(' ');
+    assert.ok(argv.includes('GLIMMERVOID_PACK_EXECUTOR_TOKEN'), `${agentId} names the token variable`);
+    assert.ok(!argv.includes(tokenValue), `${agentId} argv never holds the token`);
+  }
+  assert.equal(await broker.linkPackSecret({ name: 'EXECUTOR_TOKEN', reference: '' }), null);
+  assert.deepEqual((await broker.readPackSecrets('pack-session', ['EXECUTOR_TOKEN'])).valueByName, {});
+});
+
+test('a pack secret reaches only agents that render pack servers, never a child glimmervoid, and a late or stuck vault companion neither drops it at boot nor holds the spawn queue', async () => {
+  const pack = { header: { name: 'executor' }, mcp: { ok: true, value: { servers: [{ name: 'executor', url: 'https://executor.example/mcp', secret: 'EXECUTOR_TOKEN' }] } } };
+  for (const agentId of ['grok', 'gemini', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
+  assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
+  const linkedSecrets = { packs: { EXECUTOR_TOKEN: { reference: 'op://dev/executor/token', isAllowed: true } } };
+  let isOnline = false;
+  const bootBroker = createSecretsBroker({ readSecrets: () => linkedSecrets, writeSecrets: async () => true, isCompanionOnline: () => isOnline, readVault: async (items) => items.map((item) => ({ name: item.name, value: 'boot-token' })) });
+  setTimeout(() => { isOnline = true; }, 600);
+  assert.deepEqual((await bootBroker.readPackSecrets('resumed-session', ['EXECUTOR_TOKEN'])).valueByName, { EXECUTOR_TOKEN: 'boot-token' });
+  const stuckBroker = createSecretsBroker({ readSecrets: () => linkedSecrets, writeSecrets: async () => true, isCompanionOnline: () => true, readVault: () => new Promise(() => {}), packSecretReadTimeoutMs: 300 });
+  const stuckRead = await stuckBroker.readPackSecrets('stuck-session', ['EXECUTOR_TOKEN']);
+  assert.deepEqual(stuckRead.valueByName, {});
+  assert.match(stuckRead.problemByName.EXECUTOR_TOKEN ?? '', /did not answer/);
 });

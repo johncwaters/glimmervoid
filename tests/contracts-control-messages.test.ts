@@ -82,7 +82,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },
   { type: 'session-secret-request', id: 'session-1', names: ['OPENAI_API_KEY'], newItemsVault: 'Dev' },
   { type: 'secret-requests-snapshot', requests: { 'session-1': ['OPENAI_API_KEY'] }, newItemsVault: null },
-  { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', reference: 'op://dev/openai/credential', isAllowed: true }] }] },
+  { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', reference: 'op://dev/openai/credential', isAllowed: true }] }], packSecrets: [{ name: 'EXECUTOR_TOKEN', packs: ['executor'], reference: null }] },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },

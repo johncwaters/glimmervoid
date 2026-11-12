@@ -3,6 +3,7 @@ import { ThemePalette } from './theme-palette.ts';
 import { PackBridgeTopic, PackName, PackPanelAct } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { isLoopbackHostname } from '../loopback-hosts.ts';
+import { SecretName } from './secrets.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -79,8 +80,11 @@ export const PackMcpServer = z.strictObject({
   url: z.url().refine(isHttpsOrLoopbackHttp, { error: 'a server url is https, or http on 127.0.0.1, ::1 or localhost' })
     .refine((url) => !url.includes('$'), { error: 'a server url holds no $, since agents expand ${VAR} in it' })
     .describe('The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login'),
+  secret: SecretName.optional()
+    .describe('A bearer token sent to this server: the operator links the name once to a vault item in Settings, Vault, and glimmervoid reads it at spawn and passes it by environment variable, never argv; sessions leave the server out while it cannot be read'),
 });
 export type PackMcpServer = z.infer<typeof PackMcpServer>;
+export type PackMcpLaunch = { servers: PackMcpServer[]; env: Record<string, string> };
 
 export const PackMcp = z.strictObject({
   servers: z.array(PackMcpServer).min(1).max(8).describe('MCP servers every locally launched glimmervoid session gets once the operator approves the pack'),

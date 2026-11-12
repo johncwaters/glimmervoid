@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { PackRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
-import type { PackMcpServer, PackOnDisk, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackMcpLaunch, PackMcpServer, PackOnDisk, PackUi } from '../../../shared/contracts/pack.ts';
+import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
 
@@ -81,9 +82,25 @@ function serverClashNotes(serverName: string, operatorNames: OperatorMcpServerNa
 }
 
 export function packMcpServersForAgent(agentId: string, packs: readonly PackOnDisk[], operatorNames: OperatorMcpServerNames): PackMcpServer[] {
+  if (!rendersPackServers(agentId)) return [];
   const servers = packs.flatMap(packMcpServers);
   if (agentId !== 'codex') return servers;
   return servers.filter((server) => !operatorNames.codex.has(server.name));
+}
+
+export function packMcpLaunchOf(servers: readonly PackMcpServer[], valueBySecretName: Readonly<Record<string, string>>): PackMcpLaunch {
+  const launchedServers = servers.filter((server) => server.secret === undefined || Object.hasOwn(valueBySecretName, server.secret));
+  const secretNames = new Set(launchedServers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])));
+  return { servers: launchedServers, env: Object.fromEntries([...secretNames].map((name) => [packSecretEnvName(name), valueBySecretName[name] ?? ''])) };
+}
+
+export function declaredPackSecretsOf(packs: readonly PackOnDisk[]): { name: string; packs: string[] }[] {
+  return packs.flatMap((pack) => [...new Set(packMcpServers(pack).flatMap((server) => (server.secret === undefined ? [] : [server.secret])))].map((name) => ({ name, packs: [pack.header.name] })));
+}
+
+function serverSecretNotes(server: PackMcpServer): string[] {
+  if (server.secret === undefined) return [];
+  return [`Sends your ${server.secret} vault secret to ${URL.parse(server.url)?.host ?? server.url} as a bearer token; link it in Settings, Vault, and sessions leave this server out until glimmervoid vault can read it`];
 }
 
 function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>, operatorNames: OperatorMcpServerNames): PackRow {
@@ -97,7 +114,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
     themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
-    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: serverClashNotes(server.name, operatorNames) })), errors: sectionErrors,
+    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })), errors: sectionErrors,
   };
 }
 

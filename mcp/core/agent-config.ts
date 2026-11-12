@@ -11,6 +11,7 @@ const KIMI_MCP_CONFIG_NAME = 'mcp.json';
 const KIMI_MCP_BASE_NAME = '.glimmervoid-mcp-base.json';
 const KIMI_PACK_SERVER_NAMES_KEY = 'glimmervoidPackServers';
 const KIMI_SHADOWED_SERVERS_KEY = 'glimmervoidShadowedServers';
+const PACK_SECRET_ENV_PREFIX = 'GLIMMERVOID_PACK_';
 
 interface McpLaunchInput {
   agentId: string;
@@ -31,15 +32,26 @@ function mcpUrl(listenerPort: number): string {
   return `http://127.0.0.1:${listenerPort}/mcp`;
 }
 
+function packSecretEnvName(secret: string): string {
+  return `${PACK_SECRET_ENV_PREFIX}${secret}`;
+}
+
+function claudePackEntry(server: PackMcpServer): Record<string, unknown> {
+  if (server.secret === undefined) return { type: 'http', url: server.url };
+  return { type: 'http', url: server.url, headers: { Authorization: `Bearer \${${packSecretEnvName(server.secret)}}` } };
+}
+
 function claudeMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {
-  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { type: 'http', url: server.url }]));
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, claudePackEntry(server)]));
   if (glimmervoidUrl === null) return ['--mcp-config', JSON.stringify({ mcpServers: packEntries })];
   const glimmervoidEntry = { type: 'http', url: glimmervoidUrl, headers: { Authorization: `Bearer \${${MCP_CREDENTIAL_ENV}}` } };
   return ['--mcp-config', JSON.stringify({ mcpServers: { ...packEntries, [MCP_SERVER_NAME]: glimmervoidEntry } }), '--allowedTools', `mcp__${MCP_SERVER_NAME}`];
 }
 
 function codexPackServerArgs(server: PackMcpServer): string[] {
-  return ['-c', `mcp_servers.${server.name}.url=${JSON.stringify(server.url)}`];
+  const urlArgs = ['-c', `mcp_servers.${server.name}.url=${JSON.stringify(server.url)}`];
+  if (server.secret === undefined) return urlArgs;
+  return [...urlArgs, '-c', `mcp_servers.${server.name}.bearer_token_env_var=${JSON.stringify(packSecretEnvName(server.secret))}`];
 }
 
 function codexMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {
@@ -168,12 +180,16 @@ function kimiMcpFiles({ realMcpJson, generatedMcpJson, baseMcpJson, listenerPort
     bearerTokenEnvVar: MCP_CREDENTIAL_ENV,
     toolTimeoutMs: MCP_TOOL_TIMEOUT_SECONDS * 1000,
   };
-  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { transport: 'http', url: server.url }]));
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, server.secret === undefined ? { transport: 'http', url: server.url } : { transport: 'http', url: server.url, bearerTokenEnvVar: packSecretEnvName(server.secret) }]));
   const packServerNames = packServers.map((server) => server.name);
   return {
     [KIMI_MCP_CONFIG_NAME]: serversFileText({ ...operatorServers, ...packEntries, [MCP_SERVER_NAME]: glimmervoidServer }),
     [KIMI_MCP_BASE_NAME]: baseFileText(isRealFileUnreadable ? mcpServersOf(baseMcpJson) ?? operatorServers : theirs, packServerNames, serversNamed(operatorServers, packServerNames)),
   };
+}
+
+function rendersPackServers(agentId: string): boolean {
+  return Object.hasOwn(ARGS_BY_AGENT, agentId);
 }
 
 function isBuiltinWithMcpArgs(agentId: string): agentId is keyof typeof ARGS_BY_AGENT {
@@ -191,5 +207,5 @@ function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServer
   };
 }
 
-export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, kimiMcpFiles, mcpLaunchFor };
+export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, rendersPackServers };
 export type { McpLaunch, McpLaunchInput };

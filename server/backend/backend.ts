@@ -79,6 +79,9 @@ import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-cor
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
+import type { SecretsBroker } from '../secrets/secrets-broker.ts';
+import type { PackMcpLaunch } from '../../shared/contracts/pack.ts';
+import { packMcpLaunchOf } from '../packs/core/pack-core.ts';
 import { createVaultSocket } from '../secrets/vault-socket.ts';
 import { decideVaultBind } from '../core/vault-listener-core.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
@@ -178,13 +181,22 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
+  let readPackSecrets: SecretsBroker['readPackSecrets'] | null = null;
+  async function packMcpLaunchFor(agentId: string, cwd: string, sessionId: string): Promise<PackMcpLaunch> {
+    const servers = await laneAssembly.packStore.mcpServersForSession(agentId, cwd);
+    const secretNames = [...new Set(servers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])))];
+    if (secretNames.length === 0) return packMcpLaunchOf(servers, {});
+    const secretsRead = readPackSecrets === null ? { valueByName: {}, problemByName: Object.fromEntries(secretNames.map((name) => [name, 'the vault is not ready yet'])) } : await readPackSecrets(sessionId, secretNames);
+    for (const [name, problem] of Object.entries(secretsRead.problemByName)) console.warn(`[packs] session ${sessionId} leaves out the pack servers that need ${name}: ${problem}`);
+    return packMcpLaunchOf(servers, secretsRead.valueByName);
+  }
   const sessionRuntime = createBackendSessionRuntime({
     config,
     configStore,
     getGitWorkspace: () => gitWorkspace,
     getCoderEnv: () => laneAssembly.coderEnv,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
-    packMcpServersFor: (agentId, cwd) => laneAssembly.packStore.mcpServersForSession(agentId, cwd),
+    packMcpServersFor: (agentId, cwd, sessionId) => packMcpLaunchFor(agentId, cwd, sessionId),
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
@@ -416,6 +428,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     writeEnvFile,
     readEnvValues,
     telemetry,
+    declaredPackSecrets: () => laneAssembly.packStore.declaredSecrets(),
     writeSecrets: async (mutate) => {
       const saved = await configStore.saveAsync((savedConfig) => {
         const nextSecrets = mutate(savedConfig.secrets);
@@ -428,6 +441,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return true;
     },
   });
+  readPackSecrets = secretsBroker.readPackSecrets;
+  laneAssembly.packStore.on('changed', () => broadcastControl?.(secretsBroker.approvalsMessage()));
   const secretsWiring = wireSecretsBroker({ broker: secretsBroker, findSession: getSessionAny, broadcastControl: broadcastControlFromWebSockets });
   agentApi = createAgentApiWiring({
     config,
@@ -830,7 +845,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
-    broadcastControl?.({ type: 'secret-approvals', projects: secretsBroker.approvalRows() });
+    broadcastControl?.(secretsBroker.approvalsMessage());
   }, { reloadDebounceMs: options.configReloadDebounceMs });
   updateCheck.start();
 

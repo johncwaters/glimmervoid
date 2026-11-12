@@ -23,7 +23,7 @@ import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
-import type { PackMcpServer } from '../../shared/contracts/pack.ts';
+import type { PackMcpLaunch } from '../../shared/contracts/pack.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -34,7 +34,7 @@ interface BackendSessionRuntimeDependencies {
   logger: Pick<Console, 'warn'>;
   getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
-  packMcpServersFor?: (agentId: string, cwd: string) => Promise<PackMcpServer[]>;
+  packMcpServersFor?: (agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>;
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;

@@ -37,7 +37,7 @@ import { attentionNotesOf, createAttentionLanes, reduceAttention } from "./core/
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
-import type { PackMcpServer } from "../shared/contracts/pack.ts";
+import type { PackMcpLaunch, PackMcpServer } from "../shared/contracts/pack.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -208,7 +208,7 @@ interface SessionOptions {
   isCleanHome?: boolean;
   requiresHooks?: boolean;
   prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
-  packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
+  packMcpServers?: ((agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -314,8 +314,9 @@ class Session extends EventEmitter {
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
-  _packMcpServers: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
+  _packMcpServers: ((agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>) | null;
   _spawnPackMcpServers: readonly PackMcpServer[] = [];
+  _spawnPackMcpEnv: Readonly<Record<string, string>> = {};
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
   _coherenceHooksRefresh: Promise<void> | null;
@@ -1650,7 +1651,9 @@ class Session extends EventEmitter {
       return;
     }
     const isRemoteCodex = remoteLaunch !== null && this.agentId === "codex";
-    this._spawnPackMcpServers = remoteLaunch === null && this._packMcpServers ? await this._packMcpServers(this.agentId, this.effectiveCwd()) : [];
+    const packMcpLaunch = remoteLaunch === null && this._packMcpServers ? await this._packMcpServers(this.agentId, this.effectiveCwd(), this.id) : { servers: [], env: {} };
+    this._spawnPackMcpServers = packMcpLaunch.servers;
+    this._spawnPackMcpEnv = packMcpLaunch.env;
     if (isStartSuperseded()) return;
     await this._hooks.prepare();
     if (remoteLaunch === null && this._adapter.trustFolder) {
@@ -1674,7 +1677,7 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
-    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...this._spawnPackMcpEnv, ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._spawnEnv || {}), ...injectedEnv }
       : this._spawnEnv;

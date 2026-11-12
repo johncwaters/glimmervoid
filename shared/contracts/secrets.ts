@@ -61,6 +61,17 @@ export const ProjectApprovals = z.object({
   approvals: z.array(ApprovalRow),
 }).strict();
 
+export const PackSecretRow = z.object({
+  name: SecretName,
+  packs: z.array(z.string()),
+  reference: z.string().nullable(),
+}).strict();
+
+export const PackSecretLink = z.object({
+  name: SecretName,
+  reference: z.string().trim().max(MAX_REFERENCE_LENGTH),
+}).strict();
+
 const VAULT_FAILURE_KINDS = ['not-found', 'locked', 'denied', 'unavailable'] as const;
 
 const VaultFailure = z.object({
@@ -123,6 +134,8 @@ export type SecretApproval = z.infer<typeof SecretApproval>;
 export type SecretDecision = z.infer<typeof SecretDecision>;
 export type SecretRevoke = z.infer<typeof SecretRevoke>;
 export type ProjectApprovals = z.infer<typeof ProjectApprovals>;
+export type PackSecretRow = z.infer<typeof PackSecretRow>;
+export type PackSecretLink = z.infer<typeof PackSecretLink>;
 export type VaultFailure = z.infer<typeof VaultFailure>;
 export type VaultJob = z.infer<typeof VaultJob>;
 export type VaultCompanionMessage = z.infer<typeof VaultCompanionMessage>;

@@ -79,6 +79,12 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (refusal) sendError(ws, refusal);
   }
 
+  async function handlePackSecretLink(msg: ClientMessageOf<'pack-secret-link'>, ws: ControlSocket): Promise<void> {
+    if (!secrets) return sendError(ws, 'Pack secrets are unavailable on this host.');
+    const refusal = await secrets.linkPackSecret(msg);
+    if (refusal) sendError(ws, refusal);
+  }
+
   function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> | undefined {
     return addSession(request, ws, {});
   }
@@ -676,6 +682,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     },
     'secret-decision': handleSecretDecision,
     'secret-revoke': handleSecretRevoke,
+    'pack-secret-link': handlePackSecretLink,
     'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
       findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);
     },
