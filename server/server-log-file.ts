@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
+import { isoNow, stampProcessOutputLines } from './log-stamp.ts';
 
 const SERVER_LOG_MAX_BYTES = 10 * 1024 * 1024;
 const SERVER_LOG_KEPT_ROTATIONS = 4;
@@ -94,9 +95,10 @@ function teeProcessOutputToServerLog(logPath = serverLogPath()): void {
   teeStream(process.stdout, logFile);
   teeStream(process.stderr, logFile);
   process.on('uncaughtExceptionMonitor', (error) => {
-    logFile.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    logFile.write(`${isoNow()} ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
   });
   process.on('exit', () => { logFile.flushBeforeExit(); });
+  stampProcessOutputLines();
 }
 
 export { teeProcessOutputToServerLog };

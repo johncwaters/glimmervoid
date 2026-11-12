@@ -16,6 +16,7 @@ import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } fr
 import { isMissingFileError } from '../../shared/text.ts';
 import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
+import { stampProcessOutputLines } from '../../server/log-stamp.ts';
 import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput } from '../../shared/contracts/doorman.ts';
 import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
@@ -635,6 +636,7 @@ async function withdrawBoundPort(portPath: string, boundPort: number): Promise<v
 }
 
 async function runDoormanCli({ tablePath, rawPort }: { tablePath: string | null; rawPort: string | null }): Promise<number> {
+  stampProcessOutputLines();
   if (tablePath === null) return refuse('--tenants must name the tenant table file');
   const port = portFromOption(rawPort);
   if (port === null) return refuse('--port must be a port from 0 to 65535');

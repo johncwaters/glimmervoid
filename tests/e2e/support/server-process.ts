@@ -92,8 +92,10 @@ function signalProcessGroup(groupLeaderPid: number, signal: NodeJS.Signals): voi
   spawnSync('kill', [`-${signal.replace(/^SIG/, '')}`, '--', `-${groupLeaderPid}`]);
 }
 
+const LINE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /;
+
 function linesOf(logText: string): string[] {
-  return logText.split('\n');
+  return logText.split('\n').map((line) => line.replace(LINE_TIMESTAMP, ''));
 }
 
 function findUnexpectedLogLines(logText: string, allowedPatterns: readonly RegExp[] = []): string[] {
