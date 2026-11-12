@@ -776,6 +776,14 @@
     {
       "name": "saved name",
       "definition": "The file name a board media card saves under from the browser's own menus: its source file's name, its uploaded name, or its card title with the media's extension"
+    },
+    {
+      "name": "touch input",
+      "definition": "A dashboard that a finger can drive: the phone layout, or any device with a coarse pointer such as a touch tablet, foldable or touchscreen laptop; stamped as data-touch-input on the page, it turns on the touch controls, while a mouse-only desktop has none"
+    },
+    {
+      "name": "android chrome",
+      "definition": "Google Chrome on an Android phone or tablet, one of the two phone browsers the dashboard's touch features are built and device-tested for, beside Safari on iPhone"
     }
   ],
   "retired": [
