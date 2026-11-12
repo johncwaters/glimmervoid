@@ -4,7 +4,7 @@ import path from 'node:path';
 import { KIMI_MCP_CONFIG_NAME } from '../../mcp/core/agent-config.ts';
 import codex from '../../session/adapters/codex.ts';
 import { realAgentHome } from '../../session/agent-home.ts';
-import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
+import { GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-config-paths-core.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
@@ -40,10 +40,12 @@ export async function readCodexOperatorServerNames(env: NodeJS.ProcessEnv, cwd?:
 
 export async function readOperatorMcpServerNames(env: NodeJS.ProcessEnv): Promise<OperatorMcpServerNames> {
   const [, claudeConfigPath] = listClaudeGlobalConfigPathCandidates(env, os.homedir());
-  const [claudeText, codexNames, kimiText] = await Promise.all([
+  const [claudeText, codexNames, kimiText, geminiText, qwenText] = await Promise.all([
     readTextOrEmpty(claudeConfigPath),
     readCodexOperatorServerNames(env),
     readTextOrEmpty(path.join(realAgentHome(KIMI_HOME_PROFILE, env), KIMI_MCP_CONFIG_NAME)),
+    readTextOrEmpty(path.join(realAgentHome(GEMINI_HOME_PROFILE, env), GEMINI_HOME_PROFILE.config.configName)),
+    readTextOrEmpty(path.join(realAgentHome(QWEN_HOME_PROFILE, env), QWEN_HOME_PROFILE.config.configName)),
   ]);
-  return { 'claude-code': jsonServerNames(claudeText), codex: codexNames, kimi: jsonServerNames(kimiText) };
+  return { 'claude-code': jsonServerNames(claudeText), codex: codexNames, kimi: jsonServerNames(kimiText), gemini: jsonServerNames(geminiText), qwen: jsonServerNames(qwenText) };
 }

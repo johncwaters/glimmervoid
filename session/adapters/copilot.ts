@@ -7,6 +7,7 @@ import { copilotStateFileToTrust, ensureCopilotFolderTrust } from "../copilot-tr
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
 import { settingsHomeHooks } from "./settings-home-hooks.ts";
+import { copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText } from "../../mcp/core/agent-config.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -97,11 +98,15 @@ function trustSessionFolder(env: Record<string, string | undefined>, folder: str
   if (trustWarning) console.warn(`[copilot] ${trustWarning}`);
 }
 
-function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; args: string[] } | { refusal: string } {
   const managedHooks = expectedHooks();
   if (managedHooks === null) return { refusal: hooksRefusal };
   trustSessionFolder(env, launch.folderTrustRoot);
-  return holdPreparedAgentHome(COPILOT_HOME_PROFILE, env, () => managedHooks);
+  const mcpConfigText = copilotMcpConfigText(launch.listenerPort, launch.packServers);
+  const mcpConfigName = copilotMcpConfigName(mcpConfigText);
+  const prepared = holdPreparedAgentHome(COPILOT_HOME_PROFILE, env, () => managedHooks, { renderGeneratedFiles: () => ({ [mcpConfigName]: mcpConfigText }) });
+  if ("refusal" in prepared) return prepared;
+  return { home: prepared.home, args: copilotMcpArgs(path.join(prepared.home, mcpConfigName)) };
 }
 
 function prepareScratchHome(): { refusal: string } {

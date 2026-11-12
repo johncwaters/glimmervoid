@@ -69,13 +69,13 @@ export function packMcpServers(pack: PackOnDisk): PackMcpServer[] {
   return pack.mcp?.ok ? pack.mcp.value.servers : [];
 }
 
-const AGENT_LABELS_BY_MCP_AGENT = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code' } as const;
+const AGENT_LABELS_BY_MCP_AGENT = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code', gemini: 'Gemini CLI', qwen: 'Qwen Code' } as const;
 type McpAgentId = keyof typeof AGENT_LABELS_BY_MCP_AGENT;
 export type OperatorMcpServerNames = Readonly<Record<McpAgentId, ReadonlySet<string>>>;
-export const NO_OPERATOR_MCP_SERVER_NAMES: OperatorMcpServerNames = Object.freeze({ 'claude-code': new Set<string>(), codex: new Set<string>(), kimi: new Set<string>() });
+export const NO_OPERATOR_MCP_SERVER_NAMES: OperatorMcpServerNames = Object.freeze({ 'claude-code': new Set<string>(), codex: new Set<string>(), kimi: new Set<string>(), gemini: new Set<string>(), qwen: new Set<string>() });
 
 function serverClashNotes(serverName: string, operatorNames: OperatorMcpServerNames): string[] {
-  const replacedIn = (['claude-code', 'kimi'] as const).filter((agentId) => operatorNames[agentId].has(serverName)).map((agentId) => AGENT_LABELS_BY_MCP_AGENT[agentId]);
+  const replacedIn = (['claude-code', 'kimi', 'gemini', 'qwen'] as const).filter((agentId) => operatorNames[agentId].has(serverName)).map((agentId) => AGENT_LABELS_BY_MCP_AGENT[agentId]);
   const replacedNote = replacedIn.length === 0 ? [] : [`Replaces your own ${serverName} server in ${replacedIn.join(' and ')} sessions`];
   const codexNote = operatorNames.codex.has(serverName) ? [`Codex sessions keep your own ${serverName} server, so they leave this one out`] : [];
   return [...replacedNote, ...codexNote];

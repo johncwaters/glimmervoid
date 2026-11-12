@@ -23,7 +23,7 @@ import { createQuestionManager } from '../question-manager/question-manager.ts';
 import type { QuestionManagerLane } from '../question-manager/question-manager.ts';
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
-import type { PackMcpLaunch } from '../../shared/contracts/pack.ts';
+import type { PackMcpLaunch, PackMcpServer } from '../../shared/contracts/pack.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -35,6 +35,7 @@ interface BackendSessionRuntimeDependencies {
   getCoderEnv?: () => Pick<ReturnType<typeof createCoderEnvWiring>, 'resume' | 'uploadFile' | 'describeRemoteExit'> | null;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
   packMcpServersFor?: (agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>;
+  sharedPackMcpServersFor?: (agentId: string) => PackMcpServer[];
 }
 
 const REMOTE_SESSION_TOKEN_LIFETIME_SECONDS = 600;
@@ -112,6 +113,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,
     packMcpServers: dependencies.packMcpServersFor ?? null,
+    sharedPackMcpServers: dependencies.sharedPackMcpServersFor ?? null,
     questionManager: dependencies.configStore.isExperimentalBuild === true
       ? createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane })
       : null,

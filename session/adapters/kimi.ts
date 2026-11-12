@@ -187,7 +187,7 @@ function mcpFilesFor(env: Record<string, string | undefined>, { listenerPort, is
 function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
-  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, launch), launch.isCleanHome);
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, { renderGeneratedFiles: () => mcpFilesFor(env, launch), isClean: launch.isCleanHome });
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {

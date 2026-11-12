@@ -167,7 +167,7 @@ test('a pack server secret linked once in Settings reaches every agent by enviro
 
 test('a pack secret reaches only agents that render pack servers, never a child glimmervoid, and a late or stuck vault companion neither drops it at boot nor holds the spawn queue', async () => {
   const pack = { header: { name: 'executor' }, mcp: { ok: true, value: { servers: [{ name: 'executor', url: 'https://executor.example/mcp', secret: 'EXECUTOR_TOKEN' }] } } };
-  for (const agentId of ['grok', 'gemini', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
+  for (const agentId of ['grok', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
   assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
   const linkedSecrets = { packs: { EXECUTOR_TOKEN: { reference: 'op://dev/executor/token', isAllowed: true } } };
   let isOnline = false;

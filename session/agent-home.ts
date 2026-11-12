@@ -18,6 +18,7 @@ type AgentHomeEnv = Record<string, string | undefined>;
 interface AgentHomeOptions {
   env: AgentHomeEnv;
   renderBlock: (operatorText: string) => string;
+  managedMcpServers?: Readonly<Record<string, unknown>>;
   homeDir?: string;
   platform?: NodeJS.Platform;
   generatedHome?: string;
@@ -165,7 +166,7 @@ function inspectAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   }
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, managedMcpServers, platform = process.platform, isClean }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const realConfig = readRealConfig(realHome, profile.config.configName);
   if ("refusal" in realConfig) return { kind: "refused", reason: realConfig.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
@@ -179,6 +180,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     baseConfigText: readOptionalText(path.join(generatedHome, profile.config.baseName)),
     generatedConfigText: readOptionalText(path.join(generatedHome, profile.config.configName)),
     renderBlock,
+    managedMcpServers,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
     isClean: isClean === true,
@@ -361,14 +363,20 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   return { home: generatedHome };
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean): { home: string } | { refusal: string } {
+interface HeldAgentHomeOptions {
+  renderGeneratedFiles?: () => Readonly<Record<string, string>>;
+  isClean?: boolean;
+  managedMcpServers?: Readonly<Record<string, unknown>>;
+}
+
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, managedMcpServers }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }

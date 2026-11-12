@@ -65,6 +65,7 @@ interface SessionHookOptions {
   effectiveCwd: () => string;
   folderTrustRoot: () => string;
   packMcpServers: () => readonly PackMcpServer[];
+  sharedPackMcpServers: () => readonly PackMcpServer[];
   agentEnv: () => Record<string, string | undefined>;
   ingestSignal: (signal: HookSignal) => void;
   observeHook: ((event: string, payload: Record<string, unknown>) => void) | null;
@@ -286,7 +287,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, packServers: options.packMcpServers() });
+    const prepared: { home: string; args?: readonly string[] } | { refusal: string } = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);
@@ -299,7 +300,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       releaseGeneratedHome();
       return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
     }
-    return { ...relayHooks, env: { ...relayHooks.env, [injection.homeEnvName]: prepared.home } };
+    return { ...relayHooks, args: [...relayHooks.args, ...(prepared.args ?? [])], env: { ...relayHooks.env, [injection.homeEnvName]: prepared.home } };
   }
 
   function resolveListenerPort(): number | null {

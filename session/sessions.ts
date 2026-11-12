@@ -209,6 +209,7 @@ interface SessionOptions {
   requiresHooks?: boolean;
   prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   packMcpServers?: ((agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>) | null;
+  sharedPackMcpServers?: ((agentId: string) => PackMcpServer[]) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -315,7 +316,9 @@ class Session extends EventEmitter {
   _planLimits: boolean;
   _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   _packMcpServers: ((agentId: string, cwd: string, sessionId: string) => Promise<PackMcpLaunch>) | null;
+  _sharedPackMcpServers: ((agentId: string) => PackMcpServer[]) | null;
   _spawnPackMcpServers: readonly PackMcpServer[] = [];
+  _spawnSharedPackMcpServers: readonly PackMcpServer[] = [];
   _spawnPackMcpEnv: Readonly<Record<string, string>> = {};
   coherenceHooks: CoherenceHooksState | null;
   coherenceAttachment: CoherenceAttachment | null;
@@ -413,6 +416,7 @@ class Session extends EventEmitter {
     requiresHooks = false,
     prepareCoherence = null,
     packMcpServers = null,
+    sharedPackMcpServers = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -565,6 +569,7 @@ class Session extends EventEmitter {
     this._planLimits = planLimits === true && this._can("planLimits");
     this._prepareCoherence = prepareCoherence;
     this._packMcpServers = packMcpServers;
+    this._sharedPackMcpServers = sharedPackMcpServers;
     this.coherenceHooks = null;
     this.coherenceAttachment = null;
     this._coherenceHooksRefresh = null;
@@ -592,6 +597,7 @@ class Session extends EventEmitter {
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
       packMcpServers: () => this._spawnPackMcpServers,
+      sharedPackMcpServers: () => this._spawnSharedPackMcpServers,
       agentEnv: () => this._launch.buildEnv(),
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
@@ -1654,6 +1660,7 @@ class Session extends EventEmitter {
     const packMcpLaunch = remoteLaunch === null && this._packMcpServers ? await this._packMcpServers(this.agentId, this.effectiveCwd(), this.id) : { servers: [], env: {} };
     this._spawnPackMcpServers = packMcpLaunch.servers;
     this._spawnPackMcpEnv = packMcpLaunch.env;
+    this._spawnSharedPackMcpServers = remoteLaunch === null && this._sharedPackMcpServers ? this._sharedPackMcpServers(this.agentId) : [];
     if (isStartSuperseded()) return;
     await this._hooks.prepare();
     if (remoteLaunch === null && this._adapter.trustFolder) {

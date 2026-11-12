@@ -6,11 +6,13 @@ import { holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
 import { settingsHomeHooks } from "./settings-home-hooks.ts";
+import { qwenMcpArgs, settingsHomeMcpServers } from "../../mcp/core/agent-config.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
   AgentHookProfile,
   AgentTitleProfile,
+  GeneratedHomeLaunch,
 } from "./index.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 
@@ -84,10 +86,12 @@ const { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath } = 
   hookEntryFor: (commandHook) => ({ hooks: [commandHook] }),
 });
 
-function prepareHome(env: Record<string, string | undefined>): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; args: string[] } | { refusal: string } {
   const managedHooks = expectedHooks();
   if (managedHooks === null) return { refusal: hooksRefusal };
-  return holdPreparedAgentHome(QWEN_HOME_PROFILE, env, () => managedHooks);
+  const prepared = holdPreparedAgentHome(QWEN_HOME_PROFILE, env, () => managedHooks, { managedMcpServers: settingsHomeMcpServers(launch.listenerPort, launch.sharedPackServers) });
+  if ("refusal" in prepared) return prepared;
+  return { home: prepared.home, args: qwenMcpArgs(launch.sharedPackServers, launch.packServers) };
 }
 
 function prepareScratchHome(): { refusal: string } {

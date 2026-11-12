@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import { GLIMMERVOID_MCP_SERVER_NAME } from '../../shared/contracts/pack.ts';
 import type { PackMcpServer } from '../../shared/contracts/pack.ts';
@@ -77,7 +78,43 @@ const ARGS_BY_AGENT: Readonly<Partial<Record<BuiltinAgentId, (glimmervoidUrl: st
   'claude-code': claudeMcpArgs,
   codex: codexMcpArgs,
   kimi: credentialOnly,
+  gemini: credentialOnly,
+  qwen: credentialOnly,
+  copilot: credentialOnly,
 });
+
+function bearerHeaders(envName: string): Record<string, string> {
+  return { Authorization: `Bearer \${${envName}}` };
+}
+
+function packHeaders(server: PackMcpServer): { headers?: Record<string, string> } {
+  return server.secret === undefined ? {} : { headers: bearerHeaders(packSecretEnvName(server.secret)) };
+}
+
+function settingsHomeMcpServers(listenerPort: number, packServers: readonly PackMcpServer[]): Record<string, unknown> {
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { httpUrl: server.url, ...packHeaders(server) }]));
+  const glimmervoidEntry = { httpUrl: mcpUrl(listenerPort), headers: bearerHeaders(MCP_CREDENTIAL_ENV), timeout: MCP_TOOL_TIMEOUT_SECONDS * 1000, trust: true };
+  return { ...packEntries, [MCP_SERVER_NAME]: glimmervoidEntry };
+}
+
+function copilotMcpConfigText(listenerPort: number, packServers: readonly PackMcpServer[]): string {
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, { type: 'http', url: server.url, ...packHeaders(server), tools: ['*'] }]));
+  const glimmervoidEntry = { type: 'http', url: mcpUrl(listenerPort), headers: bearerHeaders(MCP_CREDENTIAL_ENV), tools: ['*'] };
+  return serversFileText({ ...packEntries, [MCP_SERVER_NAME]: glimmervoidEntry });
+}
+
+function copilotMcpArgs(mcpConfigPath: string): string[] {
+  return ['--additional-mcp-config', `@${mcpConfigPath}`, `--allow-tool=${MCP_SERVER_NAME}`];
+}
+
+function copilotMcpConfigName(configText: string): string {
+  return `glimmervoid-mcp-${createHash('sha256').update(configText).digest('hex').slice(0, 16)}.json`;
+}
+
+function qwenMcpArgs(sharedPackServers: readonly PackMcpServer[], packServers: readonly PackMcpServer[]): string[] {
+  const sessionNames = new Set(packServers.map((server) => server.name));
+  return sharedPackServers.filter((server) => !sessionNames.has(server.name)).map((server) => `--disable-mcp-server=${server.name}`);
+}
 
 type McpServers = Record<string, unknown>;
 
@@ -207,5 +244,5 @@ function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken, packServer
   };
 }
 
-export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, rendersPackServers };
+export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX, copilotMcpArgs, copilotMcpConfigName, copilotMcpConfigText, kimiMcpFiles, mcpLaunchFor, packSecretEnvName, qwenMcpArgs, rendersPackServers, settingsHomeMcpServers };
 export type { McpLaunch, McpLaunchInput };

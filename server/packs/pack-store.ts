@@ -34,6 +34,7 @@ type PackStore = EventEmitter & {
   isApproved(fingerprint: string): boolean;
   panelPackDir(packName: string): string | null;
   mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
+  sharedMcpServers(agentId: string): PackMcpServer[];
   addExample(name: string): Promise<PackApproveResult>;
   declaredSecrets(): { name: string; packs: string[] }[];
 };
@@ -327,5 +328,9 @@ export function createPackStore({ homeDir, statePath, env, log, examplePacksDir 
     return packMcpServersForAgent(agentId, packs, { ...operatorMcpServerNames, codex: codexNames });
   }
 
-  return Object.assign(emitter, { start, stop, mcpServersForSession, addExample, declaredSecrets, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
+  function sharedMcpServers(agentId: string): PackMcpServer[] {
+    return packMcpServersForAgent(agentId, packsInUse(), operatorMcpServerNames);
+  }
+
+  return Object.assign(emitter, { start, stop, mcpServersForSession, sharedMcpServers, addExample, declaredSecrets, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint) });
 }

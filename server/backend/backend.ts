@@ -197,6 +197,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getCoderEnv: () => laneAssembly.coderEnv,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     packMcpServersFor: (agentId, cwd, sessionId) => packMcpLaunchFor(agentId, cwd, sessionId),
+    sharedPackMcpServersFor: (agentId) => laneAssembly.packStore.sharedMcpServers(agentId),
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,

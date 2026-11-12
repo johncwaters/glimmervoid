@@ -93,12 +93,13 @@ interface GeneratedHomeLaunch {
   folderTrustRoot: string;
   isCleanHome: boolean;
   packServers: readonly PackMcpServer[];
+  sharedPackServers: readonly PackMcpServer[];
 }
 
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
-  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; args?: readonly string[] } | { refusal: string };
   prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
   releaseHome(home: string): void;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
