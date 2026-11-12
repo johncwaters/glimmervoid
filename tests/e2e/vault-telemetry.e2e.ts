@@ -35,6 +35,8 @@ interface ControlFrame {
   ok?: boolean;
   sessionId?: string;
   error?: string | null;
+  id?: string;
+  transition?: { event: string };
 }
 
 function connectCompanion(companionUrl: string, token: string): Promise<WebSocket> {
@@ -103,6 +105,7 @@ test('the vault takes a companion, refuses a wrong token, delivers an approved s
   control.ws.send(JSON.stringify({ type: 'add-session', requestId: 'e2e-shell', name: 'e2e shell', path: projectDirectory, agent: 'shell' }));
   const added = await waitForMessage(control.received, (frame) => frame.type === 'add-session-result' && frame.requestId === 'e2e-shell', 'the shell session reply');
   assert.equal(added.ok, true, added.error ?? 'the shell session was refused');
+  await waitForMessage(control.received, (frame) => frame.type === 'session-status' && frame.id === added.sessionId && frame.transition?.event === 'first_output', 'the shell printing its prompt', DELIVERY_DEADLINE_MS);
   const terminal = await new Promise<WebSocket>((resolve, reject) => {
     const socket = new WebSocket(client.url(`/terminals/${added.sessionId}`), client.options);
     socket.once('open', () => resolve(socket));
