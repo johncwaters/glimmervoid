@@ -11,6 +11,7 @@ durationsMs:
   flash: 900
   shimmer: 1200
   fade-out: 2000
+  mark-scan: 1300
 easings:
   ease-out-quart: cubic-bezier(0.22, 1, 0.36, 1)
   ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)

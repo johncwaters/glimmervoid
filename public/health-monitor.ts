@@ -142,7 +142,7 @@ function renderDetail() {
     if (a.destroyedReachable) lines.push('Destroyed session still reachable in sessions map');
     anomaliesHtml = `
       <div class="health-section health-section-warn">
-        <div class="health-section-title">⚠ Anomalies</div>
+        <div class="health-section-title">Anomalies</div>
         ${lines.map((l) => `<div class="health-row">${l}</div>`).join('')}
       </div>
     `;

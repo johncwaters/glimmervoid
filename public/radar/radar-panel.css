@@ -406,7 +406,7 @@ html[data-layout="phone"] .radar-row:not([data-skeleton])::after {
   border-right: 2px solid var(--text-muted);
   border-bottom: 2px solid var(--text-muted);
   transform: rotate(-45deg);
-  transition: transform 120ms ease-out;
+  transition: transform var(--transition-fast);
 }
 html[data-layout="phone"] .radar-row[aria-current="true"] {
   background: var(--radar-open-card-bg);

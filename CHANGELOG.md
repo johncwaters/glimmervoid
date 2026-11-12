@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard motion and corners follow one scale.** Small hover and chevron transitions, the loading shell fades and the focus toolbar breathe now use the same timings as the rest of the dashboard, a few corners that were slightly rounder or sharper than their neighbors now match, and the health monitor's Anomalies heading no longer carries a warning glyph.
+
 ## [0.57.1] - 2026-11-11
 
 ### Added

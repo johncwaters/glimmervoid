@@ -366,7 +366,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .session-card[data-borrowed][data-state="FAILED"]  .session-card-header::after { opacity: 1; }
 @media (prefers-reduced-motion: no-preference) {
   .session-card[data-borrowed][data-state="WAITING"] .session-card-header::after {
-    animation: focus-toolbar-breathe 2.4s ease-in-out 3;
+    animation: focus-toolbar-breathe 2.6s ease-in-out 3;
   }
   .session-card[data-borrowed].completion-flash[data-state="DONE"] .session-card-header::after {
     animation: focus-toolbar-flash 900ms ease-out;

@@ -42,7 +42,7 @@
       justify-content: center;
       gap: 20px;
       background: var(--bg, #0f0d15);
-      transition: opacity 300ms ease;
+      transition: opacity 250ms ease;
     }
 
     .loading-screen.fade-out {
@@ -61,7 +61,7 @@
 
     .loading-screen .loading-title {
       opacity: 0;
-      transition: opacity 400ms ease;
+      transition: opacity 480ms ease;
     }
 
     .loading-screen[data-unlock="lit"] .loading-title,
@@ -161,7 +161,7 @@
       backdrop-filter: blur(0px);
       pointer-events: none;
       opacity: 0;
-      transition: background 400ms ease, backdrop-filter 400ms ease, opacity 300ms ease;
+      transition: background 480ms ease, backdrop-filter 480ms ease, opacity 250ms ease;
     }
 
     .shutdown-screen.active {
@@ -175,7 +175,7 @@
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
       color: var(--text-muted, #9e97af);
-      transition: color 300ms ease;
+      transition: color 250ms ease;
     }
 
     .shutdown-screen.done .loading-mark {

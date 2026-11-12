@@ -31,7 +31,10 @@ glossary:
     forbiddenAliases: [admin, account]
   - term: worktree
     definition: The git worktree glimmervoid creates for one session from the integration branch, so concurrent sessions never share a working tree.
-    forbiddenAliases: [workspace, sandbox]
+    forbiddenAliases: [sandbox]
+  - term: workspace
+    definition: A session spanning several repositories, a folder of per-repository worktrees chosen in Add Session.
+    forbiddenAliases: []
   - term: lane
     definition: A background job glimmervoid runs beside operator sessions on its own schedule, such as team review, Radar or usage.
     forbiddenAliases: [worker, daemon]

@@ -419,7 +419,7 @@
 .session-card:is([data-link="connecting"], [data-state="INITIALIZING"], [data-state="STARTING"]) .terminal-connecting {
   opacity: 1;
   visibility: visible;
-  transition: opacity var(--transition-med) 300ms, visibility 0s linear 300ms;
+  transition: opacity var(--transition-med) 250ms, visibility 0s linear 250ms;
 }
 
 .session-card:not([data-link="connecting"]) .terminal-connecting-label {

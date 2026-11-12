@@ -37,3 +37,5 @@ features:
 literalSizesAllowedIn:
   - public/style.css
   - public/tailwind.css
+  - public/index.html
+  - server/remote-auth.ts
