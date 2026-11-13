@@ -11,6 +11,8 @@ import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/c
 import WebSocket, { WebSocketServer } from 'ws';
 import { createDoorman } from '../cloud/doorman/doorman.ts';
 import { createGcpHostAdapter } from '../cloud/doorman/gcp-host.ts';
+import { createGithubUserLink } from '../cloud/doorman/github-user.ts';
+import { createFileTenantRecordStore } from '../cloud/doorman/tenant-record-store.ts';
 import { ensureDoorman, localDoormanUrl } from '../cloud/doorman/ensure-doorman.ts';
 import { loadOrCreateLinkSecret } from '../cloud/link/link-secret.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
@@ -28,8 +30,8 @@ import { startAwakeUsageAlerts } from '../server/awake-usage-wiring.ts';
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { AWAKE_USAGE_PATH, AwakeUsageAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
-import type { Nudge, Probe } from '../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GithubConnectionAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
 const LIGHT_PROBE: Probe = { id: 'github:light:0', laneId: 'test-lane', everyMs: 60_000, method: 'POST', url: 'https://api.github.com/graphql', body: '{"query":"query { viewer { login } }"}', credential: 'github' };
@@ -1001,7 +1003,7 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
     return Response.json({ kind: 'compute#operation' });
   };
   const adapter = createGcpHostAdapter({ fetchFn: fakeGoogle, settleTimeoutMs: 1000, settlePollMs: 1 });
-  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', githubInstallation: null, awakeHoursPerMonth: null, host: TEST_GCP_HOST };
+  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', awakeHoursPerMonth: null, host: TEST_GCP_HOST };
 
   statusReads.push('SUSPENDED');
   await adapter.wake(tenant);
@@ -1079,6 +1081,14 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
   const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
   const mints: { claims: { iat: number; exp: number; iss: string }; body: { repositories?: string[]; permissions: Record<string, string> }; atMs: number }[] = [];
   const secretReads: string[] = [];
+  const user = { isAuthorized: false, issued: 0, liveAccessTokens: new Set<string>(), liveRefreshToken: null as string | null, refreshesWith: [] as string[], deviceFlowEnabled: true, userReads: 0, userReadGate: null as Promise<void> | null };
+  function issueUserTokens() {
+    user.issued += 1;
+    const accessToken = `ghu_user${user.issued}`;
+    user.liveAccessTokens = new Set([accessToken]);
+    user.liveRefreshToken = `ghr_user${user.issued}`;
+    return Response.json({ access_token: accessToken, expires_in: 28_800, refresh_token: user.liveRefreshToken, refresh_token_expires_in: 15_897_600, token_type: 'bearer' });
+  }
   const appFetch: typeof fetch = async (input, init) => {
     const url = String(input);
     const headers = new Headers(init?.headers);
@@ -1091,17 +1101,54 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
       secretReads.push(url);
       return Response.json({ name: `${secretName}/versions/3`, payload: { data: Buffer.from(privateKeyPem).toString('base64') } });
     }
-    assert.equal(url, 'https://api.github.com/app/installations/4242/access_tokens');
+    if (url === 'https://github.com/login/device/code') {
+      assert.equal(new URLSearchParams(String(init?.body)).get('client_id'), 'Iv23liTestClient');
+      if (!user.deviceFlowEnabled) return Response.json({ error: 'device_flow_disabled' }, { status: 400 });
+      return Response.json({ device_code: 'device-code-1', user_code: 'WDJB-MJHT', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 });
+    }
+    if (url === 'https://github.com/login/oauth/access_token') {
+      const form = new URLSearchParams(String(init?.body));
+      assert.equal(form.get('client_id'), 'Iv23liTestClient');
+      assert.equal(form.get('client_secret'), null, 'device-flow tokens refresh without the client secret');
+      if (form.get('grant_type') === 'urn:ietf:params:oauth:grant-type:device_code') return user.isAuthorized ? issueUserTokens() : Response.json({ error: 'authorization_pending' });
+      assert.equal(form.get('grant_type'), 'refresh_token');
+      const refreshToken = form.get('refresh_token') ?? '';
+      user.refreshesWith.push(refreshToken);
+      if (refreshToken !== user.liveRefreshToken) return Response.json({ error: 'bad_refresh_token' });
+      return issueUserTokens();
+    }
+    if (url.startsWith('https://api.github.com/user')) {
+      const accessToken = (headers.get('authorization') ?? '').replace('Bearer ', '');
+      if (!user.liveAccessTokens.has(accessToken)) return Response.json({ message: 'Bad credentials' }, { status: 401 });
+      const pathname = new URL(url).pathname;
+      if (pathname === '/user') {
+        user.userReads += 1;
+        await user.userReadGate;
+        return Response.json({ id: 7, login: 'octo' });
+      }
+      if (pathname === '/user/installations') return Response.json({ total_count: 2, installations: [{ id: 4242, account: { login: 'octo-org' } }, { id: 5151, account: { login: 'octo' } }] });
+      if (pathname === '/user/installations/4242/repositories') return Response.json({ total_count: 2, repositories: [{ name: 'site' }, { name: 'glimmervoid' }] });
+      if (pathname === '/user/installations/5151/repositories') return Response.json({ total_count: 0, repositories: [] });
+      return Response.json({ message: 'Not Found' }, { status: 404 });
+    }
+    assert.equal(url, 'https://api.github.com/app/installations/4242/access_tokens', 'only an installation the user token reaches with at least one repository is minted');
     const [header, payload, signature] = (headers.get('authorization') ?? '').replace('Bearer ', '').split('.');
     assert.ok(crypto.verify('sha256', Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, 'base64url')), 'the JWT is signed with the App key');
     mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: JSON.parse(String(init?.body)), atMs: clock.nowMs });
     const lifetimeMs = tokenLifetimesMs[mints.length - 1] ?? 60 * 60_000;
     return Response.json({ token: `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
   };
-  return { appFetch, mints, secretReads, githubApp: { clientId: 'Iv23liTestClient', privateKeySecret: secretName } };
+  return { appFetch, mints, secretReads, user, githubApp: { clientId: 'Iv23liTestClient', slug: 'glimmervoid-test', privateKeySecret: secretName } };
 }
 
-test('a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge', async (t) => {
+async function signedWatcherCall(doormanPort: number, linkSecret: Buffer, method: 'GET' | 'POST', path: string, nowMs: number): Promise<GithubConnection> {
+  const headers = signedHeaders(directionKey(linkSecret, 'server-to-watcher'), { method, path, body: '' }, nowMs);
+  const response = await fetch(`http://127.0.0.1:${doormanPort}${path}`, { method, headers, body: method === 'POST' ? '' : undefined });
+  assert.equal(response.status, 200);
+  return GithubConnectionAnswer.parse(await response.json()).connection;
+}
+
+test('a doorman with a GitHub App binds the installation its tenant connected through the device flow, mints a read-only installation token scoped to the repositories the user reaches, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [10 * 60_000 + 200]);
   const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', 'http://127.0.0.1:9');
@@ -1111,10 +1158,21 @@ test('a doorman with a GitHub App mints a read-only installation token for its t
     return Response.json({ data: { viewer: { login: 'tenant' } } });
   };
   const doorman = createDoorman({
-    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [{ ...tenant, githubInstallation: { installationId: 4242, repositories: ['glimmervoid', 'site'] } }] },
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
     probeFetch, githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
   });
   const doormanPort = await doorman.listen(0);
+  assert.deepEqual(await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs), { state: 'disconnected' });
+  const awaiting = await signedWatcherCall(doormanPort, linkSecret, 'POST', GITHUB_CONNECT_PATH, clock.nowMs);
+  assert.deepEqual(awaiting, { state: 'awaiting-code', userCode: 'WDJB-MJHT', verificationUri: 'https://github.com/login/device', expiresAtMs: clock.nowMs + 900_000 });
+  app.user.isAuthorized = true;
+  const connected = await eventually(async () => {
+    const connection = await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs);
+    return connection.state === 'connected' ? connection : undefined;
+  });
+  assert.deepEqual(connected, { state: 'connected', login: 'octo', accounts: ['octo-org'], refreshTokenExpiresAtMs: connected.refreshTokenExpiresAtMs }, 'an installation where the user reaches no repository is never bound');
+  const sealedRecord = await fsp.readFile(path.join(tenant.watcherHome, 'records', 'github-user'));
+  assert.ok(!sealedRecord.includes('ghr_user'), 'the refresh token is sealed at rest');
   const linkCredentials: { github: string | null } = { github: null };
   const coveredProbeCounts: number[] = [];
   let githubAppTokenChanges = 0;
@@ -1152,4 +1210,65 @@ test('a doorman with a GitHub App mints a read-only installation token for its t
   link.credentialsMayHaveChanged();
   await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
   assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppToken()).readToken, 'operator-read-token');
+});
+
+test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, []);
+  const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-github-user-'));
+  t.after(() => fsp.rm(watcherHome, { recursive: true, force: true }));
+  const store = createFileTenantRecordStore({ watcherHomeFor: (slug) => (slug === 'usertenant00001' ? watcherHome : null) });
+  const sealKey = credentialStoreKey(crypto.randomBytes(32));
+  const changes: string[] = [];
+  const logLines: string[] = [];
+  const recordingLog = { log: (line: string) => logLines.push(line), warn: (line: string) => logLines.push(line) };
+  const openLink = () => createGithubUserLink({ slug: 'usertenant00001', app: () => app.githubApp, store, sealKey, fetchFn: app.appFetch, now: () => clock.nowMs, log: recordingLog, onChange: () => changes.push('changed') });
+  const firstDoorman = openLink();
+  t.after(() => firstDoorman.stop());
+
+  app.user.isAuthorized = true;
+  assert.equal((await firstDoorman.connect()).state, 'awaiting-code');
+  await eventually(async () => ((await firstDoorman.connection()).state === 'connected' ? true : undefined));
+  assert.deepEqual(await firstDoorman.bindings(), [{ installationId: 4242, accountLogin: 'octo-org', repositories: ['glimmervoid', 'site'] }]);
+
+  clock.nowMs += 9 * 60 * 60_000;
+  const [firstGrant, secondGrant] = await Promise.all([firstDoorman.userAccessGrant(), firstDoorman.userAccessGrant()]);
+  assert.deepEqual(app.user.refreshesWith, ['ghr_user1'], 'two callers share one refresh');
+  assert.equal(firstGrant?.token, 'ghu_user2');
+  assert.equal(secondGrant?.token, 'ghu_user2');
+  assert.equal(firstGrant?.login, 'octo');
+
+  clock.nowMs += 9 * 60 * 60_000;
+  const restartedDoorman = openLink();
+  t.after(() => restartedDoorman.stop());
+  const [stoppingGrant, restartedGrant] = await Promise.all([firstDoorman.userAccessGrant(), restartedDoorman.userAccessGrant()]);
+  firstDoorman.stop();
+  assert.equal(stoppingGrant?.token, 'ghu_user3');
+  assert.equal(restartedGrant?.token, 'ghu_user4');
+  assert.deepEqual(app.user.refreshesWith, ['ghr_user1', 'ghr_user2', 'ghr_user3'], 'a restarted doorman never reuses a refresh token its predecessor is spending');
+
+  app.user.liveRefreshToken = null;
+  clock.nowMs += 9 * 60 * 60_000;
+  assert.equal(await restartedDoorman.userAccessGrant(), null);
+  assert.deepEqual(await restartedDoorman.connection(), { state: 'reconnect-needed', login: 'octo', reason: 'revoked' });
+  assert.deepEqual(await restartedDoorman.bindings(), [], 'a connection waiting for a reconnect binds nothing');
+  assert.ok(changes.length > 0);
+
+  assert.deepEqual(await restartedDoorman.disconnect(), { state: 'disconnected' });
+  let releaseUserRead = () => {};
+  app.user.userReadGate = new Promise((resolve) => {
+    releaseUserRead = resolve;
+  });
+  const userReadsBefore = app.user.userReads;
+  assert.equal((await restartedDoorman.connect()).state, 'awaiting-code');
+  await eventually(() => (app.user.userReads > userReadsBefore ? true : undefined));
+  assert.deepEqual(await restartedDoorman.disconnect(), { state: 'disconnected' });
+  releaseUserRead();
+  await eventually(() => (logLines.some((line) => line.includes('sign-in finished after a disconnect')) ? true : undefined));
+  assert.deepEqual(await restartedDoorman.connection(), { state: 'disconnected' }, 'a sign-in that finishes after a disconnect binds nothing');
+  assert.deepEqual(await restartedDoorman.bindings(), []);
+  app.user.userReadGate = null;
+
+  app.user.deviceFlowEnabled = false;
+  assert.deepEqual(await restartedDoorman.connect(), { state: 'unavailable', reason: 'device-flow-off' });
 });

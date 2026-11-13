@@ -66,7 +66,7 @@ function createFakeCloudStorage() {
 test('the Cloud Storage doorman state reads its table and Secret Manager link secrets, keeps watcher files per tenant, appends awake events into month objects under a generation match that survives a racing writer, and a restarted meter rebuilds usage and the edge wake cap from the newest months', async () => {
   const storage = createFakeCloudStorage();
   const linkSecretName = 'projects/example-project/secrets/tenant-link-statetenant0001';
-  const tenant: DoormanTenant = { slug: 'statetenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: linkSecretName }, watcherHome: null, githubInstallation: null, awakeHoursPerMonth: 10, host: null };
+  const tenant: DoormanTenant = { slug: 'statetenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: linkSecretName }, watcherHome: null, awakeHoursPerMonth: 10, host: null };
   storage.store('tenants.json', JSON.stringify({ tenantDomain: 'tenants.example', tenants: [tenant] }));
   storage.putSecret(linkSecretName, `${'ab'.repeat(32)}\n`);
   storage.store('tenants/statetenant0001/ledger/2026-09.jsonl', '{"event":"woke","at":"2026-09-30T23:00:00.000Z"}\n');

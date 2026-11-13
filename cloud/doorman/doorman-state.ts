@@ -11,6 +11,7 @@ import { watcherFilesInFolder } from '../watcher/watcher-home.ts';
 import type { WatcherFiles } from '../watcher/watcher-home.ts';
 import { createGcpRest, isTransientFailure } from './gcp-rest.ts';
 import type { GcpRest } from './gcp-rest.ts';
+import type { TenantRecordStore } from './tenant-record-store.ts';
 
 type AwakeLedger = {
   identity: string;
@@ -30,6 +31,7 @@ type DoormanState = {
   readTable(): Promise<DoormanTenantTable>;
   watchTable(onChange: () => void): () => void;
   tenantState: DoormanTenantState;
+  tenantRecords: TenantRecordStore | null;
 };
 
 type StoredObject = { bytes: Buffer; generation: string };
@@ -158,6 +160,7 @@ function createFileDoormanState({ tablePath, log = console }: { tablePath: strin
     readTable: () => readFileTable(tablePath),
     watchTable: (onChange) => watchTableFile(tablePath, onChange),
     tenantState: createFileTenantState({ log }),
+    tenantRecords: null,
   };
 }
 
@@ -252,7 +255,7 @@ function gcsWatcherFiles(objects: GcsObjects, slug: string): WatcherFiles {
   };
 }
 
-function gcsTenantRecords(objects: GcsObjects) {
+function gcsTenantRecords(objects: GcsObjects): TenantRecordStore {
   return {
     read: (slug: string, recordName: string) => objects.read(`tenants/${slug}/records/${recordName}`),
     write: (slug: string, recordName: string, bytes: Buffer, ifGeneration: string | null) => objects.write(`tenants/${slug}/records/${recordName}`, bytes, ifGeneration ?? '0'),
@@ -296,7 +299,7 @@ function createGcsDoormanState({ bucket, google = createGcpRest(), log = console
       watcherFilesOf: (tenant: DoormanTenant) => gcsWatcherFiles(objects, tenant.slug),
     },
     tenantRecords: gcsTenantRecords(objects),
-  } satisfies DoormanState & { tenantRecords: ReturnType<typeof gcsTenantRecords> };
+  } satisfies DoormanState;
 }
 
 export { createFileDoormanState, createFileTenantState, createGcsDoormanState, stateBucketOf };

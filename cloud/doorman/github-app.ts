@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { githubApiOrigin } from '../../shared/contracts/watcher-link.ts';
-import type { DoormanGithubApp, DoormanGithubInstallation } from '../../shared/contracts/doorman.ts';
+import type { DoormanGithubApp } from '../../shared/contracts/doorman.ts';
+import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import { retryAfterMsFromHeaders } from '../watcher/core/probe-core.ts';
 import { githubAppJwt, installationTokenRequestBody } from './doorman-core.ts';
 import { clock } from '../../shared/clock.ts';
@@ -19,8 +20,9 @@ const USER_AGENT = 'glimmervoid-doorman';
 
 const InstallationToken = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() });
 
-function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
+function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = clock.nowMs }: {
   app: DoormanGithubApp;
+  privateKeySecret: string;
   fetchFn?: typeof fetch;
   now?: () => number;
 }) {
@@ -30,12 +32,12 @@ function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
 
   async function readPrivateKey(): Promise<crypto.KeyObject> {
     if (cachedKey !== null && now() - cachedKey.readAtMs < KEY_CACHE_MS) return cachedKey.privateKey;
-    const privateKey = crypto.createPrivateKey(await google.secretPayload(app.privateKeySecret, KEY_VERSION_ALIAS));
+    const privateKey = crypto.createPrivateKey(await google.secretPayload(privateKeySecret, KEY_VERSION_ALIAS));
     cachedKey = { privateKey, readAtMs: now() };
     return privateKey;
   }
 
-  async function requestInstallationToken(installation: DoormanGithubInstallation, privateKey: crypto.KeyObject): Promise<MintOutcome> {
+  async function requestInstallationToken(installation: GithubInstallationBinding, privateKey: crypto.KeyObject): Promise<MintOutcome> {
     const mintUrl = `${githubApiOrigin(process.env)}/app/installations/${installation.installationId}/access_tokens`;
     const response = await fetchFn(mintUrl, {
       method: 'POST',
@@ -63,7 +65,7 @@ function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
     return { kind: 'minted', token: minted.token, expiresAtMs: Date.parse(minted.expires_at) };
   }
 
-  async function mint(installation: DoormanGithubInstallation): Promise<MintOutcome> {
+  async function mint(installation: GithubInstallationBinding): Promise<MintOutcome> {
     try {
       return await requestInstallationToken(installation, await readPrivateKey());
     } catch (mintError) {

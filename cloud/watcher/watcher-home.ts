@@ -1,12 +1,10 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { openSealed, sealBytes } from './core/sealed-box.ts';
 
 const CREDENTIALS_FILENAME = 'credentials.enc';
 const PROBE_SET_FILENAME = 'probe-set.json';
-const IV_BYTES = 12;
-const AUTH_TAG_BYTES = 16;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_FOLDER_MODE = 0o700;
 
@@ -50,25 +48,19 @@ function watcherFilesInFolder(homeDir: string): WatcherFiles {
 
 function createWatcherHome({ files, credentialKey, log = console }: { files: WatcherFiles; credentialKey: Buffer; log?: Pick<Console, 'warn'> }) {
   async function saveCredentials(credentials: WatcherCredentials): Promise<void> {
-    const iv = crypto.randomBytes(IV_BYTES);
-    const cipher = crypto.createCipheriv('aes-256-gcm', credentialKey, iv);
-    const sealed = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
-    await files.write(CREDENTIALS_FILENAME, Buffer.concat([iv, cipher.getAuthTag(), sealed]));
+    await files.write(CREDENTIALS_FILENAME, sealBytes(credentialKey, Buffer.from(JSON.stringify(credentials), 'utf8')));
   }
 
   async function loadCredentials(): Promise<WatcherCredentials> {
     const stored = await files.read(CREDENTIALS_FILENAME);
-    if (stored === null || stored.length <= IV_BYTES + AUTH_TAG_BYTES) return NO_CREDENTIALS;
-    try {
-      const decipher = crypto.createDecipheriv('aes-256-gcm', credentialKey, stored.subarray(0, IV_BYTES));
-      decipher.setAuthTag(stored.subarray(IV_BYTES, IV_BYTES + AUTH_TAG_BYTES));
-      const opened = Buffer.concat([decipher.update(stored.subarray(IV_BYTES + AUTH_TAG_BYTES)), decipher.final()]);
-      const parsed = WatcherCredentials.safeParse(jsonOrNull(opened.toString('utf8')));
-      return parsed.success ? parsed.data : NO_CREDENTIALS;
-    } catch {
+    if (stored === null) return NO_CREDENTIALS;
+    const opened = openSealed(credentialKey, stored);
+    if (opened === null) {
       log.warn('[watcher] stored credentials were sealed under another link secret; waiting for the server to send them again');
       return NO_CREDENTIALS;
     }
+    const parsed = WatcherCredentials.safeParse(jsonOrNull(opened.toString('utf8')));
+    return parsed.success ? parsed.data : NO_CREDENTIALS;
   }
 
   async function saveProbeSet(probeSet: ProbeSet): Promise<void> {
