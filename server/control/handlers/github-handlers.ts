@@ -49,6 +49,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     requestViewer = async () => ({ isRateLimited: false, value: null }),
     requestViewerTeams = async () => ({ isRateLimited: false, value: null }),
     githubConnection = null,
+    commitSigning = null,
   } = deps;
 
   const prSessionOpenQueue = createKeyedSerialQueue();
@@ -204,6 +205,9 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'github-connection': async (msg: ClientMessageOf<'github-connection'>, ws: ControlSocket) => {
       replyTo(ws, msg, 'github-connection-result', { connection: githubConnection === null ? null : await githubConnection(msg.action) });
     },
+    'commit-signing': async (msg: ClientMessageOf<'commit-signing'>, ws: ControlSocket) => {
+      replyTo(ws, msg, 'commit-signing-result', { status: commitSigning === null ? null : await commitSigning.act(msg.action) });
+    },
     'pr-action-run': (msg: ClientMessageOf<'pr-action-run'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrActionRunRequest.safeParse({ repo: msg.repo, number: msg.number, actionId: msg.actionId, head: msg.head }), () => 'pr-flow-run', (flows, request) => flows.runPrAction(request)),
   } satisfies ControlHandlerTable;
 
@@ -221,6 +225,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'pr-flow-approve': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-action-run': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'github-connection': (_msg, requestId) => ({ type: 'github-connection-result', requestId, connection: null }),
+    'commit-signing': (_msg, requestId) => ({ type: 'commit-signing-result', requestId, status: null }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames, lateConnectFrames };

@@ -9,6 +9,7 @@ import { el } from '../dom-helpers.ts';
 import { storedValue } from '../settings/settings-panel-state.ts';
 import { button } from '../ui/button.ts';
 import { buildGithubConnectSection } from './github-connect.ts';
+import { buildCommitSigningSection } from './commit-signing.ts';
 
 const SECRETS_NOTE = 'Secrets agents may read from your password manager, per project. Revoking one makes the next request ask again.';
 
@@ -104,7 +105,7 @@ function buildVaultConnectionSlot(lookInSetting: SettingsSetting): HTMLElement {
 
 function renderSecretsPage(container: HTMLElement): void {
   const githubStack = el('div', 'settings-view-stack');
-  githubStack.append(buildGithubConnectSection());
+  githubStack.append(buildGithubConnectSection(), buildCommitSigningSection());
   secretsContainer = el('div', 'settings-view-stack');
   container.append(githubStack, secretsContainer);
   repaintSecrets();

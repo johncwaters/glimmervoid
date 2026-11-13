@@ -93,7 +93,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
       : null,
   });
 
-  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, packSessionFiles, setTerminalColors, sshSigner };
+  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

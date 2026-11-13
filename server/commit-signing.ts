@@ -6,13 +6,22 @@ import { execFileAsync } from './child-process-safe.ts';
 import { runGit } from './git/git-exec.ts';
 import { formatSshPublicKey, isSameSshKey, parseSshPublicKey } from './core/ssh-signing-core.ts';
 import type { SshPublicKey } from './core/ssh-signing-core.ts';
-import { hostSigningGitEnv, hostSigningSystemConfigText, includedSystemConfigPath, isHostSigningSystemConfig, OWN_SIGNING_SETTINGS_PATTERN, sshPublicKeyFingerprint } from './core/commit-signing-core.ts';
+import { CommitSigningRecord, GithubSigningKeyCreated, GithubSigningKeyList } from '../shared/contracts/commit-signing.ts';
+import type { CommitSigningAction, CommitSigningStatus } from '../shared/contracts/commit-signing.ts';
+import type { GithubConnection, GithubConnectionAction, GithubUserGrant } from '../shared/contracts/watcher-link.ts';
+import { commitSigningStatusOf, githubRefusalText, hostSigningGitEnv, hostSigningSystemConfigText, includedSystemConfigPath, isHostSigningSystemConfig, OWN_SIGNING_SETTINGS_PATTERN, sshPublicKeyFingerprint } from './core/commit-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const KEY_FOLDER_MODE = 0o700;
 const PRIVATE_KEY_FILE_NAME = 'signing-key';
 const KEY_COMMENT = 'glimmervoid-commit-signing';
 const SYSTEM_CONFIG_FILE_NAME = 'system.gitconfig';
+const RECORD_FILE_NAME = 'commit-signing.json';
+const NO_REGISTRATION: CommitSigningRecord = { github: null };
+const GITHUB_API_URL = 'https://api.github.com';
+const GITHUB_API_VERSION = '2022-11-28';
+const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
+const GITHUB_KEY_TITLE = 'Glimmervoid commit signing';
 const GIT_CONFIG_NO_MATCH_EXIT_CODE = 1;
 const KEYGEN_TIMEOUT_MS = 30_000;
 const SIGNING_TIMEOUT_MS = 60_000;
@@ -30,6 +39,8 @@ interface HostSigningKeyStore {
   setup: () => Promise<HostSigningKey>;
   remove: () => Promise<void>;
   gitEnvFor: (cwd: string) => Promise<Record<string, string>>;
+  readRecord: () => Promise<CommitSigningRecord>;
+  writeRecord: (record: CommitSigningRecord) => Promise<void>;
   signIfHeld: (request: { publicKey: SshPublicKey; namespace: string; payload: Buffer }) => Promise<SignOutcome | null>;
 }
 
@@ -54,6 +65,12 @@ async function discoverSystemConfigBase(): Promise<SystemConfigBase> {
   return { baseSystemConfigPath: includedSystemConfigPath(systemConfigText), inheritsHostSigningConfig: true };
 }
 
+async function writePrivateFile(filePath: string, text: string): Promise<void> {
+  const stagedPath = `${filePath}.${process.pid}.tmp`;
+  await fs.writeFile(stagedPath, text, { mode: 0o600 });
+  await fs.rename(stagedPath, filePath);
+}
+
 function gitExitCodeOf(error: unknown): unknown {
   return (error as { code?: unknown } | null)?.code;
 }
@@ -62,6 +79,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   const privateKeyPath = path.join(folder, PRIVATE_KEY_FILE_NAME);
   const publicKeyPath = `${privateKeyPath}.pub`;
   const systemConfigPath = path.join(folder, SYSTEM_CONFIG_FILE_NAME);
+  const recordPath = path.join(folder, RECORD_FILE_NAME);
   let systemConfigBase: Promise<SystemConfigBase> | null = null;
 
   async function read(): Promise<HostSigningKey | null> {
@@ -90,6 +108,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   }
 
   async function remove(): Promise<void> {
+    await fs.rm(recordPath, { force: true });
     await fs.rm(systemConfigPath, { force: true });
     await fs.rm(privateKeyPath, { force: true });
     await fs.rm(publicKeyPath, { force: true });
@@ -98,9 +117,19 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   async function writeSystemConfig(configText: string): Promise<void> {
     const current = await fs.readFile(systemConfigPath, 'utf8').catch(() => null);
     if (current === configText) return;
-    const stagedPath = `${systemConfigPath}.${process.pid}.tmp`;
-    await fs.writeFile(stagedPath, configText, { mode: 0o600 });
-    await fs.rename(stagedPath, systemConfigPath);
+    await writePrivateFile(systemConfigPath, configText);
+  }
+
+  async function readRecord(): Promise<CommitSigningRecord> {
+    const recordText = await fs.readFile(recordPath, 'utf8').catch(() => null);
+    if (recordText === null) return NO_REGISTRATION;
+    const parsed = CommitSigningRecord.safeParse(JSON.parse(recordText));
+    if (!parsed.success) throw new Error(`${recordPath} is not a commit signing record: ${parsed.error.message}`);
+    return parsed.data;
+  }
+
+  async function writeRecord(record: CommitSigningRecord): Promise<void> {
+    await writePrivateFile(recordPath, `${JSON.stringify(CommitSigningRecord.parse(record))}\n`);
   }
 
   async function projectSetsOwnSigning(cwd: string, base: SystemConfigBase): Promise<boolean> {
@@ -135,8 +164,175 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     }
   }
 
-  return { read, setup, remove, gitEnvFor, signIfHeld };
+  return { read, setup, remove, gitEnvFor, readRecord, writeRecord, signIfHeld };
 }
 
-export { createHostSigningKeyStore };
-export type { HostSigningKeyStore };
+interface GithubAnswer {
+  status: number;
+  body: unknown;
+}
+
+interface CommitSigning {
+  act: (action: CommitSigningAction) => Promise<CommitSigningStatus>;
+  disconnectGithub: <T>(disconnect: () => Promise<T>) => Promise<T>;
+}
+
+type GithubAccess = { kind: 'granted'; grant: GithubUserGrant } | { kind: 'none'; reason: string } | { kind: 'unknown' };
+
+const GITHUB_STATES_WITHOUT_ACCESS: ReadonlySet<GithubConnection['state']> = new Set(['unavailable', 'disconnected', 'awaiting-code', 'needs-install', 'reconnect-needed']);
+const UNREADABLE_ACCESS_TEXT = 'Glimmervoid could not read the GitHub connection, so the key on GitHub was left in place. Try again in a minute.';
+
+function githubMessageOf(body: unknown): string | null {
+  const message = (body as { message?: unknown } | null)?.message;
+  return typeof message === 'string' ? message.slice(0, 200) : null;
+}
+
+function byHandNotice(login: string): string {
+  return `Glimmervoid has no GitHub access for ${login}: delete the key named "${GITHUB_KEY_TITLE}" at github.com/settings/keys.`;
+}
+
+function createCommitSigning({ store, githubUserCredential, githubConnectionState, githubApiUrl = GITHUB_API_URL, fetchImpl = fetch, log = console }: {
+  store: HostSigningKeyStore;
+  githubUserCredential: () => Promise<GithubUserGrant | null>;
+  githubConnectionState: () => Promise<GithubConnection | null>;
+  githubApiUrl?: string;
+  fetchImpl?: typeof fetch;
+  log?: Pick<Console, 'warn'>;
+}): CommitSigning {
+  let actionChain: Promise<unknown> = Promise.resolve();
+  let pendingProblem: string | null = null;
+
+  function serialized<T>(work: () => Promise<T>): Promise<T> {
+    const next = actionChain.then(work, work);
+    actionChain = next.catch(() => {});
+    return next;
+  }
+
+  async function connectedGrant(): Promise<GithubUserGrant | null> {
+    return githubUserCredential().catch((error: unknown) => {
+      log.warn(`[commit-signing] could not read the GitHub connection: ${errorMessage(error)}`);
+      return null;
+    });
+  }
+
+  async function githubAccess(): Promise<GithubAccess> {
+    const grant = await connectedGrant();
+    if (grant) return { kind: 'granted', grant };
+    const connection = await githubConnectionState().catch(() => null);
+    if (connection && GITHUB_STATES_WITHOUT_ACCESS.has(connection.state)) return { kind: 'none', reason: connection.state };
+    return { kind: 'unknown' };
+  }
+
+  async function githubRequest(grant: GithubUserGrant, method: string, requestPath: string, body?: unknown): Promise<GithubAnswer> {
+    const response = await fetchImpl(`${githubApiUrl}${requestPath}`, {
+      method,
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${grant.token}`, 'X-GitHub-Api-Version': GITHUB_API_VERSION, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+    });
+    const isJson = (response.headers.get('content-type') ?? '').includes('json');
+    const text = await response.text();
+    return { status: response.status, body: isJson && text !== '' ? JSON.parse(text) : null };
+  }
+
+  async function readableRecord(): Promise<{ record: CommitSigningRecord; problem: string | null }> {
+    return store.readRecord().then((record) => ({ record, problem: null }), (error: unknown) => ({ record: NO_REGISTRATION, problem: errorMessage(error) }));
+  }
+
+  async function statusWith(problem: string | null): Promise<CommitSigningStatus> {
+    const [hostKey, readable, grant] = await Promise.all([store.read(), readableRecord(), connectedGrant()]);
+    const shownProblem = [problem, readable.problem, pendingProblem].filter((line) => line !== null).join(' ') || null;
+    pendingProblem = null;
+    return commitSigningStatusOf({ hostKey, record: readable.record, connectedLogin: grant?.login ?? null, problem: shownProblem });
+  }
+
+  async function githubKeyIdsMatching(grant: GithubUserGrant, held: HostSigningKey): Promise<number[]> {
+    const listing = await githubRequest(grant, 'GET', '/user/ssh_signing_keys?per_page=100');
+    if (listing.status !== 200) throw new Error(githubRefusalText('list', listing.status, githubMessageOf(listing.body)));
+    const keys = GithubSigningKeyList.parse(listing.body);
+    return keys.filter((listed) => {
+      const listedKey = parseSshPublicKey(listed.key);
+      return listedKey !== null && isSameSshKey(listedKey, held.publicKey);
+    }).map((listed) => listed.id);
+  }
+
+  async function register(): Promise<string | null> {
+    const held = await store.read();
+    if (!held) return 'Set up a signing key first.';
+    const grant = await connectedGrant();
+    if (!grant) return 'Connect GitHub to register the key, or add it on GitHub by hand.';
+    const created = await githubRequest(grant, 'POST', '/user/ssh_signing_keys', { title: GITHUB_KEY_TITLE, key: held.publicKeyText });
+    const createdKey = created.status === 201 ? GithubSigningKeyCreated.safeParse(created.body) : null;
+    const keyId = createdKey?.success ? createdKey.data.id : created.status === 422 ? (await githubKeyIdsMatching(grant, held))[0] ?? null : null;
+    if (keyId === null) return githubRefusalText('register', created.status, githubMessageOf(created.body));
+    await store.writeRecord({ github: { login: grant.login, keyId } });
+    return null;
+  }
+
+  async function deleteEveryCopyOnGithub(grant: GithubUserGrant, record: CommitSigningRecord): Promise<void> {
+    const held = await store.read();
+    const matchingIds = held ? await githubKeyIdsMatching(grant, held) : [];
+    const recordedId = record.github?.login === grant.login ? record.github.keyId : null;
+    const keyIds = new Set(recordedId === null ? matchingIds : [...matchingIds, recordedId]);
+    for (const keyId of keyIds) {
+      const deleted = await githubRequest(grant, 'DELETE', `/user/ssh_signing_keys/${keyId}`);
+      if (deleted.status !== 204 && deleted.status !== 404) throw new Error(githubRefusalText('delete', deleted.status, githubMessageOf(deleted.body)));
+    }
+  }
+
+  async function removeFromGithub(record: CommitSigningRecord): Promise<string | null> {
+    const access = await githubAccess();
+    if (access.kind === 'unknown') throw new Error(UNREADABLE_ACCESS_TEXT);
+    if (access.kind === 'none') return record.github ? byHandNotice(record.github.login) : null;
+    await deleteEveryCopyOnGithub(access.grant, record);
+    if (record.github && record.github.login !== access.grant.login) return byHandNotice(record.github.login);
+    return null;
+  }
+
+  async function remove(): Promise<string | null> {
+    const { record } = await readableRecord();
+    const notice = await removeFromGithub(record);
+    await store.remove();
+    return notice;
+  }
+
+  async function act(action: CommitSigningAction): Promise<CommitSigningStatus> {
+    return serialized(async () => {
+      try {
+        if (action === 'setup') await store.setup();
+        const problem = action === 'register' ? await register() : action === 'remove' ? await remove() : null;
+        return await statusWith(problem);
+      } catch (error) {
+        return statusWith(errorMessage(error));
+      }
+    });
+  }
+
+  async function forgetGithubKey(): Promise<void> {
+    const { record } = await readableRecord();
+    if (!record.github) return;
+    const grant = await connectedGrant();
+    if (!grant || grant.login !== record.github.login) throw new Error(byHandNotice(record.github.login));
+    await deleteEveryCopyOnGithub(grant, record);
+    await store.writeRecord(NO_REGISTRATION);
+  }
+
+  function disconnectGithub<T>(disconnect: () => Promise<T>): Promise<T> {
+    return serialized(async () => {
+      await forgetGithubKey().catch((error: unknown) => {
+        pendingProblem = `Disconnect left the signing key on GitHub: ${errorMessage(error)}`;
+        log.warn(`[commit-signing] ${pendingProblem}`);
+      });
+      return disconnect();
+    });
+  }
+
+  return { act, disconnectGithub };
+}
+
+function forgettingSigningKeyOnDisconnect(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub'>): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
+  return (action) => (action === 'disconnect' ? commitSigning.disconnectGithub(() => githubConnection(action)) : githubConnection(action));
+}
+
+export { createCommitSigning, createHostSigningKeyStore, forgettingSigningKeyOnDisconnect };
+export type { CommitSigning, HostSigningKeyStore };

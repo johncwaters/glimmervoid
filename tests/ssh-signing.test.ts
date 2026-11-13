@@ -9,7 +9,8 @@ import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { parseSshPublicKey } from '../server/core/ssh-signing-core.ts';
 import { createSshSigner, installCommitSigningShim } from '../server/ssh-signing.ts';
 import http from 'node:http';
-import { createHostSigningKeyStore } from '../server/commit-signing.ts';
+import { createCommitSigning, createHostSigningKeyStore, forgettingSigningKeyOnDisconnect } from '../server/commit-signing.ts';
+import type { GithubConnection } from '../shared/contracts/watcher-link.ts';
 import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
@@ -179,6 +180,102 @@ test('a session commit is signed with the host signing key outside the session, 
   } finally {
     for (const session of sessions) session.destroy();
     await closeServer(server);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+function fakeGithubSigningKeys(expectedToken: string): { server: http.Server; calls: string[]; keysById: Map<number, string>; failNextDelete: () => void } {
+  const calls: string[] = [];
+  const keysById = new Map<number, string>();
+  let nextKeyId = 41;
+  let isNextDeleteFailing = false;
+  const server = http.createServer((request, response) => {
+    const bodyChunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => { bodyChunks.push(chunk); });
+    request.on('end', () => {
+      calls.push(`${request.method} ${request.url}`);
+      const answer = (status: number, body?: unknown) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(body === undefined ? '' : JSON.stringify(body)); };
+      if (request.headers.authorization !== `Bearer ${expectedToken}`) return answer(401, { message: 'Bad credentials' });
+      if (request.method === 'POST' && request.url === '/user/ssh_signing_keys') {
+        const { key } = JSON.parse(Buffer.concat(bodyChunks).toString('utf8')) as { key: string };
+        if ([...keysById.values()].includes(key)) return answer(422, { message: 'Validation Failed' });
+        nextKeyId += 1;
+        keysById.set(nextKeyId, key);
+        return answer(201, { id: nextKeyId, key, title: 'Glimmervoid commit signing', created_at: '2026-11-13T00:00:00Z' });
+      }
+      if (request.method === 'GET' && request.url?.startsWith('/user/ssh_signing_keys')) return answer(200, [...keysById].map(([id, key]) => ({ id, key })));
+      const deleted = /^\/user\/ssh_signing_keys\/(\d+)$/.exec(request.url ?? '');
+      if (request.method === 'DELETE' && deleted && isNextDeleteFailing) {
+        isNextDeleteFailing = false;
+        response.writeHead(502, { 'Content-Type': 'text/html' });
+        return response.end('<html>bad gateway</html>');
+      }
+      if (request.method === 'DELETE' && deleted) return answer(keysById.delete(Number(deleted[1])) ? 204 : 404);
+      return answer(404, { message: 'Not Found' });
+    });
+  });
+  return { server, calls, keysById, failNextDelete: () => { isNextDeleteFailing = true; } };
+}
+
+test('commit signing registers the host key on GitHub with the connected user token and never leaves it there while GitHub access exists', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gv-signing-setup-'));
+  const keyFolder = path.join(root, 'commit-signing');
+  const userToken = 'ghu_signing_setup_probe';
+  const github = fakeGithubSigningKeys(userToken);
+  await listenOnLoopback(github.server);
+  const connectedGrant = { login: 'octo-carbon', token: userToken, expiresAtMs: Date.parse('2099-01-01T00:00:00Z') };
+  let grant: typeof connectedGrant | null = null;
+  let connectionState: GithubConnection | null = { state: 'disconnected' };
+  const store = createHostSigningKeyStore({ folder: keyFolder });
+  const warnings: string[] = [];
+  const commitSigning = createCommitSigning({ store, githubUserCredential: async () => grant, githubConnectionState: async () => connectionState, githubApiUrl: `http://127.0.0.1:${boundPort(github.server)}`, log: { warn: (line: string) => { warnings.push(line); } } });
+  const disconnect = forgettingSigningKeyOnDisconnect(async () => ({ state: 'disconnected' }), commitSigning);
+  try {
+    assert.equal((await commitSigning.act('read')).state, 'off');
+    const unregistered = await commitSigning.act('setup');
+    assert.equal(unregistered.state, 'unregistered');
+    assert.equal(unregistered.canRegister, false, 'with no GitHub connection the key is added by hand');
+    assert.match(unregistered.publicKey ?? '', /^ssh-ed25519 /);
+    assert.match(unregistered.fingerprint ?? '', /^SHA256:/);
+
+    grant = connectedGrant;
+    const registered = await commitSigning.act('register');
+    assert.equal(registered.state, 'registered', registered.problem ?? '');
+    assert.equal(registered.login, 'octo-carbon');
+    assert.deepEqual([...github.keysById.values()], [unregistered.publicKey]);
+    await store.writeRecord({ github: null });
+    assert.equal((await commitSigning.act('register')).state, 'registered', 'a key GitHub already holds is found by listing');
+
+    grant = null;
+    connectionState = null;
+    const unreadable = await commitSigning.act('remove');
+    assert.equal(unreadable.state, 'registered', 'remove refuses while the GitHub connection cannot be read');
+    assert.match(unreadable.problem ?? '', /could not read the GitHub connection/);
+    assert.equal(github.keysById.size, 1);
+
+    grant = connectedGrant;
+    github.failNextDelete();
+    await disconnect('disconnect');
+    assert.equal(github.keysById.size, 1);
+    const afterRefusedDelete = await commitSigning.act('read');
+    assert.equal(afterRefusedDelete.state, 'registered', 'a refused delete keeps the record of the GitHub key');
+    assert.match(afterRefusedDelete.problem ?? '', /Disconnect left the signing key on GitHub: GitHub refused to delete the signing key \(HTTP 502\)/);
+
+    await disconnect('disconnect');
+    assert.equal(github.keysById.size, 0, 'disconnecting GitHub deletes the signing key there first');
+    assert.equal((await commitSigning.act('read')).state, 'unregistered');
+
+    github.keysById.set(9, unregistered.publicKey ?? '');
+    await fs.writeFile(path.join(keyFolder, 'commit-signing.json'), '');
+    assert.match((await commitSigning.act('read')).problem ?? '', /JSON/, 'an unreadable record is reported, not fatal');
+    const removed = await commitSigning.act('remove');
+    assert.equal(removed.state, 'off', removed.problem ?? '');
+    assert.equal(github.keysById.size, 0, 'remove deletes every copy of the key GitHub holds, recorded or not');
+    assert.deepEqual(await fs.readdir(keyFolder), [], 'remove deletes the key on this host');
+    assert.ok(!warnings.join('\n').includes(userToken), 'no warning carries the token');
+    assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');
+  } finally {
+    await closeServer(github.server);
     await fs.rm(root, { recursive: true, force: true });
   }
 });

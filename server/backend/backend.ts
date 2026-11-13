@@ -44,6 +44,7 @@ import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
+import { createCommitSigning, forgettingSigningKeyOnDisconnect } from '../commit-signing.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
@@ -196,7 +197,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       .map((session) => session.name),
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
-  const { agentAccounts, agentIngressServer, getHookPort, hookRouter, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
+  const { agentAccounts, agentIngressServer, getHookPort, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -691,6 +692,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
   githubUserCredentialOfLink = watcherLink.githubUserCredential;
+  const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read') });
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
@@ -840,7 +842,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     secrets: secretsBroker,
     testSecretSource,
-    githubConnection: watcherLink.githubConnection,
+    githubConnection: forgettingSigningKeyOnDisconnect(watcherLink.githubConnection, commitSigning),
+    commitSigning,
     whiteboards,
     reviews,
     changeMaps,
