@@ -12,6 +12,11 @@ const PRIVATE_FOLDER_MODE = 0o700;
 
 const NO_CREDENTIALS: WatcherCredentials = Object.freeze({ github: null, posthog: null });
 
+type WatcherFiles = {
+  read(fileName: string): Promise<Buffer | null>;
+  write(fileName: string, contents: Buffer | string): Promise<void>;
+};
+
 async function writePrivately(filePath: string, contents: Buffer | string): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: PRIVATE_FOLDER_MODE });
   const partialPath = `${filePath}.${process.pid}.partial`;
@@ -36,19 +41,23 @@ async function readOrNull(filePath: string): Promise<Buffer | null> {
   }
 }
 
-function createWatcherHome({ homeDir, credentialKey, log = console }: { homeDir: string; credentialKey: Buffer; log?: Pick<Console, 'warn'> }) {
-  const credentialsPath = path.join(homeDir, CREDENTIALS_FILENAME);
-  const probeSetPath = path.join(homeDir, PROBE_SET_FILENAME);
+function watcherFilesInFolder(homeDir: string): WatcherFiles {
+  return {
+    read: (fileName) => readOrNull(path.join(homeDir, fileName)),
+    write: (fileName, contents) => writePrivately(path.join(homeDir, fileName), contents),
+  };
+}
 
+function createWatcherHome({ files, credentialKey, log = console }: { files: WatcherFiles; credentialKey: Buffer; log?: Pick<Console, 'warn'> }) {
   async function saveCredentials(credentials: WatcherCredentials): Promise<void> {
     const iv = crypto.randomBytes(IV_BYTES);
     const cipher = crypto.createCipheriv('aes-256-gcm', credentialKey, iv);
     const sealed = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
-    await writePrivately(credentialsPath, Buffer.concat([iv, cipher.getAuthTag(), sealed]));
+    await files.write(CREDENTIALS_FILENAME, Buffer.concat([iv, cipher.getAuthTag(), sealed]));
   }
 
   async function loadCredentials(): Promise<WatcherCredentials> {
-    const stored = await readOrNull(credentialsPath);
+    const stored = await files.read(CREDENTIALS_FILENAME);
     if (stored === null || stored.length <= IV_BYTES + AUTH_TAG_BYTES) return NO_CREDENTIALS;
     try {
       const decipher = crypto.createDecipheriv('aes-256-gcm', credentialKey, stored.subarray(0, IV_BYTES));
@@ -63,11 +72,11 @@ function createWatcherHome({ homeDir, credentialKey, log = console }: { homeDir:
   }
 
   async function saveProbeSet(probeSet: ProbeSet): Promise<void> {
-    await writePrivately(probeSetPath, JSON.stringify(probeSet));
+    await files.write(PROBE_SET_FILENAME, JSON.stringify(probeSet));
   }
 
   async function loadProbeSet(): Promise<ProbeSet | null> {
-    const stored = await readOrNull(probeSetPath);
+    const stored = await files.read(PROBE_SET_FILENAME);
     if (stored === null) return null;
     const parsed = ProbeSet.safeParse(jsonOrNull(stored.toString('utf8')));
     return parsed.success ? parsed.data : null;
@@ -78,5 +87,5 @@ function createWatcherHome({ homeDir, credentialKey, log = console }: { homeDir:
 
 type WatcherHome = ReturnType<typeof createWatcherHome>;
 
-export { createWatcherHome, NO_CREDENTIALS };
-export type { WatcherHome };
+export { createWatcherHome, NO_CREDENTIALS, watcherFilesInFolder };
+export type { WatcherFiles, WatcherHome };

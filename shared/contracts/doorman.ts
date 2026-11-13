@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
+const SecretManagerSecretName = z.string().regex(/^projects\/[a-z0-9-]{1,63}\/secrets\/[A-Za-z0-9_-]{1,255}$/);
+
 export const DoormanGithubApp = z.strictObject({
   clientId: z.string().regex(/^[A-Za-z0-9.]{1,64}$/),
-  privateKeySecret: z.string().regex(/^projects\/[a-z0-9-]{1,63}\/secrets\/[A-Za-z0-9_-]{1,255}$/),
+  privateKeySecret: SecretManagerSecretName,
 });
 export type DoormanGithubApp = z.infer<typeof DoormanGithubApp>;
 
@@ -20,11 +22,16 @@ export const DoormanGcpHost = z.strictObject({
 });
 export type DoormanGcpHost = z.infer<typeof DoormanGcpHost>;
 
+const DoormanLinkSecret = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('file'), path: z.string().min(1) }),
+  z.strictObject({ kind: z.literal('secret-manager'), secret: SecretManagerSecretName }),
+]);
+
 export const DoormanTenant = z.strictObject({
   slug: z.string().regex(/^[a-z0-9]{12,40}$/),
   serverUrl: z.url({ protocol: /^https?$/ }),
-  linkSecretPath: z.string().min(1),
-  watcherHome: z.string().min(1),
+  linkSecret: DoormanLinkSecret,
+  watcherHome: z.string().min(1).nullable(),
   githubInstallation: DoormanGithubInstallation.nullable().default(null),
   awakeHoursPerMonth: z.number().positive().nullable().default(null),
   host: DoormanGcpHost.nullable().default(null),
@@ -40,9 +47,13 @@ export type DoormanTenantTable = z.infer<typeof DoormanTenantTable>;
 
 export const DoormanTableServerUrls = z.object({ tenants: z.array(DoormanTenant.pick({ serverUrl: true })) });
 
+export const WakeStartedBy = z.enum(['edge', 'watcher']);
+export type WakeStartedBy = z.infer<typeof WakeStartedBy>;
+
 export const AwakeEvent = z.strictObject({
   event: z.enum(['woke', 'observed-awake', 'slept']),
   at: z.iso.datetime(),
+  startedBy: WakeStartedBy.optional(),
 });
 export type AwakeEvent = z.infer<typeof AwakeEvent>;
 

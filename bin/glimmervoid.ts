@@ -125,7 +125,7 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   },
   doorman: async ({ values }) => {
     const { runDoormanCli } = await import('../cloud/doorman/doorman.ts');
-    return runDoormanCli({ tablePath: typeof values.tenants === 'string' ? values.tenants : null, rawPort: typeof values.port === 'string' ? values.port : null });
+    return runDoormanCli({ tablePath: typeof values.tenants === 'string' ? values.tenants : null, stateUrl: typeof values.state === 'string' ? values.state : null, rawPort: typeof values.port === 'string' ? values.port : null });
   },
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');

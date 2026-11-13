@@ -764,6 +764,10 @@
     {
       "name": "repository",
       "definition": "A git checkout a session works in; the dashboard's Add a repository step clones one from GitHub or a pasted URL into a repository root, or adds a folder that holds checkouts"
+    },
+    {
+      "name": "cloud storage",
+      "definition": "Google Cloud Storage, where a hosted doorman's state bucket keeps its tenant table, awake ledgers and watcher files"
     }
   ],
   "retired": [

@@ -248,6 +248,7 @@ const OWNED_COMMAND_SPECS = {
     summary: "Run the doorman: forward each tenant's traffic to its server, wake a sleeping server first, and run each tenant's watcher",
     options: [
       { name: 'tenants', type: 'string', valueName: 'path', summary: 'The tenant table file, reloaded when it changes; the doorman stops when it is deleted' },
+      { name: 'state', type: 'string', valueName: 'gs://bucket', summary: 'The Cloud Storage bucket holding the tenant table, awake ledgers and watcher homes, in place of --tenants' },
       { name: 'port', type: 'string', valueName: 'number', summary: 'The loopback port to listen on (default: any free port)' },
     ],
   },

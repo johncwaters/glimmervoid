@@ -16,7 +16,7 @@ import { loadOrCreateLinkSecret } from '../cloud/link/link-secret.ts';
 import { createRemoteWatcherStarter } from '../cloud/link/remote-watcher-starter.ts';
 import { createWatcherLink } from '../cloud/link/watcher-link.ts';
 import { createNudgeSender, createProbeRunner } from '../cloud/watcher/probe-runner.ts';
-import { createWatcherHome } from '../cloud/watcher/watcher-home.ts';
+import { createWatcherHome, watcherFilesInFolder } from '../cloud/watcher/watcher-home.ts';
 import { createWatcherListener } from '../cloud/watcher/watcher-listener.ts';
 import { createGithubStorePoller } from '../server/github/github-store-poller.ts';
 import { githubStoreProbes, watchProbeId } from '../server/github/github-store-probes.ts';
@@ -73,7 +73,7 @@ async function startLinkedWatcher(t: test.TestContext, probe: Probe = LIGHT_PROB
     telemetry: { capture: (event, properties) => capturedEvents.push({ event, properties }) },
     credentials: () => ({ github: linkCredentials.github, posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } }),
     startWatcher: ({ onListening }) => {
-      const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+      const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
       const sender = createNudgeSender({ serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), now, log: QUIET_LOG });
       const runner = createProbeRunner({ home, nudges: sender, fetchFn: githubFetch, now, log: QUIET_LOG });
       const listener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), now, log: QUIET_LOG });
@@ -226,7 +226,7 @@ test('a GraphQL rate limit answered with 200 waits for its reset even when the s
     return new Response('{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}', { status: 200, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(resetEpochSeconds) } });
   };
   const runner = createProbeRunner({
-    home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
+    home: createWatcherHome({ files: watcherFilesInFolder(homeDir), credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
     nudges: { send: () => {}, failingForMs: () => null },
     fetchFn,
     now: () => clock.nowMs,
@@ -262,7 +262,7 @@ test('an answer to a request sent with the old token is dropped once a new token
   };
   const nudgeKinds: string[] = [];
   const runner = createProbeRunner({
-    home: createWatcherHome({ homeDir, credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
+    home: createWatcherHome({ files: watcherFilesInFolder(homeDir), credentialKey: crypto.randomBytes(32), log: QUIET_LOG }),
     nudges: { send: (kind) => { nudgeKinds.push(kind); }, failingForMs: () => null },
     fetchFn,
     now: () => clock.nowMs,
@@ -333,7 +333,7 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-idle-stop-'));
   const linkSecret = crypto.randomBytes(32);
   const stopRequests: string[] = [];
-  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
   const sender = createNudgeSender({ serverUrl: 'http://127.0.0.1:9', signingKey: directionKey(linkSecret, 'watcher-to-server'), log: QUIET_LOG });
   const runner = createProbeRunner({ home, nudges: sender, log: QUIET_LOG });
   const watcherListener = createWatcherListener({
@@ -421,7 +421,7 @@ test('a server asks its doorman to stop its host once, after 20 awake minutes wi
 test('a server that wakes from a sleep longer than 30 s rechecks its remote watcher at once instead of waiting out the status timer, and a steady tick never does', async (t) => {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-host-wake-'));
   const linkSecret = crypto.randomBytes(32);
-  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
   const sender = createNudgeSender({ serverUrl: 'http://127.0.0.1:9', signingKey: directionKey(linkSecret, 'watcher-to-server'), log: QUIET_LOG });
   const runner = createProbeRunner({ home, nudges: sender, log: QUIET_LOG });
   const watcherListener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), log: QUIET_LOG });
@@ -508,7 +508,7 @@ test('a remote watcher links by URL and nudges its lane, and a watcher that stop
   const serverAddress = serverListener.address();
   assert.ok(serverAddress !== null && typeof serverAddress === 'object');
 
-  const home = createWatcherHome({ homeDir: watcherHome, credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
   const sender = createNudgeSender({ serverUrl: `http://127.0.0.1:${serverAddress.port}`, signingKey: directionKey(linkSecret, 'watcher-to-server'), now, log: QUIET_LOG });
   const runner = createProbeRunner({ home, nudges: sender, fetchFn: githubFetch, now, log: QUIET_LOG });
   const watcherListener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), now, log: QUIET_LOG });
@@ -726,7 +726,7 @@ async function doormanTenant(t: test.TestContext, slug: string, serverUrl: strin
   const linkSecret = crypto.randomBytes(32);
   const linkSecretPath = path.join(tenantHome, 'watcher-link.key');
   await fsp.writeFile(linkSecretPath, `${linkSecret.toString('hex')}\n`, { mode: 0o600 });
-  return { linkSecret, tenant: { slug, serverUrl, linkSecretPath, watcherHome: path.join(tenantHome, 'watcher'), awakeHoursPerMonth: null } };
+  return { linkSecret, linkSecretPath, tenant: { slug, serverUrl, linkSecret: { kind: 'file', path: linkSecretPath } as const, watcherHome: path.join(tenantHome, 'watcher'), awakeHoursPerMonth: null } };
 }
 
 test('a self-host doorman forwards pages and WebSockets with its own forwarding headers, serves its tenant watcher under the tenant key only, refuses outside nudges, answers a signed host stop that it has no adapter, and answers 502 at once when the server is down', async (t) => {
@@ -738,16 +738,16 @@ test('a self-host doorman forwards pages and WebSockets with its own forwarding 
   const echoSockets = new WebSocketServer({ server: tenantServer });
   echoSockets.on('connection', (socket) => socket.on('message', (message) => socket.send(`echo ${String(message)}`)));
   const serverPort = await listenOnLoopback(tenantServer);
-  const { linkSecret, tenant } = await doormanTenant(t, 'selfhosttenant01', `http://127.0.0.1:${serverPort}`);
-  const linkSecretText = await fsp.readFile(tenant.linkSecretPath, 'utf8');
-  await fsp.rm(tenant.linkSecretPath);
+  const { linkSecret, linkSecretPath, tenant } = await doormanTenant(t, 'selfhosttenant01', `http://127.0.0.1:${serverPort}`);
+  const linkSecretText = await fsp.readFile(linkSecretPath, 'utf8');
+  await fsp.rm(linkSecretPath);
   const doorman = createDoorman({ table: { tenantDomain: null, tenants: [tenant] }, log: QUIET_LOG });
   const doormanPort = await doorman.listen(0);
   assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: HEALTH_PATH })).status, 503);
-  await fsp.writeFile(tenant.linkSecretPath, linkSecretText, { mode: 0o600 });
-  const movedLinkSecret = loadOrCreateLinkSecret(path.join(path.dirname(tenant.linkSecretPath), 'secrets', 'watcher-link.key'), tenant.linkSecretPath);
+  await fsp.writeFile(linkSecretPath, linkSecretText, { mode: 0o600 });
+  const movedLinkSecret = loadOrCreateLinkSecret(path.join(path.dirname(linkSecretPath), 'secrets', 'watcher-link.key'), linkSecretPath);
   assert.deepEqual(movedLinkSecret, linkSecret, 'the server keeps its key when it moves it into the secrets folder');
-  await fsp.writeFile(tenant.linkSecretPath, `${crypto.randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
+  await fsp.writeFile(linkSecretPath, `${crypto.randomBytes(32).toString('hex')}\n`, { mode: 0o600 });
   t.after(async () => {
     await doorman.close();
     echoSockets.close();
@@ -927,7 +927,7 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   assert.match(notifications[0], /used all .* awake hours for this month/);
 });
 
-test('a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out', async (t) => {
+test('a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out, even after a doorman restart', async (t) => {
   const tenantServer = http.createServer((_request, response) => response.end('awake'));
   const tenantPort = await listenOnLoopback(tenantServer);
   await new Promise((resolve) => tenantServer.close(resolve));
@@ -975,6 +975,12 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   assert.match(limitedPage.body, /Woken too often this hour/);
   assert.doesNotMatch(limitedPage.body, /http-equiv="refresh"/);
   assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
+
+  const restartedDoorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: QUIET_LOG });
+  const restartedPort = await restartedDoorman.listen(0);
+  t.after(() => restartedDoorman.close());
+  assert.match((await requestThroughDoorman(restartedPort, { host: tenantHost, path: '/', headers: browserHeaders })).body, /Woken too often this hour/);
+  assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
 });
 
 test('the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {
@@ -995,7 +1001,7 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
     return Response.json({ kind: 'compute#operation' });
   };
   const adapter = createGcpHostAdapter({ fetchFn: fakeGoogle, settleTimeoutMs: 1000, settlePollMs: 1 });
-  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecretPath: '/unused', watcherHome: '/unused', githubInstallation: null, awakeHoursPerMonth: null, host: TEST_GCP_HOST };
+  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', githubInstallation: null, awakeHoursPerMonth: null, host: TEST_GCP_HOST };
 
   statusReads.push('SUSPENDED');
   await adapter.wake(tenant);

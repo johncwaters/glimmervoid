@@ -1,79 +1,68 @@
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { AwakeEvent } from '../../shared/contracts/doorman.ts';
+import type { AwakeEvent, WakeStartedBy } from '../../shared/contracts/doorman.ts';
 import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
-import { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, isMeteredAwake } from './doorman-core.ts';
+import { awakeUsageAt, emptyMeterTotal, foldAwakeEvent, isMeteredAwake, recentEdgeWakeTimes } from './doorman-core.ts';
 import type { MeterTotal } from './doorman-core.ts';
+import type { AwakeLedger } from './doorman-state.ts';
+import { isTransientFailure } from './gcp-rest.ts';
 
 type AwakeMeter = {
-  note(event: AwakeEvent['event']): void;
+  note(event: AwakeEvent['event'], startedBy?: WakeStartedBy): void;
   usage(awakeHoursPerMonth: number | null): AwakeUsage;
   isAwake(): boolean;
+  lastWokeAtMs(): number | null;
+  recentEdgeWakeTimesMs(): number[];
   flushed(): Promise<void>;
 };
 
-const AWAKE_LEDGER_FILE_NAME = 'awake-ledger.jsonl';
+type LedgerReading = { total: MeterTotal; lastWokeAtMs: number | null; edgeWakeTimesMs: number[] };
 
-function parsedLedgerLine(line: string): AwakeEvent | null {
-  try {
-    const parsed = AwakeEvent.safeParse(JSON.parse(line));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+function readingOf(awakeEvents: readonly AwakeEvent[], nowMs: number): LedgerReading {
+  const wokeEvents = awakeEvents.filter((awakeEvent) => awakeEvent.event === 'woke');
+  const lastWoke = wokeEvents.at(-1);
+  return {
+    total: awakeEvents.reduce(foldAwakeEvent, emptyMeterTotal(0)),
+    lastWokeAtMs: lastWoke === undefined ? null : Date.parse(lastWoke.at),
+    edgeWakeTimesMs: recentEdgeWakeTimes(wokeEvents.filter((awakeEvent) => awakeEvent.startedBy === 'edge').map((awakeEvent) => Date.parse(awakeEvent.at)), nowMs),
+  };
 }
 
-function isMissingFileError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
-}
-
-async function totalFromLedger(ledgerPath: string, nowMs: number, warn: (message: string) => void): Promise<MeterTotal> {
-  let ledgerText = '';
+async function readLedger(ledger: AwakeLedger, nowMs: number, warn: (message: string) => void): Promise<LedgerReading> {
   try {
-    ledgerText = await fsp.readFile(ledgerPath, 'utf8');
+    return readingOf(await ledger.recentEvents(), nowMs);
   } catch (readError) {
-    if (!isMissingFileError(readError)) {
-      warn(`could not read ${ledgerPath}, treating this month as used up until the doorman restarts: ${(readError as Error).message}`);
-      return { ...emptyMeterTotal(nowMs), closedAwakeMs: Number.MAX_SAFE_INTEGER };
-    }
+    if (isTransientFailure(readError)) throw readError;
+    warn(`could not read ${ledger.identity}, treating this month as used up until the doorman restarts: ${(readError as Error).message}`);
+    return { total: { ...emptyMeterTotal(nowMs), closedAwakeMs: Number.MAX_SAFE_INTEGER }, lastWokeAtMs: null, edgeWakeTimesMs: [] };
   }
-  let total = emptyMeterTotal(0);
-  for (const line of ledgerText.split('\n')) {
-    if (line.trim() === '') continue;
-    const awakeEvent = parsedLedgerLine(line);
-    if (awakeEvent === null) {
-      warn(`skipped a line of ${ledgerPath} that is not an awake event`);
-      continue;
-    }
-    total = foldAwakeEvent(total, awakeEvent);
-  }
-  return total;
 }
 
-async function createAwakeMeter({ watcherHome, now, log }: { watcherHome: string; now: () => number; log: Pick<Console, 'warn'> }): Promise<AwakeMeter> {
-  const ledgerPath = path.join(watcherHome, AWAKE_LEDGER_FILE_NAME);
+async function createAwakeMeter({ ledger, now, log }: { ledger: AwakeLedger; now: () => number; log: Pick<Console, 'warn'> }): Promise<AwakeMeter> {
   const warn = (message: string) => log.warn(`[doorman] awake meter: ${message}`);
-  let total = await totalFromLedger(ledgerPath, now(), warn);
-  let unwrittenLines: string[] = [];
+  const reading = await readLedger(ledger, now(), warn);
+  let total = reading.total;
+  let lastWokeAtMs = reading.lastWokeAtMs;
+  let edgeWakeTimesMs = reading.edgeWakeTimesMs;
+  let unwrittenEvents: AwakeEvent[] = [];
   let writes: Promise<void> = Promise.resolve();
 
   async function appendUnwritten(): Promise<void> {
-    if (unwrittenLines.length === 0) return;
-    const lines = unwrittenLines;
-    unwrittenLines = [];
+    if (unwrittenEvents.length === 0) return;
+    const awakeEvents = unwrittenEvents;
+    unwrittenEvents = [];
     try {
-      await fsp.mkdir(watcherHome, { recursive: true, mode: 0o700 });
-      await fsp.appendFile(ledgerPath, lines.join(''), { mode: 0o600 });
+      await ledger.append(awakeEvents);
     } catch (appendError) {
-      unwrittenLines = [...lines, ...unwrittenLines];
-      warn(`could not append to ${ledgerPath}, keeping ${unwrittenLines.length} event(s) for the next write: ${(appendError as Error).message}`);
+      unwrittenEvents = [...awakeEvents, ...unwrittenEvents];
+      warn(`could not append to ${ledger.identity}, keeping ${unwrittenEvents.length} event(s) for the next write: ${(appendError as Error).message}`);
     }
   }
 
-  function note(event: AwakeEvent['event']): void {
-    const awakeEvent: AwakeEvent = { event, at: new Date(now()).toISOString() };
+  function note(event: AwakeEvent['event'], startedBy?: WakeStartedBy): void {
+    const awakeEvent: AwakeEvent = startedBy === undefined ? { event, at: new Date(now()).toISOString() } : { event, at: new Date(now()).toISOString(), startedBy };
     total = foldAwakeEvent(total, awakeEvent);
-    unwrittenLines.push(`${JSON.stringify(awakeEvent)}\n`);
+    if (event === 'woke') lastWokeAtMs = now();
+    if (event === 'woke' && startedBy === 'edge') edgeWakeTimesMs = [...recentEdgeWakeTimes(edgeWakeTimesMs, now()), now()];
+    unwrittenEvents.push(awakeEvent);
     writes = writes.then(appendUnwritten);
   }
 
@@ -81,6 +70,8 @@ async function createAwakeMeter({ watcherHome, now, log }: { watcherHome: string
     note,
     usage: (awakeHoursPerMonth) => awakeUsageAt(total, awakeHoursPerMonth, now()),
     isAwake: () => isMeteredAwake(total),
+    lastWokeAtMs: () => lastWokeAtMs,
+    recentEdgeWakeTimesMs: () => recentEdgeWakeTimes(edgeWakeTimesMs, now()),
     flushed: () => writes,
   };
 }

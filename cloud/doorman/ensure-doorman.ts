@@ -61,7 +61,7 @@ function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListener
     tenants: [{
       slug: `local${String(localPort).padStart(7, '0')}`,
       serverUrl: remoteListenerUrl(bindHost, remoteListenerPort),
-      linkSecretPath: watcherLinkKeyPath(glimmervoidHome),
+      linkSecret: { kind: 'file', path: watcherLinkKeyPath(glimmervoidHome) },
       watcherHome: localWatcherHome(glimmervoidHome, localPort),
       githubInstallation: null,
       awakeHoursPerMonth: null,

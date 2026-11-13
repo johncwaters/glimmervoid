@@ -5,21 +5,18 @@ import type { DoormanGithubApp, DoormanGithubInstallation } from '../../shared/c
 import { retryAfterMsFromHeaders } from '../watcher/core/probe-core.ts';
 import { githubAppJwt, installationTokenRequestBody } from './doorman-core.ts';
 import { clock } from '../../shared/clock.ts';
+import { createGcpRest } from './gcp-rest.ts';
 
 type MintOutcome =
   | { kind: 'minted'; token: string; expiresAtMs: number }
   | { kind: 'failed'; reason: string; retryAfterMs: number | null };
 
-const METADATA_TOKEN_URL = 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
-const SECRET_MANAGER_ORIGIN = 'https://secretmanager.googleapis.com';
 const KEY_VERSION_ALIAS = 'current';
 const KEY_CACHE_MS = 10 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const GITHUB_API_VERSION = '2022-11-28';
 const USER_AGENT = 'glimmervoid-doorman';
 
-const MetadataToken = z.object({ access_token: z.string().min(1) });
-const SecretVersionAccess = z.object({ payload: z.object({ data: z.string().min(1) }) });
 const InstallationToken = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() });
 
 function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
@@ -29,21 +26,11 @@ function createGithubAppMinter({ app, fetchFn = fetch, now = clock.nowMs }: {
 }) {
   let cachedKey: { privateKey: crypto.KeyObject; readAtMs: number } | null = null;
 
-  async function jsonFrom(url: string, init: RequestInit, what: string): Promise<unknown> {
-    const response = await fetchFn(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`${what} answered ${response.status}`);
-    }
-    return response.json();
-  }
+  const google = createGcpRest({ fetchFn });
 
   async function readPrivateKey(): Promise<crypto.KeyObject> {
     if (cachedKey !== null && now() - cachedKey.readAtMs < KEY_CACHE_MS) return cachedKey.privateKey;
-    const metadataToken = MetadataToken.parse(await jsonFrom(METADATA_TOKEN_URL, { headers: { 'metadata-flavor': 'Google' } }, 'the metadata server'));
-    const secretUrl = `${SECRET_MANAGER_ORIGIN}/v1/${app.privateKeySecret}/versions/${KEY_VERSION_ALIAS}:access`;
-    const secretVersion = SecretVersionAccess.parse(await jsonFrom(secretUrl, { headers: { authorization: `Bearer ${metadataToken.access_token}` } }, 'Secret Manager'));
-    const privateKey = crypto.createPrivateKey(Buffer.from(secretVersion.payload.data, 'base64'));
+    const privateKey = crypto.createPrivateKey(await google.secretPayload(app.privateKeySecret, KEY_VERSION_ALIAS));
     cachedKey = { privateKey, readAtMs: now() };
     return privateKey;
   }

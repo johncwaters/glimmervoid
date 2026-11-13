@@ -40,10 +40,15 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call
   because: a suspended instance cannot be suspended again and one suspended past 60 days comes back terminated, so acting on a stale guess fails the wake, and a stop that silently did nothing would book a running host as asleep and let it run past its awake hours
   kinds: none
-- edge wakes are limited: A doorman wakes a hosted tenant from its public hostname at most the configured number of times an hour, answers a browser opening a sleeping tenant at once with a page that reloads itself, and past the limit leaves the host asleep with a Retry-After.
-  over: a browser and a script hitting a sleeping tenant, repeated wakes inside one hour, and the wake the limit refuses
-  via: a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out
-  because: anyone who knows a tenant's hostname can send a request, and every wake spends at least the server's idle minutes of the tenant's awake hours, while the tenant's own watcher wakes carry real work
+- edge wakes are limited: A doorman wakes a hosted tenant from its public hostname at most the configured number of times an hour, answers a browser opening a sleeping tenant at once with a page that reloads itself, and past the limit leaves the host asleep with a Retry-After, counting the hour's edge wakes from the awake ledger after a restart.
+  over: a browser and a script hitting a sleeping tenant, repeated wakes inside one hour, the wake the limit refuses, and a doorman restarted inside that hour
+  via: a hosted doorman answers a browser opening a sleeping tenant with a waking page at once, counts only wakes that started the host, and past the edge wake limit leaves the host asleep with a Retry-After an hour out, even after a doorman restart
+  because: anyone who knows a tenant's hostname can send a request, and every wake spends at least the server's idle minutes of the tenant's awake hours, while the tenant's own watcher wakes carry real work; a recreated doorman VM would otherwise start each hour's count over
+  kinds: none
+- bucket state survives the doorman: A doorman serving a state bucket reads its tenant table and Secret Manager link secrets from it, keeps watcher files per tenant, appends awake events to month objects under a generation match, and a restarted meter rebuilds usage and the edge wake count from the newest months.
+  over: a racing ledger writer, events on both sides of a month boundary, a missing watcher file, and a restart
+  via: the Cloud Storage doorman state reads its table and Secret Manager link secrets, keeps watcher files per tenant, appends awake events into month objects under a generation match that survives a racing writer, and a restarted meter rebuilds usage and the edge wake cap from the newest months
+  because: the doorman VM and its disk are replaceable, so state kept only on that disk is lost with it, and a blind ledger write would drop the events of a writer it raced
   kinds: none
 - a wake rechecks the watcher: A server whose idle-stop tick sees the wall clock jump more than 30 s past the tick runs its remote watcher status check at once, and a steady tick never does.
   over: a steady tick, a jump just under 30 s, and a three hour sleep
