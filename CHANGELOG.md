@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pack panels get each pull request's merge check.** Each of your own pull requests in the `reviews` topic now carries `mergeBlocker`: the reason Glimmervoid would refuse to merge it now, from the same check the server runs before a merge, or null when a merge is allowed. The PR table pack offers Add to queue only when it is null. `packs preview` sample data now has one of your pull requests in the merge queue and one merged, and every sample pull request has a size.
+- **A pack panel that fails now says why.** A panel can call `window.glimmervoid.log(level, text)` to write a line to the Glimmervoid server log as `[dashboard] pack: <name>/<panel>`, and every uncaught error or unhandled rejection in a panel is logged the same way with the file and line it came from, up to 30 lines a minute per panel. A panel that reads any topic and sends no subscribe within 10 s of opening gets a notice over it in the dashboard and a line in the server log, and the notice goes away once it connects. `packs preview` shows a panel's log lines under its header.
+
+### Fixed
+
+- **Pack panels now render behind a sign-in proxy.** In a Coder workspace or behind another proxy that signs you in with a SameSite=Lax cookie, a pack panel showed bare unstyled HTML that never connected: the browser sent the sandboxed panel's own requests for its stylesheet and scripts without the cookie, and the proxy refused them. Glimmervoid now puts each stylesheet and classic script a panel page loads from its pack inline when it serves the page, in the dashboard and in `packs preview`, so the page needs nothing else. ES modules, and a stylesheet that loads files of its own (url() or @import), still arrive as separate requests. Glimmervoid also adds the `window.glimmervoid` bridge helper to every panel page itself, so a pack no longer copies `bridge.js`; one that still ships its own keeps working.
+- **Agent sessions no longer inherit your 1Password sign-in.** When the Glimmervoid server runs with `OP_SERVICE_ACCOUNT_TOKEN`, `OP_CONNECT_TOKEN` or an `OP_SESSION_` variable, as it does on a devbox or in the cloud where Touch ID is not available, every agent session, pack command and PR action used to get a copy, so `op` inside a session could read the whole vault without asking. Glimmervoid's own secret reads still use it. This is not a hard boundary: an agent runs under the same OS account as the server and can still read the server's environment if it tries, so give that service account a dedicated vault that holds only what agents may read.
+
 ## [0.58.0] - 2026-11-13
 
 ### Added

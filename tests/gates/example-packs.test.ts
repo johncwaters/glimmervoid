@@ -6,6 +6,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import { HostToPanel, PackBridgeTopic } from '../../shared/contracts/pack-bridge.ts';
+import { PACK_BRIDGE_HELPER_SOURCE } from '../../server/packs/core/pack-page-core.ts';
 import { PREVIEW_FRAME_COUNT, previewSampleTopics, previewThemes } from '../../server/packs/core/pack-preview-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../../server/packs/pack-check.ts';
 import { readPacksForAgent } from '../../server/packs/pack-agent.ts';
@@ -33,28 +34,17 @@ test('every example pack passes the same check an agent runs, with no problem', 
   }
 });
 
-function isSelfContainedPanel(panelDir: string): boolean {
-  return !fs.existsSync(path.join(panelDir, 'panel.js'));
-}
-
-test('every example panel subscribes to exactly the topics it declares and shares one bridge helper', () => {
-  const bridgeHelpers = new Set<string>();
-  const selfContainedPages = new Map<string, string>();
+test('every example panel subscribes to exactly the topics it declares and ships no copy of the bridge helper', () => {
   for (const exampleName of exampleNames) {
     for (const panel of manifestOf(exampleName).ui?.panels ?? []) {
       const panelDir = path.join(EXAMPLE_PACKS_DIR, exampleName, path.dirname(panel.entry));
-      const isSelfContained = isSelfContainedPanel(panelDir);
-      const panelScript = fs.readFileSync(isSelfContained ? path.join(EXAMPLE_PACKS_DIR, exampleName, panel.entry) : path.join(panelDir, 'panel.js'), 'utf8');
-      const subscribed = subscribedTopicsIn(panelScript);
+      const panelScriptPath = fs.existsSync(path.join(panelDir, 'panel.js')) ? path.join(panelDir, 'panel.js') : path.join(EXAMPLE_PACKS_DIR, exampleName, panel.entry);
+      const subscribed = subscribedTopicsIn(fs.readFileSync(panelScriptPath, 'utf8'));
       assert.deepEqual([...subscribed].sort(), [...panel.reads].sort(), `${exampleName}/${panel.id}`);
       for (const topic of subscribed) assert.ok(PackBridgeTopic.safeParse(topic).success, topic);
-      if (isSelfContained) selfContainedPages.set(`${exampleName}/${panel.id}`, panelScript);
-      if (!isSelfContained) bridgeHelpers.add(fs.readFileSync(path.join(panelDir, 'bridge.js'), 'utf8'));
+      assert.equal(fs.existsSync(path.join(panelDir, 'bridge.js')), false, `${exampleName}/${panel.id} relies on the helper Glimmervoid adds`);
     }
   }
-  assert.equal(bridgeHelpers.size, 1, 'every bridge.js copy is identical');
-  const [bridgeHelper] = bridgeHelpers;
-  for (const [panelName, page] of selfContainedPages) assert.ok(page.includes(bridgeHelper.trimEnd()), `${panelName} inlines the shared bridge.js unchanged`);
 });
 
 test('the packs guide an agent reads names every example and carries both schemas', async () => {
@@ -64,13 +54,11 @@ test('the packs guide an agent reads names every example and carries both schema
   for (const exampleName of exampleNames) assert.ok(guide.text.includes(path.join(EXAMPLE_PACKS_DIR, exampleName)), exampleName);
   assert.ok(guide.text.includes(PUBLISHED_SCHEMA_ID));
   assert.ok(guide.text.includes('"panelToHost"'));
-  const [firstExampleWithPanel] = exampleNames.filter((exampleName) => (manifestOf(exampleName).ui?.panels ?? []).length > 0);
-  const bridgeHelper = fs.readFileSync(path.join(EXAMPLE_PACKS_DIR, firstExampleWithPanel, 'panel', 'bridge.js'), 'utf8');
-  const bridgeWindow: { glimmervoid?: Record<string, unknown> } = {};
-  vm.runInNewContext(bridgeHelper, { window: bridgeWindow });
+  const bridgeWindow: { glimmervoid?: Record<string, unknown>; addEventListener: () => void } = { addEventListener: () => {} };
+  vm.runInNewContext(PACK_BRIDGE_HELPER_SOURCE, { window: bridgeWindow });
   const helperNames = Object.keys(bridgeWindow.glimmervoid ?? {});
   assert.ok(helperNames.length > 0);
-  for (const helperName of helperNames) assert.ok(guide.text.includes(`${helperName}(`), `the guide describes bridge.js ${helperName}`);
+  for (const helperName of helperNames) assert.ok(guide.text.includes(`${helperName}(`), `the guide describes the bridge helper ${helperName}`);
 });
 
 test('the sample data packs preview sends is valid for every bridge topic', () => {

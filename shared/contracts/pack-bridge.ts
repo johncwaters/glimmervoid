@@ -62,6 +62,10 @@ export const PACK_DATA_MAX_BYTES = 64 * 1024;
 
 export const PACK_STORE_MAX_DEPTH = 32;
 
+export const PACK_LOG_TEXT_MAX_CHARS = 500;
+
+export const PACK_LOG_LINES_PER_MINUTE = 30;
+
 function isShallowJsonValue(root: unknown): boolean {
   const pending: [unknown, number][] = [[root, 0]];
   for (let entry = pending.pop(); entry !== undefined; entry = pending.pop()) {
@@ -116,6 +120,10 @@ export const PanelToHost = z.discriminatedUnion('kind', [
   z.strictObject({ v: BridgeVersion, kind: z.literal('subscribe'), topics: z.array(PackBridgeTopic).describe("The topics to receive; only those also listed in the panel's reads in pack.json are granted, and a later subscribe replaces the earlier one. An empty list still gets hello and the store") }),
   z.strictObject({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: PanelActionRequest }).describe('Send one action as the operator would: a Reviews action needs reviews under the panel acts, a session action needs sessions; the host answers with action-result'),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store-set'), key: PackStoreKey, value: PackStoreValue.describe(`Any JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep; null deletes the key`) }).describe('Save one key of the pack store; the host answers with a store message'),
+  z.strictObject({
+    v: BridgeVersion, kind: z.literal('log'), level: z.enum(['info', 'warn', 'error']),
+    text: z.string().min(1).max(PACK_LOG_TEXT_MAX_CHARS).describe(`At most ${PACK_LOG_TEXT_MAX_CHARS} characters`),
+  }).describe(`Write one line to the Glimmervoid server log as [dashboard] pack: <name>/<panel>; packs preview shows it instead. At most ${PACK_LOG_LINES_PER_MINUTE} lines a minute per panel reach the log`),
 ]);
 
 const HostTopicMessages = PackBridgeTopic.options.map((topic) => z.strictObject({

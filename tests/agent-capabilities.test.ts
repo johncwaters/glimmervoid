@@ -157,6 +157,15 @@ test('Sane YOLO capability filters both the Claude hook and its environment', as
   });
 });
 
+test('a session never inherits the password manager sign-in the server holds for reading secrets', async (t) => {
+  const passwordManagerSignIn = { OP_SERVICE_ACCOUNT_TOKEN: 'ops_service', OP_CONNECT_TOKEN: 'connect', OP_SESSION_my_team: 'session' };
+  Object.assign(process.env, passwordManagerSignIn);
+  t.after(() => { for (const key of Object.keys(passwordManagerSignIn)) delete process.env[key]; });
+  await withHooks({ id: 'op-scrub', name: 'op-scrub' }, ({ calls }) => {
+    assert.deepEqual(Object.keys(passwordManagerSignIn).filter((key) => calls[0].env[key] !== undefined), []);
+  });
+});
+
 test('a gemini session reports Sane YOLO off when the repo settings turn hooks off', async (t) => {
   const scratchRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-gemini-hooks-off-'));
   t.after(() => fsp.rm(scratchRoot, { recursive: true, force: true }));

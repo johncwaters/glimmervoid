@@ -9,6 +9,8 @@ const GLIMMERVOID_SECRET_KEYS = [...ENV_SECRET_BINDINGS.map((binding) => binding
 const GLIMMERVOID_SCRUB_KEYS = ["GLIMMERVOID_PORT", "GLIMMERVOID_CONFIG", "GLIMMERVOID_SUPERVISOR", "INVOCATION_ID", "SYSTEMD_EXEC_PID", HOOK_URL_ENV, AGENT_URL_ENV, MCP_CREDENTIAL_ENV, SIGN_URL_ENV, GIT_CREDENTIAL_URL_ENV, SANE_YOLO_PATH_ENV, ...GLIMMERVOID_SECRET_KEYS];
 const SANE_YOLO_GUARD_KEYS = [SANE_YOLO_PATH_ENV, ...Object.keys(saneYoloEnv(""))];
 const SAFETY_NET_ENV_PREFIXES = ["CC_SAFETY_NET_", "SAFETY_NET_"];
+const PASSWORD_MANAGER_SIGN_IN_KEYS = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_TOKEN"];
+const PASSWORD_MANAGER_SIGN_IN_PREFIXES = ["OP_SESSION_"];
 const LAUNCHING_TERMINAL_IDENTITY_KEYS = ["TERM_PROGRAM", "TERM_PROGRAM_VERSION"];
 
 const DETACHED_DESKTOP_BUS_ADDRESS = "disabled:";
@@ -69,6 +71,18 @@ function isSafetyNetKey(key: string): boolean {
   return SAFETY_NET_ENV_PREFIXES.some((prefix) => upperKey.startsWith(prefix));
 }
 
+function isPasswordManagerSignInKey(key: string): boolean {
+  const upperKey = key.toUpperCase();
+  return PASSWORD_MANAGER_SIGN_IN_KEYS.includes(upperKey) || PASSWORD_MANAGER_SIGN_IN_PREFIXES.some((prefix) => upperKey.startsWith(prefix));
+}
+
+function scrubGlimmervoidSecrets(env: SpawnEnv): void {
+  for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (isPasswordManagerSignInKey(key)) delete env[key];
+  }
+}
+
 function isSaneYoloGuarded(extraEnv: SpawnEnv | null | undefined): boolean {
   if (!extraEnv) return false;
   return SANE_YOLO_GUARD_KEYS.some((key) => extraEnv[key] !== undefined);
@@ -88,7 +102,7 @@ function buildAgentEnv(
 ): SpawnEnv {
   const env: SpawnEnv = { ...baseEnv };
   for (const key of profile.scrub || []) delete env[key];
-  for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
+  scrubGlimmervoidSecrets(env);
   for (const key of LAUNCHING_TERMINAL_IDENTITY_KEYS) delete env[key];
   if (isSaneYoloGuarded(extraEnv)) scrubInheritedSafetyNetEnv(env);
   Object.assign(env, extraEnv || {});
@@ -101,7 +115,7 @@ function buildAgentEnv(
 
 function withoutGlimmervoidSecrets(env: SpawnEnv): SpawnEnv {
   const scrubbed: SpawnEnv = { ...env };
-  for (const key of GLIMMERVOID_SCRUB_KEYS) delete scrubbed[key];
+  scrubGlimmervoidSecrets(scrubbed);
   return scrubbed;
 }
 
