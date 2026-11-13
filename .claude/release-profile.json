@@ -4,7 +4,7 @@
     "scheme": "semver",
     "version_file": "package.json",
     "tag_format": "vX.Y.Z",
-    "notes": "main always carries the upcoming release as X.Y.Z-next.0; the chore(release): vX.Y.Z commit sets package.json and the lockfile to X.Y.Z (dropping -next.0, or raising minor or major by hand), and npm run release then reopens main at X.Y.(Z+1)-next.0. npm publishing ended at 0.54.0. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists."
+    "notes": "main carries the last released X.Y.Z; the chore(release): vX.Y.Z commit sets package.json and the lockfile to the new X.Y.Z, then npm run release tags it. npm publishing ended at 0.54.0. Historical anomalies: first tag 0.1.0 unprefixed; v0.11.0 gap exists; versions up to 0.58.1 reopened main at X.Y.(Z+1)-next.0."
   },
   "changelog": {
     "path": "CHANGELOG.md",
@@ -36,7 +36,7 @@
     "trigger": "local_script",
     "detail": {
       "command": "npm run release",
-      "script_does": "refuses a -next version, dirty-tree check, tag-exists check, files check, build, npm pack dry-run check, captures HEAD and pushes that SHA to main, dispatches test.yml and waits for it to pass on that SHA, annotated tag on that SHA plus push tag, gh release create --verify-tag --draft from the changelog section with no assets, dispatches release-tarball.yml (CI builds and attaches the npm tarballs from the tag), npm deprecate below the release, pointing at the installer, when it has a ### Security section, commits and pushes chore(release): open X.Y.(Z+1)-next.0. release.yml undrafts the release after the binaries upload. It never runs npm publish.",
+      "script_does": "refuses a non X.Y.Z version, dirty-tree check, tag-exists check, files check, build, npm pack dry-run check, captures HEAD and pushes that SHA to main, dispatches test.yml and waits for it to pass on that SHA, annotated tag on that SHA plus push tag, gh release create --verify-tag --draft from the changelog section with no assets, dispatches release-tarball.yml (CI builds and attaches the npm tarballs from the tag), npm deprecate below the release, pointing at the installer, when it has a ### Security section. release.yml undrafts the release after the binaries upload. It never runs npm publish.",
       "no_registry": "nothing is published to npm: the package stopped at 0.54.0 and .github/workflows/publish.yml was deleted",
       "partial_failure_note": "script is not atomic; on mid-flight failure check what landed (pushed commits vs tag vs release) before any rerun",
       "registry_publish": "none; the vX.Y.Z tag push triggers .github/workflows/release.yml, which builds the standalone binaries and installers, attaches them to the draft release, publishes it and pushes the Homebrew formula"

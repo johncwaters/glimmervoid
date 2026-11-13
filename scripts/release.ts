@@ -93,15 +93,6 @@ function requirePassingTestRun(commitSha: string): void {
   }
 }
 
-function openNextPatch(releasedVersion: string): void {
-  const [major, minor, patch] = releasedVersion.split('.').map(Number);
-  const upcomingVersion = `${major}.${minor}.${patch + 1}-next.0`;
-  console.log(`\n==> Opening ${upcomingVersion} on ${RELEASE_BRANCH}...`);
-  run(`npm version ${upcomingVersion} --no-git-tag-version`);
-  run(`git commit -m "chore(release): open ${upcomingVersion}" -- package.json package-lock.json`);
-  run(`git push origin HEAD:refs/heads/${RELEASE_BRANCH}`);
-}
-
 const testedCommit = runCapture('git rev-parse HEAD');
 const VERSION = pkg.version;
 const TAG = `v${VERSION}`;
@@ -121,7 +112,7 @@ const releaseSection = changelog.match(releaseSectionPattern)?.[1].trim() ?? nul
 console.log(`==> Releasing glimmervoid ${TAG}\n`);
 
 if (!/^\d+\.\d+\.\d+$/.test(VERSION)) {
-  console.error(`ERROR: ${VERSION} is not a release version. Set package.json to X.Y.Z (drop the -next.0 suffix) in the release commit first.`);
+  console.error(`ERROR: ${VERSION} is not a release version. Set package.json to X.Y.Z in the release commit first.`);
   process.exit(1);
 }
 
@@ -198,9 +189,7 @@ try {
 
 if (releaseSection && SECURITY_HEADING.test(releaseSection)) deprecateVersionsBelowRelease();
 
-openNextPatch(VERSION);
-
-console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}, and ${RELEASE_BRANCH} now carries the next patch as an upcoming prerelease.`);
+console.log(`\n==> Done! Tagged and pushed glimmervoid ${TAG}.`);
 console.log('   release-tarball.yml builds the npm tarballs from the tag and attaches them to the draft.');
 console.log('   The tag push triggers .github/workflows/release.yml, which attaches the standalone binaries and installers and publishes the draft release. Nothing is published to npm.');
 console.log(`   Watch it at https://github.com/${REPO_SLUG}/actions/workflows/release.yml, then confirm with: gh release view ${TAG}`);

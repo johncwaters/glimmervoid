@@ -7,7 +7,6 @@ import type {
 } from '../../shared/contracts/update-journal.ts';
 import { parseRemoteFromUpstream } from './branch-sync-core.ts';
 import { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, isBinarySwitchFlavor, normalizeSha } from './update-core.ts';
-import { isExperimentalBuild } from '../../shared/build-channel.ts';
 import { STANDALONE_BINARY_PATH } from '../../shared/contracts/control-messages.ts';
 
 const OUTPUT_TAIL_LINE_CAP = 200;
@@ -25,7 +24,6 @@ type UpdateArtifact = 'dist' | 'node_modules';
 
 type PreflightRefusalReason =
   | 'unsupported-flavor'
-  | 'unsupported-channel'
   | 'unsupported-platform'
   | 'supervised-install'
   | 'channel-mismatch'
@@ -177,9 +175,6 @@ function decidePreflight(facts: PreflightFacts): PreflightDecision {
 function decideBinaryPreflight(facts: PreflightFacts): PreflightDecision {
   if (!facts.binaryUpdaterPath) {
     return { ok: false, reason: 'unsupported-flavor', message: `Use the install command because no ${BINARY_UPDATER_NAME} sits beside this binary.` };
-  }
-  if (isExperimentalBuild(facts.targetVersion)) {
-    return { ok: false, reason: 'unsupported-channel', message: 'Standalone binaries ship only for releases. Switch the update channel to release to update this binary.' };
   }
   return decideRunPreflight(facts);
 }

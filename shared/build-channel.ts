@@ -1,8 +1,8 @@
-const RELEASE_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:-next\.(\d+))?$/;
+const RELEASE_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/;
 
 interface ReleaseVersion {
   core: [number, number, number];
-  experimentalBuildNumber: number | null;
+  isPrerelease: boolean;
 }
 
 function parseReleaseVersion(version: unknown): ReleaseVersion | null {
@@ -11,15 +11,8 @@ function parseReleaseVersion(version: unknown): ReleaseVersion | null {
   if (!matched) return null;
   return {
     core: [Number(matched[1]), Number(matched[2]), Number(matched[3])],
-    experimentalBuildNumber: matched[4] === undefined ? null : Number(matched[4]),
+    isPrerelease: matched[4] !== undefined,
   };
-}
-
-function compareExperimentalBuildNumbers(a: number | null, b: number | null): number {
-  if (a === b) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return Math.sign(a - b);
 }
 
 export function compareReleaseVersions(a: unknown, b: unknown): number {
@@ -29,10 +22,5 @@ export function compareReleaseVersions(a: unknown, b: unknown): number {
   for (let i = 0; i < 3; i += 1) {
     if (left.core[i] !== right.core[i]) return Math.sign(left.core[i] - right.core[i]);
   }
-  return compareExperimentalBuildNumbers(left.experimentalBuildNumber, right.experimentalBuildNumber);
-}
-
-export function isExperimentalBuild(version: unknown): boolean {
-  const parsed = parseReleaseVersion(version);
-  return parsed !== null && parsed.experimentalBuildNumber !== null;
+  return Number(right.isPrerelease) - Number(left.isPrerelease);
 }

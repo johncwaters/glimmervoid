@@ -1,6 +1,6 @@
 import { BINARY_SWITCH_FLAVORS, InstallFlavor } from '../../shared/contracts/control-messages.ts';
 import { UpdateChannel } from '../../shared/contracts/update-journal.ts';
-import { compareReleaseVersions, isExperimentalBuild } from '../../shared/build-channel.ts';
+import { compareReleaseVersions } from '../../shared/build-channel.ts';
 import { REPO_SLUG } from '../../shared/repo.ts';
 import { textOr } from '../../shared/coerce.ts';
 import { FULL_SHA_RE, shortSha as abbreviateSha } from '../../shared/git-text.ts';
@@ -13,7 +13,7 @@ const BINARY_UPDATER_NAME = 'glimmervoid-update';
 const HOMEBREW_COMMAND = 'brew upgrade glimmervoid';
 const HOMEBREW_CELLAR_DIRECTORY_NAME = 'Cellar';
 const INSTALL_FLAVORS = new Set<string>(InstallFlavor.options);
-const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+(?:-next\.\d+)?)$/;
+const TAG_VERSION_RE = /^v(\d+\.\d+\.\d+)$/;
 const SECURITY_NOTICE_MAX_CHARS = 500;
 
 function normalizeSha(value: unknown): string | null {
@@ -104,7 +104,7 @@ function buildUpdateCommand(flavor: unknown, latestVersion: unknown, platform: s
 
 function buildReleaseUrl(version: unknown): string | null {
   const releaseVersion = textOr(version, null);
-  if (!releaseVersion || isExperimentalBuild(releaseVersion)) return null;
+  if (!releaseVersion) return null;
   return `https://github.com/${REPO_SLUG}/releases/tag/v${releaseVersion}`;
 }
 
@@ -187,7 +187,6 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
   const isTargetInCheckout = normalizedFlavor === 'clone'
     && isLatestReleaseAncestorOfHead === true
     && compareReleaseVersions(latest, current) > 0;
-  const isReleaseAlreadyCheckedOut = isTargetInCheckout && !isExperimentalBuild(latest);
   return {
     updateAvailable: isBinarySwitchFlavor(normalizedFlavor)
       ? latest !== null && compareReleaseVersions(latest, current) >= 0
@@ -200,8 +199,8 @@ function decideUpdateStatus({ installedSha, latestSha: remoteSha, currentVersion
     command: buildUpdateCommand(flavor, latest, platform),
     flavor: normalizedFlavor,
     channel: normalizeUpdateChannel(channel),
-    reason: decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }),
-    deprecation: isReleaseAlreadyCheckedOut ? null : boundedSecurityNotice(deprecation),
+    reason: decideUpdateReason({ isReleaseAlreadyCheckedOut: isTargetInCheckout, reason }),
+    deprecation: isTargetInCheckout ? null : boundedSecurityNotice(deprecation),
   };
 }
 

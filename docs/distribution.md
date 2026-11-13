@@ -7,7 +7,7 @@ Install and update commands are in the [README Quickstart](../README.md#quicksta
 ## Releases
 
 1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under the new version, bump `version` in `package.json`, and commit both.
-2. Run `npm run release` (`scripts/release.ts`) from a clean checkout on any branch, so a Glimmervoid session worktree can cut it while the main checkout stays read-only. It captures HEAD once, dispatches `test.yml` on that commit and waits for it to pass, then tags exactly that commit. The main checkout is a holding worktree that other sessions' promotions fast-forward mid-run, so tagging whatever HEAD is after the wait once shipped an untested commit. It then creates the GitHub release as a draft from the changelog entry and reopens `main` at the next `-next.0` version.
+2. Run `npm run release` (`scripts/release.ts`) from a clean checkout on any branch, so a Glimmervoid session worktree can cut it while the main checkout stays read-only. It captures HEAD once, dispatches `test.yml` on that commit and waits for it to pass, then tags exactly that commit. The main checkout is a holding worktree that other sessions' promotions fast-forward mid-run, so tagging whatever HEAD is after the wait once shipped an untested commit. It then creates the GitHub release as a draft from the changelog entry.
 
 ## Standalone binaries
 

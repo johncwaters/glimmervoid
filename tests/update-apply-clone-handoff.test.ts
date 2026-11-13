@@ -54,8 +54,8 @@ function createCloneInstall(lockfileChange: LockfileChange = 'none') {
 function availableUpdate(install: ReturnType<typeof createCloneInstall>): UpdateStatus {
   return {
     updateAvailable: true,
-    current: '1.0.0-next.1',
-    latest: '1.0.0-next.2',
+    current: '1.0.0',
+    latest: '1.0.1',
     currentSha: install.installedSha,
     latestSha: install.targetSha,
     releaseUrl: null,
