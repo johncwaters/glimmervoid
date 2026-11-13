@@ -16,7 +16,7 @@ import { createPackStore } from '../server/packs/pack-store.ts';
 import express from 'express';
 import http from 'node:http';
 import { createBoardPackPreviews, mountPackPreviewRoutes } from '../server/packs/pack-preview-server.ts';
-import { createPackSources } from '../server/packs/pack-sources.ts';
+import { createPackSources, EXAMPLES_SOURCE_SLUG } from '../server/packs/pack-sources.ts';
 import { runGit } from '../server/git/git-exec.ts';
 import { createGithubStatus, createProviderStatus } from '../server/github/github-status.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
@@ -56,15 +56,19 @@ function selfServiceFixture() {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-self-service-'));
   const projectDir = path.join(homeDir, 'project');
   fs.cpSync(EXAMPLE_THEME_PACK, path.join(projectDir, 'my-pack'), { recursive: true });
+  const bundledExamplesDir = path.join(homeDir, 'bundled-examples');
+  fs.cpSync(EXAMPLE_THEME_PACK, path.join(bundledExamplesDir, 'night-shift'), { recursive: true });
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const session = idleSession(projectDir);
   const boardPackPreviews = createBoardPackPreviews({ env: process.env, homeDir, pagesDir: path.join(homeDir, 'pack-previews') });
   const shownOnBoard: Array<{ callerId: string; request: unknown }> = [];
-  const packSources = createPackSources({
-    homeDir, env: process.env, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+  const newPackSources = (examplesRewatchMs?: number) => createPackSources({
+    homeDir, env: process.env, examplePacksDir: bundledExamplesDir, log: { warn: () => {} }, examplesRewatchMs,
+    packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
     onChange: () => {}, runGitFn: gitServedFrom(path.join(homeDir, 'remotes')),
   });
+  const packSources = newPackSources();
   const wiring = createAgentApiWiring({
     config,
     agentSessions: new Map(),
@@ -103,11 +107,12 @@ function selfServiceFixture() {
   };
   const rowNamed = (name: string) => packStore.statusFrame().packs.find((row) => row.name === name);
   const cleanUp = () => {
+    packSources.stop();
     packStore.stop();
     session.destroy();
     fs.rmSync(homeDir, { recursive: true, force: true });
   };
-  return { homeDir, projectDir, packStore, packSources, session, packs, rowNamed, shownOnBoard, cleanUp };
+  return { homeDir, projectDir, bundledExamplesDir, packStore, packSources, newPackSources, session, packs, rowNamed, shownOnBoard, cleanUp };
 }
 
 test('an agent installs a pack, asks for approval and removes it, while only the operator approval and no agent command approves it', async () => {
@@ -596,8 +601,89 @@ test('an agent adds a git pack source whose packs stay off until the operator en
     assert.ok(removed.ok, removed.ok ? '' : removed.error);
     await waitFor(() => fixture.rowNamed('night-shift') === undefined);
     assert.equal(fs.existsSync(source?.dir ?? ''), false, 'the clone is deleted');
-    assert.deepEqual(fixture.packSources.rows(), []);
+    assert.deepEqual(fixture.packSources.rows().map((row) => row.slug), [EXAMPLES_SOURCE_SLUG], 'only the built-in examples source is left');
   } finally {
+    fixture.cleanUp();
+  }
+});
+
+test('an example enabled from the built-in Glimmervoid examples source follows a changed bundled copy while the server runs and at start, asking for approval again, and the source is neither updated nor removed', async () => {
+  const fixture = selfServiceFixture();
+  const bundledManifestPath = path.join(fixture.bundledExamplesDir, 'night-shift', 'pack.json');
+  const bumpBundledVersion = (from: number, to: number) => fs.writeFileSync(bundledManifestPath, fs.readFileSync(bundledManifestPath, 'utf8').replace(`"version": ${from}`, `"version": ${to}`));
+  let restarted: ReturnType<typeof fixture.newPackSources> | null = null;
+  try {
+    await fixture.packStore.start();
+    await fixture.packSources.start();
+    const examplesRow = () => fixture.packSources.rows().find((row) => row.slug === EXAMPLES_SOURCE_SLUG);
+    assert.equal(examplesRow()?.isBuiltIn, true);
+    assert.equal(examplesRow()?.dir, fixture.bundledExamplesDir);
+    assert.deepEqual(examplesRow()?.packs.map((pack) => [pack.name, pack.isEnabled]), [['night-shift', false]]);
+
+    const handPlacedDir = path.join(fixture.homeDir, PACKS_DIR_NAME, 'night-shift');
+    fs.cpSync(EXAMPLE_THEME_PACK, handPlacedDir, { recursive: true });
+    const blocked = await fixture.packSources.setPackEnabled(EXAMPLES_SOURCE_SLUG, 'night-shift', true);
+    assert.ok(!blocked.ok && /Remove folder/.test(blocked.error), 'a hand-placed folder blocking an enable points at Remove folder');
+    assert.ok((await fixture.packSources.removeHandPlacedFolder(handPlacedDir)).ok);
+
+    const enabled = await fixture.packSources.setPackEnabled(EXAMPLES_SOURCE_SLUG, 'night-shift', true);
+    assert.ok(enabled.ok, enabled.ok ? '' : enabled.error);
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'pending' && fixture.rowNamed('night-shift')?.isPlacedByHand === false);
+    assert.deepEqual(await fixture.packStore.approve(fixture.rowNamed('night-shift')?.fingerprint ?? ''), { ok: true });
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'approved');
+
+    bumpBundledVersion(1, 2);
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 2, 'a changed bundled example is reinstalled while the server runs', 5000);
+    assert.equal(fixture.rowNamed('night-shift')?.state, 'pending', 'the followed example asks for approval again');
+    assert.deepEqual(await fixture.packStore.approve(fixture.rowNamed('night-shift')?.fingerprint ?? ''), { ok: true });
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'approved');
+
+    const updateRefused = await fixture.packSources.update(EXAMPLES_SOURCE_SLUG);
+    assert.ok(!updateRefused.ok && /follow Glimmervoid itself/.test(updateRefused.error));
+    const removeRefused = await fixture.packSources.remove(EXAMPLES_SOURCE_SLUG);
+    assert.ok(!removeRefused.ok && /stay listed/.test(removeRefused.error));
+    const updateAll = await fixture.packs({ command: 'update' });
+    assert.match(updateAll.body.text ?? '', /no pack sources to update/, 'updating every source leaves the built-in one out');
+
+    fixture.packSources.stop();
+    restarted = fixture.newPackSources();
+    await restarted.start();
+    assert.equal(fixture.rowNamed('night-shift')?.state, 'approved', 'an unchanged example is left alone at start');
+    restarted.stop();
+    bumpBundledVersion(2, 3);
+    restarted = fixture.newPackSources();
+    await restarted.start();
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 3, 'an example changed while the server was down is reinstalled at start');
+    assert.equal(fixture.rowNamed('night-shift')?.state, 'pending');
+
+    restarted.stop();
+    const forkDir = path.join(fixture.projectDir, 'night-shift-fork');
+    fs.cpSync(path.join(fixture.bundledExamplesDir, 'night-shift'), forkDir, { recursive: true });
+    const forkManifestPath = path.join(forkDir, 'pack.json');
+    fs.writeFileSync(forkManifestPath, fs.readFileSync(forkManifestPath, 'utf8').replace('"version": 3', '"version": 7'));
+    assert.equal((await fixture.packs({ command: 'install', path: 'night-shift-fork' })).body.hasProblem, false);
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 7);
+    restarted = fixture.newPackSources();
+    await restarted.start();
+    assert.equal(fixture.rowNamed('night-shift')?.version, 7, 'a pack another install replaced is never reinstalled over by following');
+    assert.equal(restarted.rows().find((row) => row.isBuiltIn)?.packs[0]?.isEnabled, false, 'the replaced example is off in the examples source');
+
+    const adopted = await restarted.setPackEnabled(EXAMPLES_SOURCE_SLUG, 'night-shift', true);
+    assert.ok(adopted.ok, adopted.ok ? '' : adopted.error);
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 3, 'enabling an example over a pack Glimmervoid installed replaces it');
+    restarted.stop();
+
+    restarted = fixture.newPackSources(100);
+    await restarted.start();
+    const movedAwayDir = path.join(fixture.homeDir, 'examples-moved-away');
+    fs.renameSync(fixture.bundledExamplesDir, movedAwayDir);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    fs.cpSync(movedAwayDir, fixture.bundledExamplesDir, { recursive: true });
+    fs.rmSync(movedAwayDir, { recursive: true, force: true });
+    bumpBundledVersion(3, 4);
+    await waitFor(() => fixture.rowNamed('night-shift')?.version === 4, 'an examples folder that was gone for a while is watched again once it is back', 5000);
+  } finally {
+    restarted?.stop();
     fixture.cleanUp();
   }
 });

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Install and update the example packs from Settings, Packs.** Pack sources now list Glimmervoid examples, the packs that ship with Glimmervoid, such as pr-table. Enable installs one, which waits for your approval like any pack. When a Glimmervoid update changes an enabled example, Glimmervoid reinstalls it while it runs, with no restart and no terminal, and it asks for approval again. The examples source has no Update or Remove source button: turn off the examples you do not want instead.
 - **Remove a pack folder you placed by hand from Settings, Packs.** A pack whose folder you copied straight into `~/.glimmervoid/packs` now has a Remove folder button, which asks you to confirm and then deletes that folder. Glimmervoid never installs over such a folder, so this is how you clear a stale copy to install a fresh one without a terminal. Agents still cannot remove it, and the button is not offered for packs Glimmervoid installed or for folders listed in `packs` in config.json.
 
 ## [0.58.1] - 2026-11-13

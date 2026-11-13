@@ -17,6 +17,7 @@ const SOURCE_REPLY_TIMEOUT_MS = 5 * 60_000;
 const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
 
 const approveStatusByFingerprint = new Map<string, { tone: ActionStatusTone; text: string }>();
+const EXAMPLES_SOURCE_NOTE = 'Example packs that ship with Glimmervoid. Enable installs one, which then waits for approval above; when a Glimmervoid update changes an enabled example, it is reinstalled while Glimmervoid runs and asks for approval again.';
 const SOURCES_STATUS_KEY = 'add-source';
 const sourceStatusByKey = new Map<string, { tone: ActionStatusTone; text: string }>();
 let draftSourceUrl = '';
@@ -87,24 +88,29 @@ function sourcePackLine(source: PackSourceRow, pack: PackSourceRow['packs'][numb
   return line;
 }
 
+function sourceControls(source: PackSourceRow): HTMLElement[] {
+  if (source.isBuiltIn) return [];
+  const isBusy = isSourceBusy(source.slug);
+  return [
+    button({ variant: 'secondary', label: 'Update', action: 'pack-source-update', disabled: isBusy, onClick: () => { void changeSource(source.slug, { type: 'pack-source-update', slug: source.slug }); } }),
+    button({ variant: 'secondary', label: 'Remove source', action: 'pack-source-remove', disabled: isBusy, onClick: () => { void changeSource(source.slug, { type: 'pack-source-remove', slug: source.slug }); } }),
+    statusLine(source.slug),
+  ];
+}
+
 function sourceArticle(source: PackSourceRow): HTMLElement {
   const article = el('article', 'settings-view-setting settings-view-pack');
   const text = el('div', 'settings-view-setting-text');
   const heading = el('div', 'settings-view-setting-heading');
-  heading.append(el('h2', 'settings-view-setting-title', source.url));
+  heading.append(el('h2', 'settings-view-setting-title', source.isBuiltIn ? 'Glimmervoid examples' : source.url));
   text.append(
     heading,
-    el('p', 'settings-view-setting-description', `Clone: ${source.dir}`),
+    el('p', 'settings-view-setting-description', source.isBuiltIn ? EXAMPLES_SOURCE_NOTE : `Clone: ${source.dir}`),
     ...(source.packs.length === 0 ? [el('p', 'settings-view-setting-description', 'It holds no pack folders.')] : source.packs.map((pack) => sourcePackLine(source, pack))),
     ...(source.error === null ? [] : [el('p', 'settings-view-warning', source.error)]),
   );
   const control = el('div', 'settings-view-setting-control');
-  const isBusy = isSourceBusy(source.slug);
-  control.append(
-    button({ variant: 'secondary', label: 'Update', action: 'pack-source-update', disabled: isBusy, onClick: () => { void changeSource(source.slug, { type: 'pack-source-update', slug: source.slug }); } }),
-    button({ variant: 'secondary', label: 'Remove source', action: 'pack-source-remove', disabled: isBusy, onClick: () => { void changeSource(source.slug, { type: 'pack-source-remove', slug: source.slug }); } }),
-    statusLine(source.slug),
-  );
+  control.append(...sourceControls(source));
   article.append(text, control);
   return article;
 }

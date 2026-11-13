@@ -144,7 +144,10 @@ export const PacksInstalled = z.strictObject({ fingerprintsByName: z.record(z.st
 export type PacksInstalled = z.infer<typeof PacksInstalled>;
 
 export const PackSourcesFile = z.strictObject({
-  sources: z.array(z.strictObject({ url: z.string().min(1), slug: PackSourceSlug, enabledPacks: z.array(PackName) })).default([]),
+  sources: z.array(z.strictObject({
+    url: z.string().min(1), slug: PackSourceSlug, enabledPacks: z.array(PackName),
+    installedFingerprintsByName: z.record(PackName, z.string()).optional().describe('The fingerprint of the copy this source last installed, per enabled pack; a following source leaves a pack alone once another install replaces that copy'),
+  })).default([]),
 });
 export type PackSourcesFile = z.infer<typeof PackSourcesFile>;
 

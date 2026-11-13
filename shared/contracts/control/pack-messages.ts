@@ -48,6 +48,7 @@ export const PackSourceRow = z.strictObject({
   url: z.string(),
   slug: PackSourceSlug,
   dir: z.string(),
+  isBuiltIn: z.boolean().default(false).describe('The Glimmervoid examples source: it ships with Glimmervoid, so it cannot be updated or removed, and its enabled packs follow Glimmervoid updates while the server runs'),
   packs: z.array(z.strictObject({ name: z.string(), dir: z.string(), isEnabled: z.boolean() })),
   error: z.string().nullable(),
 });

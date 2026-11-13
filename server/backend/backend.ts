@@ -737,6 +737,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     teamReview,
     myPrs,
     packStore,
+    packSources: laneAssembly.packSources,
     community,
     workflows: laneAssembly.workflows,
     races: laneAssembly.races,

@@ -47,6 +47,7 @@ import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { packLauncherRunsPath, packsStatePath } from '../packs/pack-files.ts';
 import { createPackSources } from '../packs/pack-sources.ts';
+import { examplePacksDir } from '../runtime-paths.ts';
 import type { PackSessionFiles } from '../packs/pack-session-files.ts';
 import { createPackData } from '../packs/pack-data.ts';
 import { createPackLaunchers } from '../packs/launchers.ts';
@@ -259,7 +260,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const packStore = createPackStore({ homeDir: glimmervoidHome, statePath: packsStatePath(glimmervoidHome), env: process.env, log: logger, frameSecret });
   packStore.setProviderStatuses(providerStatus.statuses);
   const packSources = createPackSources({
-    homeDir: glimmervoidHome, env: process.env, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
+    homeDir: glimmervoidHome, env: process.env, examplePacksDir, log: logger, packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint),
     onChange: () => broadcastPacksIfChanged(),
   });
   packStore.setSourceRows(packSources.rows);
