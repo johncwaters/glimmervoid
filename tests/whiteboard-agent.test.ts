@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import zlib from 'node:zlib';
 import type { Server } from 'node:http';
 import { z } from 'zod';
 
@@ -688,6 +689,78 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   const huge = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'huge.png' });
   assert.equal(huge.status, 413);
   assert.match(String(huge.body.error), /huge\.png is larger than the 200 MB/);
+});
+
+test('a board exported to a board file and imported comes back as a new board with its media and page files, carrying no path or session of the machine it left, and a damaged file is refused whole', async (context) => {
+  const { default: sharp } = await import('sharp');
+  const shareDir = path.join(fixture.tmpDir, PLANNER_ID, 'share');
+  fs.mkdirSync(shareDir);
+  fs.writeFileSync(path.join(shareDir, 'flow.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#7cb4f2' } }).png().toBuffer());
+  fs.writeFileSync(path.join(shareDir, 'flow.html'), '<!doctype html><script src="app.js"></script><p>flow</p>');
+  fs.writeFileSync(path.join(shareDir, 'app.js'), 'document.body.dataset.ready = "yes";');
+  const boardId = await newBoard('Shared flow');
+  const picture = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/flow.png' })).body.media as BoxMedia;
+  const page = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/flow.html' })).body.media as BoxMedia;
+  const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'board', caption: 'how a login flows', legend: [{ tone: 'fail', label: 'refused' }] },
+    { op: 'add', element: { kind: 'box', id: 'shot', title: 'Login', place: { at: { x: 40, y: 40 } }, media: { ...picture, alt: 'login screen' }, refs: ['server/auth.ts#L12'] } },
+    { op: 'add', element: { kind: 'box', id: 'demo', title: 'Demo', place: { at: { x: 400, y: 40 } }, media: page } },
+    { op: 'add', element: { kind: 'box', id: 'why', shape: 'note', title: 'Check the refusal', place: { at: { x: 40, y: 400 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'shot-demo', from: 'shot', to: 'demo', tone: 'fail' } },
+    { op: 'add', element: { kind: 'frame', id: 'flow', title: 'Flow', contains: ['shot', 'demo'] } },
+  ] });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  const grown = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'later', title: 'Later', place: { at: { x: 800, y: 40 } } } },
+    { op: 'add', element: { kind: 'wire', id: '1', from: 'demo', to: 'later' } },
+    { op: 'set', id: 'flow', fields: { contains: ['shot', 'demo', 'later'] } },
+  ] });
+  assert.equal(grown.status, 200, JSON.stringify(grown.body));
+  const original = await boardOf(PLANNER_ID, boardId);
+
+  const outPath = path.join(fixture.tmpDir, 'flow.glimmerboard');
+  const exported = await runPlannerCli(context, ['whiteboard', 'export', boardId, '--out', outPath]);
+  assert.equal(exported.exitCode, 0, exported.printed);
+  const fileText = zlib.gunzipSync(fs.readFileSync(outPath)).toString('utf8');
+  for (const machineDetail of [fixture.tmpDir, boardId, '"sessionId"', '"codeSessionId"']) assert.equal(fileText.includes(machineDetail), false, `the board file carries no ${machineDetail}`);
+
+  const imported = await runPlannerCli(context, ['whiteboard', 'import', outPath]);
+  assert.equal(imported.exitCode, 0, imported.printed);
+  const importedSummary = (JSON.parse(imported.printed) as { board: { id: string; title: string } }).board;
+  assert.notEqual(importedSummary.id, boardId);
+  assert.equal(importedSummary.title, 'Shared flow (2)', 'an import never takes the title of a board already here');
+  const copy = await boardOf(PLANNER_ID, importedSummary.id);
+  const withoutSource = (elements: Record<string, Record<string, unknown>>) => Object.fromEntries(Object.entries(elements).map(([id, element]) => [id, element.media ? { ...element, media: { ...element.media as object, source: null } } : element]));
+  assert.deepEqual(withoutSource(copy.board.elements), withoutSource(original.board.elements));
+  assert.deepEqual([copy.board.elements.shot?.media, copy.board.elements.why?.author], [{ ...picture, alt: 'login screen', source: { from: 'upload', name: 'flow.png' } }, PLANNER_ID]);
+  const importedBoard = Board.parse(copy.board as unknown);
+  assert.deepEqual([importedBoard.caption, importedBoard.legend, importedBoard.codeSessionId, importedBoard.project], ['how a login flows', [{ tone: 'fail', dashed: false, label: 'refused' }], null, path.join(fixture.tmpDir, PLANNER_ID)]);
+  assert.equal((copy.board.elements.demo?.media as BoxMedia | undefined)?.asset, page.asset, 'a page comes back with the same bundle id, so the files it loads came back too');
+
+  const boardCountBefore = ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length;
+  const parsedFile = JSON.parse(fileText) as { assets: Record<string, { members: Record<string, string> }> };
+  const escapingPage = structuredClone(parsedFile);
+  const pageAsset = escapingPage.assets[page.asset];
+  assert.ok(pageAsset);
+  pageAsset.members = { '../escaped.js': pageAsset.members['app.js'] ?? '' };
+  const damagedFiles = [
+    { name: 'not-gzip.glimmerboard', bytes: Buffer.from(fileText), error: /not a Glimmervoid board file/ },
+    { name: 'escaping.glimmerboard', bytes: zlib.gzipSync(JSON.stringify(escapingPage)), error: /page file path is relative/ },
+    { name: 'future.glimmerboard', bytes: zlib.gzipSync(JSON.stringify({ ...parsedFile, version: 2 })), error: /another Glimmervoid version/ },
+    { name: 'truncated.glimmerboard', bytes: fs.readFileSync(outPath).subarray(0, 200), error: /not a Glimmervoid board file/ },
+  ];
+  for (const damaged of damagedFiles) {
+    fs.writeFileSync(path.join(fixture.tmpDir, PLANNER_ID, damaged.name), damaged.bytes);
+    const refused = await whiteboard(PLANNER_ID, { sub: 'import', path: damaged.name });
+    assert.match(String(refused.body.error), damaged.error, damaged.name);
+  }
+  assert.equal(fs.existsSync(path.join(fixture.tmpDir, PLANNER_ID, 'escaped.js')), false);
+  assert.equal(((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length, boardCountBefore, 'a refused import leaves no board behind');
+
+  const exportCopy = path.join(fixture.tmpDir, 'whiteboards', 'exports', `${boardId}.glimmerboard`);
+  assert.equal(fs.existsSync(exportCopy), true);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: boardId })).status, 200);
+  await waitFor(() => !fs.existsSync(exportCopy), 'a deleted board leaves no board file of it behind');
 });
 
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {

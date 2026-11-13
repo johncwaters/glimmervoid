@@ -306,6 +306,39 @@ export const Board = z.object({
 
 export const BoardHead = Board.omit({ elements: true });
 
+export const BOARD_FILE_EXTENSION = '.glimmerboard';
+export const BOARD_FILE_FORMAT = 'glimmervoid-board';
+export const BOARD_FILE_VERSION = 1;
+export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
+export const BOARD_FILE_ELEMENTS_MAX = 20_000;
+export const BOARD_PAGE_MEMBERS_MAX = 256;
+
+const BOARD_FILE_MEMBER_PATH_MAX = 512;
+
+function isContainedMemberPath(memberPath: string): boolean {
+  if (memberPath.startsWith('/') || memberPath.includes('\\') || memberPath.includes('\u0000')) return false;
+  return memberPath.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+
+const BoardFileMemberPath = z.string().min(1).max(BOARD_FILE_MEMBER_PATH_MAX)
+  .refine(isContainedMemberPath, { error: 'a page file path is relative, with no empty, dot or dot-dot segment' });
+
+const BoardFileAsset = z.object({
+  name: z.string().min(1).max(SOURCE_NAME_MAX),
+  bytes: z.base64(),
+  members: z.record(BoardFileMemberPath, z.base64()).default({})
+    .refine((members) => Object.keys(members).length <= BOARD_PAGE_MEMBERS_MAX, { error: `a page carries at most ${BOARD_PAGE_MEMBERS_MAX} files` }),
+}).strict();
+
+export const BoardFile = z.object({
+  format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board file' }),
+  version: z.literal(BOARD_FILE_VERSION, { error: `this board file is from another Glimmervoid version; this one reads version ${BOARD_FILE_VERSION}` }),
+  board: Board.pick({ title: true, caption: true, legend: true, elements: true }),
+  assets: z.record(AssetId, BoardFileAsset),
+}).strict();
+export type BoardFile = z.infer<typeof BoardFile>;
+export type BoardFileAsset = z.infer<typeof BoardFileAsset>;
+
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: ElementInput }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
@@ -382,7 +415,9 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
     link: z.boolean().optional().describe('link a Markdown or HTML card to the file, so the card follows it when the board is read and an operator save writes it'),
   }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach or show' });
+  z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
+  z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach, show, export or import' });
 
 export const WorthALookPath = z.object({ path: z.string(), reason: z.string() }).strict();
 
@@ -427,6 +462,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), board: BoardSummary, outline: BoardOutline, focus: BoardRegion, ...ElementPage, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), ...ElementPage, missingIds: z.array(z.string()) }).strict(),
   z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict(),
+  z.object({ ok: z.literal(true), board: BoardSummary, wrote: z.string(), note: z.string() }).strict(),
   z.object({ ok: z.literal(true), boards: z.array(BoardSummary) }).strict(),
   z.object({ ok: z.literal(true), board: Board, changes: z.array(BoardChange), review: BoardReview.optional() }).strict(),
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),

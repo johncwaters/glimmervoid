@@ -69,8 +69,8 @@ function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): 
   const joined = joinedText(positionals);
   if (subcommand === 'list') return values.all === true ? { sub: 'list', all: true } : { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
-  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete') return joined ? { sub: subcommand, board: joined } : null;
-  if (subcommand === 'attach') return joined ? { sub: 'attach', path: path.resolve(joined) } : null;
+  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete' || subcommand === 'export') return joined ? { sub: subcommand, board: joined } : null;
+  if (subcommand === 'attach' || subcommand === 'import') return joined ? { sub: subcommand, path: path.resolve(joined) } : null;
   const [board, ...argumentWords] = positionals;
   const opsFilePath = typeof values.file === 'string' ? values.file : null;
   if (!board || (argumentWords.length === 0 && opsFilePath === null)) return null;
@@ -467,8 +467,25 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   }
   const reply = await postToAgentIngress({ endpoint: target.endpoint, token: target.token, body });
   if (verb === 'whiteboard' && parsed.commandPath[1] === 'doc' && reply.hasSuccessStatus) return printDocText(reply.text);
+  if (verb === 'whiteboard' && parsed.commandPath[1] === 'export' && reply.hasSuccessStatus && typeof parsed.values.out === 'string') return copyExportedBoard(reply.text, parsed.values.out);
   console.log(reply.text);
   return reply.hasSuccessStatus && bodySaysOk(reply.text) ? 0 : 1;
+}
+
+async function copyExportedBoard(replyText: string, outPath: string): Promise<number> {
+  const exported = WhiteboardAgentReply.safeParse(parseJsonOrNull(replyText));
+  if (!exported.success || !('wrote' in exported.data)) {
+    console.log(replyText);
+    return 1;
+  }
+  const absoluteOutPath = path.resolve(outPath);
+  const copyError = await fs.promises.copyFile(exported.data.wrote, absoluteOutPath).then(() => null, (error: unknown) => (error instanceof Error ? error.message : String(error)));
+  if (copyError !== null) {
+    console.log(JSON.stringify({ ok: false, error: `the board file was written to ${exported.data.wrote} but could not be copied to ${absoluteOutPath}: ${copyError}` }));
+    return 1;
+  }
+  console.log(JSON.stringify({ ok: true, wrote: absoluteOutPath, board: exported.data.board }));
+  return 0;
 }
 
 function unreachableReply(error: unknown): { error: string } {

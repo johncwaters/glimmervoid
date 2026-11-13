@@ -2,10 +2,9 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BOARD_PAGE_ENTRY_PATH } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_MEMBERS_MAX } from '../../shared/contracts/whiteboard.ts';
 import { isScriptFile, referencedPackPath, referencesIn, REMOTE_REFERENCE_PATTERN } from '../packs/core/pack-core.ts';
 
-const MAX_PAGE_BUNDLE_MEMBERS = 256;
 const MAX_LISTED_UNLOADED = 10;
 
 type UnloadedReason = 'missing' | 'outside-folder' | 'absolute' | 'entry-name' | 'not-a-regular-file' | 'unreadable' | 'over-cap';
@@ -29,7 +28,7 @@ const UNLOADED_REASON_TEXT: Readonly<Record<UnloadedReason, string>> = {
   'entry-name': `named ${BOARD_PAGE_ENTRY_PATH}, the name the board gives the shown page itself`,
   'not-a-regular-file': 'not a regular file',
   unreadable: 'not readable',
-  'over-cap': `past the bundle limit of ${MAX_PAGE_BUNDLE_MEMBERS} files or the board file size cap`,
+  'over-cap': `past the bundle limit of ${BOARD_PAGE_MEMBERS_MAX} files or the board file size cap`,
 };
 
 function isScannedMember(memberPath: string): boolean {
@@ -79,7 +78,7 @@ async function collectPageBundle({ pagePath, pageText, capBytes, storeMember }: 
       markUnloaded(reference, 'outside-folder');
       continue;
     }
-    if (members.length >= MAX_PAGE_BUNDLE_MEMBERS) {
+    if (members.length >= BOARD_PAGE_MEMBERS_MAX) {
       markUnloaded(reference, 'over-cap');
       continue;
     }

@@ -91,6 +91,7 @@ interface WhiteboardAssetStore {
   sweep(referencedAssetIds: ReadonlySet<string>): Promise<number>;
   servableOf(filename: string): ServableAsset | null;
   servableMemberOf(assetId: string, memberPath: string): ServableAsset | null;
+  memberPathsOf(assetId: string): string[];
   mismatchOf(media: BoxMedia): string | null;
   dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset'>, drawnWidth: number, drawnHeight: number): Promise<string | null>;
   readDocText(media: Pick<BoxMedia, 'kind' | 'asset'>): Promise<string | null>;
@@ -551,6 +552,10 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return { path: memberPathOf(memberHash), contentType: packFileMime(memberPath) };
   }
 
+  function memberPathsOf(assetId: string): string[] {
+    return [...(memberHashByPathByAssetId.get(assetId)?.keys() ?? [])];
+  }
+
   function servableOf(filename: string): ServableAsset | null {
     const previewAssetId = PREVIEW_FILENAME_RE.exec(filename)?.[1];
     if (previewAssetId) return storedByAssetId.get(previewAssetId)?.hasPreview ? { path: previewPathOf(previewAssetId), contentType: 'image/webp' } : null;
@@ -596,7 +601,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, pageBundleIdOf, reserveIncomingPath, hold, sweep, servableOf, servableMemberOf, mismatchOf, dataUriOf, readDocText };
+  return { loaded, has: (assetId) => storedByAssetId.has(assetId), ingestFile, adoptIncoming, pageBundleIdOf, reserveIncomingPath, hold, sweep, servableOf, servableMemberOf, memberPathsOf, mismatchOf, dataUriOf, readDocText };
 }
 
 export { ASSET_INPUT_CAP_BYTES, createWhiteboardAssetStore };

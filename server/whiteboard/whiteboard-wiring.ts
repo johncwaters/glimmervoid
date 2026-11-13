@@ -40,6 +40,8 @@ import { unloadedNote } from './page-bundle.ts';
 import type { UnloadedReference } from './page-bundle.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
+import { adoptBoardFileAssets, boardFileBytes, forgetBoardFileExport, parseBoardFile, readBoardFileAt, writeBoardFile } from './board-file.ts';
+import { importOpsOf, uniqueImportTitle } from '../core/board-file-core.ts';
 import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
 import { isLinkableMediaKind, linkPathProblem, withServerSyncedHash } from '../../shared/whiteboard-link-core.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
@@ -111,6 +113,8 @@ type OperatorReply = {
 };
 
 const RENDERS_FOLDER_NAME = 'renders';
+const EXPORTS_FOLDER_NAME = 'exports';
+const IMPORTS_FOLDER_NAME = 'imports';
 const ATTACHMENTS_FILENAME = 'session-attachments.state';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
@@ -162,6 +166,8 @@ interface WhiteboardPort {
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
     detach(boardId: string, sessionId: string): Promise<OperatorReply>;
     saveLinkedDoc(boardId: string, boxId: string, text: string, baseAsset: string): Promise<OperatorReply>;
+    exportFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }>;
+    importFile(gzipped: Buffer): Promise<OperatorReply>;
   };
   retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
@@ -473,16 +479,21 @@ function createWhiteboardWiring({
     const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
     const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null, project: creator?.project ?? null });
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
+    return saveNewRecord(record, 'created', PUT_GUIDE);
+  }
+
+  async function saveNewRecord(record: BoardRecord, verb: string, note: string): Promise<WhiteboardReply> {
+    const boardId = record.board.id;
     recordsByBoardId.set(boardId, record);
     try {
       await writeQueue.run(boardId, () => store.save(null, record));
     } catch (error) {
       recordsByBoardId.delete(boardId);
-      logger.warn(`[whiteboard] board ${boardId} could not be created: ${errorMessage(error)}`);
-      return refusal(500, 'the board could not be saved, so it was not created');
+      logger.warn(`[whiteboard] board ${boardId} could not be ${verb}: ${errorMessage(error)}`);
+      return refusal(500, `the board could not be saved, so it was not ${verb}`);
     }
     broadcastSummariesIfChanged(null, record);
-    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note: PUT_GUIDE } };
+    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
   }
 
   function putOps(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
@@ -857,6 +868,7 @@ function createWhiteboardWiring({
     deletedBoardIds.add(boardId);
     tiles.forgetBoard(boardId);
     void forgetBoardRenders(path.join(boardsRoot, RENDERS_FOLDER_NAME), boardId);
+    void forgetBoardFileExport(path.join(boardsRoot, EXPORTS_FOLDER_NAME), boardId);
     broadcastControl({ type: 'whiteboard-removed', boardId });
     broadcastSummariesIfChanged(current, null);
     void sweepUnusedAssets();
@@ -900,6 +912,13 @@ function createWhiteboardWiring({
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
     saveLinkedDoc: saveLinkedDocOf,
+    exportFile: async (boardId) => {
+      await loaded;
+      const found = findBoardId(boardId, null);
+      if (!found.ok) return { ok: false, status: found.reply.status, error: found.reply.body.ok ? 'no such board' : found.reply.body.error };
+      return exportedBoardFile(found.boardId);
+    },
+    importFile: async (gzipped) => operatorReplyOf(await importBoardFile(gzipped)),
     detach: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => detachBoard(foundBoardId, sessionId)),
   };
 
@@ -1062,11 +1081,57 @@ function createWhiteboardWiring({
     return Promise.resolve(refusal(409, `the operator opened board "${attachedTitle}" (${id}) beside this session, so no new board was made; draw on it with whiteboard get ${id} and whiteboard put, or whiteboard disconnect ${id} first if this work needs a board of its own`));
   }
 
+  async function exportedBoardFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }> {
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return { ok: false, status: loading.reply.status, error: loading.reply.body.ok ? 'the board could not be read' : loading.reply.body.error };
+    const packed = await boardFileBytes(loading.record.board, assets);
+    return packed.ok ? { ...packed, title: loading.record.board.title } : packed;
+  }
+
+  async function exportBoardForAgent(boardId: string): Promise<WhiteboardReply> {
+    const exported = await exportedBoardFile(boardId);
+    if (!exported.ok) return refusal(exported.status, exported.error);
+    const written = await writeBoardFile(path.join(boardsRoot, EXPORTS_FOLDER_NAME), boardId, exported.bytes);
+    if (!written.ok) return refusal(written.status, written.error);
+    const record = recordsByBoardId.get(boardId);
+    if (!record) return refusal(404, DELETED_BOARD_TEXT);
+    const note = `wrote board "${exported.title}" with its media to ${written.wrote}; copy that file to share it, and the other Glimmervoid opens it with whiteboard import`;
+    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), wrote: written.wrote, note } };
+  }
+
+  async function importBoardFile(gzipped: Buffer): Promise<WhiteboardReply> {
+    await loaded;
+    const parsed = await parseBoardFile(gzipped);
+    if (!parsed.ok) return refusal(parsed.status, parsed.error);
+    const adopted = await adoptBoardFileAssets(parsed.file, assets, path.join(boardsRoot, IMPORTS_FOLDER_NAME));
+    if (!adopted.ok) return refusal(adopted.status, adopted.error);
+    const ops = importOpsOf(parsed.file, adopted.adoptedByExportedAssetId);
+    if ('error' in ops) return refusal(400, `the board file is damaged: ${ops.error}`);
+    const nowMs = now();
+    const existingTitles = new Set([...recordsByBoardId.values()].map((record) => record.board.title));
+    const emptyBoard = createBoard({ id: newBoardId(), title: uniqueImportTitle(parsed.file.board.title, existingTitles), nowMs });
+    const startingBoard: Board = { ...emptyBoard, caption: parsed.file.board.caption, legend: parsed.file.board.legend };
+    const staged = stageOps(startingBoard, ops, OPERATOR_AUTHOR, nowMs, null);
+    if (!staged.ok) return refusal(400, `the board file is damaged: ${staged.error}`);
+    const mediaRefusal = stagedRefusalOf(startingBoard, staged.afterById);
+    if (mediaRefusal) return refusal(400, `the board file is damaged: ${mediaRefusal}`);
+    staged.commit();
+    const record: BoardRecord = { board: staged.board, log: [], cursorBySessionId: {}, createdBy: null };
+    return saveNewRecord(record, 'imported', `imported board "${record.board.title}" (${record.board.id}); read it with whiteboard get ${record.board.id}`);
+  }
+
+  async function importBoardForAgent(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
+    const read = await readBoardFileAt(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
+    if (!read.ok) return refusal(read.status, read.error);
+    return importBoardFile(read.bytes);
+  }
+
   async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createUnlessAttached(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
     if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null, request.link === true);
+    if (request.sub === 'import') return importBoardForAgent(caller, request.path);
     if (request.sub === 'list') {
       const nowMs = now();
       const listed = [...recordsByBoardId.values()].filter((record) => request.all === true || isListedFor(record, caller.project, nowMs));
@@ -1084,6 +1149,7 @@ function createWhiteboardWiring({
       case 'put': return reviewedPut(found.boardId, request.ops, author);
       case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteProjectBoard(found.boardId, caller.project);
+      case 'export': return exportBoardForAgent(found.boardId);
     }
   }
 

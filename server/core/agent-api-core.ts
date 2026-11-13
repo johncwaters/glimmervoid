@@ -421,6 +421,13 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   },
   { name: 'doc', summary: 'Print the Markdown text of the document a box shows, as the operator last saved it', positionals: { usage: '<board> <box>', min: 2, max: 2 }, missingArgumentHint: 'doc needs a board and a box, for example "glimmervoid whiteboard doc flow abstract"' },
   { name: 'attach', summary: 'Store a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and print the media a box takes to show it', positionals: { usage: '<path>', min: 1, max: null } },
+  {
+    name: 'export',
+    summary: 'Write a board with its media to a .glimmerboard file another operator can import; --out copies it to a path you name',
+    positionals: BOARD_REFERENCE,
+    options: [{ name: 'out', type: 'string', valueName: 'path', summary: 'Where to copy the board file' }],
+  },
+  { name: 'import', summary: 'Open a .glimmerboard file as a new board', positionals: { usage: '<path>', min: 1, max: null } },
   { name: 'delete', summary: "Delete a board of this session's project; the operator deletes any board from the dashboard", positionals: BOARD_REFERENCE },
   { name: 'plan', summary: 'Lay out plan steps on a board in dependency order, above its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
 ];
