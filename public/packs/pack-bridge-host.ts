@@ -1,7 +1,8 @@
-import { HostToPanel, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
+import { HostToPanel, PACK_LOG_LINES_PER_MINUTE, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
 import type { PackBridgeTopic, PackBridgeTopicData, PackPanelAct, PackStoreData } from '#shared/contracts/pack-bridge.ts';
 import { panelActionDecision, panelActionLogText } from '#shared/pack-action-core.ts';
 import type { z } from 'zod';
+import { clock } from '#shared/clock.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
@@ -18,8 +19,12 @@ import { planWindowOf } from '../usage/usage-store-core.ts';
 
 const BRIDGE_PUSH_INTERVAL_MS = 1000;
 const PANEL_ACTION_TIMEOUT_MS = 120_000;
+export const PANEL_HELLO_TIMEOUT_MS = 10_000;
+const LOG_RATE_WINDOW_MS = 60_000;
 
 type PanelGrant = { id: string; pack: string; reads: readonly PackBridgeTopic[]; acts: readonly PackPanelAct[] };
+
+type PanelConnection = 'waiting' | 'connected' | 'silent';
 
 type BridgedFrame = {
   viewId: string;
@@ -30,6 +35,10 @@ type BridgedFrame = {
   grantedTopics: ReadonlySet<PackBridgeTopic>;
   subscribedTopics: Set<PackBridgeTopic>;
   lastSentJsonByTopic: Map<PackBridgeTopic, string>;
+  connection: PanelConnection;
+  helloTimer: ReturnType<typeof setTimeout> | null;
+  logLineTimesMs: number[];
+  onSilentChange: (isSilent: boolean) => void;
 };
 
 const bridgedFrameByViewId = new Map<string, BridgedFrame>();
@@ -140,7 +149,45 @@ async function saveStoreKey(bridged: BridgedFrame, key: string, value: unknown):
   }
 }
 
+function writePanelLog(bridged: BridgedFrame, text: string): void {
+  const line = `${bridged.packName}/${bridged.panelId} ${text}`;
+  console.warn(`[pack] ${line}`);
+  sendControlMsg({ type: 'client-log', scope: 'pack', text: line });
+}
+
+function stopHelloTimer(bridged: BridgedFrame): void {
+  if (bridged.helloTimer !== null) clearTimeout(bridged.helloTimer);
+  bridged.helloTimer = null;
+}
+
+function setConnection(bridged: BridgedFrame, connection: PanelConnection): void {
+  const wasSilent = bridged.connection === 'silent';
+  bridged.connection = connection;
+  if (wasSilent !== (connection === 'silent')) bridged.onSilentChange(connection === 'silent');
+}
+
+function watchHello(bridged: BridgedFrame): void {
+  stopHelloTimer(bridged);
+  setConnection(bridged, 'waiting');
+  bridged.helloTimer = setTimeout(() => {
+    bridged.helloTimer = null;
+    if (bridged.connection !== 'waiting') return;
+    setConnection(bridged, 'silent');
+    writePanelLog(bridged, `sent no subscribe within ${PANEL_HELLO_TIMEOUT_MS / 1000} s of opening; a script error or a file the browser could not load stops it before it connects`);
+  }, PANEL_HELLO_TIMEOUT_MS);
+}
+
+function forwardPanelLog(bridged: BridgedFrame, level: string, text: string): void {
+  const nowMs = clock.nowMs();
+  bridged.logLineTimesMs = bridged.logLineTimesMs.filter((sentAtMs) => nowMs - sentAtMs < LOG_RATE_WINDOW_MS);
+  if (bridged.logLineTimesMs.length >= PACK_LOG_LINES_PER_MINUTE) return;
+  bridged.logLineTimesMs.push(nowMs);
+  writePanelLog(bridged, `${level}: ${text}`);
+}
+
 function subscribe(bridged: BridgedFrame, topics: readonly PackBridgeTopic[]): void {
+  stopHelloTimer(bridged);
+  setConnection(bridged, 'connected');
   bridged.subscribedTopics = new Set(topics.filter((topic) => bridged.grantedTopics.has(topic)));
   bridged.lastSentJsonByTopic.clear();
   post(bridged, { v: 1, kind: 'hello', granted: [...bridged.subscribedTopics] });
@@ -192,10 +239,21 @@ function onPanelMessage(event: MessageEvent): void {
     void saveStoreKey(bridged, request.data.key, request.data.value);
     return;
   }
+  if (request.data.kind === 'log') {
+    forwardPanelLog(bridged, request.data.level, request.data.text);
+    return;
+  }
   if (request.data.kind === 'subscribe') subscribe(bridged, request.data.topics);
 }
 
-export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, grant: PanelGrant): void {
+export function bridgePackFrame(viewId: string, frame: HTMLIFrameElement, grant: PanelGrant, onSilentChange: (isSilent: boolean) => void): void {
   if (bridgedFrameByViewId.size === 0) window.addEventListener('message', onPanelMessage);
-  bridgedFrameByViewId.set(viewId, { viewId, frame, packName: grant.pack, panelId: grant.id, acts: grant.acts, grantedTopics: new Set(grant.reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map() });
+  const replaced = bridgedFrameByViewId.get(viewId);
+  if (replaced) stopHelloTimer(replaced);
+  const bridged: BridgedFrame = {
+    viewId, frame, packName: grant.pack, panelId: grant.id, acts: grant.acts, grantedTopics: new Set(grant.reads), subscribedTopics: new Set(), lastSentJsonByTopic: new Map(),
+    connection: 'waiting', helloTimer: null, logLineTimesMs: [], onSilentChange,
+  };
+  bridgedFrameByViewId.set(viewId, bridged);
+  if (grant.reads.length > 0) watchHello(bridged);
 }

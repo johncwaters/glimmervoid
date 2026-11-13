@@ -1,7 +1,18 @@
+import { PACK_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/pack-bridge.ts';
 import { isScriptFile, referencedPackPath, referencesIn, REMOTE_REFERENCE_PATTERN } from './pack-core.ts';
 
 export const PACK_BRIDGE_HELPER_SOURCE = [
+  '(() => {',
+  '  const postLog = (level, text) => {',
+  "    const isLevel = level === 'info' || level === 'warn' || level === 'error';",
+  `    const line = String(text === undefined ? level : text).slice(0, ${PACK_LOG_TEXT_MAX_CHARS});`,
+  "    if (line !== '') window.parent.postMessage({ v: 1, kind: 'log', level: isLevel ? level : 'info', text: line }, '*');",
+  '  };',
+  "  const sourceOf = (event) => (event.filename ? ' at ' + event.filename.split('/').pop() + ':' + event.lineno : '');",
+  "  window.addEventListener('error', (event) => postLog('error', (event.message || 'Script error') + sourceOf(event)));",
+  "  window.addEventListener('unhandledrejection', (event) => postLog('error', 'Unhandled rejection: ' + (event.reason?.stack || event.reason?.message || String(event.reason))));",
   'window.glimmervoid = {',
+  '  log: postLog,',
   '  subscribe(topics, onTopic) {',
   "    window.addEventListener('message', (event) => {",
   '      if (event.source !== window.parent) return;',
@@ -34,6 +45,7 @@ export const PACK_BRIDGE_HELPER_SOURCE = [
   '    return element;',
   '  },',
   '};',
+  '})();',
 ].join('\n');
 
 const HEAD_OPEN_PATTERN = /<head\b[^<>]*>/i;
@@ -45,6 +57,7 @@ const STYLESHEET_REL_PATTERN = /\brel\s*=\s*["']?stylesheet\b/i;
 const MODULE_TYPE_PATTERN = /\btype\s*=\s*["']?module\b/i;
 const SCRIPT_CLOSE_PATTERN = /<\/script/gi;
 const STYLE_CLOSE_PATTERN = /<\/style/gi;
+const SOURCE_URL_UNSAFE_PATTERN = /[^\w./-]/g;
 
 function attributeValue(tag: string, attributeName: string): string | null {
   const match = new RegExp(`\\b${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(tag);
@@ -71,7 +84,7 @@ function inlinedScript(pagePath: string, attributes: string, filesByPath: Readon
   if (MODULE_TYPE_PATTERN.test(attributes)) return null;
   const script = packFileText(pagePath, attributeValue(attributes, 'src'), filesByPath);
   if (script === null || !isScriptFile(script.filePath)) return null;
-  return { tag: `<script>${script.text.replace(SCRIPT_CLOSE_PATTERN, '<\\/script')}</script>`, runsAfterParse: AFTER_PARSE_ATTRIBUTE_PATTERN.test(attributes) };
+  return { tag: `<script>${script.text.replace(SCRIPT_CLOSE_PATTERN, '<\\/script')}\n//# sourceURL=${script.filePath.replace(SOURCE_URL_UNSAFE_PATTERN, '_')}</script>`, runsAfterParse: AFTER_PARSE_ATTRIBUTE_PATTERN.test(attributes) };
 }
 
 function withScriptsAtBodyEnd(html: string, scriptTags: readonly string[]): string {

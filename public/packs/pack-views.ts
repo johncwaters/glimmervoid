@@ -2,7 +2,7 @@ import './pack-views.css';
 import type { PacksStatus } from '#shared/contracts/control/pack-messages.ts';
 import { el } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
-import { bridgePackFrame } from './pack-bridge-host.ts';
+import { PANEL_HELLO_TIMEOUT_MS, bridgePackFrame } from './pack-bridge-host.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 
@@ -34,16 +34,30 @@ export function packPanelModule(panel: PackPanelView): ViewModule<HTMLElement> {
   };
 }
 
+function silentPanelNotice(label: string, grant: PanelGrant): HTMLElement {
+  const notice = el('div', 'pack-panel-notice', `${label} has not connected ${PANEL_HELLO_TIMEOUT_MS / 1000} s after opening. A script error or a file the browser could not load can stop it; the Glimmervoid server log has a line for it, under pack: ${grant.pack}/${grant.id}.`);
+  notice.setAttribute('role', 'status');
+  return notice;
+}
+
 function bridgedPanelFrame(viewId: string, url: string, label: string, grant: PanelGrant): HTMLIFrameElement {
   const frame = createSandboxedFrame({ source: { kind: 'url', url }, className: 'pack-panel-frame', title: label, allowsScripts: true });
+  const notice = silentPanelNotice(label, grant);
   frameByViewId.set(viewId, frame);
-  bridgePackFrame(viewId, frame, grant);
+  bridgePackFrame(viewId, frame, grant, (isSilent) => {
+    if (!isSilent) {
+      notice.remove();
+      return;
+    }
+    frame.after(notice);
+  });
   return frame;
 }
 
 function pointFrameAt(viewId: string, url: string, label: string, grant: PanelGrant): void {
   const frame = frameByViewId.get(viewId);
   if (!frame || frame.getAttribute('src') === url) return;
+  frame.parentElement?.querySelector('.pack-panel-notice')?.remove();
   frame.replaceWith(bridgedPanelFrame(viewId, url, label, grant));
 }
 

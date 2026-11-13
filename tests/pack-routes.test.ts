@@ -50,7 +50,7 @@ test('a pack panel file is served only from an approved pack at its current cont
     assert.equal((await fetchPath(`/packs/ci/${pendingUrl.split('/')[2]}/files/panel/index.html`)).status, 401, 'the old access key route is gone');
     const served = await fetchPath(pendingUrl);
     assert.equal(served.status, 200);
-    assert.equal(await served.text(), `<!doctype html><head><script>${PACK_BRIDGE_HELPER_SOURCE}</script><style>p { color: red }</style></head><p>ci</p><script>document.title = "<\\/script>";</script>`, 'the page arrives with the bridge helper first and its stylesheet and script inline, so a sign-in proxy that refuses the frame\'s own requests cannot blank it');
+    assert.equal(await served.text(), `<!doctype html><head><script>${PACK_BRIDGE_HELPER_SOURCE}</script><style>p { color: red }</style></head><p>ci</p><script>document.title = "<\\/script>";\n//# sourceURL=panel/panel.js</script>`, 'the page arrives with the bridge helper first and its stylesheet and script inline, so a sign-in proxy that refuses the frame\'s own requests cannot blank it');
     assert.match(served.headers.get('content-type') ?? '', /^text\/html/);
     const policy = served.headers.get('content-security-policy') ?? '';
     assert.match(policy, /^sandbox allow-scripts allow-forms;/);

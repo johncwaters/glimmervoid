@@ -1,4 +1,4 @@
-import { PACK_BRIDGE_VERSION, PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, PackBridgeTopic, type PackBridgeTopicData } from '../../../shared/contracts/pack-bridge.ts';
+import { PACK_BRIDGE_VERSION, PACK_DATA_MAX_BYTES, PACK_LOG_TEXT_MAX_CHARS, PACK_STORE_MAX_DEPTH, PackBridgeTopic, type PackBridgeTopicData } from '../../../shared/contracts/pack-bridge.ts';
 import type { MyPr } from '../../../shared/contracts/my-prs.ts';
 import type { PackOnDisk } from '../../../shared/contracts/pack.ts';
 import type { ReviewsSnapshot } from '../../../shared/contracts/reviews.ts';
@@ -68,6 +68,7 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
 
 export const PREVIEW_FRAME_COUNT = 6;
 const PREVIEW_FRAME_MS = 5000;
+const PREVIEW_LOG_MAX_LINES = 50;
 
 export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBridgeTopicData, 'theme'> {
   const isLoginBugWaiting = frameIndex % 2 === 0;
@@ -122,6 +123,7 @@ const panelSelect = document.getElementById('panel');
 const themeSelect = document.getElementById('theme');
 const status = document.getElementById('status');
 const swatches = document.getElementById('swatches');
+const panelLog = document.getElementById('panel-log');
 document.getElementById('report').textContent = preview.report;
 let grantedTopics = [];
 function addOptions(select, items) {
@@ -158,6 +160,8 @@ function renderSwatches() {
 }
 function openPanel() {
   grantedTopics = [];
+  panelLog.replaceChildren();
+  panelLog.hidden = true;
   const panel = currentPanel();
   frame.hidden = !panel;
   swatches.hidden = Boolean(panel);
@@ -206,6 +210,19 @@ function isAction(request) {
   return request && typeof request === 'object' && request.v === preview.bridgeVersion && request.kind === 'action'
     && typeof request.id === 'string' && request.id.length >= 1 && request.id.length <= 64;
 }
+function isLog(request) {
+  return request && typeof request === 'object' && Object.keys(request).sort().join() === 'kind,level,text,v'
+    && request.v === preview.bridgeVersion && request.kind === 'log' && ['info', 'warn', 'error'].includes(request.level)
+    && typeof request.text === 'string' && request.text.length >= 1 && request.text.length <= preview.logMaxChars;
+}
+function showLog(request) {
+  const line = document.createElement('div');
+  line.className = request.level;
+  line.textContent = request.level + ': ' + request.text;
+  panelLog.append(line);
+  while (panelLog.childElementCount > ${PREVIEW_LOG_MAX_LINES}) panelLog.firstElementChild.remove();
+  panelLog.hidden = false;
+}
 async function answerAction(panel, actionId, actionRequest) {
   const response = await fetch('action', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ panel: panel.id, request: actionRequest }) }).catch(() => null);
   const decision = response ? await response.json().catch(() => null) : null;
@@ -219,11 +236,12 @@ window.addEventListener('message', (event) => {
   const request = event.data;
   if (isStoreSet(request)) return saveStoreKey(request.key, request.value);
   if (isAction(request)) return answerAction(panel, request.id, request.request);
+  if (isLog(request)) return showLog(request);
   const isSubscribe = request && typeof request === 'object' && Object.keys(request).sort().join() === 'kind,topics,v'
     && request.v === preview.bridgeVersion && request.kind === 'subscribe' && Array.isArray(request.topics)
     && request.topics.every((topic) => preview.knownTopics.includes(topic));
   if (!isSubscribe) {
-    status.textContent = 'Glimmervoid ignores this message: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with topics from ' + preview.knownTopics.join(', ') + '; a store-set is exactly { v: ' + preview.bridgeVersion + ', kind: "store-set", key, value } with a key of 1 to 128 characters and a JSON value nested at most ' + preview.storeMaxDepth + ' levels deep; an action is { v: ' + preview.bridgeVersion + ', kind: "action", id, request }';
+    status.textContent = 'Glimmervoid ignores this message: ' + JSON.stringify(request) + '. A subscribe is exactly { v: ' + preview.bridgeVersion + ', kind: "subscribe", topics } with topics from ' + preview.knownTopics.join(', ') + '; a store-set is exactly { v: ' + preview.bridgeVersion + ', kind: "store-set", key, value } with a key of 1 to 128 characters and a JSON value nested at most ' + preview.storeMaxDepth + ' levels deep; an action is { v: ' + preview.bridgeVersion + ', kind: "action", id, request }; a log is exactly { v: ' + preview.bridgeVersion + ', kind: "log", level, text } with level info, warn or error and 1 to ' + preview.logMaxChars + ' characters of text';
     return;
   }
   grantedTopics = request.topics.filter((topic) => panel.reads.includes(topic));
@@ -251,7 +269,7 @@ function scriptJson(value: unknown): string {
 
 export function previewHostPage({ title, report, hasProblem, pack, nowMs }: { title: string; report: string; hasProblem: boolean; pack: PackOnDisk | null; nowMs: number }): string {
   const frames = Array.from({ length: PREVIEW_FRAME_COUNT }, (_, frameIndex) => previewSampleTopics(nowMs, frameIndex));
-  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), frames, knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION, packName: pack?.header.name ?? 'pack', storeMaxBytes: PACK_DATA_MAX_BYTES, storeMaxDepth: PACK_STORE_MAX_DEPTH };
+  const preview = { report, panels: previewPanels(pack), themes: previewThemes(pack), frames, knownTopics: PackBridgeTopic.options, bridgeVersion: PACK_BRIDGE_VERSION, packName: pack?.header.name ?? 'pack', storeMaxBytes: PACK_DATA_MAX_BYTES, storeMaxDepth: PACK_STORE_MAX_DEPTH, logMaxChars: PACK_LOG_TEXT_MAX_CHARS };
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>${title.replace(/[<&]/g, '')}</title>
 <style>
@@ -263,11 +281,16 @@ iframe { flex: 1; width: 100%; border: 0; }
 iframe[hidden] { display: none; }
 #swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; padding: 12px; overflow: auto; }
 #swatches[hidden] { display: none; }
+#panel-log { max-height: 20vh; font: 12px ui-monospace, monospace; }
+#panel-log[hidden] { display: none; }
+#panel-log .warn { color: #e0b252; }
+#panel-log .error { color: #f07178; }
 .swatch { padding: 10px; border-radius: 5px; background: var(--swatch); color: #fff; text-shadow: 0 1px 2px #000; font: 12px ui-monospace, monospace; }
 </style></head>
 <body>
 <header><strong>Pack preview</strong><label>Panel <select id="panel"></select></label><label>Theme <select id="theme"></select></label><span id="status"></span><span>Sample data that changes every 5 seconds, not your dashboard. Reload after editing the pack.</span></header>
 <details${hasProblem ? ' open' : ''}><summary>Check report: ${hasProblem ? 'problems to fix' : 'no problems'}</summary><pre id="report"></pre></details>
+<pre id="panel-log" aria-label="Panel log" hidden></pre>
 <iframe id="frame" title="Panel" sandbox="allow-scripts allow-forms"></iframe>
 <div id="swatches" hidden></div>
 <script>const preview = ${scriptJson(preview)};${HOST_SCRIPT}</script>

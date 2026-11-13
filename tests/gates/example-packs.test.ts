@@ -54,7 +54,7 @@ test('the packs guide an agent reads names every example and carries both schema
   for (const exampleName of exampleNames) assert.ok(guide.text.includes(path.join(EXAMPLE_PACKS_DIR, exampleName)), exampleName);
   assert.ok(guide.text.includes(PUBLISHED_SCHEMA_ID));
   assert.ok(guide.text.includes('"panelToHost"'));
-  const bridgeWindow: { glimmervoid?: Record<string, unknown> } = {};
+  const bridgeWindow: { glimmervoid?: Record<string, unknown>; addEventListener: () => void } = { addEventListener: () => {} };
   vm.runInNewContext(PACK_BRIDGE_HELPER_SOURCE, { window: bridgeWindow });
   const helperNames = Object.keys(bridgeWindow.glimmervoid ?? {});
   assert.ok(helperNames.length > 0);
