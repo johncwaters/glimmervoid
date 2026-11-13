@@ -45,7 +45,7 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_SAVED_NAME_QUERY, savableFileName } from '../../shared/contracts/whiteboard.ts';
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
@@ -314,6 +314,17 @@ function serveBoardPageMember(req: Request, res: Response, member: { path: strin
   });
 }
 
+function inlineDispositionOf(savedName: string): string {
+  const asciiName = savedName.replace(/[^\x20-\x7e]/g, '_');
+  const encodedName = encodeURIComponent(savedName).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `inline; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
+}
+
+function nameInlineIfSavable(res: Response, rawName: unknown): void {
+  const savedName = typeof rawName === 'string' ? savableFileName(rawName) : null;
+  if (savedName !== null) res.setHeader('Content-Disposition', inlineDispositionOf(savedName));
+}
+
 function serveBoardPageFile(req: Request, res: Response, assets: WhiteboardAssetStore | null, assetId: string, memberPath: string): void {
   if (memberPath === BOARD_PAGE_ENTRY_PATH) {
     const page = assets?.servableOf(`${assetId}.html`) ?? null;
@@ -321,6 +332,7 @@ function serveBoardPageFile(req: Request, res: Response, assets: WhiteboardAsset
       res.status(404).end();
       return;
     }
+    nameInlineIfSavable(res, req.query[BOARD_PAGE_SAVED_NAME_QUERY]);
     serveBoardAsset(req, res, page);
     return;
   }
@@ -372,7 +384,9 @@ async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: 
   try {
     const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: ASSET_INPUT_CAP_BYTES });
     if (!received.ok) return received.reason === 'over-cap' ? overCap : { ok: false, ...UPLOAD_FAILURE_REPLIES[received.reason] };
-    return await assets.adoptIncoming(incomingPath, name, null);
+    const adopted = await assets.adoptIncoming(incomingPath, name, null);
+    if (!adopted.ok) return adopted;
+    return { ...adopted, media: { ...adopted.media, source: { from: 'upload', name } } };
   } finally {
     await fsp.rm(incomingPath, { force: true }).catch(() => {});
   }
@@ -816,6 +830,17 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       res.status(404).end();
       return;
     }
+    serveBoardAsset(req, res, servable);
+  });
+
+  app.get(`${WHITEBOARD_ASSET_ROUTE}/:filename/:savedName`, (req, res) => {
+    const servable = dependencies.getWhiteboardAssets?.()?.servableOf(req.params.filename) ?? null;
+    const savedName = savableFileName(req.params.savedName);
+    if (!servable || savedName === null) {
+      res.status(404).end();
+      return;
+    }
+    res.setHeader('Content-Disposition', inlineDispositionOf(savedName));
     serveBoardAsset(req, res, servable);
   });
 

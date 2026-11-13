@@ -5,7 +5,7 @@ import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
@@ -567,15 +567,22 @@ function pressedDialValuesOf({ boxId }: PressedImage): Record<string, DialValue>
   return pressedBox?.kind === 'box' ? dialValuesOfBox(pressedBox) : {};
 }
 
+function pressedBoxTitleOf({ boxId, alt }: PressedImage): string {
+  const pressedBox = boxId ? selectedBoard()?.elements.get(boxId) : undefined;
+  return pressedBox?.kind === 'box' ? pressedBox.title : alt;
+}
+
 function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   const pressedBox = boxId ? selectedBoard()?.elements.get(boxId) : undefined;
   return pressedBox?.kind === 'box' ? pressedBox.media : null;
 }
 
 function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
-  const originalHref = media ? `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}` : pressedImage.href;
+  const boxTitle = pressedBoxTitleOf(pressedImage);
+  const originalHref = media ? boardMediaNamedPath(media, boxTitle) : pressedImage.href;
   if (media?.kind === 'page') {
-    const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
+    const savedNameQuery = `${BOARD_PAGE_SAVED_NAME_QUERY}=${encodeURIComponent(boardMediaSavedName(media, boxTitle))}`;
+    const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}&${savedNameQuery}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
     tunePageOnLoad(pageFrame, document.body, () => pressedDialValuesOf(pressedImage));
     return pageFrame;
   }
@@ -673,7 +680,7 @@ async function saveBoardDoc(boardId: string, boxId: string, docText: string, loa
   if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
   if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
   if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
-  const savedMedia = { ...stored.media, alt: media.alt };
+  const savedMedia = { ...stored.media, alt: media.alt, source: media.source };
   const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
   if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
   keepOpenDocMedia(boardId, boxId, savedMedia);

@@ -499,8 +499,15 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   ] });
   assert.equal(put.status, 200, JSON.stringify(put.body));
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [], link: null });
+  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [], link: null, source: { from: 'file', path: path.join(plannerDir, 'shot.png'), sessionId: PLANNER_ID } });
   const assetUrl = (filename: string) => `${running().base}/whiteboards/assets/${filename}`;
+  const named = await fetch(assetUrl(`${media.asset}.png/${encodeURIComponent('login caf\u00e9.png')}`));
+  assert.deepEqual([named.status, named.headers.get('content-type'), named.headers.get('content-disposition')], [200, 'image/png', `inline; filename="login caf_.png"; filename*=UTF-8''login%20caf%C3%A9.png`]);
+  assert.deepEqual(Buffer.from(await named.arrayBuffer()), shotBytes);
+  const injected = await fetch(assetUrl(`${media.asset}.png/${encodeURIComponent('a"\r\nSet-Cookie: x.png')}`));
+  assert.equal(injected.headers.get('content-disposition'), `inline; filename="aSet-Cookie: x.png"; filename*=UTF-8''aSet-Cookie%3A%20x.png`);
+  assert.equal((await fetch(assetUrl(`${media.asset}.png/${encodeURIComponent('/..')}`))).status, 404);
+  assert.equal((await fetch(assetUrl(`${'0'.repeat(64)}.png/shot.png`))).status, 404);
   const served = await fetch(assetUrl(`${media.asset}.png`));
   assert.equal(served.status, 200);
   assert.equal(served.headers.get('content-type'), 'image/png');
@@ -525,7 +532,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.equal((await fetch(exportUrl(boardId, 'picture.gif'))).status, 404);
   assert.equal((await fetch(exportUrl('no-such-board', 'picture.png'))).status, 404);
   const pasted = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'image/png', 'x-glimmervoid-upload-name': 'shot.png' } });
-  assert.deepEqual(await pasted.json(), { ok: true, media });
+  assert.deepEqual(await pasted.json(), { ok: true, media: { ...media, source: { from: 'upload', name: 'shot.png' } } });
   const crossSite = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: shotBytes, headers: { 'content-type': 'text/plain', origin: 'https://evil.example', 'x-glimmervoid-upload-name': 'shot.png' } });
   assert.equal(crossSite.status, 403);
 
@@ -628,7 +635,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.equal((await fetch(assetUrl(`${videoMedia.asset}.preview.webp`))).status, 200);
   fs.copyFileSync(path.join(plannerDir, 'mark.svg'), path.join(plannerDir, 'mark-as-page.html'));
   const svgAsPage = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark-as-page.html' });
-  assert.deepEqual(svgAsPage.body.media, svg.body.media);
+  assert.deepEqual({ ...(svgAsPage.body.media as object), source: null }, { ...(svg.body.media as object), source: null });
   assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${longPreludeAsset}.html`, `${dialedMedia.asset}.html`, `${docMedia.asset}.md`, `${editedDocMedia.asset}.md`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, asset: 'f'.repeat(64) } } }] });
@@ -1079,7 +1086,7 @@ test('the same bytes attached at once under an svg and an html name are stored o
   for (const racedPath of racedPaths) fs.writeFileSync(racedPath, markup);
   const [asSvg, asPage] = await Promise.all(racedPaths.map((racedPath) => wiring.assets.ingestFile(racedPath)));
   assert.ok(asSvg?.ok && asPage?.ok);
-  assert.deepEqual(asPage.media, asSvg.media);
+  assert.deepEqual({ ...asPage.media, source: null }, { ...asSvg.media, source: null });
   assert.equal(fs.readdirSync(path.join(boardsRoot, 'assets')).length, 1);
 });
 
@@ -1372,6 +1379,9 @@ test('a shown page brings the files it refers to by relative path, served beside
   assert.equal((await fetch(pageUrl('shots/before.png').replace(/\/frames\/[0-9a-f]{64}\//, `/frames/${'0'.repeat(64)}/`))).status, 404, 'a wrong key serves nothing');
   const servedPage = await fetch(pageUrl('index.html'));
   assert.equal(servedPage.status, 200);
+  assert.equal(servedPage.headers.get('content-disposition'), null);
+  const namedPage = await fetch(`${pageUrl('index.html')}?tuned=1&name=${encodeURIComponent('Before and after.html')}`);
+  assert.equal(namedPage.headers.get('content-disposition'), `inline; filename="Before and after.html"; filename*=UTF-8''Before%20and%20after.html`);
   assert.match(String(servedPage.headers.get('content-security-policy')), /^sandbox allow-scripts/);
   assert.match(await servedPage.text(), /<img src="shots\/before\.png\?v=2">/);
   const servedShot = await fetch(pageUrl('shots/before.png'));

@@ -83,7 +83,7 @@ type MediaSize = { width: number; height: number; hasPreview: boolean };
 interface WhiteboardAssetStore {
   loaded: Promise<void>;
   has(assetId: string): boolean;
-  ingestFile(sourcePath: string, name?: string): Promise<IngestOutcome>;
+  ingestFile(sourcePath: string, sessionId?: string | null): Promise<IngestOutcome>;
   adoptIncoming(incomingPath: string, name: string, pageSourcePath: string | null): Promise<IngestOutcome>;
   pageBundleIdOf(pageSourcePath: string, pageText: string, pageHash: string): Promise<string>;
   reserveIncomingPath(): Promise<string>;
@@ -441,7 +441,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       if (sized.hasPreview && !isOriginalStored) await fsp.rename(draftPreviewPath, previewPath);
       const { hasPreview } = sized;
       await fsp.rename(incomingPath, finalPath);
-      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, link: null };
+      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, link: null, source: null };
       storedByAssetId.set(assetId, { extension, hasPreview, dials, media });
       hold(assetId, ATTACH_HOLD_MS);
       return { ok: true, media, unloaded: [] };
@@ -484,7 +484,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     }
   }
 
-  async function ingestFile(sourcePath: string, name = path.basename(sourcePath)): Promise<IngestOutcome> {
+  async function ingestFile(sourcePath: string, sessionId: string | null = null): Promise<IngestOutcome> {
+    const name = path.basename(sourcePath);
     const incomingPath = await reserveIncomingPath();
     const copyRefusal = await copyRegularFileCapped(sourcePath, incomingPath).catch((error: unknown) => {
       logger.warn(`[whiteboard] board media could not be copied: ${errorMessage(error)}`);
@@ -494,7 +495,9 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       await fsp.rm(incomingPath, { force: true }).catch(() => {});
       return copyRefusal;
     }
-    return adoptIncoming(incomingPath, name, sourcePath);
+    const ingested = await adoptIncoming(incomingPath, name, sourcePath);
+    if (!ingested.ok) return ingested;
+    return { ...ingested, media: { ...ingested.media, source: { from: 'file', path: sourcePath, sessionId } } };
   }
 
   async function reserveIncomingPath(): Promise<string> {

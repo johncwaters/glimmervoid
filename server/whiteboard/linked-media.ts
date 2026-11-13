@@ -106,7 +106,7 @@ async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<
 }
 
 function syncedMediaOf(media: LinkedMedia, stored: BoxMedia): BoxMedia {
-  return { ...stored, alt: media.alt, link: { path: media.link.path, syncedHash: stored.asset } };
+  return { ...stored, alt: media.alt, source: media.source, link: { path: media.link.path, syncedHash: stored.asset } };
 }
 
 function linkedMediaOp(boxId: string, syncedMedia: BoxMedia): Op {
