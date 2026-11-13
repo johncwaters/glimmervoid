@@ -137,6 +137,7 @@ Team review drafts reviews of teammates' pull requests for you to post; My pull 
 | `teamReview.reReviewAfterHours` | Re-review after | `24` | Review a pull request again after a new push, once this much time has passed. |
 | `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Skip pull requests with no activity for this long. |
 | `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, or none when empty. |
+| `teamReview.extraSkills` | Skills the review skill calls | `[]` | Other skills the review skill may run, whose allowed-tools grants then apply to the review. |
 | `teamReview.reviewer.model` | Review model | `""` | Model for reviews, or the agent's default when empty. |
 | `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews, or the agent's default when empty. |
 | `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. |

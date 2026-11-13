@@ -49,15 +49,20 @@ function teamReviewReadAllowRules({ checkoutPath, linkedCheckout }: { checkoutPa
   return readableDirectories.map(core.absolutePathReadRule);
 }
 
-type TeamReviewSetup = Pick<TeamReviewSettings, 'skill' | 'reviewer' | 'stampReviewer' | 'loadMcpServers'>;
+type TeamReviewSetup = Pick<TeamReviewSettings, 'skill' | 'extraSkills' | 'reviewer' | 'stampReviewer' | 'loadMcpServers'>;
 
 const DEFAULT_TEAM_REVIEW_SETUP: TeamReviewSetup = Object.freeze({
-  skill: '', reviewer: core.DEFAULT_REVIEWER, stampReviewer: null, loadMcpServers: false,
+  skill: '', extraSkills: [], reviewer: core.DEFAULT_REVIEWER, stampReviewer: null, loadMcpServers: false,
 });
 
-function teamReviewClaudeArgs(reviewer: ReviewerChoice, loadMcpServers: boolean, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[]): string[] {
+function reviewSkillAllowRules(setup: Pick<TeamReviewSetup, 'skill' | 'extraSkills'>): string[] {
+  if (!setup.skill) return [];
+  return [...new Set([setup.skill, ...setup.extraSkills])].map((skillName) => `Skill(${skillName})`);
+}
+
+function teamReviewClaudeArgs(reviewer: ReviewerChoice, setup: TeamReviewSetup, readable: { checkoutPath: string; linkedCheckout: string | null }, gitEnvPrefixes: readonly string[]): string[] {
   return [
-    '-p', '--allowedTools', ...readOnlyGitAllowRules(readable.checkoutPath, gitEnvPrefixes), ...teamReviewReadAllowRules(readable), ...(loadMcpServers ? [] : ['--strict-mcp-config']),
+    '-p', '--allowedTools', ...reviewSkillAllowRules(setup), ...readOnlyGitAllowRules(readable.checkoutPath, gitEnvPrefixes), ...teamReviewReadAllowRules(readable), ...(setup.loadMcpServers ? [] : ['--strict-mcp-config']),
     '--disallowedTools', ...TEAM_REVIEW_SESSION_DENY_RULES, ...core.reviewerAgentArgs(reviewer),
   ];
 }
@@ -202,7 +207,7 @@ function createTeamReviewDispatcher({
         repository: candidate.repo,
         spawnEnv: hooksPathPinnedSpawnEnv(),
         agent: core.REVIEW_AGENT_ADAPTER_ID,
-        extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup.loadMcpServers, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
+        extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],
         settingsPermissions: teamReviewAcceptEditsPermissions(),
         signal: AbortSignal.any([signal, shutdownSignal, cancelSignal].filter((candidate): candidate is AbortSignal => candidate instanceof AbortSignal)),
         onSessionId,

@@ -513,6 +513,7 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],
     ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
     ['team-review-skill', 'teamReview.skill', 'text'],
+    ['team-review-extra-skills', 'teamReview.extraSkills', 'list'],
     ['team-review-reviewer-model', 'teamReview.reviewer.model', 'text'],
     ['team-review-reviewer-effort', 'teamReview.reviewer.effort', 'text'],
     ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],

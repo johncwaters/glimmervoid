@@ -302,12 +302,13 @@ test('shutdown without a captured session removes the review directories', async
 });
 
 test('a small PR choice saved under a legacy Codex reviewer launches Claude without the Codex model', async () => {
-  const legacyTeamReview = { reviewer: { agent: 'codex', model: 'gpt-5-codex' }, stampReviewer: { model: 'gpt-5-mini' } };
+  const legacyTeamReview = { reviewer: { agent: 'codex', model: 'gpt-5-codex' }, stampReviewer: { model: 'gpt-5-mini' }, skill: 'reviewing-prs', extraSkills: ['reviewing-code', 'reviewing-prs'] };
   const { dispatch, spawns, cleanup } = setup({ readReviewSetup: () => readTeamReviewSettings({ teamReview: legacyTeamReview }) });
   try {
     await dispatch(reviewArgs('stamp'));
     assert.equal(spawns[0]?.agent, 'claude-code');
     assert.equal(spawns[0]?.extraClaudeArgs.includes('--model'), false);
+    assert.deepEqual(spawns[0]?.extraClaudeArgs.filter((rule) => rule.startsWith('Skill')), ['Skill(reviewing-prs)', 'Skill(reviewing-code)']);
   } finally {
     cleanup();
   }
@@ -338,6 +339,8 @@ test('resume uses the saved cwd and session with the remaining timeout without s
     const reviewArgsSpawned = spawns[0]?.extraClaudeArgs ?? [];
     assert.deepEqual(reviewArgsSpawned.slice(0, 2), ['-p', '--allowedTools']);
     assert.equal(reviewArgsSpawned.includes('Bash'), false);
+    assert.equal(reviewArgsSpawned.some((rule) => rule.startsWith('Skill')), false);
+    assert.ok(reviewArgsSpawned.slice(reviewArgsSpawned.indexOf('--disallowedTools')).includes('Bash(*--output*)'));
     assert.ok(reviewArgsSpawned.includes(`Bash(git -C ${worktreePath} diff:*)`));
     assert.ok(reviewArgsSpawned.includes(`Read(/${worktreePath}/**)`));
     const remergeEnvPrefix = `GIT_OBJECT_DIRECTORY=${path.join(workDir, REMERGE_OBJECTS_DIRNAME)} GIT_ALTERNATE_OBJECT_DIRECTORIES=${path.join(CACHED_CLONE, '.git', 'objects')}`;

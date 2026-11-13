@@ -103,6 +103,12 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
     },
     {
+      id: 'team-review-extra-skills', path: 'teamReview.extraSkills', title: 'Skills the review skill calls',
+      description: "Other skills the review skill may run, whose allowed-tools grants then apply to the review.",
+      control: 'list', keywords: ['skill', 'sub-skill', 'claude code', 'pr review'], defaultValue: [],
+      listPlaceholder: 'Skill name', listEmptyText: 'Only the review skill.', ...MACHINE_NOW,
+    },
+    {
       id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
       description: "Model for reviews, or the agent's default when empty.",
       control: 'text', keywords: ['model', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,

@@ -80,6 +80,7 @@ const reviewerChoiceSettings = (field: string) => optionalObject(field, {
   effort: optionalString(`${field}.effort`, true),
 });
 
+const REVIEW_SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
@@ -89,6 +90,11 @@ const TeamReviewSettings = optionalObject('teamReview', {
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),
+  extraSkills: z.array(
+    z.string({ error: 'teamReview.extraSkills must be an array of skill names' }).trim()
+      .regex(REVIEW_SKILL_NAME_RE, { error: 'teamReview.extraSkills entries must be skill names such as reviewing-code' }),
+    { error: 'teamReview.extraSkills must be an array of skill names' },
+  ).optional(),
   reviewer: reviewerChoiceSettings('teamReview.reviewer'),
   stampReviewer: reviewerChoiceSettings('teamReview.stampReviewer'),
   sandbox: optionalObject('teamReview.sandbox', {

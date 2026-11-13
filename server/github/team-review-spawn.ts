@@ -20,6 +20,7 @@ import type { UserHook } from '../../session/core/user-hooks-core.ts';
 
 const TEAM_REVIEW_DENY_RULES = Object.freeze([
   'Bash(git push:*)',
+  'Bash(*--output*)',
   'Edit',
   'NotebookEdit',
 ]);

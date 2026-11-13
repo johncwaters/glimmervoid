@@ -80,6 +80,7 @@ interface TeamReviewSettings {
   reReviewAfterHours: number;
   skipIdleAfterDays: number;
   skill: string;
+  extraSkills: string[];
   reviewer: ReviewerChoice;
   stampReviewer: ReviewerChoice | null;
   loadMcpServers: boolean;
@@ -123,6 +124,13 @@ function reviewerFor(settings: Pick<TeamReviewSettings, 'reviewer' | 'stampRevie
 }
 
 
+const SKILL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+function skillNamesOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((name): name is string => typeof name === 'string').map((name) => name.trim()).filter((name) => SKILL_NAME_PATTERN.test(name));
+}
+
 function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSettings {
   const block = config.teamReview;
   const teams = readGithubTeams(config);
@@ -136,6 +144,7 @@ function readTeamReviewSettings(config: TeamReviewSettingsSource): TeamReviewSet
     reReviewAfterHours: positiveNumberOr(block?.reReviewAfterHours, DEFAULT_RE_REVIEW_AFTER_HOURS),
     skipIdleAfterDays: positiveNumberOr(block?.skipIdleAfterDays, DEFAULT_SKIP_IDLE_AFTER_DAYS),
     skill: typeof block?.skill === 'string' ? block.skill.trim() : '',
+    extraSkills: skillNamesOf(block?.extraSkills),
     reviewer,
     stampReviewer: readReviewerChoice(block?.stampReviewer, legacyAgentOf(block?.reviewer)),
     loadMcpServers: isRecord(sandbox) && sandbox.loadMcpServers === true,
