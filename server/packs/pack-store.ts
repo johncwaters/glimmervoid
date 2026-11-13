@@ -275,7 +275,8 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   function watchInstallLedger(): void {
-    ledgerWatcher = watchQuietly(homeDir, (changedName) => {
+    if (isStopped) return;
+    ledgerWatcher =watchQuietly(homeDir, (changedName) => {
       if (changedName !== PACKS_INSTALLED_FILE_NAME || isStopped) return;
       if (ledgerRescanTimer) clearTimeout(ledgerRescanTimer);
       ledgerRescanTimer = setTimeout(() => {
