@@ -37,6 +37,7 @@ export const RADAR_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z M
 export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
 export const ARENA_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';
+export const PACKS_ICON_PATH = 'M2.5 5L8 2.5l5.5 2.5v6L8 13.5L2.5 11z M2.5 5L8 7.5l5.5-2.5 M8 7.5v6';
 export const KEYBOARD_ICON_PATH = 'M1.5 4h13v8h-13z M4.5 6.5h0.01M8 6.5h0.01M11.5 6.5h0.01 M5 9.5h6';
 export const KEY_ICON_PATH = 'M2 8a3 3 0 1 0 6 0a3 3 0 1 0 -6 0z M8 8h6 M11.5 8v2.5 M14 8v2';
 export const SETTINGS_ICON_PATH = 'M2.5 5h11 M2.5 11h11 M6 3v4 M10 9v4';

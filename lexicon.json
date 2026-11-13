@@ -209,7 +209,7 @@
     },
     {
       "name": "pack",
-      "definition": "A folder with a pack.json that adds PR flows, color themes or sandboxed HTML panels to Glimmervoid once the operator approves it in Settings, Packs"
+      "definition": "A folder with a pack.json that adds PR flows, color themes or sandboxed HTML panels to Glimmervoid once the operator approves it in the Packs tab"
     },
     {
       "name": "question manager",
@@ -808,6 +808,14 @@
     {
       "name": "marketing",
       "definition": "The marketing/ folder of the social images and videos that promote Glimmervoid (marketing/social, marketing/video); in older changelog entries, the bundled marketing agent team that the removed Teams feature ran"
+    },
+    {
+      "name": "enable",
+      "definition": "The operator action that installs one pack from a pack source or the Glimmervoid examples, unapproved, from the Packs tab's Discover grid"
+    },
+    {
+      "name": "discover",
+      "definition": "The Packs tab grid of packs from pack sources and the Glimmervoid examples that are not installed yet"
     }
   ],
   "retired": [

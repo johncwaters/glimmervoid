@@ -6,7 +6,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { openFirstPackPanel } from './pack-views.ts';
-import { packHeading, packLines, requestPackApproval } from './packs-settings.ts';
+import { packHeading, packLines, requestPackApproval } from './packs-catalog.ts';
 import { packsSnapshot } from './packs-store.ts';
 import './pack-approval-content.css';
 
@@ -55,19 +55,23 @@ function dismiss(row: PackRow, controls: PackApprovalControls): Promise<boolean>
   return runPackRequest(row.name, `Dismissing the request for ${row.name}`, () => requestDismissal(row.name), controls);
 }
 
+function everythingItAdds(row: PackRow): HTMLElement {
+  const details = el('details', 'pack-approval-details');
+  details.append(el('summary', 'pack-approval-details-summary', 'Show everything it adds'), ...packLines(row));
+  return details;
+}
+
 function approvedBody(row: PackRow): HTMLElement[] {
   const hasPanel = packsSnapshot()?.panels.some((panel) => panel.pack === row.name) ?? false;
   const footer = el('div', 'pack-approval-actions');
   if (hasPanel) footer.append(button({ variant: 'secondary', size: 'small', label: 'Open panel', onClick: () => openFirstPackPanel(row.name) }));
-  return [el('p', 'pack-approval-note', `${row.name} is approved and in use.`), footer];
+  return [el('p', 'pack-approval-note', `${row.name} is approved and in use.`), everythingItAdds(row), footer];
 }
 
 function pendingBody(row: PackRow, controls: PackApprovalControls): HTMLElement[] {
   const fingerprint = row.fingerprint;
   const isBusy = approvalStatusByPackName.get(row.name)?.tone === 'busy';
   const canApprove = fingerprint !== null && row.state === 'pending' && row.errors.length === 0 && !isBusy;
-  const details = el('details', 'pack-approval-details');
-  details.append(el('summary', 'pack-approval-details-summary', 'Show everything it adds'), ...packLines(row));
   const actions = el('div', 'pack-approval-actions');
   actions.append(
     button({ variant: 'secondary', size: 'small', label: 'Dismiss', disabled: isBusy, onClick: () => { void dismiss(row, controls); } }),
@@ -76,7 +80,7 @@ function pendingBody(row: PackRow, controls: PackApprovalControls): HTMLElement[
   return [
     ...packGrants(row).map((grant) => el('p', 'pack-approval-grant', capitalized(grant))),
     ...row.errors.map((error) => el('p', 'pack-approval-error', error)),
-    details,
+    everythingItAdds(row),
     statusLine(row.name),
     actions,
   ];

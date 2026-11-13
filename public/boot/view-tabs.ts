@@ -17,6 +17,7 @@ import type { DashboardView } from '../view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from '../view-registry-core.ts';
 import type { ViewRefreshReason } from '../view-registry-core.ts';
 import { confirmServerRestart } from '../server-power.ts';
+import { activatePacksHash } from './hash-routes.ts';
 
 function openSettings(section?: string) {
   if (section) activateSettingsSection(section);
@@ -274,6 +275,7 @@ function syncPackViews(panels: readonly PackPanelView[]) {
 }
 
 function selectInitialView() {
+  if (activatePacksHash(location.hash)) return;
   const savedView = getSavedActiveView();
   const isInitialSettingsLink = isSettingsHash(location.hash);
   if (isInitialSettingsLink) {

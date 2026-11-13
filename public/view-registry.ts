@@ -14,10 +14,11 @@ import { setSettingsRestartHandler } from './settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { setOpenInReview } from './whiteboard/board-store.ts';
-import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
+import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
 import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
 import type { PackPanelView } from './packs/pack-views.ts';
+import { packsSnapshot, subscribePacks } from './packs/packs-store.ts';
 import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
 import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
 import { clock } from '#shared/clock.ts';
@@ -138,6 +139,12 @@ export function relabelPackView(viewTab: DashboardView, panel: PackPanelView): v
   viewTab.tab.replaceChildren(packViewIcon(panel), panel.label);
 }
 
+function subscribePackApprovals(notify: (attention: ViewAttention) => void): void {
+  const notifyPending = () => notify(packsSnapshot()?.packs.some((row) => row.state === 'pending') ?? false);
+  subscribePacks(notifyPending);
+  notifyPending();
+}
+
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
   setArenaNavigation({ openTerminal: actions.openTerminal });
@@ -155,6 +162,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
     { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
     { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
     { view: 'benchmarks', label: 'Arena', iconPath: ARENA_ICON_PATH, panelClass: 'arena-view', load: () => import('./arena/arena-panel.ts').then((panel) => panel.view) },
+    { view: 'packs', label: 'Packs', iconPath: PACKS_ICON_PATH, panelClass: 'packs-view', load: () => import('./packs/packs-catalog.ts').then((panel) => panel.view), attention: { subscribe: subscribePackApprovals, acknowledge: () => {} } },
     { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
   ];
 
