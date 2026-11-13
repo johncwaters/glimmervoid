@@ -3,9 +3,9 @@
  "sounds": [
   {
    "clip": "music/Ouroboros.mp3",
-   "at": "TIMELINE.drop",
+   "at": "TIMELINE.flyStart",
    "clipAt": 18,
-   "until": "TIMELINE.drop",
+   "until": "TIMELINE.flyStart",
    "filter": "highpass=f=350,highpass=f=350,lowpass=f=1600,lowpass=f=1600,afade=t=in:d=0.3",
    "level": 0.425,
    "stopBefore": 0.12,
@@ -13,9 +13,9 @@
   },
   {
    "clip": "music/Ouroboros.mp3",
-   "at": "TIMELINE.drop",
+   "at": "TIMELINE.flyStart",
    "clipAt": 18,
-   "notBefore": "TIMELINE.drop",
+   "notBefore": "TIMELINE.flyStart",
    "until": "TIMELINE.total",
    "fadeOut": 2.3,
    "level": 0.5,

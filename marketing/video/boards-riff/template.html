@@ -61,31 +61,39 @@ const TIMELINE = {
   paneZoomIn: 8.0, paneZoomInEnd: 8.9,
   tiltStart: 9.0, tiltEnd: 9.8,
   agentLiftStart: 9.7, operatorLiftStart: 10.3, liftSeconds: 0.6,
-  penStart: 12.85, penEnd: 13.5,
-  noteDrop: 14.0,
+  dragStart: 12.75, dragEnd: 13.6,
+  penStart: 13.95, penEnd: 14.6,
+  noteDrop: 15.1,
   collapseStart: 11.3, collapseEnd: 12.1,
-  paneZoomOut: 15.1, paneZoomOutEnd: 16.1,
-  fixPromptStart: 16.4, fixPromptEnd: 17,
-  agentFix: 17.1,
-  saveMove: 17.6,
-  replyLine: 18.85,
-  inkClear: 18.6,
-  planPromptStart: 19.1, planPromptEnd: 19.7,
-  paneZoomIn2: 20, paneZoomIn2End: 23,
-  diveStart: 20, diveEnd: 23,
-  archBoxes: Array.from({ length: 10 }, (_, boxIndex) => 21.55 + boxIndex * 0.09),
-  archWires: Array.from({ length: 12 }, (_, wireIndex) => 23.1 + wireIndex * 0.07),
-  planIn: 24.3,
-  splitStart: 24.9, splitEnd: 25.9,
-  building: [26.1, 27.0, 28.2, 29.2],
-  landed: [27.0, 28.2, 29.2, 30.3],
-  boardOutStart: 31, boardOutEnd: 32.3, linkDraw: 32.1,
-  pullStart: 33.1, pullEnd: 34.1,
-  planLandedLine: 30.7,
-  dashboardLeave: 35.3,
-  markIn: 35.5,
-  markClamp: 36.4,
-  total: 39.7,
+  paneZoomOut: 16.2, paneZoomOutEnd: 17.2,
+  fixPromptStart: 17.5, fixPromptEnd: 18.1,
+  agentFix: 18.2,
+  rowSnap: 18.4,
+  saveMove: 18.7,
+  replyLine: 19.95,
+  inkClear: 19.7,
+  planPromptStart: 20.2, planPromptEnd: 20.8,
+  paneZoomIn2: 21.1, paneZoomIn2End: 24.1,
+  diveStart: 21.1, diveEnd: 24.1,
+  archBoxes: Array.from({ length: 10 }, (_, boxIndex) => 22.65 + boxIndex * 0.09),
+  archWires: Array.from({ length: 12 }, (_, wireIndex) => 24.2 + wireIndex * 0.07),
+  planIn: 25.4,
+  splitStart: 26, splitEnd: 27,
+  building: [27.2, 27.9, 28.05, 28.95],
+  landed: [27.9, 28.75, 28.95, 29.7],
+  fillPromptStart: 36.75, fillPromptEnd: 37.4,
+  boardOutStart: 37.7, boardOutEnd: 39, linkDraw: 38.8,
+  fillPut: 38.9, widgetsStart: 39, widgetsEnd: 40.6, fillReply: 39.6,
+  pullStart: 39, pullEnd: 40.9,
+  planLandedLine: 30.1,
+  liveTypeShot: 30.4, liveTypeShotEnd: 31.1,
+  livePromptStart: 31.4, livePromptEnd: 32.1,
+  liveAttach: 32.35, livePut: 32.65, liveReply: 33.2,
+  liveZoomIn: 33.4, liveZoomInEnd: 34.4, liveZoomOut: 35.5, liveZoomOutEnd: 36.2,
+  dashboardLeave: 40.7,
+  markIn: 40.8,
+  markClamp: 41.7,
+  total: 45,
 };
 const TITLE_CARDS = {
   draws: { lines: ["Your agent", "draws it on a board."], accentLine: 1 },
@@ -94,8 +102,8 @@ const TITLE_CARDS = {
   side: { lines: ["Board and terminal,", "side by side."], accentLine: 1 },
 };
 const PLAYBACK = [
-  { play: [0, 24.85] },
-  { play: [25.35, TIMELINE.total] },
+  { play: [0, 25.95] },
+  { play: [26.45, TIMELINE.total] },
 ];
 const CARD_TITLE_SIZE = 96;
 const CARD_TRACKING_EM = -0.02;
@@ -164,10 +172,13 @@ function textElement(x, y, text, { size = 24, weight = 400, fill = COLOR.text, a
   const width = characters.length * step - spacing * unitsPerPixel;
   const anchorShift = { start: 0, middle: width / 2, end: width }[anchor];
   const uses = characters.map((character, index) => {
+    const glyphLeft = index * step - anchorShift;
+    if (character === "\u00b7") return `<circle cx="${(glyphLeft + face.advance / 2).toFixed(1)}" cy="${(face.unitsPerEm * 0.3).toFixed(1)}" r="${(face.unitsPerEm * 0.06).toFixed(1)}"/>`;
+    if (character === "\u23bf") return `<path d="M${(glyphLeft + face.advance * 0.35).toFixed(1)} ${face.unitsPerEm * 0.8}V${face.unitsPerEm * 0.3}H${(glyphLeft + face.advance).toFixed(1)}" fill="none" stroke="currentColor" stroke-width="${face.unitsPerEm * 0.07}"/>`;
     if (!face.glyphs[character]) return "";
     return `<use href="#g${weight}-${character.charCodeAt(0)}" x="${(index * step - anchorShift).toFixed(1)}"/>`;
   }).join("");
-  return `<g transform="translate(${x} ${y}) scale(${size / face.unitsPerEm} ${-size / face.unitsPerEm})" fill="${fill}" opacity="${opacity}">${uses}</g>`;
+  return `<g transform="translate(${x} ${y}) scale(${size / face.unitsPerEm} ${-size / face.unitsPerEm})" fill="${fill}" color="${fill}" opacity="${opacity}">${uses}</g>`;
 }
 
 function drawTitleCard(card, localSeconds) {
@@ -388,7 +399,8 @@ function drawPhone(time) {
   const header = easeOutQuart(progressBetween(time, TIMELINE.phoneDraw + 0.5, ARRIVE_SECONDS));
   const frame = `<rect x="${PHONE.left}" y="${PHONE.top}" width="${PHONE.right - PHONE.left}" height="${PHONE.bottom - PHONE.top}" rx="48" fill="${COLOR.card}" fill-opacity="${outline}" stroke="${COLOR.boxStroke}" stroke-width="3" stroke-dasharray="${perimeter}" stroke-dashoffset="${perimeter * (1 - outline)}"/>` +
     `<g opacity="${header}">${drawPhoneChrome()}${drawPhoneChevron(ROW.left + 8, PHONE.top + 84, -1, COLOR.accent)}${textElement(ROW.left + 30, PHONE.top + 94, "Settings", { size: 34, weight: 700, fill: COLOR.textHead })}</g>`;
-  const rows = SETTINGS_ROWS.map((row, rowIndex) => drawSettingsRow(row, rowIndex, time)).join("");
+  const rowOrder = [0, 1, 3, DRAGGED_ROW];
+  const rows = rowOrder.map((rowIndex) => drawSettingsRow(SETTINGS_ROWS[rowIndex], rowIndex, time)).join("");
   return frame + rows + drawSaveButton(time);
 }
 
@@ -413,6 +425,21 @@ function drawRowTrail(row, top) {
   if (row.trail === "chevron") return drawPhoneChevron(ROW.right - 22, centerY, 1, COLOR.textMuted);
   return `<rect x="${ROW.right - 66}" y="${centerY - 15}" width="52" height="30" rx="15" fill="${COLOR.running}"/><circle cx="${ROW.right - 29}" cy="${centerY}" r="12" fill="${COLOR.textHead}"/>`;
 }
+const DRAGGED_ROW = 2;
+const DRAG_DROP = { dx: 26, dy: rowTop(1) - rowTop(DRAGGED_ROW) - 12, degrees: -3 };
+const DRAG_GRAB = [40, rowTop(DRAGGED_ROW) + 48];
+function draggedRowOffsetAt(time) {
+  const carry = easeInOutCubic(progressBetween(time, TIMELINE.dragStart, TIMELINE.dragEnd - TIMELINE.dragStart));
+  const snap = easeOutQuart(progressBetween(time, TIMELINE.rowSnap, ARRIVE_SECONDS));
+  const snappedDy = rowTop(1) - rowTop(DRAGGED_ROW);
+  return { dx: DRAG_DROP.dx * carry * (1 - snap), dy: lerp(DRAG_DROP.dy * carry, snappedDy, snap), degrees: DRAG_DROP.degrees * carry * (1 - snap), lifted: carry > 0 && time < TIMELINE.dragEnd };
+}
+function rowPlacementAt(rowIndex, time) {
+  if (rowIndex === DRAGGED_ROW) return draggedRowOffsetAt(time);
+  if (rowIndex !== 1) return { dx: 0, dy: 0, degrees: 0, lifted: false };
+  const makeRoom = easeOutQuart(progressBetween(time, lerp(TIMELINE.dragStart, TIMELINE.dragEnd, 0.45), ARRIVE_SECONDS));
+  return { dx: 0, dy: (rowTop(DRAGGED_ROW) - rowTop(1)) * makeRoom, degrees: 0, lifted: false };
+}
 function drawSettingsRow(row, rowIndex, time) {
   const firstHero = HERO_TARGETS.findIndex((target) => target.rowIndex === rowIndex);
   const lastHero = HERO_TARGETS.findLastIndex((target) => target.rowIndex === rowIndex);
@@ -429,7 +456,10 @@ function drawSettingsRow(row, rowIndex, time) {
       textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: row.titleColor, opacity: settle });
   }).join("");
   const detail = titleShown ? textElement(ROW.textLeft, top + 76, row.detail, { size: 20, fill: COLOR.textMuted, opacity: titleColor }) : "";
-  return `<g opacity="${appear}" transform="translate(0 ${(1 - appear) * 16})"><rect x="${ROW.left}" y="${top}" width="${ROW.right - ROW.left}" height="${ROW.height}" rx="16" fill="${COLOR.surface}"/>${drawRowLead(row, top)}${drawRowTrail(row, top)}</g>` + titleText + detail;
+  const placement = rowPlacementAt(rowIndex, time);
+  const outline = placement.lifted ? ` stroke="${COLOR.accent}" stroke-width="3"` : "";
+  return `<g transform="translate(${placement.dx.toFixed(1)} ${placement.dy.toFixed(1)}) rotate(${placement.degrees.toFixed(2)} 0 ${top + ROW.height / 2})">` +
+    `<g opacity="${appear}" transform="translate(0 ${(1 - appear) * 16})"><rect x="${ROW.left}" y="${top}" width="${ROW.right - ROW.left}" height="${ROW.height}" rx="16" fill="${COLOR.surface}"${outline}/>${drawRowLead(row, top)}${drawRowTrail(row, top)}</g>` + titleText + detail + "</g>";
 }
 
 function drawSaveButton(time) {
@@ -552,9 +582,17 @@ const OPERATOR_CURSOR_EXIT = [2000, 760];
 function operatorCursorScreenPoint(time, operatorMatrix) {
   const onPlane = (point) => project(operatorMatrix, point[0], point[1]);
   const circleStart = onPlane(penTipAt(TIMELINE.penStart));
+  const grabPoint = onPlane(DRAG_GRAB);
+  if (time < TIMELINE.dragStart) {
+    const arrive = easeOutQuart(progressBetween(time, TIMELINE.operatorCursorIn, TIMELINE.dragStart - CURSOR_HOVER_SECONDS - TIMELINE.operatorCursorIn));
+    return curvePoint(OPERATOR_CURSOR_ENTRY, [grabPoint[0] + 260, OPERATOR_CURSOR_ENTRY[1] - 60], grabPoint, arrive);
+  }
+  const dropOffset = draggedRowOffsetAt(Math.min(time, TIMELINE.dragEnd));
+  const carried = onPlane([DRAG_GRAB[0] + dropOffset.dx, DRAG_GRAB[1] + dropOffset.dy]);
+  if (time < TIMELINE.dragEnd) return carried;
   if (time < TIMELINE.penStart) {
-    const arrive = easeOutQuart(progressBetween(time, TIMELINE.operatorCursorIn, TIMELINE.penStart - CURSOR_HOVER_SECONDS - TIMELINE.operatorCursorIn));
-    return curvePoint(OPERATOR_CURSOR_ENTRY, [circleStart[0] + 260, OPERATOR_CURSOR_ENTRY[1] - 60], circleStart, arrive);
+    const move = easeOutQuart(progressBetween(time, TIMELINE.dragEnd + 0.08, TIMELINE.penStart - CURSOR_HOVER_SECONDS - TIMELINE.dragEnd));
+    return curvePoint(carried, [carried[0] + 180, (carried[1] + circleStart[1]) / 2], circleStart, move);
   }
   if (time < TIMELINE.penEnd) return onPlane(penTipAt(time));
   const notePoint = onPlane(NOTE_GRAB);
@@ -569,10 +607,11 @@ function operatorCursorScreenPoint(time, operatorMatrix) {
 function drawOperatorCursor(time, operatorMatrix) {
   if (time < TIMELINE.operatorCursorIn || time > TIMELINE.noteDrop + 0.7) return "";
   const [x, y] = operatorCursorScreenPoint(time, operatorMatrix);
-  return drawPointer(x, y, 40 * cursorPressScale(time, TIMELINE.noteDrop), 1);
+  const isDragging = time >= TIMELINE.dragStart && time < TIMELINE.dragEnd;
+  return drawPointer(x, y, 40 * (isDragging ? 0.85 : cursorPressScale(time, TIMELINE.noteDrop)), 1);
 }
 function selectedBoardToolAt(time) {
-  if (time >= TIMELINE.operatorCursorIn + 0.6 && time < TIMELINE.penEnd + 0.05) return 9;
+  if (time >= TIMELINE.dragEnd + 0.05 && time < TIMELINE.penEnd + 0.05) return 9;
   if (time >= TIMELINE.penEnd + 0.05 && time < TIMELINE.noteDrop + 0.3) return 4;
   return 0;
 }
@@ -644,7 +683,17 @@ const PLAN_STEPS = [
   { name: "Jobs", detail: "email and push queue" },
   { name: "Settings UI", detail: "Save calls the api" },
 ];
-const planStepX = (stepIndex) => 120 + stepIndex * 427;
+const PLAN_SLOTS = [{ x: 120, y: 796 }, { x: 760, y: 892 }, { x: 760, y: 700 }, { x: 1401, y: 796 }];
+const PLAN_FORK_GAP = 130;
+const PLAN_WIRES = [[0, 1], [0, 2], [1, 3], [2, 3]];
+const LIVE_CARD = { x: 120, y: 1110, width: 1661, height: 370 };
+const LIVE_CHART = { left: 420, width: 700, top: 96, height: 196, samples: 60, samplesPerSecond: 2, maxRequests: 2000 };
+const LIVE_ROUTES = [
+  { route: "GET /settings", share: 0.52, p95: 38 },
+  { route: "PUT /settings", share: 0.21, p95: 64 },
+  { route: "GET /plans", share: 0.17, p95: 22 },
+  { route: "POST /jobs", share: 0.1, p95: 118 },
+];
 const BOARD_LOOK = {
   fill: "#15122a", stroke: "#a79fc4", title: "#e6e0f5", muted: "#a79fc4", wire: "#a79fc4",
   strokeWidth: 2.5, radius: 12, inset: 20, mutedIndent: 22, iconSize: 24, arrowLength: 20, arrowHalfWidth: 8, wireDot: 5,
@@ -695,15 +744,20 @@ function drawBoardLabel(x, y, text, opacity) {
 function drawArchitectureScene(time) {
   const grid = `<rect x="-960" y="-540" width="1920" height="1080" fill="url(#dots)"/>`;
   const wires = ARCH_WIRES.map((points, wireIndex) => drawBoardWire(points, easeOutQuart(progressBetween(time, TIMELINE.archWires[wireIndex], 0.5)))).join("");
-  const planWires = PLAN_STEPS.slice(1).map((_, wireIndex) => {
-    const y = PLAN_Y + PLAN_STEP.height / 2;
-    return drawBoardWire([[planStepX(wireIndex) + PLAN_STEP.width, y], [planStepX(wireIndex + 1), y]], easeOutQuart(progressBetween(time, TIMELINE.planIn + 0.45 + wireIndex * 0.1, 0.4)));
+  const planWires = PLAN_WIRES.map(([fromIndex, toIndex], wireIndex) => {
+    const from = PLAN_SLOTS[fromIndex];
+    const to = PLAN_SLOTS[toIndex];
+    const fromX = from.x + PLAN_STEP.width;
+    const fromY = from.y + PLAN_STEP.height / 2;
+    const toY = to.y + PLAN_STEP.height / 2;
+    const elbowX = fromIndex === 0 ? fromX + PLAN_FORK_GAP : to.x - PLAN_FORK_GAP;
+    return drawBoardWire([[fromX, fromY], [elbowX, fromY], [elbowX, toY], [to.x, toY]], easeOutQuart(progressBetween(time, TIMELINE.planIn + 0.45 + wireIndex * 0.08, 0.4)));
   }).join("");
   const boxes = ARCH_BOXES.map((box, boxIndex) => drawArchBox(box, boxIndex, time)).join("");
   const steps = PLAN_STEPS.map((step, stepIndex) => drawPlanStep(step, stepIndex, time)).join("");
   const archLabel = drawBoardLabel(ARCH_COLUMNS[0], ARCH_BOXES_TOP - 22, "ARCHITECTURE", easeOutQuart(progressBetween(time, TIMELINE.archBoxes[0], ARRIVE_SECONDS)));
   const planLabel = drawBoardLabel(ARCH_COLUMNS[0], PLAN_Y - 22, "PLAN", planStepAppearAt(0, time));
-  return `<g transform="translate(960 540)">${grid}${wires}${planWires}${archLabel}${planLabel}${boxes}${steps}</g>`;
+  return `<g transform="translate(960 540)">${grid}${wires}${planWires}${drawApiToLiveCardWire(time)}${archLabel}${planLabel}${boxes}${steps}${drawWireTraffic(time)}${drawLiveTrafficCard(time)}</g>`;
 }
 
 function drawArchBox(box, boxIndex, time) {
@@ -721,8 +775,8 @@ function drawArchBox(box, boxIndex, time) {
 function drawPlanStep(step, stepIndex, time) {
   const appear = planStepAppearAt(stepIndex, time);
   if (appear <= 0) return "";
-  const x = planStepX(stepIndex) - 960;
-  const y = PLAN_Y - 540 + (1 - appear) * 24;
+  const x = PLAN_SLOTS[stepIndex].x - 960;
+  const y = PLAN_SLOTS[stepIndex].y - 540 + (1 - appear) * 24;
   const status = stepStatusAt(stepIndex, time);
   const flip = easeOutQuart(progressBetween(time, statusChangedAt(stepIndex, time), 0.3));
   const statusY = y + 48 - (1 - flip) * 12;
@@ -733,8 +787,311 @@ function drawPlanStep(step, stepIndex, time) {
     textElement(x + BOARD_LOOK.inset, y + 146, step.detail, { size: 24, fill: BOARD_LOOK.title }) + "</g>";
 }
 
+function requestsAt(sample) {
+  const wholeSample = Math.floor(sample);
+  const jitter = (hashOf(wholeSample) - 0.5) * 140 + (hashOf(wholeSample * 3 + 11) - 0.5) * 60;
+  const burst = wholeSample % 41 >= 30 && wholeSample % 41 < 34 ? 220 * Math.sin(((wholeSample % 41) - 29) / 5 * Math.PI) : 0;
+  return 1180 + 90 * Math.sin(wholeSample * 0.07) + jitter + burst;
+}
+function serverErrorsAt(sample) {
+  const wholeSample = Math.floor(sample);
+  const roll = hashOf(wholeSample * 7 + 3);
+  if (roll > 0.93) return 6 + (roll - 0.93) * 200;
+  return roll * 2.5;
+}
+function liveCardShownAt(time) {
+  return easeOutQuart(progressBetween(time, TIMELINE.livePut, ARRIVE_SECONDS));
+}
+const chartYFor = (requests, top) => top + LIVE_CHART.height - (requests / LIVE_CHART.maxRequests) * LIVE_CHART.height;
+function drawChartAxes(x, y) {
+  const axisText = { size: 18, fill: BOARD_LOOK.muted };
+  const gridLines = [0, 500, 1000, 1500, 2000].map((requests) => {
+    const lineY = chartYFor(requests, y);
+    const label = requests === 0 ? "0" : `${requests / 1000}k`;
+    return `<line x1="${x}" y1="${lineY}" x2="${x + LIVE_CHART.width}" y2="${lineY}" stroke="${BOARD_LOOK.muted}" stroke-opacity="${requests === 0 ? 0.5 : 0.14}" stroke-width="1.5"/>` +
+      textElement(x - 14, lineY + 6, label, { ...axisText, anchor: "end" });
+  }).join("");
+  const bottom = y + LIVE_CHART.height + 28;
+  const timeLabels = [["30s ago", 0, "start"], ["15s", 0.5, "middle"], ["now", 1, "end"]]
+    .map(([label, share, anchor]) => textElement(x + share * LIVE_CHART.width, bottom, label, { ...axisText, anchor })).join("");
+  const legend = `<rect x="${x + LIVE_CHART.width - 196}" y="${y - 26}" width="14" height="4" fill="${COLOR.accent}"/>` +
+    textElement(x + LIVE_CHART.width - 174, y - 18, "2xx", axisText) +
+    `<rect x="${x + LIVE_CHART.width - 110}" y="${y - 31}" width="10" height="14" fill="${COLOR.failed}"/>` +
+    textElement(x + LIVE_CHART.width - 92, y - 18, "5xx x10", axisText);
+  return gridLines + timeLabels + legend;
+}
+function drawTrafficChart(x, y, time) {
+  const flow = time * LIVE_CHART.samplesPerSecond;
+  const step = LIVE_CHART.width / (LIVE_CHART.samples - 1);
+  const shift = (flow % 1) * step;
+  const sampleIndexes = Array.from({ length: LIVE_CHART.samples + 1 }, (_, slot) => ({ slot, sample: Math.floor(flow) - LIVE_CHART.samples + slot }));
+  const visible = sampleIndexes.map(({ slot, sample }) => ({ sample, pointX: x + slot * step - shift })).filter(({ pointX }) => pointX >= x - 0.5);
+  const points = visible.map(({ sample, pointX }) => [pointX, chartYFor(requestsAt(sample), y)]);
+  const line = points.map(([pointX, pointY]) => `${pointX.toFixed(1)},${pointY.toFixed(1)}`).join(" ");
+  const bottom = y + LIVE_CHART.height;
+  const errorBars = visible.map(({ sample, pointX }) => {
+    const barHeight = (serverErrorsAt(sample) * 10 / LIVE_CHART.maxRequests) * LIVE_CHART.height;
+    return `<rect x="${(pointX - step * 0.35).toFixed(1)}" y="${(bottom - barHeight).toFixed(1)}" width="${(step * 0.7).toFixed(1)}" height="${barHeight.toFixed(1)}" fill="${COLOR.failed}" opacity="0.85"/>`;
+  }).join("");
+  const [headX, headY] = points[points.length - 1];
+  return drawChartAxes(x, y) + errorBars + `<polygon points="${points[0][0]},${bottom} ${line} ${headX},${bottom}" fill="url(#traffic-fill)"/>` +
+    `<polyline points="${line}" fill="none" stroke="${COLOR.accent}" stroke-width="3" stroke-linejoin="round"/>` +
+    `<circle cx="${headX}" cy="${headY}" r="6" fill="${COLOR.accent}" stroke="${BOARD_LOOK.fill}" stroke-width="3"/>`;
+}
+function drawRouteTable(x, y, time, requestsNow) {
+  const columns = { route: x, requests: x + 330, p95: x + 470 };
+  const headerText = { size: 18, weight: 700, fill: BOARD_LOOK.muted, spacing: 1.8 };
+  const header = textElement(columns.route, y, "ROUTE", headerText) + textElement(columns.requests, y, "REQ/S", { ...headerText, anchor: "end" }) + textElement(columns.p95, y, "P95", { ...headerText, anchor: "end" }) +
+    `<line x1="${x}" y1="${y + 14}" x2="${columns.p95}" y2="${y + 14}" stroke="${BOARD_LOOK.muted}" stroke-opacity="0.3" stroke-width="1.5"/>`;
+  const rows = LIVE_ROUTES.map(({ route, share, p95 }, routeIndex) => {
+    const rowY = y + 52 + routeIndex * 50;
+    const routeRequests = Math.round(requestsNow * share);
+    const routeP95 = Math.round(p95 * (0.94 + 0.12 * hashOf(Math.floor(time * 2) + routeIndex * 13)));
+    const isSlow = routeP95 > 100;
+    return textElement(columns.route, rowY, route, { size: 22, fill: BOARD_LOOK.title }) +
+      textElement(columns.requests, rowY, `${routeRequests}`, { size: 22, fill: BOARD_LOOK.title, anchor: "end" }) +
+      textElement(columns.p95, rowY, `${routeP95} ms`, { size: 22, fill: isSlow ? COLOR.waiting : BOARD_LOOK.title, anchor: "end" }) +
+      `<rect x="${columns.route}" y="${rowY + 10}" width="${(columns.requests - columns.route) * share / LIVE_ROUTES[0].share}" height="4" fill="${COLOR.accent}" opacity="0.6"/>`;
+  }).join("");
+  return header + rows;
+}
+function drawLiveTrafficCard(time) {
+  const shown = liveCardShownAt(time);
+  if (shown <= 0) return "";
+  const x = LIVE_CARD.x - 960;
+  const y = LIVE_CARD.y - 540 + (1 - shown) * 24;
+  const latestSample = Math.floor(time * LIVE_CHART.samplesPerSecond) - 1;
+  const requestsNow = Math.round(requestsAt(latestSample));
+  const errorRate = (serverErrorsAt(latestSample) / requestsNow) * 100;
+  const p95 = Math.round(41 + 6 * hashOf(latestSample * 5 + 2));
+  const livePulse = 0.45 + 0.55 * Math.abs(Math.cos(time * Math.PI * 1.2));
+  const titleX = x + BOARD_LOOK.inset + BOARD_LOOK.iconSize + 10;
+  const right = x + LIVE_CARD.width - BOARD_LOOK.inset;
+  const statLabel = { size: 18, weight: 700, fill: BOARD_LOOK.muted, spacing: 1.8 };
+  return `<g opacity="${shown}">` + drawBoardRect(x, y, LIVE_CARD.width, LIVE_CARD.height, BOARD_LOOK.stroke) +
+    drawIcon("activity", x + BOARD_LOOK.inset, y + 22, BOARD_LOOK.iconSize, BOARD_LOOK.title) +
+    textElement(titleX, y + 44, "Live traffic", { size: 30, weight: 700, fill: BOARD_LOOK.title }) +
+    textElement(titleX + 230, y + 44, "api, production, last 30s", { size: 22, fill: BOARD_LOOK.muted }) +
+    `<circle cx="${right - 78}" cy="${y + 35}" r="8" fill="${COLOR.running}" opacity="${livePulse}"/>` +
+    textElement(right, y + 44, "LIVE", { size: 24, weight: 700, fill: COLOR.running, anchor: "end", spacing: 2.4 }) +
+    textElement(x + BOARD_LOOK.inset, y + 110, "REQ/S", statLabel) +
+    textElement(x + BOARD_LOOK.inset, y + 176, requestsNow.toLocaleString("en-US"), { size: 76, weight: 700, fill: BOARD_LOOK.title }) +
+    textElement(x + BOARD_LOOK.inset, y + 240, "P95", statLabel) +
+    textElement(x + BOARD_LOOK.inset, y + 280, `${p95} ms`, { size: 34, weight: 700, fill: BOARD_LOOK.title }) +
+    textElement(x + BOARD_LOOK.inset + 170, y + 240, "5XX", statLabel) +
+    textElement(x + BOARD_LOOK.inset + 170, y + 280, `${errorRate.toFixed(2)}%`, { size: 34, weight: 700, fill: errorRate > 3 ? COLOR.failed : BOARD_LOOK.title }) +
+    drawTrafficChart(x + LIVE_CHART.left, y + LIVE_CHART.top, time) +
+    drawRouteTable(x + LIVE_CHART.left + LIVE_CHART.width + 60, y + 110, time, requestsNow) + "</g>";
+}
+function pointAlongWire(points, share) {
+  const segmentLengths = points.slice(1).map(([x, y], pointIndex) => Math.hypot(x - points[pointIndex][0], y - points[pointIndex][1]));
+  let remaining = share * segmentLengths.reduce((sum, length) => sum + length, 0);
+  for (const [pointIndex, length] of segmentLengths.entries()) {
+    if (remaining <= length) {
+      const [fromX, fromY] = points[pointIndex];
+      const [toX, toY] = points[pointIndex + 1];
+      return [lerp(fromX, toX, remaining / length), lerp(fromY, toY, remaining / length)];
+    }
+    remaining -= length;
+  }
+  return points[points.length - 1];
+}
+function drawWireTraffic(time) {
+  const shown = liveCardShownAt(time);
+  if (shown <= 0) return "";
+  return ARCH_WIRES.flatMap((points, wireIndex) => [0, 0.5].map((offset) => {
+    const share = (time * 0.7 + wireIndex * 0.37 + offset) % 1;
+    const [dotX, dotY] = pointAlongWire(points, share);
+    return `<circle cx="${(dotX - 960).toFixed(1)}" cy="${(dotY - 540).toFixed(1)}" r="7" fill="${COLOR.accent}" opacity="${shown * Math.sin(share * Math.PI)}"/>`;
+  })).join("");
+}
+function drawApiToLiveCardWire(time) {
+  const apiSlot = PLAN_SLOTS[1];
+  const apiCenterX = apiSlot.x + PLAN_STEP.width / 2;
+  return drawBoardWire([[apiCenterX, apiSlot.y + PLAN_STEP.height], [apiCenterX, LIVE_CARD.y]], easeOutQuart(progressBetween(time, TIMELINE.livePut + 0.2, 0.4)));
+}
+
 const MARK = { x: 960, y: 360, size: 220 };
-const BOARD_OUT = { zoom: 0.72, centerX: 640, centerY: 470, phoneX: -340, phoneY: 470 };
+const BOARD_OUT = { zoom: 0.62, centerX: 640, centerY: 560, phoneX: -340, phoneY: 470 };
+const BOARD_FULL = { zoom: 0.3, centerX: 630, centerY: 760 };
+const WIDGET = { width: 500, height: 280 };
+const WIDGET_KINDS = [
+  { kind: "kpi", icon: "activity", titles: ["Active users", "Signups today", "MRR", "Sessions"] },
+  { kind: "donut", icon: "cpu", titles: ["Disk", "Plan mix", "Cache hits", "Memory"] },
+  { kind: "bars", icon: "queue", titles: ["Jobs per hour", "Builds", "Emails sent", "Pushes"] },
+  { kind: "gauge", icon: "cpu", titles: ["CPU", "Load", "Pool usage", "Error budget"] },
+  { kind: "deploys", icon: "api", titles: ["Deploys", "Releases", "Migrations", "Rollouts"] },
+  { kind: "heatmap", icon: "activity", titles: ["Traffic by hour", "Commits", "Logins", "Checkouts"] },
+  { kind: "lines", icon: "database", titles: ["Query time", "Replication lag", "Connections", "Writes"] },
+  { kind: "logs", icon: "alert", titles: ["api logs", "worker logs", "gateway logs", "billing logs"] },
+  { kind: "status", icon: "shield", titles: ["Services", "Regions", "Checks", "Uptime"] },
+  { kind: "progress", icon: "payment", titles: ["Q4 goals", "Invoices", "Quota", "Sprint"] },
+];
+const WIDGET_GRID = { left: -2560, top: -3240, columnPitch: 800, rowPitch: 500, columns: 8, rows: 16, jitterX: 90, jitterY: 60 };
+const BOARD_CORE = { left: -680, top: -100, right: 1940, bottom: 1620 };
+const overlapsBoardCore = ({ x, y }) => x + WIDGET.width > BOARD_CORE.left && x < BOARD_CORE.right && y + WIDGET.height > BOARD_CORE.top && y < BOARD_CORE.bottom;
+const WIDGET_SLOTS = Array.from({ length: WIDGET_GRID.columns * WIDGET_GRID.rows }, (_, cellIndex) => {
+  const column = cellIndex % WIDGET_GRID.columns;
+  const row = Math.floor(cellIndex / WIDGET_GRID.columns);
+  return {
+    column, row,
+    x: WIDGET_GRID.left + column * WIDGET_GRID.columnPitch + (hashOf(cellIndex * 3 + 1) - 0.5) * 2 * WIDGET_GRID.jitterX,
+    y: WIDGET_GRID.top + row * WIDGET_GRID.rowPitch + (hashOf(cellIndex * 5 + 2) - 0.5) * 2 * WIDGET_GRID.jitterY,
+    isKept: hashOf(cellIndex * 11 + 7) > 0.18,
+  };
+}).filter((slot) => slot.isKept && !overlapsBoardCore(slot))
+  .map((slot, slotIndex) => ({ ...slot, slotIndex, distance: Math.hypot(slot.x + WIDGET.width / 2 - BOARD_FULL.centerX, slot.y + WIDGET.height / 2 - BOARD_FULL.centerY) }));
+const widgetSlotAt = (column, row) => WIDGET_SLOTS.find((slot) => slot.column === column && slot.row === row);
+const WIDGET_WIRES = WIDGET_SLOTS.flatMap((slot) => {
+  const roll = hashOf(slot.slotIndex * 17 + 4);
+  const rightNeighbor = widgetSlotAt(slot.column + 1, slot.row);
+  const belowNeighbor = widgetSlotAt(slot.column, slot.row + 1);
+  if (roll < 0.4 && rightNeighbor) {
+    const fromY = slot.y + WIDGET.height / 2;
+    const toY = rightNeighbor.y + WIDGET.height / 2;
+    const elbowX = (slot.x + WIDGET.width + rightNeighbor.x) / 2;
+    return [{ from: slot, to: rightNeighbor, points: [[slot.x + WIDGET.width, fromY], [elbowX, fromY], [elbowX, toY], [rightNeighbor.x, toY]] }];
+  }
+  if (roll > 0.72 && belowNeighbor) {
+    const fromX = slot.x + WIDGET.width / 2;
+    const toX = belowNeighbor.x + WIDGET.width / 2;
+    const elbowY = (slot.y + WIDGET.height + belowNeighbor.y) / 2;
+    return [{ from: slot, to: belowNeighbor, points: [[fromX, slot.y + WIDGET.height], [fromX, elbowY], [toX, elbowY], [toX, belowNeighbor.y]] }];
+  }
+  return [];
+});
+const WIDGET_WIRE_LOOK = { strokeWidth: 7, arrowLength: 34, arrowHalfWidth: 15, dot: 9 };
+const FARTHEST_WIDGET = Math.max(...WIDGET_SLOTS.map((slot) => slot.distance));
+const WIDGET_TEXT = { title: { size: 26, weight: 700, fill: BOARD_LOOK.title }, small: { size: 18, fill: BOARD_LOOK.muted } };
+function widgetSeries(seed, count, time, speed) {
+  return Array.from({ length: count }, (_, index) => clamp01(0.5 + 0.28 * Math.sin((index + time * speed) * 0.55 + seed * 3) + 0.18 * (hashOf(seed * 31 + index) - 0.5)));
+}
+function drawWidgetSparkline(values, left, top, width, height, color) {
+  const step = width / (values.length - 1);
+  const line = values.map((value, index) => `${(left + index * step).toFixed(1)},${(top + height - value * height).toFixed(1)}`).join(" ");
+  return `<polygon points="${left},${top + height} ${line} ${left + width},${top + height}" fill="url(#traffic-fill)"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round"/>`;
+}
+const WIDGET_BODIES = {
+  kpi: (x, y, seed, time) => {
+    const value = Math.round(1200 + 9000 * hashOf(seed) + 40 * Math.sin(time * 3 + seed));
+    const change = (2 + 14 * hashOf(seed + 5)).toFixed(1);
+    return textElement(x, y + 74, value.toLocaleString("en-US"), { size: 64, weight: 700, fill: BOARD_LOOK.title }) +
+      textElement(x, y + 112, `+${change}% vs last week`, { size: 20, fill: COLOR.running }) +
+      drawWidgetSparkline(widgetSeries(seed, 24, time, 4), x, y + 132, WIDGET.width - 40, 70, COLOR.accent);
+  },
+  donut: (x, y, seed, time) => {
+    const shares = [0.45 + 0.2 * hashOf(seed), 0.2 + 0.1 * hashOf(seed + 1)];
+    const colors = [COLOR.accent, COLOR.watching, COLOR.borderHover];
+    const circumference = 2 * Math.PI * 70;
+    let offset = 0;
+    const arcs = [...shares, 1 - shares[0] - shares[1]].map((share, index) => {
+      const arc = `<circle cx="${x + 100}" cy="${y + 110}" r="70" fill="none" stroke="${colors[index]}" stroke-width="26" stroke-dasharray="${share * circumference} ${circumference}" stroke-dashoffset="${-offset * circumference}" transform="rotate(-90 ${x + 100} ${y + 110})"/>`;
+      offset += share;
+      return arc;
+    }).join("");
+    const legend = ["used", "reserved", "free"].map((label, index) => `<rect x="${x + 230}" y="${y + 66 + index * 40}" width="16" height="16" rx="3" fill="${colors[index]}"/>` + textElement(x + 258, y + 81 + index * 40, label, { size: 20, fill: BOARD_LOOK.title })).join("");
+    return arcs + textElement(x + 100, y + 120, `${Math.round(shares[0] * 100 + Math.sin(time * 2 + seed) * 2)}%`, { size: 30, weight: 700, fill: BOARD_LOOK.title, anchor: "middle" }) + legend;
+  },
+  bars: (x, y, seed, time) => widgetSeries(seed, 12, time, 3).map((value, index) => {
+    const barHeight = 30 + value * 140;
+    return `<rect x="${x + index * 38}" y="${y + 190 - barHeight}" width="26" height="${barHeight.toFixed(1)}" rx="4" fill="${index === 11 ? COLOR.accent : COLOR.accentDim}"/>`;
+  }).join("") + `<line x1="${x}" y1="${y + 191}" x2="${x + 452}" y2="${y + 191}" stroke="${BOARD_LOOK.muted}" stroke-opacity="0.4" stroke-width="2"/>`,
+  gauge: (x, y, seed, time) => {
+    const level = clamp01(0.35 + 0.4 * hashOf(seed) + 0.08 * Math.sin(time * 2.5 + seed));
+    const centerX = x + 150;
+    const centerY = y + 170;
+    const angle = Math.PI * (1 - level);
+    const arcLength = Math.PI * 100;
+    const color = level > 0.75 ? COLOR.waiting : COLOR.running;
+    return `<path d="M${centerX - 100} ${centerY} A100 100 0 0 1 ${centerX + 100} ${centerY}" fill="none" stroke="${COLOR.borderHover}" stroke-width="22" stroke-linecap="round"/>` +
+      `<path d="M${centerX - 100} ${centerY} A100 100 0 0 1 ${centerX + 100} ${centerY}" fill="none" stroke="${color}" stroke-width="22" stroke-linecap="round" stroke-dasharray="${level * arcLength} ${arcLength}"/>` +
+      `<line x1="${centerX}" y1="${centerY}" x2="${(centerX + Math.cos(angle) * 78).toFixed(1)}" y2="${(centerY - Math.sin(angle) * 78).toFixed(1)}" stroke="${BOARD_LOOK.title}" stroke-width="5" stroke-linecap="round"/>` +
+      textElement(x + 300, y + 130, `${Math.round(level * 100)}%`, { size: 54, weight: 700, fill: BOARD_LOOK.title }) + textElement(x + 300, y + 166, "of limit", WIDGET_TEXT.small);
+  },
+  deploys: (x, y, seed) => ["api", "web", "worker", "billing"].map((service, index) => {
+    const isBuilding = index === 0;
+    const rowY = y + 56 + index * 44;
+    return `<circle cx="${x + 10}" cy="${rowY - 7}" r="8" fill="${isBuilding ? COLOR.waiting : COLOR.running}"/>` +
+      textElement(x + 32, rowY, `${service} v1.${Math.floor(10 + hashOf(seed + index) * 40)}`, { size: 22, fill: BOARD_LOOK.title }) +
+      textElement(x + WIDGET.width - 40, rowY, isBuilding ? "building" : `${index * 7 + 3}m ago`, { size: 20, fill: isBuilding ? COLOR.waiting : BOARD_LOOK.muted, anchor: "end" });
+  }).join(""),
+  heatmap: (x, y, seed, time) => Array.from({ length: 5 * 15 }, (_, cellIndex) => {
+    const column = cellIndex % 15;
+    const row = Math.floor(cellIndex / 15);
+    const heat = clamp01(hashOf(seed * 13 + cellIndex) * 0.8 + 0.2 * Math.sin(time * 2 + column * 0.6));
+    return `<rect x="${x + column * 30}" y="${y + 40 + row * 30}" width="24" height="24" rx="4" fill="${COLOR.accent}" fill-opacity="${(0.1 + heat * 0.9).toFixed(2)}"/>`;
+  }).join(""),
+  lines: (x, y, seed, time) => [0.2, 0.4, 0.6, 0.8].map((share) => `<line x1="${x}" y1="${y + 40 + share * 160}" x2="${x + 460}" y2="${y + 40 + share * 160}" stroke="${BOARD_LOOK.muted}" stroke-opacity="0.14" stroke-width="1.5"/>`).join("") +
+    drawWidgetSparkline(widgetSeries(seed, 30, time, 5), x, y + 40, 460, 160, COLOR.accent) +
+    `<polyline points="${widgetSeries(seed + 9, 30, time, 5).map((value, index) => `${(x + index * 460 / 29).toFixed(1)},${(y + 200 - value * 80).toFixed(1)}`).join(" ")}" fill="none" stroke="${COLOR.watching}" stroke-width="3" stroke-linejoin="round"/>`,
+  logs: (x, y, seed, time) => {
+    const levels = [["INFO", COLOR.running], ["INFO", COLOR.running], ["WARN", COLOR.waiting], ["INFO", COLOR.running], ["ERROR", COLOR.failed]];
+    const messages = ["GET /settings 200 12ms", "job email.send done", "slow query 412ms", "PUT /settings 200 31ms", "push token expired", "cache warm 98%"];
+    const scroll = Math.floor(time * 3 + seed * 5);
+    return Array.from({ length: 5 }, (_, lineIndex) => {
+      const pick = (scroll + lineIndex) % messages.length;
+      const [label, color] = levels[(scroll + lineIndex + seed) % levels.length];
+      const rowY = y + 50 + lineIndex * 36;
+      return textElement(x, rowY, label, { size: 18, weight: 700, fill: color }) + textElement(x + 80, rowY, messages[pick], { size: 20, fill: BOARD_LOOK.title });
+    }).join("");
+  },
+  status: (x, y, seed) => ["us-east", "us-west", "eu-central", "ap-south"].map((region, index) => {
+    const isDegraded = (seed + index) % 7 === 3;
+    const rowY = y + 56 + index * 44;
+    const pillColor = isDegraded ? COLOR.waiting : COLOR.running;
+    return textElement(x, rowY, region, { size: 22, fill: BOARD_LOOK.title }) +
+      `<rect x="${x + 300}" y="${rowY - 24}" width="150" height="32" rx="16" fill="${pillColor}" fill-opacity="0.18"/>` +
+      textElement(x + 375, rowY - 2, isDegraded ? "degraded" : "healthy", { size: 18, weight: 700, fill: pillColor, anchor: "middle" });
+  }).join(""),
+  progress: (x, y, seed, time) => ["Design", "Build", "Launch"].map((label, index) => {
+    const done = clamp01(0.3 + 0.6 * hashOf(seed * 7 + index) + 0.03 * Math.sin(time * 2 + index));
+    const rowY = y + 60 + index * 58;
+    return textElement(x, rowY, label, { size: 22, fill: BOARD_LOOK.title }) + textElement(x + 460, rowY, `${Math.round(done * 100)}%`, { size: 20, fill: BOARD_LOOK.muted, anchor: "end" }) +
+      `<rect x="${x}" y="${rowY + 12}" width="460" height="12" rx="6" fill="${COLOR.borderHover}"/><rect x="${x}" y="${rowY + 12}" width="${(460 * done).toFixed(1)}" height="12" rx="6" fill="${index === 2 ? COLOR.watching : COLOR.accent}"/>`;
+  }).join(""),
+};
+const widgetStartAt = (slot) => lerp(TIMELINE.widgetsStart, TIMELINE.widgetsEnd - ARRIVE_SECONDS, slot.distance / FARTHEST_WIDGET);
+function widgetAppearAt(slot, time) {
+  return easeOutQuart(progressBetween(time, widgetStartAt(slot), ARRIVE_SECONDS));
+}
+function drawWidget(slot, time) {
+  const appear = widgetAppearAt(slot, time);
+  if (appear <= 0) return "";
+  const kind = WIDGET_KINDS[(slot.slotIndex * 7) % WIDGET_KINDS.length];
+  const title = kind.titles[slot.slotIndex % kind.titles.length];
+  const scale = lerp(0.85, 1, appear);
+  const centerX = slot.x + WIDGET.width / 2;
+  const centerY = slot.y + WIDGET.height / 2;
+  const left = slot.x + BOARD_LOOK.inset;
+  return `<g opacity="${appear}" transform="translate(${centerX} ${centerY}) scale(${scale.toFixed(3)}) translate(${-centerX} ${-centerY})">` +
+    `<rect x="${slot.x}" y="${slot.y}" width="${WIDGET.width}" height="${WIDGET.height}" rx="${BOARD_LOOK.radius}" fill="${BOARD_LOOK.fill}" stroke="${BOARD_LOOK.stroke}" stroke-width="5"/>` +
+    drawIcon(kind.icon, left, slot.y + 20, BOARD_LOOK.iconSize, BOARD_LOOK.title) +
+    textElement(left + BOARD_LOOK.iconSize + 10, slot.y + 42, title, WIDGET_TEXT.title) +
+    WIDGET_BODIES[kind.kind](left, slot.y + 52, slot.slotIndex, time) + "</g>";
+}
+function drawWidgetWire(wire, time) {
+  const drawStart = Math.max(widgetStartAt(wire.from), widgetStartAt(wire.to)) + ARRIVE_SECONDS * 0.6;
+  const draw = easeOutQuart(progressBetween(time, drawStart, 0.45));
+  if (draw <= 0) return "";
+  const pointList = wire.points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const [beforeX, beforeY] = wire.points[wire.points.length - 2];
+  const [tipX, tipY] = wire.points[wire.points.length - 1];
+  const length = Math.hypot(tipX - beforeX, tipY - beforeY) || 1;
+  const directionX = (tipX - beforeX) / length;
+  const directionY = (tipY - beforeY) / length;
+  const baseX = tipX - directionX * WIDGET_WIRE_LOOK.arrowLength;
+  const baseY = tipY - directionY * WIDGET_WIRE_LOOK.arrowLength;
+  const half = WIDGET_WIRE_LOOK.arrowHalfWidth;
+  const [packetX, packetY] = pointAlongWire(wire.points, (time * 0.8 + hashOf(wire.from.slotIndex)) % 1);
+  return `<circle cx="${wire.points[0][0]}" cy="${wire.points[0][1]}" r="${WIDGET_WIRE_LOOK.dot}" fill="${BOARD_LOOK.wire}"/>` +
+    `<polyline points="${pointList}" fill="none" stroke="${BOARD_LOOK.wire}" stroke-width="${WIDGET_WIRE_LOOK.strokeWidth}" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="${1 - draw}"/>` +
+    `<polygon points="${tipX},${tipY} ${baseX - directionY * half},${baseY + directionX * half} ${baseX + directionY * half},${baseY - directionX * half}" fill="${BOARD_LOOK.wire}" opacity="${clamp01((draw - 0.85) / 0.15)}"/>` +
+    (draw >= 1 ? `<circle cx="${packetX.toFixed(1)}" cy="${packetY.toFixed(1)}" r="14" fill="${COLOR.accent}"/>` : "");
+}
+function drawWidgetWall(time) {
+  if (time < TIMELINE.widgetsStart) return "";
+  return WIDGET_WIRES.map((wire) => drawWidgetWire(wire, time)).join("") + WIDGET_SLOTS.map((slot) => drawWidget(slot, time)).join("");
+}
 function drawSaveToArchitectureLink(time) {
   const draw = easeOutQuart(progressBetween(time, TIMELINE.linkDraw, 0.6));
   if (draw <= 0) return "";
@@ -747,12 +1104,13 @@ function drawSaveToArchitectureLink(time) {
 }
 function drawCityStage(time) {
   const out = easeInOutCubic(progressBetween(time, TIMELINE.boardOutStart, TIMELINE.boardOutEnd - TIMELINE.boardOutStart));
-  const zoom = Math.exp(lerp(0, Math.log(BOARD_OUT.zoom), out));
-  const centerX = lerp(960, BOARD_OUT.centerX, out);
-  const centerY = lerp(540, BOARD_OUT.centerY, out);
+  const fill = easeInOutCubic(progressBetween(time, TIMELINE.widgetsStart, TIMELINE.widgetsEnd - TIMELINE.widgetsStart));
+  const zoom = Math.exp(lerp(lerp(0, Math.log(BOARD_OUT.zoom), out), Math.log(BOARD_FULL.zoom), fill));
+  const centerX = lerp(lerp(960, BOARD_OUT.centerX, out), BOARD_FULL.centerX, fill);
+  const centerY = lerp(lerp(540, BOARD_OUT.centerY, out), BOARD_FULL.centerY, fill);
   const phone = out > 0 ? `<g transform="translate(${BOARD_OUT.phoneX} ${BOARD_OUT.phoneY})">${drawPhone(TIMELINE.diveStart - 0.01)}</g>` : "";
   return `<g transform="translate(960 540) scale(${zoom}) translate(${-centerX} ${-centerY})"><rect x="-3000" y="-2000" width="7920" height="5080" fill="url(#dots)"/>` +
-    `<rect x="0" y="0" width="1920" height="1080" fill="${COLOR.bg}" opacity="${1 - out}"/>` + drawArchitectureScene(time) + phone + drawSaveToArchitectureLink(time) + "</g>";
+    `<rect x="0" y="0" width="1920" height="1080" fill="${COLOR.bg}" opacity="${1 - out}"/>` + drawWidgetWall(time) + drawArchitectureScene(time) + phone + drawSaveToArchitectureLink(time) + "</g>";
 }
 
 const CAMERA_SHOTS = {
@@ -762,6 +1120,12 @@ const CAMERA_SHOTS = {
   overview: { zoom: 1920 / DASHBOARD.width, centerX: DASHBOARD.width / 2, centerY: DASHBOARD.height / 2 },
   pane: { zoom: 1 / PANE_FIT_SCALE, centerX: PANE.x + PANE.width / 2, centerY: PANE.bodyY + PANE.bodyHeight / 2 },
   split: { zoom: 1.68, centerX: 870, centerY: 420 },
+  away: { zoom: (1920 / DASHBOARD.width) * 0.4, centerX: DASHBOARD.width / 2, centerY: DASHBOARD.height / 2 },
+  liveCard: {
+    zoom: 1920 / ((LIVE_CARD.width + 160) * PANE_FIT_SCALE),
+    centerX: PANE.x + PANE.width / 2 + (LIVE_CARD.x + LIVE_CARD.width / 2 - 960) * PANE_FIT_SCALE,
+    centerY: PANE.bodyY + PANE.bodyHeight / 2 + (LIVE_CARD.y + LIVE_CARD.height / 2 - 540) * PANE_FIT_SCALE,
+  },
 };
 const CAMERA_MOVES = [
   { start: 0.95, end: 1.8, to: CAMERA_SHOTS.wallClose },
@@ -770,7 +1134,10 @@ const CAMERA_MOVES = [
   { start: TIMELINE.paneZoomOut, end: TIMELINE.paneZoomOutEnd, to: CAMERA_SHOTS.overview },
   { start: TIMELINE.paneZoomIn2, end: TIMELINE.paneZoomIn2End, to: CAMERA_SHOTS.pane },
   { start: TIMELINE.splitStart, end: TIMELINE.splitEnd, to: CAMERA_SHOTS.split },
-  { start: TIMELINE.pullStart, end: TIMELINE.pullEnd, to: CAMERA_SHOTS.overview },
+  { start: TIMELINE.liveTypeShot, end: TIMELINE.liveTypeShotEnd, to: CAMERA_SHOTS.overview },
+  { start: TIMELINE.liveZoomIn, end: TIMELINE.liveZoomInEnd, to: CAMERA_SHOTS.liveCard },
+  { start: TIMELINE.liveZoomOut, end: TIMELINE.liveZoomOutEnd, to: CAMERA_SHOTS.overview },
+  { start: TIMELINE.pullStart, end: TIMELINE.pullEnd, to: CAMERA_SHOTS.away },
 ];
 function mixShots(from, to, amount) {
   return { zoom: Math.exp(lerp(Math.log(from.zoom), Math.log(to.zoom), amount)), centerX: lerp(from.centerX, to.centerX, amount), centerY: lerp(from.centerY, to.centerY, amount) };
@@ -818,7 +1185,7 @@ function paneSceneScaleAt(time) {
 function boardOpenAt(time) {
   return easeOutExpo(progressBetween(time, TIMELINE.boardOpen, 0.9));
 }
-const AGENT_WORKING_WINDOWS = [[TIMELINE.streamStart, TIMELINE.drewLine], [TIMELINE.agentFix, TIMELINE.replyLine], [TIMELINE.planPromptEnd, TIMELINE.planLandedLine]];
+const AGENT_WORKING_WINDOWS = [[TIMELINE.streamStart, TIMELINE.drewLine], [TIMELINE.agentFix, TIMELINE.replyLine], [TIMELINE.planPromptEnd, TIMELINE.planLandedLine], [TIMELINE.livePromptEnd, TIMELINE.liveReply], [TIMELINE.fillPromptEnd, TIMELINE.fillReply]];
 function sessionStatusColor(time) {
   if (AGENT_WORKING_WINDOWS.some(([start, end]) => time >= start && time < end)) return COLOR.running;
   return time >= TIMELINE.streamStart ? COLOR.complete : COLOR.idle;
@@ -860,7 +1227,7 @@ function drawTopBar() {
   const parts = [
     `<rect x="0" y="0" width="${DASHBOARD.width}" height="${TOPBAR_HEIGHT}" fill="${COLOR.chrome}"/>`,
     `<path d="M0 ${TOPBAR_HEIGHT}h${DASHBOARD.width}" stroke="${COLOR.divider}" stroke-width="1"/>`,
-    `<path d="M38 18L47 27L38 36L29 27Z" fill="none" stroke="${COLOR.textHead}" stroke-width="2"/><path d="M38 24L41 27L38 30L35 27Z" fill="none" stroke="${COLOR.textHead}" stroke-width="1.6"/>`,
+    `<g transform="translate(30 17.5) scale(${19 / 108}) translate(4 4)"><path d="${BRAND_BRACKETS.map(({ d }) => d).join("")}" fill="none" stroke="${COLOR.textHead}" stroke-width="11" stroke-linejoin="miter" stroke-linecap="butt"/><path d="${BRAND_LIGHT}" fill="${COLOR.accent}"/></g>`,
     textElement(59, 34, "GLIMMERVOID", { size: 19, weight: 700, fill: COLOR.textHead, spacing: 1.9 }),
     `<rect x="242" y="10" width="435" height="34" rx="7" fill="${COLOR.tabGroup}" stroke="${COLOR.borderDim}" stroke-width="1"/>`,
   ];
@@ -921,11 +1288,32 @@ function drawSelectedSession(y, time) {
     (boardRow > 0 ? `<g opacity="${boardRow}">${drawBoardGlyph(51, y + 52, COLOR.text)}${textElement(67, y + 63, "Settings screen", { size: UI_TEXT, fill: COLOR.textHead })}</g>` : "");
 }
 
+const ATTENTION_BANNER = { x: 8, y: 62, width: 303, height: 48 };
+function drawKeycap(x, y, width, label) {
+  return `<rect x="${x - 1}" y="${y + 3}" width="${width + 2}" height="22" rx="4" fill="${COLOR.doneGlyph}"/>` +
+    `<rect x="${x}" y="${y}" width="${width}" height="21" rx="4" fill="${COLOR.doneRow}" stroke="${COLOR.doneGlyph}" stroke-width="1"/>` +
+    textElement(x + width / 2, y + 15, label, { size: 11, fill: COLOR.textHead, anchor: "middle" });
+}
+function drawAttentionBanner() {
+  const { x, y, width, height } = ATTENTION_BANNER;
+  const middleY = y + height / 2;
+  const headTile = `<rect x="${x + 12}" y="${middleY - 16}" width="32" height="32" rx="4" fill="${COLOR.doneGlyph}"/>` + drawCheckGlyph(x + 28, middleY, COLOR.chrome);
+  const tiles = [0, 1].map((index) => {
+    const left = x + 48 + index * 30;
+    return `<rect x="${left}" y="${middleY - 13}" width="26" height="26" rx="4" fill="${COLOR.doneGlyph}" fill-opacity="0.14" stroke="${COLOR.doneGlyph}" stroke-opacity="0.45"/>` + drawCheckGlyph(left + 13, middleY);
+  }).join("");
+  const keyTop = middleY - 13;
+  return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="4" fill="${COLOR.header}" stroke="${COLOR.doneGlyph}" stroke-width="1"/>` +
+    `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="4" fill="${COLOR.doneGlyph}" fill-opacity="0.08"/>` +
+    headTile + tiles + drawKeycap(x + width - 88, keyTop, 38, "Alt") +
+    textElement(x + width - 44, keyTop + 15, "+", { size: 11, fill: COLOR.textMuted, anchor: "middle" }) + drawKeycap(x + width - 36, keyTop, 24, "J");
+}
 function drawSidebar(time) {
   const shift = boardOpenAt(time) * 24;
   return `<rect x="0" y="${TOPBAR_HEIGHT}" width="${SIDEBAR_WIDTH}" height="${STATUS_BAR.y - TOPBAR_HEIGHT}" fill="${COLOR.chrome}"/>` +
     `<rect x="${SIDEBAR_WIDTH - 1}" y="${TOPBAR_HEIGHT}" width="1" height="${STATUS_BAR.y - TOPBAR_HEIGHT}" fill="${COLOR.divider}"/>` +
-    `<g transform="translate(0 -52)">` +
+    drawAttentionBanner() +
+    `<g transform="translate(0 -4)">` +
     drawGroupHeader(151, "API", 2) +
     drawSessionRow(165, { name: "soak-test", detail: "Start the load soak with the new pool", status: "watching", elapsed: "0:21" }) +
     drawSessionRow(237, { name: "bump-node-22", detail: "Bump this service from Node 20 to 22", status: "done", badge: "2" }) +
@@ -943,29 +1331,56 @@ function drawMascot(x, y) {
   return cells.map((row, rowIndex) => [...row].map((cell, columnIndex) => (cell === "1" ? `<rect x="${x + columnIndex * 7}" y="${y + rowIndex * 9}" width="7" height="9" fill="${COLOR.mascot}"/>` : "")).join("")).join("");
 }
 
-const PLAN_TOOL_CALLS = PLAN_STEPS.map((step, stepIndex) => [
-  ...(stepIndex > 0 ? [{ text: PLAN_STEPS[stepIndex - 1].name }, { text: " landed", fill: COLOR.running }, { text: ", " }] : []),
-  { text: step.name }, { text: " building", fill: COLOR.waiting },
-])
-  .concat([[{ text: PLAN_STEPS[PLAN_STEPS.length - 1].name }, { text: " landed", fill: COLOR.running }]])
-  .map((runs) => [{ text: "whiteboard ", fill: COLOR.textMuted }, { text: "put  " }, ...runs]);
-const toolCall = (detail) => [{ text: "whiteboard ", fill: COLOR.textMuted }, { text: detail }];
+const stepRuns = (stepIndex, status) => [{ text: PLAN_STEPS[stepIndex].name }, { text: ` ${status}`, fill: status === "landed" ? COLOR.running : COLOR.waiting }];
+const PLAN_TOOL_CALLS = [
+  { start: TIMELINE.building[0], steps: [[0, "building"]] },
+  { start: TIMELINE.landed[0], steps: [[0, "landed"], [1, "building"]] },
+  { start: TIMELINE.building[2], steps: [[2, "building"]] },
+  { start: TIMELINE.landed[1], steps: [[1, "landed"]] },
+  { start: TIMELINE.landed[2], steps: [[2, "landed"], [3, "building"]] },
+  { start: TIMELINE.landed[3], steps: [[3, "landed"]] },
+].map(({ start, steps }) => ({
+  kind: "tool", action: "put", start,
+  runs: steps.flatMap(([stepIndex, status], index) => [...(index > 0 ? [{ text: ", " }] : []), ...stepRuns(stepIndex, status)]),
+}));
+const toolCall = (action, detail, start) => ({ kind: "tool", action, runs: [{ text: detail }], start });
 const TERMINAL_ROW = TERMINAL_TEXT.lineHeight + 2;
-const TERMINAL_HISTORY = [
-  { kind: "prompt", text: OPERATOR_PROMPT, start: TIMELINE.promptStart, end: TIMELINE.promptEnd, y: TERMINAL_TEXT.firstBlockY },
-  { kind: "tool", runs: toolCall("put  Settings screen: 4 rows and Save"), start: TIMELINE.settingsToolCall, y: TERMINAL_TEXT.firstBlockY + 34 },
-  { kind: "agent", lines: ["Drew Settings on the board."], start: TIMELINE.drewLine, y: TERMINAL_TEXT.firstBlockY + 34 + TERMINAL_ROW + 8 },
-  { kind: "status", text: "* Worked for 5s, done 2:48 PM", start: TIMELINE.drewLine + 0.3, y: TERMINAL_TEXT.firstBlockY + 92 },
-  { kind: "prompt", text: "fix what I marked", start: TIMELINE.fixPromptStart, end: TIMELINE.fixPromptEnd, y: TERMINAL_TEXT.firstBlockY + 126 },
-  { kind: "tool", runs: toolCall("get  your circle and note"), start: TIMELINE.agentFix, y: TERMINAL_TEXT.firstBlockY + 160 },
-  { kind: "tool", runs: toolCall("put  Save moved under the rows"), start: TIMELINE.saveMove - 0.05, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW },
-  { kind: "tool", runs: toolCall("put  your ink cleared"), start: TIMELINE.inkClear - 0.05, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW * 2 },
-  { kind: "agent", lines: ["Moved Save up under the rows."], start: TIMELINE.replyLine, y: TERMINAL_TEXT.firstBlockY + 160 + TERMINAL_ROW * 3 + 8 },
-  { kind: "prompt", text: "plan the backend", start: TIMELINE.planPromptStart, end: TIMELINE.planPromptEnd, y: TERMINAL_TEXT.firstBlockY + 256 },
-  { kind: "agent", lines: ["Drew the plan on the board."], start: TIMELINE.planIn, y: TERMINAL_TEXT.firstBlockY + 290 },
-  ...PLAN_TOOL_CALLS.map((runs, callIndex) => ({ kind: "tool", runs, start: callIndex === 0 ? TIMELINE.building[0] : TIMELINE.landed[callIndex - 1], y: TERMINAL_TEXT.firstBlockY + 316 + callIndex * TERMINAL_ROW })),
-  { kind: "agent", lines: ["All 4 plan steps landed."], start: TIMELINE.planLandedLine, y: TERMINAL_TEXT.firstBlockY + 316 + PLAN_TOOL_CALLS.length * TERMINAL_ROW + 16 },
+const TERMINAL_BLOCK_GAP = 12;
+const TERMINAL_HISTORY_ENTRIES = [
+  { kind: "prompt", text: OPERATOR_PROMPT, start: TIMELINE.promptStart, end: TIMELINE.promptEnd },
+  toolCall("put", "Settings screen: 4 rows and Save", TIMELINE.settingsToolCall),
+  { kind: "agent", lines: ["Drew Settings on the board."], start: TIMELINE.drewLine },
+  { kind: "status", text: "* Worked for 5s \u00b7 done 2:48 PM", start: TIMELINE.drewLine + 0.3 },
+  { kind: "prompt", text: "fix what I marked", start: TIMELINE.fixPromptStart, end: TIMELINE.fixPromptEnd },
+  toolCall("get", "your circle and note", TIMELINE.agentFix),
+  toolCall("put", "your Alerts row straightened", TIMELINE.rowSnap - 0.05),
+  toolCall("put", "Save moved under the rows", TIMELINE.saveMove - 0.05),
+  toolCall("put", "your ink cleared", TIMELINE.inkClear - 0.05),
+  { kind: "agent", lines: ["Straightened Alerts, moved Save up."], start: TIMELINE.replyLine },
+  { kind: "prompt", text: "plan the backend", start: TIMELINE.planPromptStart, end: TIMELINE.planPromptEnd },
+  { kind: "agent", lines: ["Drew the plan on the board."], start: TIMELINE.planIn },
+  ...PLAN_TOOL_CALLS,
+  { kind: "agent", lines: ["All 4 plan steps landed."], start: TIMELINE.planLandedLine },
+  { kind: "prompt", text: "chart the live api traffic", start: TIMELINE.livePromptStart, end: TIMELINE.livePromptEnd },
+  toolCall("attach", "live-traffic.html", TIMELINE.liveAttach),
+  toolCall("put", "Live traffic card, wired to API", TIMELINE.livePut - 0.05),
+  { kind: "agent", lines: ["The card plays live traffic on the board."], start: TIMELINE.liveReply },
+  { kind: "prompt", text: "let's take over the world, show me", start: TIMELINE.fillPromptStart, end: TIMELINE.fillPromptEnd },
+  toolCall("put", `${WIDGET_SLOTS.length} widgets: KPIs, deploys, logs, regions`, TIMELINE.fillPut),
+  { kind: "agent", lines: [`Started with the board: ${WIDGET_SLOTS.length} live widgets.`], start: TIMELINE.fillReply },
 ];
+const terminalRowsOf = (entry) => ({ prompt: 1, tool: 2, status: 1, agent: entry.lines?.length ?? 1 })[entry.kind];
+const TERMINAL_HISTORY = TERMINAL_HISTORY_ENTRIES.reduce((laidOut, entry) => {
+  const previous = laidOut[laidOut.length - 1];
+  const y = previous ? previous.bottom + TERMINAL_BLOCK_GAP + TERMINAL_TEXT.lineHeight : TERMINAL_TEXT.firstBlockY;
+  const bottom = y + (terminalRowsOf(entry) - 1) * TERMINAL_ROW;
+  const shownAt = entry.kind === "prompt" ? entry.end + 0.15 : entry.start;
+  return [...laidOut, { ...entry, y, bottom, shownAt }];
+}, []);
+const TERMINAL_VISIBLE_BOTTOM = TERMINAL_TEXT.inputY - 62;
+function terminalScrollAt(time) {
+  return TERMINAL_HISTORY.reduce((scroll, entry) => Math.max(scroll, Math.max(0, entry.bottom - TERMINAL_VISIBLE_BOTTOM) * easeInOutCubic(progressBetween(time, entry.shownAt - 0.05, 0.3))), 0);
+}
 const SUBMIT_DELAY_SECONDS = 0.15;
 function drawTerminalEntry(entry, time, width) {
   const left = TERMINAL_TEXT.left;
@@ -977,11 +1392,21 @@ function drawTerminalEntry(entry, time, width) {
   const appear = easeOutExpo(progressBetween(time, entry.start, 0.4));
   if (appear <= 0) return "";
   if (entry.kind === "status") return textElement(TERMINAL.x + 8, entry.y, entry.text, { size: UI_TEXT, fill: COLOR.textMuted, opacity: appear });
-  if (entry.kind === "tool") return `<g opacity="${appear}"><circle cx="${TERMINAL.x + 12}" cy="${entry.y - 4}" r="3.5" fill="${COLOR.running}"/>` + drawTextRuns(left, entry.y, entry.runs) + "</g>";
+  if (entry.kind === "tool") return drawToolCallEntry(entry, appear);
   return `<g opacity="${appear}"><circle cx="${TERMINAL.x + 12}" cy="${entry.y - 4}" r="3.5" fill="${COLOR.textHead}"/>` +
     entry.lines.map((line, lineIndex) => textElement(left, entry.y + lineIndex * TERMINAL_TEXT.lineHeight, line, { size: UI_TEXT, fill: COLOR.textHead })).join("") + "</g>";
 }
 
+const MCP_TOOL_TITLE = "glimmervoid - whiteboard (MCP)";
+function drawToolCallEntry(entry, appear) {
+  const left = TERMINAL_TEXT.left;
+  const resultY = entry.y + TERMINAL_ROW;
+  return `<g opacity="${appear}"><circle cx="${TERMINAL.x + 12}" cy="${entry.y - 4}" r="3.5" fill="${COLOR.running}"/>` +
+    textElement(left, entry.y, MCP_TOOL_TITLE, { size: UI_TEXT, weight: 700, fill: COLOR.textHead }) +
+    textElement(left + MCP_TOOL_TITLE.length * UI_ADVANCE, entry.y, `(action: "${entry.action}")`, { size: UI_TEXT, fill: COLOR.text }) +
+    textElement(left + 2 * UI_ADVANCE, resultY, "\u23bf", { size: UI_TEXT, fill: COLOR.textMuted }) +
+    `<g opacity="0.9">${drawTextRuns(left + 5 * UI_ADVANCE, resultY, entry.runs.map((run) => ({ fill: COLOR.textMuted, ...run })))}</g></g>`;
+}
 function drawTextRuns(x, y, runs) {
   let column = 0;
   return runs.map(({ text, fill = COLOR.textHead }) => {
@@ -991,11 +1416,11 @@ function drawTextRuns(x, y, runs) {
   }).join("");
 }
 function drawPlanWorkingLine(time) {
-  const stepIndex = TIMELINE.building.findIndex((start, index) => time >= start && time < TIMELINE.landed[index]);
-  if (stepIndex < 0) return "";
+  const buildingNames = PLAN_STEPS.filter((_, index) => time >= TIMELINE.building[index] && time < TIMELINE.landed[index]).map((step) => step.name);
+  if (buildingNames.length === 0) return "";
   const elapsed = Math.floor(time - TIMELINE.building[0]) + 1;
   const pulse = 0.55 + 0.45 * Math.cos(time * Math.PI * 2.5);
-  return textElement(TERMINAL.x + 8, TERMINAL_TEXT.inputY - 38, "*", { size: UI_TEXT, weight: 700, fill: COLOR.waiting, opacity: pulse }) + textElement(TERMINAL.x + 8 + 2 * UI_ADVANCE, TERMINAL_TEXT.inputY - 38, `Building ${PLAN_STEPS[stepIndex].name} (${elapsed}s)`, { size: UI_TEXT, fill: COLOR.waiting });
+  return textElement(TERMINAL.x + 8, TERMINAL_TEXT.inputY - 38, "*", { size: UI_TEXT, weight: 700, fill: COLOR.waiting, opacity: pulse }) + textElement(TERMINAL.x + 8 + 2 * UI_ADVANCE, TERMINAL_TEXT.inputY - 38, `Building ${buildingNames.join(", ")} (${elapsed}s \u00b7 esc to interrupt)`, { size: UI_TEXT, fill: COLOR.waiting });
 }
 
 function inputTextAt(time) {
@@ -1027,11 +1452,12 @@ function drawTerminal(time) {
     textElement(TERMINAL.x + 37, TERMINAL.y + 25, headerTitle, { size: UI_TEXT, fill: COLOR.textHead }) +
     `<path d="M${TERMINAL.x + width - 58} ${TERMINAL.y + 15}v8M${TERMINAL.x + width - 62} ${TERMINAL.y + 19}h8M${TERMINAL.x + width - 62} ${TERMINAL.y + 27}h8" stroke="${COLOR.text}" stroke-width="1.5" stroke-linecap="round"/>` +
     drawMenuGlyph(TERMINAL.x + width - 24, TERMINAL.y + 21) +
+    `<g clip-path="url(#terminal-clip)"><g transform="translate(0 ${(-terminalScrollAt(time)).toFixed(1)})">` +
     drawMascot(TERMINAL.x + 10, TERMINAL.y + HEADER_HEIGHT + 20) +
     textElement(TERMINAL.x + 95, TERMINAL.y + HEADER_HEIGHT + 34, "Claude Code", { size: UI_TEXT, weight: 700, fill: COLOR.textHead }) +
     textElement(TERMINAL.x + 95 + 12 * UI_ADVANCE, TERMINAL.y + HEADER_HEIGHT + 34, "v2.1.319", { size: UI_TEXT, fill: COLOR.textMuted }) +
     textElement(TERMINAL.x + 95, TERMINAL.y + HEADER_HEIGHT + 50, "Haiku 5.5 with low effort", { size: UI_TEXT, fill: COLOR.textMuted }) +
-    TERMINAL_HISTORY.map((entry) => drawTerminalEntry(entry, time, width)).join("") + drawPlanWorkingLine(time) +
+    TERMINAL_HISTORY.map((entry) => drawTerminalEntry(entry, time, width)).join("") + "</g></g>" + drawPlanWorkingLine(time) +
     drawTerminalInput(time, width);
 }
 
@@ -1070,12 +1496,13 @@ function drawBoardPane(time) {
   const scene = time < TIMELINE.diveEnd ? drawBoardStage(time) : drawCityStage(time);
   const sceneScale = paneSceneScaleAt(time);
   const sceneOrigin = paneSceneOriginAt(sceneScale);
-  const boardCaption = time < TIMELINE.diveEnd ? "The settings screen, first pass" : time < TIMELINE.boardOutStart ? "How the backend gets built" : "Settings screen, backend and plan";
+  const boardCaption = time < TIMELINE.diveEnd ? "The settings screen, first pass" : time < TIMELINE.livePut ? "How the backend gets built" : time < TIMELINE.boardOutStart ? "Plan and live api traffic" : "Settings screen, backend and plan";
   return `<g transform="translate(${(1 - open) * (PANE.width + 2)} 0)">` +
     `<rect x="${PANE.x - 2}" y="${PANE.y}" width="2" height="${STATUS_BAR.y - PANE.y}" fill="${COLOR.divider}"/>` +
     `<g clip-path="url(#pane-clip)"><rect x="${PANE.x}" y="${PANE.bodyY}" width="${PANE.width}" height="${PANE.bodyHeight}" fill="${COLOR.bg}"/>` +
     `<g transform="translate(${sceneOrigin.x} ${sceneOrigin.y}) scale(${sceneScale})">${scene}</g></g>` +
     drawBoardToolbar(PANE.x + 13, PANE.bodyY + 11, selectedBoardToolAt(time)) +
+    `<rect x="${PANE.x + 56}" y="${STATUS_BAR.y - 50}" width="${boardCaption.length * UI_ADVANCE + 20}" height="26" rx="4" fill="${COLOR.bg}" opacity="${progressBetween(time, TIMELINE.widgetsStart, 0.4)}"/>` +
     textElement(PANE.x + 66, STATUS_BAR.y - 32, boardCaption, { size: UI_TEXT, fill: COLOR.text }) +
     `<rect x="${PANE.x}" y="${PANE.y}" width="${PANE.width}" height="${HEADER_HEIGHT}" fill="${COLOR.paneHeader}"/>` +
     textElement(PANE.x + 12, PANE.y + 25, "Settings screen", { size: UI_TEXT, fill: COLOR.textHead }) +
@@ -1118,7 +1545,7 @@ function drawEndCard(time) {
 }
 
 const stage = document.getElementById("stage");
-const STAGE_DEFS = `<defs>${GLYPH_DEFS}<pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse"><circle cx="15" cy="15" r="1.8" fill="${COLOR.borderHover}"/></pattern>` +
+const STAGE_DEFS = `<defs>${GLYPH_DEFS}<linearGradient id="traffic-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${COLOR.accent}" stop-opacity="0.28"/><stop offset="1" stop-color="${COLOR.accent}" stop-opacity="0"/></linearGradient><pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse"><circle cx="15" cy="15" r="1.8" fill="${COLOR.borderHover}"/></pattern>` +
   `<clipPath id="pane-clip"><rect x="${PANE.x}" y="${PANE.bodyY}" width="${PANE.width}" height="${PANE.bodyHeight}"/></clipPath>` +
   `<clipPath id="terminal-clip"><rect x="${TERMINAL.x}" y="${TERMINAL.y + HEADER_HEIGHT}" width="${TERMINAL.openWidth}" height="${TERMINAL.height - HEADER_HEIGHT}"/></clipPath></defs>`;
 
