@@ -1,109 +1,86 @@
 import type { FocusLayout, Pane } from '#shared/contracts/focus-layout.ts';
+import { panesOf } from '#shared/contracts/focus-layout.ts';
 import { el } from '../dom-helpers.ts';
 import { getFocusLayout, setFocusLayout } from '../ui-prefs.ts';
-import { dropZoneAt, moveBoard, resizeSplit } from './pane-layout-core.ts';
+import { movePane, resizeSplit, resizeVisiblePair, visibleLayout } from './pane-layout-core.ts';
+import type { VisibleNode, VisibleSplit } from './pane-layout-core.ts';
+import { createPaneWindow } from './pane-window.ts';
+import type { PaneWindow } from './pane-window.ts';
 
-const PANES: readonly Pane[] = ['terminal', 'board'];
 const DIVIDER_KEY_STEP = 0.05;
-const BOARD_DRAG_MIME = 'application/x-glimmervoid-board-pane';
 
-interface HeaderHost {
-  parent: HTMLElement;
-  before: Element | null;
-}
-
-interface PaneParts {
-  section: HTMLElement;
-  header: HTMLElement;
-  body: HTMLElement;
+interface RenderedSplit {
+  container: HTMLElement;
+  dividers: HTMLElement[];
+  split: VisibleSplit;
 }
 
 export interface PaneLayout {
   element: HTMLElement;
-  trailSlot: HTMLElement;
-  bodyOf: (pane: Pane) => HTMLElement;
-  boardTitleSlot: HTMLElement;
-  setHeaderHost: (pane: Pane, host: HeaderHost | null) => void;
+  windowOf: (pane: Pane) => PaneWindow;
   showPanes: (shownPanes: ReadonlySet<Pane>) => void;
-  onBoardDrag: (listener: (isDragging: boolean) => void) => void;
+  onPaneDrag: (listener: (draggedPane: Pane | null) => void) => void;
+  draggedPane: () => Pane | null;
+  acceptOutsideDrops: (source: OutsidePaneDrop) => void;
+  panesInOrder: () => Pane[];
 }
 
-const UNEDITABLE_DRAG_TARGETS = 'input, textarea, select, button, [contenteditable="true"]';
+interface OutsidePaneDrop {
+  paneOfDrag: (event: DragEvent) => Pane | null;
+  onDrop: (pane: Pane, event: DragEvent) => void;
+}
+
+function structureKeyOf(node: VisibleNode | null): string {
+  if (node === null) return '';
+  if (typeof node === 'string') return node;
+  return `${node.direction}(${node.children.map(structureKeyOf).join(',')})`;
+}
 
 export function createPaneLayout(): PaneLayout {
   let layout: FocusLayout = getFocusLayout();
   let shownPanes: ReadonlySet<Pane> = new Set<Pane>(['terminal']);
-  let isBoardDragging = false;
-  const boardDragListeners: ((isDragging: boolean) => void)[] = [];
+  let draggedPane: Pane | null = null;
+  let renderedStructureKey: string | null = null;
+  let renderedSplits: RenderedSplit[] = [];
+  const paneDragListeners: ((draggedPane: Pane | null) => void)[] = [];
+  let outsideDrop: OutsidePaneDrop | null = null;
 
   const element = el('div', 'pane-layout');
-  const trailSlot = el('div', 'pane-trail');
-  const divider = el('div', 'pane-divider');
-  divider.setAttribute('role', 'separator');
-  divider.setAttribute('aria-label', 'Resize panes');
-  divider.tabIndex = 0;
+  const windowByPane = new Map<Pane, PaneWindow>();
+  const windowOf = (pane: Pane): PaneWindow => {
+    const existing = windowByPane.get(pane);
+    if (existing) return existing;
+    const created = createPaneWindow(pane, {
+      onDragStart: (startedPane) => setDraggedPane(startedPane),
+      onDragEnd: () => setDraggedPane(null),
+      canAcceptDrop: (targetPane, event) => {
+        const incomingPane = paneOfDrag(event);
+        return incomingPane !== null && incomingPane !== targetPane;
+      },
+      onDrop: (targetPane, zone, event) => {
+        const movedPane = paneOfDrag(event);
+        const isOutsideDrop = draggedPane === null;
+        setDraggedPane(null);
+        if (!movedPane) return;
+        if (isOutsideDrop) outsideDrop?.onDrop(movedPane, event);
+        commit(movePane(layout, movedPane, targetPane, zone));
+      },
+    });
+    windowByPane.set(pane, created);
+    return created;
+  };
 
-  const partsByPane: Record<Pane, PaneParts> = { terminal: buildPane('terminal'), board: buildPane('board') };
-  const boardTitleSlot = el('div', 'pane-title');
-  const headerHostByPane = new Map<Pane, HeaderHost>();
-  partsByPane.board.header.append(boardTitleSlot);
-  partsByPane.terminal.header.append(trailSlot);
-  wireBoardHeaderDrag(partsByPane.board.header);
-  wireTerminalDropZones(partsByPane.terminal.section);
-
-  function buildPane(pane: Pane): PaneParts {
-    const section = el('section', 'pane-group');
-    section.dataset.pane = pane;
-    const header = el('div', 'pane-strip pane-header');
-    const body = el('div', 'pane-body');
-    body.id = `focus-pane-${pane}`;
-    section.append(header, body);
-    return { section, header, body };
+  function paneOfDrag(event: DragEvent): Pane | null {
+    if (draggedPane !== null) return draggedPane;
+    return outsideDrop?.paneOfDrag(event) ?? null;
   }
 
-  function setBoardDragging(isDragging: boolean) {
-    if (isBoardDragging === isDragging) return;
-    isBoardDragging = isDragging;
-    element.toggleAttribute('data-dragging', isDragging);
-    if (!isDragging) delete partsByPane.terminal.section.dataset.dropZone;
-    for (const listener of boardDragListeners) listener(isDragging);
-  }
-
-  function wireBoardHeaderDrag(header: HTMLElement) {
-    header.draggable = true;
-    header.addEventListener('dragstart', (event) => {
-      if (event.target instanceof Element && event.target.closest(UNEDITABLE_DRAG_TARGETS)) {
-        event.preventDefault();
-        return;
-      }
-      event.dataTransfer?.setData(BOARD_DRAG_MIME, 'board');
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-      setBoardDragging(true);
-    });
-    header.addEventListener('dragend', () => setBoardDragging(false));
-  }
-
-  function wireTerminalDropZones(section: HTMLElement) {
-    const zoneOf = (event: DragEvent) => {
-      const rect = section.getBoundingClientRect();
-      return dropZoneAt(event.clientX - rect.left, event.clientY - rect.top, rect);
-    };
-    section.addEventListener('dragover', (event) => {
-      if (!isBoardDragging) return;
-      event.preventDefault();
-      section.dataset.dropZone = zoneOf(event);
-    });
-    section.addEventListener('dragleave', (event) => {
-      if (event.relatedTarget instanceof Node && section.contains(event.relatedTarget)) return;
-      delete section.dataset.dropZone;
-    });
-    section.addEventListener('drop', (event) => {
-      if (!isBoardDragging) return;
-      event.preventDefault();
-      const zone = zoneOf(event);
-      setBoardDragging(false);
-      commit(moveBoard(layout, zone));
-    });
+  function setDraggedPane(pane: Pane | null) {
+    if (draggedPane === pane) return;
+    draggedPane = pane;
+    element.toggleAttribute('data-dragging', pane !== null);
+    if (pane === null) for (const paneWindow of windowByPane.values()) paneWindow.clearDropZone();
+    for (const listener of paneDragListeners) listener(pane);
   }
 
   function commit(next: FocusLayout) {
@@ -118,81 +95,114 @@ export function createPaneLayout(): PaneLayout {
     if (!isUnchanged) parent.replaceChildren(...children);
   }
 
-  function placeHeader(pane: Pane) {
-    const { section, header } = partsByPane[pane];
-    const host = headerHostByPane.get(pane);
-    if (!host) {
-      if (section.firstElementChild !== header) section.prepend(header);
-      return;
-    }
-    const isPlaced = header.parentElement === host.parent && (host.before === null || header.nextElementSibling === host.before);
-    if (!isPlaced) host.parent.insertBefore(header, host.before);
+  function buildDivider(rendered: RenderedSplit, dividerIndex: number): HTMLElement {
+    const divider = el('div', 'pane-divider');
+    divider.setAttribute('role', 'separator');
+    divider.setAttribute('aria-label', 'Resize panes');
+    divider.tabIndex = 0;
+    const resizeTo = (shares: number[]) => {
+      layout = resizeSplit(layout, rendered.split, shares);
+      render();
+    };
+    divider.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      divider.setPointerCapture(event.pointerId);
+      divider.dataset.dragging = 'true';
+      event.preventDefault();
+    });
+    divider.addEventListener('pointermove', (event) => {
+      if (!divider.hasPointerCapture(event.pointerId)) return;
+      const rect = rendered.container.getBoundingClientRect();
+      const isRow = rendered.split.direction === 'row';
+      const positionFraction = isRow ? (event.clientX - rect.left) / rect.width : (event.clientY - rect.top) / rect.height;
+      resizeTo(resizeVisiblePair(rendered.split.shares, dividerIndex, positionFraction));
+    });
+    const finishResize = (event: PointerEvent) => {
+      if (!divider.hasPointerCapture(event.pointerId)) return;
+      divider.releasePointerCapture(event.pointerId);
+      delete divider.dataset.dragging;
+      setFocusLayout(layout);
+    };
+    divider.addEventListener('pointerup', finishResize);
+    divider.addEventListener('pointercancel', finishResize);
+    divider.addEventListener('keydown', (event) => {
+      const stepByKey: Record<string, number> = { ArrowLeft: -DIVIDER_KEY_STEP, ArrowUp: -DIVIDER_KEY_STEP, ArrowRight: DIVIDER_KEY_STEP, ArrowDown: DIVIDER_KEY_STEP };
+      const step = stepByKey[event.key];
+      if (step === undefined) return;
+      event.preventDefault();
+      const shares = rendered.split.shares;
+      const start = shares.slice(0, dividerIndex).reduce((sum, share) => sum + share, 0);
+      layout = resizeSplit(layout, rendered.split, resizeVisiblePair(shares, dividerIndex, start + (shares[dividerIndex] ?? 0) + step));
+      setFocusLayout(layout);
+      render();
+    });
+    return divider;
+  }
+
+  function buildNode(node: VisibleNode): HTMLElement {
+    if (typeof node === 'string') return windowOf(node).element;
+    const container = el('div', 'pane-split');
+    const rendered: RenderedSplit = { container, dividers: [], split: node };
+    renderedSplits.push(rendered);
+    const childElements = node.children.map(buildNode);
+    rendered.dividers = childElements.slice(1).map((_, index) => buildDivider(rendered, index));
+    replaceChildrenIfChanged(container, childElements.flatMap((child, index) => {
+      const divider = rendered.dividers[index - 1];
+      return divider ? [divider, child] : [child];
+    }));
+    return container;
+  }
+
+  function collectSplits(node: VisibleNode | null, splits: VisibleSplit[]): VisibleSplit[] {
+    if (node === null || typeof node === 'string') return splits;
+    splits.push(node);
+    for (const child of node.children) collectSplits(child, splits);
+    return splits;
+  }
+
+  function paintSplit(rendered: RenderedSplit) {
+    const { container, dividers, split } = rendered;
+    container.dataset.direction = split.direction;
+    split.children.forEach((child, index) => {
+      const childElement = typeof child === 'string' ? windowOf(child).element : renderedSplits.find((candidate) => candidate.split === child)?.container;
+      if (childElement) childElement.style.flex = `${split.shares[index] ?? 0} 1 0`;
+    });
+    dividers.forEach((divider, index) => {
+      divider.setAttribute('aria-orientation', split.direction === 'row' ? 'vertical' : 'horizontal');
+      divider.setAttribute('aria-valuenow', String(Math.round((split.shares[index] ?? 0) * 100)));
+    });
   }
 
   function render() {
-    const visiblePanes = [layout.first, layout.second].filter((pane) => shownPanes.has(pane));
-    const isSplit = visiblePanes.length === 2;
-    element.dataset.direction = isSplit ? layout.direction : 'single';
-    for (const pane of PANES) placeHeader(pane);
-    const [firstPane, secondPane] = visiblePanes;
-    const sections = visiblePanes.map((pane) => partsByPane[pane].section);
-    replaceChildrenIfChanged(element, isSplit ? sections.toSpliced(1, 0, divider) : sections);
-    const firstShare = isSplit ? layout.firstShare : 1;
-    if (firstPane) partsByPane[firstPane].section.style.flex = `${firstShare} 1 0`;
-    if (secondPane) partsByPane[secondPane].section.style.flex = `${1 - firstShare} 1 0`;
-    divider.setAttribute('aria-orientation', layout.direction === 'row' ? 'vertical' : 'horizontal');
-    divider.setAttribute('aria-valuenow', String(Math.round(firstShare * 100)));
+    const visible = visibleLayout(layout, shownPanes);
+    const structureKey = structureKeyOf(visible);
+    if (structureKey !== renderedStructureKey) {
+      renderedStructureKey = structureKey;
+      renderedSplits = [];
+      replaceChildrenIfChanged(element, visible === null ? [] : [buildNode(visible)]);
+    }
+    const visibleSplits = collectSplits(visible, []);
+    renderedSplits.forEach((rendered, index) => {
+      const split = visibleSplits[index];
+      if (split) rendered.split = split;
+    });
+    const rootElement = element.firstElementChild;
+    if (rootElement instanceof HTMLElement) rootElement.style.flex = '1 1 0';
+    for (const rendered of renderedSplits) paintSplit(rendered);
   }
-
-  function shareAt(event: PointerEvent): number {
-    const rect = element.getBoundingClientRect();
-    if (layout.direction === 'row') return (event.clientX - rect.left) / rect.width;
-    return (event.clientY - rect.top) / rect.height;
-  }
-
-  divider.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    divider.setPointerCapture(event.pointerId);
-    divider.dataset.dragging = 'true';
-    event.preventDefault();
-  });
-  divider.addEventListener('pointermove', (event) => {
-    if (!divider.hasPointerCapture(event.pointerId)) return;
-    layout = resizeSplit(layout, shareAt(event));
-    render();
-  });
-  const finishResize = (event: PointerEvent) => {
-    if (!divider.hasPointerCapture(event.pointerId)) return;
-    divider.releasePointerCapture(event.pointerId);
-    delete divider.dataset.dragging;
-    setFocusLayout(layout);
-  };
-  divider.addEventListener('pointerup', finishResize);
-  divider.addEventListener('pointercancel', finishResize);
-  divider.addEventListener('keydown', (event) => {
-    const stepByKey: Record<string, number> = { ArrowLeft: -DIVIDER_KEY_STEP, ArrowUp: -DIVIDER_KEY_STEP, ArrowRight: DIVIDER_KEY_STEP, ArrowDown: DIVIDER_KEY_STEP };
-    const step = stepByKey[event.key];
-    if (step === undefined) return;
-    event.preventDefault();
-    commit(resizeSplit(layout, layout.firstShare + step));
-  });
 
   render();
 
   return {
     element,
-    trailSlot,
-    bodyOf: (pane) => partsByPane[pane].body,
-    boardTitleSlot,
-    setHeaderHost: (pane, host) => {
-      if (host) headerHostByPane.set(pane, host);
-      if (!host) headerHostByPane.delete(pane);
-      render();
-    },
+    windowOf,
     showPanes: (nextShownPanes) => {
       shownPanes = nextShownPanes;
       render();
     },
-    onBoardDrag: (listener) => { boardDragListeners.push(listener); },
+    onPaneDrag: (listener) => { paneDragListeners.push(listener); },
+    draggedPane: () => draggedPane,
+    acceptOutsideDrops: (source) => { outsideDrop = source; },
+    panesInOrder: () => panesOf(layout),
   };
 }

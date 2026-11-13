@@ -7,7 +7,7 @@ const MAC_OPTION = String.fromCharCode(0x2325);
 
 type ShortcutPlatform = 'mac' | 'other';
 
-type DashboardShortcutAction =
+export type DashboardShortcutAction =
   | 'next-attention'
   | 'rail-step'
   | 'view-step'
@@ -16,6 +16,7 @@ type DashboardShortcutAction =
   | 'quick-session'
   | 'close-session'
   | 'board-split'
+  | 'pane-focus'
   | 'streamer-mode';
 
 interface ShortcutKeyEvent {
@@ -79,6 +80,7 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'quick-session', keyCaptions: ['0'], label: 'Add a session like the one you are in', stepByCode: new Map([['Digit0', 0]]), needsMacOption: true, needsShiftOffMac: true },
   { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
   { action: 'board-split', keyCaptions: ['B'], label: 'Open or close the board beside the selected session', stepByCode: new Map([['KeyB', 0]]) },
+  { action: 'pane-focus', keyCaptions: ['`'], label: 'Move focus to the next pane of the split', stepByCode: new Map([['Backquote', 0]]) },
   { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), isShellChord: true },
 ];
 

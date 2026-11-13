@@ -6,6 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { button } from '../ui/button.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
+import { queryCardPart } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
 import { buildDialogShell } from './modal.ts';
 
@@ -33,9 +34,9 @@ function sessionAccountLabelOf(ui: SessionUi, accounts: readonly AgentAccountSta
 export function paintSessionAccount(ui: SessionUi) {
   const accounts = switchableAccountsOf(ui);
   const isShown = accounts.some((account) => account.accountId !== null) || sessionAccountIdOf(ui) !== null;
-  const chip = ui.card.querySelector<HTMLElement>('.session-account');
-  const switchButton = ui.card.querySelector<HTMLElement>('.session-account-switch');
-  const menuItem = ui.card.querySelector<HTMLElement>('.overflow-switch-account');
+  const chip = queryCardPart(ui.card, '.session-account');
+  const switchButton = queryCardPart(ui.card, '.session-account-switch');
+  const menuItem = queryCardPart(ui.card, '.overflow-switch-account');
   if (chip) {
     writeTextIfChanged(chip, isShown ? sessionAccountLabelOf(ui, accounts) : '');
     writeHiddenIfChanged(chip, !isShown);

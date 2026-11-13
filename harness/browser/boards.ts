@@ -1335,8 +1335,8 @@ async function openDesktopBoard(page: Page, sessionId: string, boardTitle: strin
   return { page, panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
 }
 
-async function verifyTerminalHeaderNamesTheTask(card: Locator): Promise<void> {
-  const header = card.locator(':scope > .session-card-header');
+async function verifyTerminalHeaderNamesTheTask(terminalWindow: Locator): Promise<void> {
+  const header = terminalWindow.locator(':scope > .pane-header .session-card-header');
   const sessionNameLabel = header.locator('.session-name');
   const taskTitle = header.locator('.session-task-title');
   assert.equal(await sessionNameLabel.isVisible(), true, 'with no task title the terminal header names the session');
@@ -1357,20 +1357,21 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator(`.focus-rail .session-row[data-id="${sessionId}"] .session-row-glyph`).first().click();
   const card = page.locator(`.session-card[data-id="${sessionId}"]`).first();
   await card.waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a session with no board shows Terminal only');
+  assert.equal(await page.locator('.pane-layout .pane-group[data-pane="board"]').count(), 0, 'a session with no board shows Terminal only');
   assert.equal(await page.locator('.pane-tab').count(), 0, 'Focus shows no pane tabs');
-  await card.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await card.locator('.overflow-connect-board').click();
+  const terminalWindow = page.locator('.pane-group[data-pane="terminal"]');
+  await terminalWindow.getByRole('button', { name: 'Session actions', exact: true }).click();
+  await terminalWindow.locator('.overflow-connect-board').click();
   await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
-  assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'a board arriving for the centered session opens the stored split');
+  assert.equal(await page.locator('.pane-layout .pane-group[data-pane="board"]').count(), 1, 'a board arriving for the centered session opens the stored split');
   assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the rail shows the session and its board as one split item');
-  await verifyTerminalHeaderNamesTheTask(card);
+  await verifyTerminalHeaderNamesTheTask(terminalWindow);
   const splitRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split]`);
   assert.equal(await splitRow.locator(`.session-board-chip[aria-label="Open board ${boardTitle}"]`).count(), 0, 'the split item names its board once, with no board link line repeating it');
-  const splitBoardHalf = splitRow.locator('.session-row-split-board');
+  const splitBoardHalf = splitRow.locator('.session-row-split-member[data-member="board"]');
   const worktreePath = await pollFor('the session worktree', WORKTREE_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   await commitFile(worktreePath, UNCOVERED_FILE_NAME, 'changed outside any board ref\n', 'test: a change no board ref covers');
   assert.equal(await splitBoardHalf.locator('.pr-status-icon').count(), 1, 'the board half carries the board icon');
@@ -1450,11 +1451,32 @@ export async function verifyRailDrag(page: Page, sessionId: string, projectDirec
     const order = await railOrder();
     return order[0] === secondSessionId ? order : null;
   });
-  return 'the split board line drags its board to another session, and the session row still reorders';
+  await verifyShellJoinsSplit(page, sessionId, projectDirectory);
+  return 'the split board line drags its board to another session, the session row still reorders, and a shell row dropped on a session joins its split';
+}
+
+async function verifyShellJoinsSplit(page: Page, sessionId: string, projectDirectory: string): Promise<void> {
+  const shellName = `rail-drag-shell-${sessionId.slice(0, 8)}`;
+  const addedReply = await controlReplyOf(page, 'add-session', { name: shellName, path: projectDirectory, agent: 'shell' });
+  const shellId = AddedSessionReply.parse(addedReply).sessionId;
+  const shellRow = page.locator(`.focus-rail .session-row[data-id="${shellId}"]`).first();
+  const hostRow = page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first();
+  await shellRow.waitFor();
+  await hostRow.click();
+  await shellRow.dragTo(hostRow);
+  await hostRow.locator('[data-member="shell"]').waitFor();
+  await shellRow.waitFor({ state: 'detached' });
+  const shellWindow = page.locator('.pane-group[data-pane="shell"]');
+  await shellWindow.locator(`:scope > .pane-body > .session-card[data-id="${shellId}"]`).waitFor();
+  await shellWindow.locator(':scope > .pane-header .session-card-header').waitFor();
+  await page.locator(`.pane-group[data-pane="terminal"] > .pane-body > .session-card[data-id="${sessionId}"]`).waitFor();
+  await controlReplyOf(page, 'remove-session', { id: shellId, discardWork: true });
+  await hostRow.locator('[data-member="shell"]').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.pane-header .session-card-header').count(), 1, 'a removed shell leaves no header behind in a pane title');
 }
 
 async function splitBoardTitleOf(page: Page, sessionId: string): Promise<string | null> {
-  const splitTitle = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split] .session-row-split-board-title`);
+  const splitTitle = page.locator(`.focus-rail .session-row[data-id="${sessionId}"][data-split] .session-row-split-member[data-member="board"] .session-row-split-member-title`);
   if (await splitTitle.count() === 0) return null;
   return splitTitle.textContent();
 }
@@ -1484,7 +1506,7 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await laterRow.dragTo(sessionRow);
   await waitForSplitBoardTitle(page, sessionId, laterTitle);
   await openBoardTitle(panel, laterTitle).waitFor();
-  assert.notEqual(await page.locator('.pane-layout').getAttribute('data-direction'), 'single', 'dropping a board row on a session splits it');
+  assert.equal(await page.locator('.pane-layout .pane-group[data-pane="board"]').count(), 1, 'dropping a board row on a session splits it');
   await page.locator('.pane-group[data-pane="board"] > .pane-header').dragTo(sessionRow);
   await waitForSplitBoardTitle(page, sessionId, null);
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
@@ -1493,7 +1515,7 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await page.keyboard.press(BOARD_SPLIT_KEY);
   await pollFor('Alt B opens a connected board beside the session', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
-  await sessionRow.locator('.session-row-split-board').click();
+  await sessionRow.locator('.session-row-split-member[data-member="board"]').click();
   await page.waitForFunction((id) => document.querySelector(`.focus-rail .session-row[data-id="${id}"]`)?.getAttribute('data-active-pane') === 'board', sessionId);
   await page.keyboard.press(BOARD_SPLIT_KEY);
   await page.waitForFunction(() => document.activeElement?.closest('#focus-pane-terminal') != null);

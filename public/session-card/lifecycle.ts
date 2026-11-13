@@ -9,7 +9,7 @@ import { setHealthMonitorDebugMode } from '../health-monitor.ts';
 import { seedMergeStatus, setMergeStatus } from '../review/review-store.ts';
 import { setRunningActivity } from './activity.ts';
 import type { CardOptions } from './card-dom.ts';
-import { buildCardDOM } from './card-dom.ts';
+import { buildCardDOM, queryCardPart } from './card-dom.ts';
 import { paintTaskTitle } from './card-titles.ts';
 import { closeDebugOverlay, setDebugMode } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -160,7 +160,7 @@ export function setSessionAgent(sessionId: unknown, agent: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.agent = typeof agent === 'string' ? agent : null;
-  const agentMarkEl = ui.card.querySelector<HTMLElement>('.session-agent-mark');
+  const agentMarkEl = queryCardPart(ui.card, '.session-agent-mark');
   if (agentMarkEl) paintAgentMark(agentMarkEl, ui.agent);
   paintSessionAccount(ui);
   updateButtonVisibility(ui);

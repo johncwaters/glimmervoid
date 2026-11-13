@@ -73,6 +73,12 @@ export function setSessionQuestionManager(sessionId: unknown, isQuestionManagerO
   paintQuestionManager(ui.card, ui.sessionMenu.querySelector('.overflow-question-manager'), isQuestionManagerOn);
 }
 
+const headerByCard = new WeakMap<HTMLElement, HTMLElement>();
+
+export function queryCardPart(card: HTMLElement, selector: string): HTMLElement | null {
+  return card.querySelector<HTMLElement>(selector) ?? headerByCard.get(card)?.querySelector<HTMLElement>(selector) ?? null;
+}
+
 export function buildCardDOM(sessionId: string, sessionName: string, initialState: string, options: CardOptions = {}) {
   const state = initialState || STATES.INITIALIZING;
   const card = el('div', 'session-card');
@@ -201,6 +207,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const termWrap = el('div', 'terminal-wrap');
 
   card.append(header, termWrap);
+  headerByCard.set(card, header);
 
   return { card, header, nameEl, taskTitleEl, btnRename, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnDocs, btnDebug, sessionMenu, termWrap };
 }
@@ -247,7 +254,7 @@ function openLinkPullRequestDialog(sessionId: string) {
 }
 
 export function paintCardOwnership(card: HTMLElement, ownershipText: string | null) {
-  const ownershipEl = card.querySelector<HTMLElement>('.session-ownership');
+  const ownershipEl = queryCardPart(card, '.session-ownership');
   if (!ownershipEl) return;
   writeTextIfChanged(ownershipEl, ownershipText ?? '');
   writeHiddenIfChanged(ownershipEl, ownershipText === null);

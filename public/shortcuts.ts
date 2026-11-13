@@ -1,15 +1,19 @@
 import { el } from './dom-helpers.ts';
+import type { DashboardShortcutAction } from './shortcuts-core.ts';
 import { shortcutChord, shortcutPlatformFor } from './shortcuts-core.ts';
 import { getNextAttentionKeyCode } from './ui-prefs.ts';
 
-let boardSplitKeyClaimTest: () => boolean = () => false;
+type ClaimedKeyAction = Extract<DashboardShortcutAction, 'board-split' | 'pane-focus'>;
 
-export function setBoardSplitKeyClaimTest(claimTest: () => boolean) {
-  boardSplitKeyClaimTest = claimTest;
+const keyClaimTestByAction = new Map<ClaimedKeyAction, () => boolean>();
+
+export function setKeyClaimTest(action: ClaimedKeyAction, claimTest: () => boolean) {
+  keyClaimTestByAction.set(action, claimTest);
 }
 
-export function canClaimBoardSplitKey() {
-  return boardSplitKeyClaimTest();
+export function canClaimTerminalKey(action: DashboardShortcutAction) {
+  if (action !== 'board-split' && action !== 'pane-focus') return true;
+  return keyClaimTestByAction.get(action)?.() ?? false;
 }
 
 export const SHORTCUT_PLATFORM = shortcutPlatformFor(navigator.userAgent);

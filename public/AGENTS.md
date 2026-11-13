@@ -32,7 +32,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, `kbd` chord rendering |
 | `form-factor-core.ts` | Pure `decideLayout({ coarse, narrowWidth })` -> `'phone' \| 'desktop'`: the one predicate choosing between the two first-class layouts |
 | `form-factor.ts` | Its IO shell: evaluates the two media queries, stamps `<html data-layout>`, notifies subscribers on a live flip |
-| `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), single borrower GLOBALLY; shared by the Focus center and the phone Terminal screen |
+| `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), one borrower per slot (`terminal`, `shell`) and a card in one slot at a time; shared by the Focus center and the phone Terminal screen |
 | `session-actions.ts` | Shared session action entry points for dashboard surfaces |
 | `ui/` | Shared UI primitives, one `.ts`/`.css` pair each, CSS in the `primitives` layer. `pressable.ts` is the ONLY creator of a `<button>`; action buttons use `button()` from `button.ts`, other pressables (rows, chips, toggles) `createPressable()`, a rule the ui-primitives gate enforces |
 | `dom-helpers.ts` | `el()` DOM utility, `adoptElement()` / `releaseElement()` (move a live element and put it back), and the chrome the tab panels share: `buildPanelSection()` / `buildStatChip()` (class prefix parameterized, so the per-panel CSS is unchanged), `projectsOf()` and `isPanelHidden()` |
@@ -94,7 +94,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 ### Dashboard Layouts
 
 - Two first-class layouts, not one responsive shell. `decideLayout` needs a coarse pointer AND a narrow viewport: a narrowed desktop window keeps the three-panel IA, and a coarse-pointer tablet has room for it. All phone styling keys off `[data-layout="phone"]`.
-- Nothing is duplicated; live elements are RE-PARENTED into the phone screens and back, a second copy meaning a second state pipeline for the same facts. The card-borrow seam holds a GLOBAL single borrower, a session owning one xterm.
+- Nothing is duplicated; live elements are RE-PARENTED into the phone screens and back, a second copy meaning a second state pipeline for the same facts. The card-borrow seam holds one borrower per slot and moves a card out of the other slot, a session owning one xterm.
 - The Board and the rail share name order, the project group header (`public/focus-view/roster-group-header.ts`) and the Needs you banner (`public/attention-banner.ts`), one source each so the two cannot drift. The "needs you" RULE lives once, in `public/focus-view/attention-core.ts`.
 - Touch scroll is ours because xterm 6.0.0 has no touch path at all. The alternate buffer re-emits the drag as synthetic wheel notches so xterm's OWN listeners decide the meaning.
 - Predictive text bypasses xterm's input path on PHONE ONLY: xterm 6.0.0 mishandles autocorrect events (upstream `xtermjs/xterm.js#3600`, open). Desktop is untouched, where the same takeover would regress CJK composition.

@@ -11,7 +11,7 @@ import { noteSessionOutput } from './activity.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState } from './grid-core.ts';
 import { dataAttachPath, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
-import { uiState } from '../ui-state-core.ts';
+import { isCardBorrowed, uiState } from '../ui-state-core.ts';
 import { resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
@@ -61,7 +61,7 @@ function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLi
 const isOutputFlowingBySocket = new WeakMap<WebSocket, boolean>();
 
 function isTerminalOutputWanted(sessionId: string) {
-  return document.visibilityState === 'visible' && uiState.snapshot().borrowedCardId === sessionId;
+  return document.visibilityState === 'visible' && isCardBorrowed(sessionId);
 }
 
 function syncTerminalOutputFlow(ui: SessionUi | null | undefined, sessionId: string) {
@@ -80,7 +80,7 @@ function syncEveryTerminalOutputFlow() {
 
 document.addEventListener('visibilitychange', syncEveryTerminalOutputFlow);
 uiState.subscribe((_state, changedKeys) => {
-  if (changedKeys.includes('borrowedCardId')) syncEveryTerminalOutputFlow();
+  if (changedKeys.includes('borrowedCardId') || changedKeys.includes('borrowedShellCardId')) syncEveryTerminalOutputFlow();
 });
 
 function isStillCurrentAndDetached(sessionId: string, ui: SessionUi) {

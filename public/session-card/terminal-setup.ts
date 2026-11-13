@@ -1,7 +1,7 @@
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import type { SessionUi } from './card-registry.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { canClaimBoardSplitKey, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { canClaimTerminalKey, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { escapesFocusedTerminal, resolveDashboardShortcut } from '../shortcuts-core.ts';
 import { getTerminalTheme } from '../theme.ts';
 import type { TerminalGrid } from './grid-core.ts';
@@ -19,7 +19,7 @@ import { ensureConnectingOverlay } from './terminal-data-socket.ts';
 function isDashboardShortcutInActiveView(ev: KeyboardEvent) {
   const shortcut = resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true }, currentNextAttentionKeyCode());
   if (!shortcut) return false;
-  if (shortcut.action === 'board-split' && !canClaimBoardSplitKey()) return false;
+  if (!canClaimTerminalKey(shortcut.action)) return false;
   return escapesFocusedTerminal(shortcut, document.body.dataset.activeView);
 }
 

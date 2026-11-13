@@ -5,6 +5,7 @@ interface UiState {
   focusedSessionId: string | null;
   selectedSessionId: string | null;
   borrowedCardId: string | null;
+  borrowedShellCardId: string | null;
 }
 
 type UiStatePatch = Partial<UiState>;
@@ -17,6 +18,7 @@ const INITIAL_UI_STATE: Readonly<UiState> = Object.freeze({
   focusedSessionId: null,
   selectedSessionId: null,
   borrowedCardId: null,
+  borrowedShellCardId: null,
 });
 
 const asId = (value: string | null | undefined): string | null => value || null;
@@ -28,6 +30,7 @@ const UI_ACTIONS = Object.freeze({
   focusSession: (id: string | null): UiStatePatch => ({ focusedSessionId: asId(id) }),
   selectSession: (id: string | null): UiStatePatch => ({ selectedSessionId: asId(id) }),
   borrowCard: (id: string | null): UiStatePatch => ({ borrowedCardId: asId(id) }),
+  borrowShellCard: (id: string | null): UiStatePatch => ({ borrowedShellCardId: asId(id) }),
 });
 
 type UiActionName = keyof typeof UI_ACTIONS;
@@ -76,3 +79,8 @@ function createUiStateStore(initialState?: UiStatePatch) {
 export const uiState = createUiStateStore();
 
 export const getActiveView = () => uiState.snapshot().activeView;
+
+export function isCardBorrowed(sessionId: string): boolean {
+  const { borrowedCardId, borrowedShellCardId } = uiState.snapshot();
+  return borrowedCardId === sessionId || borrowedShellCardId === sessionId;
+}

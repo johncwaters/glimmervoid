@@ -31,6 +31,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   railFoldedProjectKeys: string[];
   focusLayout: FocusLayout;
   splitBoardBySession: SplitBoardBySession;
+  splitShellBySession: SplitBoardBySession;
   prsQueueWidth: number | null;
   reviewsLayout: ReviewsLayout;
   reviewsBoardDetailWidth: number | null;
@@ -90,6 +91,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   railFoldedProjectKeys: asStringList,
   focusLayout: parseFocusLayout,
   splitBoardBySession: parseSplitBoardBySession,
+  splitShellBySession: parseSplitBoardBySession,
   prsQueueWidth: asNullableNumber,
   reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
   reviewsBoardDetailWidth: asNullableNumber,
@@ -176,6 +178,8 @@ export const getFocusLayout = () => read('focusLayout');
 export const setFocusLayout = (layout: FocusLayout) => write('focusLayout', layout);
 export const getSplitBoardBySession = () => read('splitBoardBySession');
 export const setSplitBoardBySession = (splits: SplitBoardBySession) => write('splitBoardBySession', splits);
+export const getSplitShellBySession = () => read('splitShellBySession');
+export const setSplitShellBySession = (splits: SplitBoardBySession) => write('splitShellBySession', splits);
 
 export const getPrsQueueWidth = () => read('prsQueueWidth');
 export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px);

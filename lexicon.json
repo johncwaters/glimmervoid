@@ -628,7 +628,7 @@
     },
     {
       "name": "pane",
-      "definition": "One window in the Focus center, the terminal or the board, each with its own title bar; with a board open beside a session the two panes sit side by side or stacked"
+      "definition": "One window in the Focus center (the terminal, the board or a shell), each with the same header that drags it onto another pane's edge to rearrange the split"
     },
     {
       "name": "drop",
@@ -636,7 +636,7 @@
     },
     {
       "name": "split",
-      "definition": "A session and one board open side by side in Focus, shown as one item in the rail; each session has at most one and each board is in at most one"
+      "definition": "A session with a board, a shell, or both open beside it in Focus, shown as one item in the rail; each session has at most one board and one shell, and each board or shell is in at most one split"
     },
     {
       "name": "probe",
@@ -756,6 +756,10 @@
     {
       "name": "launcher",
       "definition": "A pack launcher: a button a pack declares under launchers (label, project, agent, optional model, effort and cron schedule, first prompt) that starts a session once the operator approves the pack; also the script or function that starts a process, such as the glimmervoid bin launcher or an agent's launch command"
+    },
+    {
+      "name": "shares",
+      "definition": "The fractions of a split's space its children take, one per child, adding up to the whole; dragging a divider between two panes moves share from one to the other"
     }
   ],
   "retired": [

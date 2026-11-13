@@ -1,25 +1,27 @@
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
-import { el } from '../dom-helpers.ts';
+import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { renderStatusLegend } from '../status-legend.ts';
 import { showFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { getRestorableSessionId, isSessionShown, quickAddSession, readSessionRows, requestSessionOpen, requestSessionRemoval, selectSession, undoPendingClose } from '../session-actions.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import type { ActivityRenderKind } from '../session-card/activity.ts';
 import { addActivityRenderer, pulseActivityGlyph } from '../session-card/activity.ts';
-import { buildNextAttentionKeys, setBoardSplitKeyClaimTest, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { buildNextAttentionKeys, setKeyClaimTest, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { railAriaKeyShortcuts } from '../shortcuts-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionIdOf, sessionUIs } from '../session-card/card-registry.ts';
+import { queryCardPart } from '../session-card/card-dom.ts';
 import { placeRowsInOrder, writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
-import { getRailFoldedProjectKeys, getRailWidth, getSplitBoardBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession } from '../ui-prefs.ts';
+import { SHELL_AGENT_ID } from '../session-card/agent-core.ts';
+import { getRailFoldedProjectKeys, getRailWidth, getSplitBoardBySession, getSplitShellBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession, setSplitShellBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from './attention-core.ts';
 import type { ProjectBoards, RosterGroup, SplitBoardBySession } from './roster-groups-core.ts';
-import { boardsByProject, closeSplit, connectionKeysOf, groupRoster, liveSplits, newestFreeBoardOf, openSplit, splitNewConnections, splitsOfBoards, visibleOrder, withBoardProjects } from './roster-groups-core.ts';
+import { boardsByProject, closeSplit, connectionKeysOf, groupRoster, liveShellSplits, liveSplits, newestFreeBoardOf, openSplit, splitNewConnections, splitsOfBoards, visibleOrder, withBoardProjects } from './roster-groups-core.ts';
 import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
 import type { SessionGroupHeader } from './roster-group-header.ts';
 import { buildSessionGroupHeader, paintSessionGroupHeader } from './roster-group-header.ts';
@@ -40,10 +42,6 @@ import { closeSessionPage, createSessionPageButtons, openSessionPage, releaseSes
 type RosterRow = SessionRow<SessionUi, string | null>;
 
 type BoardsViewModule = typeof import('../whiteboard/boards-view.ts');
-
-const TERMINAL_ONLY: ReadonlySet<Pane> = new Set<Pane>(['terminal']);
-const TERMINAL_AND_BOARD: ReadonlySet<Pane> = new Set<Pane>(['terminal', 'board']);
-const BOARD_ONLY: ReadonlySet<Pane> = new Set<Pane>(['board']);
 
 const projectPathOf = (row: RosterRow) => row.ui.path;
 
@@ -70,9 +68,10 @@ let pageButtons: ReturnType<typeof createSessionPageButtons> | null = null;
 let boardsViewLoad: Promise<BoardsViewModule> | null = null;
 let loadedBoardsView: BoardsViewModule | null = null;
 let shownBoardKey: string | null = null;
-let shownPanes: ReadonlySet<Pane> | null = null;
+let shownPanesKey: string | null = null;
 let centeredBoardId: string | null = null;
 let splitBoardBySession: SplitBoardBySession = getSplitBoardBySession();
+let splitShellBySession: SplitBoardBySession = getSplitShellBySession();
 let knownConnectionKeys: ReadonlySet<string> | null = null;
 let activePane: Pane = 'terminal';
 let unsplitSlotEl: HTMLElement | null = null;
@@ -179,7 +178,7 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
 
   railHeadEl = buildAttentionBanner({
     onJump: focusNextAttention,
-    rowFor: (id) => pillById.get(id),
+    rowFor: pillOfSession,
   }, buildNextAttentionKeys());
 
   const statusKey = el('details', 'rail-section rail-status-key');
@@ -195,13 +194,14 @@ export function mountFocusView({ rail, center, resizer }: { rail: HTMLElement | 
   emptyDescEl = emptyEl.querySelector<HTMLElement>('.focus-empty-desc');
 
   paneLayout = createPaneLayout();
-  cardSlotEl = paneLayout.bodyOf('terminal');
-  paneLayout.bodyOf('board').tabIndex = -1;
-  paneLayout.onBoardDrag(paintUnsplitSlot);
+  cardSlotEl = paneLayout.windowOf('terminal').body;
+  paneLayout.windowOf('board').body.tabIndex = -1;
+  paneLayout.onPaneDrag(paintUnsplitSlot);
+  paneLayout.acceptOutsideDrops({ paneOfDrag: shellPaneOfDrag, onDrop: dropDraggedShellOnFocused });
   unsplitSlotEl = el('div', 'rail-unsplit-slot', 'Drop here to unsplit');
   registerSessionPages();
   pageButtons = createSessionPageButtons({ style: 'header' });
-  paneLayout.trailSlot.append(pageButtons.element);
+  paneLayout.windowOf('terminal').trailSlot.append(pageButtons.element);
   mountedCenter.append(emptyEl, paneLayout.element);
   mountedCenter.addEventListener('focusin', onCenterFocusIn);
   subscribeRaces(() => {
@@ -246,24 +246,65 @@ function splitBoardIdOf(sessionId: string | null): string | null {
   return currentLiveSplits()[sessionId] ?? null;
 }
 
+function isShellSession(sessionId: string) {
+  return sessionUIs.get(sessionId)?.agent === SHELL_AGENT_ID;
+}
+
+function saveShellSplits(nextSplits: SplitBoardBySession) {
+  if (nextSplits === splitShellBySession) return;
+  splitShellBySession = nextSplits;
+  setSplitShellBySession(nextSplits);
+}
+
+function currentShellSplits() {
+  return liveShellSplits(splitShellBySession, isSessionShown);
+}
+
+function splitShellIdOf(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  return currentShellSplits()[sessionId] ?? null;
+}
+
+function hostSessionOfShell(shellId: string): string | null {
+  return Object.entries(currentShellSplits()).find(([, splitShellId]) => splitShellId === shellId)?.[0] ?? null;
+}
+
+function canAttachShell(shellId: string | null, hostId: string | null): shellId is string {
+  if (!shellId || !hostId || shellId === hostId) return false;
+  if (currentLiveSplits()[shellId]) return false;
+  return isShellSession(shellId) && !isShellSession(hostId) && isSessionShown(shellId) && isSessionShown(hostId);
+}
+
+function attachShell(hostId: string, shellId: string) {
+  saveShellSplits(openSplit(closeSplit(splitShellBySession, shellId), hostId, shellId));
+}
+
+function detachShell(hostId: string) {
+  saveShellSplits(closeSplit(splitShellBySession, hostId));
+}
+
 function onCenterFocusIn(event: FocusEvent) {
   const pane = event.target instanceof Element ? event.target.closest<HTMLElement>('.pane-group')?.dataset.pane : undefined;
-  if ((pane !== 'terminal' && pane !== 'board') || pane === activePane) return;
+  if ((pane !== 'terminal' && pane !== 'board' && pane !== 'shell') || pane === activePane) return;
   activePane = pane;
   const focusedId = getFocusedSessionId();
   const focusedPill = focusedId ? pillById.get(focusedId) : undefined;
   if (focusedId && focusedPill) paintPillSplit(focusedPill, focusedId, boardTitlesById());
 }
 
-function isBoardHeaderDragging() {
-  return paneLayout?.element.hasAttribute('data-dragging') === true;
+function detachablePaneDragged(): 'board' | 'shell' | null {
+  const focusedId = getFocusedSessionId();
+  const draggedPane = paneLayout?.draggedPane() ?? null;
+  if (draggedPane === 'board' && splitBoardIdOf(focusedId)) return 'board';
+  if (draggedPane === 'shell' && splitShellIdOf(focusedId)) return 'shell';
+  return null;
 }
 
 function paintUnsplitSlot() {
   if (!unsplitSlotEl) return;
   const focusedId = getFocusedSessionId();
-  const focusedRow = focusedId && splitBoardIdOf(focusedId) ? pillById.get(focusedId)?._row : undefined;
-  if (!isBoardHeaderDragging() || !focusedRow) {
+  const focusedRow = focusedId ? pillById.get(focusedId)?._row : undefined;
+  if (!detachablePaneDragged() || !focusedRow) {
     unsplitSlotEl.removeAttribute('data-over');
     unsplitSlotEl.remove();
     return;
@@ -272,7 +313,7 @@ function paintUnsplitSlot() {
 }
 
 function isUnsplitDrag() {
-  return isBoardHeaderDragging() && unsplitSlotEl?.isConnected === true;
+  return detachablePaneDragged() !== null && unsplitSlotEl?.isConnected === true;
 }
 
 function onRailDragOver(event: DragEvent) {
@@ -283,10 +324,12 @@ function onRailDragOver(event: DragEvent) {
 
 function onRailDrop(event: DragEvent) {
   const focusedId = getFocusedSessionId();
+  const detachedPane = detachablePaneDragged();
   if (!isUnsplitDrag() || !focusedId) return;
   event.preventDefault();
   activePane = 'terminal';
-  closeOperatorSplit(focusedId);
+  if (detachedPane === 'board') closeOperatorSplit(focusedId);
+  if (detachedPane === 'shell') detachShell(focusedId);
   refreshFocusRoster();
   focusTerminalAfterSettle(sessionUIs.get(focusedId), focusedId);
 }
@@ -299,7 +342,30 @@ function boardSplitToggleOf(sessionId: string | null) {
   return board ? { sessionId, boardIdToOpen: board.id } : null;
 }
 
-setBoardSplitKeyClaimTest(() => boardSplitToggleOf(getFocusedSessionId()) !== null);
+setKeyClaimTest('board-split', () => boardSplitToggleOf(getFocusedSessionId()) !== null);
+setKeyClaimTest('pane-focus', () => panesToCycle().length > 1);
+
+function panesToCycle(): Pane[] {
+  const focusedId = getFocusedSessionId();
+  if (!active || !focusedId || centeredBoardId || !paneLayout) return [];
+  const shownPanes = new Set(sessionPanesOf(focusedId));
+  return paneLayout.panesInOrder().filter((pane) => shownPanes.has(pane));
+}
+
+function sessionPanesOf(sessionId: string): Pane[] {
+  const boardPanes: Pane[] = splitBoardIdOf(sessionId) ? ['board'] : [];
+  const shellPanes: Pane[] = splitShellIdOf(sessionId) ? ['shell'] : [];
+  return ['terminal', ...boardPanes, ...shellPanes];
+}
+
+export function focusNextPane(): boolean {
+  const focusedId = getFocusedSessionId();
+  const panes = panesToCycle();
+  if (!focusedId || panes.length < 2) return false;
+  const nextPane = panes[(panes.indexOf(activePane) + 1) % panes.length] ?? 'terminal';
+  onPillPick(focusedId, nextPane);
+  return true;
+}
 
 export function toggleFocusedBoardSplit(): boolean {
   const toggle = boardSplitToggleOf(getFocusedSessionId());
@@ -391,8 +457,17 @@ function railRowsInOrder() {
   return [...railEl.querySelectorAll<HTMLElement>('button.session-row[data-id], button.session-row[data-board-id]')].filter((row) => !row.closest('details:not([open]), .focus-rail-list[data-folded="true"] > :not([data-viewed="true"], .focus-board-archive), .focus-rail-list[data-folded="true"] .focus-board-archive-list > :not([data-viewed="true"])'));
 }
 
-function orderedSessions() {
+function sessionsWithAttachedShells() {
   return orderRoster(readSessionRows(sessionName), savedSessionOrder());
+}
+
+function orderedSessions() {
+  const attachedShellIds = new Set(Object.values(currentShellSplits()));
+  return sessionsWithAttachedShells().filter((row) => !attachedShellIds.has(row.id));
+}
+
+function pillOfSession(sessionId: string) {
+  return pillById.get(hostSessionOfShell(sessionId) ?? sessionId);
 }
 
 function savedSessionOrder(): string[] {
@@ -438,14 +513,15 @@ function buildPill(id: string) {
   const { item, removeButton } = wrapSessionRow(pill, 'Remove session', () => requestSessionRemoval(id), () => undoPendingClose(id));
   item.setAttribute('role', 'presentation');
   removeButton.tabIndex = -1;
-  wireBoardRowDropTarget(item, id);
+  wireSplitDropTarget(item, id);
   wireSessionRowDrag(pill, item, id);
   return Object.assign(pill, { _refs: refs, _row: item });
 }
 
 function memberPaneOf(target: EventTarget | null): Pane {
   const member = target instanceof Element ? target.closest<HTMLElement>('[data-member]')?.dataset.member : undefined;
-  return member === 'board' ? 'board' : 'terminal';
+  if (member === 'board' || member === 'shell') return member;
+  return 'terminal';
 }
 
 function startBoardRowDrag(event: DragEvent, boardId: string) {
@@ -457,23 +533,56 @@ function isBoardRowDrag(event: DragEvent) {
   return event.dataTransfer?.types.includes(BOARD_ROW_MIME) === true;
 }
 
-function wireBoardRowDropTarget(item: HTMLElement, sessionId: string) {
+function isShellAttachDrag(event: DragEvent, hostId: string | null) {
+  return isSessionRowDrag(event) && canAttachShell(draggedSessionId, hostId);
+}
+
+function wireSplitDropTarget(item: HTMLElement, sessionId: string) {
   item.addEventListener('dragover', (event) => {
-    if (!isBoardRowDrag(event)) return;
+    if (!isBoardRowDrag(event) && !isShellAttachDrag(event, sessionId)) return;
     event.preventDefault();
-    item.toggleAttribute('data-board-drop', true);
+    item.toggleAttribute('data-split-drop', true);
   });
   item.addEventListener('dragleave', (event) => {
     if (event.relatedTarget instanceof Node && item.contains(event.relatedTarget)) return;
-    item.removeAttribute('data-board-drop');
+    item.removeAttribute('data-split-drop');
   });
   item.addEventListener('drop', (event) => {
-    item.removeAttribute('data-board-drop');
+    item.removeAttribute('data-split-drop');
+    const shellId = draggedSessionId;
+    if (isShellAttachDrag(event, sessionId) && shellId) {
+      event.preventDefault();
+      draggedSessionId = null;
+      splitSessionWithShell(sessionId, shellId);
+      return;
+    }
     const boardId = event.dataTransfer?.getData(BOARD_ROW_MIME);
     if (!boardId) return;
     event.preventDefault();
     splitSessionWithBoard(sessionId, boardId);
   });
+}
+
+function splitSessionWithShell(sessionId: string, shellId: string) {
+  attachShell(sessionId, shellId);
+  activePane = 'shell';
+  if (getFocusedSessionId() === sessionId) {
+    refreshFocusRoster();
+    return;
+  }
+  focusSession(sessionId);
+}
+
+function shellPaneOfDrag(event: DragEvent): Pane | null {
+  if (centeredBoardId || !isShellAttachDrag(event, getFocusedSessionId())) return null;
+  return 'shell';
+}
+
+function dropDraggedShellOnFocused() {
+  const focusedId = getFocusedSessionId();
+  const shellId = draggedSessionId;
+  draggedSessionId = null;
+  if (focusedId && shellId) splitSessionWithShell(focusedId, shellId);
 }
 
 function isSessionRowDrag(event: DragEvent) {
@@ -517,8 +626,9 @@ function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: str
       startBoardRowDrag(event, splitBoardId);
       return;
     }
-    draggedSessionId = sessionId;
-    event.dataTransfer?.setData(SESSION_ROW_MIME, sessionId);
+    const draggedId = (pressedPane === 'shell' ? splitShellIdOf(sessionId) : null) ?? sessionId;
+    draggedSessionId = draggedId;
+    event.dataTransfer?.setData(SESSION_ROW_MIME, draggedId);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
   });
   pill.addEventListener('dragend', () => {
@@ -526,7 +636,7 @@ function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: str
     clearSessionDropMarker();
   });
   item.addEventListener('dragover', (event) => {
-    if (!isSessionRowDrag(event) || !canDropSessionOn(sessionId)) return;
+    if (!isSessionRowDrag(event) || isShellAttachDrag(event, sessionId) || !canDropSessionOn(sessionId)) return;
     event.preventDefault();
     markSessionDrop(sessionId, dropSideAt(item, event));
   });
@@ -536,7 +646,7 @@ function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: str
   });
   item.addEventListener('drop', (event) => {
     clearSessionDropMarker();
-    if (!isSessionRowDrag(event) || !canDropSessionOn(sessionId) || !draggedSessionId) return;
+    if (!isSessionRowDrag(event) || isShellAttachDrag(event, sessionId) || !canDropSessionOn(sessionId) || !draggedSessionId) return;
     event.preventDefault();
     saveSessionOrder(sessionOrderAfterDrop(railRowsInRailOrder(), savedSessionOrder(), draggedSessionId, sessionId, dropSideAt(item, event)), refreshFocusRoster);
     draggedSessionId = null;
@@ -546,7 +656,7 @@ function wireSessionRowDrag(pill: HTMLElement, item: HTMLElement, sessionId: str
 function onPillPick(id: string, pane: Pane = 'terminal') {
   const ui = requestSessionOpen(id);
   if (!ui) return;
-  activePane = pane === 'board' && splitBoardIdOf(id) ? 'board' : 'terminal';
+  activePane = pickablePaneOf(id, pane);
   focusSession(id);
   const pill = pillById.get(id);
   if (pill) paintPillSplit(pill, id, boardTitlesById());
@@ -554,12 +664,23 @@ function onPillPick(id: string, pane: Pane = 'terminal') {
     focusBoardPaneAfterSettle(id);
     return;
   }
+  const shellId = activePane === 'shell' ? splitShellIdOf(id) : null;
+  if (shellId) {
+    focusTerminalAfterSettle(sessionUIs.get(shellId), id);
+    return;
+  }
   focusTerminalAfterSettle(ui, id);
+}
+
+function pickablePaneOf(sessionId: string, pane: Pane): Pane {
+  if (pane === 'board' && splitBoardIdOf(sessionId)) return 'board';
+  if (pane === 'shell' && splitShellIdOf(sessionId)) return 'shell';
+  return 'terminal';
 }
 
 function focusBoardPaneAfterSettle(id: string) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (active && getFocusedSessionId() === id) paneLayout?.bodyOf('board').focus({ preventScroll: true });
+    if (active && getFocusedSessionId() === id) paneLayout?.windowOf('board').body.focus({ preventScroll: true });
   }));
 }
 
@@ -580,8 +701,12 @@ function boardTitlesById() {
 function paintPillSplit(pill: FocusPill, id: string, boardTitleById: ReadonlyMap<string, string>) {
   const boardId = splitBoardIdOf(id);
   const boardTitle = boardId ? boardTitleById.get(boardId) ?? null : null;
-  const splitBoard = boardId && boardTitle !== null ? { id: boardId, title: boardTitle } : null;
-  paintSessionRowSplit(pill, splitBoard, id === getFocusedSessionId() && splitBoard !== null ? activePane : null);
+  const board = boardId && boardTitle !== null ? { id: boardId, title: boardTitle } : null;
+  const shellId = splitShellIdOf(id);
+  const shellUi = shellId ? sessionUIs.get(shellId) : undefined;
+  const shell = shellId && shellUi ? { id: shellId, title: sessionName(shellUi) ?? '' } : null;
+  const isSplit = board !== null || shell !== null;
+  paintSessionRowSplit(pill, { board, shell }, id === getFocusedSessionId() && isSplit ? activePane : null);
 }
 
 function paintPill(pill: FocusPill, { id, ui, state, name }: RosterRow, attentionPosition: number | null) {
@@ -630,7 +755,8 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const boardTitleById = new Map(boardSummaries.map((board) => [board.id, board.title]));
   const placedBoardIds = new Set<string>();
   const seen = new Set<string>();
-  const attentionTiles = orderAttentionLine(order, getFocusedSessionId());
+  const attentionRows = sessionsWithAttachedShells();
+  const attentionTiles = orderAttentionLine(attentionRows, getFocusedSessionId());
   const attentionPositionById = new Map(attentionTiles.map(({ id }, index) => [id, index + 1]));
 
   const placeList = (rows: RosterRow[], listEl: GroupList, boardNodes: HTMLElement[]) => {
@@ -710,10 +836,11 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
     const ui = sessionUIs.get(centeredId);
     if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
   }
+  paintShellPane(centeredBoardId ? null : centeredId);
   pageButtons?.showSession(centeredBoardId ? null : centeredId);
   paintBoardPane();
   paintUnsplitSlot();
-  updateRailHead(order, attentionTiles);
+  updateRailHead(attentionRows, attentionTiles);
 }
 
 function rememberOpenState(details: HTMLDetailsElement, isOpen: boolean, saveOpen: (isOpen: boolean) => void) {
@@ -794,7 +921,7 @@ function pickNeighborOfRemoved(previousRailOrder: readonly string[], removedId: 
 }
 
 function attentionLine() {
-  return orderAttentionLine(orderedSessions(), getFocusedSessionId());
+  return orderAttentionLine(sessionsWithAttachedShells(), getFocusedSessionId());
 }
 
 function updateRailHead(rosterOrderedRows: readonly RosterRow[], attentionTiles: readonly AttentionTile[]) {
@@ -813,7 +940,7 @@ export function focusNextAttention() {
 function openAttentionSession(id: string) {
   if (!active) return;
   requestSessionOpen(id);
-  pillById.get(id)?.scrollIntoView({ block: 'nearest' });
+  pillOfSession(id)?.scrollIntoView({ block: 'nearest' });
   if (railHeadEl) sendAttentionTileToRow(railHeadEl, id, () => flashAttention(id));
   focusSession(id);
   focusTerminalAfterSettle(sessionUIs.get(id), id);
@@ -828,7 +955,7 @@ function focusTerminalAfterSettle(ui: SessionUi | null | undefined, id: string) 
 
 function flashAttention(id: string) {
   if (reducedMotion?.matches || document.hidden) return;
-  const pill = pillById.get(id);
+  const pill = pillOfSession(id);
   if (pill?.animate) {
     pill.animate(
       [
@@ -849,26 +976,39 @@ function flashAttention(id: string) {
   }
 }
 
+function lendHeader(header: HTMLElement | null, titleSlot: HTMLElement) {
+  for (const staleHeader of titleSlot.querySelectorAll(':scope > .session-card-header')) {
+    if (staleHeader !== header) staleHeader.remove();
+  }
+  adoptElement(header, titleSlot);
+}
+
 function borrowToCenter(ui: SessionUi, id: string) {
-  if (!cardSlotEl) return;
-  const header = ui.card.querySelector<HTMLElement>(':scope > .session-card-header');
+  if (!cardSlotEl || !paneLayout) return;
+  const header = queryCardPart(ui.card, '.session-card-header');
   borrowCard(ui, id, cardSlotEl, {
     className: 'focus-centered',
-    onRelease: () => {
-      header?.classList.remove('pane-header');
-      paneLayout?.setHeaderHost('terminal', null);
-    },
+    onRelease: () => releaseElement(header, ui.card),
   });
-  header?.classList.add('pane-header');
-  if (header) moveStripToHeaderStart(header);
+  lendHeader(header, paneLayout.windowOf('terminal').titleSlot);
   setTerminalActiveViewer(ui, id, true);
 }
 
-function moveStripToHeaderStart(header: HTMLElement) {
-  const firstOwnChild = header.querySelector<HTMLElement>(':scope > .session-name');
-  paneLayout?.setHeaderHost('terminal', { parent: header, before: firstOwnChild });
+function paintShellPane(centeredId: string | null) {
+  if (!paneLayout) return;
+  const shellId = splitShellIdOf(centeredId);
+  const shellUi = shellId ? sessionUIs.get(shellId) : undefined;
+  if (!shellId || !shellUi) {
+    if (getBorrowedCardId('shell')) releaseCard('shell');
+    return;
+  }
+  const shellWindow = paneLayout.windowOf('shell');
+  if (shellUi.card.parentElement === shellWindow.body) return;
+  const header = queryCardPart(shellUi.card, '.session-card-header');
+  borrowCard(shellUi, shellId, shellWindow.body, { slot: 'shell', className: 'focus-centered', onRelease: () => releaseElement(header, shellUi.card) });
+  lendHeader(header, shellWindow.titleSlot);
+  setTerminalActiveViewer(shellUi, shellId, true);
 }
-
 
 function loadBoardsView() {
   boardsViewLoad ??= import('../whiteboard/boards-view.ts').then((boardsView) => {
@@ -884,26 +1024,26 @@ function reportBoardsViewLoadFailure(error: unknown) {
   reportToServerLog('focus', `the board pane failed to load: ${describeFailure(error)}`);
 }
 
-function showPanes(panes: ReadonlySet<Pane>) {
-  if (!paneLayout || shownPanes === panes) return;
-  shownPanes = panes;
-  paneLayout.showPanes(panes);
+function showPanes(panes: readonly Pane[]) {
+  const panesKey = panes.join(',');
+  if (!paneLayout || shownPanesKey === panesKey) return;
+  shownPanesKey = panesKey;
+  paneLayout.showPanes(new Set(panes));
 }
 
 function paintBoardPane() {
   if (centeredBoardId) {
-    showPanes(BOARD_ONLY);
+    showPanes(['board']);
     showBoard(null, centeredBoardId);
     return;
   }
   const centeredId = getFocusedSessionId();
   const boardId = splitBoardIdOf(centeredId);
+  showPanes(centeredId ? sessionPanesOf(centeredId) : ['terminal']);
   if (!centeredId || !boardId) {
-    showPanes(TERMINAL_ONLY);
     shownBoardKey = null;
     return;
   }
-  showPanes(TERMINAL_AND_BOARD);
   showBoard(centeredId, boardId);
 }
 
@@ -931,10 +1071,10 @@ function onPaneBoardPicked(boardId: string) {
 
 function placeBoardPane(boardsView: BoardsViewModule, sessionId: string | null, boardId: string | null) {
   if (!paneLayout || getFocusedSessionId() !== sessionId) return;
-  const boardBody = paneLayout.bodyOf('board');
+  const boardBody = paneLayout.windowOf('board').body;
   const host = boardsView.mountBoardHost();
   if (host.parentElement !== boardBody) boardBody.replaceChildren(host);
-  boardsView.placeBoardTitle(paneLayout.boardTitleSlot);
+  boardsView.placeBoardTitle(paneLayout.windowOf('board').titleSlot);
   if (boardId) boardsView.showBoardBeside(boardId, sessionId);
 }
 
@@ -954,10 +1094,12 @@ function releaseCenter() {
   const centeredId = getFocusedSessionId();
   if (!centeredId) return;
   if (getBorrowedCardId() === centeredId) releaseCard();
+  if (getBorrowedCardId('shell')) releaseCard('shell');
   uiState.dispatch('focusSession', null);
 }
 
-function focusSession(id: string) {
+function focusSession(requestedId: string) {
+  const id = hostSessionOfShell(requestedId) ?? requestedId;
   if (!active || !sessionUIs.has(id)) return;
   markSessionSeen(id);
   selectSession(id);
@@ -990,31 +1132,16 @@ export function setFocusMergeStatus(id: unknown, mergeStatus: unknown) {
   if (active) refreshFocusRoster();
 }
 
-let pageHeaderObserver: ResizeObserver | null = null;
-
-function keepSessionPageBelowHeader(card: HTMLElement) {
-  pageHeaderObserver?.disconnect();
-  const header = card.querySelector<HTMLElement>(':scope > .session-card-header');
-  if (!header) return;
-  const placeBelowHeader = () => card.style.setProperty('--session-page-top', `${header.offsetHeight}px`);
-  placeBelowHeader();
-  pageHeaderObserver = new ResizeObserver(placeBelowHeader);
-  pageHeaderObserver.observe(header);
-}
-
 const focusPageHost: SessionPageHost = {
   placement: 'overlay',
   sessionId: () => (active && centerEl && !centeredBoardId ? getFocusedSessionId() : null),
   elementFor: () => {
     const centeredCard = sessionUIs.get(getFocusedSessionId() ?? '')?.card;
     if (!centeredCard) throw new Error('Focus view has no centered session');
-    keepSessionPageBelowHeader(centeredCard);
     return centeredCard;
   },
   didShow: () => {},
   didHide: () => {
-    pageHeaderObserver?.disconnect();
-    pageHeaderObserver = null;
     const centeredId = getFocusedSessionId();
     if (centeredId) focusTerminalAfterSettle(sessionUIs.get(centeredId), centeredId);
   },

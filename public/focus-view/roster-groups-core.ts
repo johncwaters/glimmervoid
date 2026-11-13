@@ -137,6 +137,12 @@ export function liveSplits(splits: SplitBoardBySession, boards: readonly RailBoa
   return liveEntries.length === entries.length ? splitsOfExistingBoards : Object.fromEntries(liveEntries);
 }
 
+export function liveShellSplits(splits: SplitBoardBySession, isLiveSession: (sessionId: string) => boolean): SplitBoardBySession {
+  const entries = Object.entries(splits);
+  const liveEntries = entries.filter(([sessionId, shellId]) => isLiveSession(sessionId) && isLiveSession(shellId));
+  return liveEntries.length === entries.length ? splits : Object.fromEntries(liveEntries);
+}
+
 const connectionKeyOf = (boardId: string, sessionId: string) => `${boardId}\n${sessionId}`;
 
 export function connectionKeysOf(boards: readonly RailBoard[]): Set<string> {

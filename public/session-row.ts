@@ -1,3 +1,4 @@
+import type { Pane } from '#shared/contracts/focus-layout.ts';
 import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
@@ -253,31 +254,54 @@ function paintSessionRowNames(row: HTMLElement) {
   writeHiddenIfChanged(taskLine, distinctTaskTitle === null);
 }
 
-export function paintSessionRowSplit(row: HTMLElement, splitBoard: { id: string; title: string } | null, activePane: 'terminal' | 'board' | null) {
-  const splitBoardTitle = splitBoard?.title ?? null;
-  row.toggleAttribute('data-split', splitBoard !== null);
+interface SplitMember {
+  id: string;
+  title: string;
+}
+
+interface SplitMembers {
+  board: SplitMember | null;
+  shell: SplitMember | null;
+}
+
+export function paintSessionRowSplit(row: HTMLElement, members: SplitMembers, activePane: Pane | null) {
+  const isSplit = members.board !== null || members.shell !== null;
+  row.toggleAttribute('data-split', isSplit);
   writeDataIfChanged(row, 'activePane', activePane ?? '');
-  if ((row.dataset.splitBoardId ?? '') !== (splitBoard?.id ?? '')) {
-    writeDataIfChanged(row, 'splitBoardId', splitBoard?.id ?? '');
+  if ((row.dataset.splitBoardId ?? '') !== (members.board?.id ?? '')) {
+    writeDataIfChanged(row, 'splitBoardId', members.board?.id ?? '');
     paintSessionRowSignals(row);
   }
   paintSessionRowNames(row);
-  const existingMember = row.querySelector<HTMLElement>(':scope > .session-row-main > .session-row-split-board');
-  if (splitBoardTitle === null) {
+  if (isSplit) query(row, '.session-row-title').dataset.member = 'terminal';
+  paintSplitMember(row, 'board', members.board);
+  paintSplitMember(row, 'shell', members.shell);
+}
+
+function paintSplitMember(row: HTMLElement, pane: 'board' | 'shell', member: SplitMember | null) {
+  const existingMember = row.querySelector<HTMLElement>(`:scope > .session-row-main > .session-row-split-member[data-member="${pane}"]`);
+  if (member === null) {
     existingMember?.remove();
     return;
   }
-  const member = existingMember ?? buildSplitBoardMember(row);
-  writeTextIfChanged(query(member, '.session-row-split-board-title'), splitBoardTitle);
+  const memberEl = existingMember ?? buildSplitMember(row, pane);
+  writeDataIfChanged(memberEl, 'memberId', member.id);
+  writeTextIfChanged(query(memberEl, '.session-row-split-member-title'), member.title);
 }
 
-function buildSplitBoardMember(row: HTMLElement) {
-  const titleLine = query(row, '.session-row-title');
-  titleLine.dataset.member = 'terminal';
-  const member = el('span', 'session-row-split-board');
-  member.dataset.member = 'board';
-  member.append(createPrStatusIcon('board'), el('span', 'session-row-split-board-title'));
-  titleLine.after(member);
+function splitMemberIconOf(pane: 'board' | 'shell'): Element {
+  if (pane === 'board') return createPrStatusIcon('board');
+  const icon = el('span', 'session-row-split-member-icon');
+  paintStatusIcon(icon, 'shell');
+  return icon;
+}
+
+function buildSplitMember(row: HTMLElement, pane: 'board' | 'shell') {
+  const member = el('span', 'session-row-split-member');
+  member.dataset.member = pane;
+  member.append(splitMemberIconOf(pane), el('span', 'session-row-split-member-title'));
+  const boardMember = row.querySelector<HTMLElement>(':scope > .session-row-main > .session-row-split-member[data-member="board"]');
+  (pane === 'shell' && boardMember ? boardMember : query(row, '.session-row-title')).after(member);
   return member;
 }
 
