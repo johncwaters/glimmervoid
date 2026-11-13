@@ -38,7 +38,7 @@ type Draft = {
 const ELEMENT_SCHEMAS = Object.freeze({ box: BoxInput, frame: Frame, wire: Wire, stroke: Stroke });
 const STORED_ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wire, stroke: Stroke });
 const OK: OpOutcome = { ok: true };
-const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId'] as const;
+const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId', 'link'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
 const NO_PLAN_STEPS = new Map<string, never>();
 
@@ -286,6 +286,7 @@ function applyOne(draft: Draft, op: ElementOp, author: Author): OpOutcome {
       if (op.caption !== undefined) draft.head.caption = op.caption;
       if (op.legend !== undefined) draft.head.legend = op.legend;
       if (op.codeSessionId !== undefined) draft.head.codeSessionId = op.codeSessionId;
+      if (op.link !== undefined) draft.head.link = op.link;
       return OK;
   }
 }
@@ -414,6 +415,7 @@ function beforeOf(board: Board, diff: BoardDiff): DiffBefore {
       ...('caption' in diff.fields ? { caption: board.caption } : {}),
       ...('legend' in diff.fields ? { legend: board.legend } : {}),
       ...('codeSessionId' in diff.fields ? { codeSessionId: board.codeSessionId } : {}),
+      ...('link' in diff.fields ? { link: board.link } : {}),
     },
     elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements.get(id) ?? null])),
   };
@@ -477,6 +479,7 @@ function describeBoardOp(op: Extract<Op, { op: 'board' }>): string {
   if (op.title !== undefined) return `renamed the board to "${op.title}"`;
   if (op.caption !== undefined) return 'changed the caption';
   if (op.codeSessionId !== undefined) return op.codeSessionId === null ? 'cleared the code session' : `set the code session to ${op.codeSessionId}`;
+  if (op.link !== undefined) return op.link === null ? 'unlinked the board from its folder' : `linked the board to ${op.link}`;
   return 'set the legend';
 }
 
@@ -498,6 +501,7 @@ function createBoard({ id, title, nowMs, codeSessionId = null, project = null }:
     id, title, version: 0, caption: null,
     legend: [],
     codeSessionId,
+    link: null,
     project,
     elements: elementTableOf(),
     createdAt: nowMs,

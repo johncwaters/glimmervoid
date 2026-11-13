@@ -553,6 +553,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const bootWork: Promise<unknown>[] = [
     whiteboards.forgetClosedSessions((sessionId) => getSessionAny(sessionId) === null),
     whiteboards.fileUnfiledBoards(),
+    whiteboards.followLinkedFolders(),
     deleteRetiredGuardrailsFolders(glimmervoidHomeDir()),
     reconcileOwnedPaths({
       ledger: laneAssembly.ownedPaths,

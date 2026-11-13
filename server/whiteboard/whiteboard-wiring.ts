@@ -44,6 +44,11 @@ import { adoptBoardFileAssets, boardFileBytes, forgetBoardFileExport, parseBoard
 import { addOpsOf, boardDiffOps, importedElementsOf, nextCopyTitle } from '../core/board-file-core.ts';
 import type { BoardContent } from '../core/board-file-core.ts';
 import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
+import { createLinkedBoards } from './linked-board.ts';
+import type { LinkSync, WatchedFolder } from './linked-board.ts';
+import { createWatchDebounce } from '../../detection/watch-debounce.ts';
+import type { WatchDebounce } from '../../detection/watch-debounce.ts';
+import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 import { isLinkableMediaKind, linkPathProblem, withServerSyncedHash } from '../../shared/whiteboard-link-core.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 import { createBoardStore } from './board-store-client.ts';
@@ -116,6 +121,9 @@ type OperatorReply = {
 const RENDERS_FOLDER_NAME = 'renders';
 const EXPORTS_FOLDER_NAME = 'exports';
 const ATTACHMENTS_FILENAME = 'session-attachments.state';
+const LINK_AUTOSAVE_DELAY_MS = 1000;
+const LINK_WATCH_DEBOUNCE_MS = 250;
+const LINK_NOT_SYNCED_TEXT = 'Not synced with the folder yet';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
 const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
@@ -173,6 +181,7 @@ interface WhiteboardPort {
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
   fileUnfiledBoards(): Promise<void>;
+  followLinkedFolders(): Promise<void>;
   takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
@@ -288,6 +297,10 @@ function createWhiteboardWiring({
   const unloadedBoardIds = new Set<string>();
   const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
   const openStepLogs = createOpenStepLogs(logger);
+  const linkedBoards = createLinkedBoards({ boardsRoot, assets });
+  const linkStateByBoardId = new Map<string, Pick<LinkSync, 'state' | 'text'>>();
+  const linkAutosaveByBoardId = new Map<string, ReturnType<typeof createCoalescedTimer>>();
+  const linkWatchByBoardId = new Map<string, WatchedFolder & { watcher: WatchDebounce }>();
   const tiles = createBoardTileService({
     boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null),
     unloadedBoardOf: (boardId) => (unloadedBoardIds.has(boardId) ? recordsByBoardId.get(boardId)?.board ?? null : null),
@@ -415,12 +428,95 @@ function createWhiteboardWiring({
   }
 
   function snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'> {
-    return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map((record) => summarizeBoard(record, now())) };
+    return { type: 'whiteboards-snapshot', boards: [...recordsByBoardId.values()].map((record) => summaryOf(record, now())) };
+  }
+
+  function summaryOf(record: BoardRecord, nowMs: number): BoardSummary {
+    const { link } = record.board;
+    const linkState = linkStateByBoardId.get(record.board.id) ?? { state: 'file-ahead' as const, text: LINK_NOT_SYNCED_TEXT };
+    return summarizeBoard(record, nowMs, link === null ? null : { path: link, ...linkState });
+  }
+
+  function noteLinkState(boardId: string, synced: Pick<LinkSync, 'state' | 'text'>): void {
+    const previous = linkStateByBoardId.get(boardId);
+    linkStateByBoardId.set(boardId, { state: synced.state, text: synced.text });
+    if (previous?.state === synced.state && previous.text === synced.text) return;
+    if (synced.state === 'broken') logger.warn(`[whiteboard] board ${boardId} cannot sync with its linked folder: ${synced.text}`);
+    broadcastControl(snapshotMessage());
+  }
+
+  function forgetLink(boardId: string): void {
+    linkAutosaveByBoardId.get(boardId)?.cancel();
+    linkAutosaveByBoardId.delete(boardId);
+    linkWatchByBoardId.get(boardId)?.watcher.stop();
+    linkWatchByBoardId.delete(boardId);
+    linkStateByBoardId.delete(boardId);
+    void linkedBoards.forgetBase(boardId);
+  }
+
+  function scheduleLinkSync(boardId: string): void {
+    const existing = linkAutosaveByBoardId.get(boardId);
+    if (existing) {
+      existing.schedule();
+      return;
+    }
+    const timer = createCoalescedTimer({ mode: 'trailing', delayMs: LINK_AUTOSAVE_DELAY_MS, run: () => void syncLinkedFolder(boardId) });
+    linkAutosaveByBoardId.set(boardId, timer);
+    timer.schedule();
+  }
+
+  async function watchLinkedFolder(board: Board): Promise<void> {
+    const target = await linkedBoards.watchedFolderOf(board, linkRootOf(board));
+    const current = linkWatchByBoardId.get(board.id);
+    if (current?.watcher.active && current.folder === target?.folder && current.inode === target.inode) return;
+    current?.watcher.stop();
+    linkWatchByBoardId.delete(board.id);
+    if (target === null) return;
+    const watcher = createWatchDebounce({ onChange: () => void syncLinkedFolder(board.id), debounceMs: LINK_WATCH_DEBOUNCE_MS });
+    if (watcher.watch(target.folder)) linkWatchByBoardId.set(board.id, { ...target, watcher });
+  }
+
+  async function followLinkedFolders(): Promise<void> {
+    await loaded;
+    const linkedBoardIds = [...recordsByBoardId.values()].filter((record) => record.board.link !== null).map((record) => record.board.id);
+    await Promise.all(linkedBoardIds.map((boardId) => syncLinkedFolder(boardId)));
+  }
+
+  async function syncLinkedFolder(boardId: string): Promise<void> {
+    const record = recordsByBoardId.get(boardId);
+    if (!record || record.board.link === null) return;
+    let syncedBoard: Board | null = null;
+    await changeRecord(boardId, async (current) => {
+      syncedBoard = current.board;
+      const synced = await linkedBoards.syncBoard(current.board, linkRootOf(current.board));
+      if (synced === null) return { ok: false, reply: refusal(409, 'the board is not linked to a folder') };
+      if (synced.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
+      const ops = synced.content === null ? [] : boardDiffOps(current.board, synced.content);
+      if (ops.length === 0) {
+        noteLinkState(boardId, synced);
+        return { ok: true, record: current, reply: { status: 200, body: { ok: true, version: current.board.version } } };
+      }
+      const applied = await applyOpsToRecord(current, ops, GLIMMERVOID_AUTHOR);
+      if (!applied.ok) {
+        noteLinkState(boardId, { state: 'broken', text: `The folder's board could not be applied: ${applied.error}` });
+        return { ok: false, reply: refusal(400, applied.error) };
+      }
+      noteLinkState(boardId, synced);
+      syncedBoard = applied.record.board;
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
+    });
+    if (syncedBoard) await watchLinkedFolder(syncedBoard);
+  }
+
+  function linkChangeAfterCommit(before: Board, after: Board): void {
+    if (before.link !== after.link) forgetLink(after.id);
+    if (after.link === null) return;
+    scheduleLinkSync(after.id);
   }
 
   function broadcastSummariesIfChanged(before: BoardRecord | null, after: BoardRecord | null): void {
-    const summaryBefore = before ? JSON.stringify(summarizeBoard(before, now())) : null;
-    const summaryAfter = after ? JSON.stringify(summarizeBoard(after, now())) : null;
+    const summaryBefore = before ? JSON.stringify(summaryOf(before, now())) : null;
+    const summaryAfter = after ? JSON.stringify(summaryOf(after, now())) : null;
     if (summaryBefore === summaryAfter) return;
     broadcastControl(snapshotMessage());
   }
@@ -458,6 +554,7 @@ function createWhiteboardWiring({
       const isBoardChanged = outcome.record.board !== current.board;
       const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges) : null;
       const committed = outcome.replyAfterCommit?.(outcome.record, layout) ?? { reply: outcome.reply };
+      linkChangeAfterCommit(current.board, outcome.record.board);
       broadcastSummariesIfChanged(current, outcome.record);
       return outcome.patch ? { ...committed.reply, patch: outcome.patch } : committed.reply;
     });
@@ -493,7 +590,7 @@ function createWhiteboardWiring({
       return refusal(500, `the board could not be saved, so it was not ${verb}`);
     }
     broadcastSummariesIfChanged(null, record);
-    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
+    return { status: 200, body: { ok: true, board: summaryOf(record, now()), note } };
   }
 
   function putOps(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
@@ -506,6 +603,8 @@ function createWhiteboardWiring({
   function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const ops = opsOf(record.board);
+      const linkProblem = ops.flatMap((op) => (op.op === 'board' && typeof op.link === 'string' ? [linkPathProblem(op.link)] : [])).find((problemText) => problemText !== null);
+      if (linkProblem) return { ok: false, reply: refusal(400, `${linkProblem}, so nothing changed`) };
       if (ops.length === 0) return { ok: true, record, reply: { status: 200, body: { ok: true, version: record.board.version } } };
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
       const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
@@ -552,6 +651,7 @@ function createWhiteboardWiring({
   }
 
   async function syncLinks(boardId: string): Promise<LinkStateOfBox[]> {
+    await syncLinkedFolder(boardId);
     const loading = await loadedRecordOf(boardId);
     if (!loading.ok) return [];
     const syncedBoard = loading.record.board;
@@ -714,7 +814,7 @@ function createWhiteboardWiring({
       pagedFocusByBoardId.set(boardId, focus);
       pagedFocusBySessionId.set(readerId, pagedFocusByBoardId);
       const page = pageReplyOf(record.board, region.elementIds, pageStart.offset);
-      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summarizeBoard(next, now()), outline, focus, ...page, changes } } };
+      return { ok: true, record: next, reply: { status: 200, body: { ok: true, board: summaryOf(next, now()), outline, focus, ...page, changes } } };
     });
     if (request.review !== true || !reply.body.ok || !('changes' in reply.body)) return reply;
     const board = recordsByBoardId.get(boardId)?.board;
@@ -750,7 +850,7 @@ function createWhiteboardWiring({
   }
 
   function connectionReply(record: BoardRecord, note: string): WhiteboardReply {
-    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
+    return { status: 200, body: { ok: true, board: summaryOf(record, now()), note } };
   }
 
   function filedUnder(record: BoardRecord, project: string | null): BoardRecord {
@@ -872,6 +972,7 @@ function createWhiteboardWiring({
     recordsByBoardId.delete(boardId);
     unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
+    forgetLink(boardId);
     tiles.forgetBoard(boardId);
     void forgetBoardRenders(path.join(boardsRoot, RENDERS_FOLDER_NAME), boardId);
     void forgetBoardFileExport(path.join(boardsRoot, EXPORTS_FOLDER_NAME), boardId);
@@ -1076,7 +1177,7 @@ function createWhiteboardWiring({
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
       const note = withUnloadedNote(`showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`, unloaded);
-      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summarizeBoard(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
   }
 
@@ -1102,7 +1203,7 @@ function createWhiteboardWiring({
     const record = recordsByBoardId.get(boardId);
     if (!record) return refusal(404, DELETED_BOARD_TEXT);
     const note = `wrote board "${exported.title}" with its media to ${written.wrote}; copy that file to share it, and the other Glimmervoid opens it with whiteboard import`;
-    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), wrote: written.wrote, note } };
+    return { status: 200, body: { ok: true, board: summaryOf(record, now()), wrote: written.wrote, note } };
   }
 
   async function importBoardFile(gzipped: Buffer): Promise<WhiteboardReply> {
@@ -1135,7 +1236,7 @@ function createWhiteboardWiring({
     const record = recordsByBoardId.get(boardId);
     if (!record) return refusal(404, DELETED_BOARD_TEXT);
     const note = `board "${content.title}" (${boardId}) is now the version in the board file; read it with whiteboard get ${boardId}`;
-    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
+    return { status: 200, body: { ok: true, board: summaryOf(record, now()), note } };
   }
 
   async function importBoardForAgent(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
@@ -1153,7 +1254,7 @@ function createWhiteboardWiring({
     if (request.sub === 'list') {
       const nowMs = now();
       const listed = [...recordsByBoardId.values()].filter((record) => request.all === true || isListedFor(record, caller.project, nowMs));
-      return { status: 200, body: { ok: true, boards: listed.map((record) => summarizeBoard(record, nowMs)) } };
+      return { status: 200, body: { ok: true, boards: listed.map((record) => summaryOf(record, nowMs)) } };
     }
     const found = findBoardId(request.board, caller.project);
     if (!found.ok) return found.reply;
@@ -1233,7 +1334,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

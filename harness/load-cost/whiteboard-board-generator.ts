@@ -114,6 +114,7 @@ function generateBoardRecord(options: GeneratedBoardOptions): BoardRecord {
     project: null,
     legend: [],
     codeSessionId: null,
+    link: null,
     elements: generateElements(options),
     createdAt: options.createdAt,
     updatedAt: options.createdAt,

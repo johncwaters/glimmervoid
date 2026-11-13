@@ -27,6 +27,7 @@ function boardFieldOps(current: Board, target: Board): Op[] {
     ...(current.caption === target.caption ? {} : { caption: target.caption }),
     ...(isSameValue(current.legend, target.legend) ? {} : { legend: target.legend }),
     ...(current.codeSessionId === target.codeSessionId ? {} : { codeSessionId: target.codeSessionId }),
+    ...(current.link === target.link ? {} : { link: target.link }),
   };
   return Object.keys(fields).length === 0 ? [] : [{ op: 'board', ...fields }];
 }
@@ -51,7 +52,7 @@ function restoringOps(current: Board, target: Board): Op[] {
   ];
 }
 
-const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, project: null, createdAt: 0, updatedAt: 0 });
+const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, project: null, link: null, createdAt: 0, updatedAt: 0 });
 
 function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
   const beforeElements = elementTableOf(Object.values(before.elements).flatMap((element) => element ?? []));

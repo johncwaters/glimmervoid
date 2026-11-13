@@ -343,11 +343,11 @@ function isListedFor(record: BoardRecord, callerProject: string, nowMs: number):
   return isFiledFor(record, callerProject) && !isBoardArchived(record, nowMs);
 }
 
-function summarizeBoard(record: BoardRecord, nowMs: number): BoardSummary {
+function summarizeBoard(record: BoardRecord, nowMs: number, link: BoardSummary['link']): BoardSummary {
   const { id, title, version, updatedAt, project } = record.board;
   const sessionIds = Object.keys(record.cursorBySessionId);
   const queuedBySessionId = Object.fromEntries(sessionIds.map((sessionId) => [sessionId, changesForReader(record, sessionId).length]));
-  return { id, title, version, updatedAt, project, isArchived: isBoardArchived(record, nowMs), connectedSessionIds: sessionIds, queuedBySessionId };
+  return { id, title, version, updatedAt, project, isArchived: isBoardArchived(record, nowMs), connectedSessionIds: sessionIds, queuedBySessionId, link };
 }
 
 interface BoardNotice {

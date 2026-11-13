@@ -125,5 +125,5 @@ function nextCopyTitle(title: string, existingTitles: ReadonlySet<string>): stri
   }
 }
 
-export { addOpsOf, boardDiffOps, exportedAssetsOf, exportedBoardOf, importedElementsOf, nextCopyTitle };
+export { addOpsOf, boardDiffOps, exportedAssetsOf, exportedBoardOf, exportedElementOf, importedElementsOf, nextCopyTitle };
 export type { BoardContent };

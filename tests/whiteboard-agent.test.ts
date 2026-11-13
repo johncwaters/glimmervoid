@@ -852,6 +852,102 @@ test('a board file overwrites its board even when the board is not loaded yet af
   assert.match(String(replyOf(refused).error), /names its board by a UUID/);
 });
 
+test('a board linked to a folder in its worktree writes board.jsonl and its media there, writes nothing when nothing changed, merges a pulled change with a local one, follows the folder on its own, and stops writing while the file is mid-merge', async () => {
+  const { default: sharp } = await import('sharp');
+  const worktree = path.join(fixture.tmpDir, PLANNER_ID);
+  fs.mkdirSync(path.join(worktree, 'pics'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'pics', 'shot.png'), await sharp({ create: { width: 32, height: 16, channels: 3, background: '#d06b4f' } }).png().toBuffer());
+  const picture = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'pics/shot.png' })).body.media as BoxMedia;
+  const boardId = await newBoard('Linked plan');
+  const box = (id: string, title: string, x: number) => ({ op: 'add', element: { kind: 'box', id, title, place: { at: { x, y: 40 } } } });
+  const put = async (ops: unknown[]) => {
+    const reply = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops });
+    assert.equal(reply.status, 200, JSON.stringify(reply.body));
+  };
+  await put([box('b', 'Second', 400), { op: 'add', element: { kind: 'box', id: 'a', title: 'First', place: { at: { x: 40, y: 40 } }, media: picture } }, { op: 'add', element: { kind: 'wire', id: 'a-b', from: 'a', to: 'b' } }]);
+  const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'board', link: '../outside' }] });
+  assert.match(String(refused.body.error), /climbs out/);
+  await put([{ op: 'board', link: 'boards/plan' }]);
+
+  const documentPath = path.join(worktree, 'boards', 'plan', 'board.jsonl');
+  const eventually = async (check: () => Promise<boolean> | boolean, label: string) => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (await check()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(await check(), label);
+  };
+  const documentText = () => (fs.existsSync(documentPath) ? fs.readFileSync(documentPath, 'utf8') : '');
+  const titlesInDocument = () => documentText().split('\n').slice(1).filter(Boolean).map((line) => JSON.parse(line) as { id: string; title?: string }).map((element) => `${element.id}:${element.title ?? ''}`);
+  await eventually(() => documentText() !== '', 'linking writes board.jsonl into the folder');
+  assert.deepEqual(titlesInDocument(), ['a:First', 'a-b:', 'b:Second'], 'one element per line, sorted by id, after the header');
+  assert.equal(fs.existsSync(path.join(worktree, 'boards', 'plan', 'media', `${picture.asset}.png`)), true, 'the media lands in media/ by its hash');
+  assert.equal(documentText().includes(worktree), false, 'the folder carries no path from this machine');
+
+  await put([{ op: 'set', id: 'b', fields: { title: 'Second, saved' } }]);
+  await eventually(() => titlesInDocument().includes('b:Second, saved'), 'a board change reaches board.jsonl within a few seconds');
+  const settledStat = fs.statSync(documentPath);
+  await boardOf(PLANNER_ID, boardId);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(fs.statSync(documentPath).mtimeMs, settledStat.mtimeMs, 'a board that did not change leaves the file alone, so git sees nothing');
+
+  const pulledText = documentText().replace('"title":"Second, saved"', '"title":"Second, pulled"');
+  await put([{ op: 'set', id: 'a', fields: { title: 'First, local' } }]);
+  fs.writeFileSync(documentPath, pulledText);
+  const merged = await boardOf(PLANNER_ID, boardId);
+  assert.deepEqual([merged.board.elements.a?.title, merged.board.elements.b?.title], ['First, local', 'Second, pulled'], 'a pulled change and an unsaved local change on other elements both survive');
+  await eventually(() => titlesInDocument().includes('a:First, local') && titlesInDocument().includes('b:Second, pulled'), 'the merged board is written back');
+
+  const listedBoard = async () => ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as { id: string; version: number; link: { path: string; state: string; text: string } | null }[]).find((board) => board.id === boardId);
+  const versionBeforeWatch = (await listedBoard())?.version ?? 0;
+  fs.writeFileSync(documentPath, documentText().replace('"title":"Second, pulled"', '"title":"Second, pulled again"'));
+  await eventually(async () => ((await listedBoard())?.version ?? 0) > versionBeforeWatch, 'the board follows the folder without being read');
+  assert.equal((await boardOf(PLANNER_ID, boardId)).board.elements.b?.title, 'Second, pulled again');
+  assert.deepEqual(((await listedBoard())?.link), { path: 'boards/plan', state: 'in-sync', text: 'In sync with the folder' });
+
+  const conflicted = `<<<<<<< HEAD\n${documentText()}=======\n>>>>>>> theirs\n`;
+  fs.writeFileSync(documentPath, conflicted);
+  const keptBoard = await boardOf(PLANNER_ID, boardId);
+  assert.equal(keptBoard.board.elements.b?.title, 'Second, pulled again', 'an unreadable file leaves the board as it was');
+  assert.equal((await listedBoard())?.link?.state, 'broken');
+  await put([{ op: 'set', id: 'b', fields: { title: 'Edited mid-merge' } }]);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(fs.readFileSync(documentPath, 'utf8'), conflicted, 'a file mid-merge is never written over');
+  fs.writeFileSync(documentPath, conflicted.split('\n').slice(1, -3).join('\n').concat('\n'));
+  await eventually(async () => (await listedBoard())?.link?.state === 'in-sync', 'a resolved file brings the link back in step');
+
+  await put([{ op: 'board', link: null }]);
+  assert.equal((await listedBoard())?.link, null);
+  await put([box('c', 'Made while unlinked', 800)]);
+  await put([{ op: 'board', link: 'boards/plan' }]);
+  await eventually(() => titlesInDocument().includes('c:Made while unlinked'), 'linking again keeps what the board gained while unlinked');
+  assert.equal((await boardOf(PLANNER_ID, boardId)).board.elements.c?.title, 'Made while unlinked');
+
+  await shutDown(fixture.booted);
+  fixture.booted = await boot();
+  await eventually(async () => (await listedBoard())?.link?.state === 'in-sync', 'a linked board picks its folder up again after a restart');
+  const versionAfterRestart = (await listedBoard())?.version ?? 0;
+  fs.writeFileSync(documentPath, documentText().replace('"title":"Made while unlinked"', '"title":"Pulled after the restart"'));
+  await eventually(async () => ((await listedBoard())?.version ?? 0) > versionAfterRestart, 'the board follows its folder after a restart without being read');
+
+  const builderDocumentPath = path.join(fixture.tmpDir, BUILDER_ID, 'boards', 'plan', 'board.jsonl');
+  await put([{ op: 'board', codeSessionId: BUILDER_ID }]);
+  await eventually(() => fs.existsSync(builderDocumentPath), 'a new code session gets the folder in its own worktree');
+  const versionBeforeMove = (await listedBoard())?.version ?? 0;
+  fs.writeFileSync(builderDocumentPath, fs.readFileSync(builderDocumentPath, 'utf8').replace('"title":"Pulled after the restart"', '"title":"Pulled in the new worktree"'));
+  await eventually(async () => ((await listedBoard())?.version ?? 0) > versionBeforeMove, 'the board follows the folder of its new worktree without being read');
+
+  fs.rmSync(path.dirname(builderDocumentPath), { recursive: true });
+  await eventually(async () => (await listedBoard())?.link?.state === 'broken', 'a folder taken away by git shows as broken');
+  await put([{ op: 'set', id: 'c', fields: { title: 'Edited while the folder is gone' } }]);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(fs.existsSync(builderDocumentPath), false, 'a folder git took away is not written back, so switching branches stays possible');
+
+  await put([{ op: 'board', link: null }]);
+  assert.equal((await listedBoard())?.link, null);
+});
+
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });
