@@ -7,6 +7,8 @@ export const DoormanGithubApp = z.strictObject({
 });
 export type DoormanGithubApp = z.infer<typeof DoormanGithubApp>;
 
+export const OFFICIAL_GITHUB_APP = { clientId: 'Iv23li7oS6MEgm5FoQ2d', slug: 'glimmervoid-cloud' } as const;
+
 export const DoormanGcpHost = z.strictObject({
   kind: z.literal('gcp'),
   project: z.string().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/),

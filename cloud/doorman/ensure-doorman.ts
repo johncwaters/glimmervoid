@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { spawn } from '../../server/child-process-safe.ts';
 import { selfLaunch } from '../../server/runtime-paths.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
-import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTableServerUrls } from '../../shared/contracts/doorman.ts';
+import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTableServerUrls, OFFICIAL_GITHUB_APP } from '../../shared/contracts/doorman.ts';
 import type { DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { GITHUB_API_BASE_ENV } from '../../shared/contracts/watcher-link.ts';
 import { watcherLinkKeyPath } from '../../server/secrets/core/secret-files-core.ts';
@@ -57,7 +57,7 @@ function localWatcherHome(glimmervoidHome: string, localPort: number): string {
 function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListenerPort }: { glimmervoidHome: string; localPort: number; bindHost: string; remoteListenerPort: number }): DoormanTenantTable {
   return {
     tenantDomain: null,
-    githubApp: null,
+    githubApp: { ...OFFICIAL_GITHUB_APP, privateKeySecret: null },
     tenants: [{
       slug: `local${String(localPort).padStart(7, '0')}`,
       serverUrl: remoteListenerUrl(bindHost, remoteListenerPort),
