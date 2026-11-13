@@ -800,6 +800,14 @@
     {
       "name": "select sheet",
       "definition": "The full-screen sheet the Select key opens on a touch Terminal screen: the terminal's screen and scrollback as plain text for native selection, with Copy screen and Copy output"
+    },
+    {
+      "name": "touch id",
+      "definition": "Touch ID, Apple's fingerprint sign-in that 1Password asks for on each vault read on a Mac; absent on a devbox or in the cloud, where a service account or Connect token stands in"
+    },
+    {
+      "name": "marketing",
+      "definition": "The marketing/ folder of the social images and videos that promote Glimmervoid (marketing/social, marketing/video); in older changelog entries, the bundled marketing agent team that the removed Teams feature ran"
     }
   ],
   "retired": [
