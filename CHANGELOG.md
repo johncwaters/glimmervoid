@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The machine login no longer reads like one of your accounts.** It now shows as This machine (Personal Max), for example, in Switch account, the session header, the new-session picker and Settings, so it is no longer a second Personal Max next to an account you named the same way.
 - **The account switch button stays put in the session header.** It sits right after the session name whether or not the session has a task title, instead of jumping to the far right when there is none.
+- **A tall page or document card on a whiteboard shows more of its content.** When a box holding an HTML page or a Markdown document is given a height, the page now fills the box down to its bottom edge at the same size, instead of staying a short window above an empty band. Image and video boxes keep their shape, and a page or document box with no set height looks the same as before.
 
 ## [0.58.1] - 2026-11-13
 

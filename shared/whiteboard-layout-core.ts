@@ -313,10 +313,21 @@ function measuredBoxShape(box: BoxWithoutPlace) {
   const boxWidth = boxWidthOf(box);
   const { titleLines, wasLines, bodyLines } = boxTextOf(box, boxWidth);
   const textHeight = BOX_PADDING + stepHeaderHeight + content.glyphRoom + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
-  const art = contentArtOf(content, boxWidth);
-  const artRoom = art ? art.height + MEDIA_GAP : 0;
-  const headerHeight = textHeight + BOX_PADDING + artRoom;
+  const naturalArt = contentArtOf(content, boxWidth);
+  const art = artFillingSpareHeight(content, naturalArt, (box.height ?? 0) - (textHeight + BOX_PADDING + artRoomOf(naturalArt)));
+  const headerHeight = textHeight + BOX_PADDING + artRoomOf(art);
   return { headerHeight, content, artTop: textHeight + MEDIA_GAP, art, height: Math.max(headerHeight, box.height ?? 0) };
+}
+
+function artRoomOf(art: ContentArt | null): number {
+  return art ? art.height + MEDIA_GAP : 0;
+}
+
+function artFillingSpareHeight(content: BoxContent, art: ContentArt | null, spareHeight: number): ContentArt | null {
+  const isScrollingMedia = content.media?.kind === 'page' || content.media?.kind === 'doc';
+  if (!art || content.device || !isScrollingMedia || spareHeight <= 0) return art;
+  const height = art.height + spareHeight;
+  return { ...art, height, screen: { ...art.screen, height } };
 }
 
 type ElementsByKind = { [Kind in Element['kind']]: Extract<Element, { kind: Kind }>[] };

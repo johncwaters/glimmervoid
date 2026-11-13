@@ -483,6 +483,10 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
       next: { ...box('next'), near: { of: 'wide', side: 'right', gap: 90 }, height: 300 },
             squat: { ...box('squat'), near: { of: 'next', side: 'bottom', gap: 30 }, width: 160, height: 1, media: picture },
       free: { kind: 'box', id: 'free', title: 'Free', at: { x: 900, y: 400 }, width: 160, media: picture },
+      'tall-page': { kind: 'box', id: 'tall-page', title: 'Page', at: { x: 0, y: 2000 }, width: 960, height: 1400, media: { kind: 'page', asset: 'b'.repeat(64), mime: 'text/html', width: 1280, height: 800 } },
+      'tall-doc': { kind: 'box', id: 'tall-doc', title: 'Doc', at: { x: 1200, y: 2000 }, height: 900, media: { kind: 'doc', asset: 'c'.repeat(64), mime: 'text/markdown', width: 800, height: 1000 } },
+      'tall-picture': { kind: 'box', id: 'tall-picture', title: 'Picture', at: { x: 1600, y: 2000 }, height: 900, media: picture },
+      'short-page': { kind: 'box', id: 'short-page', title: 'Page', at: { x: 2000, y: 2000 }, media: { kind: 'page', asset: 'b'.repeat(64), mime: 'text/html', width: 1280, height: 800 } },
     },
   });
   const boxById = new Map(layoutBoard(sizedBoard).elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : [])));
@@ -501,6 +505,14 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
   assert.equal(narrow.titleLines.length, 2);
   assert.deepEqual([wide.media?.width, wide.media?.height], [416, 208], 'the picture fills the wider inner width');
   assert.deepEqual([free.media?.width, free.media?.height], [136, 68]);
+  for (const id of ['tall-page', 'tall-doc']) {
+    const tall = boxById.get(id);
+    assert.ok(tall?.media);
+    assert.equal(tall.media.y + tall.media.height, tall.y + tall.height - 12, `${id} media fills the set box height down to its bottom padding`);
+  }
+  const tallPicture = boxById.get('tall-picture');
+  assert.deepEqual([tallPicture?.media?.width, tallPicture?.media?.height], [196, 98], 'a picture keeps its aspect in a tall box');
+  assert.deepEqual([boxById.get('short-page')?.media?.width, boxById.get('short-page')?.media?.height], [196, 123], 'a page with no set height keeps its aspect size');
   assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
   const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
