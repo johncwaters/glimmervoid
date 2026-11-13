@@ -379,7 +379,7 @@ function collectPullRequests(groups) {
   const pullRequestsByKey = new Map();
   for (const group of groups) {
     for (const item of group.items) {
-      if (item.source === 'mine') pullRequestsByKey.set(item.pr.key, item.pr);
+      if (item.source === 'mine') pullRequestsByKey.set(item.pr.key, { ...item.pr, mergeBlocker: item.mergeBlocker });
     }
   }
   pruneMergeStates(pullRequestsByKey);
@@ -433,20 +433,11 @@ function sizeCell(cell, pr) {
 }
 
 const mergeStateByKey = new Map();
-const FAILING_CHECK_STATES = new Set(['FAILURE', 'ERROR']);
-
-function isMergeable(pr) {
-  if (pr.state !== 'OPEN' || pr.isDraft || pr.isInMergeQueue) return false;
-  if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return false;
-  if (pr.checks.failing.length > 0 || FAILING_CHECK_STATES.has(pr.checks.state)) return false;
-  return pr.stage === 'ready';
-}
-
 function pruneMergeStates(pullRequestsByKey) {
   for (const [key, mergeState] of mergeStateByKey) {
     const pr = pullRequestsByKey.get(key);
     const isStillTheArmedHead = pr !== undefined && pr.headRefOid === mergeState.headRefOid;
-    if (isStillTheArmedHead && (mergeState.isBusy || isMergeable(pr))) continue;
+    if (isStillTheArmedHead && (mergeState.isBusy || pr.mergeBlocker === null)) continue;
     mergeStateByKey.delete(key);
   }
 }
@@ -477,7 +468,7 @@ function actionButton(label, onClick, isDisabled) {
 }
 
 function mergeCell(cell, pr) {
-  if (!isMergeable(pr)) return;
+  if (pr.mergeBlocker !== null) return;
   const mergeState = mergeStateByKey.get(pr.key) ?? { isBusy: false, isConfirming: false, statusText: null };
   const wrapper = element('div', 'merge-cell');
   wrapper.append(actionButton('Add to queue', () => setMergeState(pr, true), mergeState.isBusy || mergeState.isConfirming));

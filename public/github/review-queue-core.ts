@@ -7,6 +7,7 @@ import { attentionSignature } from '../attention-ack-core.ts';
 import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
+import { myPrMergeBlocker } from '#shared/my-pr-merge.ts';
 import { PRIORITY_BAND_ORDER, answeredNonNitThreads, classifyReviewPriority, draftPriorityBand, hasFailedKeepMergeableRepair, pullRequestLabel, sectionStackedMyPrs } from './github-store-core.ts';
 import type { QueueRowKind, TeamReviewSections } from './github-store-core.ts';
 import { areAllThreadsWithReviewers } from './my-prs-view-core.ts';
@@ -265,7 +266,7 @@ function teamItems(sections: TeamReviewSections): StatedItem[] {
 
 function mineItems(prs: readonly MyPr[], sessionPrKeys: ReadonlySet<string>, isKeepMergeableEnabled: boolean, viewer: string | null): StatedItem[] {
   return sectionStackedMyPrs(prs).flatMap((section) => section.rows).flatMap((stackRow) => statedItem(mineState(stackRow.pr, sessionPrKeys, isKeepMergeableEnabled, viewer), 0, mineWaitStartMs(stackRow.pr), ({ action, kind: attention }) => (
-    { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, action, attention }
+    { source: 'mine', key: `mine:${stackRow.pr.key}`, prKey: comparablePrKey(stackRow.pr), pr: stackRow.pr, stackRow, mergeBlocker: myPrMergeBlocker(stackRow.pr), action, attention }
   )));
 }
 

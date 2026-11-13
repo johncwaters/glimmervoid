@@ -26,7 +26,7 @@ const queueItemShape = {
 
 export const ReviewQueueItem = z.discriminatedUnion('source', [
   z.object({ ...queueItemShape, source: z.literal('team').describe("A teammate's pull request the review lane reviews"), kind: ReviewQueueRowKind, review: z.union([ReviewDraft, InFlightReview, QueuedReview]) }),
-  z.object({ ...queueItemShape, source: z.literal('mine').describe("One of the operator's own pull requests"), pr: MyPr, stackRow: ReviewStackRow }),
+  z.object({ ...queueItemShape, source: z.literal('mine').describe("One of the operator's own pull requests"), pr: MyPr, stackRow: ReviewStackRow, mergeBlocker: z.string().nullable().describe('Why Glimmervoid would refuse to merge it now, the same check the server runs before a merge; null when a merge is allowed') }),
 ]);
 
 const ReviewQueueGroup = z.object({ id: ReviewQueueGroupId, title: z.string(), items: z.array(ReviewQueueItem) });

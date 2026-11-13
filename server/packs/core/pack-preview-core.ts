@@ -4,6 +4,7 @@ import type { PackOnDisk } from '../../../shared/contracts/pack.ts';
 import type { ReviewsSnapshot } from '../../../shared/contracts/reviews.ts';
 import type { QueuedReview, ReviewDraft } from '../../../shared/contracts/team-review.ts';
 import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
+import { myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
 import { STATES } from '../../../shared/states.ts';
 import { themeCssColors } from '../../../shared/theme-colors-core.ts';
 
@@ -35,6 +36,7 @@ function sampleMyPr(nowMs: number, number: number, title: string, stage: MyPr['s
     reviewDecision: stage === 'ready' ? 'APPROVED' : 'REVIEW_REQUIRED',
     checks: { state: checksState, failing: checksState === 'FAILURE' ? ['test (ubuntu)'] : [], pendingCount: 0 },
     unresolvedThreads: 0, threads: [], reviewItems: [], behindBy: 0, reviewRequests: [], approvals: stage === 'ready' ? 1 : 0, reviews: [], stage,
+    additions: number * 7, deletions: number * 3,
   };
 }
 
@@ -42,13 +44,15 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
   const readyPr = sampleMyPr(nowMs, 42, 'Speed up the deck import', 'ready', 'SUCCESS');
   const failingPr = sampleMyPr(nowMs, 43, 'Fix the login redirect', 'checks-failing', 'FAILURE');
   const draftPr = sampleMyPr(nowMs, 40, 'Pin the Node version', 'draft', 'SUCCESS');
+  const queuedPr: MyPr = { ...sampleMyPr(nowMs, 41, 'Cache the card images', 'ready', 'SUCCESS'), isInMergeQueue: true, mergeQueuePosition: 2, stageSinceMs: nowMs - 12 * 60 * 1000 };
+  const mergedPr: MyPr = { ...sampleMyPr(nowMs, 39, 'Drop the legacy exporter', 'merged', 'SUCCESS'), state: 'MERGED', mergedAt: new Date(nowMs - 3 * HOUR_MS).toISOString() };
   const draft: ReviewDraft = {
     requestSource: 'direct', key: 'acme/api#9', repo: 'acme/api', number: 9, title: 'Retry webhook deliveries', url: 'https://github.com/acme/api/pull/9', author: 'other-author',
     tier: 'full', reasons: ['touches webhook delivery'], reviewedHead: SAMPLE_HEAD, verdict: 'APPROVE WITH NITS', summary: 'Retries are bounded; one nit on the backoff constant.',
     body: 'Looks good. One nit inline.', comments: [{ path: 'src/webhooks.ts', line: 12, side: 'RIGHT', body: 'Name this backoff constant.' }], status: 'ready', reviewedAt: nowMs - 10 * 60 * 1000,
   };
   const queued: QueuedReview = { requestSource: 'team', key: 'acme/api#11', repo: 'acme/api', number: 11, title: 'Bump the HTTP client', url: 'https://github.com/acme/api/pull/11', author: 'sample-author' };
-  const mineItem = (pr: MyPr, action: 'merge' | 'update' | null, attention: 'finished' | 'waiting' | null) => ({ source: 'mine' as const, key: `mine:${pr.key}`, prKey: pr.key, pr, stackRow: { pr, parentKey: null, depth: 0, stackSize: 1, stackHeight: 0 }, action, attention });
+  const mineItem = (pr: MyPr, action: 'merge' | 'update' | null, attention: 'finished' | 'waiting' | null) => ({ source: 'mine' as const, key: `mine:${pr.key}`, prKey: pr.key, pr, stackRow: { pr, parentKey: null, depth: 0, stackSize: 1, stackHeight: 0 }, mergeBlocker: myPrMergeBlocker(pr), action, attention });
   const turnItems = [
     { source: 'team' as const, key: `team:${draft.key}`, prKey: draft.key, kind: 'ready' as const, review: draft, action: 'review' as const, attention: 'waiting' as const },
     mineItem(failingPr, 'update', 'waiting'),
@@ -59,8 +63,8 @@ function sampleReviews(nowMs: number, frameIndex: number): ReviewsSnapshot {
       { id: 'turn', title: 'Your turn', items: turnItems },
       { id: 'working', title: 'Agent working', items: [] },
       { id: 'queued', title: 'Queued', items: [{ source: 'team', key: `team:${queued.key}`, prKey: queued.key, kind: 'queued', review: queued, action: null, attention: null }] },
-      { id: 'waiting', title: 'Waiting on others', items: [] },
-      { id: 'merged', title: 'Merged', items: [] },
+      { id: 'waiting', title: 'Waiting on others', items: [mineItem(queuedPr, null, null)] },
+      { id: 'merged', title: 'Merged', items: [mineItem(mergedPr, null, null)] },
       { id: 'parked', title: 'Parked', items: [mineItem({ ...draftPr, isDraft: true }, null, null)] },
     ],
   };
