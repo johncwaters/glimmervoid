@@ -22,7 +22,7 @@ const APPROVAL_FILE_NAME = "opencode-probe-approval.txt";
 const BOOT_SETTLE_MS = 8000;
 const SUBAGENT_SETTLE_MS = 15000;
 const COMPACTION_SETTLE_MS = 40000;
-const PROBE_MODEL = process.env.GLIMMERVOID_OPENCODE_PROBE_MODEL ?? "anthropic/claude-haiku-4-5";
+const PROBE_MODEL = process.env.GLIMMERVOID_OPENCODE_PROBE_MODEL ?? "";
 const SHOULD_WRITE_FIXTURES = process.argv.includes("--write-fixtures");
 const XDG_DIRECTORY_ENV_NAMES = ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"];
 
@@ -49,7 +49,7 @@ function isolateOpenCode(tempDirectory: string): void {
 }
 
 async function runProbe(tempDirectory: string): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY && PROBE_MODEL.startsWith("anthropic/")) throw new Error("set ANTHROPIC_API_KEY, or GLIMMERVOID_OPENCODE_PROBE_MODEL to a model OpenCode can reach");
+  if (!PROBE_MODEL) throw new Error("set GLIMMERVOID_OPENCODE_PROBE_MODEL to a provider/model id OpenCode can reach with the keys in this environment");
   const projectDirectory = path.join(tempDirectory, "project");
   fs.mkdirSync(projectDirectory);
   const configPath = path.join(tempDirectory, "config.json");
