@@ -83,7 +83,8 @@ function selfServiceFixture() {
       readSettings: () => ({ ok: false as const, error: 'not in this fixture' }),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir, env: process.env, examplePacksDir: path.resolve('examples/packs'),
-        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint), sources: packSources,
+        packRows: () => packStore.statusFrame().packs, isApproved: (fingerprint) => packStore.isApproved(fingerprint), dashboardPort: () => 5173,
+        isRequestDismissed: (packName) => packStore.isRequestDismissed(packName), reopenRequest: (packName) => packStore.reopenRequest(packName), sources: packSources,
       }),
       previewPackPage: (packDir) => boardPackPreviews.pageFor(packDir, path.basename(packDir)),
     },
@@ -124,7 +125,15 @@ test('an agent installs a pack, asks for approval and removes it, while only the
     const asked = await fixture.packs({ command: 'request-approval', name: 'night-shift' });
     assert.equal(asked.status, 200, asked.body.error ?? '');
     assert.equal(fixture.session.toSnapshot().pendingPromptKind, 'agent');
-    assert.match(operatorNotes.join('\n'), /night-shift.*Settings, Packs.*2 themes/);
+    assert.match(operatorNotes.join('\n'), /night-shift.*http:\/\/localhost:5173\/#pack\/night-shift .*Settings, Packs.*2 themes/);
+    assert.match(asked.body.text ?? '', /http:\/\/localhost:5173\/#pack\/night-shift /, 'the agent sees the link it prints for the operator');
+
+    fixture.packStore.dismissRequest('night-shift');
+    const statusAfterDismiss = await fixture.packs({ command: 'status', name: 'night-shift' });
+    assert.match(statusAfterDismiss.body.text ?? '', /operator dismissed your request/);
+    await fixture.packs({ command: 'request-approval', name: 'night-shift' });
+    const statusAfterAskingAgain = await fixture.packs({ command: 'status', name: 'night-shift' });
+    assert.doesNotMatch(statusAfterAskingAgain.body.text ?? '', /dismissed/, 'asking again clears the dismissal');
 
     for (const command of ['approve', 'pack-approve']) {
       const refused = await fixture.packs({ command, name: 'night-shift' });
@@ -133,6 +142,7 @@ test('an agent installs a pack, asks for approval and removes it, while only the
     for (const command of ['status', 'request-approval', 'list']) await fixture.packs({ command, name: 'night-shift' });
     assert.equal(fixture.rowNamed('night-shift')?.state, 'pending', 'no agent command approved the pack');
 
+    fixture.packStore.dismissRequest('night-shift');
     const pendingFingerprint = fixture.rowNamed('night-shift')?.fingerprint ?? '';
     assert.deepEqual(await fixture.packStore.approve(pendingFingerprint), { ok: true });
     await waitFor(() => fixture.rowNamed('night-shift')?.state === 'approved');
@@ -143,6 +153,8 @@ test('an agent installs a pack, asks for approval and removes it, while only the
     assert.match(replaced.body.text ?? '', /^Replaced night-shift/);
     await waitFor(() => fixture.rowNamed('night-shift')?.version === 2);
     assert.equal(fixture.rowNamed('night-shift')?.state, 'pending', 'a changed file asks the operator again');
+    const statusOfChangedPack = await fixture.packs({ command: 'status', name: 'night-shift' });
+    assert.doesNotMatch(statusOfChangedPack.body.text ?? '', /dismissed/, 'a dismissal covers only the files the operator dismissed');
 
     fs.rmSync(installedDir, { recursive: true });
     fs.cpSync(path.join(fixture.projectDir, 'my-pack'), installedDir, { recursive: true });

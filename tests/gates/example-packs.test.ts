@@ -49,7 +49,7 @@ test('every example panel subscribes to exactly the topics it declares and ships
 
 test('the packs guide an agent reads names every example and carries both schemas', async () => {
   const guide = await readPacksForAgent({ command: 'guide' }, {
-    homeDir: path.join(path.sep, 'home', 'operator', '.glimmervoid'), env: {}, examplePacksDir: EXAMPLE_PACKS_DIR, packRows: () => [], isApproved: () => false,
+    homeDir: path.join(path.sep, 'home', 'operator', '.glimmervoid'), env: {}, examplePacksDir: EXAMPLE_PACKS_DIR, packRows: () => [], isApproved: () => false, dashboardPort: () => 5173, isRequestDismissed: () => false, reopenRequest: () => {},
   });
   for (const exampleName of exampleNames) assert.ok(guide.text.includes(path.join(EXAMPLE_PACKS_DIR, exampleName)), exampleName);
   assert.ok(guide.text.includes(PUBLISHED_SCHEMA_ID));

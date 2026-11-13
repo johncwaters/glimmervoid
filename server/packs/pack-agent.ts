@@ -7,9 +7,10 @@ import { PACK_FILE_NAME, PackHeader, packJsonSchemaText } from '../../shared/con
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';
 import { ATTENTION_NOTE_MAX_CHARS } from '../../shared/contracts/session.ts';
 import type { AgentPacksRequest } from '../../shared/contracts/session.ts';
+import { capitalized, packApprovalUrl, packGrants } from '../../shared/pack-approval.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
-import { PACK_PANEL_CONTENT_POLICY, pendingPackNote } from './core/pack-core.ts';
+import { PACK_PANEL_CONTENT_POLICY } from './core/pack-core.ts';
 import { PACKS_DIR_NAME } from './pack-files.ts';
 import { installPack, removeInstalledPack } from './pack-install.ts';
 import type { PackSources } from './pack-sources.ts';
@@ -22,6 +23,9 @@ type PackAgentDeps = {
   examplePacksDir: string;
   packRows: () => readonly PackRow[];
   isApproved: (fingerprint: string) => boolean;
+  dashboardPort: () => number;
+  isRequestDismissed: (packName: string) => boolean;
+  reopenRequest: (packName: string) => void;
   sources?: Pick<PackSources, 'add' | 'update'>;
 };
 
@@ -83,30 +87,23 @@ function rowLines(row: PackRow): string[] {
 }
 
 function packGrantsText(row: PackRow): string {
-  const prFlowCommandCount = row.prFlows?.pack?.commands.length ?? 0;
-  const grants = [
-    ...row.panels.map((panel) => `panel ${panel.label}${panel.reads.length === 0 ? '' : ` reading ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : ` acting on ${panel.acts.join(', ')}`}`),
-    ...(row.themes.length === 0 ? [] : [`${row.themes.length} theme${row.themes.length === 1 ? '' : 's'}`]),
-    ...row.launchers.map((launcher) => `launcher ${launcher.label} starting ${launcher.agent} in ${launcher.project}${launcher.schedule === null ? '' : ` on schedule ${launcher.schedule}`}`),
-    ...(row.sessions?.dangerouslySkipPermissions ? ['sessions without permission prompts'] : []),
-    ...(row.statusUrls.length === 0 ? [] : [`status pages ${row.statusUrls.join(', ')}`]),
-    ...(row.agent?.context ? [`context ${row.agent.context.path} for every session`] : []),
-    ...((row.agent?.skills.length ?? 0) === 0 ? [] : [`skills ${(row.agent?.skills ?? []).map((skill) => skill.name).join(', ')} for every session`]),
-    ...(prFlowCommandCount === 0 ? [] : [`${prFlowCommandCount} My PRs command${prFlowCommandCount === 1 ? '' : 's'}`]),
-  ];
+  const grants = packGrants(row);
   return grants.length === 0 ? 'it adds nothing yet' : `it adds ${grants.join('; ')}`;
 }
 
-function packApprovalNote(row: PackRow): string {
-  const note = `${pendingPackNote(row)}${row.version === null ? '' : ` (v${row.version})`}: ${packGrantsText(row)}.`;
+function packApprovalNote(row: PackRow, dashboardPort: number): string {
+  const versionText = row.version === null ? '' : ` (v${row.version})`;
+  const note = `The pack '${row.name}'${versionText} waits for your approval at ${packApprovalUrl(dashboardPort, row.name)} or in Settings, Packs. ${capitalized(packGrantsText(row))}.`;
   const ellipsis = String.fromCharCode(0x2026);
   return note.length <= ATTENTION_NOTE_MAX_CHARS ? note : `${note.slice(0, ATTENTION_NOTE_MAX_CHARS - 1)}${ellipsis}`;
 }
 
-function packStatusText(row: PackRow): string {
+function packStatusText(row: PackRow, isRequestDismissed: boolean): string {
   const stateLine = {
     approved: 'Approved: it is in use.',
-    pending: 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
+    pending: isRequestDismissed
+      ? 'Pending: the operator dismissed your request to approve it, so it stays unapproved; change it or ask them before calling request-approval again.'
+      : 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
     invalid: 'Invalid: fix the errors below and install it again.',
   }[row.state];
   return [...rowLines(row), stateLine].join('\n');
@@ -132,7 +129,8 @@ function requestApprovalFor(name: string, deps: PackAgentDeps): PacksReadout {
   if (!row) return notFound(name);
   if (row.state === 'approved') return { text: `${name} is already approved.`, hasProblem: true };
   if (row.state === 'invalid') return { text: `${name} cannot be approved until its errors are fixed:\n${row.errors.join('\n')}`, hasProblem: true };
-  return { text: packApprovalNote(row), hasProblem: false };
+  deps.reopenRequest(name);
+  return { text: packApprovalNote(row, deps.dashboardPort()), hasProblem: false };
 }
 
 async function removeForAgent(name: string, deps: PackAgentDeps): Promise<PacksReadout> {
@@ -168,7 +166,7 @@ export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAg
       return installForAgent(request.path ?? '', deps);
     case 'status': {
       const row = rowNamed(request.name ?? '', deps);
-      return row ? { text: packStatusText(row), hasProblem: row.errors.length > 0 } : notFound(request.name ?? '');
+      return row ? { text: packStatusText(row, deps.isRequestDismissed(row.name)), hasProblem: row.errors.length > 0 } : notFound(request.name ?? '');
     }
     case 'request-approval':
       return requestApprovalFor(request.name ?? '', deps);

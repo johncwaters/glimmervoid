@@ -13,6 +13,7 @@ type PanelGrant = Pick<PackPanelView, 'id' | 'pack' | 'reads' | 'acts'>;
 const BLANK_FRAME_URL = 'about:blank';
 const NO_GRANT: PanelGrant = { id: '', pack: '', reads: [], acts: [] };
 const frameByViewId = new Map<string, HTMLIFrameElement>();
+let openPackView: (viewId: string) => void = () => {};
 const panelByViewId = new Map<string, PackPanelView>();
 
 export function packTabIcon(iconUrl: string): HTMLImageElement {
@@ -75,4 +76,13 @@ export function onPackPanelsChange(listener: (panels: readonly PackPanelView[]) 
   const notify = () => listener(packsSnapshot()?.panels ?? []);
   subscribePacks(notify);
   notify();
+}
+
+export function setPackViewOpener(opener: (viewId: string) => void): void {
+  openPackView = opener;
+}
+
+export function openFirstPackPanel(packName: string): void {
+  const panel = packsSnapshot()?.panels.find((candidate) => candidate.pack === packName);
+  if (panel) openPackView(panel.viewId);
 }

@@ -21,22 +21,23 @@ const sourceStatusByKey = new Map<string, { tone: ActionStatusTone; text: string
 let draftSourceUrl = '';
 let packsContainer: HTMLElement | null = null;
 
+export async function requestPackApproval(fingerprint: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const response = await sendControlRequest('pack-approve', { fingerprint }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (response.type !== 'pack-approve-result') return { ok: false, error: 'Unexpected pack approval reply.' };
+    return response.ok ? { ok: true } : { ok: false, error: response.error ?? 'Could not approve this pack.' };
+  } catch (error) {
+    return { ok: false, error: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) };
+  }
+}
+
 async function approvePack(fingerprint: string): Promise<void> {
   approveStatusByFingerprint.set(fingerprint, { tone: 'busy', text: 'Approving' });
   repaintPacks();
-  try {
-    const response = await sendControlRequest('pack-approve', { fingerprint }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
-    if (response.type !== 'pack-approve-result') throw new Error('Unexpected pack approval reply.');
-    if (!response.ok) {
-      approveStatusByFingerprint.set(fingerprint, { tone: 'error', text: response.error ?? 'Could not approve this pack.' });
-      return;
-    }
-    approveStatusByFingerprint.delete(fingerprint);
-  } catch (error) {
-    approveStatusByFingerprint.set(fingerprint, { tone: 'error', text: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) });
-  } finally {
-    repaintPacks();
-  }
+  const outcome = await requestPackApproval(fingerprint);
+  if (outcome.ok) approveStatusByFingerprint.delete(fingerprint);
+  if (!outcome.ok) approveStatusByFingerprint.set(fingerprint, { tone: 'error', text: outcome.error });
+  repaintPacks();
 }
 
 type SourceRequest =
@@ -133,7 +134,7 @@ function sourcesContent(sources: readonly PackSourceRow[]): HTMLElement[] {
   ];
 }
 
-function packHeading(row: PackRow): HTMLElement {
+export function packHeading(row: PackRow): HTMLElement {
   const heading = el('div', 'settings-view-setting-heading');
   heading.append(el('h2', 'settings-view-setting-title', row.version === null ? row.name : `${row.name} v${row.version}`), ' ', buildChip('pack-state', STATE_LABELS[row.state]));
   return heading;
@@ -188,7 +189,7 @@ function agentLines(row: PackRow): HTMLElement[] {
   ];
 }
 
-function packLines(row: PackRow): HTMLElement[] {
+export function packLines(row: PackRow): HTMLElement[] {
   const sessionsText = sessionsLine(row.sessions);
   const lines = [
     ...(row.description ? [row.description] : []),

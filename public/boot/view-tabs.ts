@@ -11,7 +11,7 @@ import { hasSession } from '../session-card/lifecycle.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
 import { getActiveView, uiState } from '../ui-state-core.ts';
 import { createDashboardViews, createPackView, mountEagerViews, mountedViewModule, relabelPackView, showView } from '../view-registry.ts';
-import { onPackPanelsChange, retirePackPanel, showPackPanel } from '../packs/pack-views.ts';
+import { onPackPanelsChange, retirePackPanel, setPackViewOpener, showPackPanel } from '../packs/pack-views.ts';
 import type { PackPanelView } from '../packs/pack-views.ts';
 import type { DashboardView } from '../view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from '../view-registry-core.ts';
@@ -310,6 +310,7 @@ function mountViewTabs() {
   for (const viewTab of VIEW_TABS) wireViewTab(viewTab);
   selectInitialView();
   onPackPanelsChange(syncPackViews);
+  setPackViewOpener(openView);
 }
 
 export {

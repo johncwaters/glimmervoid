@@ -1,0 +1,74 @@
+.terminal-link-popup[data-kind='pack'] {
+  width: min(440px, calc(100% - 16px));
+  max-height: min(60vh, 420px);
+  overflow: auto;
+}
+
+.pack-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pack-approval .settings-view-setting-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pack-approval .settings-view-setting-title {
+  margin: 0;
+  font-size: var(--type-meta);
+  font-weight: 700;
+  color: var(--text-head);
+}
+
+.pack-approval-description,
+.pack-approval-grant,
+.pack-approval-note,
+.pack-approval-error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pack-approval-description {
+  color: var(--text-head);
+}
+
+.pack-approval-error {
+  color: var(--state-failed);
+}
+
+.pack-approval-details-summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.pack-approval-details p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pack-approval-details pre {
+  margin: 4px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pack-approval-status:empty {
+  display: none;
+}
+
+.pack-approval-actions {
+  position: sticky;
+  bottom: -8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0 8px;
+  background: var(--bg-surface);
+}
