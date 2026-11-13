@@ -760,6 +760,10 @@
     {
       "name": "shares",
       "definition": "The fractions of a split's space its children take, one per child, adding up to the whole; dragging a divider between two panes moves share from one to the other"
+    },
+    {
+      "name": "repository",
+      "definition": "A git checkout a session works in; the dashboard's Add a repository step clones one from GitHub or a pasted URL into a repository root, or adds a folder that holds checkouts"
     }
   ],
   "retired": [
