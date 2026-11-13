@@ -1,7 +1,8 @@
 import type { PackRow } from '#shared/contracts/control/pack-messages.ts';
 import { capitalized, packGrants } from '#shared/pack-approval.ts';
-import { paintActionStatus } from '../action-status.ts';
+import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
+import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { openFirstPackPanel } from './pack-views.ts';
@@ -21,18 +22,37 @@ function statusLine(packName: string): HTMLElement {
   return line;
 }
 
-async function approve(row: PackRow, fingerprint: string, controls: PackApprovalControls): Promise<void> {
-  approvalStatusByPackName.set(row.name, { tone: 'busy', text: `Approving ${row.name}` });
-  controls.repaint();
-  const outcome = await requestPackApproval(fingerprint);
-  if (!outcome.ok) {
-    approvalStatusByPackName.set(row.name, { tone: 'error', text: outcome.error });
-    controls.repaint();
-    return;
+async function requestDismissal(packName: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const response = await sendControlRequest('pack-request-dismiss', { pack: packName }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+    if (response.type !== 'pack-request-dismiss-result') return { ok: false, error: 'Unexpected dismiss reply.' };
+    return response.ok ? { ok: true } : { ok: false, error: response.error ?? 'Could not dismiss this request.' };
+  } catch (error) {
+    return { ok: false, error: requestFailureText(error, DEFAULT_REPLY_TIMEOUT_MS) };
   }
-  approvalStatusByPackName.delete(row.name);
+}
+
+async function runPackRequest(packName: string, busyText: string, request: () => Promise<{ ok: true } | { ok: false; error: string }>, controls: PackApprovalControls): Promise<boolean> {
+  approvalStatusByPackName.set(packName, { tone: 'busy', text: busyText });
+  controls.repaint();
+  const outcome = await request();
+  if (!outcome.ok) {
+    approvalStatusByPackName.set(packName, { tone: 'error', text: outcome.error });
+    controls.repaint();
+    return false;
+  }
+  approvalStatusByPackName.delete(packName);
   controls.close();
-  openFirstPackPanel(row.name);
+  return true;
+}
+
+async function approve(row: PackRow, fingerprint: string, controls: PackApprovalControls): Promise<void> {
+  const isApproved = await runPackRequest(row.name, `Approving ${row.name}`, () => requestPackApproval(fingerprint), controls);
+  if (isApproved) openFirstPackPanel(row.name);
+}
+
+function dismiss(row: PackRow, controls: PackApprovalControls): Promise<boolean> {
+  return runPackRequest(row.name, `Dismissing the request for ${row.name}`, () => requestDismissal(row.name), controls);
 }
 
 function approvedBody(row: PackRow): HTMLElement[] {
@@ -50,7 +70,7 @@ function pendingBody(row: PackRow, controls: PackApprovalControls): HTMLElement[
   details.append(el('summary', 'pack-approval-details-summary', 'Show everything it adds'), ...packLines(row));
   const actions = el('div', 'pack-approval-actions');
   actions.append(
-    button({ variant: 'secondary', size: 'small', label: 'Dismiss', disabled: isBusy, onClick: controls.close }),
+    button({ variant: 'secondary', size: 'small', label: 'Dismiss', disabled: isBusy, onClick: () => { void dismiss(row, controls); } }),
     button({ variant: 'primary', size: 'small', label: 'Approve', action: 'pack-approve', disabled: !canApprove, onClick: () => { if (fingerprint !== null) void approve(row, fingerprint, controls); } }),
   );
   return [

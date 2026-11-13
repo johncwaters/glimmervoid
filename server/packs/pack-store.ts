@@ -30,6 +30,9 @@ type PackStore = EventEmitter & {
   approvedPacks(): Promise<ApprovedPacks>;
   approve(fingerprint: string): Promise<PackApproveResult>;
   isApproved(fingerprint: string): boolean;
+  dismissRequest(packName: string): void;
+  reopenRequest(packName: string): void;
+  isRequestDismissed(packName: string): boolean;
   panelPackDir(packName: string): string | null;
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
   setProviderStatuses(statusesOf: (urls: readonly string[]) => ProviderStatus[]): void;
@@ -54,6 +57,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   let approvedFingerprints = new Set<string>();
   let approvalsLoadError: string | null = null;
   let approvalWrites: Promise<unknown> = Promise.resolve();
+  const dismissedFingerprintByPackName = new Map<string, string>();
   const packsDir = path.join(homeDir, PACKS_DIR_NAME);
   const readsByDir = new Map<string, PackRead>();
   const reloadTimersByDir = new Map<string, NodeJS.Timeout>();
@@ -272,6 +276,20 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     emitter.removeAllListeners();
   }
 
+  function pendingFingerprintOf(packName: string): string | null {
+    return rows().find((row) => row.name === packName && row.state === 'pending')?.fingerprint ?? null;
+  }
+
+  function dismissRequest(packName: string): void {
+    const fingerprint = pendingFingerprintOf(packName);
+    if (fingerprint !== null) dismissedFingerprintByPackName.set(packName, fingerprint);
+  }
+
+  function isRequestDismissed(packName: string): boolean {
+    const dismissedFingerprint = dismissedFingerprintByPackName.get(packName);
+    return dismissedFingerprint !== undefined && dismissedFingerprint === pendingFingerprintOf(packName);
+  }
+
   function panelPackDir(packName: string): string | null {
     const entry = packEntriesInUse().find(({ pack }) => pack.header.name === packName && pack.ui?.ok === true && pack.ui.value.panels.length > 0);
     return entry?.packDir ?? null;
@@ -279,6 +297,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   return Object.assign(emitter, {
     start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
+    dismissRequest, reopenRequest: (packName: string) => { dismissedFingerprintByPackName.delete(packName); }, isRequestDismissed,
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     setProviderStatuses: (statusesOf: (urls: readonly string[]) => ProviderStatus[]) => { providerStatusesOf = statusesOf; },
     setSourceRows: (sourceRows: () => readonly PackSourceRow[]) => { sourceRowsOf = sourceRows; },

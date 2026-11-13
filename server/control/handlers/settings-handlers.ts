@@ -460,6 +460,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     reply(await deps.packs.approve(parsed.data.fingerprint));
   }
 
+  function handlePackRequestDismiss(msg: ClientMessageOf<'pack-request-dismiss'>, ws: ControlSocket): void {
+    if (!deps.packs) { replyTo(ws, msg, 'pack-request-dismiss-result', { ok: false, error: 'Packs are not running' }); return; }
+    deps.packs.dismissRequest(msg.pack);
+    replyTo(ws, msg, 'pack-request-dismiss-result', { ok: true });
+  }
+
   async function handlePackDataGet(msg: ClientMessageOf<'pack-data-get'>, ws: ControlSocket): Promise<void> {
     if (!deps.packData) { replyTo(ws, msg, 'pack-data-result', { ok: false, error: 'Packs are not running' }); return; }
     replyTo(ws, msg, 'pack-data-result', await deps.packData.get(msg.pack));
@@ -502,6 +508,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'save-hook': handleSaveHook,
     'delete-hook': handleDeleteHook,
     'pack-approve': handlePackApprove,
+    'pack-request-dismiss': handlePackRequestDismiss,
     'pack-data-get': handlePackDataGet,
     'pack-data-set': handlePackDataSet,
     'pack-source-add': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.add(msg.url)),
@@ -532,6 +539,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),
     'delete-hook': (_msg, requestId, message) => ({ type: 'delete-hook-result', requestId, ok: false, error: message }),
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
+    'pack-request-dismiss': (_msg, requestId, message) => ({ type: 'pack-request-dismiss-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-source-add': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),

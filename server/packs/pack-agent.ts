@@ -24,6 +24,8 @@ type PackAgentDeps = {
   packRows: () => readonly PackRow[];
   isApproved: (fingerprint: string) => boolean;
   dashboardPort: () => number;
+  isRequestDismissed: (packName: string) => boolean;
+  reopenRequest: (packName: string) => void;
   sources?: Pick<PackSources, 'add' | 'update'>;
 };
 
@@ -96,10 +98,12 @@ function packApprovalNote(row: PackRow, dashboardPort: number): string {
   return note.length <= ATTENTION_NOTE_MAX_CHARS ? note : `${note.slice(0, ATTENTION_NOTE_MAX_CHARS - 1)}${ellipsis}`;
 }
 
-function packStatusText(row: PackRow): string {
+function packStatusText(row: PackRow, isRequestDismissed: boolean): string {
   const stateLine = {
     approved: 'Approved: it is in use.',
-    pending: 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
+    pending: isRequestDismissed
+      ? 'Pending: the operator dismissed your request to approve it, so it stays unapproved; change it or ask them before calling request-approval again.'
+      : 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
     invalid: 'Invalid: fix the errors below and install it again.',
   }[row.state];
   return [...rowLines(row), stateLine].join('\n');
@@ -125,6 +129,7 @@ function requestApprovalFor(name: string, deps: PackAgentDeps): PacksReadout {
   if (!row) return notFound(name);
   if (row.state === 'approved') return { text: `${name} is already approved.`, hasProblem: true };
   if (row.state === 'invalid') return { text: `${name} cannot be approved until its errors are fixed:\n${row.errors.join('\n')}`, hasProblem: true };
+  deps.reopenRequest(name);
   return { text: packApprovalNote(row, deps.dashboardPort()), hasProblem: false };
 }
 
@@ -161,7 +166,7 @@ export async function readPacksForAgent(request: AgentPacksRequest, deps: PackAg
       return installForAgent(request.path ?? '', deps);
     case 'status': {
       const row = rowNamed(request.name ?? '', deps);
-      return row ? { text: packStatusText(row), hasProblem: row.errors.length > 0 } : notFound(request.name ?? '');
+      return row ? { text: packStatusText(row, deps.isRequestDismissed(row.name)), hasProblem: row.errors.length > 0 } : notFound(request.name ?? '');
     }
     case 'request-approval':
       return requestApprovalFor(request.name ?? '', deps);

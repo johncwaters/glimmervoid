@@ -65,6 +65,7 @@ const PackPanelRequest = { requestId, pack: PackName, panelId: z.string().min(1)
 
 export const packClientVariants = [
   loose('pack-approve', { ...PackApproveRequest.shape, requestId }),
+  loose('pack-request-dismiss', { requestId, pack: PackName }).describe('The operator dismissed an agent request to approve this pack; it stays pending and packs status tells the agent'),
   loose('pack-data-get', PackDataRequest),
   loose('pack-data-set', { ...PackDataRequest, key: PackStoreKey, value: PackStoreValue }),
   loose('pack-launch', { requestId, pack: PackName, launcherId: z.string().min(1).max(40) }),
@@ -80,6 +81,7 @@ export const packClientVariants = [
 export const packServerVariants = [
   PacksStatus,
   loose('pack-approve-result', { requestId, ok: z.boolean(), error: optionalError }),
+  loose('pack-request-dismiss-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-data-result', { requestId, ok: z.boolean(), data: PackStoreData.optional(), error: optionalError }),
   loose('pack-session-send-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-source-result', { requestId, ok: z.boolean(), text: z.string().optional(), error: optionalError }),
