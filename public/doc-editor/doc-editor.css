@@ -4,7 +4,9 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  width: min(calc(60rem + 34px), calc(100vw - 64px));
+  width: var(--doc-sheet-width, fit-content);
+  min-width: min(var(--doc-sheet-width, calc(60rem + 34px)), calc(100vw - 64px));
+  max-width: calc(100vw - 64px);
   height: calc(100dvh - 48px);
   border: 1px solid var(--border-hover);
   border-radius: var(--radius-lg);
@@ -13,6 +15,7 @@
   overflow: hidden;
   font-family: var(--font-mono);
 }
+.doc-editor > .sheet-width-handle { position: absolute; top: 0; right: 0; bottom: 0; z-index: 5; width: var(--sheet-width-handle); }
 .doc-editor-controls { position: absolute; top: 22px; right: 22px; z-index: 4; display: flex; align-items: center; gap: 2px; max-width: calc(100% - 44px); padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-surface); }
 .doc-editor-controls > [hidden] { display: none; }
 .doc-editor-picker { flex: 0 1 auto; min-width: 0; max-width: 24ch; text-transform: none; letter-spacing: 0; }
@@ -37,11 +40,13 @@
 .doc-markup-card > [hidden] { display: none; }
 .doc-markup-card-divider { align-self: stretch; width: 1px; margin: 4px 2px; background: var(--border-hover); }
 .doc-markup-paper { padding-block: 44px 24px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); }
-.doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto calc(var(--type-doc-body) * 1.75 * 40); }
-.doc-markup-row { display: grid; grid-template-columns: minmax(0, 60rem); justify-content: center; }
+.doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto 0px auto calc(var(--type-doc-body) * 1.75 * 40); }
+.doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+.doc-markup-row > :is(.doc-markup-line, .doc-preview-block, .doc-markup-row-margin) { box-sizing: border-box; width: 100%; max-width: 60rem; justify-self: center; }
+.doc-markup-row > .doc-preview-block:has(.plan-table-wrap) { max-width: none; }
 .doc-markup-line { min-height: calc(var(--type-doc-body) * 1.75); padding: 0 32px; font-family: var(--font-doc); font-synthesis-style: auto; font-size: var(--type-doc-body); line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .doc-markup-row-margin { position: relative; }
-.doc-markup-row > .doc-preview-toggle { grid-area: 1 / 1; justify-self: start; margin: 8px 0 4px 32px; }
+.doc-markup-row > .doc-preview-toggle { grid-area: 1 / 1; justify-self: start; margin: 8px 0 4px calc(max(0px, (100% - 60rem) / 2) + 32px); }
 .doc-markup-row > :is(.doc-markup-line, .doc-preview-block) { grid-area: 2 / 1; }
 .doc-markup-row > .doc-markup-row-margin { grid-area: 3 / 1; }
 .doc-preview-block { padding: 8px 32px 4px; font-family: var(--font-doc); }
@@ -98,8 +103,9 @@ html[data-layout="phone"] .doc-markup-card { left: 0; }
 html[data-layout="phone"] .doc-markup-composer { left: 0; right: 0; width: auto; }
 html[data-layout="phone"] .doc-markup-line { padding-inline: 16px 12px; }
 html[data-layout="phone"] .doc-markup-line:not([data-block="h1"], [data-block="h2"], [data-block="h3"]) { min-height: calc(var(--type-doc-body) * 1.5); line-height: 1.5; }
-html[data-layout="phone"] .doc-editor { width: 100vw; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+html[data-layout="phone"] .doc-editor { width: 100vw; min-width: 0; max-width: none; height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
 html[data-layout="phone"] .doc-editor-controls { position: static; flex: 0 0 auto; justify-content: flex-end; max-width: none; padding: max(6px, env(safe-area-inset-top)) 8px 6px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: var(--bg-header); }
+html[data-layout="phone"] .doc-editor > .sheet-width-handle { display: none; }
 html[data-layout="phone"] .doc-editor-picker { flex: 1 1 0; max-width: none; }
 html[data-layout="phone"] .doc-editor-body { padding: 12px; }
 html[data-layout="phone"] .doc-editor-footer :is(.doc-editor-status-text, .doc-markup-hint):not([data-tone="warn"]) { display: none; }

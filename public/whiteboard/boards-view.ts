@@ -10,7 +10,7 @@ import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
-import { wireColumnResizer } from '../column-resizer.ts';
+import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
@@ -719,7 +719,6 @@ function openBoardDoc(boardId: string, boxId: string): void {
 
 const VIEWER_WIDTH_BOUNDS = { minPx: 240, maxPx: BOARD_MEDIA_MAX_EDGE_PX };
 const VIEWER_WIDTH_KEY_STEP_PX = 40;
-const VIEWER_HANDLE_WIDTH_PX = 8;
 const MIN_PAGE_SCALE = 1 / MAX_MEDIA_SCALE;
 
 type PageWidths = { contentWidth: number; layoutWidth: number };
@@ -734,7 +733,7 @@ function createViewerSizing(zoomStage: HTMLElement, mediaSheet: HTMLElement): Vi
     mediaSheet.style.setProperty('--wb-page-scale', String(pageScale));
   };
   const refit = () => {
-    const visibleWidthPx = mediaSheet.clientWidth - VIEWER_HANDLE_WIDTH_PX;
+    const visibleWidthPx = mediaSheet.clientWidth - SHEET_WIDTH_HANDLE_PX;
     if (operatorWidthPx !== null || visibleWidthPx <= 0) return;
     if (contentWidthPx === null) {
       showAtScale(1);
@@ -762,23 +761,11 @@ function createViewerSizing(zoomStage: HTMLElement, mediaSheet: HTMLElement): Vi
   };
 }
 
-function viewerWidthHandle(): HTMLElement {
-  const widthHandle = el('div', 'wb-image-viewer-resizer');
-  widthHandle.setAttribute('role', 'separator');
-  widthHandle.setAttribute('aria-orientation', 'vertical');
-  widthHandle.setAttribute('aria-label', 'Media width');
-  widthHandle.tabIndex = 0;
-  widthHandle.addEventListener('pointerdown', (event) => event.stopPropagation());
-  widthHandle.addEventListener('dblclick', (event) => event.stopPropagation());
-  return widthHandle;
-}
-
 function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthHandle: HTMLElement, viewerSizing: ViewerSizing): void {
-  mediaSheet.style.setProperty('--wb-viewer-handle', `${VIEWER_HANDLE_WIDTH_PX}px`);
-  wireColumnResizer({
-    resizer: widthHandle,
-    column: mediaSheet,
+  wireSheetWidth({
     widthHost: zoomStage,
+    sheet: mediaSheet,
+    handle: widthHandle,
     widthProperty: '--wb-viewer-width',
     bounds: VIEWER_WIDTH_BOUNDS,
     keyStepPx: VIEWER_WIDTH_KEY_STEP_PX,
@@ -808,7 +795,7 @@ function openImageViewer(pressedImage: PressedImage): void {
   enlargedMedia.classList.add('wb-image-viewer-media');
   const zoomStage = el('div', 'wb-image-viewer-stage');
   const mediaSheet = el('div', 'wb-image-viewer-sheet');
-  const widthHandle = viewerWidthHandle();
+  const widthHandle = sheetWidthHandle('Media width');
   mediaSheet.append(enlargedMedia, widthHandle);
   zoomStage.append(mediaSheet);
   dialog.append(zoomStage);

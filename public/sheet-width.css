@@ -1,0 +1,12 @@
+.sheet-width-handle {
+  flex: 0 0 var(--sheet-width-handle);
+  cursor: col-resize;
+  touch-action: none;
+  background: color-mix(in oklch, var(--border) 70%, transparent);
+}
+
+.sheet-width-handle[data-dragging],
+.sheet-width-handle:focus-visible { outline: none; background: color-mix(in oklch, var(--accent) 40%, transparent); }
+@media (hover: hover) {
+  .sheet-width-handle:hover { background: color-mix(in oklch, var(--accent) 40%, transparent); }
+}

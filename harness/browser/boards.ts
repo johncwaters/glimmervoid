@@ -21,6 +21,9 @@ const RESIZE_TIMEOUT_MS = 5000;
 const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
+const WIDE_TABLE_DOC_BOX_ID = 'wide-table';
+const WIDE_TABLE_CELL = 'Open docs-PR list up to 20x100, comments read per writer PR, `posthog/egress/github/README.md:44` and `VIDEO_EXPORT_TASK_QUEUE` stay readable';
+const WIDE_TABLE_DOC = `# Findings\n\nProse keeps its reading width.\n\n| ${Array.from({ length: 8 }, (_, column) => `Column ${column}`).join(' | ')} |\n|${' --- |'.repeat(8)}\n| ${Array.from({ length: 8 }, () => WIDE_TABLE_CELL).join(' | ')} |\n`;
 const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n\nSee [the spec](https://example.com/spec) here.\n';
 const BOARD_DOC_LINK_URL = 'https://example.com/spec';
 const LINKED_DOC_BOX_ID = 'linked-doc';
@@ -447,6 +450,30 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
 }
 
+async function verifyWideTableDoc(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const wideTableMedia = await uploadBoardDoc(page, WIDE_TABLE_DOC, 'findings.md');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: WIDE_TABLE_DOC_BOX_ID, title: 'Findings', place: { at: { x: 40, y: 160 } }, media: wideTableMedia } }] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  await clickElement(open, WIDE_TABLE_DOC_BOX_ID);
+  const editor = page.locator('.doc-editor');
+  const tableWrap = editor.locator('.doc-preview-block .plan-table-wrap');
+  await tableWrap.waitFor();
+  const widths = await editor.evaluate((sheet) => ({
+    sheet: sheet.getBoundingClientRect().width,
+    prose: sheet.querySelector('.doc-markup-line')?.getBoundingClientRect().width ?? 0,
+    readingWidth: parseFloat(getComputedStyle(document.documentElement).fontSize) * 60,
+    tableOverflow: [...sheet.querySelectorAll('.plan-table-wrap')].map((wrap) => wrap.scrollWidth - wrap.clientWidth),
+  }));
+  assert.ok(widths.sheet > widths.readingWidth + 100, `a doc with a wide table grows past its reading width (sheet ${widths.sheet})`);
+  assert.ok(widths.prose <= widths.readingWidth + 1, `prose keeps its reading width (line ${widths.prose})`);
+  assert.deepEqual(widths.tableOverflow, [0], 'the wide table fits its sheet with no horizontal scroll');
+  await page.keyboard.press('Escape');
+  await editor.waitFor({ state: 'detached' });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: WIDE_TABLE_DOC_BOX_ID }] });
+  await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
+}
+
 async function uploadBoardDoc(page: Page, docText: string, uploadName: string) {
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, text, name }) => {
     const response = await fetch(assetRoute, { method: 'POST', body: text, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': name } });
@@ -814,7 +841,7 @@ async function untilSheetWidthOf(page: Page, expectedWidth: number, message: str
 
 async function verifyViewerWidthHandle(page: Page, media: Locator): Promise<void> {
   const viewer = page.locator('.wb-image-viewer');
-  const widthHandle = viewer.locator('.wb-image-viewer-resizer');
+  const widthHandle = viewer.locator('.sheet-width-handle');
   await viewer.evaluate((dialog) => Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished)));
   const fullWidth = (await viewer.locator('.wb-image-viewer-sheet').boundingBox())?.width;
   const handleBounds = await widthHandle.boundingBox();
@@ -1179,6 +1206,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
     if (desktopBoard) await verifyBoardDoc(open);
+    if (desktopBoard) await verifyWideTableDoc(open);
     const isComicMonoLoaded = await page.evaluate(async () => {
       await document.fonts.ready;
       return document.fonts.check('700 16px ComicMono');

@@ -36,7 +36,7 @@ ul.plan-list { list-style: disc; }
 .plan-table-wrap { margin: 0 0 1.2em; }
 .plan-table { width: 100%; border-collapse: collapse; }
 .plan-table th,
-.plan-table td { padding: 7px 9px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.plan-table td { padding: 7px 9px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .plan-table th { color: var(--text-head); background: var(--bg-surface); }
 .plan-blockquote { margin: 0 0 1em; padding: 10px 14px; border: 1px solid var(--border-dim); color: var(--text-dim); }
 .plan-rule { margin: 20px 0; border: 0; border-top: 1px solid var(--border); }

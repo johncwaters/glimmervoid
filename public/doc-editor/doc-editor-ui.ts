@@ -6,6 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { applyDialogAria, createModalOverlay, openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, previewEveryBlockOf, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
 import type { MarkupHost } from './markup-pane.ts';
 
@@ -245,6 +246,10 @@ export function openDocEditor(sessionId: string) {
   openDocEditorOn(sessionDocSource(sessionId));
 }
 
+const DOC_SHEET_WIDTH_BOUNDS = { minPx: 320, maxPx: 16384 };
+const DOC_SHEET_WIDTH_KEY_STEP_PX = 40;
+const DOC_SHEET_MARGIN_PX = 64;
+
 export function openDocEditorOn(source: DocSource) {
   const firstDoc = source.docs()[0];
   if (!firstDoc || openEditor) return;
@@ -267,8 +272,21 @@ export function openDocEditorOn(source: DocSource) {
   const textarea = el('textarea');
   const body = el('div', 'doc-editor-body');
   body.append(markup.root);
-  modal.dialog.append(title, controls, body, footer);
+  const widthHandle = sheetWidthHandle('Doc width');
+  modal.dialog.append(title, controls, body, footer, widthHandle);
   applyDialogAria(modal.dialog, titleId);
+  let operatorWidthPx: number | null = null;
+  wireSheetWidth({
+    widthHost: modal.overlay,
+    sheet: modal.dialog,
+    handle: widthHandle,
+    widthProperty: '--doc-sheet-width',
+    bounds: DOC_SHEET_WIDTH_BOUNDS,
+    keyStepPx: DOC_SHEET_WIDTH_KEY_STEP_PX,
+    reservePx: DOC_SHEET_MARGIN_PX,
+    getStoredWidth: () => operatorWidthPx,
+    setStoredWidth: (widthPx) => { operatorWidthPx = widthPx; },
+  });
 
   const currentEditor: OpenEditor = {
     source, docPath: firstDoc.path, openedDocPath: null, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,

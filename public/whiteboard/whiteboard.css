@@ -578,26 +578,13 @@
   object-fit: contain;
 }
 
-.wb-image-viewer-resizer {
-  flex: 0 0 var(--wb-viewer-handle);
-  cursor: col-resize;
-  touch-action: none;
-  background: color-mix(in oklch, var(--border) 70%, transparent);
-}
-
-.wb-image-viewer-resizer[data-dragging],
-.wb-image-viewer-resizer:focus-visible { outline: none; background: color-mix(in oklch, var(--accent) 40%, transparent); }
-@media (hover: hover) {
-  .wb-image-viewer-resizer:hover { background: color-mix(in oklch, var(--accent) 40%, transparent); }
-}
-
-.wb-image-viewer-stage.is-zoomed .wb-image-viewer-resizer { display: none; }
+.wb-image-viewer-stage.is-zoomed .sheet-width-handle { display: none; }
 
 .wb-image-viewer-sheet > .wb-image-viewer-page {
   flex: none;
-  width: calc((100% - var(--wb-viewer-handle)) / var(--wb-page-scale, 1));
+  width: calc((100% - var(--sheet-width-handle)) / var(--wb-page-scale, 1));
   height: calc(100% / var(--wb-page-scale, 1));
-  margin-right: calc((100% - var(--wb-viewer-handle)) * (1 - 1 / var(--wb-page-scale, 1)));
+  margin-right: calc((100% - var(--sheet-width-handle)) * (1 - 1 / var(--wb-page-scale, 1)));
   transform: scale(var(--wb-page-scale, 1));
   transform-origin: 0 0;
 }
