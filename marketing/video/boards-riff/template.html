@@ -232,14 +232,14 @@ const WALL_ADVANCE = WALL.size * MONO_ADVANCE_EM;
 const WALL_MAX_CHARS = Math.floor((TERMINAL.openWidth - 50) / WALL_ADVANCE);
 
 const SETTINGS_ROWS = [
-  { title: "Profile", detail: "Name, avatar, email" },
-  { title: "Billing", detail: "Plan and invoices" },
-  { title: "Alerts", detail: "Email and push" },
-  { title: "Danger zone", detail: "Delete account" },
+  { title: "Profile", detail: "ada@park.dev", lead: "avatar", trail: "chevron", titleColor: COLOR.textHead },
+  { title: "Billing", detail: "Pro plan, $12/mo", lead: "payment", tile: COLOR.watching, trail: "chevron", titleColor: COLOR.textHead },
+  { title: "Alerts", detail: "Email and push", lead: "bell", tile: COLOR.waiting, trail: "toggle", titleColor: COLOR.textHead },
+  { title: "Danger zone", detail: "Delete account", lead: "alert", tile: COLOR.failed, trail: "chevron", titleColor: COLOR.failed },
 ];
 const PHONE = { left: -180, top: -390, right: 180, bottom: 390 };
-const ROW = { left: -160, right: 160, firstTop: -280, pitch: 108, height: 96 };
-const SAVE = { left: -150, right: 150, height: 72, pinnedTop: 290, movedTop: ROW.firstTop + 4 * ROW.pitch + 14 };
+const ROW = { left: -160, right: 160, textLeft: -88, firstTop: -280, pitch: 108, height: 96 };
+const SAVE = { left: -160, right: 160, height: 72, pinnedTop: 290, movedTop: ROW.firstTop + 4 * ROW.pitch + 14 };
 const rowTop = (rowIndex) => ROW.firstTop + rowIndex * ROW.pitch;
 const TITLE_SIZE = 30;
 const TITLE_ADVANCE = TITLE_SIZE * MONO_ADVANCE_EM;
@@ -285,7 +285,7 @@ function heroLandsAt(heroIndex) {
 function heroTargetScreen(heroIndex) {
   const target = HERO_TARGETS[heroIndex];
   if (target.rowIndex < 0) return sceneToDashboard(960 - (target.word.length * TITLE_ADVANCE) / 2, 540 + SAVE.pinnedTop + 46);
-  return sceneToDashboard(960 + ROW.left + 28 + target.offsetChars * TITLE_ADVANCE, 540 + rowTop(target.rowIndex) + 42);
+  return sceneToDashboard(960 + ROW.textLeft + target.offsetChars * TITLE_ADVANCE, 540 + rowTop(target.rowIndex) + 42);
 }
 
 function drawWall(time) {
@@ -386,12 +386,33 @@ function drawPhone(time) {
   if (outline <= 0) return "";
   const perimeter = 2 * (PHONE.right - PHONE.left + PHONE.bottom - PHONE.top);
   const header = easeOutQuart(progressBetween(time, TIMELINE.phoneDraw + 0.5, ARRIVE_SECONDS));
-  const frame = `<rect x="${PHONE.left}" y="${PHONE.top}" width="${PHONE.right - PHONE.left}" height="${PHONE.bottom - PHONE.top}" rx="30" fill="${COLOR.card}" fill-opacity="${outline}" stroke="${COLOR.boxStroke}" stroke-width="3" stroke-dasharray="${perimeter}" stroke-dashoffset="${perimeter * (1 - outline)}"/>` +
-    `<g opacity="${header}">${textElement(ROW.left, PHONE.top + 72, "Settings", { size: 36, weight: 700, fill: COLOR.textHead })}</g>`;
+  const frame = `<rect x="${PHONE.left}" y="${PHONE.top}" width="${PHONE.right - PHONE.left}" height="${PHONE.bottom - PHONE.top}" rx="48" fill="${COLOR.card}" fill-opacity="${outline}" stroke="${COLOR.boxStroke}" stroke-width="3" stroke-dasharray="${perimeter}" stroke-dashoffset="${perimeter * (1 - outline)}"/>` +
+    `<g opacity="${header}">${drawPhoneChrome()}${drawPhoneChevron(ROW.left + 8, PHONE.top + 84, -1, COLOR.accent)}${textElement(ROW.left + 30, PHONE.top + 94, "Settings", { size: 34, weight: 700, fill: COLOR.textHead })}</g>`;
   const rows = SETTINGS_ROWS.map((row, rowIndex) => drawSettingsRow(row, rowIndex, time)).join("");
   return frame + rows + drawSaveButton(time);
 }
 
+function drawPhoneChrome() {
+  const signalBars = [0, 1, 2, 3].map((bar) => `<rect x="${78 + bar * 7}" y="${PHONE.top + 40 - 5 - bar * 3}" width="4.5" height="${5 + bar * 3}" rx="1" fill="${COLOR.textHead}"/>`).join("");
+  const battery = `<rect x="${112}" y="${PHONE.top + 26}" width="30" height="15" rx="4" fill="none" stroke="${COLOR.textHead}" stroke-width="1.6" opacity="0.6"/>` +
+    `<rect x="${115}" y="${PHONE.top + 29}" width="20" height="9" rx="2" fill="${COLOR.textHead}"/><rect x="${143.5}" y="${PHONE.top + 31}" width="2.5" height="5" rx="1" fill="${COLOR.textHead}" opacity="0.6"/>`;
+  return `<rect x="-52" y="${PHONE.top + 16}" width="104" height="30" rx="15" fill="#000"/>` +
+    textElement(PHONE.left + 40, PHONE.top + 40, "9:41", { size: 19, weight: 700, fill: COLOR.textHead }) + signalBars + battery +
+    `<rect x="-66" y="${PHONE.bottom - 20}" width="132" height="6" rx="3" fill="${COLOR.textHead}" opacity="0.8"/>`;
+}
+function drawPhoneChevron(x, y, direction, color) {
+  return `<polyline points="${x - 5 * direction},${y - 10} ${x + 5 * direction},${y} ${x - 5 * direction},${y + 10}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+}
+function drawRowLead(row, top) {
+  const centerY = top + ROW.height / 2;
+  if (row.lead === "avatar") return `<circle cx="${ROW.left + 36}" cy="${centerY}" r="22" fill="${COLOR.accentDim}"/>` + textElement(ROW.left + 36, centerY + 7, "AP", { size: 19, weight: 700, fill: COLOR.textHead, anchor: "middle" });
+  return `<rect x="${ROW.left + 14}" y="${centerY - 22}" width="44" height="44" rx="11" fill="${row.tile}"/>` + drawIcon(row.lead, ROW.left + 23, centerY - 13, 26, COLOR.bg);
+}
+function drawRowTrail(row, top) {
+  const centerY = top + ROW.height / 2;
+  if (row.trail === "chevron") return drawPhoneChevron(ROW.right - 22, centerY, 1, COLOR.textMuted);
+  return `<rect x="${ROW.right - 66}" y="${centerY - 15}" width="52" height="30" rx="15" fill="${COLOR.running}"/><circle cx="${ROW.right - 29}" cy="${centerY}" r="12" fill="${COLOR.textHead}"/>`;
+}
 function drawSettingsRow(row, rowIndex, time) {
   const firstHero = HERO_TARGETS.findIndex((target) => target.rowIndex === rowIndex);
   const lastHero = HERO_TARGETS.findLastIndex((target) => target.rowIndex === rowIndex);
@@ -402,13 +423,13 @@ function drawSettingsRow(row, rowIndex, time) {
   const titleColor = progressBetween(time, heroLandsAt(lastHero), 0.6);
   const titles = HERO_TARGETS.map((target, heroIndex) => ({ target, heroIndex })).filter(({ target, heroIndex }) => target.rowIndex === rowIndex && time >= heroLandsAt(heroIndex));
   const titleText = titles.map(({ target, heroIndex }) => {
-    const x = ROW.left + 28 + target.offsetChars * TITLE_ADVANCE;
+    const x = ROW.textLeft + target.offsetChars * TITLE_ADVANCE;
     const settle = progressBetween(time, heroLandsAt(heroIndex), 0.6);
     return textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: COLOR.accent, opacity: 1 - settle }) +
-      textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: COLOR.textHead, opacity: settle });
+      textElement(x, top + 42, target.word, { size: TITLE_SIZE, weight: 700, fill: row.titleColor, opacity: settle });
   }).join("");
-  const detail = titleShown ? textElement(ROW.left + 28, top + 76, row.detail, { size: 20, fill: COLOR.textDim, opacity: titleColor }) : "";
-  return `<g opacity="${appear}" transform="translate(0 ${(1 - appear) * 16})"><rect x="${ROW.left}" y="${top}" width="${ROW.right - ROW.left}" height="${ROW.height}" rx="4" fill="${COLOR.surface}" stroke="${COLOR.accentDim}" stroke-width="2"/></g>` + titleText + detail;
+  const detail = titleShown ? textElement(ROW.textLeft, top + 76, row.detail, { size: 20, fill: COLOR.textMuted, opacity: titleColor }) : "";
+  return `<g opacity="${appear}" transform="translate(0 ${(1 - appear) * 16})"><rect x="${ROW.left}" y="${top}" width="${ROW.right - ROW.left}" height="${ROW.height}" rx="16" fill="${COLOR.surface}"/>${drawRowLead(row, top)}${drawRowTrail(row, top)}</g>` + titleText + detail;
 }
 
 function drawSaveButton(time) {
@@ -421,7 +442,7 @@ function drawSaveButton(time) {
   const dive = diveProgressAt(time);
   const portal = easeInOutCubic(progressBetween(dive, 0.55, 0.25));
   const labelFade = 1 - easeInOutCubic(progressBetween(dive, 0.15, 0.2));
-  return `<g opacity="${appear}"><rect x="${SAVE.left}" y="${top}" width="${SAVE.right - SAVE.left}" height="${SAVE.height}" rx="4" fill="${mixColor(COLOR.accent, COLOR.bg, portal)}"/></g>` +
+  return `<g opacity="${appear}"><rect x="${SAVE.left}" y="${top}" width="${SAVE.right - SAVE.left}" height="${SAVE.height}" rx="16" fill="${mixColor(COLOR.accent, COLOR.bg, portal)}"/></g>` +
     (label ? textElement(0, top + 49, "Save", { size: TITLE_SIZE, weight: 700, fill: COLOR.bg, anchor: "middle", opacity: settle * labelFade }) : "");
 }
 
@@ -629,7 +650,7 @@ const BOARD_LOOK = {
   strokeWidth: 2.5, radius: 12, inset: 20, mutedIndent: 22, iconSize: 24, arrowLength: 20, arrowHalfWidth: 8, wireDot: 5,
 };
 const STEP_STATUS_COLOR = { planned: BOARD_LOOK.muted, building: COLOR.waiting, landed: COLOR.running };
-const ICON_ELEMENTS = {"browser": ["<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>", "<path d=\"M10 4v4\"/>", "<path d=\"M2 8h20\"/>", "<path d=\"M6 4v4\"/>"], "phone": ["<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/>", "<path d=\"M12 18h.01\"/>"], "shield": ["<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>"], "api": ["<path d=\"M12 22v-5\"/>", "<path d=\"M9 8V2\"/>", "<path d=\"M15 8V2\"/>", "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>"], "activity": ["<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>"], "queue": ["<path d=\"M10 12h11\"/>", "<path d=\"M10 18h11\"/>", "<path d=\"M10 6h11\"/>", "<path d=\"M4 10h2\"/>", "<path d=\"M4 6h1v4\"/>", "<path d=\"M6 18H4c0-1 2-2 2-3s-1-1.5-2-1\"/>"], "cpu": ["<rect width=\"16\" height=\"16\" x=\"4\" y=\"4\" rx=\"2\"/>", "<rect width=\"6\" height=\"6\" x=\"9\" y=\"9\" rx=\"1\"/>", "<path d=\"M15 2v2\"/>", "<path d=\"M15 20v2\"/>", "<path d=\"M2 15h2\"/>", "<path d=\"M2 9h2\"/>", "<path d=\"M20 15h2\"/>", "<path d=\"M20 9h2\"/>", "<path d=\"M9 2v2\"/>", "<path d=\"M9 20v2\"/>"], "payment": ["<rect width=\"20\" height=\"14\" x=\"2\" y=\"5\" rx=\"2\"/>", "<line x1=\"2\" x2=\"22\" y1=\"10\" y2=\"10\"/>"], "database": ["<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/>", "<path d=\"M3 5V19A9 3 0 0 0 21 19V5\"/>", "<path d=\"M3 12A9 3 0 0 0 21 12\"/>"], "cache": ["<path d=\"M6 19v-3\"/>", "<path d=\"M10 19v-3\"/>", "<path d=\"M14 19v-3\"/>", "<path d=\"M18 19v-3\"/>", "<path d=\"M8 11V9\"/>", "<path d=\"M16 11V9\"/>", "<path d=\"M12 11V9\"/>", "<path d=\"M2 15h20\"/>", "<path d=\"M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z\"/>"]};
+const ICON_ELEMENTS = {"bell": ['<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>', '<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'], "alert": ['<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>', '<path d="M12 9v4"/>', '<path d="M12 17h.01"/>'], "browser": ["<rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"/>", "<path d=\"M10 4v4\"/>", "<path d=\"M2 8h20\"/>", "<path d=\"M6 4v4\"/>"], "phone": ["<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/>", "<path d=\"M12 18h.01\"/>"], "shield": ["<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/>"], "api": ["<path d=\"M12 22v-5\"/>", "<path d=\"M9 8V2\"/>", "<path d=\"M15 8V2\"/>", "<path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>"], "activity": ["<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\"/>"], "queue": ["<path d=\"M10 12h11\"/>", "<path d=\"M10 18h11\"/>", "<path d=\"M10 6h11\"/>", "<path d=\"M4 10h2\"/>", "<path d=\"M4 6h1v4\"/>", "<path d=\"M6 18H4c0-1 2-2 2-3s-1-1.5-2-1\"/>"], "cpu": ["<rect width=\"16\" height=\"16\" x=\"4\" y=\"4\" rx=\"2\"/>", "<rect width=\"6\" height=\"6\" x=\"9\" y=\"9\" rx=\"1\"/>", "<path d=\"M15 2v2\"/>", "<path d=\"M15 20v2\"/>", "<path d=\"M2 15h2\"/>", "<path d=\"M2 9h2\"/>", "<path d=\"M20 15h2\"/>", "<path d=\"M20 9h2\"/>", "<path d=\"M9 2v2\"/>", "<path d=\"M9 20v2\"/>"], "payment": ["<rect width=\"20\" height=\"14\" x=\"2\" y=\"5\" rx=\"2\"/>", "<line x1=\"2\" x2=\"22\" y1=\"10\" y2=\"10\"/>"], "database": ["<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/>", "<path d=\"M3 5V19A9 3 0 0 0 21 19V5\"/>", "<path d=\"M3 12A9 3 0 0 0 21 12\"/>"], "cache": ["<path d=\"M6 19v-3\"/>", "<path d=\"M10 19v-3\"/>", "<path d=\"M14 19v-3\"/>", "<path d=\"M18 19v-3\"/>", "<path d=\"M8 11V9\"/>", "<path d=\"M16 11V9\"/>", "<path d=\"M12 11V9\"/>", "<path d=\"M2 15h20\"/>", "<path d=\"M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z\"/>"]};
 const ARCH_ICONS = { web: "browser", phone: "phone", gateway: "shield", api: "api", ws: "activity", queue: "queue", worker: "cpu", billing: "payment", db: "database", cache: "cache" };
 
 function planStepAppearAt(stepIndex, time) {
