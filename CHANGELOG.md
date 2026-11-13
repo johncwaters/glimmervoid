@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A board blocked by a graphics card reset says it comes back on its own.** When Chrome's graphics card resets twice within 2 minutes, it pauses graphics for the site for 2 minutes, then lifts the pause. The board used to tell you to quit and reopen the browser. It now says the board draws again once the pause lifts. A board opened while the pause is on keeps trying for a few minutes and draws as soon as it can, with no reload. When the browser refuses graphics for good, such as with graphics acceleration turned off, the board says to turn it on or restart the browser.
 - **Sessions under an added account keep your agent settings.** A Claude Code session started or switched under another account now takes your Claude Code settings from `~/.claude.json`, such as a closed diff sidebar, editor mode, notifications and copy settings, so the diff sidebar no longer pops open after a switch. Sign-in, including any API key or token in the file's env, usage and the account's own caches stay with the account. A Grok session under an account now takes your default model, models and MCP servers from `~/.grok/user-settings.json` and keeps the account's own API key and endpoint. Your own file wins on every start, so a setting changed inside an account session goes back to yours next time.
 
 ### Added

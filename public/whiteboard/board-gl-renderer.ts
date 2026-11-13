@@ -136,9 +136,11 @@ interface ScenePreview {
 const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
 const CULL_CELL_SIZE = 512;
 const CONTEXT_RETRY_MS = 5000;
+const REFUSED_AT_OPEN_MAX_RETRIES = 30;
 const NOTICES = {
   redrawing: 'The board is redrawing after the graphics card reset.',
-  blocked: 'The browser blocked graphics for this site after repeated graphics card resets. Quit and reopen the browser to draw boards again.',
+  paused: 'The browser paused graphics for this site after repeated graphics card resets. The board draws again on its own once the pause lifts, about 2 minutes after the last reset.',
+  blocked: 'The browser refused graphics for this site. Turn on graphics acceleration in the browser settings, or restart the browser, to draw boards again.',
   unsupported: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.',
 } as const;
 type NoticeKind = keyof typeof NOTICES;
@@ -612,6 +614,11 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     notice.textContent = NOTICES[kind];
   }
 
+  function refusalNotice(): NoticeKind {
+    if (isWebgl2Missing()) return 'unsupported';
+    return lossCount > 0 ? 'paused' : 'blocked';
+  }
+
   function rememberGpuRenderer(context: WebGL2RenderingContext): void {
     const debugRendererInfo = context.getExtension('WEBGL_debug_renderer_info');
     const rendererName: unknown = context.getParameter(debugRendererInfo ? debugRendererInfo.UNMASKED_RENDERER_WEBGL : context.RENDERER);
@@ -717,7 +724,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function createGlOrNotice(): void {
     if (!gl) {
-      showNotice(isWebgl2Missing() ? 'unsupported' : 'blocked');
+      showNotice(refusalNotice());
       return;
     }
     rememberGpuRenderer(gl);
@@ -1535,9 +1542,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!(freshCanvas instanceof HTMLCanvasElement)) return;
     const { context: freshContext, creationError } = createWebgl2Context(freshCanvas, contextAttributes);
     if (!freshContext) {
-      showNotice('blocked');
+      showNotice(refusalNotice());
       if (contextState === 'lost') reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError });
       contextState = 'blocked';
+      if (lossCount === 0 && contextRetries >= REFUSED_AT_OPEN_MAX_RETRIES) return;
       scheduleContextRetry();
       return;
     }
@@ -1599,6 +1607,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   if (!gl && !isWebgl2Missing()) {
     contextState = 'blocked';
     reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError: initialContext.creationError });
+    scheduleContextRetry();
   }
 
   return {
