@@ -339,8 +339,8 @@ export const BoardHead = Board.omit({ elements: true });
 export const BOARD_FILE_EXTENSION = '.glimmerboard';
 export const BOARD_FILE_DOWNLOAD_NAME = `board${BOARD_FILE_EXTENSION}`;
 export const BOARD_FILE_FORMAT = 'glimmervoid-board';
-export const BOARD_FILE_VERSION = 3;
-const READABLE_BOARD_FILE_VERSIONS = [1, 2, BOARD_FILE_VERSION] as const;
+export const BOARD_FILE_VERSION = 4;
+const READABLE_BOARD_FILE_VERSIONS = [1, 2, 3, BOARD_FILE_VERSION] as const;
 const ASSET_ID_KEYED_BOARD_FILE_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
 export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
 export const BOARD_FILE_ELEMENTS_MAX = 20_000;
@@ -377,10 +377,11 @@ function filenameKeyedAssetsOf(board: Pick<Board, 'elements'>, assetsByAssetId: 
 export const BoardFile = z.object({
   format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board file' }),
   version: z.literal(READABLE_BOARD_FILE_VERSIONS, { error: `this board file is from another Glimmervoid version; this one reads versions ${READABLE_BOARD_FILE_VERSIONS.join(', ')}` }),
-  board: Board.pick({ title: true, caption: true, legend: true, elements: true }),
+  board: Board.pick({ title: true, caption: true, legend: true, elements: true }).extend({ id: z.uuid({ error: 'a board file names its board by a UUID' }).optional() }),
   assets: z.record(z.string().regex(/^[0-9a-f]{64}(\.[a-z0-9]+)?$/, { error: BOARD_FILE_ASSET_KEY_TEXT }), BoardFileAsset),
 }).strict()
   .refine((file) => Object.keys(file.assets).every((key) => key.includes('.') !== ASSET_ID_KEYED_BOARD_FILE_VERSIONS.has(file.version)), { error: BOARD_FILE_ASSET_KEY_TEXT, path: ['assets'] })
+  .refine((file) => file.version !== BOARD_FILE_VERSION || file.board.id !== undefined, { error: 'a board file names its board by a UUID', path: ['board', 'id'] })
   .transform((file) => (ASSET_ID_KEYED_BOARD_FILE_VERSIONS.has(file.version) ? { ...file, assets: filenameKeyedAssetsOf(file.board, file.assets) } : file));
 export type BoardFile = z.infer<typeof BoardFile>;
 export type BoardFileAsset = z.infer<typeof BoardFileAsset>;
