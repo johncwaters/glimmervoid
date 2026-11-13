@@ -4,7 +4,7 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { isCompletionWatchedByOperator } from '../session-actions-core.ts';
 import type { SessionUi } from './card-registry.ts';
 
-const WATCHED_COMPLETION_HOLD_MS = 1500;
+const WATCHED_COMPLETION_HOLD_MS = 3000;
 const pendingWatchedDismissBySessionUi = new WeakMap<SessionUi, ReturnType<typeof setTimeout>>();
 
 function cancelWatchedCompletionDismiss(ui: SessionUi) {

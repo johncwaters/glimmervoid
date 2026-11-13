@@ -390,7 +390,7 @@
     },
     {
       "name": "complete",
-      "definition": "The session status after an agent finishes a turn (task_complete from running, waiting or idle, or a compaction restore); it holds until the operator dismisses it, which the dashboard does on its own 1.5 s after the operator watches it finish, and new output or a prompt leaves it"
+      "definition": "The session status after an agent finishes a turn (task_complete from running, waiting or idle, or a compaction restore); it holds until the operator dismisses it, which the dashboard does on its own 3 s after the operator watches it finish, and new output or a prompt leaves it"
     },
     {
       "name": "ready",
