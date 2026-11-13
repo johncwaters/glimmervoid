@@ -41,7 +41,8 @@ import type { UnloadedReference } from './page-bundle.ts';
 import { readPageTitle, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import { adoptBoardFileAssets, boardFileBytes, forgetBoardFileExport, parseBoardFile, readBoardFileAt, writeBoardFile } from './board-file.ts';
-import { importOpsOf, uniqueImportTitle } from '../core/board-file-core.ts';
+import { addOpsOf, boardDiffOps, importedElementsOf, nextCopyTitle } from '../core/board-file-core.ts';
+import type { BoardContent } from '../core/board-file-core.ts';
 import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
 import { isLinkableMediaKind, linkPathProblem, withServerSyncedHash } from '../../shared/whiteboard-link-core.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
@@ -114,7 +115,6 @@ type OperatorReply = {
 
 const RENDERS_FOLDER_NAME = 'renders';
 const EXPORTS_FOLDER_NAME = 'exports';
-const IMPORTS_FOLDER_NAME = 'imports';
 const ATTACHMENTS_FILENAME = 'session-attachments.state';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
 const DELETED_BOARD_TEXT = 'that board was deleted';
@@ -500,7 +500,13 @@ function createWhiteboardWiring({
     if (Buffer.byteLength(JSON.stringify(ops)) > WHITEBOARD_LIMITS.putBytes) {
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
+    return applyPut(boardId, () => ops, author);
+  }
+
+  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
+      const ops = opsOf(record.board);
+      if (ops.length === 0) return { ok: true, record, reply: { status: 200, body: { ok: true, version: record.board.version } } };
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
       const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
@@ -1103,21 +1109,33 @@ function createWhiteboardWiring({
     await loaded;
     const parsed = await parseBoardFile(gzipped);
     if (!parsed.ok) return refusal(parsed.status, parsed.error);
-    const adopted = await adoptBoardFileAssets(parsed.file, assets, path.join(boardsRoot, IMPORTS_FOLDER_NAME));
+    const adopted = await adoptBoardFileAssets(parsed.file, assets);
     if (!adopted.ok) return refusal(adopted.status, adopted.error);
-    const ops = importOpsOf(parsed.file, adopted.adoptedByExportedAssetId);
-    if ('error' in ops) return refusal(400, `the board file is damaged: ${ops.error}`);
+    const elements = importedElementsOf(parsed.file, adopted.adoptedByExportedAssetId);
+    if ('error' in elements) return refusal(400, `the board file is damaged: ${elements.error}`);
+    const { title, caption, legend } = parsed.file.board;
+    const boardId = parsed.file.board.id ?? newBoardId();
+    const otherTitles = new Set([...recordsByBoardId.values()].filter((record) => record.board.id !== boardId).map((record) => record.board.title));
+    if (recordsByBoardId.has(boardId)) return overwriteBoardFromFile(boardId, { title: nextCopyTitle(title, otherTitles), caption, legend, elements });
+    deletedBoardIds.delete(boardId);
     const nowMs = now();
-    const existingTitles = new Set([...recordsByBoardId.values()].map((record) => record.board.title));
-    const emptyBoard = createBoard({ id: newBoardId(), title: uniqueImportTitle(parsed.file.board.title, existingTitles), nowMs });
-    const startingBoard: Board = { ...emptyBoard, caption: parsed.file.board.caption, legend: parsed.file.board.legend };
-    const staged = stageOps(startingBoard, ops, OPERATOR_AUTHOR, nowMs, null);
+    const startingBoard: Board = { ...createBoard({ id: boardId, title: nextCopyTitle(title, otherTitles), nowMs }), caption, legend };
+    const staged = stageOps(startingBoard, addOpsOf(elements), OPERATOR_AUTHOR, nowMs, null);
     if (!staged.ok) return refusal(400, `the board file is damaged: ${staged.error}`);
     const mediaRefusal = stagedRefusalOf(startingBoard, staged.afterById);
     if (mediaRefusal) return refusal(400, `the board file is damaged: ${mediaRefusal}`);
     staged.commit();
     const record: BoardRecord = { board: staged.board, log: [], cursorBySessionId: {}, createdBy: null };
     return saveNewRecord(record, 'imported', `imported board "${record.board.title}" (${record.board.id}); read it with whiteboard get ${record.board.id}`);
+  }
+
+  async function overwriteBoardFromFile(boardId: string, content: BoardContent): Promise<WhiteboardReply> {
+    const applied = await applyPut(boardId, (current) => boardDiffOps(current, content), OPERATOR_AUTHOR);
+    if (applied.status !== 200) return applied;
+    const record = recordsByBoardId.get(boardId);
+    if (!record) return refusal(404, DELETED_BOARD_TEXT);
+    const note = `board "${content.title}" (${boardId}) is now the version in the board file; read it with whiteboard get ${boardId}`;
+    return { status: 200, body: { ok: true, board: summarizeBoard(record, now()), note } };
   }
 
   async function importBoardForAgent(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {

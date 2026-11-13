@@ -120,4 +120,4 @@ function unloadedNote(unloaded: readonly UnloadedReference[]): string | null {
 }
 
 export { bundleIdOf, collectPageBundle, manifestOf, unloadedNote };
-export type { StoredMember, UnloadedReference };
+export type { BundleMember, StoredMember, UnloadedReference };

@@ -691,7 +691,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.match(String(huge.body.error), /huge\.png is larger than the 200 MB/);
 });
 
-test('a board exported to a board file and imported comes back as a new board with its media and page files, carrying no path or session of the machine it left, and a damaged file is refused whole', async (context) => {
+test('a board file carries its board id, so importing it overwrites that board in place like a saved game, a file of a board not here opens as that board, copies number plainly, and a damaged file is refused whole', async (context) => {
   const { default: sharp } = await import('sharp');
   const shareDir = path.join(fixture.tmpDir, PLANNER_ID, 'share');
   fs.mkdirSync(shareDir);
@@ -722,34 +722,76 @@ test('a board exported to a board file and imported comes back as a new board wi
   const exported = await runPlannerCli(context, ['whiteboard', 'export', boardId, '--out', outPath]);
   assert.equal(exported.exitCode, 0, exported.printed);
   const fileText = zlib.gunzipSync(fs.readFileSync(outPath)).toString('utf8');
-  for (const machineDetail of [fixture.tmpDir, boardId, '"sessionId"', '"codeSessionId"']) assert.equal(fileText.includes(machineDetail), false, `the board file carries no ${machineDetail}`);
+  for (const machineDetail of [fixture.tmpDir, '"sessionId"', '"codeSessionId"']) assert.equal(fileText.includes(machineDetail), false, `the board file carries no ${machineDetail}`);
 
-  const imported = await runPlannerCli(context, ['whiteboard', 'import', outPath]);
+  const parsedFile = JSON.parse(fileText) as { board: { id: string; title: string; elements: Record<string, Record<string, unknown>> }; assets: Record<string, { name: string; bytes: string; members: Record<string, string> }> };
+  assert.equal(parsedFile.board.id, boardId, 'the board file names its board');
+  const gzippedFile = (file: unknown) => zlib.gzipSync(JSON.stringify(file));
+  const importFile = async (name: string, bytes: Buffer) => {
+    fs.writeFileSync(path.join(fixture.tmpDir, PLANNER_ID, name), bytes);
+    return whiteboard(PLANNER_ID, { sub: 'import', path: name });
+  };
+  const boardCount = async () => ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length;
+  const boardsBeforeImports = await boardCount();
+
+  const friendEdit = structuredClone(parsedFile);
+  friendEdit.board.title = 'Shared flow, reviewed';
+  const friendNote = friendEdit.board.elements.why;
+  assert.ok(friendNote);
+  friendNote.title = 'Refusal checked';
+  delete friendEdit.board.elements.later;
+  delete friendEdit.board.elements['1'];
+  const friendFrame = friendEdit.board.elements.flow;
+  assert.ok(friendFrame);
+  friendFrame.contains = ['shot', 'demo'];
+  const friendPath = path.join(fixture.tmpDir, PLANNER_ID, 'friend.glimmerboard');
+  fs.writeFileSync(friendPath, gzippedFile(friendEdit));
+  const imported = await runPlannerCli(context, ['whiteboard', 'import', friendPath]);
   assert.equal(imported.exitCode, 0, imported.printed);
-  const importedSummary = (JSON.parse(imported.printed) as { board: { id: string; title: string } }).board;
-  assert.notEqual(importedSummary.id, boardId);
-  assert.equal(importedSummary.title, 'Shared flow (2)', 'an import never takes the title of a board already here');
-  const copy = await boardOf(PLANNER_ID, importedSummary.id);
-  const withoutSource = (elements: Record<string, Record<string, unknown>>) => Object.fromEntries(Object.entries(elements).map(([id, element]) => [id, element.media ? { ...element, media: { ...element.media as object, source: null } } : element]));
-  assert.deepEqual(withoutSource(copy.board.elements), withoutSource(original.board.elements));
-  assert.deepEqual([copy.board.elements.shot?.media, copy.board.elements.why?.author], [{ ...picture, alt: 'login screen', source: { from: 'upload', name: 'flow.png' } }, PLANNER_ID]);
-  const importedBoard = Board.parse(copy.board as unknown);
-  assert.deepEqual([importedBoard.caption, importedBoard.legend, importedBoard.codeSessionId, importedBoard.project], ['how a login flows', [{ tone: 'fail', dashed: false, label: 'refused' }], null, path.join(fixture.tmpDir, PLANNER_ID)]);
-  assert.equal((copy.board.elements.demo?.media as BoxMedia | undefined)?.asset, page.asset, 'a page comes back with the same bundle id, so the files it loads came back too');
+  const overwritten = (JSON.parse(imported.printed) as { board: { id: string; title: string } }).board;
+  assert.deepEqual([overwritten.id, overwritten.title], [boardId, 'Shared flow, reviewed'], 'a file of a board already here overwrites it under the file title');
+  const afterFriend = await boardOf(PLANNER_ID, boardId);
+  assert.deepEqual(Object.keys(afterFriend.board.elements).sort(), ['demo', 'flow', 'shot', 'shot-demo', 'why']);
+  assert.equal(afterFriend.board.elements.why?.title, 'Refusal checked');
+  assert.deepEqual(afterFriend.board.elements.shot, original.board.elements.shot, 'an element the file did not change stays as it was');
+  assert.ok(Number(afterFriend.board.version) > Number(original.board.version), 'the overwrite is a put, so sessions reading the board see it');
+  assert.equal(await boardCount(), boardsBeforeImports, 'importing a board already here adds no board');
+
+  const elsewhere = { ...structuredClone(friendEdit), board: { ...structuredClone(friendEdit.board), id: crypto.randomUUID() } };
+  const opened = await importFile('elsewhere.glimmerboard', gzippedFile(elsewhere));
+  assert.deepEqual([(opened.body.board as { id: string }).id, (opened.body.board as { title: string }).title], [elsewhere.board.id, 'Shared flow, reviewed (2)'], 'a board not here opens under the file id, numbered beside a clashing title');
+  const reopened = await importFile('elsewhere.glimmerboard', gzippedFile(elsewhere));
+  assert.deepEqual([(reopened.body.board as { id: string }).id, (reopened.body.board as { title: string }).title], [elsewhere.board.id, 'Shared flow, reviewed (2)'], 'importing the same file again changes no name');
+  const numbered = { ...structuredClone(elsewhere), board: { ...structuredClone(elsewhere.board), id: crypto.randomUUID(), title: 'Shared flow, reviewed (2)' } };
+  const third = await importFile('numbered.glimmerboard', gzippedFile(numbered));
+  assert.equal((third.body.board as { title: string }).title, 'Shared flow, reviewed (3)', 'a copy number counts on, never stacks');
+
+  const pageAssetId = page.asset;
+  const caseFile = structuredClone(parsedFile);
+  const casePage = caseFile.assets[pageAssetId];
+  assert.ok(casePage);
+  const asBase64 = (text: string) => Buffer.from(text).toString('base64');
+  casePage.members = { 'App.js': asBase64('upper'), 'app.js': asBase64('lower'), lib: asBase64('file'), 'lib/x.js': asBase64('nested') };
+  caseFile.board.id = crypto.randomUUID();
+  const caseImport = await importFile('case.glimmerboard', gzippedFile(caseFile));
+  assert.equal(caseImport.status, 200, JSON.stringify(caseImport.body));
+  const caseBoard = await boardOf(PLANNER_ID, caseFile.board.id);
+  const casePageAsset = (caseBoard.board.elements.demo?.media as BoxMedia | undefined)?.asset ?? '';
+  const openedPage = await fetch(`${running().base}/frames/open/whiteboards/pages/${casePageAsset}/index.html`, { redirect: 'manual' });
+  const casePageBase = `${running().base}${String(openedPage.headers.get('location')).replace(/index\.html$/, '')}`;
+  const servedMembers = await Promise.all(['App.js', 'app.js', 'lib', 'lib/x.js'].map(async (memberPath) => (await fetch(`${casePageBase}${memberPath}`)).text()));
+  assert.deepEqual(servedMembers, ['upper', 'lower', 'file', 'nested'], 'page files whose names differ only in case, or nest under a file name, each serve their own bytes');
 
   const downloaded = await fetch(`${running().base}/whiteboards/files/${boardId}/board.glimmerboard`);
   assert.equal(downloaded.status, 200);
   assert.equal(downloaded.headers.get('content-disposition'), 'attachment');
   const uploaded = await fetch(`${running().base}/whiteboards/files`, { method: 'POST', body: Buffer.from(await downloaded.arrayBuffer()), headers: { 'content-type': 'application/gzip' } });
   const uploadReply = await uploaded.json() as { ok: boolean; board: { id: string; title: string } };
-  assert.deepEqual([uploaded.status, uploadReply.ok, uploadReply.board.title], [200, true, 'Shared flow (3)'], 'the dashboard imports what it downloads');
-  const dashboardCopy = await boardOf(PLANNER_ID, uploadReply.board.id);
-  assert.deepEqual(withoutSource(dashboardCopy.board.elements), withoutSource(original.board.elements));
+  assert.deepEqual([uploaded.status, uploadReply.ok, uploadReply.board.id, uploadReply.board.title], [200, true, boardId, 'Shared flow, reviewed'], 'the dashboard imports what it downloads, over the same board');
   const crossSite = await fetch(`${running().base}/whiteboards/files`, { method: 'POST', body: Buffer.from(fileText), headers: { origin: 'https://elsewhere.example' } });
   assert.equal(crossSite.status, 403);
 
-  const boardCountBefore = ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length;
-  const parsedFile = JSON.parse(fileText) as { assets: Record<string, { members: Record<string, string> }> };
+  const boardCountBefore = await boardCount();
   const escapingPage = structuredClone(parsedFile);
   const pageAsset = escapingPage.assets[page.asset];
   assert.ok(pageAsset);
@@ -757,7 +799,7 @@ test('a board exported to a board file and imported comes back as a new board wi
   const damagedFiles = [
     { name: 'not-gzip.glimmerboard', bytes: Buffer.from(fileText), error: /not a Glimmervoid board file/ },
     { name: 'escaping.glimmerboard', bytes: zlib.gzipSync(JSON.stringify(escapingPage)), error: /page file path is relative/ },
-    { name: 'future.glimmerboard', bytes: zlib.gzipSync(JSON.stringify({ ...parsedFile, version: 2 })), error: /another Glimmervoid version/ },
+    { name: 'future.glimmerboard', bytes: zlib.gzipSync(JSON.stringify({ ...parsedFile, version: 3 })), error: /another Glimmervoid version/ },
     { name: 'truncated.glimmerboard', bytes: fs.readFileSync(outPath).subarray(0, 200), error: /not a Glimmervoid board file/ },
   ];
   for (const damaged of damagedFiles) {
@@ -772,6 +814,42 @@ test('a board exported to a board file and imported comes back as a new board wi
   assert.equal(fs.existsSync(exportCopy), true);
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: boardId })).status, 200);
   await waitFor(() => !fs.existsSync(exportCopy), 'a deleted board leaves no board file of it behind');
+});
+
+test('a board file overwrites its board even when the board is not loaded yet after a restart, brings back a board deleted this run, and a version 1 file with no board id opens as a new board', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'board-file-restart-'));
+  const beforeRestart = createWhiteboardWiring({ boardsRoot });
+  const boardId = ((await beforeRestart.handleOperator.create('Saved game')) as { summary: { id: string } }).summary.id;
+  const box = (id: string, title: string) => ({ op: 'add', element: { kind: 'box', id, title, place: { at: { x: 40, y: 40 } } } });
+  assert.equal((await beforeRestart.handleOperator.put(boardId, z.array(Op).parse([box('a', 'alpha'), box('b', 'beta')]))).ok, true);
+  const exported = await beforeRestart.handleOperator.exportFile(boardId);
+  assert.ok(exported.ok);
+  const savedGame = JSON.parse(zlib.gunzipSync(exported.bytes).toString('utf8')) as { version: number; board: { id?: string; elements: Record<string, { title: string }> } };
+  const friendEdit = structuredClone(savedGame);
+  const friendBox = friendEdit.board.elements.a;
+  assert.ok(friendBox);
+  friendBox.title = 'alpha, edited';
+  delete friendEdit.board.elements.b;
+
+  const afterRestart = createWhiteboardWiring({ boardsRoot });
+  const overwritten = await afterRestart.handleOperator.importFile(zlib.gzipSync(JSON.stringify(friendEdit)));
+  assert.equal(overwritten.status, 200, JSON.stringify(overwritten.body));
+  const elementTitles = async (wiring: typeof afterRestart, id: string) => [...((await wiring.handleOperator.get(id)).board?.elements.values() ?? [])].map((element) => [element.id, 'title' in element ? element.title : null]);
+  const replyOf = (reply: { body: unknown }) => reply.body as { board?: { id: string }; error?: string };
+  assert.deepEqual(await elementTitles(afterRestart, boardId), [['a', 'alpha, edited']]);
+
+  assert.equal((await afterRestart.handleOperator.remove(boardId)).ok, true);
+  const restored = await afterRestart.handleOperator.importFile(exported.bytes);
+  assert.equal(restored.status, 200, JSON.stringify(restored.body));
+  assert.deepEqual(await elementTitles(afterRestart, boardId), [['a', 'alpha'], ['b', 'beta']], 'a board deleted this run comes back usable from its file');
+
+  const firstVersionFile = { ...structuredClone(savedGame), version: 1, board: { ...structuredClone(savedGame.board), id: undefined } };
+  const opened = await afterRestart.handleOperator.importFile(zlib.gzipSync(JSON.stringify(firstVersionFile)));
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  assert.notEqual(replyOf(opened).board?.id, boardId, 'a version 1 file names no board, so it opens as a new one');
+  const unnamedCurrentFile = { ...structuredClone(savedGame), board: { ...structuredClone(savedGame.board), id: undefined } };
+  const refused = await afterRestart.handleOperator.importFile(zlib.gzipSync(JSON.stringify(unnamedCurrentFile)));
+  assert.match(String(replyOf(refused).error), /names its board by a UUID/);
 });
 
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {

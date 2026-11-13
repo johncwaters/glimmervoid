@@ -1377,7 +1377,9 @@ async function verifyBoardFileRoundTrip(page: Page, panel: Locator, boardTitle: 
   const chooserOpened = page.waitForEvent('filechooser');
   await openBoardMenuItem(page, panel, 'Import board');
   await (await chooserOpened).setFiles(savedPath);
-  await panel.getByRole('button', { name: `${boardTitle} (2)`, exact: true }).waitFor();
+  await panel.getByText(`Imported ${download.suggestedFilename()}`).waitFor();
+  assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
+  assert.equal(await panel.getByRole('button', { name: `${boardTitle} (2)`, exact: true }).count(), 0);
 }
 
 async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<OpenBoard> {

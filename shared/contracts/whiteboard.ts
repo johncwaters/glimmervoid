@@ -310,7 +310,8 @@ export const BoardHead = Board.omit({ elements: true });
 export const BOARD_FILE_EXTENSION = '.glimmerboard';
 export const BOARD_FILE_DOWNLOAD_NAME = `board${BOARD_FILE_EXTENSION}`;
 export const BOARD_FILE_FORMAT = 'glimmervoid-board';
-export const BOARD_FILE_VERSION = 1;
+export const BOARD_FILE_VERSION = 2;
+const BOARD_FILE_VERSIONS_READ = [1, BOARD_FILE_VERSION] as const;
 export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
 export const BOARD_FILE_ELEMENTS_MAX = 20_000;
 export const BOARD_PAGE_MEMBERS_MAX = 256;
@@ -334,10 +335,10 @@ const BoardFileAsset = z.object({
 
 export const BoardFile = z.object({
   format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board file' }),
-  version: z.literal(BOARD_FILE_VERSION, { error: `this board file is from another Glimmervoid version; this one reads version ${BOARD_FILE_VERSION}` }),
-  board: Board.pick({ title: true, caption: true, legend: true, elements: true }),
+  version: z.literal(BOARD_FILE_VERSIONS_READ, { error: `this board file is from another Glimmervoid version; this one reads up to version ${BOARD_FILE_VERSION}` }),
+  board: Board.pick({ title: true, caption: true, legend: true, elements: true }).extend({ id: z.uuid({ error: 'a board file names its board by a UUID' }).optional() }),
   assets: z.record(AssetId, BoardFileAsset),
-}).strict();
+}).strict().refine((file) => file.version !== BOARD_FILE_VERSION || file.board.id !== undefined, { error: 'a board file names its board by a UUID', path: ['board', 'id'] });
 export type BoardFile = z.infer<typeof BoardFile>;
 export type BoardFileAsset = z.infer<typeof BoardFileAsset>;
 
