@@ -165,7 +165,7 @@ async function makeAgentAccountDefault(agent: string, account: AgentAccountStatu
 
 function buildAgentAccountRow(agent: (typeof ACCOUNT_AGENTS)[number], account: AgentAccountStatus) {
   const row = el('div', 'settings-telegram-test');
-  const description = [account.label, account.detail, account.accountId === null ? 'this machine' : null, ACCOUNT_STATE_TEXT[account.login.state], account.isDefault ? 'default for new sessions' : null]
+  const description = [account.label, account.detail, ACCOUNT_STATE_TEXT[account.login.state], account.isDefault ? 'default for new sessions' : null]
     .filter((part) => part !== null && part !== '')
     .join(', ');
   row.appendChild(el('div', 'settings-readonly', description));

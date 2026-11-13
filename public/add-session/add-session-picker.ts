@@ -411,7 +411,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const defaultValue = optionValueOf(accounts.find((account) => account.isDefault)?.accountId ?? null);
     accountSelect.replaceChildren(...accounts.map((account) => {
       const stateText = account.login.state === 'signed-out' ? ' (signed out)' : '';
-      const option = el('option', '', `${account.label}${account.accountId === null ? ', this machine' : ''}${stateText}`);
+      const option = el('option', '', `${account.label}${stateText}`);
       option.value = optionValueOf(account.accountId);
       return option;
     }));

@@ -50,7 +50,7 @@ function buildLaneAccountRow(lane: LaneAccountLane, accounts: readonly AgentAcco
   followsDefault.value = FOLLOWS_DEFAULT_VALUE;
   select.appendChild(followsDefault);
   for (const account of accounts) {
-    const option = el('option', null, account.accountId === null ? `${account.label} (this machine)` : account.label);
+    const option = el('option', null, account.label);
     option.value = optionValueOf(account);
     select.appendChild(option);
   }

@@ -1335,16 +1335,31 @@ async function openDesktopBoard(page: Page, sessionId: string, boardTitle: strin
   return { page, panel: await showBoardInFocus(page, sessionId, boardTitle), boardId };
 }
 
+async function verifyTagsFollow(header: Locator, leadingLabel: Locator, message: string): Promise<void> {
+  const deadlineMs = Date.now() + 3000;
+  let gapAfterLabelPx = Number.NaN;
+  while (Date.now() < deadlineMs) {
+    const labelBox = await leadingLabel.boundingBox();
+    const tagsBox = await header.locator('.session-card-tags').boundingBox();
+    if (labelBox && tagsBox) gapAfterLabelPx = tagsBox.x - (labelBox.x + labelBox.width);
+    if (gapAfterLabelPx >= 0 && gapAfterLabelPx < 24) return;
+    await header.page().waitForTimeout(100);
+  }
+  assert.fail(`${message} (gap ${gapAfterLabelPx}px)`);
+}
+
 async function verifyTerminalHeaderNamesTheTask(terminalWindow: Locator): Promise<void> {
   const header = terminalWindow.locator(':scope > .pane-header .session-card-header');
   const sessionNameLabel = header.locator('.session-name');
   const taskTitle = header.locator('.session-task-title');
   assert.equal(await sessionNameLabel.isVisible(), true, 'with no task title the terminal header names the session');
+  await verifyTagsFollow(header, sessionNameLabel, 'with no task title the header tags follow the session name');
   await taskTitle.click();
   await taskTitle.locator('input').fill('Check the pane header');
   await taskTitle.locator('input').press('Enter');
   await taskTitle.filter({ hasText: 'Check the pane header' }).waitFor();
   await sessionNameLabel.waitFor({ state: 'hidden' });
+  await verifyTagsFollow(header, taskTitle, 'with a task title the header tags follow the title');
   await taskTitle.click();
   await taskTitle.locator('input').fill('');
   await taskTitle.locator('input').press('Enter');

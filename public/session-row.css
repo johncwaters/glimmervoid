@@ -322,7 +322,7 @@ html[data-layout="phone"] .coherence-journal-button::after { content: ""; positi
 .pane-title .wb-board-menu { order: 10; }
 .pane-title .wb-board-menu > .session-overflow-menu { right: 0; left: auto; }
 .pane-title > .session-card-header > .session-task-title { order: 1; flex: 0 1 auto; }
-.pane-title > .session-card-header > .session-task-title:empty { order: 3; flex: 1 1 auto; }
+.pane-title > .session-card-header > .session-task-title:empty { order: 6; flex: 1 1 auto; }
 .pane-title > .session-card-header > .session-name { order: 2; }
 .pane-title > .session-card-header > .session-ownership { order: 5; }
 .pane-title > .session-card-header > .session-card-tags { order: 4; margin-right: auto; }
