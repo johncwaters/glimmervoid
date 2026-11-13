@@ -47,6 +47,7 @@ import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { SUBMIT_DELAY_MS } from '../session/core/input-delivery-core.ts';
+import { WAKE_TURN_START_TIMEOUT_MS } from '../server/core/child-channel-core.ts';
 
 const SESSION_ID = 'agent-api-session';
 const GIT = hasGit();
@@ -1156,7 +1157,10 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
     assert.deepEqual(notes.map(({ from }) => from), ['glimmervoid']);
     assert.match(notes[0]?.text ?? '', /finished a turn and is Idle\. Its last message:\nheld U2 over a HIGH finding$/);
 
-    for (let turn = 0; turn < 10; turn += 1) await endChildTurn();
+    for (let turn = 0; turn < 10; turn += 1) {
+      advanceBy(WAKE_TURN_START_TIMEOUT_MS);
+      await endChildTurn();
+    }
     assert.deepEqual([pasted().length, enters().length, attentionNotes.length], [10, 10, 1], 'the eleventh wake flags the operator instead of typing');
 
     fixture.parent.emit('operator-input');
@@ -1167,11 +1171,37 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
     await waitForSubmitDelay();
     assert.deepEqual([pasted().length, enters().length], [11, 11], 'operator input resets the cap and the held wake fires after the hold-off');
 
+    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
     fixture.parent.noteOperatorInput('r');
     await waitForSubmitDelay();
     assert.deepEqual([pasted().length, enters().length], [12, 11], 'a keystroke between the paste and the Enter leaves the wake line unsubmitted');
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a child resuming after the parent wake line was submitted, before the parent has started its turn, types no second wake line', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const written: string[] = [];
+  fixture.parent.write = (text) => { written.push(text); };
+  const wakeLines = () => written.filter((text) => text.includes('has news'));
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    fixture.parent.transition('first_output');
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE });
+    advanceBy(1000);
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+    assert.deepEqual([wakeLines().length, written.filter((text) => text === '\r').length], [1, 1]);
+    assert.equal(fixture.parent.state, STATES.IDLE);
+    child.emit('state-change', { from: STATES.COMPLETE, to: STATES.RUNNING });
+    advanceBy(1000);
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+    assert.equal(wakeLines().length, 1);
   } finally {
     fixture.destroyAll();
   }
@@ -1247,9 +1277,11 @@ test('a session wakes itself through the wake verb, malformed wakes are refused 
     advanceBy(50);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     advanceBy(1000);
+    advanceBy(WAKE_TURN_START_TIMEOUT_MS);
     advanceBy(1000);
-    assert.deepEqual(inputOrder.slice(-4), ['paste', 'enter', 'paste', 'enter'], 'a child stopping while a self-wake line awaits its Enter types its own line only after that Enter');
+    assert.deepEqual(inputOrder.slice(-4), ['paste', 'enter', 'paste', 'enter'], 'a child stopping while a self-wake line awaits its turn types its own line only once that wake is released');
     for (let turn = 0; turn < 7; turn += 1) {
+      advanceBy(WAKE_TURN_START_TIMEOUT_MS);
       child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
       advanceBy(1000);
     }
