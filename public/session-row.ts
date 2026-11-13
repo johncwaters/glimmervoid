@@ -5,6 +5,7 @@ import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
 import { describeOwnership } from './focus-view/attention-core.ts';
 import { paintCardOwnership } from './session-card/card-dom.ts';
+import { trapTabWithin } from './session-card/modal.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { CLOSING_ROW_STATE, CONFIRM_REMOVE_ROW_STATE, SESSION_CLOSE_UNDO_WINDOW_MS, armedRemovalReason, confirmArmedRemoval, keepArmedSession, pendingCloseStartedAt } from './session-actions.ts';
 import { paintStatusIcon } from './status-icon.ts';
@@ -164,6 +165,11 @@ function keepWhenLeavingConfirm(item: HTMLElement, sessionId: string) {
     keepSession();
   };
   const onConfirmKeydown = (event: KeyboardEvent) => {
+    const confirm = item.querySelector<HTMLElement>(':scope > .session-row-confirm');
+    if (event.key === 'Tab' && confirm?.contains(document.activeElement)) {
+      trapTabWithin(confirm, event);
+      return;
+    }
     if (event.key !== 'Escape') return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -189,7 +195,7 @@ function paintRemovalConfirm(row: HTMLElement, state: string, name: string) {
   }
   if (stopKeepListenerByItem.has(item)) return;
   item.scrollIntoView({ block: 'nearest' });
-  confirm.querySelector<HTMLButtonElement>('[data-action="keep-session"]')?.focus({ preventScroll: true });
+  confirm.querySelector<HTMLButtonElement>('[data-action="keep-session"]')?.focus({ preventScroll: true, focusVisible: true });
   keepWhenLeavingConfirm(item, sessionId);
 }
 
