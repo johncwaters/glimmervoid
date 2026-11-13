@@ -358,6 +358,16 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   min-width: 0;
 }
 
+.repo-roots-adder-status {
+  margin: 0;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.repo-roots-adder-status:empty {
+  display: none;
+}
+
 .repo-roots-adder-error {
   margin: 0;
   font-size: var(--type-meta);

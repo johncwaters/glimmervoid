@@ -6,7 +6,7 @@ import { currentNotificationChoice, ensureNotificationPermission } from '../noti
 import { setNotificationsEnabled } from '../ui-prefs.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
-import { agentSummaryText, FIRST_TASK_PROMPT, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import { agentSummaryText, FIRST_TASK_PROMPT, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-core.ts';
 import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
 import { playMarkLock } from '../boot/loading-unlock.ts';
@@ -62,9 +62,11 @@ function agentStepBody(): HTMLElement[] {
   return [...body, el('p', 'first-run-step-hint', 'Still missing after a rescan? Restart Glimmervoid from a terminal where the command runs. Other terminal agents go under customAgents.')];
 }
 
+const ONBOARDING_ACTION_BY_SOURCE = { typed: 'add-root-typed', suggested: 'add-root-suggested', 'cloned-url': 'clone-url' } as const satisfies Record<string, OperatorActionOf<'onboarding'>>;
+
 function repoRootsStepBody(): HTMLElement[] {
   const adder = repoRootsAdder ?? createRepoRootsAdder({ onAdded: (source) => {
-    reportOnboardingAction(source === 'typed' ? 'add-root-typed' : 'add-root-suggested');
+    reportOnboardingAction(ONBOARDING_ACTION_BY_SOURCE[source]);
     void loadFirstRunState({ rescanAgents: false });
   } });
   repoRootsAdder = adder;
@@ -103,7 +105,7 @@ function setupStepRows(): HTMLLIElement[] {
   const { steps, agentSummary, repoRoots, notificationChoice } = currentState;
   return [
     buildSetupStep({ title: '1. Agent CLI', state: steps.agent, summary: agentSummary, badge: '', body: agentStepBody }),
-    buildSetupStep({ title: '2. Repository roots', state: steps.repoRoots, summary: repoRoots.join(', '), badge: '', body: repoRootsStepBody }),
+    buildSetupStep({ title: '2. Add a repository', state: steps.repoRoots, summary: repoRoots.join(', '), badge: '', body: repoRootsStepBody }),
     buildSetupStep({ title: '3. Notifications', state: steps.notifications, summary: notificationChoiceSummary(notificationChoice), badge: '', body: notificationsStepBody }),
   ];
 }
@@ -212,7 +214,8 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
     const isRootsScan = rootsScan.type === 'repo-roots-scanned';
     const repoRoots = isRootsScan ? rootsScan.directories.map((directory) => directory.root) : [];
     const suggestions = isRootsScan ? rootsScan.suggestions ?? [] : [];
-    const foundRoots = rootsToAutoSave(repoRoots, suggestions);
+    const hasGitCheckout = isRootsScan && hasGitCheckoutIn(rootsScan.directories);
+    const foundRoots = rootsToAutoSave(hasGitCheckout, suggestions);
     if (foundRoots.length > 0 && !hasTriedSavingFoundRoots) {
       hasTriedSavingFoundRoots = true;
       const saveError = await saveRepoRoots(foundRoots).catch((reason: unknown) => String(reason));
@@ -223,7 +226,7 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
       }
     }
     const notificationChoice = currentNotificationChoice();
-    const steps = decideFirstRunSteps({ agentListing, repoRoots, notificationChoice });
+    const steps = decideFirstRunSteps({ agentListing, hasGitCheckout, notificationChoice });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
     currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, notificationChoice };
     loadStatus.clear();

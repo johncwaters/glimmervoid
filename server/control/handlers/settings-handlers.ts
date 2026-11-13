@@ -22,6 +22,9 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { suggestRepoRoots } from '../../repo-root-suggestions.ts';
+import { cloneRepository } from '../../repository-clone.ts';
+import { cloneRootOf, defaultRepoRootOf } from '../../core/repository-source-core.ts';
+import type { RootCheckouts } from '../../core/repository-source-core.ts';
 import { resolvePackageBin, scriptLaunch } from '../../runtime-paths.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from '../../settings-payload.ts';
@@ -31,7 +34,7 @@ import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
 
-type ScannedProject = { name: string; path: string; lastActivityMs?: number };
+type ScannedProject = { name: string; path: string; isGit?: boolean; lastActivityMs?: number };
 
 function realPathOrSelf(candidate: string): string {
   try {
@@ -89,20 +92,35 @@ async function gitDirectoryOf(projectPath: string): Promise<string | undefined> 
   return linkedGitDir ? path.resolve(projectPath, linkedGitDir) : undefined;
 }
 
-async function projectLastActivityMs(projectPath: string): Promise<number | undefined> {
+async function projectGitFacts(projectPath: string): Promise<{ isGit: boolean; lastActivityMs?: number }> {
   try {
     const gitDirectory = await gitDirectoryOf(projectPath);
-    return gitDirectory ? (await fs.promises.stat(gitDirectory)).mtimeMs : undefined;
+    if (!gitDirectory) return { isGit: false };
+    return { isGit: true, lastActivityMs: (await fs.promises.stat(gitDirectory)).mtimeMs };
   } catch {
-    return undefined;
+    return { isGit: false };
   }
 }
 
 async function withProjectActivity(directories: { root: string; projects: ScannedProject[] }[]) {
   return Promise.all(directories.map(async ({ root, projects }) => ({
     root,
-    projects: await Promise.all(projects.map(async (project) => ({ ...project, lastActivityMs: await projectLastActivityMs(project.path) }))),
+    projects: await Promise.all(projects.map(async (project) => ({ ...project, ...await projectGitFacts(project.path) }))),
   })));
+}
+
+async function rootCheckoutsOf(roots: readonly string[]): Promise<RootCheckouts[]> {
+  const scanned = await withProjectActivity(scanRepoRoots([...roots]));
+  return scanned.map(({ root, projects }) => ({ root, hasGitCheckout: projects.some((project) => project.isGit) }));
+}
+
+function createDefaultRepoRoot(): void {
+  const defaultRoot = defaultRepoRootOf(os.homedir());
+  try {
+    fs.mkdirSync(defaultRoot, { recursive: true });
+  } catch (err) {
+    console.warn(`[settings] Could not create the default repository folder ${defaultRoot}: ${errorCode(err) || errorMessage(err)}`);
+  }
 }
 
 const SETTINGS_NOT_SAVED_MESSAGE = 'Settings were not saved: the config file could not be read, validated or written.';
@@ -189,6 +207,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     const incoming: Record<string, unknown> = s;
 
     if (s.repoRoots) s.repoRoots = s.repoRoots.map((root) => expandTilde(root, process.env, os.homedir()));
+    if (s.repoRoots?.includes(defaultRepoRootOf(os.homedir()))) createDefaultRepoRoot();
     const invalidPaths = (s.repoRoots || []).filter(root => !isExistingDirectory(root));
     if (invalidPaths.length > 0) {
       sendError(ws, `Repository roots must be existing directories: ${invalidPaths.join(', ')}`, { type: 'settings-error', requestId: msg.requestId || null });
@@ -276,6 +295,25 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       directories,
       suggestions,
     }));
+  }
+
+  function saveAddedRepoRoot(addedRoot: string): void {
+    const freshConfig = configStore.save((cfg) => { cfg.repoRoots = [...(cfg.repoRoots ?? []), addedRoot]; });
+    if (!freshConfig) return;
+    applySettingsReload(freshConfig);
+    broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload() });
+  }
+
+  async function handleCloneRepository(msg: ClientMessageOf<'clone-repository'>, ws: ControlSocket): Promise<void> {
+    const configuredRoots = config.repoRoots ?? [];
+    const cloneRoot = cloneRootOf(await rootCheckoutsOf(configuredRoots), defaultRepoRootOf(os.homedir()));
+    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: null });
+    if (!outcome.ok) {
+      replyTo(ws, msg, 'repository-cloned', { ok: false, error: outcome.error });
+      return;
+    }
+    if (!configuredRoots.includes(cloneRoot)) saveAddedRepoRoot(cloneRoot);
+    replyTo(ws, msg, 'repository-cloned', { ok: true, path: outcome.path });
   }
 
   async function handleTelegramTest(msg: ClientMessageOf<'telegram-test'>, ws: ControlSocket): Promise<void> {
@@ -411,6 +449,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
     'list-agents': handleListAgents,
+    'clone-repository': handleCloneRepository,
     'telegram-test': handleTelegramTest,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -438,6 +477,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),
+    'clone-repository': (_msg, requestId, message) => ({ type: 'repository-cloned', requestId, ok: false, error: message }),
     'telegram-test': (_msg, requestId, message) => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),

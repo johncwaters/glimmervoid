@@ -114,7 +114,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const findInput = markAsNotCredential(queryTag(dialog, '#add-session-find', 'input'));
   const listEl = query(dialog, '#add-session-list');
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
-  const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
   const workspacePanel = query(dialog, '#add-session-workspace');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
   const folderPanel = query(dialog, '#add-session-folder');
@@ -453,7 +452,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function showRepoRootsAdder(message: ServerMessage) {
     const isScan = message.type === 'repo-roots-scanned';
-    repoRootsTitleEl.textContent = isScan && message.directories.length > 0 ? 'No projects in your repository roots yet' : 'No repository roots yet';
     repoRootsAdder.setSuggestions(isScan ? message.suggestions ?? [] : []);
     repoRootsEl.hidden = false;
   }

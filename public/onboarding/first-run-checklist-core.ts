@@ -32,16 +32,16 @@ function withoutShell(agentListing: unknown): unknown {
   return { ...reply, agents: listedAgents(reply).filter((agent) => !isShellAgent(agent)) };
 }
 
-function currentStepNumberFor(hasAgent: boolean, hasRepoRoots: boolean, notificationChoice: NotificationChoice): number {
+function currentStepNumberFor(hasAgent: boolean, hasGitCheckout: boolean, notificationChoice: NotificationChoice): number {
   if (!hasAgent) return 1;
-  if (!hasRepoRoots) return 2;
+  if (!hasGitCheckout) return 2;
   if (notificationChoice === 'ask') return 3;
   return 4;
 }
 
-function decideFirstRunSteps({ agentListing, repoRoots, notificationChoice }: { agentListing: unknown; repoRoots: readonly string[]; notificationChoice: NotificationChoice }): FirstRunSteps {
+function decideFirstRunSteps({ agentListing, hasGitCheckout, notificationChoice }: { agentListing: unknown; hasGitCheckout: boolean; notificationChoice: NotificationChoice }): FirstRunSteps {
   const hasAgent = decideAgentAvailability(withoutShell(agentListing)).canSpawn;
-  const currentStepNumber = currentStepNumberFor(hasAgent, repoRoots.length > 0, notificationChoice);
+  const currentStepNumber = currentStepNumberFor(hasAgent, hasGitCheckout, notificationChoice);
   return {
     agent: stepStateFor(1, currentStepNumber),
     repoRoots: stepStateFor(2, currentStepNumber),
@@ -109,12 +109,16 @@ function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly s
   return nextRoots.length === repoRoots.length ? null : nextRoots;
 }
 
-function rootsToAutoSave(configuredRoots: readonly string[], suggestions: readonly { path: string; gitRepoCount: number }[]): string[] {
-  if (configuredRoots.length > 0) return [];
+function hasGitCheckoutIn(directories: readonly { projects: readonly { isGit?: boolean }[] }[]): boolean {
+  return directories.some((directory) => directory.projects.some((project) => project.isGit === true));
+}
+
+function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: string; gitRepoCount: number }[]): string[] {
+  if (hasGitCheckout) return [];
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
 const FIRST_TASK_PROMPT = 'Get to know this repo, then draw its architecture on a Glimmervoid board: the main modules, how they connect, and where a typical change starts. Keep it to one screen.';
 
-export { FIRST_TASK_PROMPT, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { FIRST_TASK_PROMPT, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunSteps, NotificationChoice };

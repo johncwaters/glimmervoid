@@ -89,6 +89,36 @@ test('existing repository root directories persist and empty roots remain an exp
   });
 });
 
+test('a pasted repository source that could inject git options or another transport is refused before git runs', async () => {
+  const cloneRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-clone-refusal-')));
+  try {
+    const settings = harness({ projects: [], repoRoots: [cloneRoot] });
+    const refusedSources = ['--upload-pack=touch /tmp/pwned', '-c core.sshCommand=x', 'ext::sh -c touch% /tmp/pwned', 'file:///etc', 'https://user:secret@github.com/owner/repo', 'https://github.com/owner/repo?x=1', 'git@github.com:-owner/repo', 'https://github.com/owner/..', 'https://evil.example/x/.git.git', 'git@evil.example:x/.ssh', 'owner/repo\n--depth=1', 'https://github.com/owner/repo\u0000'];
+    for (const source of refusedSources) {
+      settings.sent.length = 0;
+      await settings.send({ type: 'clone-repository', requestId: 'refused', source });
+      const reply = settings.sent.find((message) => message.type === 'repository-cloned');
+      assert.equal(blockOf(reply, 'ok'), false, source);
+      assert.match(String(blockOf(reply, 'error')), /is not a repository URL/, source);
+    }
+    assert.deepEqual(fs.readdirSync(cloneRoot), []);
+  } finally {
+    fs.rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
+test('saving the default repository folder as a root creates it instead of refusing it as missing', () => {
+  const defaultRoot = path.join(os.homedir(), 'glimmervoid');
+  const hadDefaultRoot = fs.existsSync(defaultRoot);
+  withRealStore({ projects: [], repoRoots: [] }, undefined, (settings, store) => {
+    settings.send({ type: 'update-settings', settings: { repoRoots: [defaultRoot] } });
+    assert.equal(errorFrom(settings), undefined);
+    assert.deepEqual(store.config.repoRoots, [defaultRoot]);
+    assert.ok(fs.statSync(defaultRoot).isDirectory());
+  });
+  if (!hadDefaultRoot) fs.rmdirSync(defaultRoot);
+});
+
 test('a Telegram payload persists and echoes with its secret redacted', () => {
   const settings = harness({ projects: [] });
   settings.send({ type: 'update-settings', settings: { telegram: { botToken: 'tok', chatId: '123' } } });
@@ -408,8 +438,8 @@ test('a repo root scan lists a link to a directory once at its real path, skips 
     await settings.send({ type: 'scan-repo-roots', requestId: 'scan-activity', includeActivity: true });
     const scannedWithActivity = settings.sent.filter((message) => message.type === 'repo-roots-scanned').at(-1);
     assert.deepEqual(blockOf(scannedWithActivity, 'directories'), [
-      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), lastActivityMs: lastCommitAt.getTime() }] },
-      { root: workArea, projects: [{ name: 'Projects', path: repoRoot }] },
+      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), isGit: true, lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo, isGit: false }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), isGit: true, lastActivityMs: lastCommitAt.getTime() }] },
+      { root: workArea, projects: [{ name: 'Projects', path: repoRoot, isGit: false }] },
     ]);
   } finally {
     fs.rmSync(workArea, { recursive: true, force: true });

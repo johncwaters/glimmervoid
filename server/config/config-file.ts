@@ -16,6 +16,7 @@ import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } 
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
 import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
 import { configBackupPath, configSecretsPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
+import { defaultRepoRootOf } from '../core/repository-source-core.ts';
 
 const ABORT_CONFIG_SAVE = 'abort-config-save';
 
@@ -49,7 +50,7 @@ function resolveConfigPath(): string {
   const homeConfig = decided.homePath;
   fs.mkdirSync(homeDir, { recursive: true, mode: CONFIG_DIR_MODE });
   restrictMode(homeDir, CONFIG_DIR_MODE);
-  writeJsonAtomicSync(homeConfig, DEFAULT_CONFIG, { mode: CONFIG_FILE_MODE, enforceMode: true });
+  writeJsonAtomicSync(homeConfig, { ...DEFAULT_CONFIG, repoRoots: [defaultRepoRootOf(os.homedir())] }, { mode: CONFIG_FILE_MODE, enforceMode: true });
   console.log(`Created default config at ${homeConfig}`);
   return homeConfig;
 }
