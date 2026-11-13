@@ -27,6 +27,7 @@ import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.t
 import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
+import type { GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -105,6 +106,7 @@ interface BackendControlDependencies {
   sessionDocs: SessionDocsPort;
   secrets: SecretsBroker;
   testSecretSource: (lookIn: string) => Promise<SecretSourceTestResult>;
+  githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
@@ -189,6 +191,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     sessionDocs: dependencies.sessionDocs,
     secrets: dependencies.secrets,
     testSecretSource: dependencies.testSecretSource,
+    githubConnection: dependencies.githubConnection,
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,

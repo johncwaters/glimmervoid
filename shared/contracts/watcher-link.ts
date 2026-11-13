@@ -138,10 +138,13 @@ export const GithubConnection = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('disconnected') }),
   z.strictObject({ state: z.literal('awaiting-code'), userCode: z.string().min(1).max(20), verificationUri: z.url({ protocol: /^https$/ }), expiresAtMs: PositiveInt }),
   z.strictObject({ state: z.literal('needs-install'), login: GithubLogin, installUrl: z.url({ protocol: /^https$/ }) }),
-  z.strictObject({ state: z.literal('connected'), login: GithubLogin, accounts: z.array(GithubLogin).max(MAX_BOUND_INSTALLATIONS), refreshTokenExpiresAtMs: PositiveInt }),
+  z.strictObject({ state: z.literal('connected'), login: GithubLogin, accounts: z.array(GithubLogin).max(MAX_BOUND_INSTALLATIONS), refreshTokenExpiresAtMs: PositiveInt, installUrl: z.url({ protocol: /^https$/ }) }),
   z.strictObject({ state: z.literal('reconnect-needed'), login: GithubLogin, reason: GithubReconnectReason }),
 ]);
 export type GithubConnection = z.infer<typeof GithubConnection>;
+
+export const GithubConnectionAction = z.enum(['read', 'connect', 'disconnect']);
+export type GithubConnectionAction = z.infer<typeof GithubConnectionAction>;
 
 export const GithubConnectionAnswer = z.strictObject({ connection: GithubConnection });
 export type GithubConnectionAnswer = z.infer<typeof GithubConnectionAnswer>;

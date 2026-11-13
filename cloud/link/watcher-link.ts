@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, GithubTokenGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
-import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
+import type { AwakeUsage, GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 import { failureKindOf, telemetryLaneOf } from './watcher-telemetry-core.ts';
 import { createRecentRequestIds, directionKey, signedHeaders, signedRequestFromHeaders, verifyRequest } from './core/link-signing-core.ts';
 import type { WatcherStarter } from './remote-watcher-starter.ts';
@@ -37,6 +37,11 @@ function laneTimerSentence(laneIds: readonly string[]): string {
 
 const RECOMPILE_DEBOUNCE_MS = 2_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
+const GITHUB_CONNECTION_CALLS: Record<GithubConnectionAction, { method: 'GET' | 'POST'; path: string }> = {
+  read: { method: 'GET', path: GITHUB_CONNECTION_PATH },
+  connect: { method: 'POST', path: GITHUB_CONNECT_PATH },
+  disconnect: { method: 'POST', path: GITHUB_DISCONNECT_PATH },
+};
 const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
 const GITHUB_TOKEN_CHECK_MS = 5 * 60_000;
@@ -321,6 +326,31 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     }
   }
 
+  async function githubConnection(action: GithubConnectionAction): Promise<GithubConnection | null> {
+    if (watcherUrl === null) return null;
+    const { method, path } = GITHUB_CONNECTION_CALLS[action];
+    try {
+      const response = await fetchFn(new URL(path, watcherUrl), {
+        method,
+        headers: signedHeaders(commandKey, { method, path, body: '' }, now()),
+        body: method === 'POST' ? '' : undefined,
+        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        log.warn(`[watcher] ${path} answered ${response.status}`);
+        return null;
+      }
+      const answer = GithubConnectionAnswer.safeParse(await response.json());
+      if (answer.success) return answer.data.connection;
+      log.warn(`[watcher] ${path} answered an unreadable connection: ${answer.error.message}`);
+      return null;
+    } catch (connectionError) {
+      log.warn(`[watcher] could not reach ${path}: ${(connectionError as Error).message}`);
+      return null;
+    }
+  }
+
   async function readAwakeUsage(): Promise<AwakeUsage | null> {
     if (watcherUrl === null) return null;
     try {
@@ -545,7 +575,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

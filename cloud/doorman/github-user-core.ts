@@ -159,7 +159,7 @@ function connectionOf({ record, pending, appSlug, nowMs }: { record: GithubUserR
   if (record.reconnectReason !== null) return { state: 'reconnect-needed', login: record.login, reason: record.reconnectReason };
   if (isRefreshTokenExpired(record, nowMs)) return { state: 'reconnect-needed', login: record.login, reason: 'expired' };
   if (record.installations.length === 0) return { state: 'needs-install', login: record.login, installUrl: installUrlFor(appSlug) };
-  return { state: 'connected', login: record.login, accounts: record.installations.map((installation) => installation.accountLogin), refreshTokenExpiresAtMs: record.refreshTokenExpiresAtMs };
+  return { state: 'connected', login: record.login, accounts: record.installations.map((installation) => installation.accountLogin), refreshTokenExpiresAtMs: record.refreshTokenExpiresAtMs, installUrl: installUrlFor(appSlug) };
 }
 
 export { areInstallationsStale, boundInstallations, connectionOf, deviceCodeRequestBody, deviceTokenRequestBody, installationsPageOf, installUrlFor, isAccessTokenUsable, isRefreshTokenExpired, pendingFromDeviceCode, refreshRequestBody, repositoriesPageOf, slowedIntervalMs, tokenOutcomeOf, userOf };

@@ -1170,7 +1170,7 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
     const connection = await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs);
     return connection.state === 'connected' ? connection : undefined;
   });
-  assert.deepEqual(connected, { state: 'connected', login: 'octo', accounts: ['octo-org'], refreshTokenExpiresAtMs: connected.refreshTokenExpiresAtMs }, 'an installation where the user reaches no repository is never bound');
+  assert.deepEqual(connected, { state: 'connected', login: 'octo', accounts: ['octo-org'], refreshTokenExpiresAtMs: connected.refreshTokenExpiresAtMs, installUrl: 'https://github.com/apps/glimmervoid-test/installations/new' }, 'an installation where the user reaches no repository is never bound');
   const sealedRecord = await fsp.readFile(path.join(tenant.watcherHome, 'records', 'github-user'));
   assert.ok(!sealedRecord.includes('ghr_user'), 'the refresh token is sealed at rest');
   const linkCredentials: { github: string | null } = { github: null };
@@ -1190,6 +1190,7 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   await link.start();
 
   await eventually(() => (coveredProbeCounts.at(-1) === 1 && link.githubAppToken() !== null ? true : undefined));
+  assert.deepEqual(await link.githubConnection('read'), connected, 'the server reads the tenant connection over the signed link');
   const serverToken = link.githubAppToken();
   assert.match(serverToken ?? '', /^ghs_minted[23]$/, 'the server gets a fresh mint, never the token with ten minutes left');
   assert.equal(githubAppTokenChanges, 1);

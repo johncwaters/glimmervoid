@@ -48,6 +48,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     prFlows = null,
     requestViewer = async () => ({ isRateLimited: false, value: null }),
     requestViewerTeams = async () => ({ isRateLimited: false, value: null }),
+    githubConnection = null,
   } = deps;
 
   const prSessionOpenQueue = createKeyedSerialQueue();
@@ -200,6 +201,9 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'pr-flow-undo': (msg: ClientMessageOf<'pr-flow-undo'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowItemRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey }), () => 'pr-flow-undo', (flows, request) => flows.undo(request)),
     'pr-flow-save-rule': (msg: ClientMessageOf<'pr-flow-save-rule'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowSaveRuleRequest.safeParse({ prKey: msg.prKey, itemKey: msg.itemKey, reason: msg.reason }), () => 'pr-flow-save-rule', (flows, request) => flows.saveRule(request)),
     'pr-flow-approve': (msg: ClientMessageOf<'pr-flow-approve'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrFlowApproveRequest.safeParse({ fingerprint: msg.fingerprint }), () => 'pr-flow-approve', (flows, request) => flows.approve(request)),
+    'github-connection': async (msg: ClientMessageOf<'github-connection'>, ws: ControlSocket) => {
+      replyTo(ws, msg, 'github-connection-result', { connection: githubConnection === null ? null : await githubConnection(msg.action) });
+    },
     'pr-action-run': (msg: ClientMessageOf<'pr-action-run'>, ws: ControlSocket) => answerPrFlowRequest(msg, ws, PrActionRunRequest.safeParse({ repo: msg.repo, number: msg.number, actionId: msg.actionId, head: msg.head }), () => 'pr-flow-run', (flows, request) => flows.runPrAction(request)),
   } satisfies ControlHandlerTable;
 
@@ -216,6 +220,7 @@ function createGithubHandlers(context: ControlContext, deps: ControlHandlerDeps)
     'pr-flow-save-rule': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-flow-approve': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
     'pr-action-run': (_msg, requestId, message) => ({ type: 'pr-flow-dispose-result', requestId, ok: false, error: message }),
+    'github-connection': (_msg, requestId) => ({ type: 'github-connection-result', requestId, connection: null }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, connectFrames, lateConnectFrames };

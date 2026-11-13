@@ -821,6 +821,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     secrets: secretsBroker,
     testSecretSource,
+    githubConnection: watcherLink.githubConnection,
     whiteboards,
     reviews,
     changeMaps,
