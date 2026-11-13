@@ -13,6 +13,8 @@ const CURRENT_ROOTS_UNREADABLE_MESSAGE = 'Could not read the current repository 
 const CLONE_REPLY_TIMEOUT_MS = 11 * 60_000;
 const GITHUB_LIST_REPLY_TIMEOUT_MS = 90_000;
 const MAX_VISIBLE_GITHUB_REPOS = 8;
+const FOLDER_COMPLETION_DELAY_MS = 150;
+const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
 const NO_GITHUB_LOGIN_HINT = 'Run gh auth login on the machine running Glimmervoid to list your repos.';
 
 function isStringList(value: unknown): value is string[] {
@@ -81,7 +83,11 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   suggestionsSection.append(suggestionsHeading, suggestionsList);
   suggestionsSection.hidden = true;
 
-  const folderRow = buildInputRow('OPEN A FOLDER', '/path/to/your/checkouts', 'Add');
+  const folderRow = buildInputRow('OPEN A FOLDER', '~/', 'Add');
+  const folderCompletions = el('datalist', 'repo-roots-adder-completions');
+  folderCompletions.id = `${folderRow.input.id}-completions`;
+  folderRow.input.setAttribute('list', folderCompletions.id);
+  folderRow.row.append(folderCompletions);
 
   const errorEl = el('p', 'repo-roots-adder-error');
   errorEl.setAttribute('role', 'alert');
@@ -191,7 +197,29 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
 
   githubFilter.addEventListener('input', renderGithubRepos);
   void loadGithubRepos();
-  wireInputRow(folderRow, (value) => { void runAction(() => saveRepoRoots([value]), 'typed', folderRow.input); });
+  wireInputRow(folderRow, (value) => { void runAction(() => saveRepoRoots([value.replace(TRAILING_SEPARATORS_RE, '$1')]), 'typed', folderRow.input); });
+
+  let folderCompletionTimer: ReturnType<typeof setTimeout> | null = null;
+  let latestFolderQuery = '';
+
+  async function completeFolder(query: string) {
+    latestFolderQuery = query;
+    const reply = await sendControlRequest('list-folders', { query }).catch(() => null);
+    if (query !== latestFolderQuery || reply?.type !== 'folders-listed') return;
+    folderCompletions.textContent = '';
+    for (const entry of reply.entries) {
+      const option = el('option');
+      option.value = entry.path;
+      if (entry.isGit) option.label = 'git checkout';
+      folderCompletions.append(option);
+    }
+  }
+
+  folderRow.input.addEventListener('input', () => {
+    if (folderCompletionTimer) clearTimeout(folderCompletionTimer);
+    folderCompletionTimer = setTimeout(() => { void completeFolder(folderRow.input.value); }, FOLDER_COMPLETION_DELAY_MS);
+  });
+  folderRow.input.addEventListener('focus', () => { if (folderRow.input.value === '') void completeFolder(''); });
 
   function setSuggestions(suggestions: readonly RepoRootSuggestion[]) {
     void loadGithubRepos();

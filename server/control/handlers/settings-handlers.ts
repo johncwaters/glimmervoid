@@ -21,7 +21,8 @@ import type { ProjectEntry } from '../../config-store.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
-import { suggestRepoRoots } from '../../repo-root-suggestions.ts';
+import { listFolders, suggestRepoRoots } from '../../repo-root-suggestions.ts';
+import { resolveFromHome } from '../../core/repo-root-suggestions-core.ts';
 import { cloneRepository, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
 import { cloneRootOf, defaultRepoRootOf } from '../../core/repository-source-core.ts';
 import type { RootCheckouts } from '../../core/repository-source-core.ts';
@@ -51,6 +52,12 @@ function scannedProjectOf(root: string, entry: fs.Dirent): ScannedProject | null
   return { name: entry.name, path: realPathOrSelf(entryPath) };
 }
 
+function isCheckoutWithoutChildCheckouts(root: string): boolean {
+  if (!fs.existsSync(path.join(root, '.git'))) return false;
+  const childFolders = fs.readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+  return !childFolders.some((entry) => fs.existsSync(path.join(root, entry.name, '.git')));
+}
+
 function scanRepoRoots(roots: string[] | undefined): { root: string; projects: ScannedProject[] }[] {
   const results: { root: string; projects: ScannedProject[] }[] = [];
   if (!roots) return results;
@@ -59,6 +66,12 @@ function scanRepoRoots(roots: string[] | undefined): { root: string; projects: S
     try {
       if (!fs.existsSync(root)) {
         results.push({ root, projects: [] });
+        continue;
+      }
+      if (isCheckoutWithoutChildCheckouts(root)) {
+        const rootRealPath = realPathOrSelf(root);
+        results.push({ root, projects: seenRealPaths.has(rootRealPath) ? [] : [{ name: path.basename(root), path: root }] });
+        seenRealPaths.add(rootRealPath);
         continue;
       }
       const entries = fs.readdirSync(root, { withFileTypes: true });
@@ -111,7 +124,11 @@ async function withProjectActivity(directories: { root: string; projects: Scanne
 
 async function rootCheckoutsOf(roots: readonly string[]): Promise<RootCheckouts[]> {
   const scanned = await withProjectActivity(scanRepoRoots([...roots]));
-  return scanned.map(({ root, projects }) => ({ root, hasGitCheckout: projects.some((project) => project.isGit) }));
+  return Promise.all(scanned.map(async ({ root, projects }) => ({
+    root,
+    isCheckoutItself: await fs.promises.stat(path.join(root, '.git')).then(() => true, () => false),
+    hasGitCheckout: projects.some((project) => project.isGit && project.path !== root),
+  })));
 }
 
 function createDefaultRepoRoot(): void {
@@ -206,7 +223,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
     const incoming: Record<string, unknown> = s;
 
-    if (s.repoRoots) s.repoRoots = s.repoRoots.map((root) => expandTilde(root, process.env, os.homedir()));
+    if (s.repoRoots) s.repoRoots = s.repoRoots.map((root) => resolveFromHome(expandTilde(root, process.env, os.homedir()), os.homedir()));
     if (s.repoRoots?.includes(defaultRepoRootOf(os.homedir()))) createDefaultRepoRoot();
     const invalidPaths = (s.repoRoots || []).filter(root => !isExistingDirectory(root));
     if (invalidPaths.length > 0) {
@@ -306,6 +323,15 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
   function currentGithubCredential() {
     return resolveGithubCredential({ readToken: config.github?.readToken || null, appToken: deps.githubAppToken?.() ?? null });
+  }
+
+  async function handleListFolders(msg: ClientMessageOf<'list-folders'>, ws: ControlSocket): Promise<void> {
+    const listed = await listFolders({ query: msg.query, homeDir: os.homedir() });
+    if ('error' in listed) {
+      replyTo(ws, msg, 'folders-listed', { folder: listed.folder, entries: [], error: listed.error });
+      return;
+    }
+    replyTo(ws, msg, 'folders-listed', { folder: listed.folder, entries: listed.entries });
   }
 
   async function handleListGithubRepos(msg: ClientMessageOf<'list-github-repos'>, ws: ControlSocket): Promise<void> {
@@ -470,6 +496,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'list-agents': handleListAgents,
     'clone-repository': handleCloneRepository,
     'list-github-repos': handleListGithubRepos,
+    'list-folders': handleListFolders,
     'telegram-test': handleTelegramTest,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -498,6 +525,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'clone-repository': (_msg, requestId, message) => ({ type: 'repository-cloned', requestId, ok: false, error: message }),
+    'list-folders': (_msg, requestId, message) => ({ type: 'folders-listed', requestId, folder: '', entries: [], error: message }),
     'list-github-repos': (_msg, requestId, message) => ({ type: 'github-repos-listed', requestId, source: 'none', repos: [], error: message }),
     'telegram-test': (_msg, requestId, message) => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),

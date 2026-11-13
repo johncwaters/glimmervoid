@@ -107,6 +107,43 @@ test('a pasted repository source that could inject git options or another transp
   }
 });
 
+test('the folder browser completes child folders by prefix, hides dot folders until the prefix asks for them, and marks git checkouts', async () => {
+  const workArea = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-list-folders-')));
+  try {
+    fs.mkdirSync(path.join(workArea, 'alpha', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(workArea, 'Alpine'));
+    fs.mkdirSync(path.join(workArea, '.alcove'));
+    fs.mkdirSync(path.join(workArea, 'beta'));
+    fs.writeFileSync(path.join(workArea, 'almanac.txt'), 'not a folder', 'utf8');
+    const settings = harness({ projects: [], repoRoots: [] });
+    await settings.send({ type: 'list-folders', requestId: 'by-prefix', query: path.join(workArea, 'al') });
+    const byPrefix = settings.sent.find((message) => message.type === 'folders-listed' && blockOf(message, 'requestId') === 'by-prefix');
+    assert.deepEqual(blockOf(byPrefix, 'entries'), [
+      { name: 'alpha', path: `${path.join(workArea, 'alpha')}${path.sep}`, isGit: true },
+      { name: 'Alpine', path: `${path.join(workArea, 'Alpine')}${path.sep}`, isGit: false },
+    ]);
+    await settings.send({ type: 'list-folders', requestId: 'hidden', query: `${workArea}${path.sep}.` });
+    const hidden = settings.sent.find((message) => message.type === 'folders-listed' && blockOf(message, 'requestId') === 'hidden');
+    assert.deepEqual(blockOf(hidden, 'entries'), [{ name: '.alcove', path: `${path.join(workArea, '.alcove')}${path.sep}`, isGit: false }]);
+  } finally {
+    fs.rmSync(workArea, { recursive: true, force: true });
+  }
+});
+
+test('a repository root that is itself a git checkout scans as one project instead of listing its folders', async () => {
+  const checkoutRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-root-checkout-')));
+  try {
+    fs.mkdirSync(path.join(checkoutRoot, '.git'));
+    fs.mkdirSync(path.join(checkoutRoot, 'src'));
+    const settings = harness({ projects: [], repoRoots: [checkoutRoot] });
+    await settings.send({ type: 'scan-repo-roots', requestId: 'root-checkout' });
+    const scanned = settings.sent.find((message) => message.type === 'repo-roots-scanned');
+    assert.deepEqual(blockOf(scanned, 'directories'), [{ root: checkoutRoot, projects: [{ name: path.basename(checkoutRoot), path: checkoutRoot }] }]);
+  } finally {
+    fs.rmSync(checkoutRoot, { recursive: true, force: true });
+  }
+});
+
 test('saving the default repository folder as a root creates it instead of refusing it as missing', () => {
   const defaultRoot = path.join(os.homedir(), 'glimmervoid');
   const hadDefaultRoot = fs.existsSync(defaultRoot);

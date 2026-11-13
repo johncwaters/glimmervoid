@@ -19,6 +19,7 @@ export const settingsClientVariants = [
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
   loose('clone-repository', { requestId, source: z.string().max(2048) }),
   loose('list-github-repos', { requestId }),
+  loose('list-folders', { requestId, query: z.string().max(4096) }),
   loose('telegram-test', { requestId }),
   loose('request-hooks-report', { requestId }),
   loose('save-hook', { hook: z.record(z.string(), z.unknown()), requestId }),
@@ -59,6 +60,7 @@ export const settingsServerVariants = [
     error: z.string().optional(),
   }),
   loose('repository-cloned', { requestId, ok: z.boolean(), path: z.string().optional(), error: optionalError }),
+  loose('folders-listed', { requestId, folder: z.string(), entries: z.array(z.object({ name: z.string(), path: z.string(), isGit: z.boolean() })), error: optionalError }),
   loose('github-repos-listed', {
     requestId,
     source: z.enum(['gh', 'app', 'token', 'none']),

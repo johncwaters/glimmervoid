@@ -4,7 +4,7 @@ import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
 
 type RepositorySource = { ok: true; url: string; repoName: string; isGithubHttps: boolean; isSsh: boolean } | { ok: false; error: string };
 type ParsedRepositorySource = Extract<RepositorySource, { ok: true }>;
-type RootCheckouts = { root: string; hasGitCheckout: boolean };
+type RootCheckouts = { root: string; isCheckoutItself: boolean; hasGitCheckout: boolean };
 type GithubCredentialKind = 'gh' | 'app' | 'token';
 type GithubCredential = { kind: GithubCredentialKind; token: string } | { kind: 'none' };
 type GithubRepo = { fullName: string; cloneUrl: string; isPrivate: boolean; pushedAt: string | null };
@@ -65,7 +65,8 @@ function defaultRepoRootOf(homeDir: string): string {
 }
 
 function cloneRootOf(roots: readonly RootCheckouts[], defaultRoot: string): string {
-  return roots.find((root) => root.hasGitCheckout)?.root ?? roots[0]?.root ?? defaultRoot;
+  const foldersOfCheckouts = roots.filter((root) => !root.isCheckoutItself);
+  return foldersOfCheckouts.find((root) => root.hasGitCheckout)?.root ?? foldersOfCheckouts[0]?.root ?? defaultRoot;
 }
 
 function githubAuthHeaderOf(token: string): string {
