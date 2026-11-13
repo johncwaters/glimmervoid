@@ -10,10 +10,10 @@ import { isPhoneArrowPad } from '../ui-prefs.ts';
 import { syncTelemetryBanner } from './banners.ts';
 import { applySurfaceSettings, applyTabOrder } from './view-tabs.ts';
 
-type DashboardSettings = FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder' | 'operatorTimezone'> & { streamerMode?: boolean; isExperimentalBuild?: boolean };
+type DashboardSettings = FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder' | 'operatorTimezone'> & { streamerMode?: boolean };
 
 function applyDashboardSettings(settings: DashboardSettings) {
-  applyPhoneArrowPad(settings.isExperimentalBuild === true && isPhoneArrowPad());
+  applyPhoneArrowPad(isPhoneArrowPad());
   applyTerminalSettings(settings);
   applySettingsBroadcast(settings);
   applySurfaceSettings(settings);

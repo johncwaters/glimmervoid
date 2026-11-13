@@ -832,7 +832,7 @@ test('the published pack JSON Schema matches the Zod contract, and packs check n
 });
 
 test('an agent reads each PR flows setting with its JSON Schema and a valid example, and pr-flows check names entries, runs sources and prints actions unrun', async () => {
-  const view = configFileViewOf('config.json', DEFAULT_CONFIG, {}, false);
+  const view = configFileViewOf('config.json', DEFAULT_CONFIG, {});
   const schemaOf = { 'prFlows.sources': z.array(PrFlowSourceCommand), 'prFlows.actions': z.array(PrFlowCommand), 'prFlows.prActions': z.array(PrFlowPrAction), 'prFlows.rules': z.array(PrFlowRule), 'prFlows.repoRules': z.record(z.string(), z.array(PrFlowRule)) };
   for (const [settingPath, schema] of Object.entries(schemaOf)) {
     const reply = readSettingsForAgent({ command: 'get', path: settingPath }, view);

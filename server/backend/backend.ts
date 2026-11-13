@@ -101,7 +101,6 @@ interface CreateBackendOptions extends BackendLaneOptions {
   exit?: (code?: number) => unknown;
   downloadUpdatesInBackground?: boolean;
   configReloadDebounceMs?: number;
-  isExperimentalBuild?: boolean;
   localPort?: number;
 }
 
@@ -118,7 +117,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     glimmervoid?: { posthogReleaseId?: unknown };
   };
 
-  const configStore = createConfigStore({ settingsDefaults, isExperimentalBuild: options.isExperimentalBuild, readTelemetryInstallId: () => telemetry.currentInstallId() });
+  const configStore = createConfigStore({ settingsDefaults, readTelemetryInstallId: () => telemetry.currentInstallId() });
   const { config } = configStore;
   setOperatorTimezoneSource(() => config.operatorTimezone);
   applyCustomAgents(config);
@@ -458,7 +457,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       requestReview: (reference) => teamReview.requestReview(reference),
       teamReviewStatus: () => teamReview.getStatus(),
       myPrsStatus: () => myPrs.getStatus(),
-      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.isExperimentalBuild, configStore.secretsFileKeys())),
+      readSettings: (request) => readSettingsForAgent(request, configFileViewOf(configStore.configPath, config, process.env, configStore.secretsFileKeys())),
       readPacks: (request) => readPacksForAgent(request, {
         homeDir: glimmervoidHomeDir(), env: process.env, examplePacksDir,
         packRows: () => laneAssembly.packStore.statusFrame().packs, isApproved: (fingerprint) => laneAssembly.packStore.isApproved(fingerprint), dashboardPort: boundDashboardPort,

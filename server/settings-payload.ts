@@ -11,7 +11,6 @@ interface SettingsPayloadOptions {
   configStore: {
     getSettings: () => Record<string, unknown>;
     config: { customAgents?: CustomAgentDeclaration[] } & Partial<TeamReviewSettingsSource>;
-    isExperimentalBuild?: boolean;
   };
   telegramDelivery?: TelegramDeliveryStatus | null;
   readTeamReviewEnvironment?: () => TeamReviewEnvironment;
@@ -37,7 +36,6 @@ function buildSettingsPayload({
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
-    isExperimentalBuild: configStore.isExperimentalBuild === true,
     saneYoloAvailable: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'),
     customAgents: summarizeCustomAgents(configStore.config.customAgents ?? []),
     telegramDelivery,

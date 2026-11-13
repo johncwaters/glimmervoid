@@ -1,6 +1,6 @@
 import { resolveSoundId, soundOptions } from '../alert-sound.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
-import { SETTINGS_REGISTRY, settingsSectionsAvailableOn } from '#shared/settings/registry.ts';
+import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
 import { childSectionsOf, hydrateFromSettings, pageSectionOf } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
@@ -83,12 +83,8 @@ function resolveSettingOptions(setting: SettingsSetting): SettingsSetting {
   };
 }
 
-function isExperimentalBuildPayload(payload: SettingsPayload): boolean {
-  return payload.isExperimentalBuild === true;
-}
-
 function availableSettingsSections(): readonly SettingsSection[] {
-  return settingsSectionsAvailableOn(SETTINGS_REGISTRY.sections, isExperimentalBuildPayload(settingsPayloadSnapshot()));
+  return SETTINGS_REGISTRY.sections;
 }
 
 function buildSettingsViewMap(): readonly SettingsSection[] {
@@ -159,14 +155,7 @@ function settingById(settingId: string): SettingsSetting | null {
 
 function rebuildSettingsViewMap() {
   viewMap = buildSettingsViewMap();
-  isViewMapExperimental = isExperimentalBuildPayload(settingsPayloadSnapshot());
   selectedPage = pageSectionOf(viewMap, selectedPage.id) ?? viewMap[0];
-}
-
-function syncSettingsViewMapToBuild(): boolean {
-  if (isExperimentalBuildPayload(settingsPayload) === isViewMapExperimental) return false;
-  rebuildSettingsViewMap();
-  return true;
 }
 
 interface PanelRefresher {
@@ -177,7 +166,6 @@ interface PanelRefresher {
 }
 
 let viewMap = buildSettingsViewMap();
-let isViewMapExperimental = isExperimentalBuildPayload(settingsPayloadSnapshot());
 let contentEl: HTMLDivElement | null = null;
 let selectedPage: SettingsSection = viewMap[0];
 let settingsPayload: SettingsPayload = settingsPayloadSnapshot();
@@ -217,5 +205,5 @@ function panelRefresher(): PanelRefresher {
   return installedRefresher;
 }
 
-export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, syncSettingsViewMapToBuild, websiteUrl };
+export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, websiteUrl };
 export type { SaveStatus };

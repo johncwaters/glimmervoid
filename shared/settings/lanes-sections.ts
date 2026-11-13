@@ -212,7 +212,7 @@ export const LANES_COMMUNITY: SettingsSection = {
     {
       id: 'community-enabled', path: 'community.enabled', title: 'Show the Community tab',
       description: 'Research new community questions and draft a reply for each.',
-      control: 'toggle', keywords: ['experimental', 'community', 'questions', 'forum', 'tab'], defaultValue: false, ...MACHINE_NOW,
+      control: 'toggle', keywords: ['community', 'questions', 'forum', 'tab'], defaultValue: false, ...MACHINE_NOW,
     },
     {
       id: 'community-skill', path: 'community.skill', title: 'Research skill',

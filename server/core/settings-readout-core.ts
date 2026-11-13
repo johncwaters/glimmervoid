@@ -10,7 +10,6 @@ import type { Config } from '../../shared/contracts/config.ts';
 import { renderTable } from './ascii-figure-core.ts';
 import type { ParsedCommand } from './cli-spec-core.ts';
 import { readEnvSecrets } from './config-secrets-core.ts';
-import { isSettingAvailable } from './experimental-gate-core.ts';
 
 const VALUE_COLUMN_WIDTH = 40;
 
@@ -51,7 +50,6 @@ interface ConfigFileView {
   configPath: string;
   config: Record<string, unknown>;
   secretSources: Readonly<Record<string, string>>;
-  isExperimentalBuild: boolean;
 }
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -167,26 +165,25 @@ function resolveSetting(argument: string): SettingsSetting | null {
   return SETTINGS_INDEX.byPath.get(argument) ?? SETTINGS_INDEX.byId.get(argument) ?? null;
 }
 
-function availableSettings(isExperimentalBuild: boolean): SettingsSetting[] {
-  return ALL_SETTINGS.filter((setting) => isSettingAvailable(setting, isExperimentalBuild));
+function availableSettings(): SettingsSetting[] {
+  return [...ALL_SETTINGS];
 }
 
-function requireConfigFileSetting(argument: string, view: Pick<ConfigFileView, 'configPath' | 'isExperimentalBuild'>): Outcome<SettingsSetting> {
+function requireConfigFileSetting(argument: string, view: Pick<ConfigFileView, 'configPath'>): Outcome<SettingsSetting> {
   const { configPath } = view;
   const setting = resolveSetting(argument);
   if (!setting) return fail(`${argument} is not a setting in the registry, so this command cannot read or change it; edit config.json at ${configPath} by hand`);
-  if (!isSettingAvailable(setting, view.isExperimentalBuild)) return fail(`${setting.path} is an experimental setting, so it exists only on an experimental build, a source checkout of a -next version`);
   if (setting.scope === 'browser') return fail(`${setting.id} is a browser preference saved in each browser, not in config.json; change it in the dashboard under Settings > ${sectionOf(setting).title}`);
   if (setting.control === 'readonly') return fail(`${setting.id} is a read-only status row under Settings > ${sectionOf(setting).title}; it has no config.json key`);
   return succeed(setting);
 }
 
-function configFileViewOf(configPath: string, config: Config, env: NodeJS.ProcessEnv, isExperimentalBuild: boolean, secretsFileKeys: readonly string[] = []): ConfigFileView {
+function configFileViewOf(configPath: string, config: Config, env: NodeJS.ProcessEnv, secretsFileKeys: readonly string[] = []): ConfigFileView {
   const secretSources = {
     ...Object.fromEntries(secretsFileKeys.map((secretsFileKey) => [secretsFileKey, SECRETS_FILE_SOURCE])),
     ...Object.fromEntries(readEnvSecrets(env).map((secret) => [`${secret.blockName}.${secret.secretKey}`, secret.environmentVariable])),
   };
-  return { configPath, config, secretSources, isExperimentalBuild };
+  return { configPath, config, secretSources };
 }
 
 interface SettingsReport {
@@ -195,7 +192,7 @@ interface SettingsReport {
 }
 
 function listSettings(view: ConfigFileView): SettingsReport {
-  const settings = availableSettings(view.isExperimentalBuild).filter(isConfigFileSetting);
+  const settings = availableSettings().filter(isConfigFileSetting);
   const readouts = settings.map((setting) => readSetting(setting, view));
   const readoutById = new Map(readouts.map((readout) => [readout.id, readout]));
   const rowOf = (setting: SettingsSetting): string[] => {

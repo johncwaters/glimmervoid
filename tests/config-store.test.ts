@@ -21,7 +21,7 @@ import { manualTimers } from './helpers/manual-timers.ts';
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
 
 type ConfigFileContent = Record<string, unknown>;
-type StoreOptions = { settingsDefaults?: Partial<DefaultConfig>; isExperimentalBuild?: boolean };
+type StoreOptions = { settingsDefaults?: Partial<DefaultConfig> };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -406,29 +406,12 @@ test('a saved secret approval that names a vault item and the vault companion ke
   });
 });
 
-test('a stable build reads experimental features as off and keeps their stored values and a retired conversationView key on save', () => {
-  const stored = { projects: [], conversationView: true, coherence: { enabled: true } };
-  withStore(stored, (store, configPath) => {
-    assert.equal(store.config.coherence?.enabled, false);
-    const saved = store.save((config) => { config.debugMode = true; });
-    assert.ok(saved);
+test('a save keeps a retired conversationView key', () => {
+  withStore({ projects: [], conversationView: true }, (store, configPath) => {
+    assert.ok(store.save((config) => { config.debugMode = true; }));
     const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    assert.deepEqual(
-      [onDisk.conversationView, onDisk.coherence.enabled, onDisk.debugMode],
-      [true, true, true],
-    );
-  }, { isExperimentalBuild: false });
-  withStore(stored, (store) => {
-    assert.equal(store.config.coherence?.enabled, true);
-  }, { isExperimentalBuild: true });
-});
-
-test('a stable build saves a config that sets no experimental feature', () => {
-  withStore({ projects: [] }, (store) => {
-    const saved = store.save((config) => { config.debugMode = true; });
-    assert.equal(saved?.debugMode, true);
-    assert.equal(store.config.coherence?.enabled ?? false, false);
-  }, { isExperimentalBuild: false });
+    assert.deepEqual([onDisk.conversationView, onDisk.debugMode], [true, true]);
+  });
 });
 
 test('settingsDefaults is never persisted and leaves other keys on DEFAULT_CONFIG', () => {
@@ -624,7 +607,7 @@ test('every block of the settings payload is picked through the registry spec, s
     assert.deepEqual(settings.telemetry, { enabled: false });
     assert.deepEqual(settings.usage, { enabled: true, budget: { dailyUsd: 5 } });
     assert.equal(block(store.config.usage).futureKey, 'kept-on-disk', 'the file keeps what the payload leaves out');
-  }, { isExperimentalBuild: true });
+  });
 });
 
 test('a config.json still carrying the retired postTurnChecks block loads and leaves it out of the payload', () => {

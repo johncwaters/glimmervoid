@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Agents' commits can show as Verified on GitHub.** Settings, Vault has a new Commit signing control. Set up makes an ed25519 signing key on the Glimmervoid host; the private key stays there, and Glimmervoid signs commits with it for your sessions. With GitHub connected, Register on GitHub adds the key to your account as a Signing Key. Without a connection, copy the public key and add it on GitHub yourself. Sessions started after setup sign their commits, unless the repository or your own git config already sets user.signingkey, any gpg setting, or commit, tag or push signing; a signing setting in any repository a session commits in still wins. Remove deletes the key on the host and on GitHub, and Disconnect GitHub deletes it on GitHub first. Registering needs the Glimmervoid GitHub App to hold the account permission "SSH signing keys: Read and write".
 
+### Changed
+
+- **Experimental features work on every release.** Released builds hid every setting marked Experimental and kept those features off, so they only ran on an experimental (-next) build. Now every build shows them, still marked Experimental, and honors what you set: session Coherence, the question manager, the phone arrow pad and the rest. Session Coherence is on by default, so it now turns on in every repository with a coherence.config.json; switch it off in Settings, Lanes, Coherence.
+- **The Community tab can be turned on.** Settings, Lanes, Community, Show the Community tab is no longer experimental.
+
 ## [0.58.0] - 2026-11-13
 
 ### Added

@@ -10,9 +10,6 @@ import { SECRET_PRESENCE_SUFFIX, pickSettingsBlock, settingsBlockSpecFor } from 
 import { stageTextAtomic, writeJsonAtomicSync, writeTextAtomic, writeTextAtomicSync } from './json-file.ts';
 import { errorLabel, errorMessage, isMissingFileError } from '../shared/text.ts';
 import { isRecord } from '../shared/coerce.ts';
-import { withExperimentalFeaturesGated } from './core/experimental-gate-core.ts';
-import { isExperimentalBuild as isExperimentalVersion } from '../shared/build-channel.ts';
-import { packageRoot } from './runtime-paths.ts';
 import { DEFAULT_TIMER_FNS } from '../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-deps.ts';
 import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
@@ -40,20 +37,12 @@ function storedSecretsAtBoot(configPath: string): StoredSecrets {
   }
 }
 
-function readIsExperimentalBuild(): boolean {
-  const manifest: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-  return isRecord(manifest) && isExperimentalVersion(manifest.version);
-}
-
-const IS_EXPERIMENTAL_BUILD = readIsExperimentalBuild();
-
 function createConfigStore({
-  settingsDefaults, readTelemetryInstallId, isExperimentalBuild = IS_EXPERIMENTAL_BUILD,
+  settingsDefaults, readTelemetryInstallId,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
 }: {
   settingsDefaults?: Partial<DefaultConfig>;
   readTelemetryInstallId?: () => string | null;
-  isExperimentalBuild?: boolean;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
 } = {}) {
@@ -144,7 +133,6 @@ function createConfigStore({
       console.warn('[config] Failed to persist auto-assigned project IDs:', errorMessage(err));
     }
   }
-  Object.assign(config, withExperimentalFeaturesGated(config, isExperimentalBuild));
 
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
@@ -199,7 +187,7 @@ function createConfigStore({
     } catch (err) {
       return refuseSave(`[config] Failed to write config.json: ${errorLabel(err)}`);
     }
-    return withExperimentalFeaturesGated(effectiveConfig, isExperimentalBuild);
+    return effectiveConfig;
   }
 
   function saveAsync(mutatorFn: (config: GlimmervoidConfig) => unknown): Promise<GlimmervoidConfig | null> {
@@ -232,7 +220,7 @@ function createConfigStore({
           staged.commit();
           _lastWrittenContent = nextContent;
           _lastAppliedContent = null;
-          return withExperimentalFeaturesGated(effectiveConfig, isExperimentalBuild);
+          return effectiveConfig;
         } catch (error) {
           console.warn('[config] Failed to save config.json asynchronously:', errorMessage(error));
           return null;
@@ -389,7 +377,7 @@ function createConfigStore({
       _lastAppliedContent = data;
 
       _lastWrittenContent = null;
-      callback(withExperimentalFeaturesGated(newConfig, isExperimentalBuild));
+      callback(newConfig);
       console.log('[config] Reloaded config.json');
     }
 
@@ -430,12 +418,11 @@ function createConfigStore({
     applySettings,
     isUnchosenLaunchDefault,
     watchForChanges,
-    isExperimentalBuild,
     DEFAULT_CONFIG,
   };
 }
 
 type ConfigStore = ReturnType<typeof createConfigStore>;
 
-export { IS_EXPERIMENTAL_BUILD, createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, saveConfigFileOnce, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
+export { createConfigStore, resolveConfigPath, glimmervoidHomeDir, generateProjectId, ensureProjectIds, validateConfig, loadConfigFile, saveConfigFileOnce, ABORT_CONFIG_SAVE, DEFAULT_CONFIG, CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX };
 export type { ConfigStore, DefaultConfig, GlimmervoidConfig, ProjectEntry };

@@ -11,12 +11,11 @@ import {
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import type { SettingsSetting } from '../shared/settings/registry.ts';
 import { errorCode, errorMessage } from '../shared/text.ts';
-import { DEFAULT_CONFIG, IS_EXPERIMENTAL_BUILD, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
+import { DEFAULT_CONFIG, loadConfigFile, saveConfigFileOnce, validateConfig } from './config-store.ts';
 import type { GlimmervoidConfig } from './config-store.ts';
 import { renderTable } from './core/ascii-figure-core.ts';
 import { OWNED_COMMAND_SPECS, parseCommand } from './core/cli-spec-core.ts';
 import type { ParsedCommand } from './core/cli-spec-core.ts';
-import { isSettingAvailable } from './core/experimental-gate-core.ts';
 import { decideConfigPath, glimmervoidHomeDir } from './core/config-path-core.ts';
 import { glimmervoidSecretPaths } from './secrets/core/secret-files-core.ts';
 import { normalizeRemoteConfig, resolveLocalPort, validateRemoteConfig } from './core/remote-config.ts';
@@ -200,7 +199,7 @@ function openConfigFile(): Outcome<ConfigFileView> {
   if (!decided.path) return fail(`no config.json at ${decided.homePath}. Start Glimmervoid once to create it; glimmervoid settings schema needs no config file`);
   const loaded = readConfigFile(decided.path, homeDir);
   if (!loaded.ok) return fail(loaded.message);
-  return succeed(configFileViewOf(decided.path, loaded.value.config, env, IS_EXPERIMENTAL_BUILD, loaded.value.secretsFileKeys));
+  return succeed(configFileViewOf(decided.path, loaded.value.config, env, loaded.value.secretsFileKeys));
 }
 
 function print(context: CommandContext, jsonValue: unknown, text: string): number {
@@ -301,7 +300,7 @@ function remotePortClash(candidate: Record<string, unknown>): string | null {
 }
 
 function registryChecksFor(planned: Record<string, unknown>): CandidateCheck[] {
-  const settingChecks = availableSettings(IS_EXPERIMENTAL_BUILD).flatMap((setting) => {
+  const settingChecks = availableSettings().flatMap((setting) => {
     const value = valueAtPath(planned, setting.path);
     if (value === undefined) return [];
     return [() => registryValueError(setting, value), dashboardSchemaCheck(setting)];
@@ -367,7 +366,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
     );
   },
   describe: (context) => {
-    const resolved = requireConfigFileSetting(requirePositional(context.positionals, 1, 'path'), { configPath: 'config.json', isExperimentalBuild: IS_EXPERIMENTAL_BUILD });
+    const resolved = requireConfigFileSetting(requirePositional(context.positionals, 1, 'path'), { configPath: 'config.json' });
     if (!resolved.ok) throw new Error(resolved.message);
     const descriptor = describeSetting(resolved.value);
     const lines = [`${descriptor.path}: ${descriptor.title}`, descriptor.description, `Default: ${defaultText(resolved.value)}`];
@@ -379,8 +378,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
   search: (context) => {
     const query = context.positionals.slice(1).join(' ');
     if (query.trim() === '') throw new Error('missing <text>; run glimmervoid settings --help for the usage');
-    const results = scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly)
-      .filter((result) => isSettingAvailable(result.setting, IS_EXPERIMENTAL_BUILD));
+    const results = scoreSettingsSearch(SETTINGS_REGISTRY.sections, query, SETTINGS_REGISTRY.fileOnly);
     const rows = results.map((result) => [
       result.setting.scope === 'browser' ? `${result.setting.id} (browser preference)` : result.setting.path,
       result.setting.title,
@@ -401,7 +399,7 @@ const commands: Record<string, (context: CommandContext) => number> = {
       setting.unit?.label ?? '',
       setting.takesEffect,
     ];
-    const settings = availableSettings(IS_EXPERIMENTAL_BUILD);
+    const settings = availableSettings();
     return print(context, settings.map(describeSetting), renderSectionTables(settings, ['Id', 'Path', 'Type', 'Default', 'Stored unit', 'Display unit', 'Effect'], rowOf));
   },
 };
