@@ -214,11 +214,19 @@ export function openRemoteSetupDialog() {
 }
 
 
+let openAddSessionSheet: { dialog: HTMLElement; refresh: () => void } | null = null;
+
 export function createAddSessionDialog() {
-  const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog' });
+  const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog', closeOnBackdrop: false });
   overlay.classList.add('add-session-overlay');
-  mountAddSessionPicker(dialog, { onStarted: close, onCancel: close });
+  const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close });
+  openAddSessionSheet = { dialog, refresh: picker.refresh };
   applyDialogAria(dialog, 'add-session-title');
+}
+
+export function refreshOpenAddSessionDialog() {
+  if (!openAddSessionSheet?.dialog.isConnected) return;
+  openAddSessionSheet.refresh();
 }
 
 export function createRadarReportDialog({

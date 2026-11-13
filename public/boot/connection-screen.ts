@@ -1,6 +1,7 @@
 import { refreshAgentAccounts } from '../agent-logins.ts';
 import { clearHeaderError, reportHeaderError } from '../action-status.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from '../app-reveal-core.ts';
+import { refreshOpenAddSessionDialog } from '../dialogs.ts';
 import { sendControlRequest, setConnectionStateCallback } from '../control-ws.ts';
 import { queryTag } from '../dom-helpers.ts';
 import { revealFlyingAnimals } from '../flying-animals.ts';
@@ -129,6 +130,7 @@ function onControlConnected() {
     return;
   }
   refreshFirstRunChecklist();
+  refreshOpenAddSessionDialog();
   refreshAgentAccounts();
   document.body.classList.add('app-ready');
   if (!appRevealed && controlConnectedAt === null) {

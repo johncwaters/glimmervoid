@@ -437,14 +437,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const scanStatus = createActionStatus('dialog-hint');
   const btnScanAgain = button({ variant: 'secondary', label: 'Scan again', hidden: true });
   btnScanAgain.addEventListener('click', () => { void fillProjectList(); });
-  const scanRow = el('div', 'flex items-center gap-2');
+  const scanRow = el('div', 'add-session-scan flex items-center gap-2');
   scanRow.append(scanStatus.element, btnScanAgain);
   repoRootsEl.before(scanRow);
 
   function showScanFailure(reason: string) {
-    scannedProjects = [];
-    recentRows = [];
-    renderList();
     scanStatus.show('error', `The project scan failed: ${reason}`);
     btnScanAgain.hidden = false;
     btnScanAgain.disabled = false;

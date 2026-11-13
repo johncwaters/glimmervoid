@@ -124,7 +124,7 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   height: 352px;
 }
 
-.add-session-pick:not([data-slot="project"]) > :not(.add-session-list) {
+.add-session-pick:not([data-slot="project"]) > :not(.add-session-list, .add-session-scan) {
   display: none;
 }
 
