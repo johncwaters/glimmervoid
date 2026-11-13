@@ -18,7 +18,7 @@ const USER_TOKEN = 'ghu_session_credential_probe';
 const TOKEN_EXPIRY_MS = Date.parse('2099-01-01T00:00:00Z');
 
 async function gitCredentialFill(env: Record<string, string | undefined>, host: string): Promise<{ exitCode: number | null; stdout: string }> {
-  const git = spawn('git', ['credential', 'fill'], { env: { ...env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' }, stdio: ['pipe', 'pipe', 'ignore'] });
+  const git = spawn('git', ['credential', 'fill'], { env, stdio: ['pipe', 'pipe', 'ignore'] });
   const stdoutChunks: Buffer[] = [];
   git.stdout?.on('data', (chunk: Buffer) => { stdoutChunks.push(chunk); });
   git.stdin?.end(`protocol=https\nhost=${host}\n\n`);
