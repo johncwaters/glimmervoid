@@ -2,7 +2,7 @@ import { nextReconnectDelayMs } from './reconnect-backoff.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
-import type { InstallFailureKind } from '#shared/contracts/control-messages.ts';
+import type { HeaderNoticeTone, InstallFailureKind } from '#shared/contracts/control-messages.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
 import { createClientLogReporter, createHeaderErrorTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
 
@@ -246,9 +246,9 @@ export function reportToServerLog(scope: string, text: string): void {
   clientLogReporter.report(scope, text);
 }
 
-export function reportHeaderErrorToServer(source: string, text: string, kind?: InstallFailureKind): void {
-  clientLogReporter.report('header error', `${source}: ${text}`);
-  headerErrorTelemetryReporter.report(source, text, kind);
+export function reportHeaderErrorToServer(source: string, text: string, tone: HeaderNoticeTone, kind?: InstallFailureKind): void {
+  clientLogReporter.report(`header ${tone}`, `${source}: ${text}`);
+  headerErrorTelemetryReporter.report(source, text, tone, kind);
 }
 
 export function sendControlRequest(type: string, payload?: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<ServerMessage> {

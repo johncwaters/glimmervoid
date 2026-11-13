@@ -231,9 +231,16 @@ body {
   left: 0;
   right: 0;
   padding: 8px 16px;
+  color: var(--state-failed);
   background: linear-gradient(var(--state-failed-bg), var(--state-failed-bg)), var(--bg-header);
   border-bottom: 2px solid var(--state-failed);
   box-shadow: 0 6px 16px rgb(0 0 0 / 35%);
+}
+
+.header-status[data-tone="warning"] {
+  color: var(--state-waiting);
+  background: linear-gradient(var(--state-waiting-bg), var(--state-waiting-bg)), var(--bg-header);
+  border-bottom-color: var(--state-waiting);
 }
 
 .header-status[hidden] { display: none; }

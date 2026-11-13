@@ -44,6 +44,7 @@ export {
   TELEMETRY_TEXT_MAX_CHARS,
   BoardGraphicsResetProperties,
   InstallFailureKind,
+  HeaderNoticeTone,
   InstallDetail,
   DASHBOARD_VIEWS,
   OPERATOR_ACTIONS_BY_SURFACE,
