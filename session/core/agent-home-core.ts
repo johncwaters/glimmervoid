@@ -5,6 +5,7 @@ import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-c
 import { listClaudeGlobalConfigPathCandidates } from "../../server/core/claude-config-paths-core.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
 import { isRecord } from "../../shared/coerce.ts";
+import type { SeededKeys } from "./agent-account-core.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
@@ -177,7 +178,7 @@ interface JsonConfigFormat {
 
 interface MixedAccountFile {
   sharedKeys: readonly string[];
-  seededKeys: readonly string[];
+  seededKeys: SeededKeys;
   candidatePaths(env: Readonly<Record<string, string | undefined>>, homeDir: string): readonly string[];
 }
 
@@ -649,11 +650,11 @@ function planAgentHome(inputs: AgentHomeInputs): AgentHomePlan {
   };
 }
 
-function accountSeamOf(accountEntryPattern: RegExp, accountConfigTablePattern: RegExp | null = null): AgentAccountSeam {
+function accountSeamOf(accountEntryPattern: RegExp, accountConfigTablePattern: RegExp | null = null, mixedFiles: readonly MixedAccountFile[] = []): AgentAccountSeam {
   return Object.freeze({
     isAccountEntryName: (name: string) => accountEntryPattern.test(name),
     isAccountConfigTable: (tableId: string) => accountConfigTablePattern?.test(tableId) === true,
-    mixedFiles: Object.freeze([]),
+    mixedFiles: Object.freeze(mixedFiles),
   });
 }
 
@@ -785,6 +786,10 @@ const COPILOT_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   account: accountSeamOf(/^config\.json$/),
 });
 
+function listGrokUserSettingsPathCandidates(env: Readonly<Record<string, string | undefined>>, homeDir: string): readonly string[] {
+  return [path.join(resolveRealAgentHome(GROK_HOME_PROFILE, env, homeDir, () => null), "user-settings.json")];
+}
+
 const GROK_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   vendor: "grok",
   homeEnvName: "GROK_HOME",
@@ -798,8 +803,10 @@ const GROK_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   generatedFileNames: Object.freeze([]),
   isPrivateEntryName: () => false,
   cleanOmits: null,
-  account: accountSeamOf(/^(?:auth|credentials|user-settings)\.json$/),
+  account: accountSeamOf(/^(?:auth|credentials|user-settings)\.json$/, null, [{ sharedKeys: [], seededKeys: { allExcept: ["apiKey", "baseURL"] }, candidatePaths: listGrokUserSettingsPathCandidates }]),
 });
+
+const CLAUDE_CODE_PREFERENCE_KEYS = Object.freeze(["installMethod", "autoUpdates", "autoUpdatesProtectedForNative", "theme", "verbose", "preferredNotifChannel", "shiftEnterKeyBindingInstalled", "editorMode", "hasUsedBackslashReturn", "autoCompactEnabled", "autoScrollEnabled", "showTurnDuration", "externalEditorContext", "showMessageTimestamps", "diffTool", "tipsHistory", "todoFeatureEnabled", "showExpandedTodos", "briefTranscript", "diffSidebarOpen", "messageIdleNotifThresholdMs", "autoConnectIde", "autoInstallIdeExtension", "fileCheckpointingEnabled", "terminalProgressBarEnabled", "showStatusInTerminalTab", "taskCompleteNotifEnabled", "inputNeededNotifEnabled", "agentPushNotifEnabled", "respectGitignore", "claudeInChromeDefaultEnabled", "hasCompletedClaudeInChromeOnboarding", "lspRecommendationDisabled", "lspRecommendationNeverPlugins", "lspRecommendationIgnoredCount", "copyFullResponse", "copyOnSelect", "leftArrowOpensAgents", "defaultToAgentsView", "prStatusFooterEnabled", "remoteControlAtStartup", "autoUploadSessions", "autoAddRemoteControlDaemonWorker", "remoteDialogSeen", "workflowSizeGuideline"]);
 
 const CLAUDE_ACCOUNT_ENTRY_PATTERN = /^(?:\.claude\.json(?:\..+)?|\.config\.json(?:\..+)?|\.credentials\.json|backups|mcp-needs-auth-cache\.json|(?:remote-settings|policy-limits)\.json(?:\..+)?)$/;
 
@@ -819,7 +826,7 @@ const CLAUDE_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   account: Object.freeze({
     isAccountEntryName: (name: string) => CLAUDE_ACCOUNT_ENTRY_PATTERN.test(name),
     isAccountConfigTable: () => false,
-    mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), seededKeys: Object.freeze(["hasCompletedOnboarding", "lastOnboardingVersion", "theme"]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
+    mixedFiles: Object.freeze([{ sharedKeys: Object.freeze(["mcpServers"]), seededKeys: Object.freeze(["hasCompletedOnboarding", "lastOnboardingVersion", ...CLAUDE_CODE_PREFERENCE_KEYS]), candidatePaths: listClaudeGlobalConfigPathCandidates }]),
   }),
 });
 

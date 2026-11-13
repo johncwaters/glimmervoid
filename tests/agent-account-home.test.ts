@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE, KIMI_HOME_PROFILE } from '../session/core/agent-home-core.ts';
+import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE, GROK_HOME_PROFILE, KIMI_HOME_PROFILE } from '../session/core/agent-home-core.ts';
 import { holdPreparedAgentHome, prepareAccountHome, releaseAgentHome } from '../session/agent-home.ts';
 
 function writeJson(filePath: string, value: unknown): void {
@@ -31,8 +31,10 @@ function claudeAccountScratch() {
   return { homeDir, realHome, accountFolder };
 }
 
-test('a claude account home shares the real setup, keeps its own login and policy, and takes the real MCP servers and onboarding', async () => {
+test('a claude account home shares the real setup, keeps its own login, policy and caches, and takes the real MCP servers, onboarding and preferences', async () => {
   const { homeDir, realHome, accountFolder } = claudeAccountScratch();
+  writeJson(path.join(homeDir, '.claude.json'), { oauthAccount: { org: 'personal' }, userID: 'personal-user', cachedGrowthBookFeatures: { personal: true }, mcpServers: { posthog: { url: 'p' } }, hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.0', theme: 'dark', diffSidebarOpen: false, env: { ANTHROPIC_AUTH_TOKEN: 'personal-token' } });
+  writeJson(path.join(accountFolder, '.claude.json'), { oauthAccount: { org: 'team' }, userID: 'team-user', cachedGrowthBookFeatures: { team: true }, mcpServers: { stale: {} } });
   const env = { HOME: homeDir };
 
   const prepared = await prepareAccountHome(CLAUDE_HOME_PROFILE, { env, accountFolder, homeDir });
@@ -44,7 +46,21 @@ test('a claude account home shares the real setup, keeps its own login and polic
   assert.equal(fs.existsSync(path.join(accountFolder, '.credentials.json')), false);
   assert.deepEqual(readJson(path.join(accountFolder, 'policy-limits.json')), { team: true });
   assert.deepEqual(readJson(path.join(realHome, 'policy-limits.json')), { personal: true });
-  assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, mcpServers: { posthog: { url: 'p' } }, hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.0', theme: 'dark' });
+  assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, userID: 'team-user', cachedGrowthBookFeatures: { team: true }, mcpServers: { posthog: { url: 'p' } }, hasCompletedOnboarding: true, lastOnboardingVersion: '2.1.0', theme: 'dark', diffSidebarOpen: false });
+});
+
+test('a grok account home takes the real user settings and keeps its own api key and endpoint', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-account-'));
+  const realHome = path.join(homeDir, '.grok');
+  const accountFolder = path.join(homeDir, 'accounts', 'grok-team');
+  fs.mkdirSync(realHome, { recursive: true });
+  fs.mkdirSync(accountFolder, { recursive: true });
+  writeJson(path.join(realHome, 'user-settings.json'), { apiKey: 'personal-key', baseURL: 'https://api.x.ai/v1', defaultModel: 'grok-4-latest', mcpServers: { posthog: { url: 'p' } } });
+  writeJson(path.join(accountFolder, 'user-settings.json'), { apiKey: 'team-key', baseURL: 'https://openrouter.ai/api/v1', defaultModel: 'stale' });
+
+  await prepareAccountHome(GROK_HOME_PROFILE, { env: { HOME: homeDir }, accountFolder, homeDir });
+
+  assert.deepEqual(readJson(path.join(accountFolder, 'user-settings.json')), { apiKey: 'team-key', baseURL: 'https://openrouter.ai/api/v1', defaultModel: 'grok-4-latest', mcpServers: { posthog: { url: 'p' } } });
 });
 
 test('a claude account home keeps its own onboarding when the machine config has none', async () => {

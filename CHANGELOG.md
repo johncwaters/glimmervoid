@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sessions under an added account keep your agent settings.** A Claude Code session started or switched under another account now takes your Claude Code settings from `~/.claude.json`, such as a closed diff sidebar, editor mode, notifications and copy settings, so the diff sidebar no longer pops open after a switch. Sign-in, including any API key or token in the file's env, usage and the account's own caches stay with the account. A Grok session under an account now takes your default model, models and MCP servers from `~/.grok/user-settings.json` and keeps the account's own API key and endpoint. Your own file wins on every start, so a setting changed inside an account session goes back to yours next time.
+
 ### Added
 
 - **Install and update the example packs from Settings, Packs.** Pack sources now list Glimmervoid examples, the packs that ship with Glimmervoid, such as pr-table. Enable installs one, which waits for your approval like any pack. When a Glimmervoid update changes an enabled example, Glimmervoid reinstalls it while it runs, with no restart and no terminal, and it asks for approval again. The examples source has no Update or Remove source button: turn off the examples you do not want instead.

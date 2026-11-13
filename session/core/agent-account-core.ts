@@ -71,10 +71,17 @@ function laneAccountHomeFor(readConfig: () => LaneAccountConfig, lane: LaneAccou
   };
 }
 
-function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKeys: readonly string[], seededKeys: readonly string[] = []): JsonObject | null {
+type SeededKeys = readonly string[] | { allExcept: readonly string[] };
+
+function listSeededKeys(realFile: JsonObject, seededKeys: SeededKeys): readonly string[] {
+  if (!("allExcept" in seededKeys)) return seededKeys;
+  return Object.keys(realFile).filter((key) => !seededKeys.allExcept.includes(key));
+}
+
+function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKeys: readonly string[], seededKeys: SeededKeys = []): JsonObject | null {
   const merged: JsonObject = { ...accountFile };
   let hasChanged = false;
-  for (const key of seededKeys) {
+  for (const key of listSeededKeys(realFile, seededKeys)) {
     if (!Object.hasOwn(realFile, key)) continue;
     if (Object.hasOwn(accountFile, key) && JSON.stringify(accountFile[key]) === JSON.stringify(realFile[key])) continue;
     merged[key] = realFile[key];
@@ -97,4 +104,4 @@ function mergeSharedKeys(accountFile: JsonObject, realFile: JsonObject, sharedKe
 }
 
 export { laneAccountHomeFor, mergeSharedKeys, resolveNewSessionAccount, resolveSessionAccountHome };
-export type { SessionAccountHome };
+export type { SeededKeys, SessionAccountHome };
