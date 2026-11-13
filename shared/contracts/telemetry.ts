@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
-import { BoardGraphicsResetProperties, DASHBOARD_VIEWS, InstallFailureKind, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
+import { BoardGraphicsResetProperties, DASHBOARD_VIEWS, HeaderNoticeTone, InstallFailureKind, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 import { SESSION_COMMANDS } from './session.ts';
 import { PROBE_CREDENTIALS, WATCHER_LANE_IDS } from './watcher-link.ts';
@@ -131,6 +131,7 @@ const OperatorActionProperties = z.object({
 const HeaderErrorShownProperties = z.object({
   source: boundedText,
   message: boundedText,
+  tone: HeaderNoticeTone,
   kind: InstallFailureKind.optional(),
 }).strict();
 
@@ -256,7 +257,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
-  { name: 'header_error_shown', description: 'An error the dashboard showed in its header line: which part of the dashboard raised it and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. For a dependency install warning it also carries the failure kind: tool-missing, failed or timed-out. Each distinct message is sent once per page load.' },
+  { name: 'header_error_shown', description: 'An error or warning the dashboard showed in its header line: which part of the dashboard raised it, whether it was an error or a warning, and the message text, cut to 512 characters, with your home folder shown as ~. The message can name a session, folder or branch. For a dependency install warning it also carries the failure kind: tool-missing, failed or timed-out. Each distinct message is sent once per page load.' },
   { name: 'board_graphics_reset', description: 'A whiteboard lost its graphics context, got it back, or found the browser blocking graphics: which of those, how many losses this page has had, the time since the last one and how long the board stayed blank, how many terminal and media textures were on the graphics card, the board canvas size, whether the page was visible, the browser\'s GPU name and its context error text. Never the board or its contents.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },
   { name: 'team_review_settled', description: 'A team review draft was posted (approve, comment or approve-only), discarded, or restored from discarded (which undoes that discard), with how many inline comments were drafted and how many were posted, plus the total action duration in milliseconds.' },

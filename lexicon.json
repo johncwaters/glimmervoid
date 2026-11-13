@@ -768,6 +768,10 @@
     {
       "name": "cloud storage",
       "definition": "Google Cloud Storage, where a hosted doorman's state bucket keeps its tenant table, awake ledgers and watcher files"
+    },
+    {
+      "name": "tone",
+      "definition": "Whether a header notice on the dashboard is an error (Failed red) or a warning (Needs Input amber); carried as tone on header_error_shown telemetry"
     }
   ],
   "retired": [
