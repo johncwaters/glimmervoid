@@ -131,8 +131,42 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   touch-action: none;
 }
 
-.phone-key-strip {
+.phone-compose {
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 6px 8px 0;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-dim);
+}
+.phone-compose[hidden] { display: none; }
+.phone-compose-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  max-height: calc(5lh + 22px);
+  padding: 10px;
+  resize: none;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--type-title);
+  line-height: 1.25;
+}
+.phone-compose-field:focus { outline: none; border-color: var(--accent); }
+
+.phone-key-block {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.phone-key-block[hidden] { display: none; }
+.phone-key-strip,
+.phone-key-more-sheet {
   display: flex;
   align-items: stretch;
   gap: 4px;
@@ -140,15 +174,22 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   background: var(--bg-surface);
   border-top: 1px solid var(--border-dim);
 }
-.phone-key-strip[hidden] { display: none; }
+.phone-key-strip {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.phone-key-more-sheet { flex-wrap: wrap; }
+.phone-key-more-sheet[hidden] { display: none; }
+.phone-key-more-sheet .phone-key { flex: 0 0 auto; padding: 0 10px; }
+.phone-key[data-locked] { border-width: 2px; }
 .phone-key[aria-pressed="true"] {
   color: var(--accent);
   border-color: var(--accent);
   background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 .phone-key {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: 36px;
   min-height: 44px;
   padding: 0 2px;
   appearance: none;
@@ -162,7 +203,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   cursor: pointer;
 }
 .phone-key:active { color: var(--text-head); border-color: var(--border-hover); }
-.phone-key-arrow { flex: 0 0 32px; font-size: var(--type-body); letter-spacing: 0; }
+.phone-key-arrow { flex: 0 0 32px; min-width: 32px; font-size: var(--type-body); letter-spacing: 0; }
 .phone-key-keyboard { flex: 0 0 40px; display: inline-flex; align-items: center; justify-content: center; }
 .phone-key-keyboard .line-icon { width: 20px; height: 20px; }
 .phone-arrow-pad { display: none; flex: 2 1 auto; touch-action: none; }
@@ -327,3 +368,61 @@ html[data-layout="phone"] .phone-shell[data-keyboard="open"] :is(.phone-nav, .ph
 .phone-nav-menu-item:active { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .phone-nav-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .phone-nav-menu-item[aria-current="page"] { color: var(--accent); }
+
+.phone-card-slot .terminal-wrap .terminal-select-mirror {
+  position: absolute;
+  z-index: 5;
+  overflow: hidden;
+  color: transparent;
+  caret-color: transparent;
+  white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
+}
+
+.terminal-select-mirror-row { height: 1lh; }
+
+.terminal-select-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--bg);
+}
+
+.terminal-select-sheet-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-select-sheet-footer {
+  display: grid;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.terminal-select-sheet-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.terminal-select-mirror-wide {
+  display: inline-block;
+  letter-spacing: 0;
+}

@@ -81,6 +81,7 @@ export const SessionSnapshot = z.object({
   taskTitleIsCustom: z.boolean().default(false),
   path: z.string(),
   agent: z.string(),
+  agentDrawsAlternateScreen: z.boolean().default(false),
   state: SessionState,
   stateSince: z.number(),
   dangerouslySkipPermissions: z.boolean(),

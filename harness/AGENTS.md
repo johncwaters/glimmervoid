@@ -36,6 +36,7 @@ Manual smoke tests and harnesses run directly with `node`, separate from the aut
 ### Testing Requirements
 - Run directly: `node harness/smoke-dormant-boot.ts`.
 - Run the browser matrix: `npm run test:browser` (`--only <scenario>`, `--viewport <name>`, `--artifacts <dir>`, `--prove-failure`, `--headed`, `--executable <path>`, `--browser <engine>`). `npm run test:browser:engines` runs it once per engine with the same arguments, refusing `--browser` and `--executable`; `scripts/install-browsers.sh` installs the three engines.
+- `--lan <this machine's IPv4> --lan-allow <device IP>` serves the same throwaway backend and fake agent to real phones instead of running the matrix, and prints the device step list (`LAN_DEVICE_STEPS`). The dashboard port has no authentication, so it refuses without `GLIMMERVOID_INSECURE_BIND=1` and destroys every connection from a peer not listed.
 - `--prove-failure` adds the self-check case whose failure IS the proof, so it never sets the exit code: 0 when every other case passed and the proof bit, 1 when another case failed, 2 when the proof did not bite.
 
 ## Dependencies

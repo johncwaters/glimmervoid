@@ -187,6 +187,7 @@ const claudeCode = {
     headless: true,
     toolHookContext: true,
     resumeNoteByHook: true,
+    drawsOwnAlternateScreen: true,
   },
   promptContextReply: "additional-context",
   isBrailleChar,

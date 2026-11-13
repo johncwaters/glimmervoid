@@ -19,6 +19,15 @@ export function isScrollGesture(deltaXPx: number, deltaYPx: number) {
   return vertical > Math.abs(deltaXPx) * VERTICAL_DOMINANCE;
 }
 
+export function isWithinTapSlop(deltaXPx: number, deltaYPx: number) {
+  return Math.hypot(deltaXPx, deltaYPx) < TOUCH_SCROLL_THRESHOLD_PX;
+}
+
+export function isLongPress({ deltaXPx, deltaYPx, heldMs, longPressMs }: { deltaXPx: number; deltaYPx: number; heldMs: number; longPressMs: number }) {
+  if (heldMs < longPressMs) return false;
+  return isWithinTapSlop(deltaXPx, deltaYPx);
+}
+
 export function scrollLinesForDrag(pendingPx: number, cellHeightPx: number, maxRowsPerStep = Number.POSITIVE_INFINITY) {
   if (!(cellHeightPx > 0)) return { scrollLines: 0, remainderPx: pendingPx };
   const rows = Math.trunc(pendingPx / cellHeightPx);

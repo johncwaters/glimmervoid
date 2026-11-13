@@ -1,8 +1,9 @@
-import { COARSE_POINTER_QUERY, decideLayout, PHONE_NARROW_QUERY } from './form-factor-core.ts';
+import { ANY_COARSE_POINTER_QUERY, COARSE_POINTER_QUERY, decideLayout, decideTouchInput, PHONE_NARROW_QUERY } from './form-factor-core.ts';
 import { uiState } from './ui-state-core.ts';
 
 const coarsePointerQuery = window.matchMedia?.(COARSE_POINTER_QUERY);
 const narrowWidthQuery = window.matchMedia?.(PHONE_NARROW_QUERY);
+const anyCoarsePointerQuery = window.matchMedia?.(ANY_COARSE_POINTER_QUERY);
 
 function evaluateLayout() {
   return decideLayout({
@@ -12,8 +13,14 @@ function evaluateLayout() {
 }
 
 function stampLayout(layout: string) {
+  stampTouchInput(layout);
   if (document.documentElement.dataset.layout === layout) return;
   document.documentElement.dataset.layout = layout;
+}
+
+function stampTouchInput(layout: string) {
+  const hasTouchInput = decideTouchInput({ layout, hasAnyCoarsePointer: !!anyCoarsePointerQuery?.matches });
+  document.documentElement.toggleAttribute('data-touch-input', hasTouchInput);
 }
 
 export function initFormFactor() {
@@ -29,6 +36,7 @@ export function initFormFactor() {
   const reevaluate = () => uiState.dispatch('setLayout', evaluateLayout());
   coarsePointerQuery?.addEventListener?.('change', reevaluate);
   narrowWidthQuery?.addEventListener?.('change', reevaluate);
+  anyCoarsePointerQuery?.addEventListener?.('change', () => stampTouchInput(uiState.snapshot().layout));
   return initialLayout;
 }
 

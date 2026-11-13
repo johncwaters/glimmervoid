@@ -515,6 +515,7 @@ const codex = {
     skipPermissionsFlag: true,
     headless: true,
     toolHookContext: true,
+    drawsOwnAlternateScreen: true,
   },
   promptContextReply: "additional-context",
 } satisfies AgentAdapterShape;

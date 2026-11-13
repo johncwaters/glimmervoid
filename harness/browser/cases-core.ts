@@ -14,6 +14,10 @@ export type Step =
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
+  | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
+  | { kind: 'assert-raw-typing-in-fullscreen-app'; viewer?: ViewerId }
+  | { kind: 'assert-compose-submit'; viewer?: ViewerId }
+  | { kind: 'assert-touch-select-copy'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
   | { kind: 'back'; viewer?: ViewerId }
@@ -71,6 +75,7 @@ export interface Scenario {
   companionViewport?: string;
   viewports?: readonly string[];
   proveFailure?: boolean;
+  agent?: string;
 }
 
 export interface ResolvedScenario extends Omit<Scenario, 'steps'> {
@@ -286,6 +291,31 @@ export const SCENARIOS: readonly Scenario[] = [
     phoneOnly: true,
     viewports: ['phone-393'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'remove-from-phone-terminal' }],
+  },
+  {
+    name: 'touch-key-strip-contexts',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-key-strip-contexts' }, { kind: 'shot', name: 'key-strip' }],
+  },
+  {
+    name: 'touch-raw-auto-in-alt-screen',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    agent: 'shell',
+    steps: [{ kind: 'open' }, { kind: 'assert-raw-typing-in-fullscreen-app' }, { kind: 'shot', name: 'raw-typing' }],
+  },
+  {
+    name: 'touch-compose-submit',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-compose-submit' }, { kind: 'shot', name: 'compose-bar' }],
+  },
+  {
+    name: 'touch-select-copy',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-touch-select-copy' }, { kind: 'shot', name: 'select-sheet' }],
   },
   {
     name: 'phone-changes-back',
