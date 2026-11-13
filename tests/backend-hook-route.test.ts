@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
-import { createAgentIngressApp } from '../server/backend/backend-http.ts';
+import { createAgentIngressApp, listenAgentIngressSocket } from '../server/backend/backend-http.ts';
 import type { OutcomeName } from '../shared/outcome-names.ts';
 import type { Session } from '../session/sessions.ts';
 import { main as relayHook } from '../session/hook-relay.ts';
@@ -155,6 +155,41 @@ test('a hook call arriving off loopback is refused under its own outcome name', 
   }
 
   assert.deepEqual(recorded, ['hookRejectedNonLoopback']);
+});
+
+function postOverUnixSocket(socketPath: string, requestPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ socketPath, path: requestPath, method: 'POST', headers: { host: '127.0.0.1' } }, (response) => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode ?? 0));
+    });
+    request.on('error', reject);
+    request.end('{}');
+  });
+}
+
+test('a session ingress socket serves hook calls as local and no dashboard route', async () => {
+  const handledSessionIds: string[] = [];
+  const app = createAgentIngressApp({
+    allowedHosts: [],
+    hookRouter: { handle: (envelope) => { handledSessionIds.push(String(envelope.glimmervoidId)); return { status: 200, reason: 'ok' }; } },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    logger: { warn: () => {} },
+  });
+  const socketDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-ingress-'));
+  const socketPath = path.join(socketDirectory, 'ingress.sock');
+  const ingressSocket = await listenAgentIngressSocket({ socketPath, ingressApp: app });
+
+  try {
+    assert.equal(await postOverUnixSocket(socketPath, `/hook/${SESSION_ID}/Stop`), 200);
+    assert.equal(await postOverUnixSocket(socketPath, '/control-token'), 404);
+  } finally {
+    await ingressSocket.close();
+    fs.rmSync(socketDirectory, { recursive: true, force: true });
+  }
+
+  assert.deepEqual(handledSessionIds, [SESSION_ID]);
 });
 
 test('successful hook callbacks answer only ok and reason', async () => {

@@ -3,6 +3,9 @@ import type { BoardPackPreviews } from '../packs/pack-preview-server.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import http from 'node:http';
+import type { RequestListener } from 'node:http';
+import type { Socket } from 'node:net';
 import path from 'node:path';
 import { pipeline } from 'node:stream';
 import express from 'express';
@@ -78,7 +81,10 @@ function knownHookEventName(event: string): string {
   return KNOWN_HOOK_EVENTS.has(name) ? name : UNNAMED_HOOK_EVENT;
 }
 
+const agentIngressSocketConnections = new WeakSet<Socket>();
+
 function isLoopbackRequest(req: Request): boolean {
+  if (agentIngressSocketConnections.has(req.socket)) return true;
   const ip = req.socket.remoteAddress || '';
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
@@ -689,6 +695,25 @@ function createAgentIngressApp(dependencies: AgentIngressDependencies): Express 
   return app;
 }
 
+async function listenAgentIngressSocket({ socketPath, ingressApp }: { socketPath: string; ingressApp: RequestListener }): Promise<{ close(): Promise<void> }> {
+  await fsp.rm(socketPath, { force: true });
+  const server = http.createServer(ingressApp);
+  server.on('connection', (socket: Socket) => { agentIngressSocketConnections.add(socket); });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  return {
+    close: () => new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      server.closeAllConnections();
+    }),
+  };
+}
+
 function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   const {
     staticDir,
@@ -957,5 +982,5 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
   return app;
 }
 
-export { createAgentIngressApp, createBackendHttpApp };
+export { createAgentIngressApp, createBackendHttpApp, listenAgentIngressSocket };
 export type { AgentIngressDependencies, BackendHttpDependencies };
