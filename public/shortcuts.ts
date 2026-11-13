@@ -3,7 +3,7 @@ import type { DashboardShortcutAction } from './shortcuts-core.ts';
 import { shortcutChord, shortcutPlatformFor } from './shortcuts-core.ts';
 import { getNextAttentionKeyCode } from './ui-prefs.ts';
 
-type ClaimedKeyAction = Extract<DashboardShortcutAction, 'board-split' | 'pane-focus'>;
+type ClaimedKeyAction = Extract<DashboardShortcutAction, 'board-split' | 'shell-focus'>;
 
 const keyClaimTestByAction = new Map<ClaimedKeyAction, () => boolean>();
 
@@ -12,7 +12,7 @@ export function setKeyClaimTest(action: ClaimedKeyAction, claimTest: () => boole
 }
 
 export function canClaimTerminalKey(action: DashboardShortcutAction) {
-  if (action !== 'board-split' && action !== 'pane-focus') return true;
+  if (action !== 'board-split' && action !== 'shell-focus') return true;
   return keyClaimTestByAction.get(action)?.() ?? false;
 }
 

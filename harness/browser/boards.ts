@@ -1470,6 +1470,10 @@ async function verifyShellJoinsSplit(page: Page, sessionId: string, projectDirec
   await shellWindow.locator(`:scope > .pane-body > .session-card[data-id="${shellId}"]`).waitFor();
   await shellWindow.locator(':scope > .pane-header .session-card-header').waitFor();
   await page.locator(`.pane-group[data-pane="terminal"] > .pane-body > .session-card[data-id="${sessionId}"]`).waitFor();
+  await page.keyboard.press('Alt+Backquote');
+  await page.locator(`.pane-group[data-pane="shell"] .session-card[data-id="${shellId}"] textarea:focus`).waitFor();
+  await page.keyboard.press('Alt+Backquote');
+  await page.locator(`.pane-group[data-pane="terminal"] .session-card[data-id="${sessionId}"] textarea:focus`).waitFor();
   await controlReplyOf(page, 'remove-session', { id: shellId, discardWork: true });
   await hostRow.locator('[data-member="shell"]').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.pane-header .session-card-header').count(), 1, 'a removed shell leaves no header behind in a pane title');

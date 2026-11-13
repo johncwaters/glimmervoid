@@ -343,13 +343,12 @@ function boardSplitToggleOf(sessionId: string | null) {
 }
 
 setKeyClaimTest('board-split', () => boardSplitToggleOf(getFocusedSessionId()) !== null);
-setKeyClaimTest('pane-focus', () => panesToCycle().length > 1);
+setKeyClaimTest('shell-focus', () => focusedSessionWithShell() !== null);
 
-function panesToCycle(): Pane[] {
+function focusedSessionWithShell(): string | null {
   const focusedId = getFocusedSessionId();
-  if (!active || !focusedId || centeredBoardId || !paneLayout) return [];
-  const shownPanes = new Set(sessionPanesOf(focusedId));
-  return paneLayout.panesInOrder().filter((pane) => shownPanes.has(pane));
+  if (!active || !focusedId || centeredBoardId) return null;
+  return splitShellIdOf(focusedId) ? focusedId : null;
 }
 
 function sessionPanesOf(sessionId: string): Pane[] {
@@ -358,12 +357,11 @@ function sessionPanesOf(sessionId: string): Pane[] {
   return ['terminal', ...boardPanes, ...shellPanes];
 }
 
-export function focusNextPane(): boolean {
-  const focusedId = getFocusedSessionId();
-  const panes = panesToCycle();
-  if (!focusedId || panes.length < 2) return false;
-  const nextPane = panes[(panes.indexOf(activePane) + 1) % panes.length] ?? 'terminal';
-  onPillPick(focusedId, nextPane);
+export function toggleShellFocus(): boolean {
+  const hostId = focusedSessionWithShell();
+  if (!hostId) return false;
+  const isShellFocused = paneLayout?.windowOf('shell').body.contains(document.activeElement) ?? false;
+  onPillPick(hostId, isShellFocused ? 'terminal' : 'shell');
   return true;
 }
 
