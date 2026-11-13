@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agent sessions no longer inherit your 1Password sign-in.** When the Glimmervoid server runs with `OP_SERVICE_ACCOUNT_TOKEN`, `OP_CONNECT_TOKEN` or an `OP_SESSION_` variable, as it does on a devbox or in the cloud where Touch ID is not available, every agent session, pack command and PR action used to get a copy, so `op` inside a session could read the whole vault without asking. Glimmervoid's own secret reads still use it. This is not a hard boundary: an agent runs under the same OS account as the server and can still read the server's environment if it tries, so give that service account a dedicated vault that holds only what agents may read.
+
 ## [0.58.0] - 2026-11-13
 
 ### Added
