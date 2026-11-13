@@ -146,7 +146,7 @@ async function checkPrFlows({ prUrl, env, homeDir, runCommand, readConfig }: PrF
 }
 
 function entryLine(entry: EntryCheck): string {
-  const approval = entry.isApproved ? 'approved' : 'waits for approval in My PRs, or for a pack in Settings, Packs';
+  const approval = entry.isApproved ? 'approved' : 'waits for approval in My PRs, or for a pack in the Packs tab';
   const heading = `${entry.kind} ${entry.id} (${entry.label}): `;
   if (entry.error !== null) return `${heading}invalid, ${entry.error}`;
   const argvText = entry.argv === null ? '' : `\n  would run ${JSON.stringify(entry.argv)}`;

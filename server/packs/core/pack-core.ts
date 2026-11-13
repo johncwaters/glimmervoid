@@ -186,7 +186,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
 }
 
 export function pendingPackNote(row: PackRow): string {
-  return `The pack '${row.name}' waits for your approval in Settings, Packs`;
+  return `The pack '${row.name}' waits for your approval in the Packs tab`;
 }
 
 const MAX_REFERENCE_LENGTH = 512;

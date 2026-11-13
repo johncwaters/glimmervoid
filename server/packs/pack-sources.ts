@@ -124,7 +124,7 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
     const read = await readSources();
     if (!read.ok) return read;
     const source = read.sources.find((candidate) => candidate.slug === slug);
-    if (!source) return { ok: false, error: `No pack source ${slug}; list them in Settings, Packs` };
+    if (!source) return { ok: false, error: `No pack source ${slug}; list them in the Packs tab` };
     return act(source, read.sources);
   }
 
@@ -145,7 +145,7 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
     await writeSources([...read.sources, { url: target.url, slug: target.slug, enabledPacks: [] }]);
     const packs = await packFoldersIn(cloneDir, 0);
     const packsText = packs.length === 0 ? 'it holds no pack folders' : `its packs: ${packs.map((pack) => pack.name).join(', ')}`;
-    return { ok: true, text: `Added the pack source ${target.slug} from ${target.url}; ${packsText}. Each stays off until the operator enables it in Settings, Packs, and then waits for approval.` };
+    return { ok: true, text: `Added the pack source ${target.slug} from ${target.url}; ${packsText}. Each stays off until the operator enables it in the Packs tab, and then waits for approval.` };
   }
 
   async function isInstalledCopyCurrent(pack: SourcePack, installedFingerprints: Readonly<Record<string, string>> | null): Promise<boolean> {

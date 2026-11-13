@@ -41,7 +41,7 @@ async function runGuide(homeDir: string, schemaName: string | null): Promise<num
 
 async function runViaRunningGlimmervoid(subcommand: string, body: Record<string, unknown>): Promise<number> {
   if (!process.env[AGENT_URL_ENV]) {
-    process.stderr.write(`glimmervoid packs ${subcommand} works on the running Glimmervoid, so it runs inside a Glimmervoid session; the operator sees the same packs in Settings, Packs\n`);
+    process.stderr.write(`glimmervoid packs ${subcommand} works on the running Glimmervoid, so it runs inside a Glimmervoid session; the operator sees the same packs in the Packs tab\n`);
     return 1;
   }
   const { askAgentApi } = await import('../agent-api-cli.ts');

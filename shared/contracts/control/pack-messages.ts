@@ -29,7 +29,7 @@ export const PackRow = z.strictObject({
     skills: z.array(z.strictObject({ name: z.string(), path: z.string(), text: z.string() })),
   }).nullable(),
   errors: z.array(z.string()),
-  isPlacedByHand: z.boolean().default(false).describe('The folder sits directly in ~/.glimmervoid/packs and packs install did not place it, so only the operator can remove it, from Settings, Packs'),
+  isPlacedByHand: z.boolean().default(false).describe('The folder sits directly in ~/.glimmervoid/packs and packs install did not place it, so only the operator can remove it, from the Packs tab'),
 });
 export type PackRow = z.infer<typeof PackRow>;
 

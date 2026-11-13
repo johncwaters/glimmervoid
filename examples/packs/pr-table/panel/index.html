@@ -148,7 +148,7 @@ window.panelDiagnostics = (() => {
         if (missing.includes('reviews')) {
           hasStandingDiagnosis = true;
           log(`not granted: ${missing.join(', ')}`, 'warn');
-          showNotice('No access to pull requests', 'Glimmervoid did not grant the reviews topic. Reinstall the pack and approve it again in Settings, Packs.');
+          showNotice('No access to pull requests', 'Glimmervoid did not grant the reviews topic. Reinstall the pack and approve it again in the Packs tab.');
         }
         return;
       }

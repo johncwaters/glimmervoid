@@ -629,7 +629,7 @@ test('a pack copied into the packs directory waits for one approval in Settings 
 
     await prFlows.applyRules();
     assert.deepEqual(prFlows.statusFrame().pendingApprovals, []);
-    assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' waits for your approval in Settings, Packs"));
+    assert.ok(prFlows.statusFrame().warnings.includes("The pack 'sample' waits for your approval in the Packs tab"));
     assert.deepEqual(packStore.statusFrame().packs.map((row) => [row.name, row.state]), [['sample', 'pending'], ['linked-pack', 'invalid']]);
     assert.deepEqual(sampleRow()?.files, ['hand-off.ts', 'pack.json']);
     const approval = sampleRow()?.prFlows;

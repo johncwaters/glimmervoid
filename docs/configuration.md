@@ -241,7 +241,7 @@ Packs other people share, each waiting for your approval before anything in it r
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `packs` | Packs | `[]` | More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions, rules and a repos default for them) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in Settings, Packs that any edit to a file in it asks again. **File-only.** A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval. |
+| `packs` | Packs | `[]` | More pack directories to load besides every directory under ~/.glimmervoid/packs/. A pack is a pack.json (name, version, description, requires, and sections such as prFlows with prActions, sources, actions, rules and a repos default for them) plus the files it uses, shared by copying the directory; its commands can use {packDir}, its ids show as <pack>/<id>, and it waits for one approval in the Packs tab that any edit to a file in it asks again. **File-only.** A pack can run commands on this machine, so its directory is written in config.json and the pack waits for your approval. |
 
 ### Question manager
 

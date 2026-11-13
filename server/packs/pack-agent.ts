@@ -44,8 +44,8 @@ export async function packGuideText({ homeDir, examplePacksDir }: Pick<PackAgent
     'Glimmervoid packs',
     '',
     `A pack is a folder holding a ${PACK_FILE_NAME} and the files it names, at most 1 MiB in all and without symlinks. Install one with the packs tool action install (glimmervoid packs install <folder>), which checks the folder and copies it into ${path.join(homeDir, PACKS_DIR_NAME)}; installing again replaces that copy. remove deletes only a copy install made.`,
-    `Shared team packs: add <https URL of a git repository> clones it into ${path.join(homeDir, 'pack-sources')}, with git hooks and symlinks off; every folder in it holding a ${PACK_FILE_NAME} (at most two levels down) stays off until the operator enables it in Settings, Packs, which installs it, unapproved. update pulls every source, or the one whose URL you give, and reinstalls its enabled packs, which wait for approval again when any file changed.`,
-    'Nothing in a pack runs or shows until the operator approves it in Settings, Packs, and any change to any file in it asks again. No tool action approves a pack: install it, then call request-approval with its name, which shows the operator what it adds and points them to Settings, Packs. status names its approval state, load errors and anything missing on this machine.',
+    `Shared team packs: add <https URL of a git repository> clones it into ${path.join(homeDir, 'pack-sources')}, with git hooks and symlinks off; every folder in it holding a ${PACK_FILE_NAME} (at most two levels down) stays off until the operator enables it in the Packs tab, which installs it, unapproved. update pulls every source, or the one whose URL you give, and reinstalls its enabled packs, which wait for approval again when any file changed.`,
+    'Nothing in a pack runs or shows until the operator approves it in the Packs tab, and any change to any file in it asks again. No tool action approves a pack: install it, then call request-approval with its name, which shows the operator what it adds and points them to the Packs tab. status names its approval state, load errors and anything missing on this machine.',
     '',
     'Sections of pack.json, each checked on its own:',
     '- prFlows: commands My PRs runs on pull requests (prActions, sources, actions, rules).',
@@ -93,7 +93,7 @@ function packGrantsText(row: PackRow): string {
 
 function packApprovalNote(row: PackRow, dashboardPort: number): string {
   const versionText = row.version === null ? '' : ` (v${row.version})`;
-  const note = `The pack '${row.name}'${versionText} waits for your approval at ${packApprovalUrl(dashboardPort, row.name)} or in Settings, Packs. ${capitalized(packGrantsText(row))}.`;
+  const note = `The pack '${row.name}'${versionText} waits for your approval at ${packApprovalUrl(dashboardPort, row.name)} or in the Packs tab. ${capitalized(packGrantsText(row))}.`;
   const ellipsis = String.fromCharCode(0x2026);
   return note.length <= ATTENTION_NOTE_MAX_CHARS ? note : `${note.slice(0, ATTENTION_NOTE_MAX_CHARS - 1)}${ellipsis}`;
 }
@@ -103,7 +103,7 @@ function packStatusText(row: PackRow, isRequestDismissed: boolean): string {
     approved: 'Approved: it is in use.',
     pending: isRequestDismissed
       ? 'Pending: the operator dismissed your request to approve it, so it stays unapproved; change it or ask them before calling request-approval again.'
-      : 'Pending: it waits for the operator to approve it in Settings, Packs; request-approval asks them.',
+      : 'Pending: it waits for the operator to approve it in the Packs tab; request-approval asks them.',
     invalid: 'Invalid: fix the errors below and install it again.',
   }[row.state];
   return [...rowLines(row), stateLine].join('\n');
@@ -121,7 +121,7 @@ async function installForAgent(sourceDir: string, deps: PackAgentDeps): Promise<
   const outcome = await installPack(sourceDir, deps);
   if (!outcome.ok) return { text: outcome.error, hasProblem: true };
   const verb = outcome.hasReplaced ? 'Replaced' : 'Installed';
-  return { text: `${verb} ${outcome.name} at ${outcome.dir}. It waits for the operator to approve it in Settings, Packs; call request-approval with name ${outcome.name} to ask them.`, hasProblem: false };
+  return { text: `${verb} ${outcome.name} at ${outcome.dir}. It waits for the operator to approve it in the Packs tab; call request-approval with name ${outcome.name} to ask them.`, hasProblem: false };
 }
 
 function requestApprovalFor(name: string, deps: PackAgentDeps): PacksReadout {

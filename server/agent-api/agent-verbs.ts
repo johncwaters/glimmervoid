@@ -142,7 +142,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (reply.hasProblem) return refusal(409, reply.text);
     const raised = session.raiseAttention('agent', reply.text);
     if (!raised.ok) return refusal(429, raised.error);
-    return { status: 200, body: { ok: true, text: `Asked the operator to approve it in Settings, Packs: ${reply.text}`, hasProblem: false } };
+    return { status: 200, body: { ok: true, text: `Asked the operator to approve it in the Packs tab: ${reply.text}`, hasProblem: false } };
   }
 
   async function previewPack(session: Session, packPath: string): Promise<AgentReplyOf<'packs'>> {

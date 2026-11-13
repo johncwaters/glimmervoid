@@ -60,7 +60,7 @@ export function packCheckHasProblem(report: PackCheckReport): boolean {
 function reportHeading(report: PackCheckReport): string {
   const checked = report.name === null ? `Checked the pack at ${report.packDir}` : `Checked pack ${report.name} at ${report.packDir}`;
   if (packCheckHasProblem(report)) return `${checked}: fix the problems below, then check it again`;
-  return `${checked}: no problems; ${report.isApproved ? 'it is approved' : 'once installed, it waits for the operator to approve it in Settings, Packs'}`;
+  return `${checked}: no problems; ${report.isApproved ? 'it is approved' : 'once installed, it waits for the operator to approve it in the Packs tab'}`;
 }
 
 function entryReach(entry: PackEntryCheck): string {
