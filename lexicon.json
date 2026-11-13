@@ -816,6 +816,10 @@
     {
       "name": "discover",
       "definition": "The Packs tab grid of packs from pack sources and the Glimmervoid examples that are not installed yet"
+    },
+    {
+      "name": "doorman",
+      "definition": "The always-on process in front of each tenant's server, run as glimmervoid doorman: it forwards the tenant's dashboard traffic, wakes and stops its host, meters its awake hours and hosts its watcher. It holds a credential only when one of those jobs needs it while the server sleeps: the GitHub App key, the tenant's GitHub connection, each tenant's link secret, and the sealed probe credentials the server sends its watcher (a GitHub read token and a PostHog key). It is not a broker of secrets for sessions or lanes on an awake server, so vault reads, notification tokens and agent logins never move into it"
     }
   ],
   "retired": [
