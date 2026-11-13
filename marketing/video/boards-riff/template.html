@@ -1092,7 +1092,7 @@ function drawEndCard(time) {
   const link = easeOutExpo(progressBetween(time, TIMELINE.markClamp + 1.1, ARRIVE_SECONDS));
   return `<g transform="translate(${MARK.x} ${MARK.y}) rotate(${spin}) scale(${MARK.size / 108}) translate(-50 -50)">${brackets}${light}</g>` +
     `<g opacity="${wordmark}" transform="translate(0 ${(1 - wordmark) * 20})">${textElement(960, 620, "GLIMMERVOID", { size: 84, weight: 700, fill: COLOR.textHead, anchor: "middle", spacing: 8.4 })}</g>` +
-    `<g opacity="${tagline}" transform="translate(0 ${(1 - tagline) * 20})">${textElement(960, 720, "One board. You and your agent.", { size: 44, fill: COLOR.text, anchor: "middle" })}</g>` +
+    `<g opacity="${tagline}" transform="translate(0 ${(1 - tagline) * 20})">${textElement(960, 720, "Draw me like one of your French agents.", { size: 44, fill: COLOR.text, anchor: "middle" })}</g>` +
     `<g opacity="${link}" transform="translate(0 ${(1 - link) * 20})">${textElement(960, 800, "glimmervoid.dev", { size: 44, weight: 700, fill: COLOR.accent, anchor: "middle" })}</g>`;
 }
 
