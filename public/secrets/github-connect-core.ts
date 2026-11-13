@@ -59,4 +59,4 @@ function githubConnectViewOf(connection: GithubConnection | null | 'reading', no
 }
 
 export { GITHUB_CONNECT_CONTROLS, githubConnectViewOf };
-export type { GithubConnectControl, GithubConnectView };
+export type { GithubConnectControl };
