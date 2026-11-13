@@ -228,6 +228,7 @@ interface SessionOptions {
   agentDepth?: number;
   ownerId?: string | null;
   commitSigningProgram?: string | null;
+  resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
 }
 
 interface ClaudeSessionIdEvent {
@@ -332,6 +333,9 @@ class Session extends EventEmitter {
   _agentToken: string | null;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
+  _resolveGitCredentialHelper: ((cwd: string) => Promise<string | null>) | null;
+  _gitCredentialProgram: string | null;
+  _gitCredentialToken: string | null;
   _canRunHelpCommand: boolean;
   _agentLiveChildren: number;
   _agentLifetimeSpawns: number;
@@ -445,6 +449,7 @@ class Session extends EventEmitter {
     agentDepth = 0,
     ownerId = null,
     commitSigningProgram = null,
+    resolveGitCredentialHelper = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -613,6 +618,9 @@ class Session extends EventEmitter {
     this._agentToken = generateToken();
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
+    this._resolveGitCredentialHelper = resolveGitCredentialHelper;
+    this._gitCredentialProgram = null;
+    this._gitCredentialToken = resolveGitCredentialHelper === null ? null : generateToken();
     this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
@@ -634,6 +642,8 @@ class Session extends EventEmitter {
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
         commitSigningProgram: () => this._commitSigningProgram,
+        gitCredentialToken: () => this._gitCredentialToken,
+        gitCredentialProgram: () => this._gitCredentialProgram,
       },
     });
 
@@ -1224,6 +1234,10 @@ class Session extends EventEmitter {
     return this._commitSigningToken;
   }
 
+  get gitCredentialToken(): string | null {
+    return this._gitCredentialToken;
+  }
+
   agentSpawnBudget(): { liveChildren: number; lifetimeSpawns: number; inFlight: number; depth: number } {
     return {
       liveChildren: this._agentLiveChildren,
@@ -1627,6 +1641,11 @@ class Session extends EventEmitter {
       this.emit('coherence-hooks-change', this.coherenceHooks);
     }
 
+    if (this._resolveGitCredentialHelper) {
+      this._gitCredentialProgram = await this._resolveGitCredentialHelper(this.effectiveCwd());
+      if (isStartSuperseded()) return;
+    }
+
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
 
@@ -1667,7 +1686,7 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
-    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.commitSigningEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.gitEnv() };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._launchSpawnEnv() || {}), ...injectedEnv }
       : this._launchSpawnEnv();
@@ -2239,6 +2258,7 @@ class Session extends EventEmitter {
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
     this._agentToken = null;
     this._commitSigningToken = null;
+    this._gitCredentialToken = null;
     this._dispatchAttention({ type: "teardown" });
 
     this._clearPendingPaste();

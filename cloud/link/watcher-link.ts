@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import type { Alarm, GithubTokenGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { Alarm, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import type { AwakeUsage, GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
@@ -46,6 +46,7 @@ const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
 const GITHUB_TOKEN_CHECK_MS = 5 * 60_000;
 const GITHUB_TOKEN_MIN_LIFE_MS = 45 * 60_000;
+const GITHUB_USER_TOKEN_MIN_LIFE_MS = 3 * 60_000;
 type GithubTokenState = { kind: 'unasked' } | { kind: 'no-app'; answeredAtMs: number } | { kind: 'minting'; grants: readonly GithubTokenGrant[] };
 
 const NO_GITHUB_APP_RECHECK_MS = 60 * 60_000;
@@ -127,6 +128,8 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let githubTokenRequest: Promise<void> | null = null;
   let announcedGithubAppAccounts = '';
   let githubTokenTimer: NodeJS.Timeout | null = null;
+  let githubUserGrant: GithubUserGrant | null = null;
+  let githubUserRequest: Promise<void> | null = null;
 
   function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
     return heldCredentials[credential] !== null || (credential === 'github' && githubTokenState.kind === 'minting');
@@ -148,6 +151,27 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
 
   function hasGithubAppGrants(): boolean {
     return liveGithubAppGrants().length > 0;
+  }
+
+  function freshGithubUserGrant(): GithubUserGrant | null {
+    return githubUserGrant !== null && githubUserGrant.expiresAtMs - now() >= GITHUB_USER_TOKEN_MIN_LIFE_MS ? githubUserGrant : null;
+  }
+
+  function forgetGithubUserGrantUnlessHeldBy(connection: GithubConnection): void {
+    const isStillVouched = (connection.state === 'connected' || connection.state === 'needs-install') && connection.login.toLowerCase() === githubUserGrant?.login.toLowerCase();
+    if (!isStillVouched) githubUserGrant = null;
+  }
+
+  async function githubUserCredential(): Promise<GithubUserGrant | null> {
+    const heldGrant = freshGithubUserGrant();
+    if (heldGrant !== null || watcherUrl === null) return heldGrant;
+    githubUserRequest ??= requestGithubToken().then((answer) => {
+      if (answer !== null) adoptGithubTokenAnswer(answer);
+    }).finally(() => {
+      githubUserRequest = null;
+    });
+    await githubUserRequest;
+    return freshGithubUserGrant();
   }
 
   function updateCoverage(): void {
@@ -292,6 +316,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
 
   function adoptGithubTokenAnswer(answer: GithubTokenAnswer): void {
     const previousKind = githubTokenState.kind;
+    githubUserGrant = answer.user;
     githubTokenState = answer.grants.length === 0 ? { kind: 'no-app', answeredAtMs: now() } : { kind: 'minting', grants: answer.grants };
     if ((previousKind === 'minting') === (githubTokenState.kind === 'minting')) return;
     log.log(`[watcher] the doorman ${githubTokenState.kind === 'minting' ? 'mints' : 'has no'} GitHub App tokens for this server`);
@@ -344,6 +369,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   async function githubConnection(action: GithubConnectionAction): Promise<GithubConnection | null> {
     if (watcherUrl === null) return null;
     const { method, path } = GITHUB_CONNECTION_CALLS[action];
+    if (action !== 'read') githubUserGrant = null;
     try {
       const response = await fetchFn(new URL(path, watcherUrl), {
         method,
@@ -357,7 +383,10 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
         return null;
       }
       const answer = GithubConnectionAnswer.safeParse(await response.json());
-      if (answer.success) return answer.data.connection;
+      if (answer.success) {
+        forgetGithubUserGrantUnlessHeldBy(answer.data.connection);
+        return answer.data.connection;
+      }
       log.warn(`[watcher] ${path} answered an unreadable connection: ${answer.error.message}`);
       return null;
     } catch (connectionError) {
@@ -590,7 +619,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

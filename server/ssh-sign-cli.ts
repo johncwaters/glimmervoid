@@ -38,11 +38,11 @@ function readSignInvocation(args: readonly string[]): SignInvocation | null {
   return { namespace, keyFile, bufferFile };
 }
 
-function signEndpoint(rawUrl: string | undefined): { endpoint: URL; token: string } | null {
+function sessionEndpointOf(rawUrl: string | undefined, pathPrefix: string): { endpoint: URL; token: string } | null {
   if (!rawUrl) return null;
   try {
     const endpoint = new URL(rawUrl);
-    if (endpoint.protocol !== 'http:' || !isLoopbackHostname(endpoint.hostname) || !endpoint.pathname.startsWith(SIGN_PATH_PREFIX)) return null;
+    if (endpoint.protocol !== 'http:' || !isLoopbackHostname(endpoint.hostname) || !endpoint.pathname.startsWith(pathPrefix)) return null;
     const token = endpoint.searchParams.get('t') || '';
     endpoint.search = '';
     return { endpoint, token };
@@ -82,7 +82,7 @@ function runSigningProgram(program: string, args: readonly string[], { captureSt
 
 async function runSshSignCli(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const invocation = readSignInvocation(args);
-  const target = signEndpoint(env[SIGN_URL_ENV]);
+  const target = sessionEndpointOf(env[SIGN_URL_ENV], SIGN_PATH_PREFIX);
   const publicKeyText = invocation && target ? await fs.readFile(invocation.keyFile, 'utf8').catch(() => '') : '';
   const publicKey = parseSshPublicKey(publicKeyText);
   const signingProgram = await operatorSigningProgram(env);
@@ -104,4 +104,4 @@ async function runSshSignCli(args: string[], env: NodeJS.ProcessEnv = process.en
   return 1;
 }
 
-export { runSshSignCli };
+export { runSshSignCli, sessionEndpointOf };

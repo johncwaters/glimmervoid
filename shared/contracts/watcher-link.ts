@@ -130,7 +130,9 @@ export const MAX_BOUND_INSTALLATIONS = 100;
 
 export const GithubTokenGrant = z.strictObject({ accountLogin: GithubLogin, token: z.string().min(1), expiresAtMs: PositiveInt });
 export type GithubTokenGrant = z.infer<typeof GithubTokenGrant>;
-export const GithubTokenAnswer = z.strictObject({ grants: z.array(GithubTokenGrant).max(MAX_BOUND_INSTALLATIONS) });
+export const GithubUserGrant = z.strictObject({ login: GithubLogin, token: z.string().min(1), expiresAtMs: PositiveInt });
+export type GithubUserGrant = z.infer<typeof GithubUserGrant>;
+export const GithubTokenAnswer = z.strictObject({ grants: z.array(GithubTokenGrant).max(MAX_BOUND_INSTALLATIONS), user: GithubUserGrant.nullable() });
 export type GithubTokenAnswer = z.infer<typeof GithubTokenAnswer>;
 export const GithubReconnectReason = z.enum(['expired', 'revoked']);
 export type GithubReconnectReason = z.infer<typeof GithubReconnectReason>;

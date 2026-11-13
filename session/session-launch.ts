@@ -3,6 +3,7 @@ import { AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commandFor } from "./adapters/index.ts";
 import type { AgentAdapter } from "./adapters/index.ts";
 import { commitSigningEnv } from "./core/commit-signing-env.ts";
+import { gitCredentialEnv } from "./core/git-credential-env.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import type { SpawnEnv } from "./core/spawn-env.ts";
 import type { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
@@ -21,6 +22,8 @@ interface LaunchPort {
   agentToken: () => string | null;
   commitSigningToken: () => string | null;
   commitSigningProgram: () => string | null;
+  gitCredentialToken: () => string | null;
+  gitCredentialProgram: () => string | null;
 }
 
 interface SessionLaunchOptions {
@@ -34,7 +37,7 @@ interface SessionLaunchOptions {
 interface SessionLaunch {
   buildEnv(options?: { extraEnv?: Record<string, string> | null; prependPathDirs?: readonly string[] }): SpawnEnv;
   agentApiEnv(): Record<string, string>;
-  commitSigningEnv(): Record<string, string>;
+  gitEnv(): Record<string, string>;
   spawnCwdSpellings(): string[];
   spawnCommandFor(input: { settingsArgs: string[]; agentArgs: string[] }): SpawnCommand;
 }
@@ -49,14 +52,23 @@ function createSessionLaunch({ id, adapter, platform, hooks, port }: SessionLaun
     return { [AGENT_URL_ENV]: url };
   }
 
-  function signingEnv(): Record<string, string> {
-    return commitSigningEnv({
+  function gitEnv(): Record<string, string> {
+    const inheritedConfigParameters = port.spawnEnv()?.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS;
+    const signingEnv = commitSigningEnv({
       port: hooks.listenerPort(),
       sessionId: id,
       token: port.commitSigningToken(),
       signingProgram: port.commitSigningProgram(),
-      inheritedConfigParameters: port.spawnEnv()?.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS,
+      inheritedConfigParameters,
     });
+    const credentialEnv = gitCredentialEnv({
+      port: hooks.listenerPort(),
+      sessionId: id,
+      token: port.gitCredentialToken(),
+      helperProgram: port.gitCredentialProgram(),
+      inheritedConfigParameters: signingEnv.GIT_CONFIG_PARAMETERS ?? inheritedConfigParameters,
+    });
+    return { ...signingEnv, ...credentialEnv };
   }
 
   function spawnCwdSpellings(): string[] {
@@ -88,7 +100,7 @@ function createSessionLaunch({ id, adapter, platform, hooks, port }: SessionLaun
   return {
     buildEnv,
     agentApiEnv,
-    commitSigningEnv: signingEnv,
+    gitEnv,
     spawnCwdSpellings,
     spawnCommandFor,
   };

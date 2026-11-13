@@ -40,6 +40,7 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_PR_ACTION_REPORT_URL', audience: 'internal', description: 'Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting.' },
   { name: 'GLIMMERVOID_PR_ACTION_TOKEN', audience: 'internal', description: 'The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting.' },
   { name: 'GLIMMERVOID_SIGN_URL', audience: 'internal', description: 'Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator\'s forwarded ssh agent. Not an operator setting.' },
+  { name: 'GLIMMERVOID_GIT_CREDENTIAL_URL', audience: 'internal', description: 'Set by Glimmervoid in each operator session environment when no git credential helper already covers github.com; `glimmervoid git-credential`, which git runs as that helper, posts there so the server answers with the connected GitHub user token. Not an operator setting.' },
 ]);
 
 export const UNLISTED_KEY_NOTES: Readonly<Record<string, string>> = Object.freeze({

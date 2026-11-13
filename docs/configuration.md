@@ -293,6 +293,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_PR_ACTION_REPORT_URL` | internal | Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_TOKEN` | internal | The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting. |
 | `GLIMMERVOID_SIGN_URL` | internal | Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator's forwarded ssh agent. Not an operator setting. |
+| `GLIMMERVOID_GIT_CREDENTIAL_URL` | internal | Set by Glimmervoid in each operator session environment when no git credential helper already covers github.com; `glimmervoid git-credential`, which git runs as that helper, posts there so the server answers with the connected GitHub user token. Not an operator setting. |
 
 ## Telemetry
 

@@ -49,6 +49,7 @@ import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf, NO_GITHUB_APP_GRANTS } from '../lanes/core/lane-permissions-core.ts';
 import type { GithubAppGrants } from '../lanes/core/lane-permissions-core.ts';
+import type { GithubUserGrant } from '../../shared/contracts/watcher-link.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
 import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/session-registry-core.ts';
@@ -220,6 +221,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getWhiteboardLayouts: () => whiteboards.layouts,
     getPrActionReports: () => laneAssembly.prFlows,
     sshSigner,
+    githubUserCredential: () => githubUserCredentialOfLink(),
     recordOutcome,
     logger: console,
   };
@@ -351,6 +353,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
   let githubAppGrantsOfLink: GithubAppGrants = NO_GITHUB_APP_GRANTS;
+  let githubUserCredentialOfLink: () => Promise<GithubUserGrant | null> = async () => null;
   const githubAppGrants: GithubAppGrants = {
     tokenFor: (owner) => githubAppGrantsOfLink.tokenFor(owner),
     tokens: () => githubAppGrantsOfLink.tokens(),
@@ -685,6 +688,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onGithubAppTokenChange: () => laneAssembly.restartServiceLanes(),
   });
   githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
+  githubUserCredentialOfLink = watcherLink.githubUserCredential;
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,

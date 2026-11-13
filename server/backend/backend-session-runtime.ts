@@ -10,7 +10,7 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { resolveHookTools } from '../hook-tools.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
 import { selfLaunch } from '../runtime-paths.ts';
-import { createSshSigner, installCommitSigningShim } from '../ssh-signing.ts';
+import { createSshSigner, installCommitSigningShim, installGitCredentialShim } from '../ssh-signing.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import { createAgentAccounts } from '../agent-login/agent-accounts.ts';
 import { createQuestionManager } from '../question-manager/question-manager.ts';
@@ -48,6 +48,11 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     cliLaunch: selfLaunch('cli'),
     log: dependencies.logger,
   });
+  const gitCredentialProgram = installGitCredentialShim({
+    binDir: configSiblingPath(dependencies.configStore.configPath, 'bin'),
+    cliLaunch: selfLaunch('cli'),
+    log: dependencies.logger,
+  });
   const sshSigner = commitSigningProgram ? createSshSigner() : null;
   const launchAgentCommand = (agent: string, agentArgs: string[]) => {
     const adapter = getAdapter(agent);
@@ -71,6 +76,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const makeSession = createSessionFactory({
     getPackAgentLaunch: packSessionFiles.launch,
     commitSigningProgram,
+    gitCredentialProgram,
     configStore: dependencies.configStore,
     getConfig: () => dependencies.configStore.config,
     hookRouter,

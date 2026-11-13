@@ -1150,7 +1150,7 @@ async function signedWatcherCall(doormanPort: number, linkSecret: Buffer, method
   return GithubConnectionAnswer.parse(await response.json()).connection;
 }
 
-test('a doorman with a GitHub App binds the installation its tenant connected through the device flow, mints a read-only installation token scoped to the repositories the user reaches, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge', async (t) => {
+test('a doorman with a GitHub App binds the installation its tenant connected through the device flow, mints a read-only installation token scoped to the repositories the user reaches, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token and the connected user token over the signed link, leaves an operator read token in charge, and stops handing out the user token once the tenant disconnects', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [10 * 60_000 + 200]);
   const { linkSecret, tenant } = await doormanTenant(t, 'apptenant000001', 'http://127.0.0.1:9');
@@ -1213,6 +1213,11 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   link.credentialsMayHaveChanged();
   await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
   assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppTokenFor('octo-org')).readToken, 'operator-read-token');
+
+  assert.equal((await link.githubUserCredential())?.login, 'octo', 'git gets the connected user token while an operator read token is set');
+  assert.deepEqual(await link.githubConnection('disconnect'), { state: 'disconnected' });
+  clock.nowMs += 60 * 60_000;
+  assert.equal(await link.githubUserCredential(), null, 'a disconnected tenant hands git no user token');
 });
 
 test('a tenant whose GitHub user reaches repositories in two installations gets a read-only grant per installation; a search probe runs once per grant, a repository probe runs only with the grant of its owner, a REST probe waits for the operator read token, and a lane gets only the grant of the owner of the repository it reads', async (t) => {

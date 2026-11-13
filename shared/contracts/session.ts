@@ -134,6 +134,23 @@ export const SshSignReply = z.union([
 
 export type SshSignRequest = z.infer<typeof SshSignRequest>;
 export type SshSignReply = z.infer<typeof SshSignReply>;
+
+export const GIT_CREDENTIAL_URL_ENV = 'GLIMMERVOID_GIT_CREDENTIAL_URL';
+export const GIT_CREDENTIAL_PATH_PREFIX = '/git-credential/';
+export const GIT_CREDENTIAL_BODY_CAP_BYTES = 16 * 1024;
+
+export const GitCredentialRequest = z.strictObject({
+  protocol: z.string().max(40),
+  host: z.string().max(255),
+});
+
+export const GitCredentialReply = z.union([
+  z.strictObject({ found: z.literal(true), username: z.string().min(1), password: z.string().min(1), passwordExpiryUtc: z.number().int().positive() }),
+  z.strictObject({ found: z.literal(false) }),
+]);
+
+export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
+export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
 const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;

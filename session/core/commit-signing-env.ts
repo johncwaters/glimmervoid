@@ -21,4 +21,4 @@ function commitSigningEnv({ port, sessionId, token, signingProgram, inheritedCon
   };
 }
 
-export { commitSigningEnv };
+export { GIT_CONFIG_PARAMETERS_ENV, commitSigningEnv, singleQuoteForGit };

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { execFileAsync } from './child-process-safe.ts';
 import { writeTextAtomicSync } from './json-file.ts';
-import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
+import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
 import { clock } from '../shared/clock.ts';
@@ -118,23 +118,27 @@ function readTextOrNull(filePath: string): string | null {
   }
 }
 
-function installCommitSigningShim({ binDir, cliLaunch, platform = process.platform, log = console }: {
-  binDir: string;
-  cliLaunch: readonly string[];
-  platform?: NodeJS.Platform;
-  log?: Pick<Console, 'warn'>;
-}): string | null {
+type ShimInstall = { binDir: string; cliLaunch: readonly string[]; platform?: NodeJS.Platform; log?: Pick<Console, 'warn'> };
+
+function installCliShim({ binDir, platform = process.platform, log = console }: ShimInstall, { shimName, shimText, offWarning }: { shimName: string; shimText: string; offWarning: string }): string | null {
   if (platform === 'win32') return null;
-  const shimPath = path.join(binDir, COMMIT_SIGNING_SHIM_NAME);
-  const shimText = commitSigningShimText(cliLaunch);
+  const shimPath = path.join(binDir, shimName);
   try {
     if (readTextOrNull(shimPath) !== shimText) writeTextAtomicSync(shimPath, shimText, { mode: 0o755, mkdir: true, enforceMode: true });
     return shimPath;
   } catch (error) {
-    log.warn(`[sign] commit signing is off: could not write ${shimPath}: ${errorMessage(error)}`);
+    log.warn(`${offWarning}: could not write ${shimPath}: ${errorMessage(error)}`);
     return null;
   }
 }
 
-export { createSshSigner, installCommitSigningShim, readSigningKeySetting };
+function installCommitSigningShim(install: ShimInstall): string | null {
+  return installCliShim(install, { shimName: COMMIT_SIGNING_SHIM_NAME, shimText: commitSigningShimText(install.cliLaunch), offWarning: '[sign] commit signing is off' });
+}
+
+function installGitCredentialShim(install: ShimInstall): string | null {
+  return installCliShim(install, { shimName: GIT_CREDENTIAL_SHIM_NAME, shimText: gitCredentialShimText(install.cliLaunch), offWarning: '[git-credential] the GitHub credential helper is off' });
+}
+
+export { createSshSigner, installCommitSigningShim, installGitCredentialShim, readSigningKeySetting };
 export type { SshSigner };

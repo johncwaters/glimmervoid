@@ -21,7 +21,9 @@ import type { PrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { PR_ACTION_REPORT_BODY_CAP_BYTES, PR_ACTION_REPORT_ROUTE, PrActionReportBody } from '../../shared/contracts/pr-flows.ts';
 import { mountAgentMcp } from '../../mcp/server.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
-import { SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
+import { GIT_CREDENTIAL_BODY_CAP_BYTES, GIT_CREDENTIAL_PATH_PREFIX, GitCredentialRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
+import type { GitCredentialReply } from '../../shared/contracts/session.ts';
+import type { GithubUserGrant } from '../../shared/contracts/watcher-link.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -122,6 +124,7 @@ interface BackendHttpDependencies {
   getWhiteboardLayouts?: () => WhiteboardLayouts | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
   sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
+  githubUserCredential?: () => Promise<GithubUserGrant | null>;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
 }
@@ -213,7 +216,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -543,6 +546,50 @@ function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }
   });
 }
 
+const GITHUB_GIT_HOST = 'github.com';
+const NO_GIT_CREDENTIAL: GitCredentialReply = { found: false };
+
+function gitCredentialReplyOf(grant: GithubUserGrant | null): GitCredentialReply {
+  if (grant === null) return NO_GIT_CREDENTIAL;
+  return { found: true, username: grant.login, password: grant.token, passwordExpiryUtc: Math.floor(grant.expiresAtMs / 1000) };
+}
+
+function mountGitCredentialRoute(app: Express, { getSession, githubUserCredential, logger }: {
+  getSession: (id: string) => Session | null;
+  githubUserCredential: () => Promise<GithubUserGrant | null>;
+  logger: Pick<Console, 'warn'>;
+}): void {
+  app.post(`${GIT_CREDENTIAL_PATH_PREFIX}:glimmervoidId`, (req, res) => {
+    const session = getSession(req.params.glimmervoidId);
+    const verdict = decideAgentRequest({
+      sessionId: req.params.glimmervoidId,
+      presentedToken: presentedToken(req),
+      expectedToken: session?.gitCredentialToken ?? null,
+      isLoopback: isLoopbackRequest(req),
+    });
+    const overCap = (declaredBytes: string) => {
+      logger.warn(`[git-credential] a ${declaredBytes} byte body is over the ${GIT_CREDENTIAL_BODY_CAP_BYTES} byte cap and was refused`);
+    };
+    void readCappedBody(req, GIT_CREDENTIAL_BODY_CAP_BYTES, overCap).then(async (body) => {
+      if (body === null) return;
+      if (!verdict.ok || !session) {
+        refuseAgentRequest(res);
+        return;
+      }
+      const request = GitCredentialRequest.safeParse(parseJsonBody(body));
+      if (!request.success || request.data.protocol !== 'https' || request.data.host.toLowerCase() !== GITHUB_GIT_HOST) {
+        res.json(NO_GIT_CREDENTIAL);
+        return;
+      }
+      const grant = await githubUserCredential().catch((error: unknown) => {
+        logger.warn(`[git-credential] could not read the GitHub user token: ${errorMessage(error)}`);
+        return null;
+      });
+      res.json(gitCredentialReplyOf(grant));
+    });
+  });
+}
+
 const PR_ACTION_REPORT_ERRORS: Record<401 | 404 | 409, string> = {
   401: 'the token does not match this run',
   404: 'no PR action run has that id',
@@ -594,6 +641,7 @@ function createAgentIngressApp(dependencies: AgentIngressDependencies): Express 
   mountHostAllowList(app, dependencies.allowedHosts);
   mountAgentIngressRoutes(app, dependencies);
   mountCommitSigningRoute(app, { getSession: dependencies.getSession, sshSigner: dependencies.sshSigner ?? null, logger: dependencies.logger ?? console });
+  mountGitCredentialRoute(app, { getSession: dependencies.getSession, githubUserCredential: dependencies.githubUserCredential ?? (async () => null), logger: dependencies.logger ?? console });
   return app;
 }
 

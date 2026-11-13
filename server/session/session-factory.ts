@@ -16,6 +16,8 @@ import type { SessionAccountHome } from '../../session/core/agent-account-core.t
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
+import { runGit } from '../git/git-exec.ts';
+import { GITHUB_CREDENTIAL_SCOPE } from '../../session/core/git-credential-env.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -37,11 +39,21 @@ interface SessionFactoryDependencies {
   getTerminalColors?: () => TerminalColors;
   questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
+  gitCredentialProgram?: string | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
 }
 
+function gitCredentialHelperResolverFor(helperProgram: string | null | undefined): ((cwd: string) => Promise<string | null>) | null {
+  if (!helperProgram) return null;
+  return async (cwd) => {
+    const ownHelper = await runGit(['config', '--get-urlmatch', 'credential.helper', GITHUB_CREDENTIAL_SCOPE], { cwd });
+    return ownHelper.ok && ownHelper.out !== '' ? null : helperProgram;
+  };
+}
+
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
+  const resolveGitCredentialHelper = gitCredentialHelperResolverFor(dependencies.gitCredentialProgram);
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
@@ -100,6 +112,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getTerminalColors: dependencies.getTerminalColors ?? null,
       prepareCoherence: isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
+      resolveGitCredentialHelper,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       resolveAccountHome,
       getPackAgentLaunch: isMachineShell ? null : dependencies.getPackAgentLaunch ?? null,

@@ -253,6 +253,7 @@ const OWNED_COMMAND_SPECS = {
     ],
   },
   'ssh-sign': { name: 'ssh-sign', summary: "Sign a commit with the operator's forwarded ssh agent (git runs this)", isPassthrough: true },
+  'git-credential': { name: 'git-credential', summary: 'Give git the GitHub token of the connected GitHub user (git runs this)', isPassthrough: true },
 } as const satisfies Record<string, CommandSpec>;
 
 type OwnedCommandName = keyof typeof OWNED_COMMAND_SPECS;

@@ -82,6 +82,7 @@ Inside a Glimmervoid session:
   wake in|at|cron|list|cancel Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron "0 9 * * 1-5" <text>, wake list, wake cancel <id>); times use the operator's timezone. Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping
   limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
+  git-credential      Give git the GitHub token of the connected GitHub user (git runs this)
 
 Options:
   --port <number>     Server port (default: 3000)

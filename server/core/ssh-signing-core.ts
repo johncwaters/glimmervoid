@@ -67,11 +67,21 @@ function posixSingleQuote(text: string): string {
   return `'${text.replace(/'/g, `'\\''`)}'`;
 }
 
+const GIT_CREDENTIAL_SHIM_NAME = 'glimmervoid-git-credential';
+
+function cliShimText(cliLaunch: readonly string[], subcommand: string): string {
+  return `#!/bin/sh\nexec ${cliLaunch.map(posixSingleQuote).join(' ')} ${subcommand} "$@"\n`;
+}
+
 function commitSigningShimText(cliLaunch: readonly string[]): string {
-  return `#!/bin/sh\nexec ${cliLaunch.map(posixSingleQuote).join(' ')} ssh-sign "$@"\n`;
+  return cliShimText(cliLaunch, 'ssh-sign');
+}
+
+function gitCredentialShimText(cliLaunch: readonly string[]): string {
+  return cliShimText(cliLaunch, 'git-credential');
 }
 
 const NO_AGENT_HOLDS_KEY = 'no reachable ssh agent holds the signing key; connect to this machine with agent forwarding (ssh -A, or ForwardAgent yes from coder config-ssh) and commit again';
 
-export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, isForwardedAgentDirName, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
+export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
 export type { AgentSocketCandidate, SshPublicKey };

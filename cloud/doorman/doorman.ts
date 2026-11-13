@@ -18,7 +18,7 @@ import { isMissingFileError } from '../../shared/text.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { stampProcessOutputLines } from '../../server/log-stamp.ts';
 import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput, WakeStartedBy } from '../../shared/contracts/doorman.ts';
-import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
 import { edgeWakeRetryAfterMs, headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs, wantsWakingPage } from './doorman-core.ts';
@@ -392,8 +392,8 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     return entry.github.held.filter((held) => now() < held.expiresAtMs);
   }
 
-  function serverGrantsOf(heldTokens: readonly HeldGithubToken[]): GithubTokenAnswer {
-    return { grants: heldTokens.map(({ accountLogin, token, expiresAtMs }): GithubTokenGrant => ({ accountLogin, token, expiresAtMs })) };
+  function serverGrantsOf(heldTokens: readonly HeldGithubToken[]): readonly GithubTokenGrant[] {
+    return heldTokens.map(({ accountLogin, token, expiresAtMs }): GithubTokenGrant => ({ accountLogin, token, expiresAtMs }));
   }
 
   async function runGithubMints(entry: TenantEntry, minter: GithubAppMinter, installations: readonly GithubInstallationBinding[]): Promise<readonly HeldGithubToken[] | null> {
@@ -472,10 +472,24 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function githubTokensForServer(entry: TenantEntry): Promise<GithubTokenAnswer | null> {
-    if (githubApp?.minter == null || entry.githubUser === null) return { grants: [] };
+    const grants = await githubAppGrantsForServer(entry);
+    if (grants === null) return null;
+    return { grants: [...grants], user: await githubUserGrantOf(entry) };
+  }
+
+  async function githubUserGrantOf(entry: TenantEntry): Promise<GithubUserGrant | null> {
+    if (entry.githubUser === null) return null;
+    return entry.githubUser.userAccessGrant().catch((refreshError: unknown) => {
+      log.warn(`[doorman] tenant ${entry.tenant.slug} could not refresh its GitHub user token: ${errorMessage(refreshError)}`);
+      return null;
+    });
+  }
+
+  async function githubAppGrantsForServer(entry: TenantEntry): Promise<readonly GithubTokenGrant[] | null> {
+    if (githubApp?.minter == null || entry.githubUser === null) return [];
     const installations = await boundInstallationsFor(entry);
     if (installations === 'unreadable') return null;
-    if (installations.length === 0) return { grants: [] };
+    if (installations.length === 0) return [];
     if (isEveryBindingFreshlyHeld(entry, installations)) return serverGrantsOf(entry.github.held);
     if (now() < entry.github.nextMintAllowedAtMs) {
       const unexpired = unexpiredGithubTokens(entry);

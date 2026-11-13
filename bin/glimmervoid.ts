@@ -45,6 +45,7 @@ Commands:
 Inside a Glimmervoid session:
 ${agentCommandHelpLines().join('\n')}
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
+  git-credential      Give git the GitHub token of the connected GitHub user (git runs this)
 
 Options:
   --port <number>     Server port (default: 3000)
@@ -130,6 +131,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   'ssh-sign': async ({ rawArgs }) => {
     const { runSshSignCli } = await import('../server/ssh-sign-cli.ts');
     return runSshSignCli(rawArgs);
+  },
+  'git-credential': async ({ rawArgs }) => {
+    const { runGitCredentialCli } = await import('../server/git-credential-cli.ts');
+    return runGitCredentialCli(rawArgs);
   },
 };
 
