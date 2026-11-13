@@ -10,6 +10,7 @@ import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { computeRuntimePaths } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
+import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
 
 function hasPackageManifest(directory: string): boolean {
   try {
@@ -130,9 +131,7 @@ function resolveFnoxPath(): string {
 
 function readPinnedFnoxVersion(): string {
   if (mode === 'binary') return '';
-  const pin: unknown = JSON.parse(fs.readFileSync(path.join(packageRoot, 'scripts', 'fnox-release.json'), 'utf8'));
-  if (typeof pin !== 'object' || pin === null || !('version' in pin) || typeof pin.version !== 'string') throw new Error('scripts/fnox-release.json names no fnox version');
-  return pin.version;
+  return fnoxRelease.version;
 }
 
 function binaryRuntimeDir(): string {
