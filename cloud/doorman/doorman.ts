@@ -18,7 +18,7 @@ import { isMissingFileError } from '../../shared/text.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { stampProcessOutputLines } from '../../server/log-stamp.ts';
 import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput, WakeStartedBy } from '../../shared/contracts/doorman.ts';
-import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
 import { edgeWakeRetryAfterMs, headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs, wantsWakingPage } from './doorman-core.ts';
@@ -40,8 +40,8 @@ type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldP
 type WakeOutcome = 'answering' | 'no-adapter' | 'unmetered' | 'cooling-down' | 'unreachable' | 'over-cap' | 'wake-limited';
 type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; stopStartedAtMs: number | null };
 type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; stop(): void };
-type HeldGithubToken = { token: string; expiresAtMs: number };
-type TenantGithubToken = { held: HeldGithubToken | null; mint: Promise<HeldGithubToken | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
+type HeldGithubToken = { installationId: number; accountLogin: string; token: string; expiresAtMs: number };
+type TenantGithubToken = { held: readonly HeldGithubToken[]; mint: Promise<readonly HeldGithubToken[] | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
 type TenantEntry = { tenant: DoormanTenant; gate: TenantGate; meter: AwakeMeter | null; watcher: TenantWatcher | null; watcherSecretHex: string | null; watcherStart: Promise<TenantWatcher | null> | null; watcherRetryTimer: NodeJS.Timeout | null; failedWatcherStarts: number; github: TenantGithubToken; githubUser: GithubUserLink | null };
 type DoormanLog = Pick<Console, 'log' | 'warn'>;
 
@@ -117,7 +117,7 @@ function causeOf(error: unknown): unknown {
   return error instanceof Error && error.cause !== undefined ? error.cause : error;
 }
 
-async function createTenantWatcher(tenant: DoormanTenant, watcherFiles: WatcherFiles, linkSecret: Buffer, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken, githubConnection, awakeUsage, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; stopHost: () => Promise<HostStopOutcome>; githubTokenFallback: () => string | null; mintGithubToken: () => Promise<GithubTokenAnswer | null>; githubConnection: () => GithubConnectionControl; awakeUsage: () => AwakeUsage | null; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
+async function createTenantWatcher(tenant: DoormanTenant, watcherFiles: WatcherFiles, linkSecret: Buffer, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken, githubConnection, awakeUsage, now, log }: { forwardFetch: typeof fetch; probeFetch: typeof fetch; stopHost: () => Promise<HostStopOutcome>; githubTokenFallback: () => readonly { accountLogin: string; token: string }[]; mintGithubToken: () => Promise<GithubTokenAnswer | null>; githubConnection: () => GithubConnectionControl; awakeUsage: () => AwakeUsage | null; now: () => number; log: DoormanLog }): Promise<TenantWatcher> {
   const home = createWatcherHome({ files: watcherFiles, credentialKey: credentialStoreKey(linkSecret), log });
   const nudges = createNudgeSender({ serverUrl: tenant.serverUrl, signingKey: directionKey(linkSecret, 'watcher-to-server'), fetchFn: forwardFetch, now, log });
   const runner = createProbeRunner({ home, nudges, fetchFn: probeFetch, now, log, githubTokenFallback });
@@ -384,97 +384,116 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
 
   function scheduleGithubMint(entry: TenantEntry, delayMs: number): void {
     if (entry.github.refreshTimer !== null) clearTimeout(entry.github.refreshTimer);
-    entry.github.refreshTimer = setTimeout(() => void mintGithubToken(entry), Math.min(MAX_TIMER_DELAY_MS, delayMs));
+    entry.github.refreshTimer = setTimeout(() => void mintGithubTokens(entry), Math.min(MAX_TIMER_DELAY_MS, delayMs));
     entry.github.refreshTimer.unref();
   }
 
-  async function runGithubMint(entry: TenantEntry, minter: GithubAppMinter, installation: GithubInstallationBinding): Promise<HeldGithubToken | null> {
-    const outcome = await minter.mint(installation);
+  function unexpiredGithubTokens(entry: TenantEntry): readonly HeldGithubToken[] {
+    return entry.github.held.filter((held) => now() < held.expiresAtMs);
+  }
+
+  function serverGrantsOf(heldTokens: readonly HeldGithubToken[]): GithubTokenAnswer {
+    return { grants: heldTokens.map(({ accountLogin, token, expiresAtMs }): GithubTokenGrant => ({ accountLogin, token, expiresAtMs })) };
+  }
+
+  async function runGithubMints(entry: TenantEntry, minter: GithubAppMinter, installations: readonly GithubInstallationBinding[]): Promise<readonly HeldGithubToken[] | null> {
+    const outcomes = await Promise.all(installations.map(async (installation) => ({ installation, outcome: await minter.mint(installation) })));
     if (isClosed || entriesBySlug.get(entry.tenant.slug) !== entry) return null;
-    if (outcome.kind === 'failed') {
-      entry.github.failedAttempts += 1;
-      dropExpiredGithubToken(entry);
-      const backoffDelayMs = mintRetryDelayMs(entry.github.failedAttempts, outcome.retryAfterMs);
-      const retryDelayMs = entry.github.held === null ? backoffDelayMs : Math.min(backoffDelayMs, Math.max(0, entry.github.held.expiresAtMs - now()));
-      entry.github.nextMintAllowedAtMs = now() + retryDelayMs;
-      log.warn(`[doorman] tenant ${entry.tenant.slug} GitHub token mint failed (${outcome.reason}), retrying in ${Math.round(retryDelayMs / 1000)} s`);
-      scheduleGithubMint(entry, retryDelayMs);
-      return null;
-    }
-    entry.github.failedAttempts = 0;
-    entry.github.nextMintAllowedAtMs = 0;
-    entry.github.held = { token: outcome.token, expiresAtMs: outcome.expiresAtMs };
-    scheduleGithubMint(entry, tokenRefreshDelayMs(outcome.expiresAtMs, now()));
+    const minted = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'minted' ? [{ installationId: installation.installationId, accountLogin: installation.accountLogin, token: outcome.token, expiresAtMs: outcome.expiresAtMs }] : []);
+    const failures = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'failed' ? [{ installationId: installation.installationId, reason: outcome.reason, retryAfterMs: outcome.retryAfterMs }] : []);
+    const failedInstallationIds = new Set(failures.map((failure) => failure.installationId));
+    const carried = unexpiredGithubTokens(entry).filter((held) => failedInstallationIds.has(held.installationId));
+    entry.github.held = [...minted, ...carried];
     entry.watcher?.githubTokenChanged();
+    if (failures.length === 0) {
+      entry.github.failedAttempts = 0;
+      entry.github.nextMintAllowedAtMs = 0;
+      if (minted.length > 0) scheduleGithubMint(entry, tokenRefreshDelayMs(Math.min(...minted.map((held) => held.expiresAtMs)), now()));
+      return entry.github.held;
+    }
+    entry.github.failedAttempts += 1;
+    const retryAfterMs = Math.max(0, ...failures.map((failure) => failure.retryAfterMs ?? 0));
+    const backoffDelayMs = mintRetryDelayMs(entry.github.failedAttempts, retryAfterMs === 0 ? null : retryAfterMs);
+    const retryDelayMs = Math.min(backoffDelayMs, ...entry.github.held.map((held) => Math.max(0, held.expiresAtMs - now())));
+    entry.github.nextMintAllowedAtMs = now() + retryDelayMs;
+    const reasons = [...new Set(failures.map((failure) => failure.reason))].join('; ');
+    log.warn(`[doorman] tenant ${entry.tenant.slug} GitHub token mint failed for ${failures.length} of ${installations.length} installations (${reasons}), retrying in ${Math.round(retryDelayMs / 1000)} s`);
+    scheduleGithubMint(entry, retryDelayMs);
     return entry.github.held;
   }
 
-  function dropExpiredGithubToken(entry: TenantEntry): void {
-    if (entry.github.held === null || now() < entry.github.held.expiresAtMs) return;
-    entry.github.held = null;
+  function dropExpiredGithubTokens(entry: TenantEntry): void {
+    const unexpired = unexpiredGithubTokens(entry);
+    if (unexpired.length === entry.github.held.length) return;
+    entry.github.held = unexpired;
     entry.watcher?.githubTokenChanged();
   }
 
-  async function boundInstallationFor(entry: TenantEntry): Promise<GithubInstallationBinding | null | 'unreadable'> {
-    if (entry.githubUser === null) return null;
-    const installations = await entry.githubUser.bindings().catch((bindingError: unknown) => {
+  async function boundInstallationsFor(entry: TenantEntry): Promise<readonly GithubInstallationBinding[] | 'unreadable'> {
+    if (entry.githubUser === null) return [];
+    return entry.githubUser.bindings().catch((bindingError: unknown) => {
       log.warn(`[doorman] tenant ${entry.tenant.slug} could not read its GitHub installations: ${errorMessage(bindingError)}`);
       return 'unreadable' as const;
     });
-    if (installations === 'unreadable') return installations;
-    return installations[0] ?? null;
   }
 
   function backOffUnreadableBindings(entry: TenantEntry): null {
     if (isClosed || entriesBySlug.get(entry.tenant.slug) !== entry) return null;
     entry.github.failedAttempts += 1;
-    dropExpiredGithubToken(entry);
+    dropExpiredGithubTokens(entry);
     const retryDelayMs = mintRetryDelayMs(entry.github.failedAttempts, null);
     entry.github.nextMintAllowedAtMs = now() + retryDelayMs;
     scheduleGithubMint(entry, retryDelayMs);
     return null;
   }
 
-  async function mintForBinding(entry: TenantEntry): Promise<HeldGithubToken | null> {
+  async function mintForBindings(entry: TenantEntry): Promise<readonly HeldGithubToken[] | null> {
     const minter = githubApp?.minter ?? null;
-    const installation = await boundInstallationFor(entry);
-    if (installation === 'unreadable') return backOffUnreadableBindings(entry);
-    if (minter === null || installation === null) return null;
-    return runGithubMint(entry, minter, installation);
+    const installations = await boundInstallationsFor(entry);
+    if (installations === 'unreadable') return backOffUnreadableBindings(entry);
+    if (minter === null || installations.length === 0) return [];
+    return runGithubMints(entry, minter, installations);
   }
 
-  function mintGithubToken(entry: TenantEntry): Promise<HeldGithubToken | null> {
-    if (githubApp?.minter == null || entry.githubUser === null) return Promise.resolve(null);
-    dropExpiredGithubToken(entry);
+  function mintGithubTokens(entry: TenantEntry): Promise<readonly HeldGithubToken[] | null> {
+    if (githubApp?.minter == null || entry.githubUser === null) return Promise.resolve([]);
+    dropExpiredGithubTokens(entry);
     if (entry.github.mint !== null) return entry.github.mint;
-    const mint = mintForBinding(entry).finally(() => {
+    const mint = mintForBindings(entry).finally(() => {
       entry.github.mint = null;
     });
     entry.github.mint = mint;
     return mint;
   }
 
-  async function githubTokenForServer(entry: TenantEntry): Promise<GithubTokenAnswer | null> {
-    if (githubApp?.minter == null || entry.githubUser === null) return { grant: null };
-    const installation = await boundInstallationFor(entry);
-    if (installation === 'unreadable') return null;
-    if (installation === null) return { grant: null };
-    const held = entry.github.held;
-    if (held !== null && isTokenFreshForServer(held.expiresAtMs, now())) return { grant: held };
-    if (now() < entry.github.nextMintAllowedAtMs) return held !== null && now() < held.expiresAtMs ? { grant: held } : null;
-    const minted = await mintGithubToken(entry);
-    return minted === null ? null : { grant: minted };
+  function isEveryBindingFreshlyHeld(entry: TenantEntry, installations: readonly GithubInstallationBinding[]): boolean {
+    const freshInstallationIds = new Set(entry.github.held.filter((held) => isTokenFreshForServer(held.expiresAtMs, now())).map((held) => held.installationId));
+    return installations.every((installation) => freshInstallationIds.has(installation.installationId));
+  }
+
+  async function githubTokensForServer(entry: TenantEntry): Promise<GithubTokenAnswer | null> {
+    if (githubApp?.minter == null || entry.githubUser === null) return { grants: [] };
+    const installations = await boundInstallationsFor(entry);
+    if (installations === 'unreadable') return null;
+    if (installations.length === 0) return { grants: [] };
+    if (isEveryBindingFreshlyHeld(entry, installations)) return serverGrantsOf(entry.github.held);
+    if (now() < entry.github.nextMintAllowedAtMs) {
+      const unexpired = unexpiredGithubTokens(entry);
+      return unexpired.length > 0 ? serverGrantsOf(unexpired) : null;
+    }
+    const minted = await mintGithubTokens(entry);
+    return minted === null || minted.length === 0 ? null : serverGrantsOf(minted);
   }
 
   function forgetGithubToken(entry: TenantEntry): void {
     if (entry.github.refreshTimer !== null) clearTimeout(entry.github.refreshTimer);
-    entry.github = { held: null, mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 };
+    entry.github = { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 };
   }
 
   function rebindGithub(entry: TenantEntry): void {
     forgetGithubToken(entry);
     entry.watcher?.githubTokenChanged();
-    if (entry.watcher !== null) void mintGithubToken(entry);
+    if (entry.watcher !== null) void mintGithubTokens(entry);
   }
 
   function stopWatcher(entry: TenantEntry): void {
@@ -530,16 +549,13 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       stopTenantHost(entry, adapter);
       return 'stopping';
     };
-    const githubTokenFallback = () => {
-      const held = entry.github.held;
-      return held !== null && now() < held.expiresAtMs ? held.token : null;
-    };
+    const githubTokenFallback = () => unexpiredGithubTokens(entry).map(({ accountLogin, token }) => ({ accountLogin, token }));
     const linkSecret = Buffer.from(secretHex, 'hex');
     entry.githubUser?.stop();
     entry.githubUser = createGithubUserLink({ slug: entry.tenant.slug, app: () => githubApp?.app ?? null, store: records, sealKey: credentialStoreKey(linkSecret), fetchFn: githubAppFetch, now, log, onChange: () => rebindGithub(entry) });
     const githubUser = entry.githubUser;
-    await mintGithubToken(entry);
-    const watcher = await createTenantWatcher(entry.tenant, tenantState.watcherFilesOf(entry.tenant), linkSecret, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken: () => githubTokenForServer(entry), githubConnection: () => githubUser, awakeUsage: () => entry.meter?.usage(entry.tenant.awakeHoursPerMonth) ?? null, now, log }).catch((startError: unknown) => {
+    await mintGithubTokens(entry);
+    const watcher = await createTenantWatcher(entry.tenant, tenantState.watcherFilesOf(entry.tenant), linkSecret, { forwardFetch, probeFetch, stopHost, githubTokenFallback, mintGithubToken: () => githubTokensForServer(entry), githubConnection: () => githubUser, awakeUsage: () => entry.meter?.usage(entry.tenant.awakeHoursPerMonth) ?? null, now, log }).catch((startError: unknown) => {
       log.warn(`[doorman] tenant ${entry.tenant.slug} watcher did not start: ${errorMessage(startError)}`);
       return null;
     });
@@ -609,7 +625,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       const meter = await meterFor(tenant);
       const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, stopStartedAtMs: null };
       watcherHomesBySlug.set(tenant.slug, tenant.watcherHome);
-      entriesBySlug.set(tenant.slug, { tenant, gate, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: null, mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
+      entriesBySlug.set(tenant.slug, { tenant, gate, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
     }
     await Promise.all([...entriesBySlug.values()].map(refreshWatcher));
   }

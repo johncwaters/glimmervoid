@@ -46,7 +46,7 @@ const DELIVERY_RETRY_BASE_MS = 1_000;
 const DELIVERY_RETRY_MAX_MS = 60_000;
 const GITHUB_TOKEN_CHECK_MS = 5 * 60_000;
 const GITHUB_TOKEN_MIN_LIFE_MS = 45 * 60_000;
-type GithubTokenState = { kind: 'unasked' } | { kind: 'no-app'; answeredAtMs: number } | { kind: 'minting'; grant: GithubTokenGrant };
+type GithubTokenState = { kind: 'unasked' } | { kind: 'no-app'; answeredAtMs: number } | { kind: 'minting'; grants: readonly GithubTokenGrant[] };
 
 const NO_GITHUB_APP_RECHECK_MS = 60 * 60_000;
 
@@ -125,16 +125,29 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let supervisor: ReturnType<WatcherStarter> | null = null;
   let githubTokenState: GithubTokenState = { kind: 'unasked' };
   let githubTokenRequest: Promise<void> | null = null;
-  let announcedGithubAppToken: string | null = null;
+  let announcedGithubAppAccounts = '';
   let githubTokenTimer: NodeJS.Timeout | null = null;
 
   function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
     return heldCredentials[credential] !== null || (credential === 'github' && githubTokenState.kind === 'minting');
   }
 
-  function githubAppToken(): string | null {
-    if (githubTokenState.kind !== 'minting' || now() >= githubTokenState.grant.expiresAtMs) return null;
-    return githubTokenState.grant.token;
+  function liveGithubAppGrants(): readonly GithubTokenGrant[] {
+    if (githubTokenState.kind !== 'minting') return [];
+    return githubTokenState.grants.filter((grant) => now() < grant.expiresAtMs);
+  }
+
+  function githubAppTokenFor(owner: string | null): string | null {
+    if (owner === null) return null;
+    return liveGithubAppGrants().find((grant) => grant.accountLogin.toLowerCase() === owner.toLowerCase())?.token ?? null;
+  }
+
+  function githubAppTokens(): readonly string[] {
+    return liveGithubAppGrants().map((grant) => grant.token);
+  }
+
+  function hasGithubAppGrants(): boolean {
+    return liveGithubAppGrants().length > 0;
   }
 
   function updateCoverage(): void {
@@ -263,7 +276,9 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
         return null;
       }
       const answer = GithubTokenAnswer.safeParse(await response.json());
-      return answer.success ? answer.data : null;
+      if (answer.success) return answer.data;
+      log.warn(`[watcher] the doorman answered ${GITHUB_TOKEN_PATH} in a shape this server does not read; run the same Glimmervoid version on both`);
+      return null;
     } catch (tokenError) {
       log.warn(`[watcher] could not ask the doorman for a GitHub token: ${(tokenError as Error).message}`);
       return null;
@@ -272,12 +287,12 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
 
   function isGithubTokenDue(): boolean {
     if (githubTokenState.kind === 'no-app') return now() - githubTokenState.answeredAtMs >= NO_GITHUB_APP_RECHECK_MS;
-    return githubTokenState.kind === 'unasked' || githubTokenState.grant.expiresAtMs - now() < GITHUB_TOKEN_MIN_LIFE_MS;
+    return githubTokenState.kind === 'unasked' || Math.min(...githubTokenState.grants.map((grant) => grant.expiresAtMs)) - now() < GITHUB_TOKEN_MIN_LIFE_MS;
   }
 
   function adoptGithubTokenAnswer(answer: GithubTokenAnswer): void {
     const previousKind = githubTokenState.kind;
-    githubTokenState = answer.grant === null ? { kind: 'no-app', answeredAtMs: now() } : { kind: 'minting', grant: answer.grant };
+    githubTokenState = answer.grants.length === 0 ? { kind: 'no-app', answeredAtMs: now() } : { kind: 'minting', grants: answer.grants };
     if ((previousKind === 'minting') === (githubTokenState.kind === 'minting')) return;
     log.log(`[watcher] the doorman ${githubTokenState.kind === 'minting' ? 'mints' : 'has no'} GitHub App tokens for this server`);
     updateCoverage();
@@ -285,9 +300,9 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   }
 
   function announceGithubAppTokenChange(): void {
-    const currentGithubAppToken = githubAppToken();
-    if ((currentGithubAppToken === null) === (announcedGithubAppToken === null)) return;
-    announcedGithubAppToken = currentGithubAppToken;
+    const currentGithubAppAccounts = liveGithubAppGrants().map((grant) => grant.accountLogin.toLowerCase()).sort().join(' ');
+    if (currentGithubAppAccounts === announcedGithubAppAccounts) return;
+    announcedGithubAppAccounts = currentGithubAppAccounts;
     onGithubAppTokenChange();
   }
 
@@ -575,7 +590,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppToken, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

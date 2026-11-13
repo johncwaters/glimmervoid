@@ -65,7 +65,7 @@ export function createWorkflowSpawn({ staging, workRoot, makeWorkDir = makeTeamR
       if ('error' in staged) return warn(`not started: ${staged.error}`);
       await fs.writeFile(path.join(workDir.dir, core.WORKFLOW_PROMPT_FILENAME), core.workflowSpawnPrompt(action.promptTemplate, event, MY_PRS_FIX_CHECKOUT_DIRNAME), 'utf8');
       const outcome = await staging.runSession({
-        idPrefix: core.WORKFLOWS_LANE_ID, name: core.workflowSessionName({ rule, event }), workDir: workDir.dir, signal,
+        idPrefix: core.WORKFLOWS_LANE_ID, name: core.workflowSessionName({ rule, event }), repository: pr.repo, workDir: workDir.dir, signal,
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.WORKFLOW_BOOTSTRAP_PROMPT,
       });
       if (outcome === 'timed-out') warn('the session ran past its deadline');

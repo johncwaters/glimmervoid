@@ -36,6 +36,16 @@ function graphqlProbe(id: string, everyMs: number, query: string, variables: Rec
   return { id, laneId: GITHUB_STORE_LANE_ID, everyMs, method: 'POST', url: new URL('/graphql', githubApiOrigin(process.env)).toString(), body: JSON.stringify({ query, variables }), credential: 'github' };
 }
 
+function ownerOf(reference: PrReference): string {
+  return reference.repo.split('/')[0].toLowerCase();
+}
+
+function ownerBatchesOf<Reference extends PrReference>(references: readonly Reference[], batchSize: number): { githubOwner: string; batch: Reference[] }[] {
+  const owners = [...new Set(references.map(ownerOf))];
+  const referencesByOwner = owners.map((githubOwner): [string, Reference[]] => [githubOwner, references.filter((reference) => ownerOf(reference) === githubOwner)]);
+  return referencesByOwner.flatMap(([githubOwner, ownedReferences]) => batchesOf(ownedReferences, batchSize).map((batch) => ({ githubOwner, batch })));
+}
+
 function watchProbeId(watchName: string): string {
   return `${WATCH_PROBE_PREFIX}${crypto.createHash('sha256').update(watchName).digest('hex').slice(0, 24)}`;
 }
@@ -56,8 +66,8 @@ function githubStoreProbes(inputs: GithubStoreProbeInputs): Probe[] {
     if (qualifiers === null) return [];
     return [graphqlProbe(watchProbeId(watch.name), Math.max(LIGHT_EVERY_MS, watch.intervalMs ?? MEMBERSHIP_EVERY_MS), githubPrsLightSearchQuery(watch.maxMembers), { searchQuery: `is:pr ${qualifiers}` })];
   });
-  const lightProbes = batchesOf(inputs.knownPrs, LIGHT_BATCH_SIZE).map((batch, index) => graphqlProbe(`${POLL_PROBE_PREFIX}light:${index}`, LIGHT_EVERY_MS, githubPrsLightByKeyQuery(batch)));
-  const behindProbes = batchesOf(inputs.behindPrs, BEHIND_BATCH_SIZE).map((batch, index) => graphqlProbe(`${POLL_PROBE_PREFIX}behind:${index}`, GITHUB_STORE_BEHIND_INTERVAL_MS, behindCountsQuery(batch)));
+  const lightProbes = ownerBatchesOf(inputs.knownPrs, LIGHT_BATCH_SIZE).map(({ githubOwner, batch }, index) => ({ ...graphqlProbe(`${POLL_PROBE_PREFIX}light:${index}`, LIGHT_EVERY_MS, githubPrsLightByKeyQuery(batch)), githubOwner }));
+  const behindProbes = ownerBatchesOf(inputs.behindPrs, BEHIND_BATCH_SIZE).map(({ githubOwner, batch }, index) => ({ ...graphqlProbe(`${POLL_PROBE_PREFIX}behind:${index}`, GITHUB_STORE_BEHIND_INTERVAL_MS, behindCountsQuery(batch)), githubOwner }));
   const notificationsProbes: Probe[] = inputs.isNotificationsReadable
     ? [{ id: `${POLL_PROBE_PREFIX}notifications`, laneId: GITHUB_STORE_LANE_ID, everyMs: NOTIFICATIONS_EVERY_MS, method: 'GET', url: new URL('/notifications', githubApiOrigin(process.env)).toString(), body: null, credential: 'github' }]
     : [];

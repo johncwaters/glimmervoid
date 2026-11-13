@@ -66,8 +66,8 @@ async function ghLoginToken(): Promise<string | null> {
   return result.out.trim() || null;
 }
 
-async function resolveGithubCredential({ readToken, appToken }: { readToken: string | null; appToken: string | null }): Promise<GithubCredential> {
-  return chooseGithubCredential({ ghLoginToken: await ghLoginToken(), readToken, appToken });
+async function resolveGithubCredential({ readToken, appTokens }: { readToken: string | null; appTokens: readonly string[] }): Promise<GithubCredential> {
+  return chooseGithubCredential({ ghLoginToken: await ghLoginToken(), readToken, appTokens });
 }
 
 function parsedJsonOf(text: string): unknown {
@@ -78,11 +78,24 @@ function parsedJsonOf(text: string): unknown {
   }
 }
 
-async function listGithubRepos(credential: Exclude<GithubCredential, { kind: 'none' }>): Promise<{ ok: true; repos: GithubRepo[] } | { ok: false; error: string }> {
-  const listed = await runGh(['api', '--paginate', githubReposPath(credential.kind), '--jq', githubReposJqFilter(credential.kind)], {
+type RepoListing = { ok: true; repos: GithubRepo[] } | { ok: false; error: string };
+
+async function listGithubRepos(credential: Exclude<GithubCredential, { kind: 'none' }>): Promise<RepoListing> {
+  if (credential.kind !== 'app') return listGithubReposWith(credential.kind, credential.token);
+  const reposByFullName = new Map<string, GithubRepo>();
+  for (const token of credential.tokens) {
+    const listed = await listGithubReposWith('app', token);
+    if (!listed.ok) return listed;
+    for (const repo of listed.repos) reposByFullName.set(repo.fullName.toLowerCase(), repo);
+  }
+  return { ok: true, repos: [...reposByFullName.values()].toSorted((first, second) => (second.pushedAt ?? '').localeCompare(first.pushedAt ?? '')) };
+}
+
+async function listGithubReposWith(kind: 'gh' | 'token' | 'app', token: string): Promise<RepoListing> {
+  const listed = await runGh(['api', '--paginate', githubReposPath(kind), '--jq', githubReposJqFilter(kind)], {
     timeoutMs: GH_LIST_TIMEOUT_MS,
     maxBuffer: GH_LIST_MAX_BUFFER_BYTES,
-    env: { GH_TOKEN: credential.token },
+    env: { GH_TOKEN: token },
   });
   if (!listed.ok) return { ok: false, error: `gh api could not list your repositories: ${lastLineOf(listed.err)}` };
   const repos = githubReposFromLines(listed.out.split('\n').filter(Boolean).map(parsedJsonOf));

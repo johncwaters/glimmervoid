@@ -14,6 +14,7 @@ const COMPARE_FILES_MAX = 300;
 export const THREAD_JUDGE_ITEM_MAX_CHARS = THREAD_JUDGE_PART_MAX_CHARS;
 
 export interface ThreadJudgeRequest {
+  repository: string;
   prompt: string;
   untrustedItems: UntrustedItem[];
 }
@@ -139,7 +140,7 @@ export function threadJudgeEvidence(node: TeamReviewThreadNode, comparison: Team
   return { evidence: { commentParts: textParts(comments), patchParts: files.flatMap((file) => textParts(file.patch ?? '').map((text) => ({ filename: file.filename, text }))) } };
 }
 
-export function buildThreadJudgeRequest(node: TeamReviewThreadNode, head: string, evidence: ThreadJudgeEvidence): ThreadJudgeRequest {
+export function buildThreadJudgeRequest(repository: string, node: TeamReviewThreadNode, head: string, evidence: ThreadJudgeEvidence): ThreadJudgeRequest {
   const prompt = [
     'Judge whether the latest reply and the code changes at the current head address the original review finding.',
     `The evidence is in ${UNTRUSTED_PAYLOAD_FILENAME}: thread-comments items holding the thread, then patch items holding the diff of every file changed since the commented commit, the commented file first. Long text is split across consecutive items of the same kind and ref; join their text in order.`,
@@ -151,6 +152,7 @@ export function buildThreadJudgeRequest(node: TeamReviewThreadNode, head: string
   ].join('\n');
   const threadUrl = node.comments.nodes[0]?.url ?? node.path;
   return {
+    repository,
     prompt,
     untrustedItems: [
       ...evidence.commentParts.map((text) => ({ kind: 'thread-comments', ref: threadUrl, text })),

@@ -51,7 +51,7 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), githubConnection = () => NO_GITHUB_CONNECTION_CONTROL, awakeUsage = () => null, now = clock.nowMs, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grants: [] }), githubConnection = () => NO_GITHUB_CONNECTION_CONTROL, awakeUsage = () => null, now = clock.nowMs, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
   stopHost?: () => Promise<HostStopOutcome>;

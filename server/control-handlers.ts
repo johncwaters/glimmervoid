@@ -1,3 +1,4 @@
+import type { GithubAppGrants } from './lanes/core/lane-permissions-core.ts';
 import type { PackSources } from './packs/pack-sources.ts';
 import type fs from 'node:fs';
 import type { z } from 'zod';
@@ -101,7 +102,7 @@ interface ControlHandlerDeps {
   changeMaps?: ChangeMapService;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;
-  githubAppToken?: (() => string | null) | null;
+  githubAppGrants?: GithubAppGrants;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;

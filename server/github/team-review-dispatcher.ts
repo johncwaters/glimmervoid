@@ -199,6 +199,7 @@ function createTeamReviewDispatcher({
         id: `${core.TEAM_REVIEW_LANE_ID}:${candidate.key}`,
         name: `Team review ${candidate.key}`,
         cwd: workDir,
+        repository: candidate.repo,
         spawnEnv: hooksPathPinnedSpawnEnv(),
         agent: core.REVIEW_AGENT_ADAPTER_ID,
         extraClaudeArgs: [...teamReviewClaudeArgs(reviewer, setup.loadMcpServers, { checkoutPath, linkedCheckout }, gitEnvPrefixes), ...promptLaunch.args],

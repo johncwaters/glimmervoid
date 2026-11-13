@@ -102,6 +102,22 @@ interface LaneAccessConfig {
 
 const CLOSED_LANE_ACCESS_CONFIG: LaneAccessConfig = Object.freeze({ readToken: null, extraFetchDomains: Object.freeze([]) });
 
+type GithubAppGrants = { tokenFor(owner: string | null): string | null; tokens(): readonly string[]; hasAny(): boolean };
+
+const NO_GITHUB_APP_GRANTS: GithubAppGrants = Object.freeze({ tokenFor: () => null, tokens: () => [], hasAny: () => false });
+
+function ownerOfRepository(repositoryFullName: string | null): string | null {
+  return repositoryFullName?.split('/')[0] || null;
+}
+
+function laneAccessConfigFor(config: { github?: { readToken?: string } | null; lanes?: { fetchDomains?: readonly string[] } | null }, githubAppGrants: GithubAppGrants, repositoryFullName: string | null): LaneAccessConfig {
+  return laneAccessConfigOf(config, githubAppGrants.tokenFor(ownerOfRepository(repositoryFullName)));
+}
+
+function canLanesReadGithub(config: { github?: { readToken?: string } | null }, githubAppGrants: GithubAppGrants): boolean {
+  return Boolean(config.github?.readToken) || githubAppGrants.hasAny();
+}
+
 function laneAccessConfigOf(config: { github?: { readToken?: string } | null; lanes?: { fetchDomains?: readonly string[] } | null }, githubAppToken: string | null): LaneAccessConfig {
   return { readToken: config.github?.readToken || githubAppToken || null, extraFetchDomains: config.lanes?.fetchDomains ?? [] };
 }
@@ -246,8 +262,8 @@ function withLaneAccessRules(permissions: Record<string, unknown>, access: Pick<
 }
 
 export {
-  ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions,
-  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneAccess, laneAccessConfigOf, laneAccessEnvBlocker, laneMcpConfig, laneMcpPosture,
+  ACCEPT_EDITS_MODE, CLOSED_LANE_ACCESS_CONFIG, LANE_CONFIG_EDIT_DENY_RULES, LANE_ENVIRONMENT_ARGS, NO_GITHUB_APP_GRANTS, READ_ONLY_GIT_SUBCOMMANDS, buildLanePermissions, canLanesReadGithub,
+  codexLaneMcpPosture, codexMcpServers, findPosthogServer, kimiLaneMcpPosture, laneAccess, laneAccessConfigFor, laneAccessConfigOf, laneAccessEnvBlocker, laneMcpConfig, laneMcpPosture,
   readOnlyGitAllowRules, withAllowRules, withLaneAccessRules,
 };
-export type { LaneAccess, LaneAccessConfig, LaneMcpPosture };
+export type { GithubAppGrants, LaneAccess, LaneAccessConfig, LaneMcpPosture };

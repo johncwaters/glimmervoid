@@ -77,5 +77,24 @@ function retryAfterMsFromHeaders({ status, hasErrorInAnswer }: { status: number;
   return Math.max(0, resetEpochSeconds * 1000 - nowMs);
 }
 
-export { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders };
+function isCleanAnswer(response: ProbeResponse): boolean {
+  return response.kind === 'answered' && response.status >= 200 && response.status < 300 && response.errorInAnswer === null;
+}
+
+function fannedOutProbeResponse(responses: readonly ProbeResponse[], digestOf: (text: string) => string): ProbeResponse {
+  const firstUnclean = responses.find((response) => !isCleanAnswer(response));
+  if (firstUnclean !== undefined || responses.length === 1) return firstUnclean ?? responses[0];
+  const answers = responses.flatMap((response) => response.kind === 'answered' ? [response] : []);
+  const retryAfterTimes = answers.flatMap((answer) => answer.retryAfterMs === null ? [] : [answer.retryAfterMs]);
+  return {
+    kind: 'answered',
+    status: answers[0].status,
+    etag: null,
+    bodySha256: digestOf(answers.map((answer) => answer.bodySha256).sort().join(',')),
+    errorInAnswer: null,
+    retryAfterMs: retryAfterTimes.length === 0 ? null : Math.max(...retryAfterTimes),
+  };
+}
+
+export { fannedOutProbeResponse, freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders };
 export type { ProbeMemory, ProbeResponse };

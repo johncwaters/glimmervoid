@@ -111,7 +111,7 @@ function createTeamReviewAnsweredThreads(context: TeamReviewPollerContext, statu
           continue;
         }
         emitStatus();
-        const raw = await deps.judgeThread(buildThreadJudgeRequest(node, head, evidenceRead.evidence)).catch(() => null);
+        const raw = await deps.judgeThread(buildThreadJudgeRequest(candidate.repo, node, head, evidenceRead.evidence)).catch(() => null);
         const judgement = parseThreadJudgeResult(raw);
         if (judgement && runtime.state[candidate.key] === entry && entry.liveHead === head && entry.threads?.includes(thread)) {
           thread.judgement = { ...judgement, head, lastReplyAt: thread.lastReplyAt, judgedAt: now() };

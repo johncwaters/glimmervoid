@@ -156,8 +156,8 @@ export function createGuardedPrStaging({
     return { projectPath, baseSha: baseSha.data };
   }
 
-  function runSession({ idPrefix, name, workDir, signal, onPending, initialPrompt }: {
-    idPrefix: string; name: string; workDir: string; signal: AbortSignal; onPending: (pending: Promise<unknown>) => void; initialPrompt: string;
+  function runSession({ idPrefix, name, repository, workDir, signal, onPending, initialPrompt }: {
+    idPrefix: string; name: string; repository: string; workDir: string; signal: AbortSignal; onPending: (pending: Promise<unknown>) => void; initialPrompt: string;
   }): Promise<KeepMergeableSessionOutcome> {
     return raceWithAbort<KeepMergeableSessionOutcome>({
       timeoutMs: timeoutSeconds() * 1000, setTimeoutFn, clearTimeoutFn, onPending,
@@ -166,7 +166,7 @@ export function createGuardedPrStaging({
       start: (deadlineSignal) => {
         const sessionSignal = AbortSignal.any([deadlineSignal, signal]);
         return spawnSession({
-          id: `${idPrefix}:${randomUUID()}`, name, cwd: workDir,
+          id: `${idPrefix}:${randomUUID()}`, name, cwd: workDir, repository,
           spawnEnv: keepMergeableSpawnEnv(),
           extraClaudeArgs: core.keepMergeableClaudeArgs(),
           settingsPermissions: core.keepMergeablePermissions(),
@@ -327,7 +327,7 @@ export function createMyPrMergeabilityFix({
       if (signal.aborted) return stopped;
       await fs.writeFile(path.join(workDir.dir, core.MY_PRS_FIX_PROMPT_FILENAME), core.keepMergeablePrompt(pr), 'utf8');
       const outcome = await runSession({
-        idPrefix: core.MY_PRS_LANE_ID, name: `Keep mergeable ${pr.key}`, workDir: workDir.dir, signal,
+        idPrefix: core.MY_PRS_LANE_ID, name: `Keep mergeable ${pr.key}`, repository: pr.repo, workDir: workDir.dir, signal,
         onPending: (pending) => { pendingSession = pending; }, initialPrompt: core.MY_PRS_FIX_BOOTSTRAP_PROMPT,
       });
       await drainPending(pendingSession);

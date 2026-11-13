@@ -36,6 +36,7 @@ type LaneSpawn = (options: {
   name: string;
   prompt: string;
   cwd: string;
+  repository?: string | null;
   agent?: string;
   extraArgs?: string[];
   model?: string | null;
@@ -56,7 +57,7 @@ interface LaneSpawnOptions {
   allowTools?: readonly string[];
   settingsPermissions?: Record<string, unknown>;
   spawnEnv?: Readonly<Record<string, string>> | null;
-  getLaneAccessConfig?: () => LaneAccessConfig;
+  getLaneAccessConfig?: (repositoryFullName: string | null) => LaneAccessConfig;
   createSession?: (options: SessionOptions) => Session;
   prepareMcp?: typeof prepareLaneMcp;
   accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
@@ -110,7 +111,7 @@ function createLaneSpawn({
   createSession = (options) => new Session(options), settingsPermissions, spawnEnv = null,
   prepareMcp = prepareLaneMcp, getLaneAccessConfig = () => CLOSED_LANE_ACCESS_CONFIG, accountHomeFor = null,
 }: LaneSpawnOptions): LaneSpawn {
-  return async function spawnLaneSession({ id, name, prompt, cwd, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
+  return async function spawnLaneSession({ id, name, prompt, cwd, repository = null, agent = DEFAULT_AGENT_ID, extraArgs = [], model = null, signal = null, onOutput }) {
     const isCodex = agent === CODEX_AGENT_ID;
     const isKimi = agent === KIMI_AGENT_ID;
     const isClaude = !isCodex && !isKimi;
@@ -124,7 +125,7 @@ function createLaneSpawn({
     }
 
     async function runLaneSession(saneYoloHookTools: readonly ResolvedHookTool[], laneGhConfigDir: string): Promise<void> {
-      const { readToken, extraFetchDomains } = getLaneAccessConfig();
+      const { readToken, extraFetchDomains } = getLaneAccessConfig(repository);
       const access = laneAccess({ agent, readToken, extraFetchDomains, ghConfigDir: laneGhConfigDir, inheritedEnv: process.env });
       const denyTools = [...LANE_SPAWN_DENY_TOOLS, ...(access.isOpen ? [] : ['Bash'])];
       const tools = allowTools.length > 0 ? [...new Set([...allowTools, ...access.tools])] : [];

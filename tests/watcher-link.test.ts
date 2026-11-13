@@ -25,7 +25,7 @@ import { githubStoreProbes, watchProbeId } from '../server/github/github-store-p
 import { createGithubStoreWiring } from '../server/github/github-store-wiring.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
 import { startIdleStop } from '../server/idle-stop-wiring.ts';
-import { laneAccessConfigOf } from '../server/lanes/core/lane-permissions-core.ts';
+import { laneAccessConfigFor, laneAccessConfigOf } from '../server/lanes/core/lane-permissions-core.ts';
 import { startAwakeUsageAlerts } from '../server/awake-usage-wiring.ts';
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
@@ -1075,7 +1075,7 @@ test('a server starts one local doorman found by its port file, replaces it when
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });
 
-function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
+function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { personalRepositories = [] }: { personalRepositories?: string[] } = {}) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' });
   const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
@@ -1128,15 +1128,17 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[]) {
       }
       if (pathname === '/user/installations') return Response.json({ total_count: 2, installations: [{ id: 4242, account: { login: 'octo-org' } }, { id: 5151, account: { login: 'octo' } }] });
       if (pathname === '/user/installations/4242/repositories') return Response.json({ total_count: 2, repositories: [{ name: 'site' }, { name: 'glimmervoid' }] });
-      if (pathname === '/user/installations/5151/repositories') return Response.json({ total_count: 0, repositories: [] });
+      if (pathname === '/user/installations/5151/repositories') return Response.json({ total_count: personalRepositories.length, repositories: personalRepositories.map((name) => ({ name })) });
       return Response.json({ message: 'Not Found' }, { status: 404 });
     }
-    assert.equal(url, 'https://api.github.com/app/installations/4242/access_tokens', 'only an installation the user token reaches with at least one repository is minted');
+    const mintedInstallations = personalRepositories.length > 0 ? ['4242', '5151'] : ['4242'];
+    const mintedInstallation = /^https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(url)?.[1] ?? '';
+    assert.ok(mintedInstallations.includes(mintedInstallation), 'only an installation the user token reaches with at least one repository is minted');
     const [header, payload, signature] = (headers.get('authorization') ?? '').replace('Bearer ', '').split('.');
     assert.ok(crypto.verify('sha256', Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, 'base64url')), 'the JWT is signed with the App key');
     mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: JSON.parse(String(init?.body)), atMs: clock.nowMs });
     const lifetimeMs = tokenLifetimesMs[mints.length - 1] ?? 60 * 60_000;
-    return Response.json({ token: `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
+    return Response.json({ token: mintedInstallation === '5151' ? `ghs_personal${mints.length}` : `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
   };
   return { appFetch, mints, secretReads, user, githubApp: { clientId: 'Iv23liTestClient', slug: 'glimmervoid-test', privateKeySecret: secretName } };
 }
@@ -1189,9 +1191,9 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   });
   await link.start();
 
-  await eventually(() => (coveredProbeCounts.at(-1) === 1 && link.githubAppToken() !== null ? true : undefined));
+  await eventually(() => (coveredProbeCounts.at(-1) === 1 && link.githubAppTokenFor('octo-org') !== null ? true : undefined));
   assert.deepEqual(await link.githubConnection('read'), connected, 'the server reads the tenant connection over the signed link');
-  const serverToken = link.githubAppToken();
+  const serverToken = link.githubAppTokenFor('octo-org');
   assert.match(serverToken ?? '', /^ghs_minted[23]$/, 'the server gets a fresh mint, never the token with ten minutes left');
   assert.equal(githubAppTokenChanges, 1);
   assert.equal(laneAccessConfigOf({}, serverToken).readToken, serverToken, 'lanes read GitHub with the App token when no read token is set');
@@ -1210,7 +1212,62 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   linkCredentials.github = 'operator-read-token';
   link.credentialsMayHaveChanged();
   await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
-  assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppToken()).readToken, 'operator-read-token');
+  assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppTokenFor('octo-org')).readToken, 'operator-read-token');
+});
+
+test('a tenant whose GitHub user reaches repositories in two installations gets a read-only grant per installation; a search probe runs once per grant, a repository probe runs only with the grant of its owner, a REST probe waits for the operator read token, and a lane gets only the grant of the owner of the repository it reads', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, [], { personalRepositories: ['dotfiles'] });
+  const { linkSecret, tenant } = await doormanTenant(t, 'twoinstalls0001', 'http://127.0.0.1:9');
+  const probeRequests: { url: string; authorization: string; body: string }[] = [];
+  const probeFetch: typeof fetch = async (input, init) => {
+    const authorization = new Headers(init?.headers).get('authorization') ?? '';
+    const body = String(init?.body ?? '');
+    probeRequests.push({ url: String(input), authorization, body });
+    if (body.includes('octo/dotfiles') && !authorization.startsWith('Bearer ghs_personal')) return Response.json({ data: { r0: null }, errors: [{ type: 'NOT_FOUND' }] });
+    return Response.json({ data: { viewer: { login: 'tenant' } } });
+  };
+  const doorman = createDoorman({
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
+    probeFetch, githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
+  });
+  const doormanPort = await doorman.listen(0);
+  await signedWatcherCall(doormanPort, linkSecret, 'POST', GITHUB_CONNECT_PATH, clock.nowMs);
+  app.user.isAuthorized = true;
+  await eventually(async () => ((await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs)).state === 'connected' ? true : undefined));
+  const ownedProbe: Probe = { ...LIGHT_PROBE, id: 'github:light:1', body: '{"query":"query { r0: repository(owner: \\"octo\\", name: \\"dotfiles\\") { id } } # octo/dotfiles"}', githubOwner: 'octo' };
+  const notificationsProbe: Probe = { id: 'github:notifications:0', laneId: 'test-lane', everyMs: 60_000, method: 'GET', url: 'https://api.github.com/notifications', body: null, credential: 'github' };
+  const link = createWatcherLink({
+    linkSecret, now: () => clock.nowMs, log: QUIET_LOG,
+    credentials: () => ({ github: null, posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${doormanPort}`, statusCheckMs: 50 }),
+  });
+  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [LIGHT_PROBE, ownedProbe, notificationsProbe], onNudge: () => {}, onCoverageChange: () => {}, onWatcherProblem: () => {} });
+  t.after(async () => {
+    link.stop();
+    await doorman.close();
+  });
+  await link.start();
+
+  const grants = { tokenFor: link.githubAppTokenFor, tokens: link.githubAppTokens, hasAny: link.hasGithubAppGrants };
+  await eventually(() => (link.githubAppTokenFor('octo') !== null && link.githubAppTokenFor('octo-org') !== null ? true : undefined));
+  assert.match(link.githubAppTokenFor('OCTO-ORG') ?? '', /^ghs_minted\d$/, 'an owner matches its grant case-insensitively');
+  assert.match(link.githubAppTokenFor('octo') ?? '', /^ghs_personal\d$/);
+  assert.equal(link.githubAppTokenFor('someone-else'), null);
+  assert.equal(link.githubAppTokenFor(null), null);
+  assert.equal(laneAccessConfigFor({}, grants, 'octo/dotfiles').readToken, link.githubAppTokenFor('octo'), 'a lane reads with the grant of its repository owner');
+  assert.equal(laneAccessConfigFor({}, grants, 'someone-else/repo').readToken, null, 'a lane never borrows an unrelated account grant');
+  assert.equal(laneAccessConfigFor({}, grants, null).readToken, null, 'a lane with no repository gets no App grant');
+  assert.deepEqual(app.mints.map((mint) => mint.body.repositories).toSorted(), [['dotfiles'], ['glimmervoid', 'site']], 'each grant is scoped to the repositories the user reaches in that installation');
+
+  const searchAuthorizations = await eventually(() => {
+    const authorizations = new Set(probeRequests.filter((request) => request.body === LIGHT_PROBE.body).map((request) => request.authorization.replace(/\d+$/, '')));
+    return authorizations.size === 2 ? authorizations : undefined;
+  });
+  assert.deepEqual([...searchAuthorizations].toSorted(), ['Bearer ghs_minted', 'Bearer ghs_personal'], 'a probe with no owner runs once per grant');
+  await eventually(() => (probeRequests.some((request) => request.body === ownedProbe.body) ? true : undefined));
+  assert.deepEqual([...new Set(probeRequests.filter((request) => request.body === ownedProbe.body).map((request) => request.authorization.replace(/\d+$/, '')))], ['Bearer ghs_personal'], 'a repository probe runs only with the grant of its owner, so another installation never answers it NOT_FOUND');
+  assert.equal(probeRequests.filter((request) => request.url.endsWith('/notifications')).length, 0, 'an App grant never reads notifications');
 });
 
 test('a tenant record read that fails answers the server as a failed mint and retries, never as a tenant with no GitHub installation', async (t) => {
@@ -1244,7 +1301,7 @@ test('a tenant record read that fails answers the server as a failed mint and re
   clock.nowMs += 10 * 60_000;
   const answer = await askForToken();
   assert.equal(answer.status, 200);
-  assert.match(GithubTokenAnswer.parse(await answer.json()).grant?.token ?? '', /^ghs_minted\d$/);
+  assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
 });
 
 test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {

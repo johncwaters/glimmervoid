@@ -1,3 +1,4 @@
+import type { GithubAppGrants } from '../lanes/core/lane-permissions-core.ts';
 import type { GithubLaneStore } from '../github/github-store-wiring.ts';
 import type { GithubPrsFreshness } from '../../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
@@ -71,7 +72,7 @@ interface BackendControlDependencies {
   agentSessions: Map<string, Session>;
   markChildWorktreeDiscard: (childId: string) => void;
   sessionWakes: SessionWakesControl;
-  githubAppToken: () => string | null;
+  githubAppGrants: GithubAppGrants;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
@@ -138,7 +139,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     agentSessions: dependencies.agentSessions,
     markChildWorktreeDiscard: dependencies.markChildWorktreeDiscard,
     sessionWakes: dependencies.sessionWakes,
-    githubAppToken: dependencies.githubAppToken,
+    githubAppGrants: dependencies.githubAppGrants,
     config,
     configStore,
     broadcastControl,

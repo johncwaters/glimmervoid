@@ -34,6 +34,8 @@ const ProbeUrl = z.url({ protocol: /^https?$/ }).refine(
   'a probe reaches an https address, or plain http only on a loopback address',
 );
 
+export const GithubLogin = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/);
+
 export const Probe = z.strictObject({
   id: z.string().regex(/^[a-z0-9:._-]{1,120}$/),
   laneId: z.string().min(1).max(60),
@@ -43,6 +45,7 @@ export const Probe = z.strictObject({
   body: z.string().max(64 * 1024).nullable(),
   credential: ProbeCredential,
   answerField: z.string().regex(/^[a-z_]{1,40}$/).optional(),
+  githubOwner: GithubLogin.optional(),
 });
 export type Probe = z.infer<typeof Probe>;
 
@@ -122,14 +125,13 @@ export function githubApiOrigin(environment: Readonly<Record<string, string | un
 export const HostStopAnswer = z.strictObject({ outcome: z.enum(['stopping', 'no-adapter']) });
 export type HostStopOutcome = z.infer<typeof HostStopAnswer>['outcome'];
 
-export const GithubTokenGrant = z.strictObject({ token: z.string().min(1), expiresAtMs: z.number().int().positive() });
-export type GithubTokenGrant = z.infer<typeof GithubTokenGrant>;
-export const GithubTokenAnswer = z.strictObject({ grant: GithubTokenGrant.nullable() });
-export type GithubTokenAnswer = z.infer<typeof GithubTokenAnswer>;
-
 const PositiveInt = z.number().int().positive();
-export const GithubLogin = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/);
 export const MAX_BOUND_INSTALLATIONS = 100;
+
+export const GithubTokenGrant = z.strictObject({ accountLogin: GithubLogin, token: z.string().min(1), expiresAtMs: PositiveInt });
+export type GithubTokenGrant = z.infer<typeof GithubTokenGrant>;
+export const GithubTokenAnswer = z.strictObject({ grants: z.array(GithubTokenGrant).max(MAX_BOUND_INSTALLATIONS) });
+export type GithubTokenAnswer = z.infer<typeof GithubTokenAnswer>;
 export const GithubReconnectReason = z.enum(['expired', 'revoked']);
 export type GithubReconnectReason = z.infer<typeof GithubReconnectReason>;
 

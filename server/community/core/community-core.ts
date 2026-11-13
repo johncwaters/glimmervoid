@@ -121,11 +121,10 @@ function readTelegramTarget(config: { telegram?: unknown }): { botToken: string;
 function communityGate(
   config: { community?: unknown; posthog?: unknown; github?: { readToken?: string } | null },
   inheritedEnv: Readonly<Record<string, string | undefined>>,
-  githubAppToken: string | null,
 ): { start: boolean; reason?: string } {
   if (!readCommunitySettings(config).enabled) return { start: false };
   if (!readPosthogConnection(config)) return { start: false, reason: 'community.enabled but posthog.apiKey is missing' };
-  if (!laneAccessConfigOf(config, githubAppToken).readToken) return { start: false, reason: COMMUNITY_READ_TOKEN_REQUIRED };
+  if (!laneAccessConfigOf(config, null).readToken) return { start: false, reason: COMMUNITY_READ_TOKEN_REQUIRED };
   const envBlocker = laneAccessEnvBlocker(inheritedEnv);
   if (envBlocker) return { start: false, reason: `Community research cannot read GitHub while ${envBlocker} is set in Glimmervoid's environment` };
   return { start: true };

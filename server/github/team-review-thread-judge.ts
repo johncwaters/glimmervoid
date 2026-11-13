@@ -17,7 +17,7 @@ const THREAD_JUDGE_TIMEOUT_MS = 120000;
 const THREAD_JUDGE_SOURCE = 'thread-judge';
 
 export function createThreadJudge(spawn: LaneSpawn, readReviewer: () => ReviewerChoice, shutdownSignal?: AbortSignal): (request: ThreadJudgeRequest) => Promise<TeamReviewThreadResult | null> {
-  return async ({ prompt, untrustedItems }) => {
+  return async ({ repository, prompt, untrustedItems }) => {
     const reviewer = readReviewer();
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-thread-judge-'));
     const controller = new AbortController();
@@ -29,7 +29,7 @@ export function createThreadJudge(spawn: LaneSpawn, readReviewer: () => Reviewer
       const signal = shutdownSignal ? AbortSignal.any([controller.signal, shutdownSignal]) : controller.signal;
       if (signal.aborted) return null;
       await spawn({
-        id: `team-review-thread:${randomUUID()}`, name: 'Review thread judgement', cwd: workDir,
+        id: `team-review-thread:${randomUUID()}`, name: 'Review thread judgement', cwd: workDir, repository,
         prompt: 'Read thread-prompt.txt and follow its instructions', agent: REVIEW_AGENT_ADAPTER_ID,
         extraArgs: reviewerAgentArgs(reviewer), signal,
       });

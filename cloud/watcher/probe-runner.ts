@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { signedHeaders } from '../link/core/link-signing-core.ts';
 import { githubApiOrigin, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import { freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
+import { fannedOutProbeResponse, freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
 import { NO_CREDENTIALS } from './watcher-home.ts';
 import type { WatcherHome } from './watcher-home.ts';
@@ -27,24 +27,48 @@ function alarmKeyOf(alarm: Alarm): string {
   return `${alarm.id}@${alarm.at}`;
 }
 
-function credentialKindsChanged(previous: WatcherCredentials, next: WatcherCredentials): Set<Probe['credential']> {
+type GithubAppGrant = { accountLogin: string; token: string };
+type EffectiveCredentials = WatcherCredentials & { githubAppGrants: readonly GithubAppGrant[] };
+
+const NO_EFFECTIVE_CREDENTIALS: EffectiveCredentials = { ...NO_CREDENTIALS, githubAppGrants: [] };
+
+function grantedAccountsOf(credentials: EffectiveCredentials): string {
+  return credentials.githubAppGrants.map((grant) => grant.accountLogin.toLowerCase()).toSorted().join(' ');
+}
+
+function credentialKindsChanged(previous: EffectiveCredentials, next: EffectiveCredentials): Set<Probe['credential']> {
   const changedKinds = new Set<Probe['credential']>();
-  if (previous.github !== next.github) changedKinds.add('github');
+  const grantTokensOf = (credentials: EffectiveCredentials) => credentials.githubAppGrants.map((grant) => grant.token).join(' ');
+  if (previous.github !== next.github || grantTokensOf(previous) !== grantTokensOf(next)) changedKinds.add('github');
   if (JSON.stringify(previous.posthog) !== JSON.stringify(next.posthog)) changedKinds.add('posthog');
   return changedKinds;
 }
 
-function authorizationFor(probe: Probe, credentials: WatcherCredentials): string | { refusal: string } {
+function githubTokensFor(probe: Probe, credentials: EffectiveCredentials): readonly string[] | { refusal: string } {
+  if (credentials.github !== null) return [credentials.github];
+  if (credentials.githubAppGrants.length === 0) return { refusal: 'no GitHub read credential yet' };
+  if (!isGraphqlProbe(probe)) return { refusal: 'a GitHub App grant reads only GraphQL; this probe needs the operator read token' };
+  const { githubOwner } = probe;
+  if (githubOwner === undefined) return credentials.githubAppGrants.map((grant) => grant.token);
+  const ownerGrant = credentials.githubAppGrants.find((grant) => grant.accountLogin.toLowerCase() === githubOwner.toLowerCase());
+  return ownerGrant === undefined ? { refusal: `no GitHub App grant reaches ${githubOwner}` } : [ownerGrant.token];
+}
+
+function authorizationsFor(probe: Probe, credentials: EffectiveCredentials): readonly string[] | { refusal: string } {
   const probeHost = new URL(probe.url).host;
   if (probe.credential === 'github') {
-    if (credentials.github === null) return { refusal: 'no GitHub read credential yet' };
     const githubApiHost = new URL(githubApiOrigin(process.env)).host;
     if (probeHost !== githubApiHost) return { refusal: `a GitHub probe may only reach ${githubApiHost}` };
-    return `Bearer ${credentials.github}`;
+    const tokens = githubTokensFor(probe, credentials);
+    return 'refusal' in tokens ? tokens : tokens.map((token) => `Bearer ${token}`);
   }
   if (credentials.posthog === null) return { refusal: 'no PostHog read credential yet' };
   if (probeHost !== new URL(credentials.posthog.host).host) return { refusal: 'a PostHog probe may only reach the connected PostHog host' };
-  return `Bearer ${credentials.posthog.apiKey}`;
+  return [`Bearer ${credentials.posthog.apiKey}`];
+}
+
+function sha256Hex(text: string): string {
+  return crypto.createHash('sha256').update(text).digest('hex');
 }
 
 async function sha256OfBody(response: Response): Promise<string> {
@@ -159,17 +183,17 @@ function createNudgeSender({ serverUrl, signingKey, fetchFn = fetch, now = clock
 
 type NudgeSender = ReturnType<typeof createNudgeSender>;
 
-function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, log = console, githubTokenFallback = () => null }: {
+function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, log = console, githubTokenFallback = () => [] }: {
   home: WatcherHome;
   nudges: Pick<NudgeSender, 'send' | 'failingForMs'>;
   fetchFn?: FetchFn;
   now?: () => number;
   log?: Pick<Console, 'log' | 'warn'>;
-  githubTokenFallback?: () => string | null;
+  githubTokenFallback?: () => readonly GithubAppGrant[];
 }) {
   let probeSet: ProbeSet | null = null;
   let credentials: WatcherCredentials = NO_CREDENTIALS;
-  let effectiveCredentials: WatcherCredentials = NO_CREDENTIALS;
+  let effectiveCredentials: EffectiveCredentials = NO_EFFECTIVE_CREDENTIALS;
   let memoryByProbeId = new Map<string, ProbeMemory>();
   let sentAlarmKeys = new Set<string>();
   let wakeTimer: NodeJS.Timeout | null = null;
@@ -185,9 +209,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     return changedMemory;
   }
 
-  async function responseOf(probe: Probe, memory: ProbeMemory): Promise<ProbeResponse> {
-    const authorization = authorizationFor(probe, effectiveCredentials);
-    if (typeof authorization !== 'string') return { kind: 'unreachable', error: authorization.refusal };
+  async function responseWith(probe: Probe, memory: ProbeMemory, authorization: string): Promise<ProbeResponse> {
     const headers: Record<string, string> = { authorization, 'user-agent': USER_AGENT, accept: 'application/json' };
     if (probe.method === 'GET' && memory.etag !== null) headers['if-none-match'] = memory.etag;
     if (probe.body !== null) headers['content-type'] = 'application/json';
@@ -203,6 +225,14 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     } catch (fetchError) {
       return { kind: 'unreachable', error: (fetchError as Error).message };
     }
+  }
+
+  async function responseOf(probe: Probe, memory: ProbeMemory): Promise<ProbeResponse> {
+    const authorizations = authorizationsFor(probe, effectiveCredentials);
+    if ('refusal' in authorizations) return { kind: 'unreachable', error: authorizations.refusal };
+    const responses: ProbeResponse[] = [];
+    for (const authorization of authorizations) responses.push(await responseWith(probe, memory, authorization));
+    return fannedOutProbeResponse(responses, sha256Hex);
   }
 
   async function runProbe(probe: Probe): Promise<void> {
@@ -268,13 +298,15 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
   }
 
   function adoptEffectiveCredentials(): void {
-    const nextEffectiveCredentials = credentials.github !== null ? credentials : { ...credentials, github: githubTokenFallback() };
+    const nextEffectiveCredentials: EffectiveCredentials = { ...credentials, githubAppGrants: credentials.github !== null ? [] : [...githubTokenFallback()] };
     const changedCredentialKinds = credentialKindsChanged(effectiveCredentials, nextEffectiveCredentials);
+    const haveGrantedAccountsChanged = grantedAccountsOf(effectiveCredentials) !== grantedAccountsOf(nextEffectiveCredentials);
     effectiveCredentials = nextEffectiveCredentials;
     const credentialByProbeId = new Map((probeSet?.probes ?? []).map((probe) => [probe.id, probe.credential]));
     memoryByProbeId = new Map([...memoryByProbeId].map(([probeId, memory]) => {
       const credential = credentialByProbeId.get(probeId);
-      return [probeId, memoryAfterCredentialChange(memory, credential !== undefined && changedCredentialKinds.has(credential))];
+      const changedMemory = memoryAfterCredentialChange(memory, credential !== undefined && changedCredentialKinds.has(credential));
+      return [probeId, credential === 'github' && haveGrantedAccountsChanged ? { ...changedMemory, bodySha256: null } : changedMemory];
     }));
     scheduleWake();
   }
@@ -302,7 +334,7 @@ function createProbeRunner({ home, nudges, fetchFn = fetch, now = clock.nowMs, l
     return {
       probeSetRevision: probeSet?.revision ?? null,
       nudgesFailingForMs: nudges.failingForMs(),
-      hasCredentials: { github: effectiveCredentials.github !== null, posthog: effectiveCredentials.posthog !== null },
+      hasCredentials: { github: effectiveCredentials.github !== null || effectiveCredentials.githubAppGrants.length > 0, posthog: effectiveCredentials.posthog !== null },
       probes: (probeSet?.probes ?? []).map((probe) => {
         const memory = memoryOf(probe);
         return { probeId: probe.id, status: memory.status, lastRunAt: memory.lastRunAtMs === null ? null : new Date(memory.lastRunAtMs).toISOString(), failure: memory.failure };

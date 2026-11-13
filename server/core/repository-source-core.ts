@@ -6,7 +6,7 @@ type RepositorySource = { ok: true; url: string; repoName: string; isGithubHttps
 type ParsedRepositorySource = Extract<RepositorySource, { ok: true }>;
 type RootCheckouts = { root: string; isCheckoutItself: boolean; hasGitCheckout: boolean };
 type GithubCredentialKind = 'gh' | 'app' | 'token';
-type GithubCredential = { kind: GithubCredentialKind; token: string } | { kind: 'none' };
+type GithubCredential = { kind: 'gh' | 'token'; token: string } | { kind: 'app'; tokens: readonly string[] } | { kind: 'none' };
 type GithubRepo = { fullName: string; cloneUrl: string; isPrivate: boolean; pushedAt: string | null };
 
 const GithubApiRepo = z.object({ full_name: z.string(), clone_url: z.string(), private: z.boolean(), pushed_at: z.string().nullable() });
@@ -79,11 +79,16 @@ function cloneEnvOf(source: ParsedRepositorySource, githubToken: string | null, 
   return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: githubAuthHeaderOf(githubToken) };
 }
 
-function chooseGithubCredential({ ghLoginToken, readToken, appToken }: { ghLoginToken: string | null; readToken: string | null; appToken: string | null }): GithubCredential {
+function chooseGithubCredential({ ghLoginToken, readToken, appTokens }: { ghLoginToken: string | null; readToken: string | null; appTokens: readonly string[] }): GithubCredential {
   if (ghLoginToken) return { kind: 'gh', token: ghLoginToken };
   if (readToken) return { kind: 'token', token: readToken };
-  if (appToken) return { kind: 'app', token: appToken };
+  if (appTokens.length > 0) return { kind: 'app', tokens: appTokens };
   return { kind: 'none' };
+}
+
+function githubOwnerOfSource(source: ParsedRepositorySource): string | null {
+  if (!source.isGithubHttps) return null;
+  return new URL(source.url).pathname.split('/')[1] || null;
 }
 
 function githubReposPath(kind: GithubCredentialKind): string {
@@ -104,6 +109,6 @@ function githubReposFromLines(apiRepoLines: readonly unknown[]): GithubRepo[] | 
     .toSorted((first, second) => (second.pushedAt ?? '').localeCompare(first.pushedAt ?? ''));
 }
 
-export { chooseGithubCredential, githubReposFromLines, githubReposJqFilter, githubReposPath };
+export { chooseGithubCredential, githubOwnerOfSource, githubReposFromLines, githubReposJqFilter, githubReposPath };
 export { CLONE_SAFETY_ARGS, cloneEnvOf, cloneRootOf, defaultRepoRootOf, parseRepositorySource };
 export type { GithubCredential, GithubRepo, ParsedRepositorySource, RootCheckouts };

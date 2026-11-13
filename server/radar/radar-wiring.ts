@@ -41,6 +41,8 @@ import { prepareLaneMcp } from '../lanes/lane-mcp.ts';
 import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowRules, withLaneAccessRules } from '../lanes/core/lane-permissions-core.ts';
 import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
 import { makeLaneGhConfigDirectory } from '../lanes/lane-spawn.ts';
+import { runGit } from '../git/git-exec.ts';
+import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME } from '../../shared/contracts/untrusted-payload.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';
@@ -110,6 +112,7 @@ interface InvestigationSessionRequest {
   id: string;
   name: string;
   path: string;
+  repositoryPath: string | null;
   initialPrompt: string;
   posture: RadarToolPosture;
   onActivity?: ((trail: InvestigationTrail) => void) | null;
@@ -117,7 +120,7 @@ interface InvestigationSessionRequest {
 
 interface RadarWiringOptions {
   config: RadarWiringConfig;
-  getLaneAccessConfig?: () => LaneAccessConfig;
+  getLaneAccessConfig?: (repositoryFullName: string | null) => LaneAccessConfig;
   investigationSessions: Map<string, unknown>;
   closeSessionDataClients: (id: string) => void;
   hookRouter: Pick<HookRouter, 'register' | 'unregister'> | null;
@@ -281,6 +284,15 @@ function createRadarWiring({
     return { ...posthogConfig, host: core.resolvePosthogHost(posthogConfig.host), apiKey: posthogConfig.apiKey };
   }
 
+  async function githubRepositoryOf(repositoryPath: string | null): Promise<string | null> {
+    if (repositoryPath === null) return null;
+    const envWithoutGit = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
+    const remote = await runGit(['remote', 'get-url', 'origin'], { cwd: repositoryPath, replaceEnv: envWithoutGit });
+    const repository = remote.ok ? githubRepoSlugFromRemote(remote.out) : null;
+    if (repository === null) console.warn(`[posthog-poller] ${repositoryPath} has no GitHub origin this lane can name, so it runs without a GitHub App grant`);
+    return repository;
+  }
+
   async function makeInvestigationSession(request: InvestigationSessionRequest): Promise<{ sess: Session; cleanup(): Promise<void> }> {
     const laneGhConfig = await makeLaneGhConfigDirectory();
     try {
@@ -292,10 +304,10 @@ function createRadarWiring({
   }
 
   async function makeInvestigationSessionWithAccess(
-    { id, name, path: cwd, initialPrompt, posture: basePosture, onActivity = null }: InvestigationSessionRequest,
+    { id, name, path: cwd, repositoryPath, initialPrompt, posture: basePosture, onActivity = null }: InvestigationSessionRequest,
     laneGhConfig: { path: string; remove(): Promise<void> },
   ): Promise<{ sess: Session; cleanup(): Promise<void> }> {
-    const { readToken, extraFetchDomains } = getLaneAccessConfig();
+    const { readToken, extraFetchDomains } = getLaneAccessConfig(await githubRepositoryOf(repositoryPath));
     const access = laneAccess({ agent: 'claude-code', readToken, extraFetchDomains, ghConfigDir: laneGhConfig.path, inheritedEnv: process.env });
     const posture = withLaneAccessTools(basePosture, access);
     const lanePermissions = buildLanePermissions({ denyTools: posture.denyTools, allowTools: posture.allowTools });
@@ -426,6 +438,7 @@ function createRadarWiring({
         id: `posthog-fix:${projectId}#${issue.issueId}`,
         name: `PostHog fix ${projectName} #${issue.issueId}`,
         path: workspace.cwd,
+        repositoryPath: repoPath,
         initialPrompt: buildFixPrompt({
           issueId: issue.issueId,
           projectId,
@@ -523,6 +536,7 @@ function createRadarWiring({
         id: `posthog:${projectId}#${issue.issueId}`,
         name: `PostHog ${projectName} #${issue.issueId}`,
         path: laneCwd,
+        repositoryPath: repoPath,
         initialPrompt: prompt,
         posture: investigationPosture(repoPath),
         onActivity,

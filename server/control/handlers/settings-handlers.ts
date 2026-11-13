@@ -24,8 +24,9 @@ import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { listFolders, suggestRepoRoots } from '../../repo-root-suggestions.ts';
 import { resolveFromHome } from '../../core/repo-root-suggestions-core.ts';
 import { cloneRepository, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
-import { cloneRootOf, defaultRepoRootOf } from '../../core/repository-source-core.ts';
-import type { RootCheckouts } from '../../core/repository-source-core.ts';
+import { cloneRootOf, defaultRepoRootOf, githubOwnerOfSource, parseRepositorySource } from '../../core/repository-source-core.ts';
+import type { GithubCredential, RootCheckouts } from '../../core/repository-source-core.ts';
+import { NO_GITHUB_APP_GRANTS } from '../../lanes/core/lane-permissions-core.ts';
 import { resolvePackageBin, scriptLaunch } from '../../runtime-paths.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
 import { buildSettingsPayload as buildSettingsPayloadFrom } from '../../settings-payload.ts';
@@ -176,6 +177,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     telegramDelivery = null,
     agentAccounts = null,
     remoteSetup = null,
+    githubAppGrants = NO_GITHUB_APP_GRANTS,
   } = deps;
 
   function buildSettingsPayload() {
@@ -322,7 +324,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   function currentGithubCredential() {
-    return resolveGithubCredential({ readToken: config.github?.readToken || null, appToken: deps.githubAppToken?.() ?? null });
+    return resolveGithubCredential({ readToken: config.github?.readToken || null, appTokens: githubAppGrants.tokens() });
   }
 
   async function handleListFolders(msg: ClientMessageOf<'list-folders'>, ws: ControlSocket): Promise<void> {
@@ -348,11 +350,18 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     replyTo(ws, msg, 'github-repos-listed', { source: credential.kind, repos: listed.repos });
   }
 
+  function cloneTokenOf(credential: GithubCredential, source: string): string | null {
+    if (credential.kind === 'none') return null;
+    if (credential.kind !== 'app') return credential.token;
+    const parsedSource = parseRepositorySource(source);
+    return parsedSource.ok ? githubAppGrants.tokenFor(githubOwnerOfSource(parsedSource)) : null;
+  }
+
   async function handleCloneRepository(msg: ClientMessageOf<'clone-repository'>, ws: ControlSocket): Promise<void> {
     const configuredRoots = config.repoRoots ?? [];
     const cloneRoot = cloneRootOf(await rootCheckoutsOf(configuredRoots), defaultRepoRootOf(os.homedir()));
     const credential = await currentGithubCredential();
-    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: credential.kind === 'none' ? null : credential.token });
+    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: cloneTokenOf(credential, msg.source) });
     if (!outcome.ok) {
       replyTo(ws, msg, 'repository-cloned', { ok: false, error: outcome.error });
       return;

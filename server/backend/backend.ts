@@ -47,7 +47,8 @@ import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
-import { laneAccessConfigOf } from '../lanes/core/lane-permissions-core.ts';
+import { laneAccessConfigOf, NO_GITHUB_APP_GRANTS } from '../lanes/core/lane-permissions-core.ts';
+import type { GithubAppGrants } from '../lanes/core/lane-permissions-core.ts';
 import type { BackendLaneOptions } from './backend-lanes.ts';
 import type { AgentIngressDependencies } from './backend-http.ts';
 import { decideWasActiveFlip, shouldStartAfterModify } from '../session/core/session-registry-core.ts';
@@ -349,11 +350,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
 
   const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
-  let githubAppTokenOfLink: () => string | null = () => null;
+  let githubAppGrantsOfLink: GithubAppGrants = NO_GITHUB_APP_GRANTS;
+  const githubAppGrants: GithubAppGrants = {
+    tokenFor: (owner) => githubAppGrantsOfLink.tokenFor(owner),
+    tokens: () => githubAppGrantsOfLink.tokens(),
+    hasAny: () => githubAppGrantsOfLink.hasAny(),
+  };
   const laneAssembly = createBackendLanes({
     config,
     frameSecret,
-    githubAppToken: () => githubAppTokenOfLink(),
+    githubAppGrants,
     appVersion: packageJson.version,
     provenanceWriterId,
     configStore,
@@ -678,7 +684,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     onGithubAppTokenChange: () => laneAssembly.restartServiceLanes(),
   });
-  githubAppTokenOfLink = watcherLink.githubAppToken;
+  githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
@@ -783,7 +789,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       pendingWakesBySession: () => agentApi?.sessionWakes.pendingWakesBySession() ?? [],
       cancelForOperator: async (sessionId, wakeId) => agentApi ? agentApi.sessionWakes.cancelForOperator(sessionId, wakeId) : 'Wakes are not available yet',
     },
-    githubAppToken: () => githubAppTokenOfLink(),
+    githubAppGrants,
     config,
     configStore,
     broadcastControl,

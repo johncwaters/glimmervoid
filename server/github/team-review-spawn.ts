@@ -38,6 +38,7 @@ type TeamReviewSpawn = (options: {
   id: string;
   name: string;
   cwd: string;
+  repository: string | null;
   spawnEnv: Record<string, string>;
   extraClaudeArgs: string[];
   settingsPermissions: { deny: string[]; defaultMode: string; allow?: string[] };
@@ -110,15 +111,15 @@ function createTeamReviewSpawn({
   hookToolConfig?: HookToolConfig | null;
   resolveHookTools?: typeof resolveSharedHookTools;
   prepareMcp?: typeof prepareLaneMcp;
-  getLaneAccessConfig?: () => LaneAccessConfig;
+  getLaneAccessConfig?: (repositoryFullName: string | null) => LaneAccessConfig;
   accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }): TeamReviewSpawn {
-  return async function spawnTeamReviewSession({ id, name, cwd, spawnEnv, extraClaudeArgs, settingsPermissions, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
+  return async function spawnTeamReviewSession({ id, name, cwd, repository, spawnEnv, extraClaudeArgs, settingsPermissions, signal, onToolStep, onSessionId, resumeSessionId, initialPrompt, agent, extraUserHooks, prependPathDirs }) {
     const skipPermissions = settingsPermissions.defaultMode === 'bypassPermissions';
     const sharedHookTools = hookRouter ? resolveRequiredSaneYoloHookTools(hookToolConfig?.saneYoloUnreadablePaths ?? [], { resolve: resolveHookTools }) : [];
     if (sharedHookTools === null) throw new Error(`${laneName} lane cannot start: Sane YOLO is unavailable`);
     const grantsUnscopedShell = skipPermissions || extraClaudeArgs.includes(UNSCOPED_SHELL_TOOL) || (settingsPermissions.allow ?? []).includes(UNSCOPED_SHELL_TOOL);
-    const { readToken, extraFetchDomains } = getLaneAccessConfig();
+    const { readToken, extraFetchDomains } = getLaneAccessConfig(repository);
     const laneGhConfig = await makeLaneGhConfigDirectory();
     try {
       await runTeamReviewSession(sharedHookTools, laneAccess({
