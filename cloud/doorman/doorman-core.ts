@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
-import type { AwakeEvent, DoormanGithubInstallation, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { AwakeEvent, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 
 type DoormanRoute =
@@ -121,9 +122,8 @@ function githubAppJwt(clientId: string, privateKey: crypto.KeyObject, nowMs: num
   return `${signedPart}.${crypto.sign('sha256', Buffer.from(signedPart), privateKey).toString('base64url')}`;
 }
 
-function installationTokenRequestBody(installation: DoormanGithubInstallation): string {
-  const repositoryScope = installation.repositories.length === 0 ? {} : { repositories: installation.repositories };
-  return JSON.stringify({ ...repositoryScope, permissions: INSTALLATION_TOKEN_PERMISSIONS });
+function installationTokenRequestBody(installation: Pick<GithubInstallationBinding, 'repositories'>): string {
+  return JSON.stringify({ repositories: installation.repositories, permissions: INSTALLATION_TOKEN_PERMISSIONS });
 }
 
 function tokenRefreshDelayMs(expiresAtMs: number, nowMs: number): number {
