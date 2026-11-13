@@ -18,6 +18,7 @@ import { DEFAULT_CONFIG } from '../config-store.ts';
 import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
 import { runGit } from '../git/git-exec.ts';
 import { GITHUB_CREDENTIAL_SCOPE } from '../../session/core/git-credential-env.ts';
+import type { HostSigningKeyStore } from '../commit-signing.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -40,6 +41,7 @@ interface SessionFactoryDependencies {
   questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   gitCredentialProgram?: string | null;
+  hostSigningKeys?: Pick<HostSigningKeyStore, 'gitEnvFor'> | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
 }
@@ -113,6 +115,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       prepareCoherence: isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       resolveGitCredentialHelper,
+      resolveHostSigningEnv: dependencies.hostSigningKeys?.gitEnvFor ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       resolveAccountHome,
       getPackAgentLaunch: isMachineShell ? null : dependencies.getPackAgentLaunch ?? null,

@@ -123,7 +123,7 @@ interface BackendHttpDependencies {
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getWhiteboardLayouts?: () => WhiteboardLayouts | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
-  sshSigner?: Pick<SshSigner, 'signWithAgent'> | null;
+  sshSigner?: Pick<SshSigner, 'sign'> | null;
   githubUserCredential?: () => Promise<GithubUserGrant | null>;
   recordOutcome?: OutcomeRecorder;
   logger?: Pick<Console, 'warn'>;
@@ -522,7 +522,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
 
 function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }: {
   getSession: (id: string) => Session | null;
-  sshSigner: Pick<SshSigner, 'signWithAgent'> | null;
+  sshSigner: Pick<SshSigner, 'sign'> | null;
   logger: Pick<Console, 'warn'>;
 }): void {
   app.post('/sign/:glimmervoidId', (req, res) => {
@@ -553,7 +553,7 @@ function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }
         res.status(400).json({ ok: false, error: 'only a git commit or tag object can be signed' });
         return;
       }
-      const outcome = await sshSigner.signWithAgent({ publicKey, namespace: request.data.namespace, payload })
+      const outcome = await sshSigner.sign({ publicKey, namespace: request.data.namespace, payload })
         .catch((error: unknown) => ({ ok: false as const, error: `could not sign: ${errorMessage(error)}` }));
       res.status(outcome.ok ? 200 : 503).json(outcome);
     });

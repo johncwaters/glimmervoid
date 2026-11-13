@@ -7,6 +7,7 @@ import { execFileAsync } from './child-process-safe.ts';
 import { writeTextAtomicSync } from './json-file.ts';
 import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
+import type { HostSigningKeyStore } from './commit-signing.ts';
 import { errorMessage } from '../shared/text.ts';
 import { clock } from '../shared/clock.ts';
 
@@ -24,10 +25,11 @@ interface SshSignerOptions {
   ownerUid?: number | null;
   agentWaitMs?: number;
   agentRescanIntervalMs?: number;
+  hostSigningKeys?: Pick<HostSigningKeyStore, 'signIfHeld'> | null;
 }
 
 interface SshSigner {
-  signWithAgent: (request: { publicKey: SshPublicKey; namespace: string; payload: Buffer }) => Promise<SignOutcome>;
+  sign: (request: { publicKey: SshPublicKey; namespace: string; payload: Buffer }) => Promise<SignOutcome>;
   agentEnvFor: (publicKey: SshPublicKey) => Promise<{ SSH_AUTH_SOCK: string } | null>;
 }
 
@@ -54,7 +56,7 @@ async function forwardedSocketsIn(searchRoot: string, ownerUid: number | null): 
   return candidates.filter((candidate) => candidate !== null);
 }
 
-function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), wellKnownAgentSockets = wellKnownAgentSocketPaths({ homeDir: os.homedir(), platform: process.platform }), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS, agentRescanIntervalMs = AGENT_RESCAN_INTERVAL_MS }: SshSignerOptions = {}): SshSigner {
+function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSearchRoots(), wellKnownAgentSockets = wellKnownAgentSocketPaths({ homeDir: os.homedir(), platform: process.platform }), ownerUid = process.getuid?.() ?? null, agentWaitMs = FORWARDED_AGENT_RECONNECT_WAIT_MS, agentRescanIntervalMs = AGENT_RESCAN_INTERVAL_MS, hostSigningKeys = null }: SshSignerOptions = {}): SshSigner {
   async function agentHolds(socketPath: string, publicKey: SshPublicKey): Promise<boolean> {
     const listing = await execFileAsync('ssh-add', ['-L'], { env: { ...env, SSH_AUTH_SOCK: socketPath }, timeout: AGENT_LISTING_TIMEOUT_MS, encoding: 'utf8' })
       .then(({ stdout }) => stdout, () => '');
@@ -79,7 +81,9 @@ function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSea
     return agentEnvBefore(publicKey, deadlineMs);
   }
 
-  async function signWithAgent({ publicKey, namespace, payload }: { publicKey: SshPublicKey; namespace: string; payload: Buffer }): Promise<SignOutcome> {
+  async function sign({ publicKey, namespace, payload }: { publicKey: SshPublicKey; namespace: string; payload: Buffer }): Promise<SignOutcome> {
+    const hostSigned = await hostSigningKeys?.signIfHeld({ publicKey, namespace, payload }) ?? null;
+    if (hostSigned) return hostSigned;
     const agentEnv = await agentEnvBefore(publicKey, clock.nowMs() + agentWaitMs);
     if (!agentEnv) return { ok: false, error: NO_AGENT_HOLDS_KEY };
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-sign-'));
@@ -100,7 +104,7 @@ function createSshSigner({ env = process.env, agentSearchRoots = defaultAgentSea
     }
   }
 
-  return { signWithAgent, agentEnvFor };
+  return { sign, agentEnvFor };
 }
 
 async function readSigningKeySetting(setting: string, cwd: string): Promise<SshPublicKey | null> {

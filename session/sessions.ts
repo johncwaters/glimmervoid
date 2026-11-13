@@ -229,6 +229,7 @@ interface SessionOptions {
   ownerId?: string | null;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
+  resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
 }
 
 interface ClaudeSessionIdEvent {
@@ -334,6 +335,8 @@ class Session extends EventEmitter {
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
   _resolveGitCredentialHelper: ((cwd: string) => Promise<string | null>) | null;
+  _resolveHostSigningEnv: ((cwd: string) => Promise<Record<string, string>>) | null;
+  _hostSigningEnv: Record<string, string>;
   _gitCredentialProgram: string | null;
   _gitCredentialToken: string | null;
   _canRunHelpCommand: boolean;
@@ -450,6 +453,7 @@ class Session extends EventEmitter {
     ownerId = null,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
+    resolveHostSigningEnv = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -619,6 +623,8 @@ class Session extends EventEmitter {
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
     this._resolveGitCredentialHelper = resolveGitCredentialHelper;
+    this._resolveHostSigningEnv = commitSigningProgram === null ? null : resolveHostSigningEnv;
+    this._hostSigningEnv = {};
     this._gitCredentialProgram = null;
     this._gitCredentialToken = resolveGitCredentialHelper === null ? null : generateToken();
     this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
@@ -642,6 +648,7 @@ class Session extends EventEmitter {
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
         commitSigningProgram: () => this._commitSigningProgram,
+        hostSigningEnv: () => this._hostSigningEnv,
         gitCredentialToken: () => this._gitCredentialToken,
         gitCredentialProgram: () => this._gitCredentialProgram,
       },
@@ -1648,6 +1655,11 @@ class Session extends EventEmitter {
 
     if (this._resolveGitCredentialHelper) {
       this._gitCredentialProgram = await this._resolveGitCredentialHelper(this.effectiveCwd());
+      if (isStartSuperseded()) return;
+    }
+
+    if (this._resolveHostSigningEnv) {
+      this._hostSigningEnv = await this._resolveHostSigningEnv(this.effectiveCwd());
       if (isStartSuperseded()) return;
     }
 

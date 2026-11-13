@@ -22,6 +22,7 @@ interface LaunchPort {
   agentToken: () => string | null;
   commitSigningToken: () => string | null;
   commitSigningProgram: () => string | null;
+  hostSigningEnv: () => Record<string, string>;
   gitCredentialToken: () => string | null;
   gitCredentialProgram: () => string | null;
 }
@@ -68,7 +69,8 @@ function createSessionLaunch({ id, adapter, platform, hooks, port }: SessionLaun
       helperProgram: port.gitCredentialProgram(),
       inheritedConfigParameters: signingEnv.GIT_CONFIG_PARAMETERS ?? inheritedConfigParameters,
     });
-    return { ...signingEnv, ...credentialEnv };
+    const hostSigningEnv = Object.keys(signingEnv).length > 0 ? port.hostSigningEnv() : {};
+    return { ...hostSigningEnv, ...signingEnv, ...credentialEnv };
   }
 
   function spawnCwdSpellings(): string[] {
