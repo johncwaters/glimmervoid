@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-11-13
+
 ### Added
 
 - **Agents' commits can show as Verified on GitHub.** Settings, Vault has a new Commit signing control. Set up makes an ed25519 signing key on the Glimmervoid host; the private key stays there, and Glimmervoid signs commits with it for your sessions. With GitHub connected, Register on GitHub adds the key to your account as a Signing Key. Without a connection, copy the public key and add it on GitHub yourself. Sessions started after setup sign their commits, unless the repository or your own git config already sets user.signingkey, any gpg setting, or commit, tag or push signing; a signing setting in any repository a session commits in still wins. Remove deletes the key on the host and on GitHub, and Disconnect GitHub deletes it on GitHub first. Registering needs the Glimmervoid GitHub App to hold the account permission "SSH signing keys: Read and write".
