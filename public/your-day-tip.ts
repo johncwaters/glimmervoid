@@ -11,6 +11,8 @@ const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const LIVE_TIP_GAP_MS = 3 * HOUR_MS;
 const MORNING_START_HOUR = 4;
+const AFTERNOON_START_HOUR = 12;
+const EVENING_START_HOUR = 17;
 const CHECK_INTERVAL_MS = MINUTE_MS;
 const REPORT_REFRESH_MS = 30 * MINUTE_MS;
 
@@ -49,11 +51,18 @@ function liveTipText(waitingCount: number, stretchMs: number) {
   return `${waitingCount} sessions are waiting and it has been ${minutesText(stretchMs)} since a break. They will keep. Step away for 15 minutes.`;
 }
 
-function tryMorningTip(yourDay: YourDay, now: number) {
+function greetingForHour(hour: number) {
+  if (hour < AFTERNOON_START_HOUR) return 'Morning';
+  if (hour < EVENING_START_HOUR) return 'Afternoon';
+  return 'Evening';
+}
+
+function tryDailyTip(yourDay: YourDay, now: number) {
   const topInsight = yourDay.insights[0];
-  if (!topInsight || clock.hourOf(now) < MORNING_START_HOUR) return false;
+  const hour = clock.hourOf(now);
+  if (!topInsight || hour < MORNING_START_HOUR) return false;
   if (!claim(`morning-${clock.dayKeyOf(now)}`, now, DAY_MS)) return false;
-  showHintCard({ text: `Morning. ${topInsight.text}`, ariaLabel: 'Your day tip', onOpen: openUsageView, onDismiss: () => {} });
+  showHintCard({ text: `${greetingForHour(hour)}. ${topInsight.text}`, ariaLabel: 'Your day tip', onOpen: openUsageView, onDismiss: () => {} });
   return true;
 }
 
@@ -94,7 +103,7 @@ function checkYourDayTips() {
   }
   const yourDay = usageSnapshot().report?.yourDay;
   if (!yourDay || isHintCardShown()) return;
-  if (tryMorningTip(yourDay, now)) return;
+  if (tryDailyTip(yourDay, now)) return;
   tryLiveTip(yourDay, now);
 }
 

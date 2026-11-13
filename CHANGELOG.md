@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The daily Your day tip greets you by the time of day.** It said Morning even when the day's first look came in the evening; it now says Morning before noon, Afternoon until 5 pm and Evening after that.
 - **Lines with emoji no longer scramble in a session's terminal.** Tables and status lines that start with an emoji showed shifted columns and leftover letters, because the dashboard counted an emoji as one column while Claude Code, Codex and Kimi Code count it as two. The terminal and the screen kept for reconnects now use the same widths as the agents.
 
 ### Removed
