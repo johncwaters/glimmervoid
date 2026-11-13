@@ -28,7 +28,6 @@ export const MOBILE_KEYS: readonly Readonly<MobileKey>[] = Object.freeze([
   Object.freeze({ id: 'right', label: String.fromCharCode(0x2192), bytes: '\x1b[C', isArrow: true, repeats: true, title: 'Arrow right' }),
   Object.freeze({ id: 'enter', label: 'Enter', bytes: '\r', title: 'Send Enter' }),
   Object.freeze({ id: 'slash', label: '/', bytes: '/', title: 'Type a slash' }),
-  Object.freeze({ id: 'at', label: '@', bytes: '@', title: 'Type an at sign' }),
   Object.freeze({ id: 'pipe', label: '|', bytes: '|', title: 'Type a pipe' }),
   Object.freeze({ id: 'tilde', label: '~', bytes: '~', title: 'Type a tilde' }),
   Object.freeze({ id: 'dash', label: '-', bytes: '-', title: 'Type a dash' }),
@@ -52,11 +51,11 @@ export type StripContext = 'asking' | 'working' | 'ready' | 'fullscreen';
 export const STRIP_SLOTS_BY_CONTEXT: Readonly<Record<StripContext, readonly string[]>> = Object.freeze({
   asking: Object.freeze(['esc', ARROWS_SLOT, 'enter']),
   working: Object.freeze(['esc', CONTROL_SLOT, 'shift-tab', ARROWS_SLOT, 'enter']),
-  ready: Object.freeze(['esc', CONTROL_SLOT, 'shift-tab', 'slash', 'at', ARROWS_SLOT, 'enter']),
-  fullscreen: Object.freeze(['esc', CONTROL_SLOT, 'tab', ARROWS_SLOT, 'q', 'enter']),
+  ready: Object.freeze(['esc', CONTROL_SLOT, 'shift-tab', ARROWS_SLOT, 'enter']),
+  fullscreen: Object.freeze(['esc', CONTROL_SLOT, 'tab', ARROWS_SLOT, 'enter']),
 });
 
-export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'paste', 'attach', 'select', 'copy-screen', 'copy-output', RAW_TYPING_SLOT]);
+export const MORE_SHEET_SLOTS: readonly string[] = Object.freeze([ALT_SLOT, CONTROL_SLOT, 'tab', 'shift-tab', 'slash', 'pipe', 'tilde', 'dash', 'q', 'paste', 'attach', 'select', 'copy-screen', 'copy-output', RAW_TYPING_SLOT]);
 
 const WORKING_STATES: ReadonlySet<string> = new Set(['INITIALIZING', 'STARTING', 'RUNNING']);
 

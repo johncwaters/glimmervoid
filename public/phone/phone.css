@@ -174,10 +174,7 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   background: var(--bg-surface);
   border-top: 1px solid var(--border-dim);
 }
-.phone-key-strip {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
+.phone-key-strip { overflow: hidden; }
 .phone-key-more-sheet { flex-wrap: wrap; }
 .phone-key-more-sheet[hidden] { display: none; }
 .phone-key-more-sheet .phone-key { flex: 0 0 auto; padding: 0 10px; }
@@ -188,8 +185,8 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   background: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 .phone-key {
-  flex: 1 0 auto;
-  min-width: 36px;
+  flex: 1 1 0;
+  min-width: min-content;
   min-height: 44px;
   padding: 0 2px;
   appearance: none;
@@ -203,8 +200,8 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   cursor: pointer;
 }
 .phone-key:active { color: var(--text-head); border-color: var(--border-hover); }
-.phone-key-arrow { flex: 0 0 32px; min-width: 32px; font-size: var(--type-body); letter-spacing: 0; }
-.phone-key-keyboard { flex: 0 0 40px; display: inline-flex; align-items: center; justify-content: center; }
+.phone-key-arrow { font-size: var(--type-body); letter-spacing: 0; }
+.phone-key-keyboard { flex: 0 0 36px; display: inline-flex; align-items: center; justify-content: center; }
 .phone-key-keyboard .line-icon { width: 20px; height: 20px; }
 .phone-arrow-pad { display: none; flex: 2 1 auto; touch-action: none; }
 html[data-arrow-pad] .phone-arrow-pad { display: block; }

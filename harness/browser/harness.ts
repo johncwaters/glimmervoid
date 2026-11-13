@@ -57,7 +57,7 @@ const LAN_DEVICE_STEPS = [
   'On the Terminal screen, type in the compose bar with autocorrect and dictation, then Send; the message lands once with Enter.',
   'Long-press the compose field and paste text with a tab and a line break; it stays in the field until Send.',
   'Tap Ctrl then c in the compose field; the agent gets Ctrl+C and the field stays empty.',
-  'Hold an arrow key; it repeats and stops on release. Swipe the key row from an arrow; it scrolls without typing.',
+  'Hold an arrow key; it repeats and stops on release. Every key row fits the screen without scrolling sideways.',
   'In the shell session, run vim or less: the compose bar steps aside and the soft keyboard types into the app; quit and the compose bar returns with the keyboard up.',
   'Rotate the phone and open and close the keyboard; the terminal refits each time.',
   'Long-press a word in the terminal: the phone selects it with its own handles lined up on the text, drag a handle across rows, Copy, and paste elsewhere unchanged. Scroll still works after.',

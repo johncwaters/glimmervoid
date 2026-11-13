@@ -52,6 +52,11 @@ async function rowKeyIds(page: Page) {
   return page.locator(`${keyStrip} > [data-key]`).evaluateAll((keys) => keys.map((key) => (key as HTMLElement).dataset.key));
 }
 
+async function assertRowFitsWithoutScroll(page: Page) {
+  const overflowPx = await page.locator(keyStrip).evaluate((row) => row.scrollWidth - row.clientWidth);
+  assert.equal(overflowPx, 0, 'the key strip fits its row without scrolling');
+}
+
 async function modifierState(page: Page, slotId: string) {
   const modifier = page.locator(`[data-key="${slotId}"]`).first();
   return { isPressed: await modifier.getAttribute('aria-pressed') === 'true', isLocked: await modifier.getAttribute('data-locked') !== null };
@@ -60,10 +65,12 @@ async function modifierState(page: Page, slotId: string) {
 export async function verifyKeyStripContexts(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
   await waitForContext(page, 'working');
   assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'shift-tab', 'left', 'up', 'down', 'right', 'enter'], 'a working agent leads with Esc, Ctrl and Shift+Tab');
+  await assertRowFitsWithoutScroll(page);
 
   await typeCommand('stop');
   await waitForContext(page, 'ready');
-  assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'shift-tab', 'slash', 'at', 'left', 'up', 'down', 'right', 'enter'], 'a ready agent offers slash commands and file mentions');
+  assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'shift-tab', 'left', 'up', 'down', 'right', 'enter'], 'a ready agent leaves / and @ to the keyboard');
+  await assertRowFitsWithoutScroll(page);
 
   await typeCommand('fullscreen');
   await page.waitForTimeout(AGENT_ALTERNATE_SCREEN_GRACE_MS);
@@ -79,8 +86,7 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
     await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: rightArrow.x - step * 20, y: rightArrow.y }] });
   }
   await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  assert.equal((await sentInputs(page)).filter((input) => input === ARROW_RIGHT_BYTES).length, 0, 'a swipe that starts on an arrow scrolls the row without typing an arrow');
-  await page.locator(keyStrip).evaluate((row) => { row.scrollLeft = 0; });
+  assert.equal((await sentInputs(page)).filter((input) => input === ARROW_RIGHT_BYTES).length, 0, 'a swipe that starts on an arrow types no arrow');
 
   const upArrow = await centerOf(page, `${keyStrip} [data-key="up"]`);
   await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [upArrow] });
@@ -100,12 +106,12 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   const control = page.locator(`${keyStrip} [data-key="ctrl"]`);
   await control.click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: true, isLocked: false }, 'one tap holds Ctrl for the next key');
-  await page.locator(`${keyStrip} [data-key="slash"]`).click();
+  await page.locator(`${keyStrip} [data-key="esc"]`).click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: false, isLocked: false }, 'sending a key releases a once-held Ctrl');
   await control.click();
   await control.click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: true, isLocked: true }, 'a double tap locks Ctrl');
-  await page.locator(`${keyStrip} [data-key="slash"]`).click();
+  await page.locator(`${keyStrip} [data-key="esc"]`).click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: true, isLocked: true }, 'a locked Ctrl survives a sent key');
   await control.click();
   assert.deepEqual(await modifierState(page, 'ctrl'), { isPressed: false, isLocked: false }, 'a tap unlocks Ctrl');
@@ -134,7 +140,8 @@ export async function verifyComposeSubmit(page: Page, typeCommand: (command: str
 
   const field = page.locator(composeField);
   await field.click();
-  await page.locator(`${keyStrip} [data-key="slash"]`).click();
+  await page.locator('.phone-key-more').click();
+  await page.locator('.phone-key-more-sheet [data-key="slash"]').click();
   await page.keyboard.type('help me');
   assert.equal(await field.inputValue(), '/help me', 'a strip key types its character into the compose field');
   assert.deepEqual(await sentInputs(page), [], 'nothing reaches the agent before Send');
@@ -173,7 +180,8 @@ export async function verifyRawTypingInFullScreenApp(page: Page, typeCommand: (c
   await typeCommand("printf '\\033[?1049h'");
   await waitForContext(page, 'fullscreen');
   await waitForComposeBar(page, 'hidden');
-  assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'tab', 'left', 'up', 'down', 'right', 'q', 'enter'], 'a full-screen app gets Tab and q');
+  assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'tab', 'left', 'up', 'down', 'right', 'enter'], 'a full-screen app gets Tab');
+  await assertRowFitsWithoutScroll(page);
   await typeCommand("printf '\\033[?1049l'");
   await waitForContext(page, 'ready');
   await waitForComposeBar(page, 'visible');
@@ -187,7 +195,7 @@ export async function verifyRawTypingInFullScreenApp(page: Page, typeCommand: (c
   await page.locator('.phone-key-more').click();
   await rawTyping.click();
   await waitForComposeBar(page, 'visible');
-  return 'a full-screen app hides the compose bar and gets Tab and q; leaving it brings both back with typing in the field; Raw hides and restores the compose bar';
+  return 'a full-screen app hides the compose bar and gets Tab; leaving it brings both back with typing in the field; Raw hides and restores the compose bar';
 }
 
 const LONG_PRESS_HELD_MS = 800;

@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OpenCode sessions show live status like Claude Code.** An OpenCode 2 session now reports working, waiting for your permission or answer, and done from OpenCode's own events, rather than guessing from its window title. It also resumes the same conversation after a restart, takes its task title from OpenCode, and can reach Glimmervoid's tools. An idle `/compact` leaves the card as it was, and a subagent that is still running keeps the card working. Glimmervoid never writes your own OpenCode config. `glimmervoid doctor` shows the OpenCode version and how to install OpenCode 2 (`npm install -g @opencode/cli`) when it is missing or older.
 - **Hand a board to someone on another machine.** `glimmervoid whiteboard export <board> --out flow.glimmerboard`, or the whiteboard tool's export action, writes the board with its pictures, documents and pages to one file; on the dashboard it's Export board file in the board menu. The other operator runs `glimmervoid whiteboard import flow.glimmerboard`, the import action, or Import board on the dashboard, and gets it as a new board they can keep editing. The file carries no file paths, linked files, sessions, project or change log from your machine. Code refs and note authors stay. An import never replaces a board, and a title you already have gets a number, as in Login flow (2). A damaged file, or one from a newer Glimmervoid, is refused with the reason and adds nothing.
 
+### Changed
+
+- **The phone key strip fits on one row.** The keys under the phone terminal share the screen width instead of running past the edge, so More and the Keyboard key are always in reach without swiping the row sideways. The / and @ keys are gone from the strip because your keyboard types both, and / stays under More. In a full-screen app such as an editor or pager, q moves under More too.
+
 ## [0.58.2] - 2026-11-13
 
 ### Fixed
