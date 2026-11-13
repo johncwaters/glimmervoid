@@ -1,4 +1,4 @@
-import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaOriginalFilename, boardMediaSavedName, sparseElement } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaOriginalFilename, boardMediaSavedName, boxIdsOfWire, sparseElement } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardFile, BoxMedia, Element, Op } from '../../shared/contracts/whiteboard.ts';
 
 type ExportedBoard = Omit<BoardFile, 'assets' | 'board'> & { board: Pick<Board, 'id' | 'title' | 'caption' | 'legend'> & { elements: Record<string, unknown> } };
@@ -60,7 +60,7 @@ function isSameElement(first: Element, second: Element): boolean {
 }
 
 function referencedIdsOf(element: Element): string[] {
-  if (element.kind === 'wire') return [element.from, element.to].filter((end) => typeof end === 'string');
+  if (element.kind === 'wire') return boxIdsOfWire(element);
   if (element.kind === 'frame') return element.contains;
   return [];
 }
@@ -125,5 +125,5 @@ function nextCopyTitle(title: string, existingTitles: ReadonlySet<string>): stri
   }
 }
 
-export { addOpsOf, boardDiffOps, exportedAssetsOf, exportedBoardOf, importedElementsOf, nextCopyTitle };
+export { addOpsOf, boardDiffOps, exportedAssetsOf, exportedBoardOf, exportedElementOf, importedElementsOf, nextCopyTitle };
 export type { BoardContent };

@@ -317,6 +317,7 @@ const LegendEntries = z.array(z.object({
 
 const CodeSessionId = z.string().min(1).max(64);
 const ProjectPath = z.string().min(1).max(4096);
+const BoardLinkPath = z.string().min(1).max(4096);
 
 export const Board = z.object({
   id: z.string().min(1).max(64),
@@ -326,6 +327,7 @@ export const Board = z.object({
   legend: LegendEntries.default([]),
   codeSessionId: CodeSessionId.nullable().default(null),
   project: ProjectPath.nullable().default(null),
+  link: BoardLinkPath.nullable().default(null),
   elements: z.custom<ElementTable>(isElementTable).or(z.record(ElementId, Element)
     .refine((elements) => Object.keys(elements).length <= WHITEBOARD_LIMITS.elements, { error: `a board holds at most ${WHITEBOARD_LIMITS.elements} elements` })
     .refine((elements) => Object.entries(elements).every(([id, element]) => element.id === id), { error: 'every element is stored under its own id' })
@@ -390,7 +392,7 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add'), element: ElementInput }).strict(),
   z.object({ op: z.literal('set'), id: ElementId, fields: z.record(z.string(), z.unknown()).describe('the element fields to change, as in {"title":"Gateway"}') }).strict(),
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
-  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(WHITEBOARD_LIMITS.caption).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
+  z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(WHITEBOARD_LIMITS.caption).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional(), link: BoardLinkPath.nullable().optional().describe('link the board to a folder in the board code session worktree, kept in step with it as board.jsonl and media/; null unlinks') }).strict(),
   z.object({ op: z.literal('align'), ids: z.array(ElementId).min(2).max(50).describe('the placed boxes to line up'), as: z.enum(['row', 'column']).describe('row gives every box the top of the highest and the height of the tallest; column gives the left of the leftmost and the width of the widest') }).strict(),
   z.object({ op: z.literal('order'), ids: z.array(ElementId).min(1).max(WHITEBOARD_LIMITS.opsPerPut).describe('the elements to restack, each among elements of its own kind; an id of only digits always draws first, so it cannot be restacked'), to: z.enum(['front', 'back', 'forward', 'backward']).describe('front and back move them above or below every element of their kind, stacked in the order the ids are given; forward and backward move each one step past its nearest neighbor of that kind') }).strict(),
 ], { error: 'an op is add, set, remove, board, align or order' });
@@ -411,6 +413,7 @@ export const BoardSummary = z.object({
   isArchived: z.boolean(),
   connectedSessionIds: z.array(z.string()),
   queuedBySessionId: z.record(z.string(), z.number().int()),
+  link: z.object({ path: BoardLinkPath, state: z.enum(LINK_STATES), text: z.string() }).strict().nullable(),
 }).strict();
 
 export const BoardFileImportReply = z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict();

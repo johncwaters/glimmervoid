@@ -15,6 +15,7 @@ export const BoardDiff = z.object({
     caption: Board.shape.caption.optional(),
     legend: Board.shape.legend.unwrap().optional(),
     codeSessionId: Board.shape.codeSessionId.unwrap().optional(),
+    link: Board.shape.link.unwrap().optional(),
   }).strict(),
   elements: z.record(z.string(), ElementChange),
 }).strict();
