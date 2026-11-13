@@ -292,5 +292,5 @@ export function readDocumentEngagement(): EngagementReading {
 export function readTerminalFocus(): boolean {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement)) return false;
-  return active.closest('.terminal-wrap, .phone-compose') !== null;
+  return active.closest('.terminal-wrap') !== null;
 }

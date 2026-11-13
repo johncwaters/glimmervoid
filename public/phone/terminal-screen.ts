@@ -17,9 +17,8 @@ import { paintSessionRowStatus } from '../session-row.ts';
 import { createSessionPageButtons } from '../session-pages/session-pages.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
-import { decideIsRawTyping, decideStripContext, isTextForCompose } from '../mobile-keys.ts';
+import { decideStripContext } from '../mobile-keys.ts';
 import type { TerminalTextAction } from '../mobile-keys.ts';
-import { createComposeBar } from '../touch/compose-bar.ts';
 import { createMobileKeyStrip } from './mobile-key-strip.ts';
 
 export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
@@ -59,17 +58,15 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     + '<p class="phone-empty-desc">Select a session from the board to watch it here.</p>';
 
   const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
-  const composeBar = createComposeBar({ submit: submitComposedText });
-  const { element: keyStrip, takeModifiedCharacter, setKeyboardOpen, setContext: setStripContext, setRawTypingChosen } = createMobileKeyStrip({
-    send: sendFromStrip,
+  const { element: keyStrip, takeModifiedCharacter, setKeyboardOpen, setContext: setStripContext } = createMobileKeyStrip({
+    send: sendToShownTerminal,
     getSessionId: () => shownId,
     reportProblem: (text) => keyStatus.show('error', text),
-    toggleKeyboard: toggleActiveInputKeyboard,
-    toggleRawTyping,
-    pasteText: pasteIntoActiveInput,
+    toggleKeyboard: toggleTerminalKeyboard,
+    pasteText: pasteIntoTerminal,
     runTextAction: runTerminalTextAction,
   });
-  screen.append(topBar, cardSlot, emptyEl, keyStatus.element, composeBar.element, keyStrip);
+  screen.append(topBar, cardSlot, emptyEl, keyStatus.element, keyStrip);
 
   let shownId: string | null = null;
 
@@ -78,33 +75,12 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   let renameTargetUi: SessionUi | null = null;
   let bufferChangeSubscription: { dispose: () => void } | null = null;
   let bufferWatchedTerminal: SessionUi['term'] | null = null;
-  let isRawTypingChosen = false;
-  let isRawTyping = false;
 
   function sendToShownTerminal(data: string | null | undefined) {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     if (!ui) return;
     if (sendTerminalInput(ui, data)) { keyStatus.clear(); return; }
     keyStatus.show('error', NOT_CONNECTED_TEXT);
-  }
-
-  function sendFromStrip(data: string | null | undefined) {
-    if (data && !isRawTyping && isTextForCompose(data)) {
-      composeBar.insertText(data);
-      return;
-    }
-    sendToShownTerminal(data);
-  }
-
-  function submitComposedText(text: string) {
-    const ui = shownId ? sessionUIs.get(shownId) : null;
-    if (!ui?.term) {
-      keyStatus.show('error', NOT_CONNECTED_TEXT);
-      return false;
-    }
-    if (text !== '') ui.term.paste(text);
-    sendToShownTerminal('\r');
-    return true;
   }
 
   function runTerminalTextAction(action: TerminalTextAction) {
@@ -114,7 +90,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
       return;
     }
     if (action === 'select') {
-      blurActiveInput();
+      blurShownTerminal();
       openSelectSheet(ui);
       return;
     }
@@ -125,11 +101,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     copyLastOutput(ui);
   }
 
-  function pasteIntoActiveInput(text: string) {
-    if (!isRawTyping) {
-      composeBar.insertText(text.replace(/\r\n?/g, '\n'));
-      return;
-    }
+  function pasteIntoTerminal(text: string) {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     if (!ui?.term) {
       keyStatus.show('error', NOT_CONNECTED_TEXT);
@@ -144,61 +116,31 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     return !!textarea && document.activeElement === textarea;
   }
 
-  function isActiveInputFocused() {
-    if (isRawTyping) return isShownTerminalFocused();
-    return composeBar.isFocused();
-  }
-
-  function focusActiveInput() {
-    if (!isRawTyping) {
-      composeBar.focus();
-      return;
-    }
+  function focusShownTerminal() {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     ui?.term?.focus();
   }
 
-  function blurActiveInput() {
-    if (!isRawTyping) {
-      composeBar.blur();
-      return;
-    }
+  function blurShownTerminal() {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     ui?.term?.blur();
   }
 
-  function toggleActiveInputKeyboard() {
-    if (isActiveInputFocused()) {
-      blurActiveInput();
+  function toggleTerminalKeyboard() {
+    if (isShownTerminalFocused()) {
+      blurShownTerminal();
       return;
     }
-    focusActiveInput();
-  }
-
-  function toggleRawTyping() {
-    isRawTypingChosen = !isRawTypingChosen;
-    setRawTypingChosen(isRawTypingChosen);
-    paint();
-    focusActiveInput();
-  }
-
-  function applyRawTyping(nextIsRawTyping: boolean) {
-    if (nextIsRawTyping === isRawTyping) return;
-    const wasTyping = isActiveInputFocused();
-    isRawTyping = nextIsRawTyping;
-    composeBar.setVisible(!isRawTyping);
-    if (wasTyping) focusActiveInput();
+    focusShownTerminal();
   }
 
   function syncKeyboardOpen() {
-    setKeyboardOpen(isActiveInputFocused());
+    setKeyboardOpen(isShownTerminalFocused());
   }
 
-  cardSlot.addEventListener('click', focusActiveInput);
-  for (const inputHost of [cardSlot, composeBar.element]) {
-    inputHost.addEventListener('focusin', syncKeyboardOpen);
-    inputHost.addEventListener('focusout', () => queueMicrotask(syncKeyboardOpen));
-  }
+  cardSlot.addEventListener('click', focusShownTerminal);
+  cardSlot.addEventListener('focusin', syncKeyboardOpen);
+  cardSlot.addEventListener('focusout', () => queueMicrotask(syncKeyboardOpen));
 
   function sendHeldControlChord(typedCharacter: string) {
     if (typedCharacter.length !== 1) return false;
@@ -213,19 +155,6 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     if (!sendHeldControlChord(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-  }, true);
-
-  composeBar.field.addEventListener('keydown', (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    if (!sendHeldControlChord(event.key)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, true);
-
-  composeBar.field.addEventListener('input', (event) => {
-    if (!(event instanceof InputEvent) || !event.data) return;
-    if (!sendHeldControlChord(event.data.slice(-1))) return;
-    composeBar.removeTypedCharacterBeforeCaret();
   }, true);
 
   cardSlot.addEventListener('input', (event) => {
@@ -257,9 +186,6 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
     identity.hidden = !hasSession;
     pageButtons.element.hidden = !hasSession;
     pageButtons.showSession(hasSession ? shownId : null);
-    composeBar.showSession(hasSession ? shownId : null);
-    if (hasSession) applyRawTyping(decideIsRawTyping({ isRawTypingChosen, bufferType: ui.term?.buffer.active.type, agentDrawsAlternateScreen: ui.agentDrawsAlternateScreen === true }));
-    composeBar.setVisible(hasSession && !isRawTyping);
     syncKeyboardOpen();
     if (!hasSession) {
       topBar.removeAttribute('data-state');

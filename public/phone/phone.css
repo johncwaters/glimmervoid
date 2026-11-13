@@ -131,34 +131,6 @@ html[data-layout="phone"] .session-row-item:has(> .session-row.focused) { outlin
   touch-action: none;
 }
 
-.phone-compose {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 6px 8px 0;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border-dim);
-}
-.phone-compose[hidden] { display: none; }
-.phone-compose-field {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 44px;
-  max-height: calc(5lh + 22px);
-  padding: 10px;
-  resize: none;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: inherit;
-  font-size: var(--type-title);
-  line-height: 1.25;
-}
-.phone-compose-field:focus { outline: none; border-color: var(--accent); }
-
 .phone-key-block {
   flex: 0 0 auto;
   display: flex;

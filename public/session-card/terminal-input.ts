@@ -1,6 +1,7 @@
 import type { Terminal } from '@xterm/xterm';
 import type { SessionUi } from './card-registry.ts';
 import { isPhoneLayout } from '../form-factor.ts';
+import { SHELL_AGENT_ID } from './agent-core.ts';
 import { bytesForBackwardDeletion, bytesForSoftKeyboardEdit, isImeProcessingKeydown, isPlainTypedKey, isTypedInputType } from './ime-core.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
 import { clearTerminalNotice, showTerminalNotice } from './terminal-notices.ts';
@@ -56,7 +57,7 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   };
   ui._resetSoftKeyboardBuffer = resetSoftKeyboardBuffer;
 
-  textarea.addEventListener('focus', () => syncEnterKeyHint(textarea));
+  textarea.addEventListener('focus', () => syncPhoneKeyboardHints(textarea, ui));
 
   const sendTypedText = () => {
     const bytes = bytesForSoftKeyboardEdit(alreadySentText, textarea.value);
@@ -123,12 +124,18 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   });
 }
 
-function syncEnterKeyHint(textarea: HTMLTextAreaElement) {
+function syncPhoneKeyboardHints(textarea: HTMLTextAreaElement, ui: SessionUi) {
   if (!isPhoneLayout()) {
     textarea.removeAttribute('enterkeyhint');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('autocapitalize', 'off');
+    textarea.spellcheck = false;
     return;
   }
   textarea.setAttribute('enterkeyhint', 'send');
+  textarea.setAttribute('autocorrect', 'on');
+  textarea.setAttribute('autocapitalize', ui.agent === SHELL_AGENT_ID ? 'off' : 'sentences');
+  textarea.spellcheck = true;
 }
 
 function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {

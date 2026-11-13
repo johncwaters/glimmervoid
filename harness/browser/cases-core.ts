@@ -15,8 +15,8 @@ export type Step =
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
   | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
-  | { kind: 'assert-raw-typing-in-fullscreen-app'; viewer?: ViewerId }
-  | { kind: 'assert-compose-submit'; viewer?: ViewerId }
+  | { kind: 'assert-fullscreen-app-row'; viewer?: ViewerId }
+  | { kind: 'assert-terminal-typing'; viewer?: ViewerId }
   | { kind: 'assert-touch-select-copy'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
@@ -299,17 +299,17 @@ export const SCENARIOS: readonly Scenario[] = [
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-key-strip-contexts' }, { kind: 'shot', name: 'key-strip' }],
   },
   {
-    name: 'touch-raw-auto-in-alt-screen',
+    name: 'touch-fullscreen-app-row',
     phoneOnly: true,
     viewports: ['phone-393'],
     agent: 'shell',
-    steps: [{ kind: 'open' }, { kind: 'assert-raw-typing-in-fullscreen-app' }, { kind: 'shot', name: 'raw-typing' }],
+    steps: [{ kind: 'open' }, { kind: 'assert-fullscreen-app-row' }, { kind: 'shot', name: 'fullscreen-app-row' }],
   },
   {
-    name: 'touch-compose-submit',
+    name: 'touch-terminal-typing',
     phoneOnly: true,
     viewports: ['phone-393'],
-    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-compose-submit' }, { kind: 'shot', name: 'compose-bar' }],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-terminal-typing' }, { kind: 'shot', name: 'terminal-typing' }],
   },
   {
     name: 'touch-select-copy',

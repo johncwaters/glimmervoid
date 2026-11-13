@@ -15,8 +15,7 @@ declare global {
   interface Window { sentTerminalInputs?: string[]; terminalDataSocket?: WebSocket }
 }
 
-const composeBar = '.phone-compose';
-const composeField = '.phone-compose-field';
+const terminalTextarea = '.phone-card-slot .xterm-helper-textarea';
 
 async function recordTerminalInputs(page: Page) {
   await page.evaluate(() => {
@@ -128,74 +127,67 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   return 'working and ready rows; an agent drawing its own alternate screen keeps the ready row; a swipe types no arrow; a held arrow repeats and stops after a rebuild; Ctrl once, locked and released; the More sheet keeps Alt and closes on a key';
 }
 
-async function waitForComposeBar(page: Page, state: 'visible' | 'hidden') {
-  await page.locator(composeBar).waitFor({ state, timeout: CONTEXT_TIMEOUT_MS });
+async function focusTerminalTextarea(page: Page) {
+  await page.locator('.phone-card-slot .terminal-wrap').click();
+  await page.waitForFunction((selector) => document.activeElement === document.querySelector(selector), terminalTextarea);
 }
 
-export async function verifyComposeSubmit(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
-  await waitForComposeBar(page, 'visible');
+async function keyboardHintsOf(page: Page) {
+  return page.locator(terminalTextarea).evaluate((textarea) => ({
+    autocorrect: textarea.getAttribute('autocorrect'),
+    autocapitalize: textarea.getAttribute('autocapitalize'),
+    spellcheck: (textarea as HTMLTextAreaElement).spellcheck,
+  }));
+}
+
+async function replaceTypedTextAsAutocorrect(page: Page, correctedText: string) {
+  await page.locator(terminalTextarea).evaluate((textarea, nextText) => {
+    (textarea as HTMLTextAreaElement).value = nextText;
+    textarea.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText', bubbles: true }));
+  }, correctedText);
+}
+
+export async function verifyTerminalTyping(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
   await typeCommand('stop');
   await waitForContext(page, 'ready');
-  await recordTerminalInputs(page);
-
-  const field = page.locator(composeField);
-  await field.click();
+  assert.equal(await page.locator('.phone-compose').count(), 0, 'the phone Terminal screen has no compose bar');
   await page.locator('.phone-key-more').click();
-  await page.locator('.phone-key-more-sheet [data-key="slash"]').click();
-  await page.keyboard.type('help me');
-  assert.equal(await field.inputValue(), '/help me', 'a strip key types its character into the compose field');
-  assert.deepEqual(await sentInputs(page), [], 'nothing reaches the agent before Send');
+  assert.equal(await page.locator('.phone-key-more-sheet [data-key="raw"]').count(), 0, 'the More sheet has no Raw key');
+  await page.locator('.phone-key-more').click();
 
-  await page.locator(`${composeBar} [data-action="compose-send"]`).click();
-  assert.deepEqual(await sentInputs(page), ['/help me', '\r'], 'Send pastes the text, then presses Enter');
-  assert.equal(await field.inputValue(), '', 'Send clears the field');
-  assert.equal(await field.evaluate((element) => element === document.activeElement), true, 'the field keeps focus so the keyboard stays up');
+  await focusTerminalTextarea(page);
+  assert.deepEqual(await keyboardHintsOf(page), { autocorrect: 'on', autocapitalize: 'sentences', spellcheck: true }, 'an agent terminal asks the phone keyboard for autocorrect, suggestions and sentence capitals');
+
+  await recordTerminalInputs(page);
+  await page.keyboard.type('teh ');
+  await replaceTypedTextAsAutocorrect(page, 'the ');
+  assert.equal((await sentInputs(page)).join(''), 'teh \x7f\x7f\x7fhe ', 'an accepted correction erases the typed word in the prompt and types the corrected one');
 
   await recordTerminalInputs(page);
   await page.locator(`${keyStrip} [data-key="ctrl"]`).click();
   await page.keyboard.type('c');
   assert.deepEqual(await sentInputs(page), ['\x03'], 'a held Ctrl turns a typed character into its control byte');
-  assert.equal(await field.inputValue(), '', 'the chord character stays out of the field');
 
   await recordTerminalInputs(page);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.evaluate(() => navigator.clipboard.writeText('line one\r\n\tindented\r\n'));
+  await page.evaluate(() => navigator.clipboard.writeText('pasted line'));
   await page.locator('.phone-key-more').click();
   await page.locator('.phone-key-more-sheet [data-key="paste"]').click();
-  await page.waitForFunction((selector) => (document.querySelector(selector) as HTMLTextAreaElement | null)?.value !== '', composeField);
-  assert.equal(await field.inputValue(), 'line one\n\tindented\n', 'Paste types clipboard text with tabs and CRLF into the field');
-  assert.deepEqual(await sentInputs(page), [], 'pasted text waits for Send');
-  await field.fill('');
-
-  await typeCommand('fullscreen');
-  await page.waitForTimeout(AGENT_ALTERNATE_SCREEN_GRACE_MS);
-  await waitForComposeBar(page, 'visible');
-  await typeCommand('leave-fullscreen');
-  return 'strip keys type into the field; Send pastes then presses Enter and keeps focus; a held Ctrl sends its chord; Paste types tabs and CRLF into the field; an agent drawing its own alternate screen keeps the compose bar';
+  await page.waitForFunction(() => (window.sentTerminalInputs ?? []).join('').includes('pasted line'));
+  return 'no compose bar and no Raw key; the terminal asks for autocorrect, suggestions and sentence capitals; an accepted correction rewrites the word in the prompt; a held Ctrl sends its chord; Paste types into the terminal';
 }
 
-export async function verifyRawTypingInFullScreenApp(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
+export async function verifyFullScreenAppRow(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
   await waitForContext(page, 'ready');
-  await waitForComposeBar(page, 'visible');
+  await focusTerminalTextarea(page);
+  assert.deepEqual(await keyboardHintsOf(page), { autocorrect: 'on', autocapitalize: 'off', spellcheck: true }, 'a shell terminal keeps autocorrect and suggestions without sentence capitals');
   await typeCommand("printf '\\033[?1049h'");
   await waitForContext(page, 'fullscreen');
-  await waitForComposeBar(page, 'hidden');
   assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'tab', 'left', 'up', 'down', 'right', 'enter'], 'a full-screen app gets Tab');
   await assertRowFitsWithoutScroll(page);
   await typeCommand("printf '\\033[?1049l'");
   await waitForContext(page, 'ready');
-  await waitForComposeBar(page, 'visible');
-  assert.equal(await page.locator(composeField).evaluate((element) => element === document.activeElement), true, 'typing moves to the compose field when the full-screen app exits');
-
-  const rawTyping = page.locator('.phone-key-more-sheet [data-key="raw"]');
-  await page.locator('.phone-key-more').click();
-  await rawTyping.click();
-  await waitForComposeBar(page, 'hidden');
-  assert.equal(await rawTyping.getAttribute('aria-pressed'), 'true', 'Raw shows it is chosen');
-  await page.locator('.phone-key-more').click();
-  await rawTyping.click();
-  await waitForComposeBar(page, 'visible');
-  return 'a full-screen app hides the compose bar and gets Tab; leaving it brings both back with typing in the field; Raw hides and restores the compose bar';
+  return 'a shell terminal gets autocorrect without sentence capitals; a full-screen app gets Tab on a row that fits';
 }
 
 const LONG_PRESS_HELD_MS = 800;
@@ -289,7 +281,7 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
   assert.match(await selectedText(page), /^\d+$/, `a long-press selects the word under the finger (${JSON.stringify(await selectedText(page))})`);
   await assertSelectionUnderFinger(page, digitsPoint, 'the selected word');
   await releaseTouch(touch);
-  assert.equal(await page.locator(composeField).evaluate((element) => element === document.activeElement), false, 'a long-press does not open the keyboard');
+  assert.equal(await page.locator(terminalTextarea).evaluate((element) => element === document.activeElement), false, 'a long-press does not open the keyboard');
   await clearSelection(page);
 
   const wideRowTargetColumn = WIDE_ROW_LEAD.length * 2 + WIDE_ROW_TARGET.length;

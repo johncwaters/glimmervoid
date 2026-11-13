@@ -2,7 +2,7 @@ import { el } from '../dom-helpers.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { MobileKey, TerminalTextAction } from '../mobile-keys.ts';
 import type { StickyModifierEvent, StickyModifierState, StripContext } from '../mobile-keys.ts';
-import { ALT_SLOT, ARROW_KEY_IDS, ARROWS_SLOT, arrowStepsForDrag, CONTROL_SLOT, isClipboardKey, isUploadKey, MORE_SHEET_SLOTS, terminalTextActionOf, mobileKeyBytes, MOBILE_KEYS, nextStickyModifierState, RAW_TYPING_SLOT, STRIP_SLOTS_BY_CONTEXT } from '../mobile-keys.ts';
+import { ALT_SLOT, ARROW_KEY_IDS, ARROWS_SLOT, arrowStepsForDrag, CONTROL_SLOT, isClipboardKey, isUploadKey, MORE_SHEET_SLOTS, terminalTextActionOf, mobileKeyBytes, MOBILE_KEYS, nextStickyModifierState, STRIP_SLOTS_BY_CONTEXT } from '../mobile-keys.ts';
 import { uploadFileToSession } from '../session-upload.ts';
 import { createLineIcon, KEYBOARD_ICON_PATH } from '../svg-dom.ts';
 
@@ -29,7 +29,6 @@ interface MobileKeyStripOptions {
   getSessionId?: () => string | null | undefined;
   reportProblem: (text: string) => void;
   toggleKeyboard: () => void;
-  toggleRawTyping: () => void;
   pasteText: (text: string) => void;
   runTextAction: (action: TerminalTextAction) => void;
 }
@@ -70,7 +69,7 @@ function createStickyModifier(label: string, slotId: string) {
   };
 }
 
-export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggleKeyboard, toggleRawTyping, pasteText, runTextAction }: MobileKeyStripOptions) {
+export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggleKeyboard, pasteText, runTextAction }: MobileKeyStripOptions) {
   const strip = el('div', 'phone-key-strip');
   strip.setAttribute('role', 'toolbar');
   strip.setAttribute('aria-label', 'Terminal keys');
@@ -136,18 +135,6 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggle
   slotElementsById.set(CONTROL_SLOT, [control.element]);
   moreSlotElementsById.set(CONTROL_SLOT, [control.element]);
   moreSlotElementsById.set(ALT_SLOT, [alt.element]);
-
-  const rawTypingToggle = createPressable('phone-key', 'Raw');
-  rawTypingToggle.dataset.key = RAW_TYPING_SLOT;
-  rawTypingToggle.setAttribute('aria-label', 'Raw typing');
-  rawTypingToggle.setAttribute('aria-pressed', 'false');
-  rawTypingToggle.addEventListener('pointerdown', (event) => event.preventDefault());
-  rawTypingToggle.addEventListener('click', () => toggleRawTyping());
-  moreSlotElementsById.set(RAW_TYPING_SLOT, [rawTypingToggle]);
-
-  function setRawTypingChosen(isChosen: boolean) {
-    rawTypingToggle.setAttribute('aria-pressed', String(isChosen));
-  }
 
   const moreButton = createPressable('phone-key phone-key-more', 'More');
   moreButton.setAttribute('aria-label', 'More keys');
@@ -241,7 +228,7 @@ export function createMobileKeyStrip({ send, getSessionId, reportProblem, toggle
 
   setContext('ready');
 
-  return { element: container, takeModifiedCharacter, setKeyboardOpen, setContext, setRawTypingChosen };
+  return { element: container, takeModifiedCharacter, setKeyboardOpen, setContext };
 }
 
 function wireHoldToRepeat(keyButton: HTMLButtonElement, press: () => void) {

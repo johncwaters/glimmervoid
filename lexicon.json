@@ -787,11 +787,11 @@
     },
     {
       "name": "compose bar",
-      "definition": "The text field with a Send button above the key strip on a touch Terminal screen: native autocorrect, dictation and paste, and Send pastes the text into the session then presses Enter"
+      "definition": "The text field with a Send button the phone Terminal screen once had above the key strip for autocorrect, dictation and paste; removed when the terminal itself took those keyboard features, named only in history"
     },
     {
       "name": "raw typing",
-      "definition": "The touch Terminal input mode where the soft keyboard types straight into the PTY with the compose bar hidden; on while a full-screen app holds the alternate screen, or when the operator chooses Raw in the More keys"
+      "definition": "The phone Terminal input mode that typed straight into the PTY with the compose bar hidden; with the compose bar removed it is the only way the phone types, named only in history"
     },
     {
       "name": "selection mirror",
