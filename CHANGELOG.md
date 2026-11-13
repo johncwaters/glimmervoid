@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.2] - 2026-11-13
+
 ### Fixed
 
 - **Choose Remove or Keep from the keyboard after closing a session.** When Cmd+K (Alt+K on Windows and Linux) closes a session with unsaved work, the Keep button now shows its focus ring even if you last clicked with the mouse. Tab and Shift+Tab move between Remove and Keep instead of dismissing the row, and Enter picks the focused one. Escape, or clicking or moving focus elsewhere, still keeps the session.
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A board the browser stops drawing says what is happening and keeps trying.** After graphics card resets, a browser can refuse graphics for the site: Chrome lifts that after 2 minutes, while Firefox and Safari can hold it until they restart. The board used to tell you to quit and reopen the browser straight away. It now says the browser paused graphics and keeps trying every 5 seconds for about 2.5 minutes, drawing as soon as the browser allows it, with no reload, including a board opened while the pause is on. If graphics are still refused after that, for example with graphics acceleration turned off, it says to turn acceleration on or restart the browser.
 - **A wide table in a Markdown doc shows all its columns.** The doc editor grows wider to fit a wide table, up to the window, so you no longer scroll to the table's bottom to reach its scrollbar. Text keeps its reading width, and when the window is too narrow, table cells wrap instead. The doc's right edge has the same width handle as a page opened full screen: drag it or use the arrow keys, and double-click it to return to the automatic width.
 - **Sessions under an added account keep your agent settings.** A Claude Code session started or switched under another account now takes your Claude Code settings from `~/.claude.json`, such as a closed diff sidebar, editor mode, notifications and copy settings, so the diff sidebar no longer pops open after a switch. Sign-in, including any API key or token in the file's env, usage and the account's own caches stay with the account. A Grok session under an account now takes your default model, models and MCP servers from `~/.grok/user-settings.json` and keeps the account's own API key and endpoint. Your own file wins on every start, so a setting changed inside an account session goes back to yours next time.
+- **The machine login no longer reads like one of your accounts.** It now shows as This machine (Personal Max), for example, in Switch account, the session header, the new-session picker and Settings, so it is no longer a second Personal Max next to an account you named the same way.
+- **The account switch button stays put in the session header.** It sits right after the session name whether or not the session has a task title, instead of jumping to the far right when there is none.
+- **A tall page or document card on a whiteboard shows more of its content.** When a box holding an HTML page or a Markdown document is given a height, the page now fills the box down to its bottom edge at the same size, instead of staying a short window above an empty band. Image and video boxes keep their shape, and a page or document box with no set height looks the same as before.
 
 ### Added
 
@@ -21,12 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Packs has its own tab, next to Arena.** Installed packs show as cards; only a pack that waits for your approval or has a problem carries a label, and the tab shows a dot while one waits. Approve on a waiting pack's card shows everything it adds before you approve it, and Details does the same for any pack. Discover lists the packs from the Glimmervoid examples and your pack sources that are not installed yet, each with Enable, and Sources holds adding, updating and removing pack sources. A pack link an agent prints now opens that pack in the tab. Settings, Packs keeps only the extra pack folders, with a link to the tab.
 - **Install and update the example packs from the Packs tab.** Pack sources now list Glimmervoid examples, the packs that ship with Glimmervoid, such as pr-table. Enable installs one, which waits for your approval like any pack. When a Glimmervoid update changes an enabled example, Glimmervoid reinstalls it while it runs, with no restart and no terminal, and it asks for approval again. The examples source has no Update or Remove source button: turn off the examples you do not want instead.
 - **Remove a pack folder you placed by hand from the Packs tab.** A pack whose folder you copied straight into `~/.glimmervoid/packs` now has a Remove folder button, which asks you to confirm and then deletes that folder. Glimmervoid never installs over such a folder, so this is how you clear a stale copy to install a fresh one without a terminal. Agents still cannot remove it, and the button is not offered for packs Glimmervoid installed or for folders listed in `packs` in config.json.
-
-### Fixed
-
-- **The machine login no longer reads like one of your accounts.** It now shows as This machine (Personal Max), for example, in Switch account, the session header, the new-session picker and Settings, so it is no longer a second Personal Max next to an account you named the same way.
-- **The account switch button stays put in the session header.** It sits right after the session name whether or not the session has a task title, instead of jumping to the far right when there is none.
-- **A tall page or document card on a whiteboard shows more of its content.** When a box holding an HTML page or a Markdown document is given a height, the page now fills the box down to its bottom edge at the same size, instead of staying a short window above an empty band. Image and video boxes keep their shape, and a page or document box with no set height looks the same as before.
 
 ## [0.58.1] - 2026-11-13
 
