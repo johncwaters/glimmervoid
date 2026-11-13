@@ -4,6 +4,7 @@ import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { openConfirmDialog } from '../session-card/modal.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { approvalDetails } from '../github/my-prs-panel.ts';
 import { buildChip } from '../settings/settings-readouts.ts';
@@ -44,7 +45,8 @@ type SourceRequest =
   | { type: 'pack-source-add'; url: string }
   | { type: 'pack-source-update'; slug: string }
   | { type: 'pack-source-remove'; slug: string }
-  | { type: 'pack-source-enable'; slug: string; pack: string; isEnabled: boolean };
+  | { type: 'pack-source-enable'; slug: string; pack: string; isEnabled: boolean }
+  | { type: 'pack-folder-remove'; dir: string };
 
 async function changeSource(statusKey: string, request: SourceRequest): Promise<void> {
   sourceStatusByKey.set(statusKey, { tone: 'busy', text: 'Working' });
@@ -212,10 +214,26 @@ export function packLines(row: PackRow): HTMLElement[] {
   ];
 }
 
+function removeFolderControls(row: PackRow): HTMLElement[] {
+  if (!row.isPlacedByHand) return [];
+  const statusKey = `folder:${row.dir}`;
+  const confirmRemoval = () => openConfirmDialog({
+    title: `Remove ${row.name}?`,
+    message: `This deletes ${row.dir} and every file in it. Glimmervoid did not install this folder, so nothing can put it back.`,
+    confirmLabel: 'Remove folder', danger: true,
+    onConfirm: () => { void changeSource(statusKey, { type: 'pack-folder-remove', dir: row.dir }); },
+  });
+  const remove = button({ variant: 'secondary', label: 'Remove folder', action: 'pack-folder-remove', disabled: isSourceBusy(statusKey), onClick: confirmRemoval });
+  return [remove, statusLine(statusKey)];
+}
+
 function packControl(row: PackRow): HTMLElement {
   const control = el('div', 'settings-view-setting-control');
   const fingerprint = row.fingerprint;
-  if (fingerprint === null) return control;
+  if (fingerprint === null) {
+    control.append(...removeFolderControls(row));
+    return control;
+  }
   const status = approveStatusByFingerprint.get(fingerprint);
   const approve = button({
     variant: 'secondary', label: 'Approve', action: 'pack-approve',
@@ -225,7 +243,7 @@ function packControl(row: PackRow): HTMLElement {
   const statusText = el('span', 'settings-view-pack-status');
   statusText.setAttribute('role', 'status');
   paintActionStatus(statusText, status?.tone ?? null, status?.text ?? '');
-  control.append(approve, statusText);
+  control.append(approve, statusText, ...removeFolderControls(row));
   return control;
 }
 

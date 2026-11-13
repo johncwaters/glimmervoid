@@ -29,6 +29,7 @@ export const PackRow = z.strictObject({
     skills: z.array(z.strictObject({ name: z.string(), path: z.string(), text: z.string() })),
   }).nullable(),
   errors: z.array(z.string()),
+  isPlacedByHand: z.boolean().default(false).describe('The folder sits directly in ~/.glimmervoid/packs and packs install did not place it, so only the operator can remove it, from Settings, Packs'),
 });
 export type PackRow = z.infer<typeof PackRow>;
 
@@ -75,6 +76,7 @@ export const packClientVariants = [
   loose('pack-source-add', { requestId, url: z.string().trim().min(1).max(500) }).describe('Clone a git pack source; its packs stay off until enabled one by one'),
   loose('pack-source-update', { requestId, slug: PackSourceSlug }).describe('Pull a pack source and reinstall its enabled packs, which then wait for approval again if they changed'),
   loose('pack-source-remove', { requestId, slug: PackSourceSlug }).describe('Delete a pack source clone and the packs enabled from it'),
+  loose('pack-folder-remove', { requestId, dir: z.string().min(1).max(4096) }).describe('The operator deletes a pack folder placed by hand directly in ~/.glimmervoid/packs; the reply is pack-source-result'),
   loose('pack-source-enable', { requestId, slug: PackSourceSlug, pack: PackName, isEnabled: z.boolean() }).describe('Install one pack from a source, unapproved, or remove that install'),
 ] as const;
 

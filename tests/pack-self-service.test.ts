@@ -177,7 +177,7 @@ test('an agent installs a pack, asks for approval and removes it, while only the
   }
 });
 
-test('packs remove and install leave a hand-placed pack alone, and install refuses a folder failing check', async () => {
+test('packs remove and install leave a hand-placed pack alone for the operator to remove, and install refuses a folder failing check', async () => {
   const fixture = selfServiceFixture();
   try {
     const handPlacedDir = path.join(fixture.homeDir, PACKS_DIR_NAME, 'night-shift');
@@ -192,6 +192,38 @@ test('packs remove and install leave a hand-placed pack alone, and install refus
     const clashing = await fixture.packs({ command: 'install', path: 'my-pack' });
     assert.equal(clashing.body.hasProblem, true);
     assert.match(clashing.body.text ?? '', /placed or changed by hand/);
+
+    assert.equal(fixture.rowNamed('night-shift')?.isPlacedByHand, true);
+    const outside = await fixture.packSources.removeHandPlacedFolder(path.join(fixture.projectDir, 'my-pack'));
+    assert.equal(outside.ok, false);
+    assert.equal(fs.existsSync(path.join(fixture.projectDir, 'my-pack', 'pack.json')), true);
+    const removedByOperator = await fixture.packSources.removeHandPlacedFolder(handPlacedDir);
+    assert.equal(removedByOperator.ok, true);
+    assert.equal(fs.existsSync(handPlacedDir), false);
+    await waitFor(() => fixture.rowNamed('night-shift') === undefined);
+    const reinstalled = await fixture.packs({ command: 'install', path: 'my-pack' });
+    assert.equal(reinstalled.body.hasProblem, false, reinstalled.body.text ?? '');
+    await waitFor(() => fixture.rowNamed('night-shift')?.isPlacedByHand === false);
+    const installedCopy = await fixture.packSources.removeHandPlacedFolder(handPlacedDir);
+    assert.equal(installedCopy.ok, false);
+    assert.equal(fs.existsSync(handPlacedDir), true);
+    fs.writeFileSync(path.join(handPlacedDir, 'pack.json'), '{ not json');
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'invalid');
+    assert.equal(fixture.rowNamed('night-shift')?.isPlacedByHand, false);
+    const unreadableCopy = await fixture.packSources.removeHandPlacedFolder(handPlacedDir);
+    assert.equal(unreadableCopy.ok, false);
+    assert.equal(fs.existsSync(handPlacedDir), true);
+    const ledgerPath = path.join(fixture.homeDir, 'packs-installed.json');
+    const ledgerText = fs.readFileSync(ledgerPath, 'utf8');
+    fs.writeFileSync(ledgerPath, '{ not json');
+    fs.cpSync(EXAMPLE_THEME_PACK, path.join(fixture.homeDir, PACKS_DIR_NAME, 'second-copy'), { recursive: true });
+    await waitFor(() => fixture.packStore.statusFrame().packs.length === 2);
+    assert.deepEqual(fixture.packStore.statusFrame().packs.map((row) => row.isPlacedByHand), [false, false]);
+    fs.rmSync(path.join(fixture.homeDir, PACKS_DIR_NAME, 'second-copy'), { recursive: true, force: true });
+    fs.writeFileSync(ledgerPath, ledgerText);
+    fs.cpSync(EXAMPLE_THEME_PACK, handPlacedDir, { recursive: true });
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'pending' && fixture.rowNamed('night-shift')?.isPlacedByHand === false);
+    fs.rmSync(handPlacedDir, { recursive: true, force: true });
 
     fs.writeFileSync(path.join(fixture.projectDir, 'my-pack', 'pack.json'), '{ not json');
     const broken = await fixture.packs({ command: 'install', path: 'my-pack' });

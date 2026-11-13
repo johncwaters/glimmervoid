@@ -13,6 +13,7 @@ import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLau
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { servedPackFile } from './core/pack-page-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
+import { PACKS_INSTALLED_FILE_NAME, readInstalledFingerprints } from './pack-install.ts';
 
 const PACK_RELOAD_DEBOUNCE_MS = 300;
 
@@ -63,6 +64,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   const reloadTimersByDir = new Map<string, NodeJS.Timeout>();
   const listedWatchersByDir = new Map<string, fs.FSWatcher | null>();
   let homePackDirs: string[] = [];
+  let installedFingerprintsByName: Readonly<Record<string, string>> | null = null;
+  let ledgerWatcher: fs.FSWatcher | null = null;
+  let ledgerRescanTimer: NodeJS.Timeout | null = null;
   let homeWarning: string | null = null;
   let homeWatcher: fs.FSWatcher | null = null;
   let isStopped = false;
@@ -94,7 +98,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
       emitter.emit('removed');
       return;
     }
-    readsByDir.set(packDir, await readPackDir(packDir, env));
+    const read = await readPackDir(packDir, env);
+    installedFingerprintsByName = await readInstalledFingerprints(homeDir);
+    readsByDir.set(packDir, read);
     if (!isStopped) emitter.emit('changed');
   }
 
@@ -111,6 +117,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     const found = await packDirsUnder(homeDir);
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
     const freshReads = await Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const));
+    installedFingerprintsByName = await readInstalledFingerprints(homeDir);
     if (isStopped) return;
     const hasDroppedPack = [...readsByDir.keys()].some((packDir) => !knownDirs.includes(packDir));
     homeWarning = found.warning;
@@ -175,8 +182,15 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     });
   }
 
+  function isPlacedByHand(packDir: string, read: PackRead): boolean {
+    if (path.dirname(packDir) !== packsDir || installedFingerprintsByName === null) return false;
+    const recordedFingerprint = installedFingerprintsByName[path.basename(packDir)];
+    if (!read.ok) return recordedFingerprint === undefined;
+    return recordedFingerprint !== read.pack.fingerprint;
+  }
+
   function rows(): PackRow[] {
-    return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints));
+    return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, isPlacedByHand(packDir, read)));
   }
 
   function packEntriesInUse(): { packDir: string; pack: PackOnDisk }[] {
@@ -213,7 +227,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
         packs.push(read.pack);
         continue;
       }
-      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints)));
+      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints, false)));
     }
     return { packs, warnings };
   }
@@ -260,15 +274,29 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     return approval;
   }
 
+  function watchInstallLedger(): void {
+    ledgerWatcher = watchQuietly(homeDir, (changedName) => {
+      if (changedName !== PACKS_INSTALLED_FILE_NAME || isStopped) return;
+      if (ledgerRescanTimer) clearTimeout(ledgerRescanTimer);
+      ledgerRescanTimer = setTimeout(() => {
+        ledgerRescanTimer = null;
+        void rescanHomePacks();
+      }, reloadDebounceMs);
+    }, false);
+  }
+
   async function start(): Promise<void> {
     await loadApprovals();
     watchHomePacks();
+    watchInstallLedger();
     await rescanHomePacks();
   }
 
   function stop(): void {
     isStopped = true;
     homeWatcher?.close();
+    ledgerWatcher?.close();
+    if (ledgerRescanTimer) clearTimeout(ledgerRescanTimer);
     for (const watcher of listedWatchersByDir.values()) watcher?.close();
     for (const timer of reloadTimersByDir.values()) clearTimeout(timer);
     listedWatchersByDir.clear();

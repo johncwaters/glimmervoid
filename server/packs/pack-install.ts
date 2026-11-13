@@ -9,7 +9,7 @@ import { writeTextAtomic } from '../json-file.ts';
 import { checkPack, packCheckHasProblem, packReportText } from './pack-check.ts';
 import { PACKS_DIR_NAME, readPackDir } from './pack-files.ts';
 
-const PACKS_INSTALLED_FILE_NAME = 'packs-installed.json';
+export const PACKS_INSTALLED_FILE_NAME = 'packs-installed.json';
 const PACK_STAGING_DIR_NAME = 'pack-staging';
 
 type PackInstallDeps = {
@@ -139,6 +139,34 @@ async function removeNow(packName: string, homeDir: string, env: NodeJS.ProcessE
   } catch (error) {
     return { ok: false, error: `Could not remove ${targetDir}: ${errorMessage(error)}` };
   }
+}
+
+async function removeHandPlacedNow(packDir: string, homeDir: string, env: NodeJS.ProcessEnv): Promise<PackRemoveOutcome> {
+  const targetDir = path.resolve(packDir);
+  const folderName = path.basename(targetDir);
+  if (path.dirname(targetDir) !== path.join(homeDir, PACKS_DIR_NAME)) return { ok: false, error: `${targetDir} is not a folder directly in ${path.join(homeDir, PACKS_DIR_NAME)}, so it is left alone` };
+  if (!await pathExists(targetDir)) return { ok: false, error: `${targetDir} is already gone` };
+  const ledger = await readLedger(homeDir);
+  if (!ledger.ok) return { ok: false, error: `Not removed: ${ledger.error}` };
+  const recordedFingerprint = ledger.fingerprintsByName[folderName];
+  const read = recordedFingerprint === undefined ? null : await readPackDir(targetDir, env);
+  if (read !== null && !read.ok) return { ok: false, error: `Glimmervoid installed ${folderName} and its folder could not be read, so it is left alone: ${read.errors.join('; ')}` };
+  if (read?.ok && read.pack.fingerprint === recordedFingerprint) return { ok: false, error: `Glimmervoid installed ${folderName}; remove it from its pack source instead` };
+  try {
+    await fs.promises.rm(targetDir, { recursive: true, force: true });
+    return { ok: true, dir: targetDir };
+  } catch (error) {
+    return { ok: false, error: `Could not remove ${targetDir}: ${errorMessage(error)}` };
+  }
+}
+
+export async function readInstalledFingerprints(homeDir: string): Promise<Readonly<Record<string, string>> | null> {
+  const ledger = await readLedger(homeDir);
+  return ledger.ok ? ledger.fingerprintsByName : null;
+}
+
+export function removeHandPlacedPack(packDir: string, homeDir: string, env: NodeJS.ProcessEnv): Promise<PackRemoveOutcome> {
+  return serialized(() => removeHandPlacedNow(packDir, homeDir, env));
 }
 
 export function installPack(sourceDir: string, deps: PackInstallDeps): Promise<PackInstallOutcome> {

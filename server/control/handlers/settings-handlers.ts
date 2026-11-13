@@ -523,6 +523,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-source-add': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.add(msg.url)),
     'pack-source-update': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.update(msg.slug)),
     'pack-source-remove': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.remove(msg.slug)),
+    'pack-folder-remove': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.removeHandPlacedFolder(msg.dir)),
     'pack-source-enable': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.setPackEnabled(msg.slug, msg.pack, msg.isEnabled)),
   } satisfies ControlHandlerTable;
 
@@ -554,6 +555,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-source-add': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
     'pack-source-update': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
     'pack-source-remove': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
+    'pack-folder-remove': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
     'pack-source-enable': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 

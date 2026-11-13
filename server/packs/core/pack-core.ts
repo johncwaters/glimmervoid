@@ -161,7 +161,7 @@ export function packAgentContributions(packs: readonly PackOnDisk[]): PackAgentC
   });
 }
 
-function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): PackRow {
+function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): Omit<PackRow, 'isPlacedByHand'> {
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
   const sectionErrors = [...prFlowsErrors, ...packSectionErrors(pack)];
   const [prFlowsPack] = prFlowsPacks;
@@ -177,11 +177,11 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
   };
 }
 
-export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>): PackRow {
-  if (read.ok) return validPackRow(read.pack, approvedFingerprints);
+export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>, isPlacedByHand: boolean): PackRow {
+  if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors, isPlacedByHand,
   };
 }
 

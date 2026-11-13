@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Remove a pack folder you placed by hand from Settings, Packs.** A pack whose folder you copied straight into `~/.glimmervoid/packs` now has a Remove folder button, which asks you to confirm and then deletes that folder. Glimmervoid never installs over such a folder, so this is how you clear a stale copy to install a fresh one without a terminal. Agents still cannot remove it, and the button is not offered for packs Glimmervoid installed or for folders listed in `packs` in config.json.
+
 ## [0.58.1] - 2026-11-13
 
 ### Added
@@ -1531,7 +1535,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Calm layout is gone**: the experimental Calm tab, its priority rings and single-action panels, the phone Board's Calm home and bottom sheet, the Focus corner card pointing at the next waiting session, and the Alt+H and Alt+T shortcuts are removed, along with the Calm layout setting. Focus always shows its session rail. A `calmLayout` key left in config.json is ignored.
 
 ### Fixed
-
 
 - **Status icons match the Settings key everywhere**: one waiting session now reads `1 session needs input` in the header, and the header line uses the session state icons and colors from the Status colors key in Settings. Waiting shows the diamond rather than the triangle that marks a failed session, failed shows that triangle, finished-but-unseen shows the hollow diamond, ready shows the idle ring, all-exited shows the done square and all-dormant the hollow circle.
 - **rtk rewrites no longer hide from Claude Code**: with the rtk setting on, a Claude Code session is now told when its Bash command ran through rtk, for example `git diff` as `rtk git diff`, so it knows the output is condensed and can rerun the command as `rtk proxy <command>` for the raw output. Before, the condensed output looked like the real command's, which led an agent to blame the wrong cause. Claude Code still asks for permission as before.

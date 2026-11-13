@@ -10,7 +10,7 @@ import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { packSourceOf } from './core/pack-sources-core.ts';
 import { PACK_MAX_TOTAL_BYTES, PACKS_DIR_NAME } from './pack-files.ts';
-import { installPack, removeInstalledPack } from './pack-install.ts';
+import { installPack, removeHandPlacedPack, removeInstalledPack } from './pack-install.ts';
 
 const PACK_SOURCES_DIR_NAME = 'pack-sources';
 const PACK_SOURCES_FILE_NAME = 'pack-sources.json';
@@ -242,6 +242,10 @@ export function createPackSources({ homeDir, env, packRows, isApproved, onChange
     add: (url: string) => serialized(() => addNow(url)),
     update: (slug: string | null) => serialized(() => updateNow(slug)),
     setPackEnabled: (slug: string, packName: string, isEnabled: boolean) => serialized(() => enableNow(slug, packName, isEnabled)),
+    removeHandPlacedFolder: (packDir: string) => serialized(async () => {
+      const removed = await removeHandPlacedPack(packDir, homeDir, env);
+      return removed.ok ? { ok: true, text: `Removed ${removed.dir}` } : removed;
+    }),
     remove: (slug: string) => serialized(() => removeNow(slug)),
   };
 }
