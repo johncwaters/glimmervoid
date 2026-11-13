@@ -129,6 +129,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let announcedGithubAppAccounts = '';
   let githubTokenTimer: NodeJS.Timeout | null = null;
   let githubUserGrant: GithubUserGrant | null = null;
+  let connectedGithubAccounts = '';
   let githubUserRequest: Promise<void> | null = null;
 
   function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
@@ -160,6 +161,15 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   function forgetGithubUserGrantUnlessHeldBy(connection: GithubConnection): void {
     const isStillVouched = (connection.state === 'connected' || connection.state === 'needs-install') && connection.login.toLowerCase() === githubUserGrant?.login.toLowerCase();
     if (!isStillVouched) githubUserGrant = null;
+  }
+
+  function askForGithubTokenOnNewAccounts(connection: GithubConnection): void {
+    const accounts = connection.state === 'connected' ? connection.accounts.join(',') : '';
+    if (accounts === connectedGithubAccounts) return;
+    connectedGithubAccounts = accounts;
+    if (accounts === '') return;
+    if (githubTokenState.kind === 'no-app') githubTokenState = { kind: 'unasked' };
+    void checkGithubToken();
   }
 
   async function githubUserCredential(): Promise<GithubUserGrant | null> {
@@ -385,6 +395,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
       const answer = GithubConnectionAnswer.safeParse(await response.json());
       if (answer.success) {
         forgetGithubUserGrantUnlessHeldBy(answer.data.connection);
+        askForGithubTokenOnNewAccounts(answer.data.connection);
         return answer.data.connection;
       }
       log.warn(`[watcher] ${path} answered an unreadable connection: ${answer.error.message}`);

@@ -42,6 +42,7 @@ import { createBackendLanes } from './backend-lanes.ts';
 import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
+import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
@@ -702,6 +703,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     statePath: configSiblingPath(configStore.configPath, 'awake-usage-alerts.json'),
   });
   watcherLink.whenLinked(awakeUsageAlerts.check);
+  const githubConnectionAlerts = startGithubConnectionAlerts({
+    githubConnection: watcherLink.githubConnection,
+    notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
+    statePath: configSiblingPath(configStore.configPath, 'github-connection-alerts.json'),
+  });
+  watcherLink.whenLinked(githubConnectionAlerts.check);
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
@@ -744,6 +751,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watcherLink,
     idleStop,
     awakeUsageAlerts,
+    githubConnectionAlerts,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,

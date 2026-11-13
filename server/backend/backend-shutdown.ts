@@ -52,6 +52,7 @@ interface BackendShutdownDependencies {
   watcherLink?: Stoppable | null;
   idleStop?: Stoppable | null;
   awakeUsageAlerts?: Stoppable | null;
+  githubConnectionAlerts?: Stoppable | null;
   remoteListenerPortFile?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
@@ -100,6 +101,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (idleStop) stoppers.add('idle-stop', () => idleStop.stop());
     const awakeUsageAlerts = dependencies.awakeUsageAlerts;
     if (awakeUsageAlerts) stoppers.add('awake-usage-alerts', () => awakeUsageAlerts.stop());
+    const githubConnectionAlerts = dependencies.githubConnectionAlerts;
+    if (githubConnectionAlerts) stoppers.add('github-connection-alerts', () => githubConnectionAlerts.stop());
     const remoteListenerPortFile = dependencies.remoteListenerPortFile;
     if (remoteListenerPortFile) stoppers.add('remote-listener-port-file', () => remoteListenerPortFile.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());

@@ -27,6 +27,7 @@ import { createPrGh } from '../server/github/pr-gh.ts';
 import { startIdleStop } from '../server/idle-stop-wiring.ts';
 import { laneAccessConfigFor, laneAccessConfigOf } from '../server/lanes/core/lane-permissions-core.ts';
 import { startAwakeUsageAlerts } from '../server/awake-usage-wiring.ts';
+import { startGithubConnectionAlerts } from '../server/github-connection-alerts.ts';
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
@@ -1220,6 +1221,45 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   assert.equal(await link.githubUserCredential(), null, 'a disconnected tenant hands git no user token');
 });
 
+test('a server linked before its tenant connects GitHub asks for App grants as soon as it reads the connection as connected, and a reconnect-needed notice comes again after the connection leaves that state', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, []);
+  const { linkSecret, tenant } = await doormanTenant(t, 'lateconnect0001', 'http://127.0.0.1:9');
+  const doorman = createDoorman({
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
+    probeFetch: async () => Response.json({ data: { viewer: { login: 'tenant' } } }), githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
+  });
+  const doormanPort = await doorman.listen(0);
+  const link = createWatcherLink({
+    linkSecret, now: () => clock.nowMs, log: QUIET_LOG,
+    credentials: () => ({ github: null, posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${doormanPort}`, statusCheckMs: 50 }),
+  });
+  t.after(async () => {
+    link.stop();
+    await doorman.close();
+  });
+  await link.start();
+  await eventually(async () => ((await link.githubConnection('read'))?.state === 'disconnected' ? true : undefined));
+  assert.equal((await link.githubConnection('connect'))?.state, 'awaiting-code');
+  app.user.isAuthorized = true;
+  await eventually(async () => ((await link.githubConnection('read'))?.state === 'connected' ? true : undefined));
+  await eventually(() => (link.githubAppTokens().length > 0 ? true : undefined), 3_000);
+
+  const scriptedConnections: GithubConnection[] = [
+    { state: 'reconnect-needed', login: 'octo', reason: 'revoked' },
+    { state: 'disconnected' },
+    { state: 'reconnect-needed', login: 'octo', reason: 'expired' },
+  ];
+  const notices: string[] = [];
+  const alerts = startGithubConnectionAlerts({ githubConnection: async () => scriptedConnections.shift() ?? null, notify: (_name, _category, message) => notices.push(message), statePath: null, log: QUIET_LOG });
+  t.after(() => alerts.stop());
+  alerts.check();
+  alerts.check();
+  await alerts.checked();
+  assert.equal(notices.length, 2, 'a second refusal after a disconnect notifies again');
+});
+
 test('a tenant whose GitHub user reaches repositories in two installations gets a read-only grant per installation; a search probe runs once per grant, a repository probe runs only with the grant of its owner, a REST probe waits for the operator read token, and a lane gets only the grant of the owner of the repository it reads', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [], { personalRepositories: ['dotfiles'] });
@@ -1309,7 +1349,7 @@ test('a tenant record read that fails answers the server as a failed mint and re
   assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
 });
 
-test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {
+test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, the server notifies once two weeks before the connection ends and once when a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, []);
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-github-user-'));
@@ -1344,10 +1384,33 @@ test('only one refresh of a tenant GitHub user token runs at a time, a doorman r
   assert.equal(restartedGrant?.token, 'ghu_user4');
   assert.deepEqual(app.user.refreshesWith, ['ghr_user1', 'ghr_user2', 'ghr_user3'], 'a restarted doorman never reuses a refresh token its predecessor is spending');
 
+  const connectionNotices: string[] = [];
+  const connectionAlerts = startGithubConnectionAlerts({
+    githubConnection: () => restartedDoorman.connection(),
+    notify: (_name, _category, message) => connectionNotices.push(message),
+    statePath: path.join(watcherHome, 'github-connection-alerts.json'),
+    now: () => clock.nowMs,
+    log: QUIET_LOG,
+  });
+  t.after(() => connectionAlerts.stop());
+  await connectionAlerts.checked();
+  assert.deepEqual(connectionNotices, [], 'a connection months from its end notifies nothing');
+  clock.nowMs += 171 * 24 * 60 * 60_000;
+  connectionAlerts.check();
+  connectionAlerts.check();
+  await connectionAlerts.checked();
+  assert.equal(connectionNotices.length, 1);
+  assert.match(connectionNotices[0] ?? '', /^The GitHub connection for octo ends on \d{4}-\d{2}-\d{2}\./);
+
   app.user.liveRefreshToken = null;
   clock.nowMs += 9 * 60 * 60_000;
   assert.equal(await restartedDoorman.userAccessGrant(), null);
   assert.deepEqual(await restartedDoorman.connection(), { state: 'reconnect-needed', login: 'octo', reason: 'revoked' });
+  connectionAlerts.check();
+  connectionAlerts.check();
+  await connectionAlerts.checked();
+  assert.equal(connectionNotices.length, 2, 'a refused refresh notifies once');
+  assert.match(connectionNotices[1] ?? '', /^The GitHub connection for octo was refused by GitHub/);
   assert.deepEqual(await restartedDoorman.bindings(), [], 'a connection waiting for a reconnect binds nothing');
   assert.ok(changes.length > 0);
 

@@ -146,6 +146,11 @@ export const GithubConnection = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('reconnect-needed'), login: GithubLogin, reason: GithubReconnectReason }),
 ]);
 export type GithubConnection = z.infer<typeof GithubConnection>;
+export const GithubConnectionNotified = z.strictObject({
+  expiringRefreshTokenExpiresAtMs: PositiveInt.nullable(),
+  reconnectNeededLogin: GithubLogin.nullable(),
+});
+export type GithubConnectionNotified = z.infer<typeof GithubConnectionNotified>;
 
 export const GithubConnectionAction = z.enum(['read', 'connect', 'disconnect']);
 export type GithubConnectionAction = z.infer<typeof GithubConnectionAction>;

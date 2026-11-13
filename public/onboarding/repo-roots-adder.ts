@@ -3,6 +3,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
+import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
@@ -14,6 +15,8 @@ const CLONE_REPLY_TIMEOUT_MS = 11 * 60_000;
 const GITHUB_LIST_REPLY_TIMEOUT_MS = 90_000;
 const MAX_VISIBLE_GITHUB_REPOS = 8;
 const FOLDER_COMPLETION_DELAY_MS = 150;
+const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
+const GITHUB_GRANT_WAIT_MS = 5_000;
 const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
 const NO_GITHUB_LOGIN_HINT = 'Run gh auth login on the machine running Glimmervoid to list your repos.';
 
@@ -92,7 +95,9 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   const errorEl = el('p', 'repo-roots-adder-error');
   errorEl.setAttribute('role', 'alert');
 
-  element.append(githubSection, cloneRow.label, cloneRow.row, cloneStatus, suggestionsSection, folderRow.label, folderRow.row, errorEl);
+  const githubConnectSection = buildGithubConnectSection({ isHiddenWithoutConnect: true, onConnected: () => { void loadGithubReposOnceGranted(GITHUB_GRANT_WAIT_ATTEMPTS); } });
+
+  element.append(githubConnectSection, githubSection, cloneRow.label, cloneRow.row, cloneStatus, suggestionsSection, folderRow.label, folderRow.row, errorEl);
 
   let isBusy = false;
   function setBusy(busy: boolean) {
@@ -168,6 +173,14 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   function showGithubHint(text: string) {
     githubHintText = text;
     githubHint.textContent = text;
+  }
+
+  async function loadGithubReposOnceGranted(attemptsLeft: number) {
+    await loadGithubRepos();
+    if (githubListState === 'loaded' || attemptsLeft <= 1) return;
+    setTimeout(() => {
+      if (element.isConnected) void loadGithubReposOnceGranted(attemptsLeft - 1);
+    }, GITHUB_GRANT_WAIT_MS);
   }
 
   async function loadGithubRepos() {
