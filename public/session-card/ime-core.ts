@@ -34,6 +34,11 @@ export function isImeProcessingKeydown(event: { keyCode?: number; key?: string }
   return event.keyCode === 229 || event.key === 'Process';
 }
 
+export function isPlainTypedKey(event: { key?: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean } | null | undefined) {
+  if (!event || event.ctrlKey || event.altKey || event.metaKey) return false;
+  return Array.from(event.key ?? '').length === 1;
+}
+
 export function bytesForSoftKeyboardEdit(previousText: string | null | undefined, nextText: string | null | undefined) {
   const previous = Array.from(previousText ?? '');
   const next = Array.from(nextText ?? '');

@@ -1,7 +1,7 @@
 import type { Terminal } from '@xterm/xterm';
 import type { SessionUi } from './card-registry.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { bytesForBackwardDeletion, bytesForSoftKeyboardEdit, isImeProcessingKeydown, isTypedInputType } from './ime-core.ts';
+import { bytesForBackwardDeletion, bytesForSoftKeyboardEdit, isImeProcessingKeydown, isPlainTypedKey, isTypedInputType } from './ime-core.ts';
 import { uploadFilesToSession } from '../session-upload.ts';
 import { clearTerminalNotice, showTerminalNotice } from './terminal-notices.ts';
 
@@ -81,13 +81,20 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   };
 
   listenBeforeXterm('keydown', (event) => {
-    if (isImeProcessingKeydown(event)) {
+    if (isImeProcessingKeydown(event) || isPlainTypedKey(event)) {
       event.stopPropagation();
       return;
     }
     sendTypedText();
     queueMicrotask(resetSoftKeyboardBuffer);
   });
+
+  listenBeforeXterm('keypress', (event) => {
+    if (!isPlainTypedKey(event)) return;
+    event.stopPropagation();
+  });
+
+  listenBeforeXterm('focusout', resetSoftKeyboardBuffer);
 
   listenBeforeXterm('compositionstart', (event) => {
     event.stopPropagation();
