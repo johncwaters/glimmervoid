@@ -30,7 +30,7 @@ import { startAwakeUsageAlerts } from '../server/awake-usage-wiring.ts';
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { AWAKE_USAGE_PATH, AwakeUsageAnswer, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GithubConnectionAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -1210,6 +1210,40 @@ test('a doorman with a GitHub App binds the installation its tenant connected th
   link.credentialsMayHaveChanged();
   await eventually(() => (probeAuthorizations.at(-1) === 'Bearer operator-read-token' ? true : undefined));
   assert.equal(laneAccessConfigOf({ github: { readToken: 'operator-read-token' } }, link.githubAppToken()).readToken, 'operator-read-token');
+});
+
+test('a tenant record read that fails answers the server as a failed mint and retries, never as a tenant with no GitHub installation', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, []);
+  const { linkSecret, tenant } = await doormanTenant(t, 'flakytenant0001', 'http://127.0.0.1:9');
+  const fileStore = createFileTenantRecordStore({ watcherHomeFor: () => tenant.watcherHome });
+  const storeHealth = { isReadFailing: false };
+  const doorman = createDoorman({
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
+    recordStore: {
+      read: async (slug, recordName) => {
+        if (storeHealth.isReadFailing) throw new Error('storage.googleapis.com answered 503');
+        return fileStore.read(slug, recordName);
+      },
+      write: fileStore.write,
+    },
+    githubAppFetch: app.appFetch, now: () => clock.nowMs, log: QUIET_LOG,
+  });
+  t.after(() => doorman.close());
+  const doormanPort = await doorman.listen(0);
+  await signedWatcherCall(doormanPort, linkSecret, 'POST', GITHUB_CONNECT_PATH, clock.nowMs);
+  app.user.isAuthorized = true;
+  await eventually(async () => ((await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs)).state === 'connected' ? true : undefined));
+  const askForToken = () => fetch(`http://127.0.0.1:${doormanPort}${GITHUB_TOKEN_PATH}`, { method: 'POST', headers: signedHeaders(directionKey(linkSecret, 'server-to-watcher'), { method: 'POST', path: GITHUB_TOKEN_PATH, body: '' }, clock.nowMs), body: '' });
+
+  storeHealth.isReadFailing = true;
+  assert.equal((await askForToken()).status, 503, 'an unreadable record is a failed mint the server retries soon');
+
+  storeHealth.isReadFailing = false;
+  clock.nowMs += 10 * 60_000;
+  const answer = await askForToken();
+  assert.equal(answer.status, 200);
+  assert.match(GithubTokenAnswer.parse(await answer.json()).grant?.token ?? '', /^ghs_minted\d$/);
 });
 
 test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {

@@ -415,17 +415,30 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     entry.watcher?.githubTokenChanged();
   }
 
-  async function boundInstallationFor(entry: TenantEntry): Promise<GithubInstallationBinding | null> {
-    const installations = await entry.githubUser?.bindings().catch((bindingError: unknown) => {
+  async function boundInstallationFor(entry: TenantEntry): Promise<GithubInstallationBinding | null | 'unreadable'> {
+    if (entry.githubUser === null) return null;
+    const installations = await entry.githubUser.bindings().catch((bindingError: unknown) => {
       log.warn(`[doorman] tenant ${entry.tenant.slug} could not read its GitHub installations: ${errorMessage(bindingError)}`);
-      return [];
+      return 'unreadable' as const;
     });
-    return installations?.[0] ?? null;
+    if (installations === 'unreadable') return installations;
+    return installations[0] ?? null;
+  }
+
+  function backOffUnreadableBindings(entry: TenantEntry): null {
+    if (isClosed || entriesBySlug.get(entry.tenant.slug) !== entry) return null;
+    entry.github.failedAttempts += 1;
+    dropExpiredGithubToken(entry);
+    const retryDelayMs = mintRetryDelayMs(entry.github.failedAttempts, null);
+    entry.github.nextMintAllowedAtMs = now() + retryDelayMs;
+    scheduleGithubMint(entry, retryDelayMs);
+    return null;
   }
 
   async function mintForBinding(entry: TenantEntry): Promise<HeldGithubToken | null> {
     const minter = githubApp?.minter ?? null;
     const installation = await boundInstallationFor(entry);
+    if (installation === 'unreadable') return backOffUnreadableBindings(entry);
     if (minter === null || installation === null) return null;
     return runGithubMint(entry, minter, installation);
   }
@@ -442,7 +455,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function githubTokenForServer(entry: TenantEntry): Promise<GithubTokenAnswer | null> {
-    if (githubApp?.minter == null || entry.githubUser === null || await boundInstallationFor(entry) === null) return { grant: null };
+    if (githubApp?.minter == null || entry.githubUser === null) return { grant: null };
+    const installation = await boundInstallationFor(entry);
+    if (installation === 'unreadable') return null;
+    if (installation === null) return { grant: null };
     const held = entry.github.held;
     if (held !== null && isTokenFreshForServer(held.expiresAtMs, now())) return { grant: held };
     if (now() < entry.github.nextMintAllowedAtMs) return held !== null && now() < held.expiresAtMs ? { grant: held } : null;
