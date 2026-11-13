@@ -49,7 +49,11 @@ export const PackSourceRow = z.strictObject({
   slug: PackSourceSlug,
   dir: z.string(),
   isBuiltIn: z.boolean().default(false).describe('The Glimmervoid examples source: it ships with Glimmervoid, so it cannot be updated or removed, and its enabled packs follow Glimmervoid updates while the server runs'),
-  packs: z.array(z.strictObject({ name: z.string(), dir: z.string(), isEnabled: z.boolean() })),
+  packs: z.array(z.strictObject({
+    name: z.string(), dir: z.string(), isEnabled: z.boolean(),
+    version: z.number().nullable(), description: z.string().nullable(), kinds: z.array(z.string()),
+    iconDataUrl: z.string().nullable().describe('The first panel icon as a data:image/svg+xml URL, so an unapproved pack shows its icon without a route serving its files'),
+  })),
   error: z.string().nullable(),
 });
 export type PackSourceRow = z.infer<typeof PackSourceRow>;

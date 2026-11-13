@@ -9,6 +9,7 @@ import { parseJsonOrNull } from '../core/json-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
+import { PACK_ICON_MAX_BYTES, SOURCE_ICONS_MAX_BYTES, packIconDataUrl, sourcePackDetails } from './core/pack-core.ts';
 import { packSourceOf } from './core/pack-sources-core.ts';
 import { PACK_MAX_TOTAL_BYTES, PACKS_DIR_NAME, readPackDir } from './pack-files.ts';
 import { installPack, readInstalledFingerprints, removeHandPlacedPack, removeInstalledPack } from './pack-install.ts';
@@ -26,7 +27,8 @@ const SKIPPED_FOLDER_NAMES: readonly string[] = ['node_modules'];
 const SAFE_GIT_CONFIG = ['-c', `core.hooksPath=${os.devNull}`, '-c', 'core.symlinks=false', '-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always'];
 
 type SourceEntry = PackSourcesFile['sources'][number];
-type SourcePack = { name: string; dir: string };
+type SourcePack = { name: string; dir: string } & ReturnType<typeof sourcePackDetails>;
+type SourcePackRow = PackSourceRow['packs'][number];
 type SourceOutcome = { ok: true; text: string } | { ok: false; error: string };
 type SourceUpdate = { isUpdated: boolean; text: string; enabledPacks: string[] };
 type GitRunner = typeof runGit;
@@ -49,7 +51,29 @@ async function packHereIn(folder: string): Promise<SourcePack[]> {
   if (!manifestStat?.isFile() || manifestStat.size > PACK_MAX_TOTAL_BYTES) return [];
   const manifestText = await fs.promises.readFile(manifestPath, 'utf8').catch(() => null);
   const header = manifestText === null ? null : PackHeader.safeParse(parseJsonOrNull(manifestText));
-  return header?.success ? [{ name: header.data.name, dir: folder }] : [];
+  return header?.success ? [{ name: header.data.name, dir: folder, ...sourcePackDetails(header.data) }] : [];
+}
+
+async function iconBytesOf(pack: SourcePack): Promise<Buffer | null> {
+  if (pack.iconPath === null) return null;
+  const iconPath = path.join(pack.dir, pack.iconPath);
+  const [realPackDir, realIconPath] = await Promise.all([fs.promises.realpath(pack.dir), fs.promises.realpath(iconPath)]).catch(() => [null, null]);
+  if (realPackDir === null || realIconPath === null || !realIconPath.startsWith(`${realPackDir}${path.sep}`)) return null;
+  const iconStat = await fs.promises.lstat(iconPath).catch(() => null);
+  if (!iconStat?.isFile() || iconStat.size > PACK_ICON_MAX_BYTES) return null;
+  return fs.promises.readFile(iconPath).catch(() => null);
+}
+
+async function sourcePackRows(packs: readonly SourcePack[], enabledPacks: readonly string[]): Promise<SourcePackRow[]> {
+  const rows: SourcePackRow[] = [];
+  let remainingIconBytes = SOURCE_ICONS_MAX_BYTES;
+  for (const { iconPath, ...pack } of packs) {
+    const iconBytes = remainingIconBytes <= 0 ? null : await iconBytesOf({ ...pack, iconPath });
+    const isIconInBudget = iconBytes !== null && iconBytes.length <= remainingIconBytes;
+    if (isIconInBudget) remainingIconBytes -= iconBytes.length;
+    rows.push({ ...pack, isEnabled: enabledPacks.includes(pack.name), iconDataUrl: isIconInBudget ? packIconDataUrl(iconBytes) : null });
+  }
+  return rows;
 }
 
 async function packFoldersIn(folder: string, depth: number): Promise<SourcePack[]> {
@@ -116,7 +140,7 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
       const packs = await packFoldersIn(dir, 0);
       const missingFix = isBuiltIn(source) ? 'this install of Glimmervoid ships no example packs' : 'remove the source and add it again';
       const missingText = await fs.promises.stat(dir).then(() => null, () => `${dir} is missing; ${missingFix}`);
-      return { url: source.url, slug: source.slug, dir, isBuiltIn: isBuiltIn(source), packs: packs.map((pack) => ({ ...pack, isEnabled: source.enabledPacks.includes(pack.name) })), error: missingText };
+      return { url: source.url, slug: source.slug, dir, isBuiltIn: isBuiltIn(source), packs: await sourcePackRows(packs, source.enabledPacks), error: missingText };
     }));
   }
 

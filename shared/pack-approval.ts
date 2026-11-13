@@ -46,3 +46,22 @@ export function packGrants(row: PackRow): string[] {
     ...(prFlowCommandCount === 0 ? [] : [plural(prFlowCommandCount, 'My PRs command')]),
   ];
 }
+
+type PackContents = {
+  panels: readonly unknown[];
+  launchers: readonly unknown[];
+  themes: readonly unknown[];
+  agent: { context: unknown; skills: readonly unknown[] } | null;
+  prFlows: unknown;
+};
+
+export function packKindLabels(row: PackContents): string[] {
+  const hasAgentFiles = row.agent !== null && (row.agent.context !== null || row.agent.skills.length > 0);
+  return [
+    ...(row.panels.length === 0 ? [] : ['Panel']),
+    ...(row.launchers.length === 0 ? [] : ['Launcher']),
+    ...(row.themes.length === 0 ? [] : [row.themes.length === 1 ? '1 theme' : `${row.themes.length} themes`]),
+    ...(hasAgentFiles ? ['Agent skills'] : []),
+    ...(row.prFlows ? ['PR commands'] : []),
+  ];
+}

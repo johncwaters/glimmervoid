@@ -549,6 +549,8 @@ test('an agent adds a git pack source whose packs stay off until the operator en
     assert.match(added.body.text ?? '', /its packs: night-shift\. Each stays off until the operator enables it/);
     const [source] = fixture.packSources.rows();
     assert.deepEqual(source?.packs.map((pack) => [pack.name, pack.isEnabled]), [['night-shift', false]]);
+    assert.deepEqual(source?.packs.map(({ version, kinds, iconDataUrl }) => ({ version, kinds, iconDataUrl })), [{ version: 1, kinds: ['2 themes'], iconDataUrl: null }]);
+    assert.match(source?.packs[0]?.description ?? '', /^Themes only/);
     assert.equal(fixture.rowNamed('night-shift'), undefined, 'adding a source installs nothing');
 
     const enabled = await fixture.packSources.setPackEnabled(source?.slug ?? '', 'night-shift', true);

@@ -1,6 +1,7 @@
 import type { PackRow, PackSourceRow } from '#shared/contracts/control/pack-messages.ts';
 import { SESSIONS_ACT_GRANT_TEXT } from '#shared/contracts/pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
+import { packKindLabels } from '#shared/pack-approval.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -249,15 +250,8 @@ function installedFrom(row: PackRow, sources: readonly PackSourceRow[]): { sourc
   return null;
 }
 
-function packKinds(row: PackRow): string[] {
-  const hasAgentFiles = row.agent !== null && (row.agent.context !== null || row.agent.skills.length > 0);
-  return [
-    ...(row.panels.length === 0 ? [] : ['Panel']),
-    ...(row.launchers.length === 0 ? [] : ['Launcher']),
-    ...(row.themes.length === 0 ? [] : [row.themes.length === 1 ? '1 theme' : `${row.themes.length} themes`]),
-    ...(hasAgentFiles ? ['Agent skills'] : []),
-    ...(row.prFlows ? ['PR commands'] : []),
-  ];
+function nameWithVersion(packName: string, version: number | null): string {
+  return version === null ? packName : `${packName} v${version}`;
 }
 
 function cardIcon(packName: string, iconUrl: string | null): HTMLElement {
@@ -304,10 +298,10 @@ function installedCard(row: PackRow, status: NonNullable<ReturnType<typeof packs
   const panelIconUrl = status.panels.find((panel) => panel.pack === row.name && panel.iconUrl !== null)?.iconUrl ?? null;
   const hasPanel = status.panels.some((panel) => panel.pack === row.name);
   const originText = origin === null ? (row.isPlacedByHand ? 'Placed by hand' : null) : sourceLabel(origin.source);
-  const metaText = [...packKinds(row), ...(originText === null ? [] : [originText])].join(' . ');
+  const metaText = [...packKindLabels(row), ...(originText === null ? [] : [originText])].join(' . ');
   const chipText = CHIP_TEXT_BY_STATE[row.state];
   const chip = chipText === null ? null : buildChip(`pack-${row.state}`, chipText);
-  const { card, body, actions } = cardShell(row.version === null ? row.name : `${row.name} v${row.version}`, panelIconUrl, metaText, chip);
+  const { card, body, actions } = cardShell(nameWithVersion(row.name, row.version), panelIconUrl, metaText, chip);
   card.dataset.packState = row.state;
   const problemText = row.errors[0] ?? (row.missingRequires.length === 0 ? null : `Missing here: ${row.missingRequires.join(', ')}`);
   if (problemText !== null) body.append(el('p', 'packs-card-problem', problemText));
@@ -317,8 +311,10 @@ function installedCard(row: PackRow, status: NonNullable<ReturnType<typeof packs
 }
 
 function discoverCard(source: PackSourceRow, pack: PackSourceRow['packs'][number]): HTMLElement {
-  const metaText = pack.isEnabled ? `${sourceLabel(source)} . enabled, but its installed folder is missing` : sourceLabel(source);
-  const { card, actions } = cardShell(pack.name, null, metaText, null);
+  const originText = pack.isEnabled ? `${sourceLabel(source)} . enabled, but its installed folder is missing` : sourceLabel(source);
+  const metaText = [...pack.kinds, originText].join(' . ');
+  const { card, body, actions } = cardShell(nameWithVersion(pack.name, pack.version), pack.iconDataUrl, metaText, null);
+  if (pack.description) body.append(el('p', 'packs-card-description', pack.description));
   const statusKey = `${source.slug}/${pack.name}`;
   if (pack.isEnabled) {
     actions.append(...sourceRemoveControls(statusKey, source.slug, pack.name));
@@ -362,7 +358,7 @@ function packsContent(): HTMLElement[] {
   const installedRows = status.packs.filter((row) => matchesSearch(row.name, row.description));
   const installedNames = new Set(status.packs.map((row) => row.name));
   const discoverCards = status.sources.flatMap((source) => source.packs
-    .filter((pack) => !installedNames.has(pack.name) && matchesSearch(pack.name, sourceLabel(source)))
+    .filter((pack) => !installedNames.has(pack.name) && matchesSearch(pack.name, pack.description, sourceLabel(source)))
     .map((pack) => discoverCard(source, pack)));
   const jumpToSources = button({ variant: 'secondary', size: 'small', label: 'Sources', action: 'packs-sources', onClick: () => document.getElementById('packs-sources')?.scrollIntoView({ block: 'start' }) });
   const installedEmptyText = status.packs.length === 0 ? 'No packs yet. Enable one under Discover, or copy a pack folder into ~/.glimmervoid/packs/.' : 'No installed pack matches.';

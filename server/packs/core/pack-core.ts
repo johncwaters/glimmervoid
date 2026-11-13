@@ -1,7 +1,10 @@
 import path from 'node:path';
-import type { PackRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
+import type { PackRow, PackSourceRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
 import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
-import type { PackAgent, PackLauncher, PackOnDisk, PackSessions, PackUi } from '../../../shared/contracts/pack.ts';
+import { packKindLabels } from '../../../shared/pack-approval.ts';
+import type { z } from 'zod';
+import { PackAgent, PackLaunchers, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackHeader, PackLauncher, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
@@ -183,6 +186,33 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
     files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors, isPlacedByHand,
   };
+}
+
+export const PACK_ICON_MAX_BYTES = 16 * 1024;
+export const SOURCE_ICONS_MAX_BYTES = 256 * 1024;
+
+type SourcePackDetails = Pick<PackSourceRow['packs'][number], 'version' | 'description' | 'kinds'> & { iconPath: string | null };
+
+function parsedOrNull<Value>(schema: z.ZodType<Value>, raw: unknown): Value | null {
+  if (raw === undefined) return null;
+  const parsed = schema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+export function sourcePackDetails(header: PackHeader): SourcePackDetails {
+  const ui = parsedOrNull(PackUi, header.ui);
+  const agent = parsedOrNull(PackAgent, header.agent);
+  const kinds = packKindLabels({
+    panels: ui?.panels ?? [], themes: ui?.themes ?? [], launchers: parsedOrNull(PackLaunchers, header.launchers) ?? [],
+    agent: agent === null ? null : { context: agent.context ?? null, skills: agent.skills },
+    prFlows: parsedOrNull(PackPrFlows, header.prFlows),
+  });
+  const iconPath = ui?.panels.find((panel) => panel.icon !== undefined)?.icon ?? null;
+  return { version: header.version, description: header.description ?? null, kinds, iconPath };
+}
+
+export function packIconDataUrl(iconBytes: Buffer): string {
+  return `data:image/svg+xml;base64,${iconBytes.toString('base64')}`;
 }
 
 export function pendingPackNote(row: PackRow): string {
