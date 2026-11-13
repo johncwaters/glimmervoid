@@ -4,6 +4,8 @@ import { reportToServerLog } from '../control-ws.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
 import { setPackThemes } from '../theme.ts';
 
+export const PACKS_TAB_HASH = '#packs';
+
 let latestPacksStatus: PacksStatus | null = null;
 const listeners = new Set<() => void>();
 
