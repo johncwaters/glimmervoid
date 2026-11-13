@@ -13,7 +13,7 @@ import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { DEFAULT_BRANCH_FALLBACKS, decideMarkerBase, defaultBranchFromRemoteHead, markerProbeCommands, originTrackingRefProbe, unlandedCommitCountArgs } from '../core/integration-branch-core.ts';
 import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { normalizeSha } from '../core/update-core.ts';
-import { isMissingFileError } from '../../shared/text.ts';
+import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { OwnedPathEntry, OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
@@ -30,6 +30,9 @@ import { createRebaseOps } from './workspace/rebase-ops.ts';
 import { createProbeOps } from './workspace/probe-ops.ts';
 import { createIntegrationOps } from './workspace/integration-ops.ts';
 import { clock } from '../../shared/clock.ts';
+import { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync } from '../trash-folder.ts';
+
+const WORKTREE_TRASH_LABEL = 'worktree';
 
 const fsp = fs.promises;
 
@@ -86,13 +89,34 @@ async function readGitPointerFile(filePath: string): Promise<string | null> {
   return fs.promises.readFile(filePath, 'utf8').catch(() => null);
 }
 
+function adminDirectoryFromPointer(pointer: string | null): string | null {
+  return pointer?.match(/^gitdir: (.+)$/m)?.[1]?.trim() || null;
+}
+
+type WorktreeLockState = 'unlocked' | 'locked' | 'unreadable';
+
+async function readWorktreeLockState(worktreePath: string): Promise<WorktreeLockState> {
+  const adminDirectory = adminDirectoryFromPointer(await readGitPointerFile(path.join(worktreePath, '.git')));
+  if (!adminDirectory) return 'unreadable';
+  const isLocked = await fs.promises.access(path.join(path.resolve(worktreePath, adminDirectory), 'locked')).then(() => true, () => false);
+  return isLocked ? 'locked' : 'unlocked';
+}
+
+function readWorktreeLockStateSync(worktreePath: string): WorktreeLockState {
+  const dotGit = path.join(worktreePath, '.git');
+  const isPointerFile = fs.statSync(dotGit, { throwIfNoEntry: false })?.isFile() ?? false;
+  const adminDirectory = adminDirectoryFromPointer(isPointerFile ? fs.readFileSync(dotGit, 'utf8') : null);
+  if (!adminDirectory) return 'unreadable';
+  return fs.existsSync(path.join(path.resolve(worktreePath, adminDirectory), 'locked')) ? 'locked' : 'unlocked';
+}
+
 async function gitCommonDirectoryKey(queuedPath: string): Promise<string> {
   let directory = await comparableDirectoryPath(queuedPath);
   for (;;) {
     const dotGit = path.join(directory, '.git');
     const dotGitStat = await fs.promises.stat(dotGit).catch(() => null);
     if (dotGitStat?.isDirectory()) return comparableDirectoryPath(dotGit);
-    const adminDirectory = (await readGitPointerFile(dotGit))?.match(/^gitdir: (.+)$/m)?.[1]?.trim();
+    const adminDirectory = adminDirectoryFromPointer(await readGitPointerFile(dotGit));
     if (adminDirectory) {
       const adminPath = path.resolve(directory, adminDirectory);
       const commonDirectory = (await readGitPointerFile(path.join(adminPath, 'commondir')))?.trim();
@@ -220,9 +244,26 @@ function createGitWorkspace(opts: {
 
   async function removeWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<GitResult> {
     if (isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) await runGitInProject(['worktree', 'unlock', worktreePath]);
-    const removed = await runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath]);
+    const trashFolder = await moveForcedRemovalToTrash(runGitInProject, worktreePath, removeFlags);
+    const removed = trashFolder === null
+      ? await runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath])
+      : await runGitInProject(['worktree', 'prune']);
+    if (trashFolder !== null) void deleteLeftoverTrash(path.dirname(trashFolder), WORKTREE_TRASH_LABEL, log);
     await forgetRemovedPath(worktreePath);
     return removed;
+  }
+
+  async function moveForcedRemovalToTrash(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<string | null> {
+    const forceCount = removeFlags.filter((flag) => flag === '--force').length;
+    if (forceCount === 0) return null;
+    const lockState = await readWorktreeLockState(worktreePath);
+    if (lockState === 'unreadable') return null;
+    if (lockState === 'locked' && forceCount === 1) return null;
+    if (lockState === 'locked' && !(await runGitInProject(['worktree', 'unlock', worktreePath])).ok) return null;
+    return moveFolderToTrash(worktreePath, WORKTREE_TRASH_LABEL).catch((error: unknown) => {
+      log.warn(`[git-workspace] could not move ${worktreePath} aside, so git removes it in place: ${errorMessage(error)}`);
+      return null;
+    });
   }
 
   async function forgetRemovedPath(ownedPath: string): Promise<void> {
@@ -752,11 +793,23 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
     if (cwd) {
       removeWorktreeLinks(cwd);
       if (isWorktreeHiddenFromGuardedSessions(cwd, glimmervoidHomes)) run(['worktree', 'unlock', cwd], projectPath);
-      run(['worktree', 'remove', '--force', cwd], projectPath);
+      const trashFolder = moveForcedRemovalToTrashSync(cwd);
+      run(trashFolder === null ? ['worktree', 'remove', '--force', cwd] : ['worktree', 'prune'], projectPath);
+      if (trashFolder !== null) void deleteLeftoverTrash(path.dirname(trashFolder), WORKTREE_TRASH_LABEL, log);
       if (!fs.existsSync(cwd)) void opts.ownedPaths?.forget(cwd);
     }
     if (branch) run(['branch', '-D', branch], projectPath);
     pruneWorktreeEntries(projectPath);
+  }
+
+  function moveForcedRemovalToTrashSync(worktreePath: string): string | null {
+    if (readWorktreeLockStateSync(worktreePath) !== 'unlocked') return null;
+    try {
+      return moveFolderToTrashSync(worktreePath, WORKTREE_TRASH_LABEL);
+    } catch (error) {
+      log.warn(`[git-workspace] could not move ${worktreePath} aside, so git removes it in place: ${errorMessage(error)}`);
+      return null;
+    }
   }
 
   function pruneWorktreeEntries(projectPath: string): void {

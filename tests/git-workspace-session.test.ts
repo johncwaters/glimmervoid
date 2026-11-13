@@ -892,6 +892,53 @@ test('listSessionWorktrees flags uncommitted work; removeWorktreeByPath removes 
   }
 });
 
+test('a forced removal finishes when git worktree remove would be killed mid-delete, and a foreign lock still refuses it', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  try {
+    const worktreesTooLargeToRemoveInTime = new Set<string>();
+    const killMidDelete = (args: string[], cwd: string): string => {
+      if (args.includes('worktree') && args.includes('remove') && worktreesTooLargeToRemoveInTime.has(args.at(-1) ?? '')) {
+        fs.rmSync(path.join(args.at(-1) ?? cwd, 'README.md'), { force: true });
+        throw new Error('git worktree remove timed out');
+      }
+      return git(args, cwd);
+    };
+    const gw = createGitWorkspace({ git: async (args, cwd) => killMidDelete(args, cwd) });
+    const gwSync = createGitWorkspaceSync({ git: killMidDelete });
+    const asyncRemoved = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'async', baseBranch: 'develop' });
+    const syncRemoved = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'sync', baseBranch: 'develop' });
+    const foreignLocked = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'locked', baseBranch: 'develop' });
+    worktreesTooLargeToRemoveInTime.add(asyncRemoved.cwd).add(syncRemoved.cwd);
+    fs.mkdirSync(path.join(asyncRemoved.cwd, 'node_modules', 'pkg'), { recursive: true });
+    fs.writeFileSync(path.join(asyncRemoved.cwd, 'node_modules', 'pkg', 'index.js'), 'ignored\n', 'utf8');
+    const discardedLocked = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'discarded', baseBranch: 'develop' });
+    git(['worktree', 'lock', '--reason', 'operator keeps this', foreignLocked.cwd], repo);
+    git(['worktree', 'lock', '--reason', 'operator keeps this', discardedLocked.cwd], repo);
+
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: asyncRemoved.cwd, branch: asyncRemoved.branch, cause: 'session' });
+    gwSync.removeWorktreeByPath({ projectPath: repo, cwd: syncRemoved.cwd, branch: syncRemoved.branch, cause: 'session' });
+    await gw.removeWorktreeByPath({ projectPath: repo, cwd: foreignLocked.cwd, branch: foreignLocked.branch, cause: 'session' });
+    await gw.removeWorkspaceMember({ projectPath: repo, cwd: discardedLocked.cwd, branch: discardedLocked.branch, shareList: [], cause: 'session', discardWork: true });
+
+    const listedWorktrees = git(['worktree', 'list', '--porcelain'], repo);
+    const localBranches = git(['branch', '--list', '--format=%(refname:short)'], repo);
+    for (const removed of [asyncRemoved, syncRemoved]) {
+      assert.ok(!fs.existsSync(removed.cwd), `${removed.cwd} is gone`);
+      assert.ok(!listedWorktrees.includes(path.basename(removed.cwd)), 'git no longer lists the removed worktree');
+      assert.ok(!localBranches.includes(branchOf(removed)), 'the session branch is deleted');
+    }
+    assert.ok(fs.existsSync(path.join(foreignLocked.cwd, 'README.md')), 'a worktree locked by someone else is left whole');
+    assert.ok(!fs.existsSync(discardedLocked.cwd), 'discarding a locked worktree removes its folder');
+    assert.ok(!listedWorktrees.includes(path.basename(discardedLocked.cwd)), 'discarding a locked worktree drops its git entry too');
+    const worktreeParent = path.dirname(asyncRemoved.cwd);
+    const hasTrashLeft = () => fs.readdirSync(worktreeParent).some((entryName) => entryName.startsWith('.deleting-worktree-'));
+    for (let attempt = 0; attempt < 50 && hasTrashLeft(); attempt += 1) await delay(20);
+    assert.equal(hasTrashLeft(), false, 'the moved-aside folders are deleted in the background');
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('an automatic removal keeps protected or freshly touched session work, journals each removal first, and skips one it cannot journal', { skip: !GIT }, async () => {
   const repo = initRepoOnDevelop();
   const journalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-removals-'));

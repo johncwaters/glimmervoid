@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Type straight into the terminal on your phone, with autocorrect.** The phone Terminal screen no longer has a separate text field with a Send button above the keys, so there is one place to type: tap the terminal and your keyboard types into the agent's own prompt. Suggestions, autocorrect and dictation now work there, and accepting a correction fixes the word in the prompt. Agent sessions capitalize the start of a sentence; shell sessions do not, so commands stay as you type them. Raw under More is gone, since typing always goes straight to the terminal now.
 - **The phone key strip fits on one row.** The keys under the phone terminal share the screen width instead of running past the edge, so More and the Keyboard key are always in reach without swiping the row sideways. The / and @ keys are gone from the strip because your keyboard types both, and / stays under More. In a full-screen app such as an editor or pager, q moves under More too.
 
+### Fixed
+
+- **Large worktrees no longer stay half deleted after a session ends.** Removing a big session worktree (one with its own `node_modules` and `.venv`) used to be cut off after 20 seconds, leaving most of its files behind where no later cleanup would touch them, so the disk slowly filled. Glimmervoid now moves the worktree aside in one step and deletes it in the background; a restart partway through leaves only the set-aside folder, which the next removal there clears. A worktree locked by someone else is still left alone.
+
 ## [0.58.2] - 2026-11-13
 
 ### Fixed

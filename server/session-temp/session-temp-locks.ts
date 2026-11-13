@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, unlinkSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { isMissingFileError } from '../../shared/text.ts';
+import { moveFolderToTrashSync } from '../trash-folder.ts';
 
 type FileLocks = Pick<typeof import('fs-native-extensions'), 'tryLock' | 'unlock' | 'waitForLockSync'>;
 
@@ -12,7 +12,6 @@ interface UnheldSessionTrashOptions {
 
 const LOCK_FILE_SUFFIX = '.lock';
 const SESSION_TEMP_GATE_FILE_NAME = 'session-temp.gate';
-const TRASH_FOLDER_PREFIX = '.deleting-';
 const LOCK_INSTANCE_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SESSION_ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -145,17 +144,6 @@ function sessionLockPathsIn(policyDir: string, sessionId: string): string[] {
     .map((entryName) => path.join(policyDir, entryName));
 }
 
-function moveFolderToTrash(sessionTempFolder: string, sessionId: string): string | null {
-  const trashFolder = path.join(path.dirname(sessionTempFolder), `${TRASH_FOLDER_PREFIX}${sessionId}-${randomUUID()}`);
-  try {
-    renameSync(sessionTempFolder, trashFolder);
-    return trashFolder;
-  } catch (error) {
-    if (isMissingFileError(error)) return null;
-    throw error;
-  }
-}
-
 interface TrashedSessionTempFolder {
   sessionTempFolder: string;
   trashFolder: string;
@@ -169,7 +157,7 @@ function trashFoldersIfEveryLockIsFree(locks: FileLocks, policyDir: string, sess
     if (claimedLockDescriptors.length !== lockPaths.length) return [];
     const trashedFolders: TrashedSessionTempFolder[] = [];
     for (const sessionTempFolder of sessionTempFolders) {
-      const trashFolder = moveFolderToTrash(sessionTempFolder, sessionId);
+      const trashFolder = moveFolderToTrashSync(sessionTempFolder, 'session-temp');
       if (trashFolder !== null) trashedFolders.push({ sessionTempFolder, trashFolder });
     }
     for (const lockPath of lockPaths) rmSync(lockPath, { force: true });
