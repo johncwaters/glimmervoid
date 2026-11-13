@@ -235,7 +235,7 @@ html[data-layout="phone"] .pr-link { display: inline-flex; align-items: center; 
   border-top: 1px solid var(--border-dim);
   padding-bottom: env(safe-area-inset-bottom);
 }
-html[data-layout="phone"] .phone-shell[data-keyboard="open"] .phone-nav { display: none; }
+html[data-layout="phone"] .phone-shell[data-keyboard="open"] :is(.phone-nav, .phone-terminal-bar:not(:focus-within)) { display: none; }
 .phone-nav-item {
   position: relative;
   flex: 1 1 0;
