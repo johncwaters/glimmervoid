@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **OpenCode sessions show live status like Claude Code.** An OpenCode 2 session now reports working, waiting for your permission or answer, and done from OpenCode's own events, rather than guessing from its window title. It also resumes the same conversation after a restart, takes its task title from OpenCode, and can reach Glimmervoid's tools. An idle `/compact` leaves the card as it was, and a subagent that is still running keeps the card working. Glimmervoid never writes your own OpenCode config. `glimmervoid doctor` shows the OpenCode version and how to install OpenCode 2 (`npm install -g @opencode/cli`) when it is missing or older.
+
 ## [0.58.2] - 2026-11-13
 
 ### Fixed

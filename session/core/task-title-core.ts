@@ -12,6 +12,7 @@ export interface TaskTitleVocabulary {
   readsTranscriptTitle: boolean;
   genericTitles: readonly string[];
   agentSuffix: string | null;
+  agentPrefix?: string;
   hookTitleField?: string;
 }
 
@@ -40,7 +41,11 @@ export function extractAiTitle(tail: string, hasPartialFirstLine = false): strin
 }
 
 export function extractOscTaskTitle(title: string, cwdBasename: string, vocabulary: TaskTitleVocabulary): string | null {
-  const withoutPrefix = title.replace(/^[\s\p{S}\u2800-\u28ff]+/u, '').replace(/^\[[^\]]*\]\s*(?:[^|]*\|\s*)?/, '').trim();
+  const withoutDecoration = title.replace(/^[\s\p{S}\u2800-\u28ff]+/u, '').replace(/^\[[^\]]*\]\s*(?:[^|]*\|\s*)?/, '').trim();
+  const prefix = vocabulary.agentPrefix;
+  const withoutPrefix = prefix && withoutDecoration.toLowerCase().startsWith(prefix.toLowerCase())
+    ? withoutDecoration.slice(prefix.length).trim()
+    : withoutDecoration;
   const suffix = vocabulary.agentSuffix;
   const withoutSuffix = suffix && withoutPrefix.toLowerCase().endsWith(suffix.toLowerCase())
     ? withoutPrefix.slice(0, -suffix.length)

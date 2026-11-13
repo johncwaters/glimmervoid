@@ -1,0 +1,10 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-opencode-subagent","agent":"opencode","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","prompt":"Use the task tool to start one general subagent that runs ls in the current directory and reports the file names. Wait for it, then reply with the single word done. "}}
+{"type":"hook","ts":2,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}
+{"type":"hook","ts":3,"event":"subagentstart","payload":{"hook_event_name":"SubagentStart","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","agent_id":"ses_e2969ea14ffe6s54PpW4BoBVkZ"}}
+{"type":"hook","ts":4,"event":"permissionrequest","payload":{"hook_event_name":"PermissionRequest","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","tool_name":"shell"}}
+{"type":"hook","ts":5,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}
+{"type":"hook","ts":6,"event":"permissionresult","payload":{"hook_event_name":"PermissionResult","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","tool_name":null}}
+{"type":"hook","ts":7,"event":"subagentstop","payload":{"hook_event_name":"SubagentStop","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","agent_id":"ses_e2969ea14ffe6s54PpW4BoBVkZ"}}
+{"type":"hook","ts":8,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}
+{"type":"hook","ts":9,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}

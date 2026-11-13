@@ -1,0 +1,3 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-opencode-idle-compaction","agent":"opencode","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"precompact","payload":{"hook_event_name":"PreCompact","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}
+{"type":"hook","ts":2,"event":"postcompact","payload":{"hook_event_name":"PostCompact","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}

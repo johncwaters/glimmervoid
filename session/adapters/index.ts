@@ -7,6 +7,7 @@ import qwen from "./qwen.ts";
 import copilot from "./copilot.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
+import opencode from "./opencode.ts";
 import shell from "./shell.ts";
 import { createCustomAdapter } from "./custom.ts";
 
@@ -100,8 +101,8 @@ interface GeneratedHomeLaunch {
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
-  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string };
-  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; homeEnvValue?: string } | { refusal: string };
+  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string; homeEnvValue?: string } | { refusal: string };
   releaseHome(home: string): void;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];
@@ -173,10 +174,6 @@ const DEFAULT_AGENT_ID = claudeCode.id;
 
 type AgentTier = "first-class" | "hooked" | "title-only" | "shell";
 
-const OPENCODE = createCustomAdapter(
-  { id: "opencode", label: "OpenCode", command: "opencode", args: [] },
-  { initialPromptArgs: (initialPrompt) => [`--prompt=${initialPrompt}`] },
-);
 const GOOSE = createCustomAdapter(
   { id: "goose", label: "Goose", command: "goose", args: ["session"] },
   { initialPromptArgs: (initialPrompt) => ["run", "--interactive", `--text=${initialPrompt}`] },
@@ -195,11 +192,11 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: claudeCode, tier: "first-class" },
   { adapter: codex, tier: "first-class" },
   { adapter: kimi, tier: "first-class" },
+  { adapter: opencode, tier: "hooked" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },
   { adapter: grok, tier: "hooked" },
-  { adapter: OPENCODE, tier: "title-only" },
   { adapter: GOOSE, tier: "title-only" },
   { adapter: CURSOR, tier: "title-only" },
   { adapter: shell, tier: "shell" },

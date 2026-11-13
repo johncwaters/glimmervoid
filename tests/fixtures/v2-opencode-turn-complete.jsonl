@@ -1,0 +1,4 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-opencode-turn-complete","agent":"opencode","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","prompt":"reply with the single word copperheron and nothing else"}}
+{"type":"hook","ts":2,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"ses_e296a3262ffeTEJ60Urzs2moly"}}
+{"type":"hook","ts":3,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"ses_e296a3262ffeTEJ60Urzs2moly"}}

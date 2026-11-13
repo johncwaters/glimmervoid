@@ -166,16 +166,16 @@ test('a session never inherits the password manager sign-in the server holds for
   });
 });
 
-test('a gemini session reports Sane YOLO off when the repo settings turn hooks off', async (t) => {
+test('Sane YOLO shows on only for an agent whose hooks carry the guard: gemini with hooks on, never opencode', async (t) => {
   const scratchRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-gemini-hooks-off-'));
   t.after(() => fsp.rm(scratchRoot, { recursive: true, force: true }));
   const projectDir = path.join(scratchRoot, 'project');
   await fsp.mkdir(path.join(scratchRoot, 'gemini-home', '.gemini'), { recursive: true });
   await fsp.mkdir(path.join(projectDir, '.gemini'), { recursive: true });
   const hookTools: NonNullable<SessionOptions['hookTools']> = [{ id: 'saneYolo', binPath: '/g/guard.js', launch: ['node', '/g/guard.js'] }];
-  async function saneYoloShownFor(id: string): Promise<boolean> {
+  async function saneYoloShownFor(id: string, agent = 'gemini'): Promise<boolean> {
     const { session } = makeSession({
-      id, name: id, path: projectDir, agent: 'gemini', hookTools,
+      id, name: id, path: projectDir, agent, hookTools,
       hookRouter: new HookRouter(), getHookPort: () => 41234,
       spawnEnv: { GEMINI_CLI_HOME: path.join(scratchRoot, 'gemini-home'), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') },
     });
@@ -189,6 +189,7 @@ test('a gemini session reports Sane YOLO off when the repo settings turn hooks o
   assert.equal(await saneYoloShownFor('gemini-hooks-on'), true);
   await fsp.writeFile(path.join(projectDir, '.gemini', 'settings.json'), '{ "hooksConfig": { "enabled": false } }');
   assert.equal(await saneYoloShownFor('gemini-hooks-off'), false);
+  assert.equal(await saneYoloShownFor('opencode-unguarded', 'opencode'), false);
 });
 
 test('an opencode first prompt starting with a dash reaches opencode as one --prompt= argument and stays out of the spawn log', async (t) => {

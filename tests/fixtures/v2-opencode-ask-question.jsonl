@@ -1,0 +1,6 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-opencode-ask-question","agent":"opencode","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","prompt":"Use your question tool to ask me whether I prefer red or blue, then reply with only my answer."}}
+{"type":"hook","ts":2,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}
+{"type":"hook","ts":3,"event":"elicitation","payload":{"hook_event_name":"Elicitation","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","tool_name":null}}
+{"type":"hook","ts":4,"event":"elicitationresult","payload":{"hook_event_name":"ElicitationResult","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation","tool_name":null}}
+{"type":"hook","ts":5,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"ses_e296a3262ffeTEJ60Urzs2moly","session_title":"Touch probe file creation"}}

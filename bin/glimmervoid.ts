@@ -168,7 +168,16 @@ const SUBCOMMAND_RUNNERS = new Map<string, SubcommandRunner>([
 const AGENT_INSTALL_COMMAND_BY_ID: Readonly<Record<string, string>> = {
   'claude-code': 'npm install -g @anthropic-ai/claude-code',
   codex: 'npm install -g @openai/codex',
+  opencode: 'npm install -g @opencode/cli',
 };
+
+const OPENCODE_MINIMUM_MAJOR_VERSION = 2;
+
+function openCodeVersionText(versionOutput: string): string {
+  const majorVersion = Number.parseInt(/(\d+)\.\d+/.exec(versionOutput)?.[1] ?? '', 10);
+  if (majorVersion >= OPENCODE_MINIMUM_MAJOR_VERSION) return versionOutput;
+  return `${versionOutput || 'unknown'}; Glimmervoid needs OpenCode ${OPENCODE_MINIMUM_MAJOR_VERSION} or later: ${AGENT_INSTALL_COMMAND_BY_ID.opencode}`;
+}
 
 function missingAgentText(agentId: string): string {
   const installCommand = AGENT_INSTALL_COMMAND_BY_ID[agentId];
@@ -324,6 +333,13 @@ async function runDoctor(): Promise<boolean> {
     const { describeAgentHome } = await import('../session/agent-home.ts');
     const { KIMI_HOME_PROFILE } = await import('../session/core/agent-home-core.ts');
     line('kimi home', describeAgentHome(KIMI_HOME_PROFILE, kimi.expectedHooksBlock()));
+    const { default: opencode } = await import('../session/adapters/opencode.ts');
+    const openCodeCommand = opencode.resolveCommand();
+    if (openCodeCommand.path) {
+      const { execFileSync } = await import('../server/child-process-safe.ts');
+      const versionCommand = opencode.buildSpawnCommand({ platform: process.platform, resolved: openCodeCommand, agentArgs: ['--version'] });
+      line('opencode version', openCodeVersionText(execFileSync(versionCommand.file, versionCommand.args, { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim()));
+    }
   } catch (err) {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }
