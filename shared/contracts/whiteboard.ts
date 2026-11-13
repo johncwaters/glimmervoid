@@ -114,6 +114,19 @@ export const MediaLink = z.object({
   syncedHash: AssetId.nullable().default(null).describe('the sha256 of the file at the last sync; leave null to take the file content on the next read'),
 }).strict().meta({ id: 'MediaLink' });
 
+const SOURCE_NAME_MAX = 255;
+const MediaSource = z.discriminatedUnion('from', [
+  z.object({
+    from: z.literal('file'),
+    path: z.string().min(1).max(4096, { error: 'a media source path is at most 4096 characters' }).describe('the absolute path on the Glimmervoid host the media was read from'),
+    sessionId: z.string().min(1).nullable().default(null).describe('the session that showed or attached it'),
+  }).strict(),
+  z.object({
+    from: z.literal('upload'),
+    name: z.string().min(1).max(SOURCE_NAME_MAX, { error: `an uploaded file name is at most ${SOURCE_NAME_MAX} characters` }).describe('the file name the operator uploaded from the dashboard'),
+  }).strict(),
+], { error: 'a media source is {"from":"file","path":...} or {"from":"upload","name":...}' }).meta({ id: 'MediaSource' });
+
 export const BoxMedia = z.object({
   kind: z.enum(BOARD_MEDIA_KINDS).describe('what the media is, as attach returned it'),
   asset: AssetId,
@@ -124,6 +137,7 @@ export const BoxMedia = z.object({
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
   dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
   link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read, and an operator save of a doc writes it'),
+  source: MediaSource.nullable().default(null).describe('the file this media came from, as attach returned it'),
 }).strict().meta({ id: 'BoxMedia' });
 
 export const BoardMediaUploadReply = z.object({ ok: z.literal(true), media: BoxMedia }).strict();
@@ -470,6 +484,36 @@ export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime
   return `${media.asset}${BOARD_MEDIA_EXTENSION_BY_MIME[media.mime]}`;
 }
 
+const UNSAVABLE_NAME_CHARACTERS = /[\\/"\u0000-\u001f\u007f]/g;
+const FALLBACK_SAVED_NAME = 'board-media';
+const LONE_SURROGATES = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+export function savableFileName(rawName: string): string | null {
+  const cleaned = rawName.replace(LONE_SURROGATES, '\ufffd').replace(UNSAVABLE_NAME_CHARACTERS, '').trim();
+  if (!cleaned || cleaned === '.' || cleaned === '..' || cleaned.length > SOURCE_NAME_MAX) return null;
+  return cleaned;
+}
+
+function sourceFileNameOf(source: MediaSource | null): string | null {
+  if (!source) return null;
+  if (source.from === 'upload') return source.name;
+  return source.path.split(/[\\/]/).pop() ?? null;
+}
+
+export function boardMediaSavedName(media: Pick<BoxMedia, 'mime' | 'source'>, boxTitle: string): string {
+  const sourceFileName = savableFileName(sourceFileNameOf(media.source) ?? '');
+  if (sourceFileName !== null) return sourceFileName;
+  const extension = BOARD_MEDIA_EXTENSION_BY_MIME[media.mime];
+  const titleName = [...(savableFileName(boxTitle) ?? FALLBACK_SAVED_NAME)].slice(0, SOURCE_NAME_MAX - extension.length).join('');
+  return titleName.toLowerCase().endsWith(extension) ? titleName : `${titleName}${extension}`;
+}
+
+export function boardMediaNamedPath(media: Pick<BoxMedia, 'asset' | 'mime' | 'source'>, boxTitle: string): string {
+  return `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}/${encodeURIComponent(boardMediaSavedName(media, boxTitle))}`;
+}
+
+export const BOARD_PAGE_SAVED_NAME_QUERY = 'name';
+
 export function boardPagePath(media: Pick<BoxMedia, 'asset'>): string {
   return `${FRAME_OPEN_ROUTE}${WHITEBOARD_PAGE_ROUTE}/${media.asset}/${BOARD_PAGE_ENTRY_PATH}`;
 }
@@ -490,9 +534,15 @@ function filledLine(line: z.input<typeof BoxLine>): BoxLine {
   return { text: line.text, muted: line.muted ?? false, style: line.style ?? 'text', key: line.key ?? null };
 }
 
+function filledSource(source: z.input<typeof MediaSource> | null | undefined): MediaSource | null {
+  if (!source) return null;
+  if (source.from === 'upload') return { from: 'upload', name: source.name };
+  return { from: 'file', path: source.path, sessionId: source.sessionId ?? null };
+}
+
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
   if (!media) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null };
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
 }
 
 function filledBox(box: SparseBox): Box {
@@ -536,6 +586,7 @@ export type Point = z.infer<typeof Point>;
 export type BoxLine = z.infer<typeof BoxLine>;
 export type BoxMedia = z.infer<typeof BoxMedia>;
 export type MediaLink = z.infer<typeof MediaLink>;
+type MediaSource = z.infer<typeof MediaSource>;
 export type LinkState = (typeof LINK_STATES)[number];
 export type LinkStateOfBox = z.infer<typeof LinkStateOfBox>;
 export type Dial = z.infer<typeof Dial>;

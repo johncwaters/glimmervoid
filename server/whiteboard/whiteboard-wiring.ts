@@ -966,7 +966,7 @@ function createWhiteboardWiring({
   }
 
   async function attachMedia(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
-    const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
+    const ingested = await assets.ingestFile(path.resolve(caller.cwd ?? boardsRoot, requestedPath), caller.id);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
     const note = withUnloadedNote(`put a box with "media":${JSON.stringify({ ...ingested.media, alt: '<what it shows>' })} ${attachedMediaUse(ingested.media)}`, ingested.unloaded);
     return { status: 200, body: { ok: true, media: ingested.media, note } };
@@ -1017,7 +1017,7 @@ function createWhiteboardWiring({
 
   async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean): Promise<WhiteboardReply> {
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
-    const ingested = await assets.ingestFile(sourcePath);
+    const ingested = await assets.ingestFile(sourcePath, caller.id);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
     if (isLinked && !isLinkableMediaKind(ingested.media.kind)) return refusal(400, `show links only a Markdown doc or an HTML page, and ${requestedPath} is a ${ingested.media.kind}, so nothing was shown`);
     const pageTitle = ingested.media.kind === 'page' ? await pageTitleOf(sourcePath) : null;

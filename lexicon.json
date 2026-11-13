@@ -772,6 +772,10 @@
     {
       "name": "tone",
       "definition": "Whether a header notice on the dashboard is an error (Failed red) or a warning (Needs Input amber); carried as tone on header_error_shown telemetry"
+    },
+    {
+      "name": "saved name",
+      "definition": "The file name a board media card saves under from the browser's own menus: its source file's name, its uploaded name, or its card title with the media's extension"
     }
   ],
   "retired": [
