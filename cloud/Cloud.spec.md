@@ -30,10 +30,15 @@ The watcher, which runs the probes the server compiles and nudges the server on 
   via: the watcher imports only the link contract, the link signing core and its own code, so it can run on a box with no server
   because: the watcher must run on a separate always-on box with no server code, and a server import would drag lane logic and secrets into it
   kinds: none
-- app tokens stay read-only and fill in: A doorman with a GitHub App gives its tenant watcher a read-only installation token scoped to the tenant's repositories, re-minted before the hour ends, hands the awake server the same token over the signed link for its lanes, and fills in only where no read token is set.
-  over: a tenant with an installation and no read token, the token's last ten minutes, and a server that sends an operator read token
-  via: a doorman with a GitHub App mints a read-only installation token for its tenant watcher, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge
-  because: the tenant server sleeps through most hours, so only the doorman can keep a one-hour token fresh, and an installation token cannot read notifications, so it must never displace a personal read token
+- app tokens stay read-only and fill in: A doorman with a GitHub App binds only the installations its tenant's own user token lists, gives the tenant watcher a read-only installation token scoped to the repositories that user reaches, re-mints before the hour ends, hands the awake server the same token over the signed link for its lanes, and fills in only where no read token is set.
+  over: a tenant that connected through the device flow, an installation where the user reaches no repository, the token's last ten minutes, and a server that sends an operator read token
+  via: a doorman with a GitHub App binds the installation its tenant connected through the device flow, mints a read-only installation token scoped to the repositories the user reaches, probes with it while the server sends no read token, re-mints before the hour ends, hands the awake server that token over the signed link, and leaves an operator read token in charge
+  because: an installation id from a redirect can be forged and an empty repository list mints for the whole installation, the tenant server sleeps through most hours so only the doorman can keep a one-hour token fresh, and an installation token cannot read notifications, so it must never displace a personal read token
+  kinds: none
+- user tokens have one writer: Only the doorman refreshes a tenant's GitHub user token, one refresh at a time, always from the newest sealed refresh token, and a refused refresh asks the carbon unit to reconnect.
+  over: concurrent callers, a doorman restart mid-refresh, a revoked refresh token, a disconnect during sign-in, and an App whose device flow is off
+  via: only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable
+  because: GitHub refresh tokens are single use and a refresh kills the old access and refresh tokens, so a second writer or a reused token loses the connection
   kinds: none
 - hosts wake from their status: A doorman's GCE host adapter resumes a suspended instance, starts a terminated one, waits out a state change and a passing Compute API error, suspends only a running instance, and fails a stop that leaves the instance anywhere but stopped.
   over: every instance status, a 429 or 5xx while reading the status, and a stop that finds the instance in repair

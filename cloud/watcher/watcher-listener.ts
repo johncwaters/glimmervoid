@@ -1,11 +1,24 @@
 import http from 'node:http';
 import { createRecentRequestIds, signedRequestFromHeaders, verifyRequest } from '../link/core/link-signing-core.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
-import type { AwakeUsage, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, HEALTH_PATH, HOST_STOP_PATH, MAX_LINK_BODY_BYTES, PROBE_SET_PATH, ProbeSet, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import type { AwakeUsage, GithubConnection, GithubTokenAnswer, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import type { ProbeRunner } from './probe-runner.ts';
 import { clock } from '../../shared/clock.ts';
 
 const LOOPBACK_HOST = '127.0.0.1';
+const NO_GITHUB_APP: GithubConnection = Object.freeze({ state: 'unavailable', reason: 'no-app' });
+
+type GithubConnectionControl = {
+  connect(): Promise<GithubConnection>;
+  connection(): Promise<GithubConnection>;
+  disconnect(): Promise<GithubConnection>;
+};
+
+const NO_GITHUB_CONNECTION_CONTROL: GithubConnectionControl = Object.freeze({
+  connect: async () => NO_GITHUB_APP,
+  connection: async () => NO_GITHUB_APP,
+  disconnect: async () => NO_GITHUB_APP,
+});
 
 function readBody(request: http.IncomingMessage): Promise<string | null> {
   return new Promise((resolve, reject) => {
@@ -38,11 +51,12 @@ function answer(response: http.ServerResponse, status: number, payload: unknown)
   response.end(JSON.stringify(payload));
 }
 
-function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), awakeUsage = () => null, now = clock.nowMs, log = console }: {
+function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-adapter', mintGithubToken = async () => ({ grant: null }), githubConnection = () => NO_GITHUB_CONNECTION_CONTROL, awakeUsage = () => null, now = clock.nowMs, log = console }: {
   runner: Pick<ProbeRunner, 'applyProbeSet' | 'applyCredentials' | 'status'>;
   signingKey: Buffer;
   stopHost?: () => Promise<HostStopOutcome>;
   mintGithubToken?: () => Promise<GithubTokenAnswer | null>;
+  githubConnection?: () => GithubConnectionControl;
   awakeUsage?: () => AwakeUsage | null;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
@@ -74,6 +88,9 @@ function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-
       if (tokenAnswer === null) return { status: 503, payload: { error: 'GitHub token mint failed' } };
       return { status: 200, payload: tokenAnswer };
     }
+    if (method === 'POST' && path === GITHUB_CONNECT_PATH) return { status: 200, payload: { connection: await githubConnection().connect() } };
+    if (method === 'GET' && path === GITHUB_CONNECTION_PATH) return { status: 200, payload: { connection: await githubConnection().connection() } };
+    if (method === 'POST' && path === GITHUB_DISCONNECT_PATH) return { status: 200, payload: { connection: await githubConnection().disconnect() } };
     return { status: 404, payload: { error: 'not found' } };
   }
 
@@ -132,3 +149,4 @@ function createWatcherListener({ runner, signingKey, stopHost = async () => 'no-
 }
 
 export { createWatcherListener };
+export type { GithubConnectionControl };

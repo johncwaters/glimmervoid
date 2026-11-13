@@ -2,15 +2,10 @@ import { z } from 'zod';
 
 export const DoormanGithubApp = z.strictObject({
   clientId: z.string().regex(/^[A-Za-z0-9.]{1,64}$/),
-  privateKeySecret: z.string().regex(/^projects\/[a-z0-9-]{1,63}\/secrets\/[A-Za-z0-9_-]{1,255}$/),
+  slug: z.string().regex(/^[a-z0-9-]{1,34}$/),
+  privateKeySecret: z.string().regex(/^projects\/[a-z0-9-]{1,63}\/secrets\/[A-Za-z0-9_-]{1,255}$/).nullable(),
 });
 export type DoormanGithubApp = z.infer<typeof DoormanGithubApp>;
-
-export const DoormanGithubInstallation = z.strictObject({
-  installationId: z.number().int().positive(),
-  repositories: z.array(z.string().regex(/^[A-Za-z0-9._-]{1,100}$/)).max(500).default([]),
-});
-export type DoormanGithubInstallation = z.infer<typeof DoormanGithubInstallation>;
 
 export const DoormanGcpHost = z.strictObject({
   kind: z.literal('gcp'),
@@ -25,7 +20,6 @@ export const DoormanTenant = z.strictObject({
   serverUrl: z.url({ protocol: /^https?$/ }),
   linkSecretPath: z.string().min(1),
   watcherHome: z.string().min(1),
-  githubInstallation: DoormanGithubInstallation.nullable().default(null),
   awakeHoursPerMonth: z.number().positive().nullable().default(null),
   host: DoormanGcpHost.nullable().default(null),
 });

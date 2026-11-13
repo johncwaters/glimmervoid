@@ -12,6 +12,9 @@ export const HEALTH_PATH = `${WATCHER_PATH_PREFIX}healthz`;
 export const HOST_STOP_PATH = `${WATCHER_PATH_PREFIX}host-stop`;
 export const GITHUB_TOKEN_PATH = `${WATCHER_PATH_PREFIX}github-token`;
 export const AWAKE_USAGE_PATH = `${WATCHER_PATH_PREFIX}awake-usage`;
+export const GITHUB_CONNECT_PATH = `${WATCHER_PATH_PREFIX}github-connect`;
+export const GITHUB_CONNECTION_PATH = `${WATCHER_PATH_PREFIX}github-connection`;
+export const GITHUB_DISCONNECT_PATH = `${WATCHER_PATH_PREFIX}github-disconnect`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
@@ -123,3 +126,22 @@ export const GithubTokenGrant = z.strictObject({ token: z.string().min(1), expir
 export type GithubTokenGrant = z.infer<typeof GithubTokenGrant>;
 export const GithubTokenAnswer = z.strictObject({ grant: GithubTokenGrant.nullable() });
 export type GithubTokenAnswer = z.infer<typeof GithubTokenAnswer>;
+
+const PositiveInt = z.number().int().positive();
+export const GithubLogin = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/);
+export const MAX_BOUND_INSTALLATIONS = 100;
+export const GithubReconnectReason = z.enum(['expired', 'revoked']);
+export type GithubReconnectReason = z.infer<typeof GithubReconnectReason>;
+
+export const GithubConnection = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('unavailable'), reason: z.enum(['no-app', 'device-flow-off', 'user-tokens-never-expire']) }),
+  z.strictObject({ state: z.literal('disconnected') }),
+  z.strictObject({ state: z.literal('awaiting-code'), userCode: z.string().min(1).max(20), verificationUri: z.url({ protocol: /^https$/ }), expiresAtMs: PositiveInt }),
+  z.strictObject({ state: z.literal('needs-install'), login: GithubLogin, installUrl: z.url({ protocol: /^https$/ }) }),
+  z.strictObject({ state: z.literal('connected'), login: GithubLogin, accounts: z.array(GithubLogin).max(MAX_BOUND_INSTALLATIONS), refreshTokenExpiresAtMs: PositiveInt }),
+  z.strictObject({ state: z.literal('reconnect-needed'), login: GithubLogin, reason: GithubReconnectReason }),
+]);
+export type GithubConnection = z.infer<typeof GithubConnection>;
+
+export const GithubConnectionAnswer = z.strictObject({ connection: GithubConnection });
+export type GithubConnectionAnswer = z.infer<typeof GithubConnectionAnswer>;
