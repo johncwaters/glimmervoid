@@ -105,7 +105,6 @@ const TYPED_INPUTS = new Set(['insertText', 'insertReplacementText', 'insertFrom
 const PARAGRAPH_INPUTS = new Set(['insertParagraph', 'insertLineBreak']);
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const CLOSE_UP_PATH = 'M1 6 Q6 0 11 6 M1 10 Q6 16 11 10';
-const DELETE_LOOP_PATH = 'M1 13 C3 4 12 2 11 7 C10 11 4 10 6 5 L9 1';
 const PREVIEW_BLOCK_NAMES: Record<PreviewBlockKind, string> = { table: 'table', fence: 'code block', image: 'image' };
 const WEB_IMAGE_SOURCE = /^https?:\/\//i;
 
@@ -253,7 +252,7 @@ function buildInsertionContent(mark: MarkSegment): Node[] {
 
 function buildDeletionContent(mark: MarkSegment): Node[] {
   if (mark.oldText.trim() === '') return [buildPenGlyph('doc-markup-closeup', '0 0 12 16', CLOSE_UP_PATH)];
-  return [el('del', null, mark.oldText), buildPenGlyph('doc-markup-delete-loop', '0 0 14 14', DELETE_LOOP_PATH)];
+  return [el('del', null, mark.oldText)];
 }
 
 function buildSubstitutionContent(mark: MarkSegment): Node[] {

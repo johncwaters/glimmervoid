@@ -78,7 +78,6 @@
 .doc-markup-inserted { color: var(--pen-ink); font-family: 'ComicMono', var(--font-mono); text-decoration: none; filter: url(#doc-markup-ink); }
 .doc-markup-mark del + .doc-markup-inserted { margin-inline-start: 0.3em; }
 .doc-markup-glyph { width: 0.6em; height: 0.8em; fill: none; stroke: var(--pen-ink); stroke-width: 1.6; stroke-linecap: round; filter: url(#doc-markup-ink); }
-.doc-markup-delete-loop { margin-inline-start: -0.15em; vertical-align: 0.35em; }
 .doc-markup-closeup { vertical-align: -0.1em; }
 .doc-markup-space { font-weight: 700; }
 .doc-markup-period { display: inline-block; min-width: 1em; border: 1.5px solid var(--pen-ink); border-radius: 50%; line-height: 1; text-align: center; }
