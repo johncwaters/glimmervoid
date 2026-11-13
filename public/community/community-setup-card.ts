@@ -2,7 +2,7 @@ import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -46,9 +46,10 @@ function textInput(id: string, value: string, placeholder: string, type: string)
   const input = el('input', 'dialog-input repo-roots-adder-input');
   input.id = id;
   input.type = type;
+  input.autocomplete = 'off';
+  if (type !== 'password') markAsNotCredential(input);
   input.value = value;
   input.placeholder = placeholder;
-  input.autocomplete = 'off';
   input.spellcheck = false;
   return input;
 }

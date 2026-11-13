@@ -8,7 +8,7 @@ import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaOriginalFilename, boardPagePath, dialValuesOfBox, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
-import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { wireColumnResizer } from '../column-resizer.ts';
 import { button, menuButton } from '../ui/button.ts';
@@ -133,12 +133,11 @@ let historyQueue: Promise<unknown> = Promise.resolve();
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
-  const input = el('input', 'dialog-input');
+  const input = markAsNotCredential(el('input', 'dialog-input'));
   input.type = 'text';
   input.placeholder = options.placeholder;
   input.maxLength = options.maxLength;
   input.value = options.initialValue ?? '';
-  input.autocomplete = 'off';
   input.setAttribute('aria-label', options.label);
   const errorEl = el('div', 'dialog-error');
   errorEl.setAttribute('role', 'alert');
@@ -311,7 +310,7 @@ function startTitleRename(): void {
   const summary = selectedSummary();
   if (!parts || !summary || isRenamingTitle()) return;
   const { boardTitle } = parts;
-  const input = el('input', TITLE_RENAME_CLASS);
+  const input = markAsNotCredential(el('input', TITLE_RENAME_CLASS));
   input.type = 'text';
   input.value = summary.title;
   input.maxLength = WHITEBOARD_LIMITS.title;

@@ -3,7 +3,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from
 import { sendControlRequest } from '../control-ws.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
-import { el, query, queryTag } from '../dom-helpers.ts';
+import { el, markAsNotCredential, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
@@ -111,14 +111,14 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   if (taskField) query(dialog, '#add-session-unprotected').before(taskField.field);
 
   const pickEl = query(dialog, '#add-session-pick');
-  const findInput = queryTag(dialog, '#add-session-find', 'input');
+  const findInput = markAsNotCredential(queryTag(dialog, '#add-session-find', 'input'));
   const listEl = query(dialog, '#add-session-list');
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const repoRootsTitleEl = query(dialog, '#add-session-repo-roots-title');
   const workspacePanel = query(dialog, '#add-session-workspace');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
   const folderPanel = query(dialog, '#add-session-folder');
-  const pathInput = queryTag(dialog, '#add-session-path', 'input');
+  const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
   const accountEl = query(dialog, '#add-session-account');
   const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');

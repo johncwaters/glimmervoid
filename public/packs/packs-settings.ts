@@ -4,7 +4,7 @@ import { REVIEW_ACTIONS_GRANT_TEXT } from '#shared/contracts/reviews.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { approvalDetails } from '../github/my-prs-panel.ts';
 import { buildChip } from '../settings/settings-readouts.ts';
 import { button } from '../ui/button.ts';
@@ -108,7 +108,7 @@ function sourceArticle(source: PackSourceRow): HTMLElement {
 
 function addSourceForm(): HTMLElement {
   const form = el('div', 'settings-view-pack-source-add');
-  const input = el('input', 'settings-view-input');
+  const input = markAsNotCredential(el('input', 'settings-view-input'));
   input.type = 'url';
   input.placeholder = 'https://github.com/owner/packs';
   input.value = draftSourceUrl;

@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The daily Your day tip greets you by the time of day.** It said Morning even when the day's first look came in the evening; it now says Morning before noon, Afternoon until 5 pm and Evening after that.
+- **Password managers stop popping up over plain dashboard fields.** Bitwarden, 1Password, LastPass and Dashlane no longer offer to fill or save a login in fields that hold no secret, such as the onboarding path field, session and board names, searches, numbers and notes. Fields that hold a real secret, such as a secret an agent asks for, the lanes' GitHub read token and the token fields in Settings, still get your password manager's help.
 - **Lines with emoji no longer scramble in a session's terminal.** Tables and status lines that start with an emoji showed shifted columns and leftover letters, because the dashboard counted an emoji as one column while Claude Code, Codex and Kimi Code count it as two. The terminal and the screen kept for reconnects now use the same widths as the agents.
 
 ### Removed

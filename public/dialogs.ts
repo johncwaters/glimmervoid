@@ -4,7 +4,7 @@ import { sendControlRequest } from './control-ws.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, InstallDetail } from '#shared/contracts/control-messages.ts';
 import { agentAccountOf, agentAccountSummary, applyAgentAccounts, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, refreshAgentAccounts } from './agent-logins.ts';
-import { el, query, queryTag, writeClipboardText } from './dom-helpers.ts';
+import { el, markAsNotCredential, query, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
@@ -52,7 +52,7 @@ function mountSignInDialog(binding: SignInDialogBinding) {
   const codeRowEl = query(dialog, '#agent-connect-code-row');
   const codeEl = query(dialog, '#agent-connect-code');
   const pasteLabelEl = query(dialog, '#agent-connect-paste-label');
-  const pasteInput = queryTag(dialog, '#agent-connect-paste', 'input');
+  const pasteInput = markAsNotCredential(queryTag(dialog, '#agent-connect-paste', 'input'));
   const errorEl = query(dialog, '#agent-connect-error');
   const closeButton = button({ variant: 'secondary', label: 'Close' });
   const stopButton = button({ variant: 'secondary', label: 'Stop sign-in', hidden: true });

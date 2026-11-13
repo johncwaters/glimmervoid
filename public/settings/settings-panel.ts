@@ -3,7 +3,7 @@ import { renderFlyingAnimalsGallery } from '../flying-animals-gallery.ts';
 import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import { REPO_SLUG } from '#shared/repo.ts';
 import { loadCustomSounds, resolveSoundId } from '../alert-sound.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
@@ -510,7 +510,7 @@ function mountSettingsView(container: HTMLElement) {
   rootEl.textContent = '';
   shellEl = el('div', 'settings-view-shell');
   const sidebar = el('div', 'settings-view-sidebar');
-  searchEl = el('input', 'settings-view-search');
+  searchEl = markAsNotCredential(el('input', 'settings-view-search'));
   searchEl.type = 'search';
   searchEl.placeholder = 'Search settings';
   searchEl.setAttribute('aria-label', 'Search settings');

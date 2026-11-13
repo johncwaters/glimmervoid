@@ -1,4 +1,4 @@
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
@@ -164,7 +164,7 @@ export function buildMarkupPane(): MarkupPane {
   const btnRedo = markCardButton('Redo', 'redo-doc-edit', REDO_ICON_PATH);
   const btnPreviewAll = button({ variant: 'secondary', size: 'small', label: 'Preview all', action: 'preview-all-blocks', hidden: true });
   btnPreviewAll.setAttribute('aria-pressed', 'false');
-  const noteInput = el('input', 'plan-control doc-markup-input');
+  const noteInput = markAsNotCredential(el('input', 'plan-control doc-markup-input'));
   noteInput.type = 'text';
   noteInput.placeholder = 'Note, or a code like wc: or awk:';
   noteInput.setAttribute('aria-label', 'Note on the selected text');

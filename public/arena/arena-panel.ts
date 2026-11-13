@@ -6,7 +6,7 @@ import { REMOVED_CONTESTANT, raceProgress, recallStanding, seriesKey, seriesStan
 import { BADGE_LABELS } from '#shared/states.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import './arena-panel.css';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
@@ -446,7 +446,7 @@ function buildCheckField(): HTMLElement {
   command.querySelector('input')?.setAttribute('placeholder', 'npm test');
   const timeout = el('label', 'arena-field');
   timeout.append(el('span', 'arena-field-label', 'Check time limit in seconds'));
-  const timeoutInput = el('input', 'settings-view-input');
+  const timeoutInput = markAsNotCredential(el('input', 'settings-view-input'));
   timeoutInput.type = 'number';
   timeoutInput.min = '5';
   timeoutInput.max = '3600';
@@ -463,7 +463,7 @@ function buildCheckField(): HTMLElement {
 function buildTimeLimitField(): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', 'Time limit in minutes, empty for none'));
-  const input = el('input', 'settings-view-input');
+  const input = markAsNotCredential(el('input', 'settings-view-input'));
   input.type = 'number';
   input.min = '1';
   input.max = '720';
@@ -479,7 +479,7 @@ function buildTimeLimitField(): HTMLElement {
 function buildRoundsField(): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', `Rounds, 1 to ${RACE_MAX_ROUNDS}, run one after another`));
-  const input = el('input', 'settings-view-input');
+  const input = markAsNotCredential(el('input', 'settings-view-input'));
   input.type = 'number';
   input.min = '1';
   input.max = String(RACE_MAX_ROUNDS);
@@ -495,7 +495,7 @@ function buildRoundsField(): HTMLElement {
 function textField(label: string, value: string, onInput: (value: string) => void, isMultiline = false): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', label));
-  const input = isMultiline ? el('textarea', 'settings-view-input arena-prompt') : el('input', 'settings-view-input');
+  const input = isMultiline ? el('textarea', 'settings-view-input arena-prompt') : markAsNotCredential(el('input', 'settings-view-input'));
   input.value = value;
   input.addEventListener('input', () => onInput(input.value));
   field.append(input);
@@ -647,7 +647,7 @@ function openCasePicker(onPicked: () => void): void {
       })
       .catch((reason: unknown) => { statusEl.textContent = `Could not list the review cases: ${reason instanceof Error ? reason.message : String(reason)}`; });
   };
-  const repoInput = el('input', 'settings-view-input');
+  const repoInput = markAsNotCredential(el('input', 'settings-view-input'));
   repoInput.placeholder = 'owner/repo';
   repoInput.setAttribute('aria-label', 'Repository to mine merged pull requests from');
   repoInput.value = draft.reviewCase?.repo ?? '';

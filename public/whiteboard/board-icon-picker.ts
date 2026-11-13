@@ -1,6 +1,6 @@
 import type { IconName } from '#shared/contracts/whiteboard.ts';
 import { ICON_CATALOG, ICON_CATEGORIES, ICON_NAMES } from '#shared/whiteboard-icons.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { createLineIcon, createSvgIcon, PLUS_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 
@@ -37,7 +37,7 @@ export function iconPicker({ field, icon, isRequired, accessibleName, commit }: 
   const popover = el('div', 'wb-icon-popover');
   popover.hidden = true;
   popover.tabIndex = -1;
-  const search = el('input', 'wb-inspect-input wb-icon-search');
+  const search = markAsNotCredential(el('input', 'wb-inspect-input wb-icon-search'));
   search.type = 'search';
   search.placeholder = 'search icons';
   search.setAttribute('aria-label', `Search icons for ${accessibleName}`);

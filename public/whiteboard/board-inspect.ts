@@ -6,7 +6,7 @@ import { BOX_SHAPES, isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-sh
 import type { BoxShape } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
@@ -93,7 +93,7 @@ function inlineRow(...controls: HTMLElement[]): HTMLElement {
 }
 
 function textField(field: string, value: string, maxLength: number, commit: (value: string) => void, accessibleName?: string): HTMLInputElement {
-  const input = el('input', 'wb-inspect-input');
+  const input = markAsNotCredential(el('input', 'wb-inspect-input'));
   input.type = 'text';
   input.value = value;
   input.maxLength = maxLength;
@@ -221,7 +221,7 @@ function linkedFileStatusText(media: BoxMedia, linkState: LinkStateOfBox | null)
 }
 
 function linkedFileSection(media: BoxMedia, linkState: LinkStateOfBox | null, latestMedia: () => BoxMedia | null, set: FieldCommit): HTMLElement {
-  const pathInput = el('input', 'wb-inspect-input');
+  const pathInput = markAsNotCredential(el('input', 'wb-inspect-input'));
   pathInput.type = 'text';
   pathInput.value = media.link?.path ?? '';
   pathInput.maxLength = MediaLink.shape.path.maxLength ?? WHITEBOARD_LIMITS.ref;

@@ -1,6 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
 
@@ -42,11 +42,10 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   const typedLabel = el('label', 'repo-roots-adder-label', 'TYPE A PATH');
   typedLabel.htmlFor = typedInputId;
   const typedRow = el('div', 'repo-roots-adder-row');
-  const typedInput = el('input', 'dialog-input repo-roots-adder-input');
+  const typedInput = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
   typedInput.id = typedInputId;
   typedInput.type = 'text';
   typedInput.placeholder = '/path/to/your/checkouts';
-  typedInput.autocomplete = 'off';
   typedInput.spellcheck = false;
   const typedAddButton = button({ variant: 'secondary', label: 'Add' });
   typedAddButton.disabled = true;

@@ -17,6 +17,19 @@ export function el<Tag extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+const PASSWORD_MANAGER_OPT_OUT_ATTRIBUTES: readonly (readonly [string, string])[] = [
+  ['data-bwignore', ''],
+  ['data-1p-ignore', ''],
+  ['data-lpignore', 'true'],
+  ['data-form-type', 'other'],
+];
+
+export function markAsNotCredential(input: HTMLInputElement): HTMLInputElement {
+  input.autocomplete = 'off';
+  for (const [attributeName, value] of PASSWORD_MANAGER_OPT_OUT_ATTRIBUTES) input.setAttribute(attributeName, value);
+  return input;
+}
+
 export function elWithMarkup<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, className: string, trustedMarkup: string): HTMLElementTagNameMap[Tag] {
   const element = el(tag, className);
   element.innerHTML = trustedMarkup;

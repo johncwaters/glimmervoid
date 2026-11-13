@@ -2,7 +2,7 @@ import './hooks-panel.css';
 import { sendControlRequest } from './control-ws.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
-import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
+import { buildPanelSection, buildStatChip, el, isPanelHidden, markAsNotCredential, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
@@ -138,10 +138,9 @@ function buildField(label: string, control: HTMLElement, hint: string | null) {
 }
 
 function buildInput(value: string, placeholder: string, onInput: (value: string) => void) {
-  const input = el('input', 'settings-view-input');
+  const input = markAsNotCredential(el('input', 'settings-view-input'));
   input.type = 'text';
   input.value = value;
-  input.autocomplete = 'off';
   input.spellcheck = false;
   if (placeholder) input.placeholder = placeholder;
   input.addEventListener('input', () => onInput(input.value));
@@ -278,7 +277,7 @@ function buildEditor(draft: HookDraft) {
   };
   syncMatcher();
 
-  const timeoutInput = el('input', 'settings-view-input hooks-timeout');
+  const timeoutInput = markAsNotCredential(el('input', 'settings-view-input hooks-timeout'));
   timeoutInput.type = 'number';
   timeoutInput.inputMode = 'numeric';
   timeoutInput.min = '1';
@@ -455,7 +454,7 @@ function buildTotalsSection() {
 }
 
 function buildFilter() {
-  const input = el('input', 'settings-view-input hooks-filter');
+  const input = markAsNotCredential(el('input', 'settings-view-input hooks-filter'));
   input.type = 'search';
   input.value = _filter;
   input.placeholder = FILTER_PLACEHOLDER;

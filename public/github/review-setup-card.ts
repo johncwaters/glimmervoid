@@ -2,7 +2,7 @@ import type { GithubTeam, OperatorActionOf } from '#shared/contracts/control-mes
 import { button } from '../ui/button.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { applySettingsBroadcast, subscribeSettings } from '../settings/settings-store.ts';
@@ -19,11 +19,10 @@ function reportReviewSetupAction(action: OperatorActionOf<'onboarding'>): void {
 }
 
 function typedTextInput(inputId: string, placeholder: string): HTMLInputElement {
-  const input = el('input', 'dialog-input repo-roots-adder-input');
+  const input = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
   input.id = inputId;
   input.type = 'text';
   input.placeholder = placeholder;
-  input.autocomplete = 'off';
   input.spellcheck = false;
   return input;
 }

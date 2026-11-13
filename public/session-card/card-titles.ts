@@ -1,5 +1,6 @@
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH } from '#shared/contracts/session.ts';
 import { firstCodePoints } from '#shared/text.ts';
+import { markAsNotCredential } from '../dom-helpers.ts';
 import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
 import { sessionActionStatus, sendSessionAction } from './card-actions.ts';
@@ -25,7 +26,7 @@ export function paintTaskTitle(titleEl: HTMLElement, taskTitle: string | null | 
 export function startInlineTitleEdit(ui: SessionUi, sessionId: string) {
   const targetEl = ui.titleTargetEl?.isConnected ? ui.titleTargetEl : ui.taskTitleEl;
   if (targetEl.querySelector('input')) return;
-  const input = document.createElement('input');
+  const input = markAsNotCredential(document.createElement('input'));
   input.type = 'text';
   input.className = 'session-title-input';
   input.setAttribute('aria-label', 'Task');
@@ -83,7 +84,7 @@ export function startInlineRename(ui: SessionUi, sessionId: string, { returnsFoc
 
   const nameBeforeEdit = ui.card?.dataset.session ?? targetEl.textContent ?? '';
 
-  const input = document.createElement('input');
+  const input = markAsNotCredential(document.createElement('input'));
   input.type = 'text';
   input.className = RENAME_INPUT_CLASS;
   input.value = nameBeforeEdit;

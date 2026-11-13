@@ -4,7 +4,7 @@ import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { BODY_LINE_HEIGHT } from '#shared/whiteboard-svg-core.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { menuButton } from '../ui/button.ts';
 import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
@@ -827,7 +827,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function editTitle(elementId: string): void {
     const titled = options.currentBoard()?.elements.get(elementId);
     if (titled?.kind !== 'box' || !renderer.boxTextRectsOf(elementId)) return;
-    const input = el('input', 'wb-title-input');
+    const input = markAsNotCredential(el('input', 'wb-title-input'));
     input.type = 'text';
     input.value = titled.title;
     input.maxLength = WHITEBOARD_LIMITS.title;
@@ -966,11 +966,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const storedText = draftLine.text;
     let shownKey = '';
     const editor = el('div', 'wb-line-editor');
-    const keyInput = el('input', 'wb-line-key');
+    const keyInput = markAsNotCredential(el('input', 'wb-line-key'));
     keyInput.type = 'text';
     keyInput.maxLength = WHITEBOARD_LIMITS.lineKey;
     keyInput.setAttribute('aria-label', 'Line key');
-    const textInput = el('input', 'wb-line-text');
+    const textInput = markAsNotCredential(el('input', 'wb-line-text'));
     textInput.type = 'text';
     textInput.maxLength = WHITEBOARD_LIMITS.line;
     textInput.value = storedText;

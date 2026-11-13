@@ -2,7 +2,7 @@ import { writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { pullRequestKeyFromReference } from '#shared/contracts/control-messages.ts';
 import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { CLOSE_ICON_PATH, SWITCH_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { openSwitchAccountDialog } from './card-account.ts';
@@ -208,10 +208,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 function openLinkPullRequestDialog(sessionId: string) {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Pull requests' });
   const hint = el('p', 'dialog-message', 'Link one by pasting a GitHub pull request URL or owner/repo#number.');
-  const input = el('input', 'dialog-input');
+  const input = markAsNotCredential(el('input', 'dialog-input'));
   input.type = 'text';
   input.placeholder = 'owner/repo#123';
-  input.autocomplete = 'off';
   input.spellcheck = false;
   input.setAttribute('aria-label', 'Pull request URL or owner/repo#number');
   const errorEl = el('div', 'dialog-error');

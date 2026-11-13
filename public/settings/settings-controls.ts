@@ -1,5 +1,5 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import { el } from '../dom-helpers.ts';
+import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createLineIcon } from '../svg-dom.ts';
@@ -205,6 +205,7 @@ function renderInput(setting: SettingsSetting) {
     input.setAttribute('aria-description', `Supplied by ${environmentSource}`);
   }
   input.autocomplete = 'off';
+  if (setting.control !== 'password') markAsNotCredential(input);
   input.spellcheck = false;
   input.setAttribute('aria-labelledby', setting.id);
   attachSuggestions(setting, input);
@@ -224,7 +225,7 @@ function renderInput(setting: SettingsSetting) {
 }
 
 function renderNumber(setting: SettingsSetting) {
-  const input = el('input', 'settings-view-input');
+  const input = markAsNotCredential(el('input', 'settings-view-input'));
   const range = displayRange(setting);
   input.type = 'number';
   const stored = () => numberDraftOf(storedValue(setting));
@@ -233,7 +234,6 @@ function renderNumber(setting: SettingsSetting) {
   const minimum = range ? inputMinimum(setting, range) : undefined;
   if (minimum != null) input.min = String(minimum);
   if (range?.max != null) input.max = String(range.max);
-  input.autocomplete = 'off';
   input.setAttribute('aria-labelledby', setting.id);
   trackDraft(setting, input);
   bindDraftCommit(input, () => commitFieldDraft(setting, input, stored(), input.validity.badInput), () => restoreFieldDraft(setting, input, stored()));
