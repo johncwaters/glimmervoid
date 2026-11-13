@@ -43,9 +43,9 @@ import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
-import type { WhiteboardLayouts } from '../whiteboard/whiteboard-wiring.ts';
+import type { WhiteboardLayouts, WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
-import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_SAVED_NAME_QUERY, savableFileName } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_FILE_CAP_BYTES, BOARD_FILE_DOWNLOAD_NAME, BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_SAVED_NAME_QUERY, savableFileName } from '../../shared/contracts/whiteboard.ts';
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
@@ -122,6 +122,7 @@ interface BackendHttpDependencies {
   frameSecret?: Buffer;
   getWhiteboardAssets?: () => WhiteboardAssetStore | null;
   getWhiteboardLayouts?: () => WhiteboardLayouts | null;
+  getWhiteboardFiles?: () => WhiteboardFiles | null;
   getPrActionReports?: () => Pick<PrFlowsWiring, 'acceptPrActionReport'> | null;
   sshSigner?: Pick<SshSigner, 'sign'> | null;
   githubUserCredential?: () => Promise<GithubUserGrant | null>;
@@ -368,6 +369,39 @@ function serveBoardAsset(req: Request, res: Response, servable: { path: string; 
   Promise.all([fsp.stat(servable.path), pagePreludeOffsetOf(servable.path)]).then(([stats, preludeOffset]) => sendBoardPage(res, servable, stats.size, preludeOffset), answerMissing);
 }
 
+async function reserveIncomingUnlessAborted(req: Request, assets: WhiteboardAssetStore): Promise<string | null> {
+  let isAbortedBeforeReceive = false;
+  const markAbortedBeforeReceive = () => { isAbortedBeforeReceive = true; };
+  req.on('error', markAbortedBeforeReceive);
+  const incomingPath = await assets.reserveIncomingPath();
+  req.off('error', markAbortedBeforeReceive);
+  return isAbortedBeforeReceive || req.destroyed ? null : incomingPath;
+}
+
+type WhiteboardFiles = Pick<WhiteboardPort['handleOperator'], 'exportFile' | 'importFile'>;
+
+function boardFileUploadRefusalOf(reason: keyof typeof UPLOAD_FAILURE_REPLIES): Awaited<ReturnType<WhiteboardFiles['importFile']>> {
+  return { status: UPLOAD_FAILURE_REPLIES[reason].status, body: { ok: false, error: UPLOAD_FAILURE_REPLIES[reason].error } };
+}
+
+async function receiveBoardFile({ req, assets, files }: { req: Request; assets: WhiteboardAssetStore; files: WhiteboardFiles }): ReturnType<WhiteboardFiles['importFile']> {
+  const overCap = { status: 413, body: { ok: false as const, error: `the board file is larger than the ${BOARD_FILE_CAP_BYTES / (1024 * 1024)} MB a board file holds` } };
+  const declaredBytes = declaredContentLength(req);
+  if (declaredBytes !== null && declaredBytes > BOARD_FILE_CAP_BYTES) {
+    req.resume();
+    return overCap;
+  }
+  const incomingPath = await reserveIncomingUnlessAborted(req, assets);
+  if (incomingPath === null) return boardFileUploadRefusalOf('aborted');
+  try {
+    const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: BOARD_FILE_CAP_BYTES });
+    if (!received.ok) return received.reason === 'over-cap' ? overCap : boardFileUploadRefusalOf(received.reason);
+    return await files.importFile(await fsp.readFile(incomingPath));
+  } finally {
+    await fsp.rm(incomingPath, { force: true }).catch(() => {});
+  }
+}
+
 async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: WhiteboardAssetStore; name: string }): ReturnType<WhiteboardAssetStore['adoptIncoming']> {
   const declaredBytes = declaredContentLength(req);
   const overCap = { ok: false as const, status: 413, error: `${name} is larger than the ${ASSET_INPUT_CAP_BYTES / (1024 * 1024)} MB a board takes` };
@@ -375,12 +409,8 @@ async function receiveBoardMedia({ req, assets, name }: { req: Request; assets: 
     req.resume();
     return overCap;
   }
-  let isAbortedBeforeReceive = false;
-  const markAbortedBeforeReceive = () => { isAbortedBeforeReceive = true; };
-  req.on('error', markAbortedBeforeReceive);
-  const incomingPath = await assets.reserveIncomingPath();
-  req.off('error', markAbortedBeforeReceive);
-  if (isAbortedBeforeReceive || req.destroyed) return { ok: false, ...UPLOAD_FAILURE_REPLIES.aborted };
+  const incomingPath = await reserveIncomingUnlessAborted(req, assets);
+  if (incomingPath === null) return { ok: false, ...UPLOAD_FAILURE_REPLIES.aborted };
   try {
     const received = await streamRequestToFile({ req, savedPath: incomingPath, capBytes: ASSET_INPUT_CAP_BYTES });
     if (!received.ok) return received.reason === 'over-cap' ? overCap : { ok: false, ...UPLOAD_FAILURE_REPLIES[received.reason] };
@@ -822,6 +852,50 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       (outcome) => outcome.ok ? answer(200, { ok: true, media: outcome.media }) : answer(outcome.status, { ok: false, error: outcome.error }),
       () => answer(500, { ok: false, error: `${name} could not be stored` }),
     );
+  });
+
+  app.post(WHITEBOARD_FILE_ROUTE, (req, res) => {
+    const assets = dependencies.getWhiteboardAssets?.() ?? null;
+    const files = dependencies.getWhiteboardFiles?.() ?? null;
+    const answer = (status: number, body: Record<string, unknown>) => {
+      if (!res.headersSent) res.status(status).json(body);
+    };
+    const origin = req.headers.origin;
+    if (origin && !decideOriginAllowed(origin, remote.allowedOrigins, { listenerPorts: listenerPortsFor(req.socket) })) {
+      answer(403, { ok: false, error: 'origin not allowed' });
+      req.resume();
+      return;
+    }
+    if (!assets || !files) {
+      answer(503, { ok: false, error: 'boards are not ready yet' });
+      req.resume();
+      return;
+    }
+    void receiveBoardFile({ req, assets, files }).then(
+      (outcome) => answer(outcome.status, outcome.body),
+      () => answer(500, { ok: false, error: 'the board file could not be imported' }),
+    );
+  });
+
+  app.get(`${WHITEBOARD_FILE_ROUTE}/:boardId/${BOARD_FILE_DOWNLOAD_NAME}`, (req, res) => {
+    const files = dependencies.getWhiteboardFiles?.() ?? null;
+    if (!files) {
+      res.status(503).json({ ok: false, error: 'boards are not ready yet' });
+      return;
+    }
+    void files.exportFile(req.params.boardId).then((exported) => {
+      if (!exported.ok) {
+        res.status(exported.status).json({ ok: false, error: exported.error });
+        return;
+      }
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('Content-Type', 'application/gzip');
+      res.status(200).end(exported.bytes);
+    }, () => {
+      res.status(500).json({ ok: false, error: 'the board could not be exported' });
+    });
   });
 
   app.get(`${WHITEBOARD_ASSET_ROUTE}/:filename`, (req, res) => {

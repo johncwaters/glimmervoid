@@ -1163,6 +1163,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   const desktopBoard = layout === 'desktop' ? await openDesktopBoard(page, sessionId, boardTitle) : null;
   const panel = desktopBoard?.panel ?? page.locator('.boards-view');
   await panel.waitFor({ state: 'visible' });
+  if (layout === 'phone') await verifyEmptyStateImportRefusal(page, panel);
   if (layout === 'phone') await createBoardFromView(page, panel, boardTitle);
   await panel.locator('.wb-viewport').waitFor({ state: 'visible' });
   if (layout === 'phone') {
@@ -1354,6 +1355,29 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   }
   assert.equal(await panel.getByRole('button', { name: 'Fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
+  await verifyBoardFileRoundTrip(page, panel, boardTitle);
+}
+
+async function verifyEmptyStateImportRefusal(page: Page, panel: Locator): Promise<void> {
+  const damagedPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'board-file-')), 'damaged.glimmerboard');
+  fs.writeFileSync(damagedPath, 'not a board file');
+  const chooserOpened = page.waitForEvent('filechooser');
+  await panel.locator('.wb-empty').getByRole('button', { name: 'import board', exact: true }).click();
+  await (await chooserOpened).setFiles(damagedPath);
+  await panel.locator('.wb-empty .wb-empty-status').getByText('this is not a Glimmervoid board file').waitFor();
+}
+
+async function verifyBoardFileRoundTrip(page: Page, panel: Locator, boardTitle: string): Promise<void> {
+  const downloadStarted = page.waitForEvent('download');
+  await openBoardMenuItem(page, panel, 'Export board file');
+  const download = await downloadStarted;
+  assert.equal(download.suggestedFilename(), `${boardTitle}.glimmerboard`);
+  const savedPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'board-file-')), download.suggestedFilename());
+  await download.saveAs(savedPath);
+  const chooserOpened = page.waitForEvent('filechooser');
+  await openBoardMenuItem(page, panel, 'Import board');
+  await (await chooserOpened).setFiles(savedPath);
+  await panel.getByRole('button', { name: `${boardTitle} (2)`, exact: true }).waitFor();
 }
 
 async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<OpenBoard> {

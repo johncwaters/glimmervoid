@@ -167,7 +167,7 @@ interface WhiteboardPort {
     detach(boardId: string, sessionId: string): Promise<OperatorReply>;
     saveLinkedDoc(boardId: string, boxId: string, text: string, baseAsset: string): Promise<OperatorReply>;
     exportFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }>;
-    importFile(gzipped: Buffer): Promise<OperatorReply>;
+    importFile(gzipped: Buffer): Promise<WhiteboardReply>;
   };
   retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
@@ -918,7 +918,7 @@ function createWhiteboardWiring({
       if (!found.ok) return { ok: false, status: found.reply.status, error: found.reply.body.ok ? 'no such board' : found.reply.body.error };
       return exportedBoardFile(found.boardId);
     },
-    importFile: async (gzipped) => operatorReplyOf(await importBoardFile(gzipped)),
+    importFile: importBoardFile,
     detach: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => detachBoard(foundBoardId, sessionId)),
   };
 

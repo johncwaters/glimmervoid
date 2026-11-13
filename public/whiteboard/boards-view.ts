@@ -5,7 +5,7 @@ import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
@@ -42,7 +42,7 @@ import { MAX_MEDIA_SCALE } from './media-zoom-core.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
 
@@ -128,6 +128,7 @@ let openDocBox: { boardId: string; box: Extract<Element, { kind: 'box' }> } | nu
 type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
 
 const status = createActionStatus('action-status wb-status');
+const emptyStatus = createActionStatus('action-status wb-empty-status');
 const historyByBoardId = new Map<string, UndoHistory>();
 let historyQueue: Promise<unknown> = Promise.resolve();
 
@@ -361,9 +362,11 @@ function buildBoardMenu(onBoardSettings: () => void) {
   const actionItems = [
     actionItem('Rename board', startTitleRename),
     actionItem('New board', newBoardFromDialog),
+    actionItem('Import board', pickBoardFileToImport),
     boardSettingsItem,
     actionItem('Export SVG', () => void exportBoardPicture('svg')),
     actionItem('Export PNG', () => void exportBoardPicture('png')),
+    actionItem('Export board file', () => void exportBoardFile()),
     actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
   menu.addEventListener('click', (event) => {
@@ -942,22 +945,54 @@ function addFrame(): void {
   });
 }
 
-async function exportBoardPicture(format: 'svg' | 'png'): Promise<void> {
+function exportBoardPicture(format: 'svg' | 'png'): Promise<void> {
+  return downloadBoardExport(`${WHITEBOARD_PICTURE_ROUTE}/{boardId}/picture.${format}`, `.${format}`);
+}
+
+function exportBoardFile(): Promise<void> {
+  return downloadBoardExport(`${WHITEBOARD_FILE_ROUTE}/{boardId}/${BOARD_FILE_DOWNLOAD_NAME}`, BOARD_FILE_EXTENSION);
+}
+
+async function downloadBoardExport(routeTemplate: string, extension: string): Promise<void> {
   const summary = selectedSummary();
   if (!summary) return;
-  const response = await fetch(`${WHITEBOARD_PICTURE_ROUTE}/${encodeURIComponent(summary.id)}/picture.${format}`).catch(() => null);
+  const response = await fetch(routeTemplate.replace('{boardId}', encodeURIComponent(summary.id))).catch(() => null);
   if (!response?.ok) {
     const refusal: unknown = await response?.json().catch(() => null);
     const reason = typeof refusal === 'object' && refusal !== null && 'error' in refusal && typeof refusal.error === 'string' ? refusal.error : 'the board could not be exported';
     status.show('error', reason);
     return;
   }
-  const pictureUrl = URL.createObjectURL(await response.blob());
+  const exportUrl = URL.createObjectURL(await response.blob());
   const download = el('a');
-  download.href = pictureUrl;
-  download.download = `${summary.title}.${format}`;
+  download.href = exportUrl;
+  download.download = `${summary.title}${extension}`;
   download.click();
-  URL.revokeObjectURL(pictureUrl);
+  URL.revokeObjectURL(exportUrl);
+}
+
+function pickBoardFileToImport(): void {
+  const picker = el('input');
+  picker.type = 'file';
+  picker.accept = BOARD_FILE_EXTENSION;
+  picker.addEventListener('change', () => {
+    const file = picker.files?.[0];
+    if (file) void importPickedBoardFile(file);
+  });
+  picker.click();
+}
+
+async function importPickedBoardFile(file: File): Promise<void> {
+  const shownStatus = selectedSummary() ? status : emptyStatus;
+  shownStatus.show('busy', `Importing ${file.name}`);
+  const outcome = await importBoardFile(file);
+  if (!outcome.ok) {
+    shownStatus.show('error', outcome.error);
+    return;
+  }
+  emptyStatus.clear();
+  pickBoard(outcome.boardId);
+  status.show('ok', `Imported ${file.name}`);
 }
 
 function confirmDeleteBoard(): void {
@@ -1185,7 +1220,7 @@ export function mountBoardHost(): HTMLElement {
   canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack, glNotice);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
-  empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }));
+  empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };

@@ -243,6 +243,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     fetchLinkPreview: createLinkPreviewFetcher(),
     getPackFile: (packName, fingerprint, filePath) => laneAssembly.packStore.servableFile(packName, fingerprint, filePath),
     packPreviews: boardPackPreviews,
+    getWhiteboardFiles: () => whiteboards.handleOperator,
     frameSecret,
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));

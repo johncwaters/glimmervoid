@@ -57,6 +57,7 @@ export const Near = z.object({
 
 export const WHITEBOARD_ASSET_ROUTE = '/whiteboards/assets';
 export const WHITEBOARD_PICTURE_ROUTE = '/whiteboards/pictures';
+export const WHITEBOARD_FILE_ROUTE = '/whiteboards/files';
 const WHITEBOARD_PAGE_ROUTE = '/whiteboards/pages';
 export const FRAME_ROUTE = '/frames';
 export const FRAME_OPEN_ROUTE = `${FRAME_ROUTE}/open`;
@@ -307,6 +308,7 @@ export const Board = z.object({
 export const BoardHead = Board.omit({ elements: true });
 
 export const BOARD_FILE_EXTENSION = '.glimmerboard';
+export const BOARD_FILE_DOWNLOAD_NAME = `board${BOARD_FILE_EXTENSION}`;
 export const BOARD_FILE_FORMAT = 'glimmervoid-board';
 export const BOARD_FILE_VERSION = 1;
 export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
@@ -364,6 +366,8 @@ export const BoardSummary = z.object({
   connectedSessionIds: z.array(z.string()),
   queuedBySessionId: z.record(z.string(), z.number().int()),
 }).strict();
+
+export const BoardFileImportReply = z.object({ ok: z.literal(true), board: BoardSummary, note: z.string() }).strict();
 
 export const BoardAttachments = z.record(z.string(), z.string());
 

@@ -737,6 +737,17 @@ test('a board exported to a board file and imported comes back as a new board wi
   assert.deepEqual([importedBoard.caption, importedBoard.legend, importedBoard.codeSessionId, importedBoard.project], ['how a login flows', [{ tone: 'fail', dashed: false, label: 'refused' }], null, path.join(fixture.tmpDir, PLANNER_ID)]);
   assert.equal((copy.board.elements.demo?.media as BoxMedia | undefined)?.asset, page.asset, 'a page comes back with the same bundle id, so the files it loads came back too');
 
+  const downloaded = await fetch(`${running().base}/whiteboards/files/${boardId}/board.glimmerboard`);
+  assert.equal(downloaded.status, 200);
+  assert.equal(downloaded.headers.get('content-disposition'), 'attachment');
+  const uploaded = await fetch(`${running().base}/whiteboards/files`, { method: 'POST', body: Buffer.from(await downloaded.arrayBuffer()), headers: { 'content-type': 'application/gzip' } });
+  const uploadReply = await uploaded.json() as { ok: boolean; board: { id: string; title: string } };
+  assert.deepEqual([uploaded.status, uploadReply.ok, uploadReply.board.title], [200, true, 'Shared flow (3)'], 'the dashboard imports what it downloads');
+  const dashboardCopy = await boardOf(PLANNER_ID, uploadReply.board.id);
+  assert.deepEqual(withoutSource(dashboardCopy.board.elements), withoutSource(original.board.elements));
+  const crossSite = await fetch(`${running().base}/whiteboards/files`, { method: 'POST', body: Buffer.from(fileText), headers: { origin: 'https://elsewhere.example' } });
+  assert.equal(crossSite.status, 403);
+
   const boardCountBefore = ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length;
   const parsedFile = JSON.parse(fileText) as { assets: Record<string, { members: Record<string, string> }> };
   const escapingPage = structuredClone(parsedFile);

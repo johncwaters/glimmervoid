@@ -1,7 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
-import { BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BoardFileImportReply, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from '../action-status.ts';
 import { SESSION_CLOSE_UNDO_WINDOW_MS } from '../session-actions.ts';
@@ -157,6 +157,16 @@ export async function uploadBoardMedia(file: File): Promise<{ ok: true; media: B
   const stored = BoardMediaUploadReply.safeParse(reply);
   if (stored.success) return { ok: true, media: stored.data.media };
   const error = reply && typeof reply === 'object' && 'error' in reply && typeof reply.error === 'string' ? reply.error : `${file.name} was not added (HTTP ${response.status})`;
+  return { ok: false, error };
+}
+
+export async function importBoardFile(file: File): Promise<{ ok: true; boardId: string } | { ok: false; error: string }> {
+  const response = await fetch(WHITEBOARD_FILE_ROUTE, { method: 'POST', body: file, headers: { 'content-type': 'application/gzip' } }).catch(() => null);
+  if (!response) return { ok: false, error: `${file.name} was not imported because the server did not answer` };
+  const reply: unknown = await response.json().catch(() => null);
+  const imported = BoardFileImportReply.safeParse(reply);
+  if (imported.success) return { ok: true, boardId: imported.data.board.id };
+  const error = reply && typeof reply === 'object' && 'error' in reply && typeof reply.error === 'string' ? reply.error : `${file.name} was not imported (HTTP ${response.status})`;
   return { ok: false, error };
 }
 
