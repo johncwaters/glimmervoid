@@ -22,7 +22,7 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from '../../core/settings-block-core.ts';
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { suggestRepoRoots } from '../../repo-root-suggestions.ts';
-import { cloneRepository } from '../../repository-clone.ts';
+import { cloneRepository, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
 import { cloneRootOf, defaultRepoRootOf } from '../../core/repository-source-core.ts';
 import type { RootCheckouts } from '../../core/repository-source-core.ts';
 import { resolvePackageBin, scriptLaunch } from '../../runtime-paths.ts';
@@ -304,10 +304,29 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload() });
   }
 
+  function currentGithubCredential() {
+    return resolveGithubCredential({ readToken: config.github?.readToken || null, appToken: deps.githubAppToken?.() ?? null });
+  }
+
+  async function handleListGithubRepos(msg: ClientMessageOf<'list-github-repos'>, ws: ControlSocket): Promise<void> {
+    const credential = await currentGithubCredential();
+    if (credential.kind === 'none') {
+      replyTo(ws, msg, 'github-repos-listed', { source: 'none', repos: [] });
+      return;
+    }
+    const listed = await listGithubRepos(credential);
+    if (!listed.ok) {
+      replyTo(ws, msg, 'github-repos-listed', { source: credential.kind, repos: [], error: listed.error });
+      return;
+    }
+    replyTo(ws, msg, 'github-repos-listed', { source: credential.kind, repos: listed.repos });
+  }
+
   async function handleCloneRepository(msg: ClientMessageOf<'clone-repository'>, ws: ControlSocket): Promise<void> {
     const configuredRoots = config.repoRoots ?? [];
     const cloneRoot = cloneRootOf(await rootCheckoutsOf(configuredRoots), defaultRepoRootOf(os.homedir()));
-    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: null });
+    const credential = await currentGithubCredential();
+    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: credential.kind === 'none' ? null : credential.token });
     if (!outcome.ok) {
       replyTo(ws, msg, 'repository-cloned', { ok: false, error: outcome.error });
       return;
@@ -450,6 +469,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'scan-repo-roots': handleScanRepoRoots,
     'list-agents': handleListAgents,
     'clone-repository': handleCloneRepository,
+    'list-github-repos': handleListGithubRepos,
     'telegram-test': handleTelegramTest,
     'request-hooks-report': handleRequestHooksReport,
     'save-hook': handleSaveHook,
@@ -478,6 +498,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'clone-repository': (_msg, requestId, message) => ({ type: 'repository-cloned', requestId, ok: false, error: message }),
+    'list-github-repos': (_msg, requestId, message) => ({ type: 'github-repos-listed', requestId, source: 'none', repos: [], error: message }),
     'telegram-test': (_msg, requestId, message) => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
     'request-hooks-report': (_msg, requestId, message) => ({ type: 'hooks-report', requestId, error: message }),
     'save-hook': (_msg, requestId, message) => ({ type: 'save-hook-result', requestId, ok: false, error: message }),

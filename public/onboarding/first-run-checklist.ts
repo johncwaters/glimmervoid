@@ -62,7 +62,7 @@ function agentStepBody(): HTMLElement[] {
   return [...body, el('p', 'first-run-step-hint', 'Still missing after a rescan? Restart Glimmervoid from a terminal where the command runs. Other terminal agents go under customAgents.')];
 }
 
-const ONBOARDING_ACTION_BY_SOURCE = { typed: 'add-root-typed', suggested: 'add-root-suggested', 'cloned-url': 'clone-url' } as const satisfies Record<string, OperatorActionOf<'onboarding'>>;
+const ONBOARDING_ACTION_BY_SOURCE = { typed: 'add-root-typed', suggested: 'add-root-suggested', 'cloned-url': 'clone-url', 'cloned-github': 'clone-github' } as const satisfies Record<string, OperatorActionOf<'onboarding'>>;
 
 function repoRootsStepBody(): HTMLElement[] {
   const adder = repoRootsAdder ?? createRepoRootsAdder({ onAdded: (source) => {

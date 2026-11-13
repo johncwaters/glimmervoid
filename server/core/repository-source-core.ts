@@ -1,9 +1,16 @@
 import path from 'node:path';
+import { z } from 'zod';
 import { REPO_SLUG_RE } from '../../shared/contracts/github-ids.ts';
 
 type RepositorySource = { ok: true; url: string; repoName: string; isGithubHttps: boolean; isSsh: boolean } | { ok: false; error: string };
 type ParsedRepositorySource = Extract<RepositorySource, { ok: true }>;
 type RootCheckouts = { root: string; hasGitCheckout: boolean };
+type GithubCredentialKind = 'gh' | 'app' | 'token';
+type GithubCredential = { kind: GithubCredentialKind; token: string } | { kind: 'none' };
+type GithubRepo = { fullName: string; cloneUrl: string; isPrivate: boolean; pushedAt: string | null };
+
+const GithubApiRepo = z.object({ full_name: z.string(), clone_url: z.string(), private: z.boolean(), pushed_at: z.string().nullable() });
+const GithubApiRepoList = z.array(GithubApiRepo);
 
 const DEFAULT_REPO_ROOT_FOLDER = 'glimmervoid';
 const REPO_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -71,5 +78,31 @@ function cloneEnvOf(source: ParsedRepositorySource, githubToken: string | null, 
   return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: githubAuthHeaderOf(githubToken) };
 }
 
+function chooseGithubCredential({ ghLoginToken, readToken, appToken }: { ghLoginToken: string | null; readToken: string | null; appToken: string | null }): GithubCredential {
+  if (ghLoginToken) return { kind: 'gh', token: ghLoginToken };
+  if (readToken) return { kind: 'token', token: readToken };
+  if (appToken) return { kind: 'app', token: appToken };
+  return { kind: 'none' };
+}
+
+function githubReposPath(kind: GithubCredentialKind): string {
+  if (kind === 'app') return 'installation/repositories?per_page=100';
+  return 'user/repos?sort=pushed&per_page=100&affiliation=owner,collaborator,organization_member';
+}
+
+function githubReposJqFilter(kind: GithubCredentialKind): string {
+  const repoStream = kind === 'app' ? '.repositories[]' : '.[]';
+  return `${repoStream} | {full_name, clone_url, private, pushed_at} | @json`;
+}
+
+function githubReposFromLines(apiRepoLines: readonly unknown[]): GithubRepo[] | null {
+  const parsed = GithubApiRepoList.safeParse(apiRepoLines);
+  if (!parsed.success) return null;
+  return parsed.data
+    .map((apiRepo) => ({ fullName: apiRepo.full_name, cloneUrl: apiRepo.clone_url, isPrivate: apiRepo.private, pushedAt: apiRepo.pushed_at }))
+    .toSorted((first, second) => (second.pushedAt ?? '').localeCompare(first.pushedAt ?? ''));
+}
+
+export { chooseGithubCredential, githubReposFromLines, githubReposJqFilter, githubReposPath };
 export { CLONE_SAFETY_ARGS, cloneEnvOf, cloneRootOf, defaultRepoRootOf, parseRepositorySource };
-export type { RootCheckouts };
+export type { GithubCredential, GithubRepo, ParsedRepositorySource, RootCheckouts };

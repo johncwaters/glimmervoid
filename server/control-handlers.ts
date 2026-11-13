@@ -100,6 +100,7 @@ interface ControlHandlerDeps {
   changeMaps?: ChangeMapService;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;
+  githubAppToken?: (() => string | null) | null;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;

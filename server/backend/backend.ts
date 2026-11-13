@@ -783,6 +783,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       pendingWakesBySession: () => agentApi?.sessionWakes.pendingWakesBySession() ?? [],
       cancelForOperator: async (sessionId, wakeId) => agentApi ? agentApi.sessionWakes.cancelForOperator(sessionId, wakeId) : 'Wakes are not available yet',
     },
+    githubAppToken: () => githubAppTokenOfLink(),
     config,
     configStore,
     broadcastControl,
