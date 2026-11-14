@@ -1,8 +1,8 @@
 import type { IconName, NoteTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
-import { FRAME_TITLE_HEIGHT, STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from '#shared/whiteboard-layout-core.ts';
+import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, handleSidesOf } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
@@ -599,7 +599,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind === 'wire') {
@@ -626,8 +626,18 @@ function boxPortCenters(box: Rect): Point[] {
   return [{ x: midX, y: box.y }, { x: box.x + box.width, y: midY }, { x: midX, y: box.y + box.height }, { x: box.x, y: midY }];
 }
 
-function resizeHandleRect(box: Rect): Rect {
-  return { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE };
+interface ResizeHandleRect {
+  handle: ResizeHandle;
+  rect: Rect;
+}
+
+function resizeHandleRectsOf(area: Rect): ResizeHandleRect[] {
+  return RESIZE_HANDLES.map((handle) => {
+    const side = handleSidesOf(handle);
+    const centerX = area.x + (area.width * (side.x + 1)) / 2;
+    const centerY = area.y + (area.height * (side.y + 1)) / 2;
+    return { handle, rect: { x: centerX - RESIZE_HANDLE_SIZE / 2, y: centerY - RESIZE_HANDLE_SIZE / 2, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE } };
+  });
 }
 
 const LOOK_BADGE_RADIUS = 9;
@@ -648,7 +658,10 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
     }
     if (decoration.kind === 'hover-handles') {
       for (const center of boxPortCenters(decoration.box)) pushCircle(part, center, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
-      pushRect(part, resizeHandleRect(decoration.box), 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      continue;
+    }
+    if (decoration.kind === 'resize-handles') {
+      for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(part, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
       continue;
     }
     const center = { x: decoration.element.x + decoration.element.width, y: decoration.element.y };
@@ -671,6 +684,6 @@ function sceneOf(layout: BoardLayout, context: SceneContext, reuse: (element: La
 
 export {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
-  boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
+  boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
 };
 export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };

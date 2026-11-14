@@ -371,32 +371,95 @@ async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number 
   return elementWhere(open, `a box titled ${title}`, titled(title));
 }
 
+async function laidOutRectOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number; width: number; height: number }> {
+  const laidOut = await laidOutOf(open, boxId);
+  assert.ok(laidOut.kind !== 'wire', `${boxId} is laid out as a rect`);
+  return { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height };
+}
+
 async function verifyResizedBoxes(open: OpenBoard, boxIds: readonly [string, ...string[]]): Promise<void> {
-  const widthsOf = () => Promise.all(boxIds.map(async (boxId) => {
-    const laidOut = await laidOutOf(open, boxId);
-    return laidOut.kind === 'wire' ? 0 : laidOut.width;
-  }));
+  const widthsOf = () => Promise.all(boxIds.map(async (boxId) => (await laidOutRectOf(open, boxId)).width));
+  const groupRightOf = async () => Math.max(...await Promise.all(boxIds.map(async (boxId) => {
+    const rect = await laidOutRectOf(open, boxId);
+    return rect.x + rect.width;
+  })));
   const widthsBefore = await widthsOf();
-  const heightOfFirst = async () => {
-    const laidOut = await laidOutOf(open, boxIds[0]);
-    return laidOut.kind === 'wire' ? 0 : laidOut.height;
-  };
-  const heightBefore = await heightOfFirst();
-  const rect = await screenRectOf(open, boxIds[0]);
-  await open.page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
-  const handle = { x: rect.x + rect.width - 4, y: rect.y + rect.height - 4 };
-  assert.equal(await cursorAt(open, handle), 'nwse-resize', 'the bottom right corner of a hovered box is its resize handle');
+  const groupRightBefore = await groupRightOf();
+  const heightBefore = (await laidOutRectOf(open, boxIds[0])).height;
+  const screenRects = await Promise.all(boxIds.map((boxId) => screenRectOf(open, boxId)));
+  const handle = { x: Math.max(...screenRects.map((rect) => rect.x + rect.width)), y: Math.max(...screenRects.map((rect) => rect.y + rect.height)) };
+  assert.equal(await cursorAt(open, handle), 'nwse-resize', 'the bottom right corner of the selection is a resize handle');
   await open.page.mouse.down();
   await open.page.mouse.move(handle.x + 120, handle.y + 80, { steps: 6 });
   await open.page.mouse.up();
-  const widenings = await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => {
-    const widthsAfter = await widthsOf();
-    return widthsAfter.every((width, index) => width > (widthsBefore[index] ?? width)) ? widthsAfter.map((width, index) => width - (widthsBefore[index] ?? width)) : null;
-  });
-  assert.ok(widenings.every((widening) => widening === widenings[0]), `every selected box widens by the same amount, got ${widenings.join(', ')}`);
-  assert.ok(await heightOfFirst() > heightBefore, 'dragging the corner handle down makes the box taller');
+  const { scale } = await cameraOf(open);
+  await pollFor('dragging the corner handle widens every selected box', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width > (widthsBefore[index] ?? width)) ? true : null));
+  assert.ok(Math.abs((await groupRightOf()) - groupRightBefore - 120 / scale) <= 2, 'the selection grows from its bounds, so its right edge follows the pointer');
+  assert.ok((await laidOutRectOf(open, boxIds[0])).height > heightBefore, 'dragging the corner handle down makes the box taller');
   await open.panel.getByRole('button', { name: 'Undo', exact: true }).click();
   await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
+  await open.panel.locator('.wb-viewport').focus();
+}
+
+async function verifyBandStepResizeStaysPut(open: OpenBoard, stepId: string): Promise<void> {
+  const laidOutBefore = await laidOutRectOf(open, stepId);
+  const screenBefore = await screenRectOf(open, stepId);
+  const leftHandle = { x: screenBefore.x, y: screenBefore.y + screenBefore.height / 2 };
+  await open.page.mouse.move(leftHandle.x, leftHandle.y);
+  await open.page.mouse.down();
+  await open.page.mouse.move(leftHandle.x - 60, leftHandle.y, { steps: 6 });
+  await open.page.mouse.up();
+  const { scale } = await cameraOf(open);
+  const laidOutAfter = await pollFor('a band step resized from its left handle widens', RESIZE_TIMEOUT_MS, async () => {
+    const rect = await laidOutRectOf(open, stepId);
+    return rect.width > laidOutBefore.width + 20 ? rect : null;
+  });
+  assert.ok(Math.abs(laidOutAfter.y - laidOutBefore.y) <= 2 && Math.abs(laidOutAfter.x - (laidOutBefore.x - 60 / scale)) <= 3, `the resized band step stays where it was dropped, from ${JSON.stringify(laidOutBefore)} to ${JSON.stringify(laidOutAfter)}`);
+  await open.panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await pollFor('undo puts the band step back', RESIZE_TIMEOUT_MS, async () => (Math.abs((await laidOutRectOf(open, stepId)).width - laidOutBefore.width) <= 1 ? true : null));
+}
+
+async function verifyEightHandles(open: OpenBoard, boxId: string): Promise<void> {
+  const { page, panel } = open;
+  await page.keyboard.press('Escape');
+  await selectBoxes(open, [boxId]);
+  const dragHandle = async (handleAt: (rect: ScreenRect) => { x: number; y: number }, by: { x: number; y: number }, holdsShift: boolean) => {
+    const handle = handleAt(await screenRectOf(open, boxId));
+    await page.mouse.move(handle.x, handle.y);
+    if (holdsShift) await page.keyboard.down('Shift');
+    await page.mouse.down();
+    await page.mouse.move(handle.x + by.x, handle.y + by.y, { steps: 6 });
+    await page.mouse.up();
+    if (holdsShift) await page.keyboard.up('Shift');
+  };
+  const { scale } = await cameraOf(open);
+  const before = await laidOutRectOf(open, boxId);
+  const selectedRect = await screenRectOf(open, boxId);
+  assert.equal(await cursorAt(open, { x: selectedRect.x, y: selectedRect.y + selectedRect.height / 2 }), 'ew-resize', 'the left edge handle shows a sideways cursor');
+  assert.equal(await cursorAt(open, { x: selectedRect.x + selectedRect.width, y: selectedRect.y }), 'nesw-resize', 'the top right corner handle shows a diagonal cursor');
+  await dragHandle((rect) => ({ x: rect.x, y: rect.y + rect.height / 2 }), { x: -60, y: 0 }, false);
+  const widenedLeft = await pollFor('the left handle widens the box to the left', RESIZE_TIMEOUT_MS, async () => {
+    const rect = await laidOutRectOf(open, boxId);
+    return Math.abs(rect.x + rect.width - (before.x + before.width)) <= 1 && rect.width > before.width ? rect : null;
+  });
+  assert.ok(Math.abs(widenedLeft.width - before.width - 60 / scale) <= 2, `the left handle widens by the drag, got ${widenedLeft.width - before.width}`);
+  await dragHandle((rect) => ({ x: rect.x + rect.width / 2, y: rect.y }), { x: 0, y: -50 }, false);
+  const raisedTop = await pollFor('the top handle makes the box taller upward', RESIZE_TIMEOUT_MS, async () => {
+    const rect = await laidOutRectOf(open, boxId);
+    return Math.abs(rect.y + rect.height - (widenedLeft.y + widenedLeft.height)) <= 1 && rect.height > widenedLeft.height ? rect : null;
+  });
+  await dragHandle((rect) => ({ x: rect.x + rect.width, y: rect.y + rect.height }), { x: 90, y: 0 }, true);
+  await pollFor('Shift keeps the ratio while dragging a corner', RESIZE_TIMEOUT_MS, async () => {
+    const rect = await laidOutRectOf(open, boxId);
+    return rect.width > raisedTop.width && Math.abs(rect.width / rect.height - raisedTop.width / raisedTop.height) < 0.03 ? true : null;
+  });
+  for (const _undo of [1, 2, 3]) await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await pollFor('three undos put the box back', RESIZE_TIMEOUT_MS, async () => {
+    const rect = await laidOutRectOf(open, boxId);
+    return Math.abs(rect.width - before.width) <= 1 && Math.abs(rect.x - before.x) <= 1 ? true : null;
+  });
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
 }
 
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
@@ -1463,7 +1526,9 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-viewport').focus();
     await page.keyboard.press('Escape');
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
+    await selectBoxes(open, [parseFeed.id]);
     await verifyResizedBoxes(open, [parseFeed.id]);
+    await verifyEightHandles(open, parseFeed.id);
     await verifyKeyboardEditing(open, parseFeed.id);
     if (desktopBoard) await verifyDragPlacement(open);
     if (desktopBoard) await verifyClipboard(open);
@@ -1758,6 +1823,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const bandStep = await elementWhere(open, 'the step in the build-order band', (element) => element.id === 'band-step');
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
   await clickElement(open, bandStep.id);
+  await verifyBandStepResizeStaysPut(open, bandStep.id);
   await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Not a step' });
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);

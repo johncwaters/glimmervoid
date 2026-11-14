@@ -797,9 +797,55 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
   };
 }
 
+const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
+
+type ResizeHandle = (typeof RESIZE_HANDLES)[number];
+
+interface ResizeStretch {
+  handle: ResizeHandle;
+  offset: { x: number; y: number };
+  keepsRatio: boolean;
+  changesHeight: boolean;
+}
+
+const HANDLE_SIDES: Record<ResizeHandle, { x: -1 | 0 | 1; y: -1 | 0 | 1 }> = {
+  nw: { x: -1, y: -1 }, n: { x: 0, y: -1 }, ne: { x: 1, y: -1 }, e: { x: 1, y: 0 },
+  se: { x: 1, y: 1 }, s: { x: 0, y: 1 }, sw: { x: -1, y: 1 }, w: { x: -1, y: 0 },
+};
+
+function handleSidesOf(handle: ResizeHandle): { x: -1 | 0 | 1; y: -1 | 0 | 1 } {
+  return HANDLE_SIDES[handle];
+}
+
+function anchoredStart(start: number, startSize: number, size: number, side: -1 | 0 | 1): number {
+  if (side === -1) return start + startSize - size;
+  if (side === 1) return start;
+  return start + (startSize - size) / 2;
+}
+
+function resizedRectOf(start: Rect, stretch: ResizeStretch): Rect {
+  const side = HANDLE_SIDES[stretch.handle];
+  const freeWidth = Math.max(1, start.width + side.x * stretch.offset.x);
+  const freeHeight = stretch.changesHeight ? Math.max(1, start.height + side.y * stretch.offset.y) : start.height;
+  const isCorner = side.x !== 0 && side.y !== 0;
+  const cornerScale = Math.max(freeWidth / start.width, freeHeight / start.height);
+  const ratioWidth = isCorner ? start.width * cornerScale : side.x === 0 ? freeHeight * (start.width / start.height) : freeWidth;
+  const ratioHeight = isCorner ? start.height * cornerScale : side.y === 0 ? freeWidth * (start.height / start.width) : freeHeight;
+  const width = stretch.keepsRatio ? ratioWidth : freeWidth;
+  const height = stretch.keepsRatio ? ratioHeight : freeHeight;
+  return { x: anchoredStart(start.x, start.width, width, side.x), y: anchoredStart(start.y, start.height, height, side.y), width, height };
+}
+
+function scaledRectWithin(child: Rect, from: Rect, to: Rect): Rect {
+  const scaleX = to.width / from.width;
+  const scaleY = to.height / from.height;
+  return { x: to.x + (child.x - from.x) * scaleX, y: to.y + (child.y - from.y) * scaleY, width: child.width * scaleX, height: child.height * scaleY };
+}
+
 export {
-  FRAME_TITLE_HEIGHT, STACK_SPREAD,
+  FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD,
+  handleSidesOf, resizedRectOf, scaledRectWithin,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
   customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
-export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect };
+export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };

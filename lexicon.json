@@ -828,6 +828,10 @@
     {
       "name": "tool lock",
       "definition": "The whiteboard toolbar toggle (Q) that keeps the picked drawing tool after each placement instead of returning to Select"
+    },
+    {
+      "name": "resize handle",
+      "definition": "One of the eight squares, four corners and four edges, around a selected whiteboard box or selection that drags to resize it"
     }
   ],
   "retired": [
