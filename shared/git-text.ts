@@ -29,13 +29,11 @@ function diffHeaderPathsOf(header: string): { oldPath: string; path: string } | 
 interface RawLoggedCommit {
   sha: string;
   committedAt: number;
-  author: string;
   subject: string;
   isSigned: boolean;
 }
 
 const RAW_COMMIT_START = /^commit ([0-9a-f]{40,64})\b/;
-const RAW_AUTHOR_PREFIX = 'author ';
 const RAW_COMMITTER_TIME = /^committer .* (\d+) [+-]\d{4}$/;
 
 function rawLoggedCommitOf(entry: string): RawLoggedCommit | null {
@@ -48,7 +46,6 @@ function rawLoggedCommitOf(entry: string): RawLoggedCommit | null {
   return {
     sha,
     committedAt: Number(committerSeconds ?? 0) * 1000,
-    author: headerLines.find((line) => line.startsWith(RAW_AUTHOR_PREFIX))?.slice(RAW_AUTHOR_PREFIX.length) ?? '',
     subject: (messageLines[0] ?? '').trim(),
     isSigned: headerLines.some((line) => line.startsWith('gpgsig')),
   };
@@ -70,4 +67,3 @@ function parseRawCommitLog(rawLog: string): RawLoggedCommit[] {
 }
 
 export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, parseRawCommitLog, shortSha };
-export type { RawLoggedCommit };

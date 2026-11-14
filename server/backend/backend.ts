@@ -364,6 +364,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   };
   const laneAssembly = createBackendLanes({
     config,
+    rebaseSigningArgs: hostSigningKeys.serverSigningArgsFor,
     frameSecret,
     githubAppGrants,
     githubUserCredential: () => githubUserCredentialOfLink(),

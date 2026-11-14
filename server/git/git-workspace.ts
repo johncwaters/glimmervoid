@@ -146,6 +146,7 @@ function createGitWorkspace(opts: {
   ownedPaths?: OwnedPathsRecorder;
   removalGuard?: RemovalGuardOptions;
   provenanceNotesRef?: (projectPath: string) => Promise<string | null>;
+  rebaseSigningArgs?: (worktreePath: string) => Promise<string[]>;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -170,6 +171,13 @@ function createGitWorkspace(opts: {
   const log = opts.log || console;
 
   const rerereEnabled = opts.rerere !== false;
+  const rebaseSigningArgs = async (worktreePath: string): Promise<string[]> => {
+    if (!opts.rebaseSigningArgs) return [];
+    return opts.rebaseSigningArgs(worktreePath).catch((error: unknown) => {
+      log.warn(`[git-workspace] rebasing ${worktreePath} unsigned: ${errorMessage(error)}`);
+      return [];
+    });
+  };
   const glimmervoidHome = opts.glimmervoidHome ?? glimmervoidHomeDir();
   const glimmervoidHomes = comparableGlimmervoidHomes(glimmervoidHome);
   const removalGuard = resolveRemovalGuard(opts.removalGuard, glimmervoidHome);
@@ -602,7 +610,7 @@ function createGitWorkspace(opts: {
   }
 
   const context: GitWorkspaceContext = {
-    git, run, runInProject, runUntrusted, log, rerereEnabled, serialized, admitted,
+    git, run, runInProject, runUntrusted, log, rerereEnabled, rebaseSigningArgs, serialized, admitted,
     provenanceNotesRef: opts.provenanceNotesRef ?? (() => Promise.resolve(null)),
     worktrees: { listWorktreePorcelain: (projectPath) => run(['worktree', 'list', '--porcelain'], projectPath), lockReusedHomeWorktrees, tearDownWorktree },
   };

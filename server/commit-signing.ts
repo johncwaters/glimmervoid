@@ -45,6 +45,7 @@ interface HostSigningKeyStore {
   remove: () => Promise<void>;
   gitEnvFor: (cwd: string) => Promise<Record<string, string>>;
   signsCommitsIn: (cwd: string) => Promise<boolean>;
+  serverSigningArgsFor: (cwd: string) => Promise<string[]>;
   readRecord: () => Promise<CommitSigningRecord>;
   writeRecord: (record: CommitSigningRecord) => Promise<void>;
   signIfHeld: (request: { publicKey: SshPublicKey; namespace: string; payload: Buffer }) => Promise<SignOutcome | null>;
@@ -177,6 +178,11 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     return await signingKeyFor(cwd, await systemConfigBase) !== null;
   }
 
+  async function serverSigningArgsFor(cwd: string): Promise<string[]> {
+    if (!await signsCommitsIn(cwd)) return [];
+    return ['gpg.format=ssh', 'gpg.ssh.program=ssh-keygen', `user.signingkey=${privateKeyPath}`, 'commit.gpgsign=true'].flatMap((setting) => ['-c', setting]);
+  }
+
   async function gitEnvFor(cwd: string): Promise<Record<string, string>> {
     systemConfigBase ??= discoverSystemConfigBase();
     const base = await systemConfigBase;
@@ -213,7 +219,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     }
   }
 
-  return { read, setup, remove, gitEnvFor, signsCommitsIn, readRecord, writeRecord, signIfHeld };
+  return { read, setup, remove, gitEnvFor, signsCommitsIn, serverSigningArgsFor, readRecord, writeRecord, signIfHeld };
 }
 
 interface GithubAnswer {

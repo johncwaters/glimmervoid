@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
+import { createHostSigningKeyStore } from '../server/commit-signing.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import type { WorkspaceHandle } from '../server/git/git-workspace.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
@@ -376,3 +377,37 @@ test('rerere: an explicit rerere.enabled=false in the repo is respected, not ove
     await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
   } finally { fs.rmSync(repo, { recursive: true, force: true }); }
 });
+
+test('rebaseOnly (real git): a signed session commit is still signed after the server rebases it', { skip: !GIT }, async () => {
+  for (const isolation of [undefined, { disableRepoCommands: true }]) await assertRebaseKeepsSignature(isolation);
+});
+
+async function assertRebaseKeepsSignature(isolation: { disableRepoCommands: boolean } | undefined): Promise<void> {
+  const repo = initRepoOnDevelop();
+  const keyFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-rebase-signing-'));
+  try {
+    git(['config', '--unset', 'commit.gpgsign'], repo);
+    const hostSigningKeys = createHostSigningKeyStore({ folder: keyFolder });
+    await hostSigningKeys.setup();
+    const gw = createGitWorkspace({ isolation, rebaseSigningArgs: hostSigningKeys.serverSigningArgsFor });
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'signed', baseBranch: 'develop' });
+    commitFile(repo, 'other.js', 'other\n', 'develop advances');
+    fs.writeFileSync(path.join(ws.cwd, 'session.js'), 'session\n', 'utf8');
+    git(['add', '-A'], ws.cwd);
+    git([...await hostSigningKeys.serverSigningArgsFor(ws.cwd), 'commit', '-m', 'signed session work'], ws.cwd);
+    assert.match(git(['cat-file', 'commit', 'HEAD'], ws.cwd), /^gpgsig /m, 'the session commit starts out signed');
+
+    const rebased = await gw.rebaseOnly({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    assert.equal(rebased.rebased, true);
+    assert.match(git(['cat-file', 'commit', 'HEAD'], ws.cwd), /^gpgsig /m, `the rebased copy is signed with the host key (hardened git: ${isolation !== undefined})`);
+
+    const signingArgsOfLostKey = (await hostSigningKeys.serverSigningArgsFor(ws.cwd)).map((argument) => argument.replace(keyFolder, path.join(keyFolder, 'gone')));
+    commitFile(repo, 'later.js', 'later\n', 'develop advances again');
+    const unsignable = await createGitWorkspace({ isolation, rebaseSigningArgs: async () => signingArgsOfLostKey }).rebaseOnly({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    assert.equal(unsignable.reason, 'rebase-failed', 'a rebase that cannot sign is a failure, not a conflict');
+    assert.equal(rebaseInProgress(ws.cwd), false);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(keyFolder, { recursive: true, force: true });
+  }
+}

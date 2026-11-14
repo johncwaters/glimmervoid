@@ -86,6 +86,7 @@ interface BackendLaneOptions {
 
 interface BackendLaneDependencies {
   config: GlimmervoidConfig;
+  rebaseSigningArgs: (worktreePath: string) => Promise<string[]>;
   frameSecret: Buffer;
   appVersion: string;
   configStore: ConfigStore;
@@ -116,6 +117,7 @@ interface BackendLaneDependencies {
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
     config,
+    rebaseSigningArgs,
     frameSecret,
     configStore,
     githubAppGrants,
@@ -151,7 +153,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...allLiveSessions().map((session) => session.id),
   ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
   const provenanceNotesRef = async (projectPath: string): Promise<string | null> => (configStore.config.shareCommitProvenance === false ? null : repoNotesRefFor(projectPath, await provenanceWriterId()));
-  const gitWorkspace = createGitWorkspace({ rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef });
+  const gitWorkspace = createGitWorkspace({ rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs });
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),

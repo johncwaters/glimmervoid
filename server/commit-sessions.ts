@@ -8,7 +8,6 @@ import {
 import type { ListedCommit, SharedProvenanceNote } from './core/commit-session-core.ts';
 import { GIT_FETCH_TIMEOUT_MS } from './core/branch-sync-core.ts';
 import { parseRawCommitLog } from '../shared/git-text.ts';
-import type { RawLoggedCommit } from '../shared/git-text.ts';
 import { runGit } from './git/git-exec.ts';
 import type { RunGitOptions } from './git/git-exec.ts';
 import { randomUUID } from 'node:crypto';
@@ -109,12 +108,6 @@ function createProvenanceWriterId(filePath: string, logger: Pick<Console, 'warn'
   };
 }
 
-const RAW_LOG_ARGS = ['--no-color', '--no-show-signature', '--pretty=raw'] as const;
-
-function authorshipOf(commit: RawLoggedCommit): string {
-  return `${commit.author}\n${commit.subject}`;
-}
-
 interface UnsignedCommitNotices {
   watches: (worktreeDir: string) => Promise<boolean>;
   report: (unsigned: UnsignedSessionCommits) => void;
@@ -168,17 +161,9 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = cl
     return patchIdBySha;
   }
 
-  async function authorshipsOf(shas: ReadonlySet<string>, gitOptions: RunGitOptions): Promise<Set<string>> {
-    if (shas.size === 0) return new Set();
-    const listed = await runGitFn(['log', '--no-walk', '--ignore-missing', '--stdin', ...RAW_LOG_ARGS], { ...gitOptions, input: [...shas].join('\n') });
-    return new Set(listed.ok ? parseRawCommitLog(listed.out).map(authorshipOf) : []);
-  }
-
-  async function reportUnsignedCommits(change: SessionHeadChange, unsignedCommits: readonly RawLoggedCommit[], recordedShas: ReadonlySet<string>, gitOptions: RunGitOptions): Promise<void> {
-    if (unsignedCommits.length === 0 || !unsignedCommitNotices || !await unsignedCommitNotices.watches(change.worktreeDir)) return;
-    const recordedAuthorships = await authorshipsOf(recordedShas, gitOptions);
-    const shas = unsignedCommits.filter((commit) => !recordedAuthorships.has(authorshipOf(commit))).map((commit) => commit.sha);
-    if (shas.length > 0) unsignedCommitNotices.report({ sessionId: change.sessionId, sessionName: change.sessionName, worktreeDir: change.worktreeDir, shas });
+  async function reportUnsignedCommits(change: SessionHeadChange, shas: string[]): Promise<void> {
+    if (shas.length === 0 || !unsignedCommitNotices || !await unsignedCommitNotices.watches(change.worktreeDir)) return;
+    unsignedCommitNotices.report({ sessionId: change.sessionId, sessionName: change.sessionName, worktreeDir: change.worktreeDir, shas });
   }
 
   async function capture(change: SessionHeadChange & { baseRef: string }): Promise<void> {
@@ -187,7 +172,7 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = cl
     if (!gitCommonDirectory) return;
     const storePath = storePathFor(storeRoot, gitCommonDirectory);
     const gitOptions: RunGitOptions = { cwd: change.worktreeDir, timeoutMs: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER };
-    const listed = await runGitFn(['log', '--no-merges', ...RAW_LOG_ARGS, `${change.baseRef}..${change.headSha}`], gitOptions);
+    const listed = await runGitFn(['log', '--no-merges', '--no-color', '--no-show-signature', '--pretty=raw', `${change.baseRef}..${change.headSha}`], gitOptions);
     if (!listed.ok) return;
     const recordedShas = await recordedShasFor(change.sessionId, storePath);
     const newCommits = parseRawCommitLog(listed.out).filter((commit) => !recordedShas.has(commit.sha));
@@ -198,7 +183,7 @@ function createCommitSessions({ storeRoot, runGitFn = runGit, logger, nowFn = cl
     const patchIdBySha = await patchIdsOf(newCommits, gitOptions);
     const shasWithoutPatchId = newCommits.filter((commit) => !patchIdBySha.has(commit.sha)).map((commit) => commit.sha.slice(0, 12));
     if (shasWithoutPatchId.length > 0) logger.warn(`[commit-sessions] no patch-id for ${shasWithoutPatchId.join(', ')} in ${change.sessionId}; a rebased copy will not trace back`);
-    await reportUnsignedCommits(change, newCommits.filter((commit) => !commit.isSigned), recordedShas, gitOptions);
+    await reportUnsignedCommits(change, newCommits.filter((commit) => !commit.isSigned).map((commit) => commit.sha));
     const recordedAt = nowFn();
     const records: CommitSessionRecord[] = newCommits.map((commit) => ({
       sha: commit.sha,

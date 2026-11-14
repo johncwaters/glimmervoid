@@ -9,7 +9,7 @@ import type { OriginOps } from './origin-ops.ts';
 const fsp = fs.promises;
 
 function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
-  const { run, runUntrusted, rerereEnabled } = context;
+  const { run, runUntrusted, rerereEnabled, rebaseSigningArgs } = context;
   const { tearDownWorktree } = context.worktrees;
   const { synchronizeBaseWithOrigin, pushBaseToOrigin } = origin;
 
@@ -44,6 +44,8 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
       .split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   }
 
+  const stoppedRebaseReason = (conflicts: string[]) => (conflicts.length > 0 ? 'rebase-conflict' : 'rebase-failed');
+
   async function abortRebaseWithConflicts(wt: string): Promise<string[]> {
     const conflicts = await unmergedPaths(wt);
     await run(['rebase', '--abort'], wt);
@@ -55,11 +57,12 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   }
 
   const withAutoUpdate = (args: string[]) => (rerereEnabled ? ['-c', 'rerere.autoUpdate=true', ...args] : args);
+  const rebaseArgs = async (wt: string, rebaseTarget: string) => [...await rebaseSigningArgs(wt), ...withAutoUpdate(['rebase', rebaseTarget])];
 
   async function advanceRebaseStep(wt: string): Promise<{ done: boolean; conflicted?: boolean }> {
     const staged = await run(['diff', '--cached', '--quiet'], wt);
     const step = staged.ok ? '--skip' : '--continue';
-    const r = await run(withAutoUpdate(['rebase', step]), wt, { env: { GIT_EDITOR: 'true' } });
+    const r = await run(await rebaseArgs(wt, step), wt, { env: { GIT_EDITOR: 'true' } });
     if (r.ok) return { done: true };
     return { done: false, conflicted: (await unmergedPaths(wt)).length > 0 };
   }
@@ -126,14 +129,14 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     const savedWork = dirty ? await saveUncommittedWork(wt) : null;
 
     let rerereReplayed = false;
-    if (!(await run(withAutoUpdate(['rebase', target]), wt)).ok) {
+    if (!(await run(await rebaseArgs(wt, target), wt)).ok) {
       const replay = rerereEnabled && (await rebaseStopped(wt))
         ? await replayRecordedResolutions(wt)
         : { ok: false };
       if (!replay.ok) {
         const conflicts = await abortRebaseWithConflicts(wt);
         await restoreSavedWork(wt, savedWork);
-        return { committed: true, merged: false, reason: 'rebase-conflict', parked: true, conflicts };
+        return { committed: true, merged: false, reason: stoppedRebaseReason(conflicts), parked: true, conflicts };
       }
       rerereReplayed = true;
     }
@@ -301,11 +304,14 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     if (behind.out === '' || behind.out === '0') return { ok: true, upToDate: true };
 
     let rerereReplayed = false;
-    if (!(await run(withAutoUpdate(['rebase', rebaseTargetSha]), wt)).ok) {
+    if (!(await run(await rebaseArgs(wt, rebaseTargetSha), wt)).ok) {
 
       if (!(await rebaseStopped(wt))) return { ok: false, reason: 'rebase-failed' };
       const replay = rerereEnabled ? await replayRecordedResolutions(wt) : { ok: false };
-      if (!replay.ok) return { ok: false, reason: 'rebase-conflict', conflicts: await abortRebaseWithConflicts(wt) };
+      if (!replay.ok) {
+        const conflicts = await abortRebaseWithConflicts(wt);
+        return { ok: false, reason: stoppedRebaseReason(conflicts), conflicts };
+      }
       rerereReplayed = true;
     }
     return {

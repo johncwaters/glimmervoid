@@ -92,7 +92,7 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
 
     const secondSha = commitFile(worktreeDir, 'second.txt');
     await commitSessions.noteHeadChange({ ...change, headSha: secondSha });
-    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'log', 'notes', 'notes']);
+    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'notes', 'notes']);
     const repoNotesRef = await repoNotesRefFor(repoDir, writerId);
     assert.ok(repoNotesRef);
     assert.ok(!repoNotesRef.includes(writerId));
@@ -150,9 +150,6 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
 
     const unrelatedLine = await askWhy('base.txt:1', repoDir, configPath);
     assert.match(unrelatedLine.answer, /^base\.txt:1 {2}[0-9a-f]{7} {2}.*\nno Glimmervoid session made this commit$/);
-    unsignedShas.length = 0;
-    await commitSessions.noteHeadChange({ ...change, headSha: git(['rev-parse', 'HEAD'], worktreeDir).trim() });
-    assert.deepEqual(unsignedShas, [], 'a rebased copy of a commit already recorded is not reported again');
     assert.equal(git(['status', '--porcelain'], repoDir), '');
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
