@@ -1,4 +1,6 @@
 ---
+interface Props { extraFeatures?: { name: string; line: string }[]; }
+const { extraFeatures = [] } = Astro.props;
 const USAGE_SHARES_BY_SESSION = [0.92, 0.64, 0.41, 0.23];
 const TRACE_STEP_LENGTHS = [0.7, 0.45, 0.85, 0.55, 0.3, 0.65];
 const HELPER_SESSION_COUNT = 3;
@@ -13,7 +15,6 @@ const FEATURES = [
   { area: 'vault', name: 'Vault', line: 'You approve every secret an agent reads' },
   { area: 'spawn', name: 'glimmervoid spawn', line: 'Agents start their own helpers', visual: 'helpers' },
   { area: 'radar', name: 'Radar', line: 'PostHog errors to PRs, opt-in', visual: 'radar' },
-  { area: 'streamer', name: 'Streamer mode', line: 'Hides secrets on stream', visual: 'masked' },
   { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session' },
   { area: 'resume', name: 'Auto-resume', line: 'Survives restarts mid-turn', visual: 'resume' },
   { area: 'worktrees', name: 'Worktrees', line: 'One worktree each. One-click merge.', visual: 'branch' },
@@ -67,7 +68,12 @@ const FEATURES = [
             <circle class="branch-merge-dot" cx="100" cy="34" r="4.5" />
           </svg>
         )}
-        {visual === 'masked' && <span class="tile-visual masked-secret" aria-hidden="true">API_KEY=<span class="mask"></span></span>}
+      </li>
+    ))}
+    {extraFeatures.map(({ name, line }) => (
+      <li class="tile is-wide">
+        <span class="feature-name">{name}</span>
+        <span class="feature-line">{line}</span>
       </li>
     ))}
   </ul>
@@ -80,10 +86,10 @@ const FEATURES = [
     grid-template-areas:
       "usage usage trace notify"
       "usage usage trace vault"
-      "spawn spawn spawn radar"
-      "streamer streamer upload radar"
+      "spawn spawn upload radar"
       "resume resume worktrees worktrees";
   }
+  .tile.is-wide { grid-column: 1 / -1; }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
   .is-feature .feature-name { font-size: var(--type-doc-h2); }
@@ -134,8 +140,6 @@ const FEATURES = [
   @keyframes land-commit { 0%, 30% { opacity: 0; } 38%, 100% { opacity: 1; } }
   @keyframes show-merge { 0%, 60% { opacity: 0; scale: 0.4; } 70%, 100% { opacity: 1; scale: 1; } }
   .branch-merge-dot { transform-box: fill-box; transform-origin: center; }
-  .masked-secret { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: var(--type-meta); color: var(--text-dim); }
-  .mask { display: block; flex: 1; max-width: 160px; height: 14px; border-radius: 2px; background: repeating-linear-gradient(90deg, var(--text-dim) 0 6px, transparent 6px 10px); opacity: 0.5; }
   @media (max-width: 820px) {
     .bento {
       gap: 8px;
@@ -145,7 +149,6 @@ const FEATURES = [
         "trace trace"
         "notify vault"
         "spawn radar"
-        "streamer streamer"
         "upload resume"
         "worktrees worktrees";
     }

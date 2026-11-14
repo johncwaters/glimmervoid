@@ -35,7 +35,6 @@ export const GET: APIRoute = ({ site }) => {
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
       '- Notifications: browser notifications, or Telegram when no dashboard tab is open.',
       '- Auto-resume: sessions that were live when Glimmervoid stopped come back on the next start, mid-turn included.',
-      '- Streamer mode: hides secrets on screen.',
     ].join('\n'),
     '## Commands inside a session',
     Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `- \`glimmervoid ${usage}\`: ${summary}`).join('\n'),

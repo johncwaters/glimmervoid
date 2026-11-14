@@ -10,7 +10,6 @@ import Faq from '../components/Faq.astro';
 import Features from '../components/Features.astro';
 import Footer from '../components/Footer.astro';
 import Install from '../components/Install.astro';
-import Reviews from '../components/Reviews.astro';
 import UsedBy from '../components/UsedBy.astro';
 import NextHero from '../components/next/NextHero.astro';
 ---
@@ -22,10 +21,9 @@ import NextHero from '../components/next/NextHero.astro';
     <Status />
     <Arena />
     <SaneYolo />
-    <Reviews />
     <Celebrations />
     <AsTheyAre />
-    <Features />
+    <Features extraFeatures={[{ name: 'Automated PR reviews', line: 'Team PRs arrive with a drafted review. Yours merge themselves.' }]} />
     <Install commandLine="One command." />
     <Faq />
     <Footer />
@@ -33,7 +31,8 @@ import NextHero from '../components/next/NextHero.astro';
 </Base>
 
 <style is:global>
-  .next-page section { padding-block: 128px; }
+  .next-page section { padding-block: 128px; border-top: 0; }
+  .next-page #status .all-clear-hint, .next-page #status .queue-row, .next-page #status .agent-row-label:has(+ .is-also), .next-page #status .agent-chips.is-also { display: none; }
   .next-page .section-head { margin-bottom: 64px; }
   @media (min-width: 1180px) {
     .next-page section:has(> .section-head) { display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }
