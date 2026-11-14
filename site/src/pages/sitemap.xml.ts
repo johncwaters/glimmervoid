@@ -2,7 +2,8 @@ import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { sitePath } from '../lib/site-path.ts';
 
-const STATIC_PAGE_FILES = Object.keys(import.meta.glob('./**/*.astro'));
+const UNLISTED_PAGE_FILES = new Set(['./next.astro']);
+const STATIC_PAGE_FILES = Object.keys(import.meta.glob('./**/*.astro')).filter((pageFile) => !UNLISTED_PAGE_FILES.has(pageFile));
 
 function pathWithinSiteOf(pageFile: string): string | null {
   if (pageFile.includes('[')) return null;

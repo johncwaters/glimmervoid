@@ -18,6 +18,7 @@ type Props = {
   publishedTime?: Date;
   structuredData?: Record<string, unknown>;
   markdownPath?: string;
+  unlisted?: boolean;
 };
 
 const {
@@ -29,9 +30,10 @@ const {
   publishedTime,
   structuredData,
   markdownPath,
+  unlisted = false,
 } = Astro.props;
 const structuredDataJson = structuredData ? JSON.stringify({ '@context': 'https://schema.org', ...structuredData }).replace(/</g, '\\u003c') : null;
-const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
+const canonicalUrl = new URL(unlisted ? sitePath('') : Astro.url.pathname, Astro.site).href;
 const socialImageUrl = new URL(sitePath(socialImagePath), Astro.site).href;
 
 const dashboardStylesheetsByPath = import.meta.glob<string>('../../../public/**/*.css', { eager: true, query: '?raw', import: 'default' });
@@ -48,6 +50,7 @@ const demoStyles = extractDemoStyles(dashboardStylesheet);
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
     <meta name="description" content={description}>
+    {unlisted && <meta name="robots" content="noindex">}
     <link rel="canonical" href={canonicalUrl}>
     {markdownPath && <link rel="alternate" type="text/markdown" href={sitePath(markdownPath)}>}
     <meta property="og:type" content={pageType}>
