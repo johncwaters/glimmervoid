@@ -8,6 +8,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
+import { elbowCornersAfterShift, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
@@ -563,7 +564,7 @@ test('a long identifier breaks after a separator, an agent box with no width is 
   assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
 });
 
-test('a wire ends at a free point or a box edge, runs sharp, curved or elbow, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
+test('a wire ends at a free point or a box edge, runs sharp, curved or elbow through its bend points, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
   const freeBoard = Board.parse({ id: 'free', title: 'free', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
     plan: { kind: 'box', id: 'plan', title: 'Planned', place: 'plan', step: {} },
     left: { kind: 'box', id: 'left', title: 'Left', place: { at: { x: 0, y: 0 } } },
@@ -573,6 +574,9 @@ test('a wire ends at a free point or a box edge, runs sharp, curved or elbow, ca
     bent: { kind: 'wire', id: 'bent', from: { x: -300, y: 500 }, to: 'right', arrows: 'end' },
     loose: { kind: 'wire', id: 'loose', from: { x: 900, y: 0 }, to: { x: 1100, y: 40 }, route: 'sharp' },
     routed: { kind: 'wire', id: 'routed', from: 'right', to: 'left' },
+    kinked: { kind: 'wire', id: 'kinked', from: 'left', to: 'right', route: 'sharp', via: [{ x: 400, y: -100 }] },
+    swept: { kind: 'wire', id: 'swept', from: 'left', to: 'right', route: 'curved', via: [{ x: 250, y: 400 }] },
+    shifted: { kind: 'wire', id: 'shifted', from: 'left', to: 'right', via: [{ x: 300, y: 20 }, { x: 300, y: 330 }] },
   } });
   const layout = layoutBoard(freeBoard);
   const laidOutById = new Map(layout.elements.map((element) => [element.id, element]));
@@ -603,6 +607,20 @@ test('a wire ends at a free point or a box edge, runs sharp, curved or elbow, ca
   }
   assert.equal(wireOf('loose').points.length, 2, 'a wire with two free ends needs no box');
   assert.ok(wireOf('routed').points.every((point, index, points) => index === 0 || points[index - 1]?.x === point.x || points[index - 1]?.y === point.y), 'a box to box elbow wire still takes the router');
+  const kinked = wireOf('kinked');
+  const kinkedCorner = { x: 400, y: -100 + layout.pinnedOffsetY };
+  assert.deepEqual([kinked.points.length, kinked.points[1], kinked.bends], [3, kinkedCorner, [kinkedCorner]], 'a sharp wire runs straight through its bend point, which moves with the plan band');
+  assert.deepEqual(wireHandlesOf(kinked).map((handle) => handle.kind), ['bend', 'midpoint', 'midpoint'], 'a bent sharp wire offers its bend and a midpoint on each side to add another');
+  const sweptCorner = { x: 250, y: 400 + layout.pinnedOffsetY };
+  assert.ok(wireOf('swept').points.some((point) => point.x === sweptCorner.x && point.y === sweptCorner.y), 'a curved wire passes through its bend point');
+  const shifted = wireOf('shifted');
+  const isOrthogonal = (points: readonly { x: number; y: number }[]) => points.every((point, index) => index === 0 || points[index - 1]?.x === point.x || points[index - 1]?.y === point.y);
+  assert.ok(isOrthogonal(shifted.points), 'an elbow wire with corners still runs at right angles');
+  assert.ok([20, 330].every((cornerY) => shifted.points.some((point) => point.x === 300 && point.y === cornerY + layout.pinnedOffsetY)), `an elbow wire turns at its stored corners, got ${JSON.stringify(shifted.points)}`);
+  const middleSegment = wireHandlesOf(shifted).find((handle) => handle.kind === 'segment' && handle.at.x === 300);
+  assert.ok(middleSegment, 'an elbow wire offers a handle on its middle segment');
+  const movedCorners = elbowCornersAfterShift(shifted.points, middleSegment.index, { x: 60, y: 999 });
+  assert.ok(movedCorners.length >= 2 && movedCorners.every((corner) => corner.x !== 300) && isOrthogonal([shifted.start, ...movedCorners, shifted.end]), `dragging the middle segment shifts it sideways only, got ${JSON.stringify(movedCorners)}`);
   const pictured = boardSvgDocument(layout);
   assert.ok(/data-element-id="pointer"[\s\S]*?marker-start="url\(#wb-arrow\)"/.test(pictured), 'the SVG draws an arrowhead at the start of a both-ends wire');
   const world = createLayoutWorld(freeBoard, null, 0);

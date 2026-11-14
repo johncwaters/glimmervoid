@@ -12,7 +12,8 @@ import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHIT
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
+import { pointsOfPath, wireHandlesOf } from '../../shared/whiteboard-route-core.ts';
+import type { WireHandle } from '../../shared/whiteboard-route-core.ts';
 import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
@@ -707,14 +708,52 @@ async function verifyArrowAndLineTools(open: OpenBoard, anchorBoxId: string): Pr
   await viewport.focus();
   await page.keyboard.press('l');
   assert.equal(await viewport.getAttribute('data-tool'), 'line', 'the L key picks the line tool');
-  const lineStart = { x: sourceRect.x + sourceRect.width + 30, y: sourceRect.y - 100 };
+  const lineStart = { x: sourceRect.x - 80, y: sourceRect.y - 100 };
   await dragOnScreen(open, lineStart, { x: lineStart.x + 200, y: lineStart.y + 40 });
   const line = await elementWhere(open, 'the line tool draws a free line on empty canvas', (element) => element.kind === 'wire' && element.id !== arrow.id && typeof element.from === 'object' && typeof element.to === 'object');
   assert.ok(line.kind === 'wire' && line.arrows === 'none' && line.route === 'sharp', 'a line has no arrowheads and runs straight');
+  await verifyWireBends(open, line.id, arrow.id);
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [arrow.id, line.id, 'bind-source', 'bind-target'].map((id) => ({ op: 'remove', id })) });
   await boardWithout(open, 'the arrow targets are gone', (element) => element.id === 'bind-source' || element.id === line.id);
   await viewport.focus();
   await page.keyboard.press('v');
+}
+
+async function wireHandleOnScreen(open: OpenBoard, wireId: string, kind: WireHandle['kind']): Promise<{ x: number; y: number }> {
+  const laidOut = await laidOutOf(open, wireId);
+  assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
+  const handles = wireHandlesOf(laidOut).filter((handle) => handle.kind === kind);
+  const picked = handles[Math.floor(handles.length / 2)];
+  assert.ok(picked, `${wireId} shows a ${kind} handle`);
+  return screenPointOf(open, picked.at);
+}
+
+async function verifyWireBends(open: OpenBoard, lineId: string, elbowArrowId: string): Promise<void> {
+  const { page } = open;
+  const midpoint = await wireHandleOnScreen(open, lineId, 'midpoint');
+  await dragOnScreen(open, midpoint, { x: midpoint.x, y: midpoint.y + 70 });
+  await elementWhere(open, 'dragging the midpoint handle of a selected line adds a bend point', (element) => element.id === lineId && element.kind === 'wire' && element.via.length === 1);
+  const bentLine = await laidOutOf(open, lineId);
+  assert.ok(bentLine.kind === 'wire' && pointsOfPath(bentLine.path).length === 3, 'the bent line runs through its bend point');
+  const bend = await wireHandleOnScreen(open, lineId, 'bend');
+  await page.mouse.dblclick(bend.x, bend.y);
+  await elementWhere(open, 'double-clicking a bend point removes it', (element) => element.id === lineId && element.kind === 'wire' && element.via.length === 0);
+  const elbowEnds = await wireEndsOnScreen(open, elbowArrowId);
+  await page.mouse.click(elbowEnds.firstLegMiddle.x, elbowEnds.firstLegMiddle.y);
+  const elbowBefore = await laidOutOf(open, elbowArrowId);
+  assert.ok(elbowBefore.kind === 'wire');
+  const segment = await wireHandleOnScreen(open, elbowArrowId, 'segment');
+  await dragOnScreen(open, segment, { x: segment.x + 50, y: segment.y + 50 });
+  await elementWhere(open, 'dragging an elbow segment stores its corners', (element) => element.id === elbowArrowId && element.kind === 'wire' && element.via.length > 0);
+  const shiftedPoints = pointsOfPath(await wireElementPath(open, elbowArrowId));
+  assert.ok(shiftedPoints.every((point, index) => index === 0 || shiftedPoints[index - 1]?.x === point.x || shiftedPoints[index - 1]?.y === point.y), `a shifted elbow wire still runs at right angles, got ${JSON.stringify(shiftedPoints)}`);
+  assert.notEqual(elbowBefore.path, await wireElementPath(open, elbowArrowId), 'the shifted segment redraws the elbow wire');
+}
+
+async function wireElementPath(open: OpenBoard, wireId: string): Promise<string> {
+  const laidOut = await laidOutOf(open, wireId);
+  assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
+  return laidOut.path;
 }
 
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {

@@ -860,6 +860,10 @@
     {
       "name": "hold to lift",
       "definition": "The phone whiteboard gesture: touching and holding a box for about 300 ms selects it and turns the touch into a move drag, where a plain drag would pan"
+    },
+    {
+      "name": "bend point",
+      "definition": "A point a whiteboard wire passes through between its ends, stored in order in the wire's via list; on a sharp or curved wire the operator adds one by dragging a leg's midpoint handle and removes one by double-clicking it, and on an elbow wire the bend points are its corners, moved by dragging a segment"
     }
   ],
   "retired": [

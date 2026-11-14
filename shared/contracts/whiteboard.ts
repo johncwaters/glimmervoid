@@ -7,7 +7,7 @@ import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
   elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12, strokePoints: 1000, strokes: 500, strokeWidthMax: 24,
-  wireLabel: 40, lineKey: 40, caption: 400, ref: 200, refsPerElement: 8, legendEntries: 12, legendLabel: 40,
+  wireLabel: 40, wireBends: 32, lineKey: 40, caption: 400, ref: 200, refsPerElement: 8, legendEntries: 12, legendLabel: 40,
 });
 
 
@@ -281,6 +281,7 @@ export const Wire = z.object({
   arrows: z.enum(WIRE_ARROWS).default('end').describe('arrowheads: none, at the end, or at both ends'),
   route: z.enum(WIRE_ROUTES).default('elbow').describe('elbow routes around boxes; sharp is one straight line; curved one bowed line'),
   label: z.string().max(WHITEBOARD_LIMITS.wireLabel, { error: `a wire label is at most ${WHITEBOARD_LIMITS.wireLabel} characters` }).nullable().default(null),
+  via: z.array(WirePoint).max(WHITEBOARD_LIMITS.wireBends, { error: `a wire has at most ${WHITEBOARD_LIMITS.wireBends} bend points` }).default([]).describe('bend points the line passes through in order; on an elbow wire, its corners'),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
 }).strict();
@@ -626,7 +627,7 @@ export function filledElement(element: SparseElement): Element {
     case 'wire': return {
       kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain', width: element.width ?? 'thin',
       arrows: element.arrows ?? 'end', route: element.route ?? 'elbow',
-      label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
+      label: element.label ?? null, via: element.via ?? [], fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
     };
     case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };
   }

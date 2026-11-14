@@ -66,6 +66,8 @@ export const LaidOutWire = z.object({
   tone: Wire.shape.tone.unwrap(),
   hasArrowhead: z.boolean(),
   hasStartArrowhead: z.boolean().default(false),
+  route: Wire.shape.route.unwrap().default('elbow'),
+  bends: z.array(LayoutPoint).default([]),
   joinAt: LayoutPoint.nullable(),
 });
 

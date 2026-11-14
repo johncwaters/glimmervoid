@@ -121,8 +121,9 @@ function shiftedElementOf(element: Element, offset: ClipboardPoint, newIdById: R
     case 'stroke': return { ...element, id, points: element.points.map((coordinate, index) => Math.round(coordinate + (index % 2 === 0 ? offset.x : offset.y))) };
     case 'frame': return { ...element, id, contains: element.contains.map(freshIdOf) };
     case 'wire': {
-      const freshEndOf = (end: WireEnd): WireEnd => (typeof end === 'string' ? freshIdOf(end) : { x: Math.round(end.x + offset.x), y: Math.round(end.y + offset.y) });
-      return { ...element, id, from: freshEndOf(element.from), to: freshEndOf(element.to) };
+      const shiftedPointOf = (point: { x: number; y: number }) => ({ x: Math.round(point.x + offset.x), y: Math.round(point.y + offset.y) });
+      const freshEndOf = (end: WireEnd): WireEnd => (typeof end === 'string' ? freshIdOf(end) : shiftedPointOf(end));
+      return { ...element, id, from: freshEndOf(element.from), to: freshEndOf(element.to), via: element.via.map(shiftedPointOf) };
     }
   }
 }

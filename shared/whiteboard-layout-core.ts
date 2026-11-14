@@ -662,8 +662,8 @@ function endShiftedBy(end: WireEnd, offsetY: number): WireEnd {
 }
 
 function wireShiftedBy(wire: Wire, offsetY: number): Wire {
-  if (offsetY === 0 || (typeof wire.from === 'string' && typeof wire.to === 'string')) return wire;
-  return { ...wire, from: endShiftedBy(wire.from, offsetY), to: endShiftedBy(wire.to, offsetY) };
+  if (offsetY === 0 || (typeof wire.from === 'string' && typeof wire.to === 'string' && wire.via.length === 0)) return wire;
+  return { ...wire, from: endShiftedBy(wire.from, offsetY), to: endShiftedBy(wire.to, offsetY), via: wire.via.map((corner) => ({ x: corner.x, y: corner.y + offsetY })) };
 }
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
