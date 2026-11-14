@@ -72,7 +72,7 @@ function harnessWithReplay(replayLog: ReplayLog) {
   return {
     connect(url: string): DispatchFrame[] {
       const connection = connectControl<DispatchFrame>(server, { url });
-      return connection.sent.filter((frame) => frame.type !== 'client-trust');
+      return connection.sent.filter((frame) => frame.type !== 'client-trust' && frame.type !== 'repository-clones');
     },
   };
 }
