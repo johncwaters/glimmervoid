@@ -1,0 +1,21 @@
+---
+import { STATUS_ICON_SHAPES } from '../../../../shared/state-icons.ts';
+import type { StatusIcon } from '../../../../shared/state-icons.ts';
+
+interface Props {
+  icon: StatusIcon;
+  class?: string;
+}
+
+const { icon, class: className } = Astro.props;
+---
+<svg class:list={['state-icon', className]} viewBox="0 0 16 16" aria-hidden="true">{STATUS_ICON_SHAPES[icon].map(({ tag: Shape, attributes }) => <Shape {...attributes} />)}</svg>
+
+<style>
+  .state-icon { width: 14px; height: 14px; flex: none; overflow: visible; }
+  .state-icon :global(.status-icon-ping) { transform-origin: 50% 50%; opacity: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .state-icon :global(.status-icon-ping) { animation: next-status-ping 1600ms ease-out infinite; }
+  }
+  @keyframes next-status-ping { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(1.75); opacity: 0; } }
+</style>
