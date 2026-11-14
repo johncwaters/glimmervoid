@@ -252,7 +252,6 @@ function createConfigStore({
       replayBufferKB: config.replayBufferKB,
       cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
-      streamerMode: config.streamerMode ?? effectiveDefaults.streamerMode,
       linkPreviews: config.linkPreviews ?? effectiveDefaults.linkPreviews,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,
       operatorTimezone: config.operatorTimezone ?? DEFAULT_CONFIG.operatorTimezone,

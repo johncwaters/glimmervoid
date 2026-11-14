@@ -46,11 +46,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       control: 'tab-order', keywords: ['tabs', 'order', 'rearrange', 'reorder', 'header', 'more', 'menu'], defaultValue: [], ...MACHINE_NOW,
     },
     {
-      id: 'streamer-mode', path: 'streamerMode', title: 'Streamer mode',
-      description: 'Hide sensitive details while screen sharing.',
-      control: 'toggle', keywords: ['streaming', 'screen share', 'privacy'], defaultValue: false, ...MACHINE_NOW,
-    },
-    {
       id: 'link-previews', path: 'linkPreviews', title: 'Link page previews',
       description: 'Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only.',
       control: 'toggle', keywords: ['links', 'preview', 'title', 'favicon', 'hover', 'privacy'], defaultValue: true, ...MACHINE_NOW,

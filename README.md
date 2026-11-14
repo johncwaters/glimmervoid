@@ -46,7 +46,7 @@ Glimmervoid is no longer published to npm; 0.54.0 was the last npm release. An n
 
 **3. Follow the checklist.** The empty dashboard walks you through three steps: an agent CLI it can find, the folder that holds your git checkouts, and your first session. It suggests folders such as `~/Projects` that already hold git repos, or you can type a path. Each subfolder becomes a project. For a folder outside your repository roots, open **Run in a folder outside your repository roots** in the **+ Session** dialog.
 
-That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background, unless Streamer mode is on.
+That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background.
 
 If something fails, run `glimmervoid doctor` and see [troubleshooting](docs/troubleshooting.md).
 

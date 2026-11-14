@@ -2,7 +2,6 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
-import { isStreamerMode } from '../streamer-mode.ts';
 import { CHECK_ICON_PATH, CLOSE_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
@@ -641,7 +640,7 @@ function isMarkupLocked(editor: MarkupHost) {
 }
 
 function canSuggest(editor: MarkupHost) {
-  return !isMarkupLocked(editor) && !isStreamerMode();
+  return !isMarkupLocked(editor);
 }
 
 function placeFloatAbove(pane: MarkupPane, float: HTMLElement, anchorRect: DOMRect | null) {
@@ -772,7 +771,6 @@ export function paintMarkupTools(editor: MarkupHost) {
 function markupHintFor(editor: MarkupHost) {
   const openMarkCount = editor.markup.marks.length;
   const markCount = `${openMarkCount} open ${openMarkCount === 1 ? 'mark' : 'marks'}.`;
-  if (isStreamerMode()) return `Editing marks is off in streamer mode. Accept and Reject still work. ${markCount}`;
   return `Suggesting: edits become red pen; click red text or a note to change it. ${markCount}`;
 }
 

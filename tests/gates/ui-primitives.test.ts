@@ -11,7 +11,7 @@ const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
 const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size|outline-state)\b/;
-const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Streamer|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
+const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
 const RETIRED_CLASSES: string[] = [
   'bench-action-button',
   'btn-action',
@@ -31,7 +31,6 @@ const RETIRED_CLASSES: string[] = [
   'btn-power',
   'btn-remove',
   'btn-session-menu',
-  'btn-streamer',
   'doc-editor-save',
   'hooks-btn',
   'hooks-btn-add',

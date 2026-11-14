@@ -89,7 +89,7 @@ export function previewSampleTopics(nowMs: number, frameIndex = 0): Omit<PackBri
       { id: 'sample-7', name: 'new session', agent: 'kimi', state: STATES.STARTING, stateSinceMs: nowMs - 5 * 1000, taskTitle: null },
     ],
   },
-  focus: { sessionId: 'sample-1', view: 'focus', isStreamerMode: false },
+  focus: { sessionId: 'sample-1', view: 'focus' },
   usage: {
     planLimits: [
       { vendor: 'claude', fiveHour: { pct: 42 + frameIndex * 3, resetsAtMs: nowMs + 2 * HOUR_MS }, sevenDay: { pct: 91, resetsAtMs: nowMs + 72 * HOUR_MS } },

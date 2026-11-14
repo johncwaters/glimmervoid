@@ -6,7 +6,6 @@ import { fetchLinkPreview } from '../external-link.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { buildPackApprovalContent } from '../packs/pack-approval-content.ts';
 import { subscribePacks } from '../packs/packs-store.ts';
-import { isStreamerMode } from '../streamer-mode.ts';
 import { button } from '../ui/button.ts';
 import type { SessionUi } from './card-registry.ts';
 import { copyTextToClipboard } from './terminal-notices.ts';
@@ -38,7 +37,7 @@ export function setLinkPreviewsEnabled(isEnabled: boolean) {
 
 function buildUrlRow(url: string) {
   const row = el('div', 'terminal-link-popup-url');
-  const parts = splitUrlForDisplay(url, isStreamerMode());
+  const parts = splitUrlForDisplay(url);
   if (!parts) {
     row.textContent = url;
     return row;

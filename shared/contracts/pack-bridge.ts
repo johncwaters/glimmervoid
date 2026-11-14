@@ -39,7 +39,7 @@ const PACK_BRIDGE_TOPIC_DATA = {
       taskTitle: z.string().nullable(),
     })),
   }),
-  focus: z.strictObject({ sessionId: z.string().nullable(), view: z.string(), isStreamerMode: z.boolean().describe('The operator is screen sharing: session names and task titles arrive masked; reviews arrive in full') }),
+  focus: z.strictObject({ sessionId: z.string().nullable(), view: z.string() }),
   theme: z.strictObject({
     id: z.string().nullable().describe("The active theme's id; a pack theme's id is <pack name>/<theme id>"),
     colors: z.record(z.string(), z.string()).describe('CSS custom properties to set on the root element, keyed with their leading --: one per theme chrome key (--bg, --bg-card, --bg-header, --bg-surface, --border, --border-dim, --border-hover, --text, --text-dim, --text-head, --text-muted, --accent, --accent-dim) and per session state (--state-<state>, a hex color, and --state-<state>-bg, a translucent color-mix tint of it)'),

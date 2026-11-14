@@ -24,7 +24,7 @@ let hasShownStaleDashboardError = false;
 function showStaleDashboardError() {
   if (hasShownStaleDashboardError) return;
   hasShownStaleDashboardError = true;
-  reportHeaderError({ source: STALE_DASHBOARD_ERROR_SOURCE, message: UNREADABLE_SERVER_MESSAGE_TEXT, hidesInStreamerMode: false });
+  reportHeaderError({ source: STALE_DASHBOARD_ERROR_SOURCE, message: UNREADABLE_SERVER_MESSAGE_TEXT });
 }
 
 function wireMessageDispatch() {

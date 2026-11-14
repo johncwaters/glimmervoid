@@ -1,11 +1,5 @@
 @layer components {
 
-html[data-streamer] .settings-view-sidebar { display: none; }
-
-html[data-streamer] .settings-view-shell { grid-template-columns: minmax(0, 1fr); }
-
-.settings-view-streamer-placeholder { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; }
-
 .shortcut-groups {
   display: grid;
   gap: 28px;

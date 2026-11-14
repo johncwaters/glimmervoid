@@ -105,7 +105,7 @@ function showServerUnreachableHint() {
     showReconnectingLoadingStatus();
     return;
   }
-  reportHeaderError({ source: SERVER_ERROR_SOURCE, message: SERVER_UNREACHABLE_TEXT, hidesInStreamerMode: false });
+  reportHeaderError({ source: SERVER_ERROR_SOURCE, message: SERVER_UNREACHABLE_TEXT });
 }
 
 function scheduleServerUnreachableHint() {

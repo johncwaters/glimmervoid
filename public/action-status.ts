@@ -26,13 +26,6 @@ const TONE_CLASS: Record<ActionStatusTone, string> = {
 
 export const DEFAULT_REPLY_TIMEOUT_MS = 15000;
 
-const STREAMER_HIDDEN_ERROR_TEXT = 'Something went wrong. Details are hidden in streamer mode.';
-
-function streamerSafeText(tone: ActionStatusTone, text: string): string {
-  if (tone !== 'error' || text.startsWith(NOT_CONNECTED_TEXT)) return text;
-  return document.documentElement.hasAttribute('data-streamer') ? STREAMER_HIDDEN_ERROR_TEXT : text;
-}
-
 const ICON_BY_TONE: Record<ActionStatusTone, StatusIcon> = {
   busy: 'working',
   ok: 'complete',
@@ -68,7 +61,7 @@ export function paintActionStatus(element: HTMLElement, tone: ActionStatusTone |
   element.dataset.tone = tone;
   const { iconElement, textElement } = actionStatusParts(element);
   paintStatusIcon(iconElement, ICON_BY_TONE[tone]);
-  textElement.textContent = streamerSafeText(tone, text);
+  textElement.textContent = text;
 }
 
 export function createActionStatus(className = 'action-status'): ActionStatus {
@@ -118,7 +111,6 @@ interface HeaderError {
   kind?: InstallFailureKind;
   tone?: HeaderNoticeTone;
   action?: HeaderErrorAction;
-  hidesInStreamerMode?: boolean;
 }
 
 interface HeaderErrorAction {
@@ -158,14 +150,13 @@ function paintHeaderErrorAge() {
   headerErrorNotice?.setMeta(headerErrorAgeText());
 }
 
-export function reportHeaderError({ source, sessionId, message, kind, tone = 'error', action, hidesInStreamerMode = true }: HeaderError) {
+export function reportHeaderError({ source, sessionId, message, kind, tone = 'error', action }: HeaderError) {
   reportHeaderErrorToServer(source, message, tone, kind);
   const notice = ensureHeaderErrorNotice();
-  const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
   shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: clock.nowMs() };
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
   notice.show({
-    text: [el('strong', null, source), ` ${shownMessage}`],
+    text: [el('strong', null, source), ` ${message}`],
     tone: NOTICE_TONE_BY_HEADER_TONE[tone],
     actions: action ? [button({ variant: 'secondary', size: 'small', label: action.label, action: 'header-status-action', onClick: action.run })] : [],
     meta: headerErrorAgeText(),

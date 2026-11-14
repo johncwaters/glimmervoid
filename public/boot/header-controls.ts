@@ -2,7 +2,6 @@ import { observeHeaderHeight, queryTag } from '../dom-helpers.ts';
 import { mountCelebrationTray } from '../merge-celebration.ts';
 import { mountMuteButton } from '../mute-button.ts';
 import { openAddSessionDialog } from '../session-actions.ts';
-import { mountStreamerTextMask } from '../streamer-text-mask.ts';
 import { createLineIcon, HELP_ICON_PATH, MUSIC_NOTE_ICON_PATH, PLUS_ICON_PATH, TROPHY_ICON_PATH } from '../svg-dom.ts';
 import { button, outlineIconButton } from '../ui/button.ts';
 import { openSettings } from './view-tabs.ts';
@@ -23,7 +22,6 @@ queryTag(document, '.header-right', 'div').append(btnAddSession, btnHelp, btnMut
 
 function mountHeaderControls() {
   mountMuteButton(muteToggle);
-  mountStreamerTextMask();
   observeHeaderHeight(document.querySelector('.header'));
 }
 

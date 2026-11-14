@@ -1,4 +1,3 @@
-import { findSecretRanges } from '#shared/secret-patterns.ts';
 
 type PopupPhase = 'hidden' | 'pending' | 'shown';
 
@@ -30,7 +29,6 @@ type HostMismatch = { textHost: string; targetHost: string };
 
 export const HIDDEN_POPUP: PopupState = { phase: 'hidden', isPointerOnLink: false, isPointerOnPopup: false, isPinned: false };
 
-const SECRET_MASK_CHARACTER = '*';
 const WRAPPING_PUNCTUATION = /^[("'<[{]+|[)"'>\]}.,;:!?]+$/g;
 const FILE_EXTENSION_TOP_LABELS = new Set(['md', 'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'py', 'rs', 'go', 'sh', 'txt', 'yml', 'yaml', 'toml', 'lock', 'html', 'css', 'rb', 'java', 'kt', 'swift', 'cs', 'php', 'sql', 'log', 'env', 'cfg', 'ini', 'xml', 'svg', 'png', 'jpg', 'gif', 'pdf', 'zip']);
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
@@ -115,22 +113,13 @@ function parseHttpUrl(text: string): URL | null {
   }
 }
 
-function maskSecretRanges(text: string, secretRanges: ReturnType<typeof findSecretRanges>) {
-  const characters = text.split('');
-  for (const range of secretRanges) characters.fill(SECRET_MASK_CHARACTER, range.start, range.end);
-  return characters.join('');
-}
-
-export function splitUrlForDisplay(url: string, shouldHideSecrets: boolean): DisplayUrl | null {
+export function splitUrlForDisplay(url: string): DisplayUrl | null {
   const parsed = parseHttpUrl(url);
   if (!parsed) return null;
   const credentials = parsed.username ? `${parsed.username}${parsed.password ? `:${parsed.password}` : ''}@` : '';
   const scheme = `${parsed.protocol}//${credentials}`;
   const rest = `${parsed.pathname === '/' && !parsed.search && !parsed.hash ? '' : parsed.pathname}${parsed.search}${parsed.hash}`;
-  if (!shouldHideSecrets) return { scheme, host: parsed.host, rest };
-  const masked = maskSecretRanges(`${scheme}${parsed.host}${rest}`, findSecretRanges(`${scheme}${parsed.host}${rest}`));
-  const hostEnd = scheme.length + parsed.host.length;
-  return { scheme: masked.slice(0, scheme.length), host: masked.slice(scheme.length, hostEnd), rest: masked.slice(hostEnd) };
+  return { scheme, host: parsed.host, rest };
 }
 
 function hostNamedByText(linkText: string): string | null {

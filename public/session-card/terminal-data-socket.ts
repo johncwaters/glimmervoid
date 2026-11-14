@@ -12,7 +12,6 @@ import { findSessionUi, sessionUIs } from './card-registry.ts';
 import type { DataFrameState } from './grid-core.ts';
 import { dataAttachPath, readDataFrame, shouldRequestDeepHistory } from './grid-core.ts';
 import { isCardBorrowed, uiState } from '../ui-state-core.ts';
-import { resetTerminalSecretMask } from './terminal-secret-mask.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
 import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS } from '#shared/contracts/data-messages.ts';
@@ -323,7 +322,6 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       frameState.hasSeenSize = true;
       frameState.lastSeq = frame.seq;
       term.reset();
-      resetTerminalSecretMask(term);
       ui.ptySize = { cols: frame.cols, rows: frame.rows };
       ui._syncGrid?.();
       return;

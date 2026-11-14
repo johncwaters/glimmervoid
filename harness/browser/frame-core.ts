@@ -67,5 +67,3 @@ export const DECEPTIVE_LINK_URL = 'https://login.example.net/session';
 export const WIDE_ROW_NUMBER = 6;
 export const WIDE_ROW_LEAD = String.fromCharCode(0x4e2d, 0x6587).repeat(5);
 export const WIDE_ROW_TARGET = 'target';
-export const SECRET_ROW_NUMBER = 8;
-export const SECRET_ROW_VALUE = `ghp_${'a1B2'.repeat(9)}`;

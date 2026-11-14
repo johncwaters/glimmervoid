@@ -19,7 +19,6 @@ import { connectableAgentOf } from './agent-logins.ts';
 import { refreshTerminalFonts } from './session-card/lifecycle.ts';
 import { prewarmDataSocket } from './session-card/terminal-data-socket.ts';
 import { addSessionRowSignalSource } from './session-row.ts';
-import { onStreamerModeChanged } from './streamer-mode.ts';
 import { applyTheme, onUnicornThemeEntered } from './theme.ts';
 import { setTraceRequestSender } from './trace-store.ts';
 import { getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled } from './ui-prefs.ts';
@@ -28,7 +27,7 @@ import { sessionRowBoardSignals, setBoardsViewOpener } from './whiteboard/board-
 import { loadPageToken } from './ws-token.ts';
 
 import { wireViewerFocus } from './boot/viewer-focus.ts';
-import { mountViewTabs, openBoardsSurface, openView, refreshViewsIfVisible } from './boot/view-tabs.ts';
+import { mountViewTabs, openBoardsSurface, openView } from './boot/view-tabs.ts';
 import { wireHashRouting } from './boot/hash-routes.ts';
 import { mountHeaderControls, mountHeaderTrays } from './boot/header-controls.ts';
 import { mountConnectionScreen, scheduleServerUnreachableHint } from './boot/connection-screen.ts';
@@ -75,7 +74,6 @@ setAccountSignIn((agentId, accountId) => {
   openAgentAccountDialog(agent, accountId);
 });
 
-onStreamerModeChanged(() => refreshViewsIfVisible('settings-updated'));
 
 wireMessageDispatch();
 

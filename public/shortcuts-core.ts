@@ -16,8 +16,7 @@ export type DashboardShortcutAction =
   | 'quick-session'
   | 'close-session'
   | 'board-split'
-  | 'shell-focus'
-  | 'streamer-mode';
+  | 'shell-focus';
 
 interface ShortcutKeyEvent {
   key: string;
@@ -81,7 +80,6 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
   { action: 'board-split', keyCaptions: ['B'], label: 'Open or close the board beside the selected session', stepByCode: new Map([['KeyB', 0]]) },
   { action: 'shell-focus', keyCaptions: ['`'], label: 'Move focus between the selected session and its shell', stepByCode: new Map([['Backquote', 0]]) },
-  { action: 'streamer-mode', keyCaptions: ['\\'], label: 'Turn streamer mode on or off', stepByCode: new Map([['Backslash', 0]]), isShellChord: true },
 ];
 
 function shortcutsOn(platform: ShortcutPlatform, nextAttentionKeyCode: string) {

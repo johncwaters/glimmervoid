@@ -18,7 +18,6 @@ import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-sur
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { appendShortcutChord, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
-import { isStreamerMode, onStreamerModeChanged, saveStreamerMode } from '../streamer-mode.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
@@ -163,24 +162,6 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
   return advanced;
 }
 
-function renderStreamerPlaceholder(container: HTMLElement) {
-  const placeholder = el('div', 'settings-view-streamer-placeholder');
-  const turnOff = button({ variant: 'primary', label: 'Turn off streamer mode', action: 'turn-off-streamer-mode' });
-  const status = el('span', 'settings-view-copy-status', '');
-  status.setAttribute('role', 'status');
-  turnOff.addEventListener('click', async () => {
-    turnOff.disabled = true;
-    status.textContent = '';
-    const saveError = await saveStreamerMode(false);
-    turnOff.disabled = false;
-    status.textContent = saveError;
-  });
-  placeholder.append(el('p', 'settings-view-section-description', 'Settings are hidden in streamer mode.'), turnOff, status);
-  container.appendChild(placeholder);
-}
-
-onStreamerModeChanged(() => renderContent());
-
 function renderAnimalGalleryToggle() {
   const disclosure = el('div', 'settings-view-advanced');
   const toggle = createPressable('dialog-advanced-toggle', 'Animal gallery');
@@ -239,10 +220,6 @@ function renderContent() {
   }
   if (!contentEl) return;
   contentEl.textContent = '';
-  if (isStreamerMode()) {
-    renderStreamerPlaceholder(contentEl);
-    return;
-  }
   const header = el('header', 'settings-view-section-header');
   const title = el('h1', 'settings-view-section-title', selectedPage.title);
   title.tabIndex = -1;
@@ -382,10 +359,6 @@ function appendFileOnlyDetails(row: HTMLElement, setting: SettingsSetting) {
 function renderSearchContent() {
   if (!contentEl) return;
   contentEl.textContent = '';
-  if (isStreamerMode()) {
-    renderStreamerPlaceholder(contentEl);
-    return;
-  }
   const results = searchSettings(searchQuery);
   const header = el('div', 'settings-view-section-header');
   header.append(el('h1', 'settings-view-section-title', 'Settings search'), el('p', 'settings-view-section-description', `${results.length} ${results.length === 1 ? 'result' : 'results'} for "${searchQuery}"`));
@@ -428,7 +401,7 @@ function renderSearchContent() {
 }
 
 function currentPhoneSettingsScreen() {
-  return phoneSettingsScreenOf(viewMap, phoneSectionId, searchQuery, isStreamerMode());
+  return phoneSettingsScreenOf(viewMap, phoneSectionId, searchQuery);
 }
 
 function syncPhoneSettingsScreen() {

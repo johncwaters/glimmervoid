@@ -15,7 +15,6 @@ Install one (for Claude Code, `npm install -g @anthropic-ai/claude-code`), then 
 - A notification appears only while the dashboard tab is in the background. A focused tab already shows the change.
 - Check that the browser allowed notifications for the dashboard, and that **Desktop notifications** is on under **Settings**, **Notifications**.
 - With no dashboard tab open anywhere, only Telegram can reach you. Set it up under **Settings**, **Notifications**, **Telegram**.
-- Streamer mode (**Settings**, **Sessions**) suppresses browser notifications. Telegram is unaffected.
 
 ## `EACCES` on a global install
 

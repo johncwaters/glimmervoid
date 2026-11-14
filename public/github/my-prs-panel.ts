@@ -517,7 +517,7 @@ function paintPrActionRun(status: HTMLElement, run: PrActionRunView): void {
   const stateLabel = PR_ACTION_STATE_LABELS[run.state];
   const tone = PR_ACTION_STATE_TONES[run.state];
   paintActionStatus(status, tone, run.message ? `${stateLabel}: ${run.message}` : stateLabel);
-  if (!run.message || (tone === 'error' && document.documentElement.hasAttribute('data-streamer'))) return;
+  if (!run.message) return;
   const textElement = status.querySelector<HTMLElement>(':scope > .action-status-text') ?? status;
   textElement.replaceChildren(`${stateLabel}: `, ...textWithHttpsLinks(run.message));
 }

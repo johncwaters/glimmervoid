@@ -10,7 +10,6 @@ import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts'
 import { resolveDashboardShortcut } from '../shortcuts-core.ts';
 import type { ResolvedDashboardShortcut } from '../shortcuts-core.ts';
 import { getSelectedId } from '../review/selection.ts';
-import { toggleStreamerMode } from '../streamer-mode.ts';
 import { getActiveView } from '../ui-state-core.ts';
 import { activateView, centerSessionInFocus, focusViewTabIfFocused, stepViewTab } from './view-tabs.ts';
 
@@ -78,9 +77,6 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
     case 'session-nth':
       if (!isFocusActive()) return false;
       focusNthInRail(step);
-      return true;
-    case 'streamer-mode':
-      toggleStreamerMode();
       return true;
   }
 }

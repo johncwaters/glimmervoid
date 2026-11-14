@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { CDPSession, Page } from 'playwright-core';
-import { SECRET_ROW_VALUE, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
+import { WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const CONTEXT_TIMEOUT_MS = 10_000;
 
@@ -277,12 +277,6 @@ async function clearSelection(page: Page) {
   await page.locator(selectionMirror).waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
 }
 
-async function toggleStreamerMode(page: Page) {
-  const isMacPlatform = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.userAgent));
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await page.keyboard.press(isMacPlatform ? 'Meta+Alt+Backslash' : 'Alt+Backslash');
-}
-
 async function openSelectSheetText(page: Page) {
   await page.locator('.phone-key-more').click();
   await page.locator('.phone-key-more-sheet [data-key="select"]').click();
@@ -294,9 +288,7 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   assert.match(await copyScreenText(page), /^0\|0123456789/m, 'Copy screen copies the rows on screen');
   await typeCommand('wide-row');
-  await typeCommand('secret-row');
   const screenText = await waitForScreenText(page, `${WIDE_ROW_LEAD} ${WIDE_ROW_TARGET}`);
-  await waitForScreenText(page, SECRET_ROW_VALUE);
   const touch = await page.context().newCDPSession(page);
 
   const digitsPoint = await cellCenter(page, screenText, 2, 20);
@@ -323,14 +315,6 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
   await releaseTouch(touch);
   await page.locator(selectionMirror).waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
 
-  await toggleStreamerMode(page);
-  await page.locator('html[data-streamer]').waitFor({ state: 'attached', timeout: CONTEXT_TIMEOUT_MS });
-  const streamerSheetText = await openSelectSheetText(page);
-  assert.ok(streamerSheetText.includes('GITHUB_TOKEN=') && !streamerSheetText.includes(SECRET_ROW_VALUE), 'in streamer mode the select sheet masks secrets');
-  await page.locator(`${selectSheet} [data-action="close-select"]`).click();
-  await toggleStreamerMode(page);
-  await page.locator('html[data-streamer]').waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
-
   assert.match(await openSelectSheetText(page), /cols=\d+ rows=\d+/, 'Select opens the terminal text in a sheet');
   await page.locator(`${selectSheet} [data-action="close-select"]`).click();
 
@@ -345,5 +329,5 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
   await releaseTouch(touch);
   assert.equal(await page.locator(selectionMirror).count(), 0, 'a finger that rests and then drags leaves no text layer behind');
   assert.notEqual(await copyScreenText(page), screenBeforeDrag, 'a finger that rests and then drags still scrolls');
-  return 'Copy screen copies the rows; a still hold lays the text under the finger for a native selection, also after wide characters, a hold lifted with nothing selected leaves no layer, and a rest then drag still scrolls; the select sheet masks secrets in streamer mode';
+  return 'Copy screen copies the rows; a still hold lays the text under the finger for a native selection, also after wide characters, a hold lifted with nothing selected leaves no layer, and a rest then drag still scrolls';
 }

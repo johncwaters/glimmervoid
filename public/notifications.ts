@@ -107,7 +107,7 @@ let hasReportedBlockedNotifications = false;
 function reportBlockedNotificationsOnce() {
   if (hasReportedBlockedNotifications) return;
   hasReportedBlockedNotifications = true;
-  reportHeaderError({ source: NOTIFICATIONS_ERROR_SOURCE, message: BLOCKED_NOTIFICATIONS_TEXT, hidesInStreamerMode: false });
+  reportHeaderError({ source: NOTIFICATIONS_ERROR_SOURCE, message: BLOCKED_NOTIFICATIONS_TEXT });
 }
 
 function rememberShownNotification(sessionId: string, notification: Notification) {
@@ -126,7 +126,6 @@ export function closeSessionNotifications(sessionId: string) {
 
 function isDesktopNotificationWanted(ignoreFocus: boolean) {
   if (!notificationsSupported() || !isNotificationsEnabled()) return false;
-  if (document.documentElement.hasAttribute('data-streamer')) return false;
   return ignoreFocus || !document.hasFocus();
 }
 

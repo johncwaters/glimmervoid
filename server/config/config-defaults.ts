@@ -14,7 +14,6 @@ const DEFAULT_CONFIG = {
   phoneEscalationMs: 300000,
   cursorBlink: false,
   debugMode: false,
-  streamerMode: false,
   linkPreviews: true,
   viewTabOrder: [] as string[],
   operatorTimezone: null as string | null,

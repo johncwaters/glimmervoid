@@ -9,8 +9,6 @@ import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
 import { countAttentionByKind } from '../focus-view/attention-core.ts';
 import { reviewsSnapshot } from '../github/review-queue-store.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
-import { isStreamerMode } from '../streamer-mode.ts';
-import { maskStreamerText } from '../streamer-text-core.ts';
 import { currentThemeColors } from '../theme.ts';
 import { uiState } from '../ui-state-core.ts';
 import { usageSnapshot } from '../usage/usage-store.ts';
@@ -44,17 +42,13 @@ type BridgedFrame = {
 const bridgedFrameByViewId = new Map<string, BridgedFrame>();
 let pushTimer: ReturnType<typeof setInterval> | null = null;
 
-function shownText(text: string): string {
-  return isStreamerMode() ? maskStreamerText(text) : text;
-}
-
 const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: (packName: string) => PackBridgeTopicData[Topic] } = {
   sessions: () => ({
     sessions: [...sessionUIs].map(([id, ui]) => ({
-      id, name: shownText(sessionName(ui)), agent: ui.agent ?? null, state: ui.currentState, stateSinceMs: ui.stateSince, taskTitle: ui.taskTitle === null ? null : shownText(ui.taskTitle),
+      id, name: sessionName(ui), agent: ui.agent ?? null, state: ui.currentState, stateSinceMs: ui.stateSince, taskTitle: ui.taskTitle,
     })),
   }),
-  focus: () => ({ sessionId: uiState.snapshot().focusedSessionId, view: uiState.snapshot().activeView, isStreamerMode: isStreamerMode() }),
+  focus: () => ({ sessionId: uiState.snapshot().focusedSessionId, view: uiState.snapshot().activeView }),
   theme: () => currentThemeColors(),
   usage: () => ({
     planLimits: Object.entries(usageSnapshot().planLimitsByVendor).flatMap(([vendor, planLimits]) => {

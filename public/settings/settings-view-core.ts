@@ -193,9 +193,8 @@ export function settingsNavigationGroupsOf(sections: readonly SettingsSection[])
 }
 
 export function phoneSettingsScreenOf(
-  sections: readonly SettingsSection[], sectionId: string | null, query: string, isStreamerMode: boolean,
-): 'hidden' | 'list' | 'section' | 'search' {
-  if (isStreamerMode) return 'hidden';
+  sections: readonly SettingsSection[], sectionId: string | null, query: string,
+): 'list' | 'section' | 'search' {
   if (query.trim()) return 'search';
   if (sectionId && pageSectionOf(sections, sectionId)) return 'section';
   return 'list';

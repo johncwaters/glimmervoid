@@ -34,7 +34,6 @@ How sessions start, where projects are found, and branch cleanup.
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
-| `streamerMode` | Streamer mode | `false` | Hide sensitive details while screen sharing. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
 | `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |

@@ -88,7 +88,7 @@ function mergeOverlapping(ranges: SecretRange[]): SecretRange[] {
   return merged;
 }
 
-export function findSecretRanges(text: string): SecretRange[] {
+function findSecretRanges(text: string): SecretRange[] {
   const querySpans = matchSpans(text, QUERY_VALUE_PATTERN);
   const spans = [
     ...querySpans,

@@ -244,7 +244,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
-  streamerMode: optionalBoolean('streamerMode'),
   linkPreviews: optionalBoolean('linkPreviews'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   operatorTimezone: z.string({ error: 'operatorTimezone must be a timezone name' }).refine(isKnownTimezone, { error: 'operatorTimezone must be a known timezone name, such as Europe/Berlin' }).nullable().optional(),
