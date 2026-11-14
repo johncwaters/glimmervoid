@@ -77,8 +77,14 @@ function hasTerminalOutput(timeline: WakeTimeline) {
   return timeline.marks.some((mark) => mark.startsWith('terminal-bytes'));
 }
 
+function wakeOutcomeOf(timeline: WakeTimeline) {
+  if (hasTerminalOutput(timeline) && !timeline.isCapped) return 'terminal live';
+  if (!timeline.marks.some((mark) => mark.startsWith('terminal-'))) return 'no terminal shown';
+  return `terminal not live after ${WAKE_TIMELINE_CAP_MS / 1000} s`;
+}
+
 function sendWakeTimeline(timeline: WakeTimeline) {
-  const outcome = hasTerminalOutput(timeline) && !timeline.isCapped ? 'terminal live' : `terminal not live after ${WAKE_TIMELINE_CAP_MS / 1000} s`;
+  const outcome = wakeOutcomeOf(timeline);
   const header = `hidden ${Math.round(timeline.hiddenForMs / 1000)} s, ${outcome}, ${describeBrowser()}, ${timeline.networkAtWake}: `;
   const text = header + joinMarksWithin(timeline.marks, CLIENT_LOG_TEXT_MAX_CHARS - header.length);
   return sendControlMsg({ type: 'client-log', scope: 'wake', text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) });

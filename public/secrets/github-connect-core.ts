@@ -58,5 +58,12 @@ function githubConnectViewOf(connection: GithubConnection | null | 'reading', no
   }
 }
 
-export { GITHUB_CONNECT_CONTROLS, githubConnectViewOf };
+function githubRepoListHintOf(connection: GithubConnection | null): string {
+  if (connection === null || (connection.state === 'unavailable' && connection.reason === 'no-app')) return 'Run gh auth login on the machine running Glimmervoid to list your repositories.';
+  if (connection.state === 'connected') return 'Reading your repositories.';
+  if (connection.state === 'needs-install') return 'Install the App to list your repositories.';
+  return 'Connect GitHub to list your repositories.';
+}
+
+export { GITHUB_CONNECT_CONTROLS, githubConnectViewOf, githubRepoListHintOf };
 export type { GithubConnectControl };

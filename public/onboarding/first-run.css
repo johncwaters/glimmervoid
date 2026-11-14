@@ -296,32 +296,61 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 }
 
 .repo-roots-adder {
+  --repo-roots-action-width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.repo-roots-adder-found,
+.repo-roots-adder-github,
+.repo-roots-adder-folder,
+.github-connect-stacked {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.repo-roots-adder-found,
-.repo-roots-adder-github {
+.github-connect-stacked[hidden],
+.github-connect-stacked-actions[hidden] {
+  display: none;
+}
+
+.github-connect-stacked-status {
+  margin: 0;
+  font-size: var(--type-meta);
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.github-connect-stacked-actions {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.github-connect-stacked-actions .settings-vault-test-status {
+  margin: 0;
 }
 
 .repo-roots-adder-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
+}
+
+.repo-roots-adder-list:empty {
+  display: none;
 }
 
 .repo-roots-adder-suggestion {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto var(--repo-roots-action-width);
   align-items: center;
-  gap: 12px;
-  padding: 6px 8px 6px 12px;
+  gap: 8px;
+  padding: 6px 0;
   border-top: 1px solid var(--border-dim);
 }
 
@@ -338,19 +367,23 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 }
 
 .repo-roots-adder-count {
-  flex-grow: 1;
   font-size: var(--type-meta);
   color: var(--text-muted);
 }
 
 .repo-roots-adder-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--repo-roots-action-width);
   gap: 8px;
 }
 
 .repo-roots-adder-input {
-  flex: 1 1 auto;
   min-width: 0;
+}
+
+[data-layout="phone"] .github-connect-stacked-actions {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .repo-roots-adder-status {

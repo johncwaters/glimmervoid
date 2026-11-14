@@ -4,6 +4,8 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
 import { buildGithubConnectSection } from '../secrets/github-connect.ts';
+import { githubRepoListHintOf } from '../secrets/github-connect-core.ts';
+import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
@@ -18,7 +20,6 @@ const FOLDER_COMPLETION_DELAY_MS = 150;
 const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
 const GITHUB_GRANT_WAIT_MS = 5_000;
 const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
-const NO_GITHUB_LOGIN_HINT = 'Run gh auth login on the machine running Glimmervoid to list your repos.';
 
 function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
@@ -42,11 +43,9 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function buildInputRow(labelText: string, placeholder: string, actionLabel: string) {
+function buildInputRow(placeholder: string, actionLabel: string) {
   adderSequence += 1;
   const inputId = `repo-roots-adder-input-${adderSequence}`;
-  const label = el('label', 'repo-roots-adder-label', labelText);
-  label.htmlFor = inputId;
   const row = el('div', 'repo-roots-adder-row');
   const input = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
   input.id = inputId;
@@ -56,27 +55,27 @@ function buildInputRow(labelText: string, placeholder: string, actionLabel: stri
   const actionButton = button({ variant: 'secondary', label: actionLabel });
   actionButton.disabled = true;
   row.append(input, actionButton);
-  return { label, row, input, actionButton };
+  return { row, input, actionButton };
 }
 
 export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSource) => void }) {
   const element = el('div', 'repo-roots-adder');
 
   const githubSection = el('div', 'repo-roots-adder-github');
-  const githubLabel = el('label', 'repo-roots-adder-label', 'FROM GITHUB');
+  const githubLabel = el('span', 'repo-roots-adder-label', 'GITHUB');
   const githubFilter = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
   adderSequence += 1;
   githubFilter.id = `repo-roots-adder-github-filter-${adderSequence}`;
-  githubLabel.htmlFor = githubFilter.id;
+  githubFilter.setAttribute('aria-label', 'Filter your GitHub repositories');
   githubFilter.type = 'text';
   githubFilter.placeholder = 'filter your repos';
   githubFilter.spellcheck = false;
   githubFilter.hidden = true;
   const githubList = el('ul', 'repo-roots-adder-list');
   const githubHint = el('p', 'repo-roots-adder-status');
-  githubSection.append(githubLabel, githubFilter, githubList, githubHint);
 
-  const cloneRow = buildInputRow('PASTE A REPO URL', 'https://github.com/owner/repo', 'Clone');
+  const cloneRow = buildInputRow('https://github.com/owner/repo', 'Clone');
+  cloneRow.input.setAttribute('aria-label', 'Repository URL to clone');
   const cloneStatus = el('p', 'repo-roots-adder-status');
   cloneStatus.setAttribute('role', 'status');
 
@@ -86,7 +85,11 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   suggestionsSection.append(suggestionsHeading, suggestionsList);
   suggestionsSection.hidden = true;
 
-  const folderRow = buildInputRow('OPEN A FOLDER', '~/', 'Add');
+  const folderSection = el('div', 'repo-roots-adder-folder');
+  const folderRow = buildInputRow('~/', 'Add');
+  const folderLabel = el('label', 'repo-roots-adder-label', 'OPEN A FOLDER');
+  folderLabel.htmlFor = folderRow.input.id;
+  folderSection.append(folderLabel, folderRow.row);
   const folderCompletions = el('datalist', 'repo-roots-adder-completions');
   folderCompletions.id = `${folderRow.input.id}-completions`;
   folderRow.input.setAttribute('list', folderCompletions.id);
@@ -95,14 +98,27 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   const errorEl = el('p', 'repo-roots-adder-error');
   errorEl.setAttribute('role', 'alert');
 
-  const githubConnectSection = buildGithubConnectSection({ isHiddenWithoutConnect: true, onConnected: () => { void loadGithubReposOnceGranted(GITHUB_GRANT_WAIT_ATTEMPTS); } });
+  let githubConnection: GithubConnection | null = null;
+  let listedForConnection: string | null = null;
+  const githubConnectSection = buildGithubConnectSection({ layout: 'stacked', isHiddenWithoutConnect: true, onConnectionChange: noteGithubConnection });
 
-  element.append(githubConnectSection, githubSection, cloneRow.label, cloneRow.row, cloneStatus, suggestionsSection, folderRow.label, folderRow.row, errorEl);
+  githubSection.append(githubLabel, githubConnectSection, githubFilter, githubList, githubHint, cloneRow.row, cloneStatus);
+  element.append(githubSection, suggestionsSection, folderSection, errorEl);
+
+  function noteGithubConnection(connection: GithubConnection | null) {
+    if (connection === null && githubConnection !== null) return;
+    githubConnection = connection;
+    const reachedAccounts = connection?.state === 'connected' ? `${connection.login}: ${connection.accounts.join(',')}` : connection?.state ?? '';
+    if (reachedAccounts === listedForConnection) return;
+    listedForConnection = reachedAccounts;
+    forgetGithubRepos();
+    void loadGithubReposOnceGranted(connection?.state === 'connected' ? GITHUB_GRANT_WAIT_ATTEMPTS : 1);
+  }
 
   let isBusy = false;
   function setBusy(busy: boolean) {
     isBusy = busy;
-    for (const actionButton of element.querySelectorAll<HTMLButtonElement>('button')) actionButton.disabled = busy;
+    for (const actionButton of element.querySelectorAll<HTMLButtonElement>('.repo-roots-adder-row button, .repo-roots-adder-list button')) actionButton.disabled = busy;
     if (busy) return;
     cloneRow.actionButton.disabled = cloneRow.input.value.trim() === '';
     folderRow.actionButton.disabled = folderRow.input.value.trim() === '';
@@ -170,6 +186,14 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     }
   }
 
+  function forgetGithubRepos() {
+    if (githubListState === 'loading') return;
+    githubListState = 'unloaded';
+    githubRepos = [];
+    githubFilter.hidden = true;
+    renderGithubRepos();
+  }
+
   function showGithubHint(text: string) {
     githubHintText = text;
     githubHint.textContent = text;
@@ -184,7 +208,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   }
 
   async function loadGithubRepos() {
-    if (githubListState !== 'unloaded') return;
+    if (githubListState !== 'unloaded' || listedForConnection === null) return;
     githubListState = 'loading';
     const reply = await sendControlRequest('list-github-repos', {}, { timeoutMs: GITHUB_LIST_REPLY_TIMEOUT_MS }).catch((error: unknown) => errorText(error));
     githubListState = 'unloaded';
@@ -193,7 +217,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
       return;
     }
     if (reply.source === 'none') {
-      showGithubHint(NO_GITHUB_LOGIN_HINT);
+      showGithubHint(githubRepoListHintOf(githubConnection));
       return;
     }
     if (reply.error) {
@@ -209,7 +233,6 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   }
 
   githubFilter.addEventListener('input', renderGithubRepos);
-  void loadGithubRepos();
   wireInputRow(folderRow, (value) => { void runAction(() => saveRepoRoots([value.replace(TRAILING_SEPARATORS_RE, '$1')]), 'typed', folderRow.input); });
 
   let folderCompletionTimer: ReturnType<typeof setTimeout> | null = null;

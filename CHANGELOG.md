@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The log no longer repeats "gh auth login" every minute.** A Glimmervoid with no `gh` login and no GitHub connection used to ask `gh` for your pull requests once a minute and log its refusal each time. It now makes no GitHub call until `gh` has a login or you connect GitHub in Settings.
+- **Add a repository shows your repositories as soon as the GitHub App is installed.** After you installed the App in another tab, the step kept waiting for the installation and never listed anything. It now reads GitHub again the moment you come back to the tab, retries a check that did not get through, and lists your repositories when GitHub answers.
+- **Add a repository reads as one GitHub block, then Open a folder.** The GitHub status no longer wraps into a narrow column beside floating buttons, the second "From GitHub" heading is gone, the URL and folder fields are the same width with Clone and Add lined up, and a hosted Glimmervoid asks you to connect GitHub or install the App where it used to say to run `gh auth login`.
 - **A hosted Glimmervoid no longer reports the notifications watch failing.** GitHub notifications cannot be read with the GitHub App, so the watcher refused that one watch on every cycle and logged it as failing. It is now left out of what the watcher reads, with one log line saying why, and the pull request watches carry on.
 
 ## [0.58.3] - 2026-11-13
