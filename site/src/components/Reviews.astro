@@ -1,5 +1,5 @@
 ---
-import { actionLabel, severityPresentation } from '../../../public/github/team-review-view-core.ts';
+import { actionLabel, detailActionLayout, severityPresentation } from '../../../public/github/team-review-view-core.ts';
 import { stageIcon, stageLabel } from '../../../public/github/my-prs-view-core.ts';
 import { OCTICON_PATHS_BY_ICON } from '../../../public/github/pr-status-icon.ts';
 import type { PrStatusIcon } from '../../../public/github/pr-status-icon-core.ts';
@@ -12,7 +12,8 @@ const DRAFTED_COMMENTS = [
   { severity: 'MEDIUM', text: 'Timeout unit is ambiguous', untickedFrom: undefined },
   { severity: 'LOW', text: 'Typo in the log line', untickedFrom: 1 },
 ] as const;
-const POST_ACTIONS = (['approve', 'approve-only', 'comment'] as const).map((action) => ({ action, label: actionLabel(action) }));
+const DEMO_DRAFT_LAYOUT = detailActionLayout({ status: 'ready', verdict: 'APPROVE WITH NITS' });
+const POST_ACTIONS = DEMO_DRAFT_LAYOUT.leading.map((action) => ({ action, label: actionLabel(action) }));
 const READINESS_ROWS: { label: string; steps: { text: string; tone: string; icon: PrStatusIcon; from: number; until?: number }[] }[] = [
   { label: 'Checks', steps: [{ text: 'Passing', tone: 'ok', icon: 'passed', from: 0 }] },
   { label: 'Review', steps: [{ text: 'Approved', tone: 'ok', icon: 'passed', from: 0 }] },
@@ -74,9 +75,9 @@ const TEAM_PULL_STATES = [
         <div class="stacked post-area">
           <p class="post-actions" {...framePart(0, 2)}>
             {POST_ACTIONS.map(({ action, label }) => (
-              <span class={`post-action${action === 'approve' ? ' is-primary' : ''}`}>
+              <span class={`post-action${action === DEMO_DRAFT_LAYOUT.recommended ? ' is-primary' : ''}`}>
                 {label}
-                {action === 'approve' && <span class="press-ring" {...framePart(1, 2)}></span>}
+                {action === DEMO_DRAFT_LAYOUT.recommended && <span class="press-ring" {...framePart(1, 2)}></span>}
               </span>
             ))}
           </p>
@@ -193,5 +194,8 @@ const TEAM_PULL_STATES = [
     .pull-head { flex-direction: column; gap: 4px; }
     .pull-state { justify-items: start; }
     .pull-title { white-space: normal; }
+  }
+  @media (max-width: 640px) {
+    .comment-text { white-space: normal; }
   }
 </style>
