@@ -14,6 +14,9 @@ import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whi
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
+import { boardIndexOf } from '#shared/whiteboard-board-index.ts';
+import { centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf } from './board-clipboard-core.ts';
+import type { BoardClipboard } from './board-clipboard-core.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const MIN_VIEW_WIDTH = 200;
@@ -60,6 +63,8 @@ export function stacksByTopBoxIdOf(board: Board): Map<string, Frame> {
   return stacksByTopBoxId;
 }
 
+type ClipboardNotice = 'cut' | 'unreadable' | 'gathered stack';
+
 interface BoardEditorOptions {
   viewport: HTMLElement;
   world: HTMLElement;
@@ -78,6 +83,7 @@ interface BoardEditorOptions {
   isOpenedStack: (frameId: string) => boolean;
   onToolChange: (tool: BoardTool) => void;
   onToolLockChange: (isToolLocked: boolean) => void;
+  onClipboardNotice: (notice: ClipboardNotice) => void;
 }
 
 export interface PressedImage {
@@ -109,7 +115,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
@@ -152,6 +158,8 @@ interface BoxSize {
   width: number;
   height: number;
 }
+
+const DUPLICATE_OFFSET = { x: 20, y: 20 };
 
 const BLANK_TEXT_LINE: BoxLine = { text: '', muted: false, style: 'text', key: null };
 
@@ -225,6 +233,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   const { viewport, world, svg, canvas, renderer } = options;
   const activePointers = new Map<number, ViewPoint>();
   let selectedIds = new Set<string>();
+  let lastPointerClient: ViewPoint | null = null;
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let gesture: Gesture = null;
   let inlineEditor: InlineEditor | null = null;
@@ -645,7 +654,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizeRect = hit?.part === 'resize' && !isPhoneLayout() ? hitBoxRect : null;
     if (hit && resizeRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 } };
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false };
       return;
     }
     if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
@@ -661,7 +670,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 } };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -696,6 +705,96 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, title, media, 'box');
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
+    return isSent;
+  }
+
+  function clipboardOfIds(elementIds: ReadonlySet<string>): BoardClipboard | null {
+    const board = options.currentBoard();
+    if (!board) return null;
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    return copiedClipboardOf({
+      elements: board.elements,
+      selectedIds: elementIds,
+      wireIdsOf: (boxId) => boardIndexOf(board.elements).dependentIdsByBoxId.get(boxId) ?? [],
+      placedRectOf: (boxId) => {
+        const rect = renderer.boundsOf(boxId) ?? renderer.boundsOf(stackTopIdOf(board, boxId) ?? boxId);
+        return rect ? { x: rect.x, y: rect.y - pinnedOffsetY, width: rect.width, height: rect.height } : null;
+      },
+    });
+  }
+
+  function stackTopIdOf(board: Board, boxId: string): string | null {
+    const stack = [...board.elements.valuesOfKind('frame')].find((frame) => frame.collapsed && frame.contains.includes(boxId));
+    return stack?.contains[0] ?? null;
+  }
+
+  async function sendPasted(clipboard: BoardClipboard, offset: ViewPoint): Promise<boolean> {
+    const { ops, pastedIds } = pastedOpsOf(clipboard, offset, newElementId);
+    const isSent = await options.sendOps(ops);
+    if (isSent) setSelection(new Set(pastedIds));
+    return isSent;
+  }
+
+  async function duplicateBoxes(elementIds: readonly string[], offset: ViewPoint): Promise<void> {
+    const clipboard = clipboardOfIds(new Set(elementIds));
+    if (clipboard) await sendPasted(clipboard, offset);
+  }
+
+  function hasUnloadedStackCards(elementIds: ReadonlySet<string>): boolean {
+    const board = options.currentBoard();
+    return [...elementIds].some((elementId) => {
+      const frame = board?.elements.get(elementId);
+      return frame?.kind === 'frame' && frame.collapsed && frame.contains.some((boxId) => !board?.elements.get(boxId));
+    });
+  }
+
+  function copyableClipboard(): BoardClipboard | null {
+    if (!hasUnloadedStackCards(selectedIds)) return clipboardOfIds(selectedIds);
+    options.onClipboardNotice('gathered stack');
+    return null;
+  }
+
+  function copySelection(): string | null {
+    const clipboard = copyableClipboard();
+    return clipboard ? JSON.stringify(clipboard) : null;
+  }
+
+  function cutSelection(): string | null {
+    const clipboard = copyableClipboard();
+    if (!clipboard) return null;
+    const removeOps: Op[] = REMOVAL_ORDER.flatMap((kind) => clipboard.elements.filter((element) => element.kind === kind))
+      .map((element) => ({ op: 'remove', id: element.id }));
+    setSelection(new Set());
+    void options.sendOps(removeOps);
+    return JSON.stringify(clipboard);
+  }
+
+  function duplicateSelection(): void {
+    const clipboard = copyableClipboard();
+    if (clipboard) void sendPasted(clipboard, DUPLICATE_OFFSET);
+  }
+
+  function pastePlaceOf(): ViewPoint {
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    const point = lastPointerClient ? toViewPoint(lastPointerClient.x, lastPointerClient.y) : viewportCenter();
+    return { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) };
+  }
+
+  async function pasteText(text: string): Promise<boolean> {
+    if (!options.currentBoard()) return false;
+    const place = pastePlaceOf();
+    const parsed = parsedClipboardOf(text);
+    if (parsed.kind === 'board') return sendPasted(parsed.clipboard, centeringOffsetOf(parsed.clipboard, place));
+    if (parsed.kind === 'unreadable') {
+      options.onClipboardNotice('unreadable');
+      return false;
+    }
+    const pasted = pastedTextOf(text);
+    if (!pasted) return false;
+    const element = { ...placedBox(place, pasted.title, null, pasted.isLink ? 'box' : 'text'), lines: pasted.lines };
+    const isSent = await options.sendOps([{ op: 'add', element }]);
+    if (isSent) setSelection(new Set([element.id]));
+    if (isSent && pasted.isCut) options.onClipboardNotice('cut');
     return isSent;
   }
 
@@ -828,6 +927,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function onPointerMove(event: PointerEvent): void {
+    lastPointerClient = { x: event.clientX, y: event.clientY };
     if (!gesture) showHover(event);
     if (!activePointers.has(event.pointerId)) return;
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -863,6 +963,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     cancelPreviewFrame();
     drag.latest = toViewPoint(event.clientX, event.clientY);
     renderer.setWireTarget(null);
+    if (drag.isDuplicating && drag.mode === 'move') {
+      paintPreview();
+      await duplicateBoxes(drag.movingBoxes.map((movingBox) => movingBox.boxId), dragOffsetOf(drag));
+      return;
+    }
     const stackTargetId = stackTargetOf(drag);
     if (stackTargetId) {
       paintPreview();
@@ -1297,6 +1402,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function commandKeyAction(event: KeyboardEvent): (() => void) | null {
     const key = event.key.toLowerCase();
     if (key === 'a') return selectAll;
+    if (key === 'd') return duplicateSelection;
     if (key === '0') return resetZoom;
     const zoomFactor = ZOOM_FACTOR_BY_KEY[key];
     if (zoomFactor === undefined) return null;
@@ -1358,6 +1464,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('keyup', onKeyUp);
   viewport.addEventListener('blur', () => holdSpace(false));
   viewport.addEventListener('pointerleave', () => {
+    lastPointerClient = null;
     if (gesture) return;
     renderer.setHover(null);
     viewport.dataset.hoverKind = '';
@@ -1379,6 +1486,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     afterBoardPaint,
     focusCanvas: () => viewport.focus(),
     removeSelected,
+    copySelection,
+    cutSelection,
+    pasteText,
+    isCanvasFocused: () => document.activeElement === viewport,
     zoomAroundClientPoint: (clientX: number, clientY: number, viewWidthFactor: number) => zoomAround(toViewPoint(clientX, clientY), viewWidthFactor),
     panByPixels,
   };

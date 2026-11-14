@@ -224,6 +224,99 @@ async function verifyDragPlacement(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'Delete removes the dragged decision', (element) => element.id === draggedOut.id);
 }
 
+async function clipboardEventText(page: Page, eventType: 'copy' | 'cut' | 'paste', pastedText = ''): Promise<string> {
+  return page.evaluate(({ type, text }) => {
+    const clipboardData = new DataTransfer();
+    if (text) clipboardData.setData('text/plain', text);
+    (document.activeElement ?? document.body).dispatchEvent(new ClipboardEvent(type, { clipboardData, bubbles: true, cancelable: true }));
+    return clipboardData.getData('text/plain');
+  }, { type: eventType, text: pastedText });
+}
+
+async function verifyClipboard(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const viewport = panel.locator('.wb-viewport');
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  await viewport.focus();
+  await page.keyboard.press('r');
+  const clipFrom = await placeBoxWithTool(open, { x: 60, y: 560 }, 'Clip from');
+  await page.keyboard.press('r');
+  const clipTo = await placeBoxWithTool(open, { x: 360, y: 560 }, 'Clip to');
+  await page.keyboard.press('r');
+  const clipOutsider = await placeBoxWithTool(open, { x: 60, y: 760 }, 'Clip outsider');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'wire', id: 'clip-inside', from: clipFrom.id, to: clipTo.id, label: 'travels' } },
+    { op: 'add', element: { kind: 'wire', id: 'clip-outside', from: clipOutsider.id, to: clipFrom.id } },
+  ] });
+  await elementWhere(open, 'the clipboard wires land', (element) => element.id === 'clip-outside');
+  const titledCount = async (title: string) => [...(await boardOf(open)).elements.values()].filter(titled(title)).length;
+  const countIs = (title: string, expected: number) => pollFor(`${expected} boxes titled ${title}`, BOARD_TIMEOUT_MS, async () => ((await titledCount(title)) === expected ? true : null));
+  await selectBoxes(open, [clipFrom.id, clipTo.id]);
+  const copied = await clipboardEventText(page, 'copy');
+  const copiedKinds = (JSON.parse(copied) as { elements: { kind: string }[] }).elements.map((element) => element.kind).sort().join(',');
+  assert.equal(copiedKinds, 'box,box,wire', 'Ctrl+C copies the two boxes and only the wire with both ends selected');
+  await page.mouse.move(canvasBox.x + 200, canvasBox.y + 900);
+  await clipboardEventText(page, 'paste', copied);
+  await countIs('Clip from', 2);
+  const pastedWire = await elementWhere(open, 'the pasted wire joins the pasted boxes', (element) => element.kind === 'wire' && element.label === 'travels' && element.id !== 'clip-inside');
+  assert.ok(pastedWire.kind === 'wire' && pastedWire.from !== clipFrom.id && pastedWire.to !== clipTo.id, 'the pasted wire runs between the fresh copies');
+  await page.keyboard.press('ControlOrMeta+d');
+  await countIs('Clip from', 3);
+  await page.keyboard.press('ControlOrMeta+z');
+  await countIs('Clip from', 2);
+  await page.keyboard.press('ControlOrMeta+z');
+  await countIs('Clip from', 1);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await countIs('Clip from', 2);
+  await page.keyboard.press('ControlOrMeta+z');
+  await countIs('Clip from', 1);
+  const outsiderCenter = centerOf(await screenRectOf(open, clipOutsider.id));
+  await page.mouse.move(outsiderCenter.x, outsiderCenter.y);
+  await page.keyboard.down('Alt');
+  await page.mouse.down();
+  await page.mouse.move(outsiderCenter.x + 260, outsiderCenter.y + 40, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await countIs('Clip outsider', 2);
+  const outsiderAfter = (await boardOf(open)).elements.get(clipOutsider.id);
+  assert.ok(outsiderAfter?.kind === 'box' && clipOutsider.kind === 'box' && JSON.stringify(outsiderAfter.place) === JSON.stringify(clipOutsider.place), 'Alt-drag leaves the original where it was');
+  await viewport.focus();
+  await page.mouse.move(canvasBox.x + 200, canvasBox.y + 1000);
+  await clipboardEventText(page, 'paste', 'Pasted words\nand a second line');
+  const pastedText = await elementWhere(open, 'pasted text becomes a text box', titled('Pasted words'));
+  assert.ok(pastedText.kind === 'box' && pastedText.borderless === true && pastedText.lines.map((line) => line.text).join('|') === 'and a second line', 'pasted text keeps one line per pasted line in a text box');
+  await clipboardEventText(page, 'paste', 'https://example.com/a/pasted/link');
+  const pastedLink = await elementWhere(open, 'a pasted URL becomes a box titled with it', titled('https://example.com/a/pasted/link'));
+  assert.ok(pastedLink.kind === 'box' && pastedLink.borderless !== true, 'a pasted URL is a plain box');
+  const stackPlace = clipOutsider.kind === 'box' ? pointOfBox(clipOutsider) : null;
+  assert.ok(stackPlace, 'the outsider box has a point');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'clip-stack-top', title: 'Clip stack top', place: { at: { x: stackPlace.x, y: stackPlace.y + 400 } } } },
+    { op: 'add', element: { kind: 'box', id: 'clip-stack-hidden', title: 'Clip hidden', place: { at: { x: stackPlace.x, y: stackPlace.y + 400 } } } },
+    { op: 'add', element: { kind: 'frame', id: 'clip-stack', title: 'Clip stack', contains: ['clip-stack-top', 'clip-stack-hidden'], collapsed: true } },
+  ] });
+  await elementWhere(open, 'the collapsed clipboard stack lands', (element) => element.id === 'clip-stack');
+  await viewport.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  const copiedAll = await clipboardEventText(page, 'copy');
+  assert.equal(copiedAll, '', 'copying a gathered stack whose cards are not loaded copies nothing rather than part of it');
+  await panel.getByText('Open the gathered stack first', { exact: false }).waitFor();
+  await page.keyboard.press('Escape');
+  const boxCountBefore = [...(await boardOf(open)).elements.values()].length;
+  const foreignPayload = JSON.stringify({ type: 'glimmervoid/board-elements', version: 1, area: { x: 0, y: 0, width: 10, height: 10 }, elements: [{ kind: 'wire', id: 'w1', from: 'clip-stack-top', to: 'clip-stack-hidden' }] });
+  await clipboardEventText(page, 'paste', foreignPayload);
+  await panel.getByText('Could not paste', { exact: false }).waitFor();
+  assert.equal([...(await boardOf(open)).elements.values()].length, boxCountBefore, 'a clipboard naming boxes it does not carry pastes nothing, not even a text box');
+  await selectBoxes(open, [clipFrom.id, clipTo.id]);
+  const cut = await clipboardEventText(page, 'cut');
+  assert.ok(cut.includes('Clip from'), 'Ctrl+X puts the boxes on the clipboard');
+  await boardWithout(open, 'Ctrl+X removes the cut boxes', (element) => element.id === clipFrom.id || element.id === clipTo.id);
+  const leftoverIds = [...(await boardOf(open)).elements.values()].filter((element) => ['Clip outsider', 'Clip stack top', 'Clip hidden', 'Pasted words', 'https://example.com/a/pasted/link'].some((title) => titled(title)(element))).map((element) => element.id);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: leftoverIds.map((elementId) => ({ op: 'remove', id: elementId })) });
+  await boardWithout(open, 'the clipboard check cleans up', (element) => leftoverIds.includes(element.id));
+}
+
 async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
@@ -1329,6 +1422,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyKeyboardEditing(open, parseFeed.id);
     if (desktopBoard) await verifyDragPlacement(open);
+    if (desktopBoard) await verifyClipboard(open);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);

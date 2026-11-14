@@ -59,6 +59,11 @@ const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html'])
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
+const CLIPBOARD_NOTICE_TEXT = {
+  cut: 'Pasted, but the text ran past what a box holds, so the rest was left out.',
+  unreadable: 'Could not paste: those board elements are in a form this Glimmervoid cannot read.',
+  'gathered stack': 'Open the gathered stack first, so every card in it is copied.',
+} as const;
 interface ToolDetails {
   label: string;
   key: string;
@@ -1155,10 +1160,30 @@ function wireMediaDrops(host: HTMLElement, canvas: HTMLElement): void {
   document.addEventListener('paste', (event) => {
     if (!host.checkVisibility() || isModalOpen() || isTextEntryFocused()) return;
     const files = mediaFilesOf(event.clipboardData);
-    if (files.length === 0) return;
+    if (files.length > 0) {
+      event.preventDefault();
+      void addMediaFiles(files, null);
+      return;
+    }
+    const pastedText = event.clipboardData?.getData('text/plain') ?? '';
+    if (!pastedText || !isBoardFocused(host)) return;
     event.preventDefault();
-    void addMediaFiles(files, null);
+    void editor?.pasteText(pastedText);
   });
+  const copyInto = (event: ClipboardEvent, copiedTextOf: () => string | null | undefined) => {
+    if (!editor?.isCanvasFocused() || isModalOpen()) return;
+    const copiedText = copiedTextOf();
+    if (!copiedText || !event.clipboardData) return;
+    event.clipboardData.setData('text/plain', copiedText);
+    event.preventDefault();
+  };
+  document.addEventListener('copy', (event) => copyInto(event, () => editor?.copySelection()));
+  document.addEventListener('cut', (event) => copyInto(event, () => editor?.cutSelection()));
+}
+
+function isBoardFocused(host: HTMLElement): boolean {
+  const focused = document.activeElement;
+  return focused === null || focused === document.body || host.contains(focused);
 }
 
 function isTextEntryFocused(): boolean {
@@ -1286,6 +1311,7 @@ export function mountBoardHost(): HTMLElement {
     isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),
     onToolChange: paintActiveTool,
     onToolLockChange: paintToolLock,
+    onClipboardNotice: (notice) => status.show(notice === 'cut' ? 'ok' : 'error', CLIPBOARD_NOTICE_TEXT[notice]),
   });
 
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));
