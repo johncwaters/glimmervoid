@@ -47,10 +47,10 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     </div>
     <fieldset class="dials" id="board-dials">
       <legend class="dials-legend">Dials</legend>
-      <label class="dial-pill"><span class="dial-name">Accent</span>
+      <label class="dial-pill dial-select" style={`--name-chars: ${'Accent'.length}`}><span class="dial-name">Accent</span>
         <select name="accent">{ACCENT_CHOICES.map(({ value, label }) => <option value={value}>{label}</option>)}</select>
       </label>
-      <label class="dial-pill"><span class="dial-name">Layout</span>
+      <label class="dial-pill dial-select" style={`--name-chars: ${'Layout'.length}`}><span class="dial-name">Layout</span>
         <select name="layout">{LAYOUT_CHOICES.map(({ value, label }) => <option value={value}>{label}</option>)}</select>
       </label>
       <label class="dial-pill dial-toggle"><input type="checkbox" name="compact" /><span class="dial-name">Compact</span></label>
@@ -146,6 +146,10 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .dial-pill:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   .dial-pill select { font: inherit; color: var(--text-head); background: transparent; border: 0; padding: 6px 4px; cursor: pointer; }
   .dial-pill select:focus-visible, .dial-toggle input:focus-visible { outline: none; }
+  .dial-select { display: inline-grid; padding: 0; }
+  .dial-select > * { grid-area: 1 / 1; }
+  .dial-select .dial-name { align-self: center; padding-left: 14px; pointer-events: none; }
+  .dial-select select { min-height: 40px; padding: 6px 10px 6px calc(14px + var(--name-chars) * 1ch + 8px); border-radius: 999px; }
   .dial-toggle { padding: 0 14px; }
   .dial-toggle input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
   .board-beats { list-style: none; margin: 28px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

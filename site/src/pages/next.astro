@@ -31,3 +31,12 @@ import NextHero from '../components/next/NextHero.astro';
     <Footer />
   </div>
 </Base>
+
+<style is:global>
+  .next-page section { padding-block: 128px; }
+  .next-page .section-head { margin-bottom: 64px; }
+  @media (max-width: 640px) {
+    .next-page section { padding-block: 96px; }
+    .next-page .section-head { margin-bottom: 48px; }
+  }
+</style>
