@@ -9,7 +9,7 @@ import { decideGridActions, decideGridEngagementEdge, retainGridClaimForReconnec
 import { createTerminalLinkPopup } from './terminal-link-popup.ts';
 import { osc8LinkHandler, registerUrlLinkProvider } from './terminal-links.ts';
 import { installTerminalSecretMask } from './terminal-secret-mask.ts';
-import { showSelectionMirror } from './selection-mirror.ts';
+import { isSelectionMirrorShown, showSelectionMirror } from './selection-mirror.ts';
 import { wireTouchScroll } from './touch-scroll.ts';
 import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.ts';
 import type { XtermRuntime } from './xterm-runtime.ts';
@@ -176,6 +176,7 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
     if (gridRafId !== null) return;
     gridRafId = requestAnimationFrame(() => {
       gridRafId = null;
+      if (isSelectionMirrorShown(termWrap)) return;
       syncGrid();
     });
   });
@@ -268,7 +269,7 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   });
 
   wireSoftKeyboardInput(termWrap, term, ui);
-  wireTouchScroll(termWrap, term, (clientX, clientY) => showSelectionMirror(term, termWrap, clientX, clientY));
+  wireTouchScroll(termWrap, term, (clientX, clientY) => showSelectionMirror(term, termWrap, clientX, clientY, () => ui._syncGrid?.()));
 }
 
 export { setTerminalCursorBlink, setupTerminal };

@@ -134,6 +134,11 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
     inertiaFrame = requestAnimationFrame(runInertiaFrame);
   };
 
+  termWrap.addEventListener('contextmenu', (event) => {
+    if (activeTouchId === null) return;
+    event.stopPropagation();
+  }, true);
+
   termWrap.addEventListener('touchstart', (event) => {
     cancelInertia();
 

@@ -8,6 +8,8 @@ import { clearTerminalNotice, showTerminalNotice } from './terminal-notices.ts';
 
 const INPUT_QUEUE_MAX = 1024;
 
+const UNSENT_WORD_RESTORE_WINDOW_MS = 60_000;
+
 const HELD_KEYS_TEXT = 'Keys you type now are held and sent once the terminal reconnects.';
 
 const DROPPED_KEYS_TEXT = 'The terminal is still reconnecting and its key buffer is full, so new keys are dropped.';
@@ -46,18 +48,42 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
   if (!textarea) return;
 
   let alreadySentText = '';
+  let unsentWordToRestoreOnFocus = '';
+  let unsentWordKeptAtMs = 0;
 
   const resyncBaseline = () => { alreadySentText = textarea.value; };
 
   const resetSoftKeyboardBuffer = () => {
     alreadySentText = '';
+    unsentWordToRestoreOnFocus = '';
     if (!isPhoneLayout()) return;
     if (textarea.value === '') return;
     textarea.value = '';
   };
   ui._resetSoftKeyboardBuffer = resetSoftKeyboardBuffer;
 
-  textarea.addEventListener('focus', () => syncPhoneKeyboardHints(textarea, ui));
+  const restoreUnsentWord = () => {
+    if (!isPhoneLayout()) return;
+    const unsentWord = unsentWordToRestoreOnFocus;
+    unsentWordToRestoreOnFocus = '';
+    if (unsentWord === '') return;
+    if (performance.now() - unsentWordKeptAtMs > UNSENT_WORD_RESTORE_WINDOW_MS) return;
+    textarea.value = unsentWord;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    resyncBaseline();
+  };
+
+  const keepUnsentWordForFocus = () => {
+    const unsentWord = alreadySentText.slice(alreadySentText.lastIndexOf(' ') + 1);
+    resetSoftKeyboardBuffer();
+    unsentWordToRestoreOnFocus = unsentWord;
+    unsentWordKeptAtMs = performance.now();
+  };
+
+  textarea.addEventListener('focus', () => {
+    syncPhoneKeyboardHints(textarea, ui);
+    restoreUnsentWord();
+  });
 
   const sendTypedText = () => {
     const bytes = bytesForSoftKeyboardEdit(alreadySentText, textarea.value);
@@ -95,7 +121,7 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
     event.stopPropagation();
   });
 
-  listenBeforeXterm('focusout', resetSoftKeyboardBuffer);
+  listenBeforeXterm('focusout', keepUnsentWordForFocus);
 
   listenBeforeXterm('compositionstart', (event) => {
     event.stopPropagation();

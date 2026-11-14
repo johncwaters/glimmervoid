@@ -147,6 +147,11 @@ async function replaceTypedTextAsAutocorrect(page: Page, correctedText: string) 
   }, correctedText);
 }
 
+async function blurAndRefocusTerminal(page: Page) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await focusTerminalTextarea(page);
+}
+
 export async function verifyTerminalTyping(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
   await typeCommand('stop');
   await waitForContext(page, 'ready');
@@ -162,6 +167,12 @@ export async function verifyTerminalTyping(page: Page, typeCommand: (command: st
   await page.keyboard.type('teh ');
   await replaceTypedTextAsAutocorrect(page, 'the ');
   assert.equal((await sentInputs(page)).join(''), 'teh \x7f\x7f\x7fhe ', 'an accepted correction erases the typed word in the prompt and types the corrected one');
+
+  await recordTerminalInputs(page);
+  await page.keyboard.type('u');
+  await blurAndRefocusTerminal(page);
+  await replaceTypedTextAsAutocorrect(page, 'Universe');
+  assert.equal((await sentInputs(page)).join(''), 'u\x7fUniverse', 'a word typed before the keyboard closed is corrected as one word after it reopens');
 
   await recordTerminalInputs(page);
   await page.locator(`${keyStrip} [data-key="ctrl"]`).click();

@@ -59,11 +59,15 @@ function fillRow(rowElement: HTMLElement, line: IBufferLine | undefined, cols: n
   rowElement.append(narrowRun);
 }
 
+export function isSelectionMirrorShown(termWrap: HTMLElement) {
+  return dismissByWrap.has(termWrap);
+}
+
 function hideSelectionMirror(termWrap: HTMLElement) {
   dismissByWrap.get(termWrap)?.();
 }
 
-export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, clientX: number, clientY: number) {
+export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, clientX: number, clientY: number, onDismiss: () => void) {
   const screen = term.element?.querySelector<HTMLElement>('.xterm-screen');
   if (!screen) return;
   hideSelectionMirror(termWrap);
@@ -100,6 +104,7 @@ export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, clien
     document.removeEventListener('selectionchange', onSelectionChange);
     scrollSubscription?.dispose();
     layer.remove();
+    onDismiss();
   };
   const onSelectionChange = () => {
     const selection = document.getSelection();
