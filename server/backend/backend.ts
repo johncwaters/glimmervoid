@@ -45,6 +45,7 @@ import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { createCommitSigning, followingGithubConnection } from '../commit-signing.ts';
+import { createHostReady } from '../ready-host.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
@@ -196,7 +197,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       .map((session) => session.name),
     onConfigSaved: (freshConfig) => applyConfigReload(freshConfig),
   });
-  const { agentAccounts, agentIngressServer, getHookPort, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
+  const { agentAccounts, agentIngressServer, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner } = sessionRuntime;
 
 
   const agentIngressDependencies: AgentIngressDependencies = {
@@ -697,6 +698,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   githubUserCredentialOfLink = watcherLink.githubUserCredential;
   const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read') });
   const githubConnection = followingGithubConnection(watcherLink.githubConnection, commitSigning);
+  const hostReady = createHostReady({ githubConnection: () => githubConnection('read'), commitSigningStatus: () => commitSigning.act('read'), ghShimDir });
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
@@ -850,6 +852,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     testSecretSource,
     githubConnection,
     commitSigning,
+    hostReady,
     whiteboards,
     reviews,
     changeMaps,

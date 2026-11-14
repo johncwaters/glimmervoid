@@ -97,7 +97,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane }),
   });
 
-  return { agentAccounts, agentIngressServer, getHookPort, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
+  return { agentAccounts, agentIngressServer, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

@@ -27,6 +27,7 @@ import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settings
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
+import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
 import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
 import { appendCopyControl, buildChip, buildExperimentalTag, externalLink } from './settings-readouts.ts';
@@ -254,6 +255,7 @@ function renderContent() {
   if (pageScope) titleRow.appendChild(buildChip('scope', SCOPE_LABELS[pageScope]));
   header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
   if (isExperimentalPage) header.appendChild(el('p', 'settings-view-warning settings-view-experimental-caution', 'Experimental: this may change or break between releases.'));
+  if (selectedPage.id === availableSettingsSections()[0]?.id) contentEl.appendChild(buildHostReadyRows().element);
   contentEl.appendChild(header);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {

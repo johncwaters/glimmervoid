@@ -43,6 +43,7 @@ import type { SecretsBroker } from './secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../shared/contracts/secrets.ts';
 import type { GithubConnection, GithubConnectionAction } from '../shared/contracts/watcher-link.ts';
 import type { CommitSigning } from './commit-signing.ts';
+import type { HostReadyReader } from './ready-host.ts';
 import { createCommunityHandlers } from './control/handlers/community-handlers.ts';
 import { createGithubHandlers } from './control/handlers/github-handlers.ts';
 import { createInspectHandlers } from './control/handlers/inspect-handlers.ts';
@@ -162,6 +163,7 @@ interface ControlHandlerDeps {
   testSecretSource?: ((lookIn: string) => Promise<SecretSourceTestResult>) | null;
   githubConnection?: ((action: GithubConnectionAction) => Promise<GithubConnection | null>) | null;
   commitSigning?: Pick<CommitSigning, 'act'> | null;
+  hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;

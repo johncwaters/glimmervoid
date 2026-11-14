@@ -30,6 +30,7 @@ import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import type { GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 import type { CommitSigning } from '../commit-signing.ts';
+import type { HostReadyReader } from '../ready-host.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -111,6 +112,7 @@ interface BackendControlDependencies {
   testSecretSource: (lookIn: string) => Promise<SecretSourceTestResult>;
   githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
   commitSigning: Pick<CommitSigning, 'act'>;
+  hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
@@ -198,6 +200,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     testSecretSource: dependencies.testSecretSource,
     githubConnection: dependencies.githubConnection,
     commitSigning: dependencies.commitSigning,
+    hostReady: dependencies.hostReady,
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
