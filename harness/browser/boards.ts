@@ -1714,6 +1714,61 @@ async function controlReplyOf(page: Page, type: string, payload: Record<string, 
   }, { type, payload });
 }
 
+async function boardIdTitled(page: Page, boardTitle: string): Promise<string> {
+  const boardId = await page.evaluate(async (title) => {
+    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
+    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${scheme}://${location.host}/control?token=${encodeURIComponent(token)}`);
+    return new Promise<string | null>((resolve) => {
+      socket.addEventListener('error', () => resolve(null));
+      socket.addEventListener('close', () => resolve(null));
+      socket.addEventListener('message', (event) => {
+        const message: unknown = JSON.parse(String(event.data));
+        if (typeof message !== 'object' || message === null || !('type' in message) || message.type !== 'whiteboards-snapshot' || !('boards' in message) || !Array.isArray(message.boards)) return;
+        socket.close();
+        const titled = message.boards.filter((board: unknown) => typeof board === 'object' && board !== null && 'title' in board && board.title === title && 'id' in board);
+        const last: unknown = titled[titled.length - 1];
+        resolve(typeof last === 'object' && last !== null && 'id' in last && typeof last.id === 'string' ? last.id : null);
+      });
+    });
+  }, boardTitle);
+  assert.ok(boardId, `the board list names ${boardTitle}`);
+  return boardId;
+}
+
+async function verifyPhoneHoldDrag(page: Page, panel: Locator, boardTitle: string): Promise<void> {
+  const open: OpenBoard = { page, panel, boardId: await boardIdTitled(page, boardTitle) };
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'lift-box', title: 'Lift me', place: { at: { x: 40, y: 40 } } } }] });
+  await elementWhere(open, 'the box to lift is on the board', (element) => element.id === 'lift-box');
+  const pointOfLiftBox = async () => {
+    const stored = (await boardOf(open)).elements.get('lift-box');
+    assert.ok(stored?.kind === 'box');
+    return pointOfBox(stored);
+  };
+  const before = await pointOfLiftBox();
+  const pannedRect = await screenRectOf(open, 'lift-box');
+  await dragOnScreen(open, { x: pannedRect.x + 80, y: pannedRect.y + pannedRect.height / 2 }, { x: pannedRect.x + 20, y: pannedRect.y + pannedRect.height / 2 + 60 });
+  assert.deepEqual(await pointOfLiftBox(), before, 'a plain drag on a box pans and leaves the box where it was');
+  const rect = await screenRectOf(open, 'lift-box');
+  const pressedAt = { x: rect.x + 80, y: rect.y + rect.height / 2 };
+  await page.mouse.move(pressedAt.x, pressedAt.y);
+  await page.mouse.down();
+  await page.waitForTimeout(450);
+  await page.mouse.move(pressedAt.x - 60, pressedAt.y + 80, { steps: 8 });
+  await page.mouse.up();
+  await pollFor('touch and hold lifts the box and the drag moves it', BOARD_TIMEOUT_MS, async () => {
+    const after = await pointOfLiftBox();
+    return after && before && after.x < before.x - 10 && after.y > before.y + 10 ? true : null;
+  });
+  const liftedRect = await screenRectOf(open, 'lift-box');
+  const widthBefore = liftedRect.width;
+  await dragOnScreen(open, { x: liftedRect.x + liftedRect.width, y: liftedRect.y + liftedRect.height }, { x: liftedRect.x + liftedRect.width + 60, y: liftedRect.y + liftedRect.height + 30 });
+  await pollFor('the lifted box shows resize handles a finger can drag', BOARD_TIMEOUT_MS, async () => ((await screenRectOf(open, 'lift-box')).width > widthBefore + 20 ? true : null));
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: 'lift-box' }] });
+  await boardWithout(open, 'the lifted box is gone', (element) => element.id === 'lift-box');
+}
+
 async function createBoardOverControl(page: Page, boardTitle: string): Promise<string> {
   return CreatedReply.parse(await controlReplyOf(page, 'whiteboard-create', { title: boardTitle })).summary.id;
 }
@@ -1753,6 +1808,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.getByRole('menuitem', { name: 'New board', exact: true }).waitFor();
     assert.equal(await page.getByRole('menuitem', { name: 'Board settings', exact: true }).isVisible(), false, 'phone hides the properties panel, so the menu offers no board settings');
     await page.keyboard.press('Escape');
+    await verifyPhoneHoldDrag(page, panel, boardTitle);
   }
   if (desktopBoard) {
     const open = desktopBoard;

@@ -23,6 +23,7 @@ import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
 import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-menu.ts';
 
 const DRAG_THRESHOLD_PX = 4;
+const BOX_LIFT_HOLD_MS = 300;
 const SNAP_THRESHOLD_PX = 8;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
@@ -825,7 +826,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
-    const resizeHandle = hit?.part === 'resize' && !isPhoneLayout() ? hit.handle : null;
+    const resizeHandle = hit?.part === 'resize' ? hit.handle : null;
     if (hit && hitBoxRect && resizeHandle) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const movingBoxes = movingBoxesFor(hit.id, hitBoxRect, false);
@@ -859,7 +860,20 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId, pressedImage: pressedImageOf(hit) };
+    const pan: Extract<Gesture, { kind: 'pan' }> = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId, pressedImage: pressedImageOf(hit) };
+    gesture = pan;
+    if (!tappedBoxId) return;
+    const pressedAt = toViewPoint(event.clientX, event.clientY);
+    window.setTimeout(() => liftBoxAfterHold(pan, tappedBoxId, pressedAt), BOX_LIFT_HOLD_MS);
+  }
+
+  function liftBoxAfterHold(pan: Extract<Gesture, { kind: 'pan' }>, boxId: string, pressedAt: ViewPoint): void {
+    const boxRect = renderer.boundsOf(boxId);
+    if (gesture !== pan || pan.hasMoved || !boxRect) return;
+    setSelection(new Set([boxId]));
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    gesture = { kind: 'drag', mode: 'move', pointerId: pan.pointerId, boxId, origin: pressedAt, start: boxRect, movingBoxes: movingBoxesFor(boxId, boxRect, false), pinnedOffsetY, latest: pressedAt, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: null };
+    navigator.vibrate?.(10);
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint, size: BoxSize | null): Promise<void> {
@@ -1230,7 +1244,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   async function finishDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): Promise<void> {
-    if (!drag.hasMoved && drag.mode === 'resize') return;
+    if (!drag.hasMoved && (drag.mode === 'resize' || isPhoneLayout())) return;
     if (!drag.hasMoved) {
       finishClick(drag);
       return;

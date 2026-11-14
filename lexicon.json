@@ -856,6 +856,10 @@
     {
       "name": "end handle",
       "definition": "The round handle at each end of a selected whiteboard wire: dragging it onto a box binds that end, dragging it off leaves the end at a free point"
+    },
+    {
+      "name": "hold to lift",
+      "definition": "The phone whiteboard gesture: touching and holding a box for about 300 ms selects it and turns the touch into a move drag, where a plain drag would pan"
     }
   ],
   "retired": [
