@@ -15,6 +15,7 @@ import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../s
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
 import { casesFor, needsGitOrigin, needsTeamReview } from './cases-core.ts';
+import { deviceLogPlugin, withoutIpv4MappedPrefix } from './device-log.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
   EXIT_HARNESS_ERROR,
@@ -249,10 +250,6 @@ function restoreEnvironmentVariable(name: string, value: string | undefined): vo
   process.env[name] = value;
 }
 
-function withoutIpv4MappedPrefix(address: string): string {
-  return address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
-}
-
 function isHostLanAddress(address: string): boolean {
   return Object.values(os.networkInterfaces()).some((interfaces) => (interfaces ?? [])
     .some((networkInterface) => !networkInterface.internal && networkInterface.family === 'IPv4' && networkInterface.address === address));
@@ -282,8 +279,9 @@ function lanConnectionGuard(allowedPeers: string[]): Plugin {
   };
 }
 
-function printDeviceSteps(baseUrl: string, cases: HarnessCase[]): void {
+function printDeviceSteps(baseUrl: string, cases: HarnessCase[], deviceLogPath: string): void {
   console.log(`dashboard for the device pass: ${baseUrl}`);
+  console.log(`device events append to ${deviceLogPath}`);
   console.log(`sessions: ${cases.map((harnessCase) => `${harnessCase.scenario.name} (${harnessCase.scenario.agent ?? 'claude-code'})`).join(', ')}`);
   console.log('the fake agent answers stop, work, fullscreen and leave-fullscreen typed as a message');
   for (const [index, step] of LAN_DEVICE_STEPS.entries()) console.log(`${index + 1}. ${step}`);
@@ -337,6 +335,7 @@ async function main(): Promise<number> {
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const runDirectory = path.join(options.artifactsDir, runId);
+  const deviceLogPath = path.join(runDirectory, 'device-log.jsonl');
   const artifacts = {
     shotsDir: path.join(runDirectory, 'shots'),
     diffsDir: path.join(runDirectory, 'diffs'),
@@ -429,14 +428,14 @@ async function main(): Promise<number> {
     const devServer = await createServer({
       configFile: path.join(REPO_ROOT, 'vite.config.ts'),
       server: { port, strictPort: true, host: servedHost },
-      plugins: options.lanAddress === null ? [] : [lanConnectionGuard([...options.lanAllowedPeers, options.lanAddress])],
+      plugins: options.lanAddress === null ? [] : [lanConnectionGuard([...options.lanAllowedPeers, options.lanAddress]), deviceLogPlugin(deviceLogPath)],
       logLevel: 'warn',
       clearScreen: false,
     });
     await devServer.listen();
     vite = devServer;
     if (isLanRun) {
-      printDeviceSteps(baseUrl, cases);
+      printDeviceSteps(baseUrl, cases, deviceLogPath);
       await new Promise<never>(() => {});
     }
 
