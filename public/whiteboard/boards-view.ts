@@ -82,7 +82,8 @@ const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
   box: { label: 'Box', key: 'R', iconPath: 'M2.5 4h11v8h-11z', hint: 'Click or drag on the board to place a box. Esc to cancel.' },
   note: { label: 'Note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click or drag on the board to place a note. Esc to cancel.' },
   text: { label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click or drag on the board to place text. Esc to cancel.' },
-  wire: { label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
+  wire: { label: 'Arrow', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from a box or empty canvas; let go on a box to bind the end. Esc to cancel.' },
+  line: { label: 'Line', key: 'L', iconPath: 'M2.5 13.5L13.5 2.5', hint: 'Drag to draw a line; let go on a box to bind the end. Esc to cancel.' },
   hand: { label: 'Hand', key: 'H', iconPath: 'M5.5 8V3.5a1 1 0 0 1 2 0V7.5 M7.5 7V2.5a1 1 0 0 1 2 0V7 M9.5 7V3.5a1 1 0 0 1 2 0V8 M11.5 8V5.5a1 1 0 0 1 2 0V10c0 2.5-2 4.5-4.5 4.5h-1c-1.6 0-2.6-.6-3.5-1.8L2.3 9.8a1 1 0 0 1 1.6-1.2L5.5 10', hint: 'Drag to pan the board. Esc to stop.' },
   pen: { label: 'Pen', key: 'P', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
   ellipse: { label: 'Ellipse', key: 'O', iconPath: 'M8 3c3.6 0 6 2.2 6 5s-2.4 5-6 5s-6-2.2-6-5s2.4-5 6-5z', hint: 'Click or drag on the board to place an ellipse. Esc to cancel.' },
@@ -91,7 +92,7 @@ const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
   icon: { label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click or drag on the board to place an icon. Esc to cancel.' },
   device: { label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click or drag on the board to place a device mockup. Esc to cancel.' },
 };
-const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'decision', 'ellipse', 'wire', 'pen', 'text', 'note', 'icon', 'device', 'eraser'];
+const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'decision', 'ellipse', 'wire', 'line', 'pen', 'text', 'note', 'icon', 'device', 'eraser'];
 const TOOL_LOCK_ICON_PATH = 'M4.5 7.5h7v6h-7z M6 7.5V5.5a2 2 0 0 1 4 0v2';
 
 interface TextDialogOptions {
@@ -938,14 +939,6 @@ function addNoteOn(boxId: string): void {
   });
 }
 
-function connectBoxes(fromBoxId: string, toBoxId: string): void {
-  const board = selectedBoard();
-  if (!board || fromBoxId === toBoxId) return;
-  const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
-  if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', width: 'thin', arrows: 'end', route: 'elbow', label: null, fromSide: null, toSide: null } }]);
-}
-
 function stackTitleOf(board: Board, boxIds: readonly string[]): string {
   const titles = boxIds.flatMap((boxId) => {
     const box = board.elements.get(boxId);
@@ -1399,7 +1392,6 @@ export function mountBoardHost(): HTMLElement {
       editor?.clearSelection();
       openImageViewer(pressedImage);
     },
-    onConnectBoxes: connectBoxes,
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
     isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),

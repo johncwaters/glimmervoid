@@ -634,6 +634,89 @@ async function verifyEllipseAndEraser(open: OpenBoard, anchorBoxId: string): Pro
   await page.keyboard.press('v');
 }
 
+async function screenPointOf(open: OpenBoard, point: { x: number; y: number }): Promise<{ x: number; y: number }> {
+  const onScreen = screenRectOn(await cameraOf(open), { x: point.x, y: point.y, width: 0, height: 0 });
+  return { x: onScreen.x, y: onScreen.y };
+}
+
+async function dragOnScreen(open: OpenBoard, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
+  await open.page.mouse.move(from.x, from.y);
+  await open.page.mouse.down();
+  await open.page.mouse.move(to.x, to.y, { steps: 8 });
+  await open.page.mouse.up();
+}
+
+async function screenCenterOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
+  const rect = await screenRectOf(open, boxId);
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+async function wireEndsOnScreen(open: OpenBoard, wireId: string): Promise<{ start: { x: number; y: number }; end: { x: number; y: number }; firstLegMiddle: { x: number; y: number } }> {
+  const laidOut = await laidOutOf(open, wireId);
+  assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
+  const [first, second] = pointsOfPath(laidOut.path);
+  assert.ok(first && second, `${wireId} has a first leg`);
+  return { start: await screenPointOf(open, laidOut.start), end: await screenPointOf(open, laidOut.end), firstLegMiddle: await screenPointOf(open, { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }) };
+}
+
+async function verifyArrowAndLineTools(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const viewport = panel.locator('.wb-viewport');
+  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
+  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
+  assert.ok(anchorPoint, 'the anchor box has a point');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'bind-source', title: 'Source', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 160 } } } },
+    { op: 'add', element: { kind: 'box', id: 'bind-target', title: 'Target', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 360 } } } },
+  ] });
+  await elementWhere(open, 'the arrow targets are on the board', (element) => element.id === 'bind-target');
+  const sourceRect = await screenRectOf(open, 'bind-source');
+  await viewport.focus();
+  await page.keyboard.press('a');
+  assert.equal(await viewport.getAttribute('data-tool'), 'wire', 'the A key picks the arrow tool');
+  await dragOnScreen(open, { x: sourceRect.x + sourceRect.width + 120, y: sourceRect.y + sourceRect.height + 60 }, await screenCenterOf(open, 'bind-target'));
+  const arrow = await elementWhere(open, 'an arrow drawn from empty canvas onto a box starts at a free point and binds its end', (element) => element.kind === 'wire' && element.to === 'bind-target' && typeof element.from === 'object');
+  assert.ok(arrow.kind === 'wire' && arrow.arrows === 'end', 'the arrow tool draws an arrowhead at the end');
+  assert.equal(await viewport.getAttribute('data-tool'), 'select', 'the arrow tool hands back to select after one arrow');
+  const drawnArrow = await wireEndsOnScreen(open, arrow.id);
+  await dragOnScreen(open, drawnArrow.start, await screenCenterOf(open, 'bind-source'));
+  await elementWhere(open, 'dragging the free start handle onto a box binds it', (element) => element.id === arrow.id && element.kind === 'wire' && element.from === 'bind-source');
+  const boundStart = (await wireEndsOnScreen(open, arrow.id)).start;
+  await dragOnScreen(open, boundStart, { x: boundStart.x + 2, y: boundStart.y + 1 });
+  await dragOnScreen(open, boundStart, await screenCenterOf(open, 'bind-source'));
+  const afterJitter = (await boardOf(open)).elements.get(arrow.id);
+  assert.ok(afterJitter?.kind === 'wire' && afterJitter.from === 'bind-source', `a jittery click on a bound end handle, or a drop back on its box, keeps the end bound, got ${JSON.stringify(afterJitter?.kind === 'wire' ? afterJitter.from : null)}`);
+  const wireCountBeforeClick = [...(await boardOf(open)).elements.valuesOfKind('wire')].length;
+  const jitterClick = { x: sourceRect.x + 6, y: sourceRect.y + 6 };
+  await viewport.focus();
+  await page.keyboard.press('a');
+  await dragOnScreen(open, jitterClick, { x: jitterClick.x + 1, y: jitterClick.y });
+  await page.waitForTimeout(300);
+  assert.equal([...(await boardOf(open)).elements.valuesOfKind('wire')].length, wireCountBeforeClick, 'a jittery Arrow tool click on a box draws no wire');
+  await viewport.focus();
+  await page.keyboard.press('v');
+  const reboundArrow = await wireEndsOnScreen(open, arrow.id);
+  const targetRect = await screenRectOf(open, 'bind-target');
+  await dragOnScreen(open, reboundArrow.end, { x: targetRect.x + targetRect.width / 2, y: targetRect.y + targetRect.height + 80 });
+  await elementWhere(open, 'dragging the end handle off a box unbinds it to a free point', (element) => element.id === arrow.id && element.kind === 'wire' && typeof element.to === 'object');
+  const unboundArrow = await wireEndsOnScreen(open, arrow.id);
+  await page.mouse.dblclick(unboundArrow.firstLegMiddle.x, unboundArrow.firstLegMiddle.y);
+  await page.getByRole('textbox', { name: 'Wire label', exact: true }).fill('calls');
+  await page.keyboard.press('Enter');
+  await elementWhere(open, 'double-clicking a wire edits its label', (element) => element.id === arrow.id && element.kind === 'wire' && element.label === 'calls');
+  await viewport.focus();
+  await page.keyboard.press('l');
+  assert.equal(await viewport.getAttribute('data-tool'), 'line', 'the L key picks the line tool');
+  const lineStart = { x: sourceRect.x + sourceRect.width + 30, y: sourceRect.y - 100 };
+  await dragOnScreen(open, lineStart, { x: lineStart.x + 200, y: lineStart.y + 40 });
+  const line = await elementWhere(open, 'the line tool draws a free line on empty canvas', (element) => element.kind === 'wire' && element.id !== arrow.id && typeof element.from === 'object' && typeof element.to === 'object');
+  assert.ok(line.kind === 'wire' && line.arrows === 'none' && line.route === 'sharp', 'a line has no arrowheads and runs straight');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [arrow.id, line.id, 'bind-source', 'bind-target'].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the arrow targets are gone', (element) => element.id === 'bind-source' || element.id === line.id);
+  await viewport.focus();
+  await page.keyboard.press('v');
+}
+
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
   const laidOut = await laidOutOf(open, boxId);
   return { x: laidOut.kind === 'wire' ? 0 : laidOut.x, y: laidOut.kind === 'wire' ? 0 : laidOut.y };
@@ -1708,6 +1791,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
     if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
     if (desktopBoard) await verifyEllipseAndEraser(open, parseFeed.id);
+    if (desktopBoard) await verifyArrowAndLineTools(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
@@ -1734,7 +1818,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Ellipse', 'Wire', 'Pen', 'Text', 'Note', 'Icon', 'Device', 'Eraser'], 'the toolbar shows the tool lock and every tool');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Ellipse', 'Arrow', 'Line', 'Pen', 'Text', 'Note', 'Icon', 'Device', 'Eraser'], 'the toolbar shows the tool lock and every tool');
     await page.keyboard.press('d');
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
     assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key places a decision');

@@ -35,7 +35,8 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end';
+type WireEndName = 'from' | 'to';
 
 interface BoardHit {
   id: string;
@@ -45,6 +46,7 @@ interface BoardHit {
   port: Point | null;
   media: { href: string; alt: string } | null;
   handle: ResizeHandle | null;
+  end: WireEndName | null;
 }
 
 interface BoardRenderer {
@@ -825,7 +827,24 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!handleArea) return null;
     const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
     const pressed = resizeHandleRectsOf(handleArea.area).find(({ rect }) => isInside(point, rect, handleSlop));
-    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle } : null;
+    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null } : null;
+  }
+
+  function selectedWiresOf(current: GlScene): Extract<LaidOutElement, { kind: 'wire' }>[] {
+    return [...selectedIds].flatMap((elementId) => {
+      const element = elementOf(current, elementId);
+      return element?.kind === 'wire' ? [element] : [];
+    });
+  }
+
+  function wireEndHitAt(current: GlScene, point: Point, slop: number): BoardHit | null {
+    const reach = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
+    for (const wire of selectedWiresOf(current)) {
+      const ends: [WireEndName, Point][] = [['from', wire.start], ['to', wire.end]];
+      const pressed = ends.find(([, center]) => Math.hypot(center.x - point.x, center.y - point.y) <= reach);
+      if (pressed) return { id: wire.id, kind: 'wire', part: 'end', lineIndex: null, port: null, media: null, handle: null, end: pressed[0] };
+    }
+    return null;
   }
 
   function decorations(current: GlScene): Decoration[] {
@@ -845,6 +864,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
     const handleArea = isPhone ? null : selectionHandleArea(current);
     if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area });
+    for (const wire of selectedWiresOf(current)) listed.push({ kind: 'wire-ends', wire });
     for (const elementId of reviewMarks.worthALookIds) {
       const element = elementOf(current, elementId);
       if (element && element.kind !== 'wire') listed.push({ kind: 'look', element });
@@ -1423,7 +1443,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null, end: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1462,6 +1482,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const slop = HIT_TOLERANCE_PX / camera.scale;
     const handleHit = handleHitAt(current, point, slop);
     if (handleHit) return handleHit;
+    const wireEndHit = wireEndHitAt(current, point, slop);
+    if (wireEndHit) return wireEndHit;
     const portReach = PORT_RADIUS + slop;
     let best: BoardHit | null = null;
     let bestRank = -1;
@@ -1680,4 +1702,4 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   };
 }
 
-export type { BoardHit, BoardRenderer, Camera };
+export type { BoardHit, BoardRenderer, Camera, WireEndName };

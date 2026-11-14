@@ -1,5 +1,5 @@
-import { filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import { boxIdOfEnd, filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op, Wire, WireEnd } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
@@ -11,7 +11,7 @@ import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithS
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
 import { createDragPreview, handleSidesOf, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
-import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
+import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf } from '#shared/whiteboard-board-index.ts';
@@ -29,7 +29,7 @@ const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'frame', 'box'];
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = {
-  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', o: 'ellipse', 4: 'ellipse', p: 'pen', 7: 'pen', t: 'text', 8: 'text', e: 'eraser', 0: 'eraser',
+  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', l: 'line', 6: 'line', o: 'ellipse', 4: 'ellipse', p: 'pen', 7: 'pen', t: 'text', 8: 'text', e: 'eraser', 0: 'eraser',
   h: 'hand', s: 'note', i: 'icon', m: 'device',
 };
 const NUDGE_UNITS = 1;
@@ -38,9 +38,13 @@ const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { ArrowLeft:
 const KEY_ZOOM_STEP = 1.25;
 const ZOOM_FACTOR_BY_KEY: Readonly<Record<string, number>> = { '=': 1 / KEY_ZOOM_STEP, '+': 1 / KEY_ZOOM_STEP, '-': KEY_ZOOM_STEP, _: KEY_ZOOM_STEP };
 
-type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen' | 'eraser';
+type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'line' | 'pen' | 'eraser';
+type WireTool = Extract<BoardTool, 'wire' | 'line'>;
 type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device'>;
-const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'pen', 'eraser']);
+const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'line', 'pen', 'eraser']);
+const WIRE_STYLE_BY_TOOL: Readonly<Record<WireTool, Pick<Wire, 'arrows' | 'route'>>> = { wire: { arrows: 'end', route: 'elbow' }, line: { arrows: 'none', route: 'sharp' } };
+const WIRE_LABEL_EDITOR_WIDTH = 160;
+const WIRE_LABEL_EDITOR_HEIGHT = 24;
 
 interface ViewPoint {
   x: number;
@@ -82,7 +86,6 @@ interface BoardEditorOptions {
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
   onOpenImage: (image: PressedImage) => void;
-  onConnectBoxes: (fromBoxId: string, toBoxId: string) => void;
   onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
   onOpenStack: (frameId: string) => void;
   isOpenedStack: (frameId: string) => boolean;
@@ -127,7 +130,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean } | null }
-  | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
+  | { kind: 'wire'; pointerId: number; fromBoxId: string | null; start: ViewPoint; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null; tool: WireTool; rewiring: { wireId: string; end: WireEndName } | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; pressedButton: PanButton; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
@@ -142,6 +145,10 @@ export function newElementId(kind: BoardElement['kind']): string {
 
 function isPhoneLayout(): boolean {
   return document.documentElement.dataset.layout === 'phone';
+}
+
+function isWireTool(tool: BoardTool): tool is WireTool {
+  return tool === 'wire' || tool === 'line';
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
@@ -231,7 +238,7 @@ const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
 const ERASER_SAMPLE_SPACING_PX = 4;
 const ERASER_TRAIL_POINTS = 24;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in' };
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in', end: 'move' };
 const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
 const MIN_LINE_EDITOR_WIDTH_PX = 240;
@@ -813,6 +820,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       startErase(event);
       return;
     }
+    if (hit?.part === 'end' && hit.end) {
+      startRewire(event.pointerId, hit.id, hit.end, toViewPoint(event.clientX, event.clientY));
+      return;
+    }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
     const resizeHandle = hit?.part === 'resize' && !isPhoneLayout() ? hit.handle : null;
     if (hit && hitBoxRect && resizeHandle) {
@@ -824,12 +835,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
-      startWire(event.pointerId, hit.id, hit.port);
+      startWire(event.pointerId, hit.id, hit.port, toViewPoint(event.clientX, event.clientY), isWireTool(activeTool) ? activeTool : 'wire', null);
       return;
     }
-    const wireToolRect = activeTool === 'wire' ? hitBoxRect : null;
-    if (hit && wireToolRect) {
-      startWire(event.pointerId, hit.id, { x: wireToolRect.x + wireToolRect.width / 2, y: wireToolRect.y + wireToolRect.height / 2 });
+    if (isWireTool(activeTool)) {
+      const pressedPoint = hitBoxRect ? { x: hitBoxRect.x + hitBoxRect.width / 2, y: hitBoxRect.y + hitBoxRect.height / 2 } : toViewPoint(event.clientX, event.clientY);
+      startWire(event.pointerId, hitBoxRect && hit ? hit.id : null, pressedPoint, toViewPoint(event.clientX, event.clientY), activeTool, null);
       return;
     }
     const boxRect = isPhoneLayout() ? null : hitBoxRect;
@@ -971,12 +982,29 @@ export function createBoardEditor(options: BoardEditorOptions) {
     editTitle(elementId);
   }
 
-  function startWire(pointerId: number, fromBoxId: string, start: ViewPoint): void {
+  function startWire(pointerId: number, fromBoxId: string | null, start: ViewPoint, pressedAt: ViewPoint, tool: WireTool, rewiring: { wireId: string; end: WireEndName } | null): void {
     const draftLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     draftLine.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
     draftLine.setAttribute('d', `M ${start.x} ${start.y} L ${start.x} ${start.y}`);
     svg.append(draftLine);
-    gesture = { kind: 'wire', pointerId, fromBoxId, start, draftLine, targetBoxId: null };
+    gesture = { kind: 'wire', pointerId, fromBoxId, start, pressedAt, latest: pressedAt, draftLine, targetBoxId: null, tool, rewiring };
+  }
+
+  function startRewire(pointerId: number, wireId: string, end: WireEndName, pressedAt: ViewPoint): void {
+    const stored = options.currentBoard()?.elements.get(wireId);
+    const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
+    if (stored?.kind !== 'wire' || laidOut?.kind !== 'wire') return;
+    const fixedEnd = end === 'to' ? stored.from : stored.to;
+    startWire(pointerId, boxIdOfEnd(fixedEnd), end === 'to' ? laidOut.start : laidOut.end, pressedAt, 'wire', { wireId, end });
+  }
+
+  function storedPointOf(point: ViewPoint): ViewPoint {
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    return { x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) };
+  }
+
+  function isWireAlreadyDrawn(board: Board, fromBoxId: string, toBoxId: string): boolean {
+    return [...board.elements.valuesOfKind('wire')].some((wire) => wire.from === fromBoxId && wire.to === toBoxId);
   }
 
   function markWireTarget(wire: Extract<Gesture, { kind: 'wire' }>, targetBoxId: string | null): void {
@@ -986,17 +1014,33 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function moveWire(wire: Extract<Gesture, { kind: 'wire' }>, event: PointerEvent): void {
     const point = toViewPoint(event.clientX, event.clientY);
+    wire.latest = point;
     wire.draftLine.setAttribute('d', `M ${wire.start.x} ${wire.start.y} L ${point.x} ${point.y}`);
-    const hit = renderer.hitTest(point);
-    const isOtherBox = hit?.kind === 'box' && hit.id !== wire.fromBoxId;
-    markWireTarget(wire, isOtherBox ? hit.id : null);
+    const targetBoxId = renderer.boxIdsAt(point).find((boxId) => boxId !== wire.fromBoxId) ?? null;
+    markWireTarget(wire, targetBoxId);
   }
 
   function endWire(wire: Extract<Gesture, { kind: 'wire' }>, shouldConnect: boolean): void {
     const targetBoxId = wire.targetBoxId;
     markWireTarget(wire, null);
     wire.draftLine.remove();
-    if (shouldConnect && targetBoxId) options.onConnectBoxes(wire.fromBoxId, targetBoxId);
+    const board = options.currentBoard();
+    const draggedPx = Math.hypot(wire.latest.x - wire.pressedAt.x, wire.latest.y - wire.pressedAt.y) * camera.scale;
+    const isClick = draggedPx < DRAG_THRESHOLD_PX;
+    if (!shouldConnect || !board || isClick) return;
+    const releasedEnd: WireEnd = targetBoxId ?? storedPointOf(wire.latest);
+    if (wire.rewiring) {
+      void options.sendOps([{ op: 'set', id: wire.rewiring.wireId, fields: { [wire.rewiring.end]: releasedEnd } }]);
+      return;
+    }
+    if (wire.fromBoxId && targetBoxId && isWireAlreadyDrawn(board, wire.fromBoxId, targetBoxId)) return;
+    void addWire(wire.fromBoxId ?? storedPointOf(wire.start), releasedEnd, wire.tool);
+  }
+
+  async function addWire(from: WireEnd, to: WireEnd, tool: WireTool): Promise<void> {
+    const element: Wire = { kind: 'wire', id: newElementId('wire'), from, to, dashed: false, tone: 'plain', width: 'thin', ...WIRE_STYLE_BY_TOOL[tool], label: null, fromSide: null, toSide: null };
+    const isSent = await options.sendOps([{ op: 'add', element }]);
+    if (isSent) setSelection(new Set([element.id]));
   }
 
   function snapTargetsFor(drag: Extract<Gesture, { kind: 'drag' }>): SnapTargets {
@@ -1259,7 +1303,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (finished?.kind === 'wire') {
       endWire(finished, finished.pointerId === event.pointerId);
-      if (activeTool === 'wire') finishToolUse();
+      if (isWireTool(activeTool)) finishToolUse();
       return;
     }
     if (finished?.kind === 'marquee') {
@@ -1369,6 +1413,41 @@ export function createBoardEditor(options: BoardEditorOptions) {
       viewport.focus();
       if (!title || title === titled.title) return;
       void options.sendOps([{ op: 'set', id: elementId, fields: { title } }]);
+    }, { signal });
+    input.addEventListener('blur', closeInlineEditor, { signal });
+    input.focus();
+    input.select();
+  }
+
+  function wireLabelRectOf(wireId: string): Rect | null {
+    const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
+    if (laidOut?.kind !== 'wire') return null;
+    return { x: laidOut.labelAt.x - WIRE_LABEL_EDITOR_WIDTH / 2, y: laidOut.labelAt.y - WIRE_LABEL_EDITOR_HEIGHT * 0.7, width: WIRE_LABEL_EDITOR_WIDTH, height: WIRE_LABEL_EDITOR_HEIGHT };
+  }
+
+  function editWireLabel(wireId: string): void {
+    const labeled = options.currentBoard()?.elements.get(wireId);
+    if (labeled?.kind !== 'wire' || !wireLabelRectOf(wireId)) return;
+    const input = markAsNotCredential(el('input', 'wb-title-input wb-wire-label-input'));
+    input.type = 'text';
+    input.value = labeled.label ?? '';
+    input.maxLength = WHITEBOARD_LIMITS.wireLabel;
+    input.setAttribute('aria-label', 'Wire label');
+    const signal = openInlineEditor(input, () => wireLabelRectOf(wireId), WIRE_LABEL_EDITOR_WIDTH);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeInlineEditor();
+        viewport.focus();
+        return;
+      }
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      const label = input.value.trim() || null;
+      closeInlineEditor();
+      viewport.focus();
+      if (label === labeled.label) return;
+      void options.sendOps([{ op: 'set', id: wireId, fields: { label } }]);
     }, { signal });
     input.addEventListener('blur', closeInlineEditor, { signal });
     input.focus();
@@ -1611,6 +1690,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = hitAt(event.clientX, event.clientY);
     if (!hit) {
       void placeElement('text', toViewPoint(event.clientX, event.clientY), null);
+      return;
+    }
+    if (hit.kind === 'wire') {
+      editWireLabel(hit.id);
       return;
     }
     const box = hit.kind === 'box' ? editedBox(hit.id) : null;

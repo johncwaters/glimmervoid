@@ -739,7 +739,7 @@
     },
     {
       "name": "arrow",
-      "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, or the Arrow box icon"
+      "definition": "An arrow key (Up, Down, Left or Right), a physical key on desktop or one in the phone key strip; on a whiteboard, a wire as drawn, whose head is its arrowhead, the Arrow tool (A) that draws one, or the Arrow box icon"
     },
     {
       "name": "wake",
@@ -852,6 +852,10 @@
     {
       "name": "eraser",
       "definition": "The whiteboard tool that removes every element a drag crosses, in one undoable step"
+    },
+    {
+      "name": "end handle",
+      "definition": "The round handle at each end of a selected whiteboard wire: dragging it onto a box binds that end, dragging it off leaves the end at a free point"
     }
   ],
   "retired": [

@@ -605,7 +605,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind === 'wire') {
@@ -668,6 +668,10 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
     }
     if (decoration.kind === 'resize-handles') {
       for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(part, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      continue;
+    }
+    if (decoration.kind === 'wire-ends') {
+      for (const center of [decoration.wire.start, decoration.wire.end]) pushCircle(part, center, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
       continue;
     }
     const center = { x: decoration.element.x + decoration.element.width, y: decoration.element.y };
