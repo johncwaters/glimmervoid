@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The first-run checklist no longer shows a First task box.** The task it held never reached the agent, which first asks you to sign in, so picking an agent and a project now starts the session straight away, as the New session dialog does.
+
 ## [0.58.3] - 2026-11-13
 
 ### Added

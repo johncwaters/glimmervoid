@@ -118,7 +118,5 @@ function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: 
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-const FIRST_TASK_PROMPT = 'Get to know this repo, then draw its architecture on a Glimmervoid board: the main modules, how they connect, and where a typical change starts. Keep it to one screen.';
-
-export { FIRST_TASK_PROMPT, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunSteps, NotificationChoice };

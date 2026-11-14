@@ -291,12 +291,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   gap: 16px;
 }
 
-.add-session-task {
-  height: 96px;
-  resize: none;
-  line-height: 1.55;
-}
-
 .first-run-load-status {
   margin: 14px 0 0;
 }

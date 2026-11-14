@@ -93,22 +93,10 @@ function cancelButtons(onCancel: (() => void) | undefined): HTMLButtonElement[] 
   return [btnCancel];
 }
 
-function buildTaskField(initialTask: string) {
-  const field = el('label', 'dialog-label add-session-task-field', 'First task');
-  const taskInput = el('textarea', 'dialog-input add-session-task');
-  taskInput.value = initialTask;
-  taskInput.maxLength = 4000;
-  taskInput.spellcheck = false;
-  field.append(taskInput);
-  return { field, taskInput };
-}
+type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void };
 
-type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void; initialTask?: string };
-
-export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel, initialTask }: AddSessionPickerOptions) {
+export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel }: AddSessionPickerOptions) {
   dialog.innerHTML = addSessionHTML;
-  const taskField = initialTask === undefined ? null : buildTaskField(initialTask);
-  if (taskField) query(dialog, '#add-session-unprotected').before(taskField.field);
 
   const pickEl = query(dialog, '#add-session-pick');
   const findInput = markAsNotCredential(queryTag(dialog, '#add-session-find', 'input'));
@@ -585,8 +573,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
     if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
-    const task = taskField?.taskInput.value.trim() ?? '';
-    if (task && !isShell) shared.prompt = task;
     if (target.kind === 'project') {
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
     }
