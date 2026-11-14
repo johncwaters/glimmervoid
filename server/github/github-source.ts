@@ -56,5 +56,5 @@ function createGithubSource({ userCredential, readGhLogin = readGhLoginFromGh, n
   return { current };
 }
 
-export { GH_LOGIN_SOURCE, NO_GITHUB_SOURCE_TEXT, createGithubSource, ghLoginAnswerOf };
+export { GH_LOGIN_SOURCE, NO_GITHUB_SOURCE_TEXT, createGithubSource };
 export type { GithubSource, GithubSourceKind, GithubSourceReader };
