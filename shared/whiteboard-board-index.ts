@@ -1,4 +1,4 @@
-import { BOX_CHANGES, WIRE_TONES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, boxIdsOfWire, WIRE_TONES } from './contracts/whiteboard.ts';
 import type { Board, Box, Element, Wire } from './contracts/whiteboard.ts';
 
 type ElementKind = Element['kind'];
@@ -64,7 +64,7 @@ function usedBoxChangesOf(index: BoardIndex): Set<Box['change']> {
 }
 
 function boxIdsDependedOnBy(element: Element): readonly string[] {
-  if (element.kind === 'wire') return [element.from, element.to];
+  if (element.kind === 'wire') return boxIdsOfWire(element);
   if (element.kind === 'frame') return element.contains;
   return [];
 }

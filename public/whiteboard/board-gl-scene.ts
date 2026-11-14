@@ -515,8 +515,9 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
   const color = wireColor(wire, palette);
   pushPolyline(part, points, wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
   if (wire.hasArrowhead) pushArrowAtEnd(part, points, color);
+  if (wire.hasStartArrowhead) pushArrowAtEnd(part, [...points].reverse(), color);
   const dotMinScale = MIN_ARROWHEAD_PX / 6;
-  pushCircle(part, wire.start, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);
+  if (!wire.hasStartArrowhead) pushCircle(part, wire.start, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);
   if (wire.joinAt) pushCircle(part, wire.joinAt, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);
   let bounds = boundsOfPoints(points.length > 0 ? points : [wire.start, wire.end], 8);
   if (wire.label) {

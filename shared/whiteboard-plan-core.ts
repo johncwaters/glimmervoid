@@ -1,3 +1,4 @@
+import { boxIdOfEnd } from './contracts/whiteboard.ts';
 import type { Board, Box, Step, Wire } from './contracts/whiteboard.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 
@@ -19,17 +20,24 @@ function stepBoxesOf(board: Board): StepBox[] {
   });
 }
 
-function dependencyWiresInto(board: Board, stepId: string, stepIds: ReadonlySet<string>): Wire[] {
+interface DependencyWire {
+  wire: Wire;
+  afterId: string;
+}
+
+function dependencyWiresInto(board: Board, stepId: string, stepIds: ReadonlySet<string>): DependencyWire[] {
   return [...boardIndexOf(board.elements).dependentIdsByBoxId.get(stepId) ?? []].flatMap((dependentId) => {
     const element = board.elements.get(dependentId);
-    return element?.kind === 'wire' && element.to === stepId && element.from !== stepId && stepIds.has(element.from) ? [element] : [];
+    if (element?.kind !== 'wire' || boxIdOfEnd(element.to) !== stepId) return [];
+    const afterId = boxIdOfEnd(element.from);
+    return afterId !== null && afterId !== stepId && stepIds.has(afterId) ? [{ wire: element, afterId }] : [];
   });
 }
 
 function afterIdsByStepIdOf(board: Board, stepIds: ReadonlySet<string>): Map<string, string[]> {
   const afterIdsByStepId = new Map<string, string[]>();
   for (const stepId of stepIds) {
-    const afterIds = dependencyWiresInto(board, stepId, stepIds).map((wire) => wire.from);
+    const afterIds = dependencyWiresInto(board, stepId, stepIds).map((dependency) => dependency.afterId);
     if (afterIds.length > 0) afterIdsByStepId.set(stepId, afterIds);
   }
   return afterIdsByStepId;
@@ -97,7 +105,7 @@ function dependencyWireId(fromId: string, toId: string, takenIds: ReadonlySet<st
 }
 
 function dependencyWireIdsInto(board: Board, stepId: string): string[] {
-  return dependencyWiresInto(board, stepId, boardIndexOf(board.elements).stepBoxIds).map((wire) => wire.id);
+  return dependencyWiresInto(board, stepId, boardIndexOf(board.elements).stepBoxIds).map((dependency) => dependency.wire.id);
 }
 
 export { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf };

@@ -354,7 +354,7 @@
     },
     {
       "name": "wire",
-      "definition": "A whiteboard element drawn as an arrow from one element to another, routed around boxes, whose direction between plan units gives build order; wire contracts are the separate network shapes in shared/contracts"
+      "definition": "A whiteboard element drawn as a line from one end to another, each end a box or a free point, with arrowheads at none, one or both ends and a route (elbow around boxes, sharp straight or curved); its direction between plan units gives build order; wire contracts are the separate network shapes in shared/contracts"
     },
     {
       "name": "refusal",

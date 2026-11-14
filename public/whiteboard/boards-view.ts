@@ -943,7 +943,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', width: 'thin', label: null, fromSide: null, toSide: null } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', width: 'thin', arrows: 'end', route: 'elbow', label: null, fromSide: null, toSide: null } }]);
 }
 
 function stackTitleOf(board: Board, boxIds: readonly string[]): string {
