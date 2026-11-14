@@ -1,7 +1,12 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runGh, runGit } from './git/git-exec.ts';
+import { clock } from '../shared/clock.ts';
+import type { RepositoryCloneJob } from '../shared/contracts/control/settings-messages.ts';
+import { spawn } from './child-process-safe.ts';
+import { cloneJobNameOf, cloneProgressOf, sourcesToStart } from './core/clone-jobs-core.ts';
+import { runGh } from './git/git-exec.ts';
 import { CLONE_SAFETY_ARGS, GITHUB_USER_INSTALLATIONS_PATH, GITHUB_USER_INSTALLATION_IDS_JQ_FILTER, chooseGithubCredential, cloneEnvOf, githubInstallationIdsFromLines, githubReposFromLines, githubReposJqFilter, githubReposPath, githubUserInstallationReposPath, mergedGithubRepos, parseRepositorySource } from './core/repository-source-core.ts';
 import type { GithubCredential, GithubRepo, ParsedRepositorySource } from './core/repository-source-core.ts';
 
@@ -10,10 +15,16 @@ const GH_TIMEOUT_MS = 20_000;
 const GH_LIST_TIMEOUT_MS = 60_000;
 const GH_LIST_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 
+const CLONE_STDERR_TAIL_CHARS = 4_000;
+const LINE_BREAKS_RE = /[\r\n]+/;
+const CLONE_CHANGE_EVENT = 'change';
+
 type CloneOutcome = { ok: true; path: string } | { ok: false; error: string };
+type CloneWatch = { signal: AbortSignal; onProgress: (progress: string) => void };
+type CloneRun = { ok: boolean; err: string };
 
 function lastLineOf(text: string): string {
-  return text.trim().split('\n').filter(Boolean).at(-1) ?? text.trim();
+  return text.trim().split(LINE_BREAKS_RE).filter(Boolean).at(-1) ?? text.trim();
 }
 
 function errorCodeOf(error: unknown): string {
@@ -33,31 +44,153 @@ async function claimEmptyFolder(cloneRoot: string, target: string): Promise<stri
   });
 }
 
-function cloneInto(parsed: ParsedRepositorySource, target: string, cloneRoot: string, githubToken: string | null) {
-  return runGit([...CLONE_SAFETY_ARGS, 'clone', '--', parsed.url, target], {
-    cwd: cloneRoot,
-    timeoutMs: CLONE_TIMEOUT_MS,
-    env: cloneEnvOf(parsed, githubToken, process.env.GIT_SSH_COMMAND),
-    preferStderr: true,
+function cloneInto(parsed: ParsedRepositorySource, target: string, cloneRoot: string, githubToken: string | null, watch: CloneWatch): Promise<CloneRun> {
+  return new Promise((resolve) => {
+    let stderrTail = '';
+    const git = spawn('git', [...CLONE_SAFETY_ARGS, 'clone', '--progress', '--', parsed.url, target], {
+      cwd: cloneRoot,
+      env: { ...process.env, ...cloneEnvOf(parsed, githubToken, process.env.GIT_SSH_COMMAND), GIT_TERMINAL_PROMPT: '0' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+      signal: watch.signal,
+      timeout: CLONE_TIMEOUT_MS,
+    });
+    git.stderr?.setEncoding('utf8');
+    git.stderr?.on('data', (chunk: string) => {
+      stderrTail = `${stderrTail}${chunk}`.slice(-CLONE_STDERR_TAIL_CHARS);
+      watch.onProgress(cloneProgressOf(stderrTail));
+    });
+    git.once('error', (error) => resolve({ ok: false, err: stderrTail || messageOf(error) }));
+    git.once('close', (exitCode) => resolve({ ok: exitCode === 0, err: stderrTail }));
   });
 }
 
-async function cloneRepository({ source, cloneRoot, githubToken }: { source: string; cloneRoot: string; githubToken: string | null }): Promise<CloneOutcome> {
+async function cloneRepository({ source, cloneRoot, githubToken, watch }: { source: string; cloneRoot: string; githubToken: string | null; watch: CloneWatch }): Promise<CloneOutcome> {
   const parsed = parseRepositorySource(source);
   if (!parsed.ok) return parsed;
   const target = path.join(cloneRoot, parsed.repoName);
   const claimError = await claimEmptyFolder(cloneRoot, target);
   if (claimError) return { ok: false, error: claimError };
-  const cloned = await cloneInto(parsed, target, cloneRoot, githubToken);
+  const cloned = await cloneInto(parsed, target, cloneRoot, githubToken, watch);
   if (cloned.ok) return { ok: true, path: target };
-  if (githubToken && parsed.isGithubHttps) {
+  if (githubToken && parsed.isGithubHttps && !watch.signal.aborted) {
     await fs.promises.rm(target, { recursive: true, force: true });
     await fs.promises.mkdir(target);
-    const clonedWithoutToken = await cloneInto(parsed, target, cloneRoot, null);
+    const clonedWithoutToken = await cloneInto(parsed, target, cloneRoot, null, watch);
     if (clonedWithoutToken.ok) return { ok: true, path: target };
   }
   await fs.promises.rm(target, { recursive: true, force: true });
   return { ok: false, error: `git clone ${parsed.url} failed: ${lastLineOf(cloned.err)}` };
+}
+
+type CloneJob = RepositoryCloneJob & { stop: AbortController };
+type CloneJobsOptions = {
+  cloneRootFor: () => Promise<string>;
+  tokenFor: (source: string) => Promise<string | null>;
+  onCloned: (cloneRoot: string) => void;
+  log?: (line: string) => void;
+  nowMs?: () => number;
+};
+
+function createCloneJobs({ cloneRootFor, tokenFor, onCloned, log = console.log, nowMs = clock.nowMs }: CloneJobsOptions) {
+  const jobsBySource = new Map<string, CloneJob>();
+  const events = new EventEmitter();
+
+  function list(): RepositoryCloneJob[] {
+    return [...jobsBySource.values()].map(({ stop: _stop, ...job }) => job);
+  }
+
+  function announce(): void {
+    events.emit(CLONE_CHANGE_EVENT);
+  }
+
+  function settle(job: CloneJob, settled: Pick<RepositoryCloneJob, 'state' | 'path' | 'error'>, logLine: string): void {
+    Object.assign(job, { progress: '', path: undefined, error: undefined }, settled);
+    log(logLine);
+    announce();
+    startQueued();
+  }
+
+  async function cloneOutcomeOf(job: CloneJob): Promise<{ outcome: CloneOutcome; cloneRoot: string | null }> {
+    try {
+      const cloneRoot = await cloneRootFor();
+      const outcome = await cloneRepository({
+        source: job.source,
+        cloneRoot,
+        githubToken: await tokenFor(job.source),
+        watch: { signal: job.stop.signal, onProgress: (progress) => noteProgress(job, progress) },
+      });
+      return { outcome, cloneRoot };
+    } catch (error) {
+      return { outcome: { ok: false, error: messageOf(error) }, cloneRoot: null };
+    }
+  }
+
+  function noteProgress(job: CloneJob, progress: string): void {
+    if (progress === '' || progress === job.progress || job.state !== 'cloning') return;
+    job.progress = progress;
+    announce();
+  }
+
+  async function run(job: CloneJob): Promise<void> {
+    job.state = 'cloning';
+    const startedAtMs = nowMs();
+    log(`[clone] started ${job.name}`);
+    announce();
+    const { outcome, cloneRoot } = await cloneOutcomeOf(job);
+    if (job.stop.signal.aborted) {
+      settle(job, { state: 'cancelled' }, `[clone] cancelled ${job.name}`);
+      return;
+    }
+    if (!outcome.ok || cloneRoot === null) {
+      const error = outcome.ok ? 'the clone folder could not be read' : outcome.error;
+      settle(job, { state: 'failed', error }, `[clone] failed ${job.name}: ${error}`);
+      return;
+    }
+    onCloned(cloneRoot);
+    settle(job, { state: 'done', path: outcome.path }, `[clone] finished ${job.name} in ${Math.round((nowMs() - startedAtMs) / 1000)} s`);
+  }
+
+  function startQueued(): void {
+    for (const source of sourcesToStart(list())) {
+      const job = jobsBySource.get(source);
+      if (job) void run(job);
+    }
+  }
+
+  function start(sources: readonly string[]): string | null {
+    let firstRefusal: string | null = null;
+    for (const source of sources) {
+      const runningState = jobsBySource.get(source)?.state;
+      if (runningState === 'queued' || runningState === 'cloning') continue;
+      const parsed = parseRepositorySource(source);
+      if (!parsed.ok) {
+        firstRefusal ??= parsed.error;
+        continue;
+      }
+      jobsBySource.delete(source);
+      jobsBySource.set(source, { source, name: cloneJobNameOf(parsed.url), state: 'queued', progress: '', stop: new AbortController() });
+    }
+    announce();
+    startQueued();
+    return firstRefusal;
+  }
+
+  function cancel(source: string): void {
+    const job = jobsBySource.get(source);
+    if (job?.state === 'cloning') {
+      job.stop.abort();
+      return;
+    }
+    if (job?.state !== 'queued') return;
+    job.stop.abort();
+    settle(job, { state: 'cancelled' }, `[clone] cancelled ${job.name}`);
+  }
+
+  function onChange(listener: () => void): void {
+    events.on(CLONE_CHANGE_EVENT, listener);
+  }
+
+  return { cancel, list, onChange, start };
 }
 
 async function ghLoginToken(): Promise<string | null> {
@@ -123,4 +256,4 @@ async function listGithubReposAt(apiPath: string, jqFilter: string, token: strin
   return { ok: true, repos };
 }
 
-export { cloneRepository, listGithubRepos, resolveGithubCredential };
+export { createCloneJobs, listGithubRepos, resolveGithubCredential };

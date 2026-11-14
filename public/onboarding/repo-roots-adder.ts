@@ -5,7 +5,9 @@ import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core
 import { button } from '../ui/button.ts';
 import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 import { githubRepoListHintOf } from '../secrets/github-connect-core.ts';
+import { MAX_CLONE_SOURCES_PER_REQUEST } from '#shared/contracts/control/settings-messages.ts';
 import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
+import { applyCloneJobs, cloneJobOf, cloneJobStatusText, clonedSources, hasUnsettledCloneJobs, isCloneJobUnsettled, onCloneJobsChanged } from './clone-jobs.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
 type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
@@ -13,9 +15,7 @@ type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
 let adderSequence = 0;
 
 const CURRENT_ROOTS_UNREADABLE_MESSAGE = 'Could not read the current repository roots.';
-const CLONE_REPLY_TIMEOUT_MS = 11 * 60_000;
 const GITHUB_LIST_REPLY_TIMEOUT_MS = 90_000;
-const MAX_VISIBLE_GITHUB_REPOS = 8;
 const FOLDER_COMPLETION_DELAY_MS = 150;
 const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
 const GITHUB_GRANT_WAIT_MS = 5_000;
@@ -78,6 +78,23 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   cloneRow.input.setAttribute('aria-label', 'Repository URL to clone');
   const cloneStatus = el('p', 'repo-roots-adder-status');
   cloneStatus.setAttribute('role', 'status');
+  const cloneCancelButton = button({ variant: 'quiet', label: 'Cancel' });
+  cloneCancelButton.setAttribute('aria-label', 'Cancel the clone of the pasted URL');
+  const cloneProgressRow = el('div', 'repo-roots-adder-row repo-roots-adder-url-progress');
+  cloneProgressRow.append(cloneStatus, cloneCancelButton);
+  cloneProgressRow.hidden = true;
+
+  const selectBar = el('div', 'repo-roots-adder-select-bar');
+  const selectAllLabel = el('label', 'repo-roots-adder-select-all');
+  const selectAllBox = el('input', 'settings-view-checkbox');
+  selectAllBox.type = 'checkbox';
+  selectAllLabel.append(selectAllBox, el('span', null, 'Select all'));
+  const selectionStatus = el('span', 'repo-roots-adder-count');
+  selectionStatus.setAttribute('role', 'status');
+  const cloneSelectedButton = button({ variant: 'secondary', label: 'Clone selected' });
+  cloneSelectedButton.disabled = true;
+  selectBar.append(selectAllLabel, selectionStatus, cloneSelectedButton);
+  selectBar.hidden = true;
 
   const suggestionsSection = el('div', 'repo-roots-adder-found');
   const suggestionsHeading = el('span', 'repo-roots-adder-label', 'FOUND ON THIS MACHINE');
@@ -102,7 +119,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   let listedForConnection: string | null = null;
   const githubConnectSection = buildGithubConnectSection({ layout: 'stacked', isHiddenWithoutConnect: true, onConnectionChange: noteGithubConnection });
 
-  githubSection.append(githubLabel, githubConnectSection, githubFilter, githubList, githubHint, cloneRow.row, cloneStatus);
+  githubSection.append(githubLabel, githubConnectSection, githubFilter, selectBar, githubList, githubHint, cloneRow.row, cloneProgressRow);
   element.append(githubSection, suggestionsSection, folderSection, errorEl);
 
   function noteGithubConnection(connection: GithubConnection | null) {
@@ -118,9 +135,8 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   let isBusy = false;
   function setBusy(busy: boolean) {
     isBusy = busy;
-    for (const actionButton of element.querySelectorAll<HTMLButtonElement>('.repo-roots-adder-row button, .repo-roots-adder-list button')) actionButton.disabled = busy;
+    for (const actionButton of element.querySelectorAll<HTMLButtonElement>('.repo-roots-adder-folder button, .repo-roots-adder-found button')) actionButton.disabled = busy;
     if (busy) return;
-    cloneRow.actionButton.disabled = cloneRow.input.value.trim() === '';
     folderRow.actionButton.disabled = folderRow.input.value.trim() === '';
   }
 
@@ -139,19 +155,43 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     } catch (error) {
       errorEl.textContent = `Could not finish: ${errorText(error)}`;
     } finally {
-      cloneStatus.textContent = '';
-      githubHint.textContent = githubHintText;
       setBusy(false);
     }
   }
 
-  async function cloneFromUrl(source: string, statusLine: HTMLElement): Promise<string | null> {
-    statusLine.textContent = `Cloning ${source}. A large repository takes a few minutes.`;
-    const reply = await sendControlRequest('clone-repository', { source }, { timeoutMs: CLONE_REPLY_TIMEOUT_MS });
-    if (reply.type !== 'repository-cloned') return 'The server gave no answer to the clone.';
-    if (!reply.ok) return reply.error ?? 'The clone failed.';
-    return null;
+  const cloneKindBySource = new Map<string, RepoRootSource>();
+  const seenClonedSources = new Set(clonedSources());
+  let finishedCloneKind: RepoRootSource | null = null;
+  let pastedCloneSource: string | null = null;
+
+  async function startClones(sources: readonly string[], cloneKind: RepoRootSource): Promise<boolean> {
+    errorEl.textContent = '';
+    for (const source of sources) cloneKindBySource.set(source, cloneKind);
+    const reply = await sendControlRequest('start-repository-clones', { sources: [...sources] }).catch((error: unknown) => errorText(error));
+    if (typeof reply === 'string' || reply.type !== 'repository-clones') {
+      errorEl.textContent = `Could not start the clone: ${typeof reply === 'string' ? reply : 'the server gave no answer'}`;
+      return false;
+    }
+    applyCloneJobs(reply.jobs);
+    errorEl.textContent = reply.error ?? '';
+    return !reply.error;
   }
+
+  function cancelClone(source: string) {
+    void sendControlRequest('cancel-repository-clone', { source })
+      .then((reply) => { if (reply.type === 'repository-clones') applyCloneJobs(reply.jobs); })
+      .catch((error: unknown) => { errorEl.textContent = `Could not cancel the clone: ${errorText(error)}`; });
+  }
+
+  async function clonePastedUrl(source: string) {
+    pastedCloneSource = source;
+    const isStarted = await startClones([source], 'cloned-url');
+    if (isStarted) cloneRow.input.value = '';
+    cloneRow.actionButton.disabled = cloneRow.input.value.trim() === '';
+    paintCloneJobs();
+  }
+
+  cloneCancelButton.addEventListener('click', () => { if (pastedCloneSource !== null) cancelClone(pastedCloneSource); });
 
   function wireInputRow(inputRow: ReturnType<typeof buildInputRow>, act: (value: string) => void) {
     inputRow.input.addEventListener('input', () => {
@@ -165,26 +205,124 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
     inputRow.actionButton.addEventListener('click', () => act(inputRow.input.value.trim()));
   }
 
-  wireInputRow(cloneRow, (value) => { void runAction(() => cloneFromUrl(value, cloneStatus), 'cloned-url', cloneRow.input); });
+  wireInputRow(cloneRow, (value) => { void clonePastedUrl(value); });
 
   let githubRepos: GithubRepo[] = [];
-  let githubHintText = '';
   let githubListState: 'unloaded' | 'loading' | 'loaded' = 'unloaded';
+
+  type GithubRepoRow = { repo: GithubRepo; selectBox: HTMLInputElement; progress: HTMLElement; status: HTMLElement; cancelButton: HTMLButtonElement; cloneButton: HTMLButtonElement };
+  let githubRepoRows: GithubRepoRow[] = [];
+  const selectedSources = new Set<string>();
+
+  function canSelect(repo: GithubRepo): boolean {
+    const job = cloneJobOf(repo.cloneUrl);
+    return !isCloneJobUnsettled(job) && job?.state !== 'done';
+  }
+
+  function paintRepoRow({ repo, selectBox, progress, status, cancelButton, cloneButton }: GithubRepoRow) {
+    const job = cloneJobOf(repo.cloneUrl);
+    const isSelectable = canSelect(repo);
+    if (!isSelectable) selectedSources.delete(repo.cloneUrl);
+    selectBox.disabled = !isSelectable;
+    selectBox.checked = selectedSources.has(repo.cloneUrl);
+    progress.hidden = job === null;
+    status.textContent = cloneJobStatusText(job);
+    status.dataset.state = job?.state ?? '';
+    cancelButton.hidden = !isCloneJobUnsettled(job);
+    cloneButton.disabled = !isSelectable;
+  }
+
+  function paintSelection() {
+    const selectableRows = githubRepoRows.filter((row) => canSelect(row.repo));
+    const selectedRowCount = selectableRows.filter((row) => selectedSources.has(row.repo.cloneUrl)).length;
+    selectAllBox.disabled = selectableRows.length === 0;
+    selectAllBox.checked = selectableRows.length > 0 && selectedRowCount === selectableRows.length;
+    selectAllBox.indeterminate = selectedRowCount > 0 && selectedRowCount < selectableRows.length;
+    selectionStatus.textContent = selectedSources.size === 0 ? '' : `${selectedSources.size} selected`;
+    cloneSelectedButton.disabled = selectedSources.size === 0;
+  }
+
+  function paintCloneJobs() {
+    for (const row of githubRepoRows) paintRepoRow(row);
+    paintSelection();
+    const pastedJob = pastedCloneSource === null ? null : cloneJobOf(pastedCloneSource);
+    cloneStatus.textContent = pastedJob === null ? '' : `${pastedJob.name}: ${cloneJobStatusText(pastedJob)}`;
+    cloneCancelButton.hidden = !isCloneJobUnsettled(pastedJob);
+    cloneProgressRow.hidden = pastedJob === null;
+  }
+
+  function noteCloneJobs() {
+    paintCloneJobs();
+    for (const source of clonedSources()) {
+      if (seenClonedSources.has(source)) continue;
+      seenClonedSources.add(source);
+      finishedCloneKind ??= cloneKindBySource.get(source) ?? 'cloned-github';
+    }
+    if (finishedCloneKind === null || hasUnsettledCloneJobs()) return;
+    const addedKind = finishedCloneKind;
+    finishedCloneKind = null;
+    onAdded(addedKind);
+  }
+
+  let hasBeenMounted = false;
+  const stopWatchingCloneJobs = onCloneJobsChanged(() => {
+    hasBeenMounted ||= element.isConnected;
+    if (element.isConnected) noteCloneJobs();
+    if (hasBeenMounted && !element.isConnected) stopWatchingCloneJobs();
+  });
+
+  function buildRepoRow(repo: GithubRepo): GithubRepoRow & { element: HTMLElement } {
+    const row = el('li', 'repo-roots-adder-repo');
+    const selectBox = el('input', 'settings-view-checkbox');
+    selectBox.type = 'checkbox';
+    selectBox.setAttribute('aria-label', `Select ${repo.fullName}`);
+    selectBox.addEventListener('change', () => {
+      if (selectBox.checked) selectedSources.add(repo.cloneUrl);
+      if (!selectBox.checked) selectedSources.delete(repo.cloneUrl);
+      paintSelection();
+    });
+    const status = el('span', 'repo-roots-adder-repo-status');
+    const cancelButton = button({ variant: 'quiet', label: 'Cancel' });
+    cancelButton.setAttribute('aria-label', `Cancel the clone of ${repo.fullName}`);
+    cancelButton.addEventListener('click', () => cancelClone(repo.cloneUrl));
+    const cloneButton = button({ variant: 'secondary', label: 'Clone' });
+    cloneButton.setAttribute('aria-label', `Clone ${repo.fullName}`);
+    cloneButton.addEventListener('click', () => { void startClones([repo.cloneUrl], 'cloned-github'); });
+    const cloneAction = el('span', 'repo-roots-adder-repo-action');
+    cloneAction.append(cloneButton);
+    const progress = el('div', 'repo-roots-adder-repo-progress');
+    progress.append(status, cancelButton);
+    row.append(selectBox, el('span', 'repo-roots-adder-path', repo.fullName), el('span', 'repo-roots-adder-count', repo.isPrivate ? 'private' : ''), cloneAction, progress);
+    return { element: row, repo, selectBox, progress, status, cancelButton, cloneButton };
+  }
 
   function renderGithubRepos() {
     const filterText = githubFilter.value.trim().toLowerCase();
-    const matchingRepos = githubRepos.filter((repo) => repo.fullName.toLowerCase().includes(filterText)).slice(0, MAX_VISIBLE_GITHUB_REPOS);
-    githubList.textContent = '';
-    for (const repo of matchingRepos) {
-      const row = el('li', 'repo-roots-adder-suggestion');
-      const cloneButton = button({ variant: 'secondary', label: 'Clone' });
-      cloneButton.setAttribute('aria-label', `Clone ${repo.fullName}`);
-      cloneButton.disabled = isBusy;
-      cloneButton.addEventListener('click', () => { void runAction(() => cloneFromUrl(repo.cloneUrl, githubHint), 'cloned-github', null); });
-      row.append(el('span', 'repo-roots-adder-path', repo.fullName), el('span', 'repo-roots-adder-count', repo.isPrivate ? 'private' : ''), cloneButton);
-      githubList.append(row);
-    }
+    const builtRows = githubRepos.filter((repo) => repo.fullName.toLowerCase().includes(filterText)).map(buildRepoRow);
+    githubRepoRows = builtRows;
+    githubList.replaceChildren(...builtRows.map((row) => row.element));
+    selectBar.hidden = githubRepos.length === 0;
+    paintCloneJobs();
   }
+
+  selectAllBox.addEventListener('change', () => {
+    for (const { repo } of githubRepoRows.filter((row) => canSelect(row.repo))) {
+      if (selectAllBox.checked) selectedSources.add(repo.cloneUrl);
+      if (!selectAllBox.checked) selectedSources.delete(repo.cloneUrl);
+    }
+    paintCloneJobs();
+  });
+  async function cloneSelected() {
+    const sources = [...selectedSources];
+    for (let batchStart = 0; batchStart < sources.length; batchStart += MAX_CLONE_SOURCES_PER_REQUEST) {
+      const batch = sources.slice(batchStart, batchStart + MAX_CLONE_SOURCES_PER_REQUEST);
+      const isStarted = await startClones(batch, 'cloned-github');
+      if (!isStarted) break;
+      for (const source of batch) selectedSources.delete(source);
+    }
+    paintCloneJobs();
+  }
+  cloneSelectedButton.addEventListener('click', () => { void cloneSelected(); });
 
   function forgetGithubRepos() {
     if (githubListState === 'loading') return;
@@ -195,7 +333,6 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   }
 
   function showGithubHint(text: string) {
-    githubHintText = text;
     githubHint.textContent = text;
   }
 

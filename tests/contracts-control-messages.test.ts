@@ -158,7 +158,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'agents-listed', requestId: 'agents-1', agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: true }] },
   { type: 'github-teams-listed', requestId: 'teams-1', viewer: 'octocat', teams: [{ org: 'PostHog', slug: 'team-devex', name: 'DevEx' }], orgs: ['PostHog'], error: null },
   { type: 'repo-roots-scanned', requestId: 'roots-1', directories: [{ root: '/repo', projects: [{ name: 'glimmervoid', path: '/repo/glimmervoid' }] }] },
-  { type: 'repository-cloned', requestId: 'clone-1', ok: true, path: '/repo/glimmervoid' },
+  { type: 'repository-clones', requestId: 'clone-1', jobs: [{ source: 'https://github.com/owner/repo.git', name: 'owner/repo', state: 'cloning', progress: 'Receiving objects 45%' }] },
+  { type: 'repository-clones', jobs: [{ source: 'owner/repo', name: 'owner/repo', state: 'failed', progress: '', error: 'git clone failed' }] },
   { type: 'folders-listed', requestId: 'folders-1', folder: '/repo', entries: [{ name: 'glimmervoid', path: '/repo/glimmervoid/', isGit: true }] },
   { type: 'github-repos-listed', requestId: 'github-1', source: 'gh', repos: [{ fullName: 'owner/repo', cloneUrl: 'https://github.com/owner/repo.git', isPrivate: false, pushedAt: null }] },
   { type: 'conversations', requestId: 'conversations-1', id: 'session-1', current: null, conversations: [{

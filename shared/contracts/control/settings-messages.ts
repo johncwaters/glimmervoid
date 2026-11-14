@@ -3,6 +3,19 @@ import { AgentHookGroup, AgentNote } from '../hooks.ts';
 import { AgentAccountId, AgentAccountStatuses, LaneAccountLane } from '../agent-accounts.ts';
 import { requestId, loose, openObject, nullableString, optionalTimestamp, optionalError, opaqueObject, ConnectableAgent, TelegramDeliveryStatus } from './control-fields.ts';
 
+export const MAX_CLONE_SOURCES_PER_REQUEST = 200;
+
+export const RepositoryCloneJob = z.object({
+  source: z.string(),
+  name: z.string(),
+  state: z.enum(['queued', 'cloning', 'done', 'failed', 'cancelled']),
+  progress: z.string(),
+  path: z.string().optional(),
+  error: z.string().optional(),
+});
+export type RepositoryCloneJob = z.infer<typeof RepositoryCloneJob>;
+export const RepositoryCloneJobs = z.array(RepositoryCloneJob);
+
 export const settingsClientVariants = [
   loose('get-settings', { requestId }),
   loose('start-remote-setup', { agent: ConnectableAgent, requestId }),
@@ -17,7 +30,8 @@ export const settingsClientVariants = [
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
-  loose('clone-repository', { requestId, source: z.string().max(2048) }),
+  loose('start-repository-clones', { requestId, sources: z.array(z.string().max(2048)).min(1).max(MAX_CLONE_SOURCES_PER_REQUEST) }),
+  loose('cancel-repository-clone', { requestId, source: z.string().max(2048) }),
   loose('list-github-repos', { requestId }),
   loose('list-folders', { requestId, query: z.string().max(4096) }),
   loose('telegram-test', { requestId }),
@@ -59,7 +73,7 @@ export const settingsServerVariants = [
     suggestions: z.array(openObject({ path: z.string(), label: z.string(), gitRepoCount: z.number().int().nonnegative() })).optional(),
     error: z.string().optional(),
   }),
-  loose('repository-cloned', { requestId, ok: z.boolean(), path: z.string().optional(), error: optionalError }),
+  loose('repository-clones', { requestId: requestId.optional(), jobs: RepositoryCloneJobs.optional(), error: optionalError }),
   loose('folders-listed', { requestId, folder: z.string(), entries: z.array(z.object({ name: z.string(), path: z.string(), isGit: z.boolean() })), error: optionalError }),
   loose('github-repos-listed', {
     requestId,

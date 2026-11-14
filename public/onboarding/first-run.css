@@ -358,6 +358,86 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   border-top: 0;
 }
 
+.repo-roots-adder-github > .repo-roots-adder-list {
+  max-height: 336px;
+  overflow-y: auto;
+}
+
+.repo-roots-adder-repo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-dim);
+}
+
+.repo-roots-adder-repo:first-child {
+  border-top: 0;
+}
+
+.repo-roots-adder-repo > .repo-roots-adder-path {
+  flex: 1 1 0;
+  white-space: nowrap;
+}
+
+.repo-roots-adder-repo-progress {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-left: 21px;
+}
+
+.repo-roots-adder-repo-progress[hidden] {
+  display: none;
+}
+
+.repo-roots-adder-repo-action {
+  display: grid;
+  width: var(--repo-roots-action-width);
+}
+
+.repo-roots-adder-repo-status {
+  flex: 1 1 0;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.repo-roots-adder-repo-status[data-state="failed"] {
+  color: var(--state-failed);
+}
+
+.repo-roots-adder-select-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-roots-adder-select-bar[hidden],
+.repo-roots-adder-url-progress[hidden] {
+  display: none;
+}
+
+.repo-roots-adder-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.repo-roots-adder-select-bar > .repo-roots-adder-count {
+  flex: 1 1 0;
+}
+
+.repo-roots-adder-url-progress {
+  align-items: center;
+}
+
 .repo-roots-adder-path {
   min-width: 0;
   overflow: hidden;

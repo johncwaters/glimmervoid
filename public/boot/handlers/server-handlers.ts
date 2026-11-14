@@ -4,6 +4,7 @@ import { applyAgentAccounts } from '../../agent-logins.ts';
 import type { HealthSnapshot } from '../../health-monitor.ts';
 import { applyHealthSnapshot } from '../../health-monitor.ts';
 import { applyHooksReport, applyLateHookResult } from '../../hooks-store.ts';
+import { applyCloneJobs } from '../../onboarding/clone-jobs.ts';
 import { refreshFirstRunChecklist } from '../../onboarding/first-run-loader.ts';
 import { reportSessionProblem } from '../../session-card/card-problems.ts';
 import { applySettingsUpdateError, applySettingsUpdateProgress, applySettingsUpdateStatus } from '../../settings/settings-store.ts';
@@ -38,6 +39,7 @@ const messageHandlers = {
     refreshFirstRunChecklist();
   },
   'agent-accounts':     (msg) => applyAgentAccounts(msg.accounts),
+  'repository-clones':  (msg) => applyCloneJobs(msg.jobs),
   'health-snapshot':    (msg) => { if (msg.stats) applyHealthSnapshot(msg.stats as HealthSnapshot & ServerMessageOf<'health-snapshot'>['stats']); },
 
   'client-trust':       (msg) => applyClientTrust(msg.trust),

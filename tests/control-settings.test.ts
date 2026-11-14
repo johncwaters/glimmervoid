@@ -96,9 +96,9 @@ test('a pasted repository source that could inject git options or another transp
     const refusedSources = ['--upload-pack=touch /tmp/pwned', '-c core.sshCommand=x', 'ext::sh -c touch% /tmp/pwned', 'file:///etc', 'https://user:secret@github.com/owner/repo', 'https://github.com/owner/repo?x=1', 'git@github.com:-owner/repo', 'https://github.com/owner/..', 'https://evil.example/x/.git.git', 'git@evil.example:x/.ssh', 'owner/repo\n--depth=1', 'https://github.com/owner/repo\u0000'];
     for (const source of refusedSources) {
       settings.sent.length = 0;
-      await settings.send({ type: 'clone-repository', requestId: 'refused', source });
-      const reply = settings.sent.find((message) => message.type === 'repository-cloned');
-      assert.equal(blockOf(reply, 'ok'), false, source);
+      await settings.send({ type: 'start-repository-clones', requestId: 'refused', sources: [source] });
+      const reply = settings.sent.find((message) => message.type === 'repository-clones');
+      assert.deepEqual(blockOf(reply, 'jobs'), [], source);
       assert.match(String(blockOf(reply, 'error')), /is not a repository URL/, source);
     }
     assert.deepEqual(fs.readdirSync(cloneRoot), []);

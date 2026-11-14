@@ -10,6 +10,7 @@ import { agentSummaryText, installableAgentsText, decideFirstRunSteps, decideOnb
 import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-core.ts';
 import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
 import { playMarkLock } from '../boot/loading-unlock.ts';
+import { hasUnsettledCloneJobs, onCloneJobsSettled } from './clone-jobs.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
 import { button } from '../ui/button.ts';
@@ -226,7 +227,8 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
       }
     }
     const notificationChoice = currentNotificationChoice();
-    const steps = decideFirstRunSteps({ agentListing, hasGitCheckout, notificationChoice });
+    const isWaitingOnClones = setupPhase !== 'done' && hasUnsettledCloneJobs();
+    const steps = decideFirstRunSteps({ agentListing, hasGitCheckout: hasGitCheckout && !isWaitingOnClones, notificationChoice });
     if (rescanAgents) hasRescanFoundNoAgent = steps.agent === 'current';
     currentState = { steps, agentSummary: agentSummaryText(agentListing), installableAgents: installableAgentsText(agentListing), repoRoots, notificationChoice };
     loadStatus.clear();
@@ -267,6 +269,7 @@ function ensureChecklist(): HTMLElement {
   startHostEl = el('div', 'first-run-start-host');
   checklist.append(lockup, stepsEl, loadStatus.element, startHostEl);
   checklistEl = checklist;
+  onCloneJobsSettled(refreshFirstRunChecklist);
   document.addEventListener('visibilitychange', rescanWhenAgentMissing);
   window.addEventListener('focus', rescanWhenAgentMissing);
   renderSteps();

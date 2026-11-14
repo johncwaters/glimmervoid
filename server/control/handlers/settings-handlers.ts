@@ -23,7 +23,7 @@ import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from 
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { listFolders, suggestRepoRoots } from '../../repo-root-suggestions.ts';
 import { resolveFromHome } from '../../core/repo-root-suggestions-core.ts';
-import { cloneRepository, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
+import { createCloneJobs, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
 import { cloneRootOf, defaultRepoRootOf, githubOwnerOfSource, parseRepositorySource } from '../../core/repository-source-core.ts';
 import type { GithubCredential, RootCheckouts } from '../../core/repository-source-core.ts';
 import { NO_GITHUB_APP_GRANTS } from '../../lanes/core/lane-permissions-core.ts';
@@ -166,6 +166,8 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
 
 const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
 type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-default' | 'agent-lane-account';
+
+const CLONE_JOBS_BROADCAST_GAP_MS = 250;
 
 function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const {
@@ -358,17 +360,31 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     return parsedSource.ok ? githubAppGrants.tokenFor(githubOwnerOfSource(parsedSource)) : null;
   }
 
-  async function handleCloneRepository(msg: ClientMessageOf<'clone-repository'>, ws: ControlSocket): Promise<void> {
-    const configuredRoots = config.repoRoots ?? [];
-    const cloneRoot = cloneRootOf(await rootCheckoutsOf(configuredRoots), defaultRepoRootOf(os.homedir()));
-    const credential = await currentGithubCredential();
-    const outcome = await cloneRepository({ source: msg.source, cloneRoot, githubToken: cloneTokenOf(credential, msg.source) });
-    if (!outcome.ok) {
-      replyTo(ws, msg, 'repository-cloned', { ok: false, error: outcome.error });
-      return;
-    }
-    if (!configuredRoots.includes(cloneRoot)) saveAddedRepoRoot(cloneRoot);
-    replyTo(ws, msg, 'repository-cloned', { ok: true, path: outcome.path });
+  const cloneJobs = createCloneJobs({
+    cloneRootFor: async () => cloneRootOf(await rootCheckoutsOf(config.repoRoots ?? []), defaultRepoRootOf(os.homedir())),
+    tokenFor: async (source) => cloneTokenOf(await currentGithubCredential(), source),
+    onCloned: (cloneRoot) => {
+      if (!(config.repoRoots ?? []).includes(cloneRoot)) saveAddedRepoRoot(cloneRoot);
+    },
+  });
+  let cloneJobsBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+  cloneJobs.onChange(() => {
+    if (cloneJobsBroadcastTimer !== null) return;
+    cloneJobsBroadcastTimer = setTimeout(() => {
+      cloneJobsBroadcastTimer = null;
+      broadcastControl({ type: 'repository-clones', jobs: cloneJobs.list() });
+    }, CLONE_JOBS_BROADCAST_GAP_MS);
+    cloneJobsBroadcastTimer.unref();
+  });
+
+  function handleStartRepositoryClones(msg: ClientMessageOf<'start-repository-clones'>, ws: ControlSocket): void {
+    const refusal = cloneJobs.start(msg.sources);
+    replyTo(ws, msg, 'repository-clones', { jobs: cloneJobs.list(), ...(refusal === null ? {} : { error: refusal }) });
+  }
+
+  function handleCancelRepositoryClone(msg: ClientMessageOf<'cancel-repository-clone'>, ws: ControlSocket): void {
+    cloneJobs.cancel(msg.source);
+    replyTo(ws, msg, 'repository-clones', { jobs: cloneJobs.list() });
   }
 
   async function handleTelegramTest(msg: ClientMessageOf<'telegram-test'>, ws: ControlSocket): Promise<void> {
@@ -493,7 +509,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   function connectFrames(): readonly unknown[] {
-    return deps.packs ? [deps.packs.statusFrame()] : [];
+    const cloneJobsFrame = { type: 'repository-clones', jobs: cloneJobs.list() };
+    return deps.packs ? [deps.packs.statusFrame(), cloneJobsFrame] : [cloneJobsFrame];
   }
 
   const handlers = {
@@ -510,7 +527,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
     'list-agents': handleListAgents,
-    'clone-repository': handleCloneRepository,
+    'start-repository-clones': handleStartRepositoryClones,
+    'cancel-repository-clone': handleCancelRepositoryClone,
     'list-github-repos': handleListGithubRepos,
     'list-folders': handleListFolders,
     'telegram-test': handleTelegramTest,
@@ -542,7 +560,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),
-    'clone-repository': (_msg, requestId, message) => ({ type: 'repository-cloned', requestId, ok: false, error: message }),
+    'start-repository-clones': (_msg, requestId, message) => ({ type: 'repository-clones', requestId, error: message }),
+    'cancel-repository-clone': (_msg, requestId, message) => ({ type: 'repository-clones', requestId, error: message }),
     'list-folders': (_msg, requestId, message) => ({ type: 'folders-listed', requestId, folder: '', entries: [], error: message }),
     'list-github-repos': (_msg, requestId, message) => ({ type: 'github-repos-listed', requestId, source: 'none', repos: [], error: message }),
     'telegram-test': (_msg, requestId, message) => ({ type: 'telegram-test-result', requestId, ok: false, error: message, telegramDelivery: null }),
