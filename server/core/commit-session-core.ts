@@ -7,7 +7,6 @@ import { TraceRecord } from '../../shared/contracts/trace.ts';
 import { adapterBucket } from './telemetry-core.ts';
 import { clock } from '../../shared/clock.ts';
 
-const COMMIT_LOG_FORMAT = '%H %ct';
 const REPO_KEY_HASH_LENGTH = 12;
 const SHORT_SHA_LENGTH = 7;
 const MAX_PROMPT_CHARS = 200;
@@ -165,7 +164,7 @@ function recordedShasOf(storeText: string, sessionId: string): Set<string> {
 }
 
 export {
-  COMMIT_LOG_FORMAT, FETCHED_NOTES_REF_PREFIX, NOTES_COMMIT_IDENTITY, NOTES_FETCH_REFSPEC, NOTES_REF_PREFIX, encodeNote, findRecord, formatWhy, lastPromptBefore, noteKeysOf,
+  FETCHED_NOTES_REF_PREFIX, NOTES_COMMIT_IDENTITY, NOTES_FETCH_REFSPEC, NOTES_REF_PREFIX, encodeNote, findRecord, formatWhy, lastPromptBefore, noteKeysOf,
   parseCommitLog, parseNote, parsePatchIds, parseWhyTarget, recordedShasOf, repoKeyOf, repoNotesRefOf, writerNotesRef,
 };
 export type { ListedCommit, SharedProvenanceNote };

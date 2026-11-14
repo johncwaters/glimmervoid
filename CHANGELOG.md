@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Settings opens with whether this host is ready for agents to commit as you.** Four lines at the top of Settings read GitHub, git identity, `gh` and commit signing, each with its state in a sentence and, where something is missing, the one button that fixes it: Connect GitHub, Set up or Register on GitHub.
 - **Changes lists a session's commits and says which are signed.** Under the files, the Changes view now lists the commits the session made that its base does not have, newest first, each with its short id, subject and Signed or Unsigned. It reports whether the commit carries a signature on this host and does not ask GitHub.
+- **A signing problem raises one notification.** When a session makes a commit with no signature while commit signing is on, Glimmervoid notifies you once for that session. When the signing key is no longer on your GitHub account, it notifies you once and Settings offers Register on GitHub again. Nothing shows while signing is healthy.
 
 ### Changed
 

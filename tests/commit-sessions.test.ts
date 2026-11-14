@@ -68,7 +68,8 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     const firstGit = countingGit();
     const captureWarnings: string[] = [];
     const writerId = '0f8e3c2a-1b4d-4e5f-8a9b-0c1d2e3f4a5b';
-    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: { warn: (text: string) => captureWarnings.push(text) }, nowFn: () => 1, writerIdFn: () => Promise.resolve(writerId) });
+    const unsignedShas: string[] = [];
+    const commitSessions = createCommitSessions({ storeRoot, runGitFn: firstGit.runGitFn, logger: { warn: (text: string) => captureWarnings.push(text) }, nowFn: () => 1, writerIdFn: () => Promise.resolve(writerId), unsignedCommitNotices: { watches: () => Promise.resolve(true), report: (unsigned) => unsignedShas.push(...unsigned.shas) } });
     const firstSha = commitFile(worktreeDir, 'first.txt');
     fs.writeFileSync(storeRoot, 'a file where the store folder belongs');
     await commitSessions.noteHeadChange({ ...change, headSha: firstSha });
@@ -91,7 +92,7 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
 
     const secondSha = commitFile(worktreeDir, 'second.txt');
     await commitSessions.noteHeadChange({ ...change, headSha: secondSha });
-    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'notes', 'notes']);
+    assert.deepEqual(firstGit.subcommands, ['log', 'show', 'patch-id', 'log', 'notes', 'notes']);
     const repoNotesRef = await repoNotesRefFor(repoDir, writerId);
     assert.ok(repoNotesRef);
     assert.ok(!repoNotesRef.includes(writerId));
@@ -101,6 +102,7 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
     assert.match(sharedNoteTexts[0] ?? '', /^\{"v":1,"sessionId":"[0-9a-f]{16}","agent":"custom"\}$/);
     assert.equal(sharedNoteTexts.length, 4);
     assert.deepEqual(storedRecords(storeRoot).map((record) => record.sha), [firstSha, secondSha]);
+    assert.deepEqual([...new Set(unsignedShas)], [firstSha, secondSha], 'each unsigned commit the session makes is reported');
 
     const restartedGit = countingGit();
     const restarted = createCommitSessions({ storeRoot, runGitFn: restartedGit.runGitFn, logger: console });
@@ -148,6 +150,9 @@ test('capture spends no git call on an unmoved HEAD, and why finds the session o
 
     const unrelatedLine = await askWhy('base.txt:1', repoDir, configPath);
     assert.match(unrelatedLine.answer, /^base\.txt:1 {2}[0-9a-f]{7} {2}.*\nno Glimmervoid session made this commit$/);
+    unsignedShas.length = 0;
+    await commitSessions.noteHeadChange({ ...change, headSha: git(['rev-parse', 'HEAD'], worktreeDir).trim() });
+    assert.deepEqual(unsignedShas, [], 'a rebased copy of a commit already recorded is not reported again');
     assert.equal(git(['status', '--porcelain'], repoDir), '');
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });

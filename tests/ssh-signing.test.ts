@@ -166,6 +166,12 @@ test('a session commit is signed with the host signing key outside the session, 
       [['left unsigned', false], ['authored as the GitHub account', true], ['signed by the host key', true]],
       'a raw log tells a signed commit from an unsigned one',
     );
+    const forgedHeaderSha = 'b'.repeat(40);
+    assert.deepEqual(
+      parseRawCommitLog(`commit ${'a'.repeat(40)}\ntree ${'c'.repeat(40)}\ncommit ${forgedHeaderSha}\n\n    subject\n`).map((commit) => commit.sha),
+      ['a'.repeat(40)],
+      'a commit header line that names another commit lists no second commit',
+    );
 
     const ownSigningRepository = await newRepository(root, 'own-signing');
     await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: ownSigningRepository });
@@ -260,6 +266,12 @@ test('commit signing registers the host key on GitHub with the connected user to
     assert.deepEqual([...github.keysById.values()], [unregistered.publicKey]);
     await store.writeRecord({ github: null, identity: null, isSwitchedOff: false });
     assert.equal((await commitSigning.act('register')).state, 'registered', 'a key GitHub already holds is found by listing');
+    assert.equal(await commitSigning.noticeOfKeyGoneFromGithub(), null, 'a key still on GitHub raises nothing');
+    github.keysById.clear();
+    assert.match(await commitSigning.noticeOfKeyGoneFromGithub() ?? '', /no longer on GitHub for octo-carbon/);
+    assert.equal((await commitSigning.act('read')).state, 'unregistered', 'a key gone from GitHub reads as unregistered');
+    assert.equal(await commitSigning.noticeOfKeyGoneFromGithub(), null, 'a key gone from GitHub is raised once');
+    assert.equal((await commitSigning.act('register')).state, 'registered');
 
     grant = null;
     connectionState = null;

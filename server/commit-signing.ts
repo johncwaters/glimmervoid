@@ -12,6 +12,8 @@ import type { CommitSigningAction, CommitSigningStatus } from '../shared/contrac
 import type { GithubConnection, GithubConnectionAction, GithubUserGrant } from '../shared/contracts/watcher-link.ts';
 import { allowedSignersText, commitSigningStatusOf, githubNoreplyIdentity, githubRefusalText, hostGitConfigText, hostSigningGitEnv, includedSystemConfigPath, isHostSigningSystemConfig, OWN_SIGNING_SETTINGS_PATTERN, sshPublicKeyFingerprint } from './core/commit-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
+import { shortSha } from '../shared/git-text.ts';
+import type { UnsignedCommitNotices, UnsignedSessionCommits } from './commit-sessions.ts';
 
 const KEY_FOLDER_MODE = 0o700;
 const PRIVATE_KEY_FILE_NAME = 'signing-key';
@@ -42,6 +44,7 @@ interface HostSigningKeyStore {
   setup: () => Promise<HostSigningKey>;
   remove: () => Promise<void>;
   gitEnvFor: (cwd: string) => Promise<Record<string, string>>;
+  signsCommitsIn: (cwd: string) => Promise<boolean>;
   readRecord: () => Promise<CommitSigningRecord>;
   writeRecord: (record: CommitSigningRecord) => Promise<void>;
   signIfHeld: (request: { publicKey: SshPublicKey; namespace: string; payload: Buffer }) => Promise<SignOutcome | null>;
@@ -163,12 +166,22 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     return ownSigning.ok || gitExitCodeOf(ownSigning.error) !== GIT_CONFIG_NO_MATCH_EXIT_CODE;
   }
 
+  async function signingKeyFor(cwd: string, base: SystemConfigBase): Promise<HostSigningKey | null> {
+    const held = await read();
+    if (held === null || await projectSetsOwnSigning(cwd, base)) return null;
+    return held;
+  }
+
+  async function signsCommitsIn(cwd: string): Promise<boolean> {
+    systemConfigBase ??= discoverSystemConfigBase();
+    return await signingKeyFor(cwd, await systemConfigBase) !== null;
+  }
+
   async function gitEnvFor(cwd: string): Promise<Record<string, string>> {
     systemConfigBase ??= discoverSystemConfigBase();
     const base = await systemConfigBase;
-    const held = await read();
     const { identity } = await readRecord().catch(() => NO_REGISTRATION);
-    const signingKey = held !== null && !await projectSetsOwnSigning(cwd, base) ? held : null;
+    const signingKey = await signingKeyFor(cwd, base);
     const hostConfigPath = signingKey ? systemConfigPath : identityConfigPath;
     const usesHostConfig = signingKey !== null || identity !== null;
     if (signingKey) await writePrivateFileIfChanged(allowedSignersPath, allowedSignersText({ principal: identity?.email ?? KEY_COMMENT, publicKeyText: signingKey.publicKeyText }));
@@ -200,7 +213,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     }
   }
 
-  return { read, setup, remove, gitEnvFor, readRecord, writeRecord, signIfHeld };
+  return { read, setup, remove, gitEnvFor, signsCommitsIn, readRecord, writeRecord, signIfHeld };
 }
 
 interface GithubAnswer {
@@ -211,6 +224,7 @@ interface GithubAnswer {
 interface CommitSigning {
   act: (action: CommitSigningAction) => Promise<CommitSigningStatus>;
   prepareHost: () => Promise<boolean>;
+  noticeOfKeyGoneFromGithub: () => Promise<string | null>;
   disconnectGithub: <T>(disconnect: () => Promise<T>) => Promise<T>;
 }
 
@@ -406,7 +420,48 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     });
   }
 
-  return { act, disconnectGithub, prepareHost };
+  async function forgetKeyGoneFromGithub(): Promise<string | null> {
+    const [held, { record }, grant] = await Promise.all([store.read(), readableRecord(), connectedGrant()]);
+    if (!held || !record.github || !grant || grant.login !== record.github.login) return null;
+    if ((await githubKeyIdsMatching(grant, held)).length > 0) return null;
+    await store.writeRecord({ ...record, github: null });
+    return `The commit signing key is no longer on GitHub for ${grant.login}, so new commits will not show as Verified there. Register it again in Settings.`;
+  }
+
+  function noticeOfKeyGoneFromGithub(): Promise<string | null> {
+    return serialized(forgetKeyGoneFromGithub).catch((error: unknown) => {
+      log.warn(`[commit-signing] could not check the key on GitHub: ${errorMessage(error)}`);
+      return null;
+    });
+  }
+
+  return { act, disconnectGithub, noticeOfKeyGoneFromGithub, prepareHost };
+}
+
+const COMMIT_SIGNING_NOTIFY_CATEGORY = 'commit-signing';
+
+function createUnsignedCommitNotices({ store, notify, log = console }: {
+  store: Pick<HostSigningKeyStore, 'signsCommitsIn'>;
+  notify: (name: string, category: string, message: string) => void;
+  log?: Pick<Console, 'warn'>;
+}): UnsignedCommitNotices {
+  const notifiedSessionIds = new Set<string>();
+
+  function report({ sessionId, sessionName, shas }: UnsignedSessionCommits): void {
+    if (notifiedSessionIds.has(sessionId)) return;
+    notifiedSessionIds.add(sessionId);
+    const commitsText = shas.length === 1 ? `commit ${shortSha(shas[0])}` : `${shas.length} commits`;
+    notify(sessionName, COMMIT_SIGNING_NOTIFY_CATEGORY, `This session made ${commitsText} with no signature while commit signing is on. A session started before signing was set up signs only after a restart; Changes shows which commits are unsigned.`);
+  }
+
+  function watches(worktreeDir: string): Promise<boolean> {
+    return store.signsCommitsIn(worktreeDir).catch((error: unknown) => {
+      log.warn(`[commit-signing] could not tell whether ${worktreeDir} signs commits: ${errorMessage(error)}`);
+      return false;
+    });
+  }
+
+  return { watches, report };
 }
 
 function followingGithubConnection(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub' | 'prepareHost'>): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
@@ -431,5 +486,5 @@ function followingGithubConnection(githubConnection: (action: GithubConnectionAc
   };
 }
 
-export { createCommitSigning, createHostSigningKeyStore, followingGithubConnection };
+export { COMMIT_SIGNING_NOTIFY_CATEGORY, createCommitSigning, createHostSigningKeyStore, createUnsignedCommitNotices, followingGithubConnection };
 export type { CommitSigning, HostSigningKeyStore };

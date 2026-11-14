@@ -44,7 +44,7 @@ import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
-import { createCommitSigning, followingGithubConnection } from '../commit-signing.ts';
+import { createCommitSigning, createUnsignedCommitNotices, followingGithubConnection } from '../commit-signing.ts';
 import { createHostReady } from '../ready-host.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
@@ -507,6 +507,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME),
       logger: console,
       writerIdFn: provenanceWriterId,
+      unsignedCommitNotices: createUnsignedCommitNotices({ store: hostSigningKeys, notify: (name, category, message) => { notificationManager.trigger(name, category, message); } }),
     }),
     pushProvenanceNotes: (repoDir: string) => assembledGitWorkspace.pushProvenanceNotes(repoDir),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
@@ -714,6 +715,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   watcherLink.whenLinked(awakeUsageAlerts.check);
   const githubConnectionAlerts = startGithubConnectionAlerts({
     githubConnection,
+    noticeOfKeyGoneFromGithub: commitSigning.noticeOfKeyGoneFromGithub,
     notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
     statePath: configSiblingPath(configStore.configPath, 'github-connection-alerts.json'),
   });
