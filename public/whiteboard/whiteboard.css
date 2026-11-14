@@ -205,6 +205,7 @@
 .wb-viewport[data-tool='note'],
 .wb-viewport[data-tool='text'],
 .wb-viewport[data-tool='wire'],
+.wb-viewport[data-tool='line'],
 .wb-viewport[data-tool='pen'],
 .wb-viewport[data-tool='icon'],
 .wb-viewport[data-tool='device'] {
