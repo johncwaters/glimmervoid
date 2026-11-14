@@ -1517,7 +1517,7 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
     return {
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
-      isDashed: plan.wire.dashed, tone: plan.wire.tone,
+      isDashed: plan.wire.dashed, isBold: plan.wire.width === 'bold', tone: plan.wire.tone,
       hasArrowhead: leader === undefined || leader === wire, joinAt: joinPointOf(wire, leader),
     };
   });

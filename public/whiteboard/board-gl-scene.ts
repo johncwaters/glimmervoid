@@ -1,7 +1,7 @@
 import type { IconName, NoteTone } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
-import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, handleSidesOf } from '#shared/whiteboard-layout-core.ts';
+import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
@@ -119,6 +119,7 @@ const ARROWHEAD_LENGTH = 12.8;
 const ARROWHEAD_HALF_WIDTH = 5.12;
 const ARROWHEAD_OVERSHOOT = 1.28;
 const WIRE_WIDTH = 1.6;
+const BOLD_WIRE_WIDTH = 3.2;
 const OUTLINE_WIDTH = 1.6;
 const LETTER_SPACING_EM = 0.08;
 const CHAR_WIDTH_EM = MONO_CHAR_WIDTH / 12;
@@ -331,7 +332,8 @@ function lineRectsOf(lines: readonly LaidOutLine[], box: Rect, bodyTop: number):
 }
 
 function boxTextRectsOf(box: LaidOutBox, titleTop: number, bodyTop: number): BoxTextRects {
-  const title = { x: box.x, y: titleTop - TITLE_LINE_HEIGHT + ROW_DESCENT, width: box.width, height: box.titleLines.length * TITLE_LINE_HEIGHT };
+  const titleLineHeight = titleLineHeightOf(box.textSize);
+  const title = { x: box.x, y: titleTop - titleLineHeight + ROW_DESCENT, width: box.width, height: box.titleLines.length * titleLineHeight };
   const lines = lineRectsOf(box.bodyLines, box, bodyTop);
   const lastTextRect = lines.at(-1) ?? title;
   const textBottom = lastTextRect.y + lastTextRect.height;
@@ -439,18 +441,21 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   if (isIconBox && box.icon) pushIcon(part, box.icon, middleX - ICON_BOX_GLYPH_SIZE / 2, box.y + ICON_BOX_TOP_INSET + stepHeaderHeight, ICON_BOX_GLYPH_SIZE, faded(palette.accent, opacity), detailMinScale);
   const textLeft = isIconBox ? middleX : box.x + BOX_TEXT_INSET;
   const textAnchor = isIconBox ? 'middle' : 'start';
+  const titleLineHeight = titleLineHeightOf(box.textSize);
+  const titleSize = palette.titleSize * TITLE_SCALE_BY_TEXT_SIZE[box.textSize];
+  const firstTitleBaseline = box.y + TITLE_BASELINE + titleLineHeight - TITLE_LINE_HEIGHT + stepHeaderHeight + glyphRoom;
   box.wasLines.forEach((line, index) => {
-    pushText(part, glyphs, line, textLeft, box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true, anchor: textAnchor });
+    pushText(part, glyphs, line, textLeft, firstTitleBaseline + index * titleLineHeight, { size: titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true, anchor: textAnchor });
   });
-  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = firstTitleBaseline + box.wasLines.length * titleLineHeight;
   const titleIcon = isIconBox ? null : box.icon;
   if (titleIcon) pushIcon(part, titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, faded(palette.ink, opacity), detailMinScale);
   const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
   box.titleLines.forEach((line, index) => {
-    pushText(part, glyphs, line, titleLeft, titleTop + index * TITLE_LINE_HEIGHT, { size: palette.titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed', anchor: textAnchor });
+    pushText(part, glyphs, line, titleLeft, titleTop + index * titleLineHeight, { size: titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed', anchor: textAnchor });
   });
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
-  const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
+  const bodyTop = titleTop + box.titleLines.length * titleLineHeight;
   pushBodyLines(part, context, box.bodyLines, box.x, bodyTop, opacity, detailMinScale);
   const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
   if (box.media && !hasDrawnMedia) {
@@ -508,7 +513,7 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
   const labelPart = createPart();
   const points = pointsOfPath(wire.path);
   const color = wireColor(wire, palette);
-  pushPolyline(part, points, WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
+  pushPolyline(part, points, wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
   if (wire.hasArrowhead) pushArrowAtEnd(part, points, color);
   const dotMinScale = MIN_ARROWHEAD_PX / 6;
   pushCircle(part, wire.start, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);

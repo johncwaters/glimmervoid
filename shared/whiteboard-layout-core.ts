@@ -1,5 +1,5 @@
 import { BOX_CHANGES, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, Wire } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire } from './contracts/whiteboard.ts';
 import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
@@ -24,6 +24,7 @@ const BODY_LINE_HEIGHT = 18;
 const MAX_KEY_INDENT_CHARS = 12;
 const ITEM_INDENT_CHARS = 2;
 const TITLE_CHARS_PER_LINE = 20;
+const TITLE_SCALE_BY_TEXT_SIZE: Readonly<Record<TextSize, number>> = { S: 0.8, M: 1, L: 1.5 };
 const BODY_CHARS_PER_LINE = 26;
 const FRAME_PADDING = 18;
 const FRAME_TITLE_HEIGHT = 26;
@@ -155,6 +156,14 @@ function boxWidthOf(box: BoxWithoutPlace): number {
   return box.width ?? defaultBoxWidthOf(box);
 }
 
+function titleLineHeightOf(textSize: TextSize): number {
+  return Math.round(TITLE_LINE_HEIGHT * TITLE_SCALE_BY_TEXT_SIZE[textSize]);
+}
+
+function titleCharsPerLineAt(textSize: TextSize, boxWidth: number): number {
+  return Math.floor(charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth) / TITLE_SCALE_BY_TEXT_SIZE[textSize]);
+}
+
 function charsPerLineAt(defaultCharsPerLine: number, boxWidth: number): number {
   return Math.floor(defaultCharsPerLine * (boxWidth - BOX_PADDING * 2) / (DEFAULT_BOX_WIDTH - BOX_PADDING * 2));
 }
@@ -255,7 +264,7 @@ interface BoxText {
 
 function boxTextOf(box: BoxWithoutPlace, boxWidth: number): BoxText {
   const content = boxContentOf(box);
-  const titleCharsPerLine = charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth);
+  const titleCharsPerLine = titleCharsPerLineAt(box.textSize, boxWidth);
   return {
     titleLines: wrapText(box.title, titleCharsPerLine - content.titleIconChars),
     wasLines: box.change === 'relabeled' && box.was ? wrapText(box.was, titleCharsPerLine) : [],
@@ -271,7 +280,7 @@ interface TextFit {
 
 function textFitAt(box: BoxWithoutPlace, boxWidth: number): TextFit {
   const content = boxContentOf(box);
-  const title = wrappedText(box.title, charsPerLineAt(TITLE_CHARS_PER_LINE, boxWidth) - content.titleIconChars);
+  const title = wrappedText(box.title, titleCharsPerLineAt(box.textSize, boxWidth) - content.titleIconChars);
   return {
     isTitleOnOneLine: title.lines.length === 1,
     isTitleCutMidWord: title.isCutMidWord,
@@ -312,7 +321,7 @@ function measuredBoxShape(box: BoxWithoutPlace) {
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   const boxWidth = boxWidthOf(box);
   const { titleLines, wasLines, bodyLines } = boxTextOf(box, boxWidth);
-  const textHeight = BOX_PADDING + stepHeaderHeight + content.glyphRoom + (wasLines.length + titleLines.length) * TITLE_LINE_HEIGHT + bodyLines.length * BODY_LINE_HEIGHT;
+  const textHeight = BOX_PADDING + stepHeaderHeight + content.glyphRoom + (wasLines.length + titleLines.length) * titleLineHeightOf(box.textSize) + bodyLines.length * BODY_LINE_HEIGHT;
   const naturalArt = contentArtOf(content, boxWidth);
   const art = artFillingSpareHeight(content, naturalArt, (box.height ?? 0) - (textHeight + BOX_PADDING + artRoomOf(naturalArt)));
   const headerHeight = textHeight + BOX_PADDING + artRoomOf(art);
@@ -375,7 +384,7 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithout
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, tone: box.tone, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.tone, textSize: box.textSize, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
   };
 }
 
@@ -843,8 +852,8 @@ function scaledRectWithin(child: Rect, from: Rect, to: Rect): Rect {
 }
 
 export {
-  FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD,
-  handleSidesOf, resizedRectOf, scaledRectWithin,
+  FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
+  handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
   customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };

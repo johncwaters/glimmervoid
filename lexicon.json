@@ -840,6 +840,10 @@
     {
       "name": "shortcut",
       "definition": "A key chord that runs a dashboard or whiteboard action, such as Ctrl+] to bring a selection forward, shown beside the action in its menu"
+    },
+    {
+      "name": "style popover",
+      "definition": "The whiteboard panel above the properties panel that sets the fill tint, title size, wire tone and wire width of every selected element at once"
     }
   ],
   "retired": [

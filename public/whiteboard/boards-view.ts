@@ -25,6 +25,8 @@ import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#sha
 import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
+import { createBoardStylePopover } from './board-style-popover.ts';
+import type { BoardStylePopover } from './board-style-popover.ts';
 import { createBoardContextMenu } from './board-context-menu.ts';
 import { isArrayIndexKey } from '#shared/whiteboard-element-table.ts';
 import type { BoardContextMenu, ContextMenuGroup } from './board-context-menu.ts';
@@ -133,6 +135,7 @@ let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
 let contextMenu: BoardContextMenu | null = null;
 let inspector: BoardInspector | null = null;
+let stylePopover: BoardStylePopover | null = null;
 let shouldFitOnNextRender = true;
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
@@ -383,6 +386,11 @@ function paintToolbar(): void {
   for (const button of [...parts.toolButtons.values(), parts.toolLockButton]) button.disabled = !board;
   for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
+  paintStylePopover();
+}
+
+function paintStylePopover(): void {
+  stylePopover?.paint(editor?.selectedIds() ?? new Set());
 }
 
 function paintList(): void {
@@ -933,7 +941,7 @@ function connectBoxes(fromBoxId: string, toBoxId: string): void {
   if (!board || fromBoxId === toBoxId) return;
   const isAlreadyWired = [...board.elements.values()].some((element) => element.kind === 'wire' && element.from === fromBoxId && element.to === toBoxId);
   if (isAlreadyWired) return;
-  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', label: null, fromSide: null, toSide: null } }]);
+  void sendOps([{ op: 'add', element: { kind: 'wire', id: newElementId('wire'), from: fromBoxId, to: toBoxId, dashed: false, tone: 'plain', width: 'thin', label: null, fromSide: null, toSide: null } }]);
 }
 
 function stackTitleOf(board: Board, boxIds: readonly string[]): string {
@@ -1340,6 +1348,7 @@ export function mountBoardHost(): HTMLElement {
   chrome.append(boardIsland, viewIsland, toolsIsland, toolHint);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(inspectPanel);
+  stylePopover = createBoardStylePopover({ host: topRightStack, currentBoard: selectedBoard, sendOps });
   const emptyBoardHint = el('div', 'wb-empty-board');
   emptyBoardHint.hidden = true;
   const emptyBoardHow = el('p', 'wb-empty-board-desc');

@@ -234,14 +234,14 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
       id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null, project: null,
-      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 40, y: 40 } }, shape: 'box', borderless: null, tone: null, author: null, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null } },
+      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 40, y: 40 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', author: null, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {} },
     patch: {
       boardId: 'board-1', fromVersion: 0, toVersion: 1, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
       diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { place: { at: { x: 40, y: 40 } } }], old: ['remove'] } },
-      before: { fields: { title: 'Ingest' }, elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 0, y: 0 } }, shape: 'box', borderless: null, tone: null, author: null, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null }, old: null } },
+      before: { fields: { title: 'Ingest' }, elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 0, y: 0 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', author: null, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null }, old: null } },
     },
   },
   { type: 'session-worktree-warning', id: 'session-1', session: 'Session 1', branch: 'glimmervoid/session/session-1', notice: 'offline', timestamp: NOW },

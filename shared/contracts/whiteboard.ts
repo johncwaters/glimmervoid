@@ -41,7 +41,10 @@ const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Po
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 export const WIRE_TONES = ['plain', 'fail', 'join'] as const;
 export const NOTE_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
+export const TEXT_SIZES = ['S', 'M', 'L'] as const;
+export const WIRE_WIDTHS = ['thin', 'bold'] as const;
 export type NoteTone = (typeof NOTE_TONES)[number];
+export type TextSize = (typeof TEXT_SIZES)[number];
 export const NOTE_TONE_HEX: Readonly<Record<NoteTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
 
 export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
@@ -176,7 +179,8 @@ const boxFields = {
   width: BoxWidth.nullable().default(null).describe(`null is the 220 default`),
   height: BoxHeight.nullable().default(null).describe('the least height; content can still grow the box'),
   borderless: z.boolean().nullable().default(null).describe('true draws no card fill or outline; null is the shape default, bare for icon and device; a note always draws its card'),
-  tone: z.enum(NOTE_TONES).nullable().default(null).describe('a note color'),
+  tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision or note'),
+  textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large'),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,
   lines: z.array(BoxLine).max(WHITEBOARD_LIMITS.linesPerBox, { error: `a box holds at most ${WHITEBOARD_LIMITS.linesPerBox} lines` }).default([]),
@@ -198,7 +202,7 @@ function boxShapeProblemsOf(box: ShapeCheckedBox): string[] {
     traits.needsDevice && box.device === null && 'a device box needs a device',
     !traits.needsDevice && box.device !== null && 'only a device box takes device',
     !traits.needsDevice && box.fit !== 'fill' && 'only a device box takes fit',
-    !traits.takesTone && box.tone !== null && 'only a note takes tone',
+    !traits.takesTone && box.tone !== null && `a ${box.shape} box takes no tone`,
     box.shape === 'note' && box.borderless !== null && 'a note always draws its card, so only other shapes take borderless',
     !traits.holdsLines && box.lines.length > 0 && `a ${box.shape} box holds no lines, so set shape to box first`,
     !traits.holdsMedia && box.media !== null && `a ${box.shape} box holds no media, so set shape to box first`,
@@ -259,6 +263,7 @@ export const Wire = z.object({
   to: ElementId.describe('the element id it ends at'),
   dashed: z.boolean().default(false),
   tone: z.enum(WIRE_TONES).default('plain'),
+  width: z.enum(WIRE_WIDTHS).default('thin').describe('the line weight'),
   label: z.string().max(WHITEBOARD_LIMITS.wireLabel, { error: `a wire label is at most ${WHITEBOARD_LIMITS.wireLabel} characters` }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
@@ -310,7 +315,8 @@ export const BoardHead = Board.omit({ elements: true });
 export const BOARD_FILE_EXTENSION = '.glimmerboard';
 export const BOARD_FILE_DOWNLOAD_NAME = `board${BOARD_FILE_EXTENSION}`;
 export const BOARD_FILE_FORMAT = 'glimmervoid-board';
-export const BOARD_FILE_VERSION = 1;
+export const BOARD_FILE_VERSION = 2;
+const READABLE_BOARD_FILE_VERSIONS = [1, BOARD_FILE_VERSION] as const;
 export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
 export const BOARD_FILE_ELEMENTS_MAX = 20_000;
 export const BOARD_PAGE_MEMBERS_MAX = 256;
@@ -334,7 +340,7 @@ const BoardFileAsset = z.object({
 
 export const BoardFile = z.object({
   format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board file' }),
-  version: z.literal(BOARD_FILE_VERSION, { error: `this board file is from another Glimmervoid version; this one reads version ${BOARD_FILE_VERSION}` }),
+  version: z.literal(READABLE_BOARD_FILE_VERSIONS, { error: `this board file is from another Glimmervoid version; this one reads versions ${READABLE_BOARD_FILE_VERSIONS.join(' and ')}` }),
   board: Board.pick({ title: true, caption: true, legend: true, elements: true }),
   assets: z.record(AssetId, BoardFileAsset),
 }).strict();
@@ -586,11 +592,11 @@ function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMed
   return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
 }
 
-function filledBox(box: SparseBox): Box {
+export function filledBox(box: SparseBox): Box {
   return {
     kind: 'box', id: box.id, shape: box.shape ?? 'box', title: box.title, icon: box.icon ?? null, place: box.place,
     order: box.order ?? 0, width: box.width ?? null, height: box.height ?? null,
-    borderless: box.borderless ?? null, tone: box.tone ?? null, device: box.device ?? null, fit: box.fit ?? 'fill',
+    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null,
@@ -602,7 +608,7 @@ export function filledElement(element: SparseElement): Element {
     case 'box': return filledBox(element);
     case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, collapsed: element.collapsed ?? false };
     case 'wire': return {
-      kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain',
+      kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain', width: element.width ?? 'thin',
       label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
     };
     case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };

@@ -105,6 +105,32 @@
 
 .wb-island[hidden] { display: none; }
 
+.wb-style-popover {
+  position: static;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+}
+
+.wb-style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-style-label {
+  min-width: 40px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+}
+
+.wb-style-picks {
+  display: flex;
+  gap: 2px;
+}
+
 .wb-island-agent[data-idle] { visibility: hidden; }
 
 .wb-island-agent {
