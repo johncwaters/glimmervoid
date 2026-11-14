@@ -8,7 +8,7 @@ import {
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, routeWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routeWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
 import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
@@ -235,11 +235,11 @@ function warningsOf(world: LayoutWorld): string[] {
 function obstacleRectOf(element: PlacedElement): Rect | null {
   if (element.kind === 'wire') return null;
   if (element.kind === 'frame') return frameTitleStripOf(element);
-  return element;
+  return rotatedBoundsOf(element);
 }
 
 function extentOf(element: PlacedElement): Rect | null {
-  return element.kind === 'wire' ? wireExtentOf(element) : element;
+  return element.kind === 'wire' ? wireExtentOf(element) : rotatedBoundsOf(element);
 }
 
 function isOnEdge(rect: Rect, around: Rect): boolean {
@@ -248,7 +248,7 @@ function isOnEdge(rect: Rect, around: Rect): boolean {
 
 function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   world.laidOutById.set(element.id, element);
-  if (element.kind === 'box') placeId(world.boxGrid, element.id, element);
+  if (element.kind === 'box') placeId(world.boxGrid, element.id, rotatedBoundsOf(element));
   if (element.kind === 'stroke') placeId(world.inkGrid, element.id, element);
   if (element.kind === 'frame') {
     placeId(world.softGrid, element.id, frameTitleStripOf(element));
@@ -713,7 +713,7 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
 function obstacleInputOf(contentTop: number, elements: readonly PlacedElement[]): RouteInput {
   return {
     wires: [], contentTop,
-    boxesById: new Map(elements.flatMap((element) => (element.kind === 'box' ? [[element.id, element] as const] : []))),
+    boxesById: new Map(elements.flatMap((element) => (element.kind === 'box' ? [[element.id, rotatedBoundsOf(element)] as const] : []))),
     softObstacles: softRectsOf(elements),
   };
 }
@@ -735,7 +735,8 @@ function rerouteWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
     for (const wireId of wireIdsOn(board, boxId)) seedIds.add(wireId);
   }
   for (const obstacle of [...commit.oldObstacles, ...commit.newObstacles]) {
-    const rect = obstacle.kind === 'frame' ? frameTitleStripOf(obstacle) : obstacle;
+    const rect = obstacleRectOf(obstacle);
+    if (!rect) continue;
     forEachIdTouching(world.wireGrid, inflated(rect, CLEARANCE), (wireId) => seedIds.add(wireId));
   }
   for (const id of removedWireIds) {

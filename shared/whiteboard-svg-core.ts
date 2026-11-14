@@ -118,7 +118,8 @@ function text(content: string, x: number, y: number, className: string, extra: R
 }
 
 function elementGroup(element: LaidOutElement, className: string, children: readonly string[]): string {
-  return tag('g', { class: `wb-element ${className}`, 'data-element-id': element.id, 'data-element-kind': element.kind }, children.join(''));
+  const rotation = element.kind === 'box' && element.angle !== 0 ? `rotate(${element.angle} ${element.x + element.width / 2} ${element.y + element.height / 2})` : null;
+  return tag('g', { class: `wb-element ${className}`, 'data-element-id': element.id, 'data-element-kind': element.kind, transform: rotation }, children.join(''));
 }
 
 function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {

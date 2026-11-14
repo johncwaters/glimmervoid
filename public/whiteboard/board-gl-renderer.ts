@@ -7,7 +7,7 @@ import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, Resiz
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
-import { wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import { rotatedAbout, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
@@ -37,7 +37,7 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end' | 'bend';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end' | 'bend' | 'rotate';
 type WireEndName = 'from' | 'to';
 
 interface BoardHit {
@@ -156,6 +156,7 @@ const LOD_STEPS_PER_OCTAVE = 4;
 const HIT_TOLERANCE_PX = 7;
 const FRAME_EDGE_TOLERANCE_PX = 6;
 const PORT_HIT_SLOP_PX = 3;
+const ROTATE_HANDLE_GAP = 28;
 const DECORATION_LAYER = LAYER_COUNT;
 const INITIAL_FLOATS = 4096;
 
@@ -170,6 +171,13 @@ vec4 clipOf(vec2 world, float depth) {
   return vec4(device.x / uResolution.x * 2.0 - 1.0, 1.0 - device.y / uResolution.y * 2.0, depth * 2.0 - 1.0, 1.0);
 }
 const vec4 HIDDEN = vec4(2.0, 2.0, 2.0, 1.0);
+vec2 turnedAbout(vec2 world, vec3 turn) {
+  if (turn.z == 0.0) return world;
+  vec2 offset = world - turn.xy;
+  float cosine = cos(turn.z);
+  float sine = sin(turn.z);
+  return turn.xy + vec2(offset.x * cosine - offset.y * sine, offset.x * sine + offset.y * cosine);
+}
 `;
 
 const RECT_VERTEX = `${VERTEX_HEADER}
@@ -180,6 +188,7 @@ layout(location = 3) in vec4 aFill;
 layout(location = 4) in vec4 aStroke;
 layout(location = 5) in float aMinScale;
 layout(location = 6) in float aDepth;
+layout(location = 7) in vec3 aTurn;
 out vec2 vLocal;
 out vec2 vHalf;
 out vec2 vShape;
@@ -195,7 +204,7 @@ void main() {
   vShape = aShape * uScale;
   vFill = aFill;
   vStroke = aStroke;
-  gl_Position = clipOf(aRect.xy + halfSize + local, aDepth);
+  gl_Position = clipOf(turnedAbout(aRect.xy + halfSize + local, aTurn), aDepth);
 }`;
 
 const RECT_FRAGMENT = `#version 300 es
@@ -297,13 +306,14 @@ layout(location = 3) in float aPage;
 layout(location = 4) in vec4 aColor;
 layout(location = 5) in float aMinScale;
 layout(location = 6) in float aDepth;
+layout(location = 7) in vec3 aTurn;
 out vec3 vUv;
 out vec4 vColor;
 void main() {
   if (uLodScale < aMinScale) { gl_Position = HIDDEN; return; }
   vUv = vec3(mix(aUv.xy, aUv.zw, aCorner), aPage);
   vColor = aColor;
-  gl_Position = clipOf(aQuad.xy + aCorner * aQuad.zw, aDepth);
+  gl_Position = clipOf(turnedAbout(aQuad.xy + aCorner * aQuad.zw, aTurn), aDepth);
 }`;
 
 const GLYPH_FRAGMENT = `#version 300 es
@@ -324,12 +334,13 @@ layout(location = 0) in vec2 aCorner;
 uniform vec4 uRect;
 uniform vec4 uUvRect;
 uniform float uDepth;
+uniform vec3 uTurn;
 out vec2 vUv;
 out vec2 vCorner;
 void main() {
   vUv = uUvRect.xy + aCorner * uUvRect.zw;
   vCorner = aCorner;
-  gl_Position = clipOf(uRect.xy + aCorner * uRect.zw, uDepth);
+  gl_Position = clipOf(turnedAbout(uRect.xy + aCorner * uRect.zw, uTurn), uDepth);
 }`;
 
 const IMAGE_FRAGMENT = `#version 300 es
@@ -365,11 +376,11 @@ void main() {
 
 const BLOCK_ALPHA = 0.85;
 
-const RECT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 2, offset: 4 }, { location: 3, size: 4, offset: 6 }, { location: 4, size: 4, offset: 10 }, { location: 5, size: 1, offset: 14 }, { location: 6, size: 1, offset: 15 }];
+const RECT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 2, offset: 4 }, { location: 3, size: 4, offset: 6 }, { location: 4, size: 4, offset: 10 }, { location: 7, size: 3, offset: 14 }, { location: 5, size: 1, offset: 17 }, { location: 6, size: 1, offset: 18 }];
 const SEGMENT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 4, offset: 8 }, { location: 4, size: 1, offset: 12 }, { location: 5, size: 1, offset: 13 }];
 const TRIANGLE_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 0, size: 2, offset: 0 }, { location: 1, size: 4, offset: 2 }, { location: 2, size: 1, offset: 6 }, { location: 3, size: 1, offset: 7 }];
-const GLYPH_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 1, offset: 8 }, { location: 4, size: 4, offset: 9 }, { location: 5, size: 1, offset: 13 }, { location: 6, size: 1, offset: 14 }];
-const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth', 'uTint', 'uUvRect', 'uClipRadius'] as const;
+const GLYPH_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 1, offset: 8 }, { location: 4, size: 4, offset: 9 }, { location: 7, size: 3, offset: 13 }, { location: 5, size: 1, offset: 16 }, { location: 6, size: 1, offset: 17 }];
+const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth', 'uTint', 'uUvRect', 'uClipRadius', 'uTurn'] as const;
 
 const UNSIZED_MEDIA_EDGE_PX = 1024;
 const MEDIA_TEXTURE_BUDGET_BYTES = 128 * 1024 * 1024;
@@ -381,6 +392,7 @@ interface DrawnMedia {
   fit: DeviceFit;
   clipRadius: number;
   depth: number;
+  turn: { pivot: Point; radians: number };
 }
 
 function placedMediaOf(drawn: DrawnMedia, image: { width: number; height: number }): { rect: Rect; uv: Rect } {
@@ -820,11 +832,25 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       return element?.kind === 'box' ? [element] : [];
     });
     const [firstBox] = selectedBoxes;
-    if (!firstBox) return null;
+    if (!firstBox || selectedBoxes.some((box) => box.angle !== 0)) return null;
     return { area: rectAround(selectedBoxes), boxId: firstBox.id };
   }
 
+  function rotateHandleOf(current: GlScene): { boxId: string; at: Point } | null {
+    if (selectedIds.size !== 1) return null;
+    const [selectedId] = selectedIds;
+    const box = selectedId ? elementOf(current, selectedId) : undefined;
+    if (box?.kind !== 'box') return null;
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    return { boxId: box.id, at: rotatedAbout({ x: center.x, y: box.y - ROTATE_HANDLE_GAP }, center, box.angle) };
+  }
+
   function handleHitAt(current: GlScene, point: Point, slop: number): BoardHit | null {
+    const rotateHandle = rotateHandleOf(current);
+    const rotateReach = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
+    if (rotateHandle && Math.hypot(rotateHandle.at.x - point.x, rotateHandle.at.y - point.y) <= rotateReach) {
+      return { id: rotateHandle.boxId, kind: 'box', part: 'rotate', lineIndex: null, port: null, media: null, handle: null, end: null, bend: null };
+    }
     const handleArea = selectionHandleArea(current);
     if (!handleArea) return null;
     const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
@@ -875,6 +901,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
     const handleArea = selectionHandleArea(current);
     if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area });
+    const rotateHandle = rotateHandleOf(current);
+    if (rotateHandle) listed.push({ kind: 'rotate-handle', at: rotateHandle.at });
     for (const wire of selectedWiresOf(current)) listed.push({ kind: 'wire-ends', wire });
     for (const elementId of reviewMarks.worthALookIds) {
       const element = elementOf(current, elementId);
@@ -960,7 +988,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const href = servedAssetHref(box.media);
     if (!href) return;
     const clipRadius = box.device ? DEVICE_CATALOG[box.device.name].bezel.screenRadius * box.device.scale : 0;
-    visibleDrawnMedia.push({ href, rect: box.media, fit: box.media.fit, clipRadius, depth: depthOf(geometry.paintRank, current) });
+    visibleDrawnMedia.push({ href, rect: box.media, fit: box.media.fit, clipRadius, depth: depthOf(geometry.paintRank, current), turn: { pivot: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, radians: (box.angle * Math.PI) / 180 } });
     ensureMediaTexture(href, box.media);
   }
 
@@ -1126,6 +1154,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       context.bindTexture(context.TEXTURE_2D, entry.texture);
       context.uniform1f(program.uniforms.get('uDepth') ?? null, drawn.depth);
       context.uniform1f(program.uniforms.get('uClipRadius') ?? null, drawn.clipRadius);
+      context.uniform3f(program.uniforms.get('uTurn') ?? null, drawn.turn.pivot.x, drawn.turn.pivot.y, drawn.turn.radians);
       context.uniform4f(program.uniforms.get('uRect') ?? null, placed.rect.x, placed.rect.y, placed.rect.width, placed.rect.height);
       context.uniform4f(program.uniforms.get('uUvRect') ?? null, placed.uv.x, placed.uv.y, placed.uv.width, placed.uv.height);
       context.drawArrays(context.TRIANGLE_STRIP, 0, 4);
@@ -1456,6 +1485,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!element) return null;
     const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null, end: null, bend: null };
     const shape = geometry.hitShape;
+    const boxCenter = element.kind === 'box' ? { x: element.x + element.width / 2, y: element.y + element.height / 2 } : null;
+    const boxAngle = element.kind === 'box' ? element.angle : 0;
+    const localPoint = boxCenter ? rotatedAbout(point, boxCenter, -boxAngle) : point;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
         const from = shape.points[index - 1];
@@ -1473,17 +1505,17 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const portSlop = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
     const hasResizeHandles = selectedIds.has(element.id);
     if (element.kind === 'box' && !hasResizeHandles) {
-      const port = boxPortCenters(element).find((center) => Math.hypot(center.x - point.x, center.y - point.y) <= portSlop);
-      if (port) return { ...hit, part: 'port', port };
+      const port = boxPortCenters(element).find((center) => Math.hypot(center.x - localPoint.x, center.y - localPoint.y) <= portSlop);
+      if (port && boxCenter) return { ...hit, part: 'port', port: rotatedAbout(port, boxCenter, boxAngle) };
     }
-    if (!isInside(point, shape.rect)) return null;
-    if (shape.mediaRect && element.kind === 'box' && element.media && isInside(point, shape.mediaRect)) {
+    if (!isInside(localPoint, shape.rect)) return null;
+    if (shape.mediaRect && element.kind === 'box' && element.media && isInside(localPoint, shape.mediaRect)) {
       const href = element.media.kind === 'image' ? servedAssetHref(element.media) ?? '' : '';
       return { ...hit, part: 'media', media: { href, alt: element.media.alt } };
     }
-    const lineIndex = shape.text.lines.findIndex((lineRect) => isInside(point, lineRect));
+    const lineIndex = shape.text.lines.findIndex((lineRect) => isInside(localPoint, lineRect));
     if (lineIndex >= 0) return { ...hit, part: 'line', lineIndex };
-    if (shape.text.emptyBody && isInside(point, shape.text.emptyBody)) return { ...hit, part: 'emptyBody' };
+    if (shape.text.emptyBody && isInside(localPoint, shape.text.emptyBody)) return { ...hit, part: 'emptyBody' };
     return hit;
   }
 

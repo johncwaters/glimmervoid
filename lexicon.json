@@ -864,6 +864,10 @@
     {
       "name": "bend point",
       "definition": "A point a whiteboard wire passes through between its ends, stored in order in the wire's via list; on a sharp or curved wire the operator adds one by dragging a leg's midpoint handle and removes one by double-clicking it, and on an elbow wire the bend points are its corners, moved by dragging a segment"
+    },
+    {
+      "name": "rotate handle",
+      "definition": "The round handle above a single selected whiteboard box that turns it about its center when dragged, snapping to 15 degree steps with Shift; the box stores the turn as its angle in whole degrees"
     }
   ],
   "retired": [

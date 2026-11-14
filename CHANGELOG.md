@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rotate boxes.** A selected box shows a round rotate handle above it: drag it to turn the box, holding Shift to snap to 15 degree steps, or type an exact angle in the Angle field of the properties panel. Wires attach to the turned outline. A rotated box hides its resize handles; set its angle back to 0 to resize it.
 - **Bend wires by hand.** Select a straight or curved wire and drag the small handle in the middle of a leg to add a bend point, drag a bend point to move it, or double-click it to take it out. On an elbow wire, drag the handle on a segment to slide that segment sideways. Bends save with the board and agents can set them too.
 - **Move and resize boxes on a phone.** Touch and hold a box for a moment to lift it, then drag it where it goes. The lifted box stays selected with its resize handles showing, so you can resize it with one finger too. A plain tap still opens a box and a plain drag still pans.
 - **Arrow and line tools, end handles and wire labels.** The Arrow tool (A) now draws from empty canvas as well as from a box, and the new Line tool (L) draws a plain straight line. Let go on a box to bind the end, or anywhere else to leave it free. A selected wire shows a handle at each end: drag one onto a box to bind it, or off to free it. Double-click a wire to edit its label.

@@ -8,7 +8,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { elbowCornersAfterShift, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
+import { elbowCornersAfterShift, rotatedAbout, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
@@ -564,7 +564,7 @@ test('a long identifier breaks after a separator, an agent box with no width is 
   assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
 });
 
-test('a wire ends at a free point or a box edge, runs sharp, curved or elbow through its bend points, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
+test('a wire ends at a free point or a box edge, rotated or not, runs sharp, curved or elbow through its bend points, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
   const freeBoard = Board.parse({ id: 'free', title: 'free', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
     plan: { kind: 'box', id: 'plan', title: 'Planned', place: 'plan', step: {} },
     left: { kind: 'box', id: 'left', title: 'Left', place: { at: { x: 0, y: 0 } } },
@@ -577,6 +577,8 @@ test('a wire ends at a free point or a box edge, runs sharp, curved or elbow thr
     kinked: { kind: 'wire', id: 'kinked', from: 'left', to: 'right', route: 'sharp', via: [{ x: 400, y: -100 }] },
     swept: { kind: 'wire', id: 'swept', from: 'left', to: 'right', route: 'curved', via: [{ x: 250, y: 400 }] },
     shifted: { kind: 'wire', id: 'shifted', from: 'left', to: 'right', via: [{ x: 300, y: 20 }, { x: 300, y: 330 }] },
+    turned: { kind: 'box', id: 'turned', title: 'Turned', angle: 45, place: { at: { x: 1600, y: 300 } } },
+    'to-turned': { kind: 'wire', id: 'to-turned', from: { x: 1300, y: 250 }, to: 'turned', route: 'sharp' },
   } });
   const layout = layoutBoard(freeBoard);
   const laidOutById = new Map(layout.elements.map((element) => [element.id, element]));
@@ -621,7 +623,14 @@ test('a wire ends at a free point or a box edge, runs sharp, curved or elbow thr
   assert.ok(middleSegment, 'an elbow wire offers a handle on its middle segment');
   const movedCorners = elbowCornersAfterShift(shifted.points, middleSegment.index, { x: 60, y: 999 });
   assert.ok(movedCorners.length >= 2 && movedCorners.every((corner) => corner.x !== 300) && isOrthogonal([shifted.start, ...movedCorners, shifted.end]), `dragging the middle segment shifts it sideways only, got ${JSON.stringify(movedCorners)}`);
+  const turned = laidOutById.get('turned');
+  assert.ok(turned?.kind === 'box' && turned.angle === 45, 'a laid out box carries its angle');
+  const turnedCenter = { x: turned.x + turned.width / 2, y: turned.y + turned.height / 2 };
+  const turnedEnd = rotatedAbout(wireOf('to-turned').end, turnedCenter, -45);
+  const isOnTurnedOutline = Math.abs(Math.abs(turnedEnd.x - turnedCenter.x) - turned.width / 2) < 0.5 || Math.abs(Math.abs(turnedEnd.y - turnedCenter.y) - turned.height / 2) < 0.5;
+  assert.ok(isOnTurnedOutline, `a wire attaches to the rotated outline of its box, got ${JSON.stringify(turnedEnd)}`);
   const pictured = boardSvgDocument(layout);
+  assert.ok(pictured.includes(`transform="rotate(45 ${turnedCenter.x} ${turnedCenter.y})"`), 'the SVG draws a rotated box rotated about its center');
   assert.ok(/data-element-id="pointer"[\s\S]*?marker-start="url\(#wb-arrow\)"/.test(pictured), 'the SVG draws an arrowhead at the start of a both-ends wire');
   const world = createLayoutWorld(freeBoard, null, 0);
   const incremental = layoutOf(world).elements.find((element) => element.id === 'pointer');
@@ -672,6 +681,33 @@ function savedThroughJson(world: LayoutWorld) {
     placementWarnings: z.array(z.string()).parse(saved.placementWarnings),
   };
 }
+
+test('a layout world kept across a box rotation routes its wires as a fresh layout does, around the turned box and from a turned end box', () => {
+  const author = { id: 'operator', name: 'operator' };
+  let board = Board.parse({ id: 'turning', title: 'turning', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
+    a: { kind: 'box', id: 'a', title: 'A', place: { at: { x: 0, y: 0 } } },
+    b: { kind: 'box', id: 'b', title: 'B', place: { at: { x: 900, y: 0 } } },
+    w: { kind: 'wire', id: 'w', from: 'a', to: 'b' },
+    c: { kind: 'box', id: 'c', title: 'C', width: 400, place: { at: { x: 250, y: 160 } } },
+    d: { kind: 'box', id: 'd', title: 'D', angle: 180, place: { at: { x: 600, y: 600 } } },
+    e: { kind: 'box', id: 'e', title: 'E', place: { at: { x: 1200, y: 900 } } },
+    v: { kind: 'wire', id: 'v', from: 'a', to: 'd' },
+    u: { kind: 'wire', id: 'u', from: 'e', to: 'd' },
+  } });
+  let world = createLayoutWorld(board, null, 0);
+  for (const op of [{ op: 'set', id: 'c', fields: { angle: 90 } }, { op: 'set', id: 'e', fields: { title: 'E2' } }]) {
+    const staged = stageOps(board, [Op.parse(op)], author, 0, null);
+    assert.ok(staged.ok, staged.ok ? '' : staged.error);
+    const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+    staged.commit();
+    board = staged.board;
+    const applied = applyLayoutDelta(world, board, changes);
+    assert.equal(applied.delta.isRebuilt, false);
+    world = applied.world;
+    const pathById = (elements: readonly (LaidOutElement | PlacedElement)[]) => new Map(elements.flatMap((element) => (element.kind === 'wire' ? [[element.id, element.path] as const] : [])));
+    assert.deepEqual(pathById(layoutOf(world).elements), pathById(layoutBoard(board).elements), `after ${JSON.stringify(op)}`);
+  }
+});
 
 test('a layout world kept across puts places what a fresh layout places, and its patched tile index paints what a fresh index paints', () => {
   let { board } = generateBoardRecord({ elementCount: 400, seed: 7, boardId: 'kept', title: 'kept', createdAt: 0 });

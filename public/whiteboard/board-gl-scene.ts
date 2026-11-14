@@ -3,7 +3,7 @@ import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
-import { pointsOfPath, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import { pointsOfPath, rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
@@ -100,10 +100,12 @@ type HitShape =
   | { kind: 'outline'; rect: Rect; titleRect: Rect }
   | { kind: 'path'; points: Point[] };
 
-const RECT_FLOATS = 16;
+const RECT_FLOATS = 19;
+const RECT_PIVOT_OFFSET = 14;
 const SEGMENT_FLOATS = 14;
 const TRIANGLE_VERTEX_FLOATS = 8;
-const GLYPH_FLOATS = 15;
+const GLYPH_FLOATS = 18;
+const GLYPH_PIVOT_OFFSET = 13;
 const UNSET_DEPTH = 0;
 const LAYER_COUNT = 6;
 const CHROME_LAYER = 0;
@@ -158,7 +160,7 @@ interface Dash {
 const SOLID: Dash = { on: 0, off: 0 };
 
 function pushRect(part: PartBuilder, rect: Rect, radius: number, fill: Rgba, stroke: Rgba, strokeWidth: number, minScale: number): void {
-  part.rects.push(rect.x, rect.y, rect.width, rect.height, radius, strokeWidth, fill[0], fill[1], fill[2], fill[3], stroke[0], stroke[1], stroke[2], stroke[3], minScale, UNSET_DEPTH);
+  part.rects.push(rect.x, rect.y, rect.width, rect.height, radius, strokeWidth, fill[0], fill[1], fill[2], fill[3], stroke[0], stroke[1], stroke[2], stroke[3], 0, 0, 0, minScale, UNSET_DEPTH);
 }
 
 function pushCircle(part: PartBuilder, center: Point, radius: number, fill: Rgba, stroke: Rgba, strokeWidth: number, minScale: number): void {
@@ -178,6 +180,30 @@ function pushPolyline(part: PartBuilder, points: readonly Point[], width: number
 
 function pushTriangle(part: PartBuilder, corners: readonly [Point, Point, Point], color: Rgba, minScale: number): void {
   for (const corner of corners) part.triangles.push(corner.x, corner.y, color[0], color[1], color[2], color[3], minScale, UNSET_DEPTH);
+}
+
+function rotatePart(part: PartBuilder, pivot: Point, degrees: number): void {
+  if (degrees === 0) return;
+  const radians = (degrees * Math.PI) / 180;
+  const turn = (values: number[], at: number): void => {
+    const turned = rotatedAbout({ x: values[at] ?? 0, y: values[at + 1] ?? 0 }, pivot, degrees);
+    values[at] = turned.x;
+    values[at + 1] = turned.y;
+  };
+  for (let at = 0; at < part.segments.length; at += SEGMENT_FLOATS) {
+    turn(part.segments, at);
+    turn(part.segments, at + 2);
+  }
+  for (let at = 0; at < part.triangles.length; at += TRIANGLE_VERTEX_FLOATS) turn(part.triangles, at);
+  const pin = (values: number[], stride: number, pivotOffset: number): void => {
+    for (let at = pivotOffset; at < values.length; at += stride) {
+      values[at] = pivot.x;
+      values[at + 1] = pivot.y;
+      values[at + 2] = radians;
+    }
+  };
+  pin(part.rects, RECT_FLOATS, RECT_PIVOT_OFFSET);
+  pin(part.glyphs, GLYPH_FLOATS, GLYPH_PIVOT_OFFSET);
 }
 
 function pushConvexFill(part: PartBuilder, polygon: readonly Point[], color: Rgba, minScale: number): void {
@@ -265,7 +291,7 @@ function pushText(part: PartBuilder, glyphs: GlyphSource, content: string, x: nu
   for (const character of shown) {
     if (character !== ' ') {
       const cell = glyphs.cellOf(character, style.isBold === true);
-      part.glyphs.push(left + column * advance - glyphs.padLeftEm * style.size, top, quadWidth, quadHeight, cell.u0, cell.v0, cell.u1, cell.v1, cell.page, color[0], color[1], color[2], color[3], minScale, UNSET_DEPTH);
+      part.glyphs.push(left + column * advance - glyphs.padLeftEm * style.size, top, quadWidth, quadHeight, cell.u0, cell.v0, cell.u1, cell.v1, cell.page, color[0], color[1], color[2], color[3], 0, 0, 0, minScale, UNSET_DEPTH);
     }
     column += 1;
   }
@@ -550,7 +576,19 @@ function strokeGeometry(stroke: LaidOutStroke, context: SceneContext): { part: P
 }
 
 function singleLayer(element: Exclude<LaidOutElement, LaidOutWire>, drawn: { part: PartBuilder; hitShape: HitShape }): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
-  return { parts: [{ layer: LAYER_BY_KIND[element.kind], part: sealPart(drawn.part) }], hitShape: drawn.hitShape, bounds: paintedBoundsOf(element, drawn.hitShape) };
+  const painted = paintedBoundsOf(element, drawn.hitShape);
+  const bounds = element.kind === 'box' ? rotatedBoundsOf({ ...painted, angle: element.angle }) : painted;
+  return { parts: [{ layer: LAYER_BY_KIND[element.kind], part: sealPart(drawn.part) }], hitShape: drawn.hitShape, bounds };
+}
+
+function centerOfRect(rect: Rect): Point {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+function rotatedBoxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
+  const drawn = boxGeometry(box, context);
+  rotatePart(drawn.part, centerOfRect(box), box.angle);
+  return drawn;
 }
 
 function paintedBoundsOf(element: Rect, hitShape: HitShape): Rect {
@@ -561,7 +599,7 @@ function paintedBoundsOf(element: Rect, hitShape: HitShape): Rect {
 
 function geometryOf(element: LaidOutElement, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
   switch (element.kind) {
-    case 'box': return singleLayer(element, boxGeometry(element, context));
+    case 'box': return singleLayer(element, rotatedBoxGeometry(element, context));
     case 'frame': return singleLayer(element, frameGeometry(element, context));
     case 'wire': return wireGeometry(element, context);
     case 'stroke': return singleLayer(element, strokeGeometry(element, context));
@@ -606,9 +644,23 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
+  if (element.kind !== 'box' || element.angle === 0) {
+    outlineUnturned(part, element, color, width);
+    return;
+  }
+  const turned = createPart();
+  outlineUnturned(turned, element, color, width);
+  rotatePart(turned, centerOfRect(element), element.angle);
+  part.rects.push(...turned.rects);
+  part.segments.push(...turned.segments);
+  part.triangles.push(...turned.triangles);
+  part.glyphs.push(...turned.glyphs);
+}
+
+function outlineUnturned(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind === 'wire') {
     pushPolyline(part, pointsOfPath(element.path), 2.6, color, SOLID, ALWAYS);
     return;
@@ -664,11 +716,15 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       continue;
     }
     if (decoration.kind === 'hover-handles') {
-      for (const center of boxPortCenters(decoration.box)) pushCircle(part, center, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      for (const center of boxPortCenters(decoration.box)) pushCircle(part, rotatedAbout(center, centerOfRect(decoration.box), decoration.box.angle), PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
       continue;
     }
     if (decoration.kind === 'resize-handles') {
       for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(part, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      continue;
+    }
+    if (decoration.kind === 'rotate-handle') {
+      pushCircle(part, decoration.at, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
       continue;
     }
     if (decoration.kind === 'wire-ends') {
