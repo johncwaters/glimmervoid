@@ -1250,7 +1250,10 @@ test('opening a review detail refetches its teammate threads at most once a minu
 test('a gh token GitHub refuses reads as no gh login, and an unreachable GitHub keeps it', () => {
   const refusedRead = { ok: false, err: 'Command failed: gh api user --silent\ngh: Bad credentials (HTTP 401)' };
   const unreachableRead = { ok: false, err: 'Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host' };
-  assert.equal(ghLoginAnswerOfViewerRead(refusedRead), 'absent');
-  assert.equal(ghLoginAnswerOfViewerRead(unreachableRead), 'present');
-  assert.equal(ghLoginAnswerOfViewerRead({ ok: true, err: '' }), 'present');
+  assert.equal(ghLoginAnswerOfViewerRead(refusedRead, 'present'), 'absent');
+  assert.equal(ghLoginAnswerOfViewerRead(refusedRead, 'unknown'), 'absent');
+  assert.equal(ghLoginAnswerOfViewerRead({ ok: false, err: 'Command failed: gh api user --silent\nTo get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.' }, 'unknown'), 'absent');
+  assert.equal(ghLoginAnswerOfViewerRead(unreachableRead, 'present'), 'present');
+  assert.equal(ghLoginAnswerOfViewerRead(unreachableRead, 'unknown'), 'unknown');
+  assert.equal(ghLoginAnswerOfViewerRead({ ok: true, err: '' }, 'unknown'), 'present');
 });

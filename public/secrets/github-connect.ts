@@ -3,6 +3,7 @@ import { createActionStatus, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
+import { refreshWhileShown } from '../host-ready/host-ready-changes.ts';
 import { button } from '../ui/button.ts';
 import { clock } from '#shared/clock.ts';
 import { GITHUB_CONNECT_CONTROLS, githubConnectViewOf } from './github-connect-core.ts';
@@ -129,6 +130,7 @@ function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect 
 
   paint();
   void request('read');
+  refreshWhileShown(article, () => { if (!isRequesting) void request('read'); });
   document.addEventListener('visibilitychange', recheckOnceShown);
   return article;
 }

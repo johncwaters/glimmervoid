@@ -44,7 +44,9 @@ export function createReviewSetupCard() {
   const loadStatus = createActionStatus();
   const foot = el('p', 'first-run-step-hint review-setup-foot', 'Team review drafts a review of each pull request that requests your review or your team\'s. Nothing posts until you choose Approve or Comment. ');
   foot.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'All Reviews settings'));
-  element.append(el('span', 'first-run-eyebrow', 'SET UP REVIEWS'), heading, stepsList, loadStatus.element, foot);
+  const offStepConnectHolder = el('div');
+  offStepConnectHolder.hidden = true;
+  element.append(el('span', 'first-run-eyebrow', 'SET UP REVIEWS'), heading, stepsList, loadStatus.element, foot, offStepConnectHolder);
 
   let listing: GithubTeamsListing = { viewer: null, teams: [], orgs: [], error: null };
   let selectedOrg = '';
@@ -215,6 +217,7 @@ export function createReviewSetupCard() {
       buildSetupStep({ title: '3. Who to review for', state: steps.teams, summary: '', badge: 'NEEDED', body: teamsStepBody }),
       buildSetupStep({ title: '4. Review skill (optional)', state: steps.skill, summary: '', badge: '', body: () => [] }),
     );
+    if (!stepsList.contains(githubConnectSection)) offStepConnectHolder.append(githubConnectSection);
   }
 
   async function load(): Promise<void> {
