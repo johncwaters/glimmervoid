@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { signedHeaders } from '../link/core/link-signing-core.ts';
-import { githubApiOrigin, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
+import { githubApiOrigin, isGraphqlProbe, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, Nudge, Probe, ProbeSet, WatcherCredentials, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import { fannedOutProbeResponse, freshProbeMemory, memoryAfterCredentialChange, nextRunAtMs, probeOutcome, retryAfterMsFromHeaders } from './core/probe-core.ts';
 import type { ProbeMemory, ProbeResponse } from './core/probe-core.ts';
@@ -17,7 +17,6 @@ const NUDGE_RETRY_MAX_MS = 300_000;
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const CHECK_IN_EVERY_MS = 24 * 60 * 60_000;
 const USER_AGENT = 'glimmervoid-watcher';
-const GRAPHQL_PATH = '/graphql';
 
 function requestFingerprint(probe: Probe): string {
   return crypto.createHash('sha256').update(JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null])).digest('hex');
@@ -86,10 +85,6 @@ function fieldOfAnswer(answerText: string, answerField: string): unknown {
   } catch {
     return undefined;
   }
-}
-
-function isGraphqlProbe(probe: Probe): boolean {
-  return probe.credential === 'github' && new URL(probe.url).pathname === GRAPHQL_PATH;
 }
 
 function graphqlErrorOf(answerText: string): string | null {

@@ -49,6 +49,12 @@ export const Probe = z.strictObject({
 });
 export type Probe = z.infer<typeof Probe>;
 
+const GITHUB_GRAPHQL_PATH = '/graphql';
+
+export function isGraphqlProbe(probe: Probe): boolean {
+  return probe.credential === 'github' && new URL(probe.url).pathname === GITHUB_GRAPHQL_PATH;
+}
+
 export const MAX_ALARMS = 200;
 
 export const Alarm = z.strictObject({

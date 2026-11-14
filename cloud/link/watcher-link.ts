@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
@@ -127,6 +127,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let githubTokenState: GithubTokenState = { kind: 'unasked' };
   let githubTokenRequest: Promise<void> | null = null;
   let announcedGithubAppAccounts = '';
+  let announcedUnwatchedProbeIds = '';
   let githubTokenTimer: NodeJS.Timeout | null = null;
   let githubUserGrant: GithubUserGrant | null = null;
   let connectedGithubAccounts = '';
@@ -242,9 +243,23 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     }
   }
 
+  function isReadableWith(probe: Probe, heldCredentials: WatcherCredentials): boolean {
+    return probe.credential !== 'github' || heldCredentials.github !== null || isGraphqlProbe(probe);
+  }
+
+  function logUnwatchedProbesOnce(unwatchedProbes: readonly Probe[]): void {
+    const unwatchedProbeIds = unwatchedProbes.map((probe) => probe.id).join(', ');
+    if (unwatchedProbeIds === announcedUnwatchedProbeIds) return;
+    announcedUnwatchedProbeIds = unwatchedProbeIds;
+    if (unwatchedProbeIds === '') return;
+    log.log(`[watcher] ${unwatchedProbeIds} is not watched: a GitHub App grant reads only GraphQL`);
+  }
+
   function compileProbeSet(heldCredentials: WatcherCredentials): ProbeSet {
     logMissingCredentialsOnce(heldCredentials);
-    const probes = [...sourcesByLaneId.values()].filter((source) => hasCredentialFor(source.credential, heldCredentials)).flatMap((source) => source.probes());
+    const credentialedProbes = [...sourcesByLaneId.values()].filter((source) => hasCredentialFor(source.credential, heldCredentials)).flatMap((source) => source.probes());
+    const probes = credentialedProbes.filter((probe) => isReadableWith(probe, heldCredentials));
+    logUnwatchedProbesOnce(credentialedProbes.filter((probe) => !probes.includes(probe)));
     const alarms = doesWatcherTakeAlarms ? alarmSource?.alarms() ?? [] : [];
     const revision = revisionOf(probes, alarms);
     return alarms.length === 0 ? { revision, probes } : { revision, probes, alarms };

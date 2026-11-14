@@ -1298,8 +1298,9 @@ test('a tenant whose GitHub user reaches repositories in two installations gets 
   await eventually(async () => ((await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs)).state === 'connected' ? true : undefined));
   const ownedProbe: Probe = { ...LIGHT_PROBE, id: 'github:light:1', body: '{"query":"query { r0: repository(owner: \\"octo\\", name: \\"dotfiles\\") { id } } # octo/dotfiles"}', githubOwner: 'octo' };
   const notificationsProbe: Probe = { id: 'github:notifications:0', laneId: 'test-lane', everyMs: 60_000, method: 'GET', url: 'https://api.github.com/notifications', body: null, credential: 'github' };
+  const linkLogLines: string[] = [];
   const link = createWatcherLink({
-    linkSecret, now: () => clock.nowMs, log: QUIET_LOG,
+    linkSecret, now: () => clock.nowMs, log: { log: (line: string) => void linkLogLines.push(line), warn: (line: string) => void linkLogLines.push(line) },
     credentials: () => ({ github: null, posthog: null }),
     startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${doormanPort}`, statusCheckMs: 50 }),
   });
@@ -1329,6 +1330,7 @@ test('a tenant whose GitHub user reaches repositories in two installations gets 
   await eventually(() => (probeRequests.some((request) => request.body === ownedProbe.body) ? true : undefined));
   assert.deepEqual([...new Set(probeRequests.filter((request) => request.body === ownedProbe.body).map((request) => request.authorization.replace(/\d+$/, '')))], ['Bearer ghs_personal'], 'a repository probe runs only with the grant of its owner, so another installation never answers it NOT_FOUND');
   assert.equal(probeRequests.filter((request) => request.url.endsWith('/notifications')).length, 0, 'an App grant never reads notifications');
+  assert.deepEqual(linkLogLines.filter((line) => line.includes('github:notifications:0')), ['[watcher] github:notifications:0 is not watched: a GitHub App grant reads only GraphQL'], 'the REST probe is left out of the probe set with one line, never reported failing each cycle');
 });
 
 test('a tenant record read that fails answers the server as a failed mint and retries, never as a tenant with no GitHub installation', async (t) => {
