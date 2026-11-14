@@ -1,5 +1,5 @@
-import { filledElement, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, ElementInput, Frame, Op } from '#shared/contracts/whiteboard.ts';
+import { filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
@@ -160,9 +160,8 @@ function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box
   }
 }
 
-function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, tool: PlacementTool): ElementInput {
-  const sparseBox = { kind: 'box' as const, id: newElementId('box'), title, place: { at }, ...placedShapeOf(tool, media) };
-  return filledElement(sparseBox);
+function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, tool: PlacementTool): Box {
+  return filledBox({ kind: 'box', id: newElementId('box'), title, place: { at }, ...placedShapeOf(tool, media) });
 }
 
 interface BoxSize {

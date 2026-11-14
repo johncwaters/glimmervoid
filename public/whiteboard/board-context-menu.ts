@@ -13,7 +13,7 @@ export interface ArrangedRect {
   height: number;
 }
 
-export interface ContextMenuItem {
+interface ContextMenuItem {
   label: string;
   shortcut: string | null;
   run: () => void;

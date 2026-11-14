@@ -1,13 +1,13 @@
-import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, NoteTone, Op, Wire } from '#shared/contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardElement, Frame, LinkStateOfBox, Op, Wire } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG, DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
-import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, NOTE_TONE_HEX, NOTE_TONES, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
+import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
 import { BOX_SHAPES, isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import type { BoxShape } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
-import { CLOSE_ICON_PATH, createLineIcon, createSvgIcon, createSvgShape } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { iconGlyph, iconPicker } from './board-icon-picker.ts';
@@ -56,21 +56,18 @@ interface WireStyle {
 }
 
 const NEW_REF = 'README.md';
-const WIRE_TONE_LABELS: Readonly<Record<Wire['tone'], string>> = { plain: 'Plain', fail: 'Failure', join: 'Join' };
+export const WIRE_TONE_LABELS: Readonly<Record<Wire['tone'], string>> = { plain: 'Plain', fail: 'Failure', join: 'Join' };
 const CHANGE_LABELS: Readonly<Record<Box['change'], string>> = { none: 'Unchanged', added: 'Added', removed: 'Removed', relabeled: 'Renamed' };
 const STEP_CHOICE_LABELS: Readonly<Record<StepChoice, string>> = { none: 'Not a step', planned: 'Planned', building: 'Building', landed: 'Landed' };
 const SIDE_LABELS: Readonly<Record<Side | 'auto', string>> = { auto: 'Auto', left: 'Left', right: 'Right', top: 'Top', bottom: 'Bottom' };
-const NOTE_TONE_LABELS: Readonly<Record<NoteTone, string>> = { yellow: 'Yellow', pink: 'Pink', green: 'Green', blue: 'Blue', violet: 'Violet' };
 const DEVICE_FIT_LABELS: Readonly<Record<(typeof DEVICE_FITS)[number], string>> = { fill: 'Fill the screen', fit: 'Show all' };
 const LINE_STYLE_CHOICES = choicesOf(LINE_STYLES, LINE_STYLE_LABELS);
-const WIRE_TONE_CHOICES = choicesOf(WIRE_TONES, WIRE_TONE_LABELS);
 const CHANGE_CHOICES = choicesOf(BOX_CHANGES, CHANGE_LABELS);
 const STEP_CHOICES = choicesOf(['none', ...STEP_STATUSES], STEP_CHOICE_LABELS);
 const SIDE_CHOICES = choicesOf(['auto', ...SIDES], SIDE_LABELS);
 const DEVICE_CHOICES: readonly Choice[] = DEVICE_NAMES.map((name) => ({ value: name, text: DEVICE_CATALOG[name].label }));
 const FIT_CHOICES = choicesOf(DEVICE_FITS, DEVICE_FIT_LABELS);
 const WIRE_STYLES: readonly WireStyle[] = WIRE_TONES.flatMap((tone) => [false, true].map((dashed) => ({ tone, dashed })));
-const SWATCH_SIZE_PX = 16;
 
 function choicesOf<Value extends string>(values: readonly Value[], labels: Readonly<Record<Value, string>>): Choice[] {
   return values.map((value) => ({ value, text: labels[value] }));
@@ -128,7 +125,7 @@ function checkboxField(field: string, label: string, checked: boolean, commit: (
   return row;
 }
 
-function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
+export function actionButton(field: string, label: string, onClick: () => void, accessibleName?: string): HTMLButtonElement {
   const inspectButton = button({ variant: 'quiet', size: 'small', label, action: label.toLowerCase().replaceAll(' ', '-'), onClick });
   inspectButton.dataset.field = field;
   if (accessibleName) inspectButton.setAttribute('aria-label', accessibleName);
@@ -141,7 +138,7 @@ function removeButton(field: string, accessibleName: string, onClick: () => void
   return remove;
 }
 
-function pickButton(field: string, label: string, icon: SVGElement, isPressed: boolean, onPick: () => void): HTMLButtonElement {
+export function pickButton(field: string, label: string, icon: SVGElement, isPressed: boolean, onPick: () => void): HTMLButtonElement {
   const pick = button({ variant: 'icon', size: 'small', label, icon, action: field, onClick: () => {
     if (!isPressed) onPick();
   } });
@@ -150,7 +147,7 @@ function pickButton(field: string, label: string, icon: SVGElement, isPressed: b
   return pick;
 }
 
-function pickGroup(label: string, className: string, picks: HTMLElement[]): HTMLElement {
+export function pickGroup(label: string, className: string, picks: HTMLElement[]): HTMLElement {
   const group = el('div', `wb-inspect-picks ${className}`);
   group.setAttribute('role', 'group');
   group.setAttribute('aria-label', label);
@@ -287,21 +284,6 @@ function shapeRow(shape: BoxShape, commitShape: (shape: BoxShape) => void): HTML
   )));
 }
 
-function toneSwatch(tone: NoteTone): SVGSVGElement {
-  const swatch = createSvgIcon(SWATCH_SIZE_PX, SWATCH_SIZE_PX);
-  swatch.append(createSvgShape('circle', { cx: '8', cy: '8', r: '6.5', fill: NOTE_TONE_HEX[tone] }));
-  return swatch;
-}
-
-function toneRow(tone: NoteTone | null, set: FieldCommit): HTMLElement {
-  const swatches = NOTE_TONES.map((choice) => pickButton(`tone-${choice}`, NOTE_TONE_LABELS[choice], toneSwatch(choice), choice === tone, () => set({ tone: choice })));
-  const noToneButton = actionButton('tone-none', 'None', () => {
-    if (tone !== null) set({ tone: null });
-  }, 'No tone');
-  noToneButton.setAttribute('aria-pressed', String(tone === null));
-  return pickGroup('Tone', 'wb-inspect-tones', [...swatches, noToneButton]);
-}
-
 function titleRow(box: Box, set: FieldCommit): HTMLElement {
   const title = textField('title', box.title, WHITEBOARD_LIMITS.title, (text) => {
     if (text.trim()) set({ title: text.trim() });
@@ -375,7 +357,6 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
   return [
     shapeRow(box.shape, commitShape),
     titleRow(box, set),
-    ...(traits.takesTone ? [toneRow(box.tone, set)] : []),
     ...(box.shape === 'device' ? [fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device })))] : []),
     fieldRow('Step', selectField('step', STEP_CHOICES, box.step?.status ?? 'none', commitStep)),
     ...(box.step ? [el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.')] : []),
@@ -437,10 +418,7 @@ function wireSections(wire: Wire, disclosures: Disclosures, set: FieldCommit): H
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', WHITEBOARD_LIMITS.wireLabel, (label) => set({ label: label.trim() || null }))),
-    inlineRow(
-      fieldRow('Tone', selectField('tone', WIRE_TONE_CHOICES, wire.tone, (tone) => set({ tone }))),
-      checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
-    ),
+    checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
     disclosure('ends', 'Ends', wire.fromSide !== null || wire.toSide !== null, disclosures, ends),
   ];
 }

@@ -12,6 +12,7 @@ import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHIT
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
+import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
 import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
 const UNCOVERED_FILE_NAME = 'board-uncovered.txt';
@@ -527,6 +528,61 @@ async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<
   await page.keyboard.press('Escape');
 }
 
+async function stylePick(open: OpenBoard, groupName: string, choice: string): Promise<void> {
+  await open.panel.getByRole('group', { name: 'Style', exact: true }).getByRole('group', { name: groupName, exact: true }).getByRole('button', { name: choice, exact: true }).click();
+}
+
+async function wireMidpointOnScreen(open: OpenBoard, wireId: string): Promise<{ x: number; y: number }> {
+  const laidOut = await laidOutOf(open, wireId);
+  assert.ok(laidOut.kind === 'wire', `${wireId} is drawn as a wire`);
+  const [segmentStart, segmentEnd] = pointsOfPath(laidOut.path);
+  assert.ok(segmentStart && segmentEnd, `${wireId} has a first segment`);
+  const midpoint = { x: (segmentStart.x + segmentEnd.x) / 2, y: (segmentStart.y + segmentEnd.y) / 2, width: 0, height: 0 };
+  return screenRectOn(await cameraOf(open), midpoint);
+}
+
+async function verifyStylePopover(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
+  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
+  assert.ok(anchorPoint, 'the anchor box has a point');
+  const boxAt = (id: string, x: number, y: number) => ({ op: 'add', element: { kind: 'box', id, title: 'A title long enough to wrap', place: { at: { x: anchorPoint.x + x, y: anchorPoint.y + y } } } });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    boxAt('style-left', 0, 140), boxAt('style-right', 0, 340),
+    { op: 'add', element: { kind: 'wire', id: 'style-wire', from: 'style-left', to: 'style-right' } },
+  ] });
+  await elementWhere(open, 'the style boxes are on the board', (element) => element.id === 'style-wire');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+  const popover = panel.getByRole('group', { name: 'Style', exact: true });
+  assert.equal(await popover.isVisible(), false, 'the style popover hides with nothing selected');
+  await selectBoxes(open, ['style-left', 'style-right']);
+  await stylePick(open, 'Fill', 'Blue');
+  await elementWhere(open, 'a fill pick tints every selected box', (element) => element.id === 'style-right' && element.kind === 'box' && element.tone === 'blue');
+  const tintedLeft = (await boardOf(open)).elements.get('style-left');
+  assert.ok(tintedLeft?.kind === 'box' && tintedLeft.tone === 'blue', 'the first selected box takes the fill too');
+  await clickElement(open, 'style-left');
+  const heightBefore = (await laidOutRectOf(open, 'style-left')).height;
+  await stylePick(open, 'Text size', 'Large');
+  await elementWhere(open, 'a size pick sets the title size', (element) => element.id === 'style-left' && element.kind === 'box' && element.textSize === 'L');
+  await pollFor('a large title grows the box', BOARD_TIMEOUT_MS, async () => ((await laidOutRectOf(open, 'style-left')).height > heightBefore ? true : null));
+  assert.equal(await popover.getByRole('button', { name: 'Large', exact: true }).getAttribute('aria-pressed'), 'true', 'the picked size shows pressed');
+  const wireMidpoint = await wireMidpointOnScreen(open, 'style-wire');
+  await page.mouse.click(wireMidpoint.x, wireMidpoint.y);
+  await popover.getByRole('group', { name: 'Wire width', exact: true }).waitFor();
+  assert.equal(await popover.getByRole('group', { name: 'Fill', exact: true }).count(), 0, 'a wire alone offers no fill');
+  await stylePick(open, 'Wire width', 'Bold');
+  await elementWhere(open, 'a width pick makes the wire bold', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.width === 'bold');
+  await stylePick(open, 'Wire tone', 'Failure');
+  await elementWhere(open, 'a tone pick recolors the wire', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.tone === 'fail');
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await elementWhere(open, 'undo puts the wire tone back', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.tone === 'plain' && element.width === 'bold');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: ['style-wire', 'style-left', 'style-right'].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the style boxes are gone', (element) => element.id === 'style-left');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
   const laidOut = await laidOutOf(open, boxId);
   return { x: laidOut.kind === 'wire' ? 0 : laidOut.x, y: laidOut.kind === 'wire' ? 0 : laidOut.y };
@@ -676,7 +732,7 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('s');
   const placedNote = await placeBoxWithTool(open, { x: 40, y: 300 }, 'Ask the team');
-  await panel.locator('.wb-inspect').getByRole('group', { name: 'Tone', exact: true }).getByRole('button', { name: 'Green', exact: true }).click();
+  await stylePick(open, 'Fill', 'Green');
   await elementWhere(open, 'the note tool places a note that takes the picked tone', (element) => element.id === placedNote.id && element.kind === 'box' && element.shape === 'note' && element.tone === 'green');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
@@ -1599,6 +1655,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyClipboard(open);
     if (desktopBoard) await verifySnapping(open);
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
+    if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);

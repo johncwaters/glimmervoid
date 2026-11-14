@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -757,7 +757,7 @@ test('a board exported to a board file and imported comes back as a new board wi
   const damagedFiles = [
     { name: 'not-gzip.glimmerboard', bytes: Buffer.from(fileText), error: /not a Glimmervoid board file/ },
     { name: 'escaping.glimmerboard', bytes: zlib.gzipSync(JSON.stringify(escapingPage)), error: /page file path is relative/ },
-    { name: 'future.glimmerboard', bytes: zlib.gzipSync(JSON.stringify({ ...parsedFile, version: 2 })), error: /another Glimmervoid version/ },
+    { name: 'future.glimmerboard', bytes: zlib.gzipSync(JSON.stringify({ ...parsedFile, version: BOARD_FILE_VERSION + 1 })), error: /another Glimmervoid version/ },
     { name: 'truncated.glimmerboard', bytes: fs.readFileSync(outPath).subarray(0, 200), error: /not a Glimmervoid board file/ },
   ];
   for (const damaged of damagedFiles) {
@@ -903,6 +903,42 @@ test('an order op restacks boxes among their kind to the front, back, forward or
   const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'order', ids: ['missing'], to: 'front' }] });
   assert.equal(refused.status, 400);
   assert.match(String(refused.body.error), /op 1: order names missing, which is not on the board/);
+});
+
+test('every card shape takes a fill tint, a large title grows its box, a bold wire draws bold, a device box refuses a tint, and the styles survive a restart', async () => {
+  const boardId = await newBoard('styled');
+  const titled = 'A title long enough to wrap';
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'plain', title: titled, place: { at: { x: 40, y: 40 } } } },
+    { op: 'add', element: { kind: 'box', id: 'large', title: titled, place: { at: { x: 400, y: 40 } } } },
+    { op: 'add', element: { kind: 'box', id: 'choice', shape: 'decision', title: 'Ship?', place: { at: { x: 40, y: 300 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'link', from: 'plain', to: 'large' } },
+  ] })).status, 200);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'set', id: 'plain', fields: { tone: 'blue' } },
+    { op: 'set', id: 'choice', fields: { tone: 'pink' } },
+    { op: 'set', id: 'large', fields: { textSize: 'L' } },
+    { op: 'set', id: 'link', fields: { width: 'bold' } },
+  ] })).status, 200);
+  await shutDown(fixture.booted);
+  fixture.booted = await boot();
+  const styled = Board.parse((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.board);
+  const plain = styled.elements.get('plain');
+  const large = styled.elements.get('large');
+  const choice = styled.elements.get('choice');
+  const link = styled.elements.get('link');
+  assert.ok(plain?.kind === 'box' && large?.kind === 'box' && choice?.kind === 'box' && link?.kind === 'wire');
+  assert.deepEqual([plain.tone, plain.textSize, choice.tone, large.textSize, link.width], ['blue', 'M', 'pink', 'L', 'bold'], 'the styles survive a restart');
+  const drawn = layoutBoard(styled).elements;
+  const drawnPlain = drawn.find((element) => element.id === 'plain');
+  const drawnLarge = drawn.find((element) => element.id === 'large');
+  const drawnLink = drawn.find((element) => element.id === 'link');
+  assert.ok(drawnPlain?.kind === 'box' && drawnLarge?.kind === 'box' && drawnLink?.kind === 'wire');
+  assert.ok(drawnLarge.titleLines.length > drawnPlain.titleLines.length && drawnLarge.height > drawnPlain.height, 'a large title wraps sooner and grows its box');
+  assert.equal(drawnLink.isBold, true);
+  const tintedDevice = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'screen', shape: 'device', device: 'phone', title: 'Screen', tone: 'green', place: { at: { x: 400, y: 300 } } } }] });
+  assert.equal(tintedDevice.status, 400);
+  assert.match(String(tintedDevice.body.error), /a device box takes no tone/);
 });
 
 test('a box placed near another stays where it was drawn when that box moves, and near a box with no drawn place is refused', async () => {

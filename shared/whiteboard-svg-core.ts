@@ -1,9 +1,10 @@
 import { BRAND_ACCENT } from './brand-mark.ts';
-import { NOTE_TONE_HEX, NOTE_TONES } from './contracts/whiteboard.ts';
+import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES } from './contracts/whiteboard.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
+import { TITLE_SCALE_BY_TEXT_SIZE, titleLineHeightOf } from './whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -57,6 +58,7 @@ ${NOTE_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${NOTE_TONE
 .wb-box-was { fill: #a79fc4; font-size: 16px; text-decoration: line-through; }
 .wb-legend-swatch.wb-box-outline { stroke-width: 1.6; }
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
+${TEXT_SIZES.map((size) => `.wb-text-${size} .wb-box-title, .wb-text-${size} .wb-box-was { font-size: ${16 * TITLE_SCALE_BY_TEXT_SIZE[size]}px; }`).join('\n')}
 .wb-box-line { fill: #e6e0f5; font-size: 12px; }
 .wb-box-line.wb-muted { fill: #a79fc4; }
 .wb-line-code { fill: #c4b5fd; }
@@ -75,6 +77,7 @@ ${NOTE_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${NOTE_TONE
 .wb-wire-hit, .wb-port, .wb-resize-handle { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
+.wb-wire-line.wb-bold { stroke-width: 3.2; }
 .wb-tone-fail .wb-wire-line { stroke: #ef4444; }
 .wb-tone-join .wb-wire-line { stroke: ${BRAND_ACCENT}; }
 .wb-wire-dot { fill: #a79fc4; }
@@ -274,17 +277,19 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   if (isIconBox && box.icon) parts.push(iconMarkup(box.icon, midX - ICON_BOX_GLYPH_SIZE / 2, box.y + ICON_BOX_TOP_INSET + stepHeaderHeight, ICON_BOX_GLYPH_SIZE, 'wb-glyph-icon'));
   const textLeft = isIconBox ? midX : box.x + BOX_TEXT_INSET;
   const textAnchor = { 'text-anchor': isIconBox ? 'middle' : null };
+  const titleLineHeight = titleLineHeightOf(box.textSize);
+  const firstTitleBaseline = box.y + TITLE_BASELINE + titleLineHeight - TITLE_LINE_HEIGHT + stepHeaderHeight + glyphRoom;
   box.wasLines.forEach((line, index) => {
-    parts.push(text(line, textLeft, box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + index * TITLE_LINE_HEIGHT, 'wb-box-was', textAnchor));
+    parts.push(text(line, textLeft, firstTitleBaseline + index * titleLineHeight, 'wb-box-was', textAnchor));
   });
-  const titleTop = box.y + TITLE_BASELINE + stepHeaderHeight + glyphRoom + box.wasLines.length * TITLE_LINE_HEIGHT;
+  const titleTop = firstTitleBaseline + box.wasLines.length * titleLineHeight;
   const titleIcon = isIconBox ? null : box.icon;
   if (titleIcon) parts.push(iconMarkup(titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, 'wb-title-icon'));
   const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
   box.titleLines.forEach((line, index) => {
-    parts.push(text(line, titleLeft, titleTop + index * TITLE_LINE_HEIGHT, 'wb-box-title', textAnchor));
+    parts.push(text(line, titleLeft, titleTop + index * titleLineHeight, 'wb-box-title', textAnchor));
   });
-  const bodyTop = titleTop + box.titleLines.length * TITLE_LINE_HEIGHT;
+  const bodyTop = titleTop + box.titleLines.length * titleLineHeight;
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, bodyTop));
   if (box.device) parts.push(...deviceMarkup(box, box.device, box.titleLines.join(' '), assetHref));
   if (box.media && !box.device) parts.push(...mediaMarkup(box.media, assetHref));
@@ -294,7 +299,8 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;
   const toneClass = box.tone ? ` wb-tone-${box.tone}` : '';
   const borderlessClass = box.isBorderless ? ' wb-borderless' : '';
-  return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${stepClass}${changeClass}`, parts);
+  const textSizeClass = box.textSize === 'M' ? '' : ` wb-text-${box.textSize}`;
+  return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${textSizeClass}${stepClass}${changeClass}`, parts);
 }
 
 function frameMarkup(frame: LaidOutFrame): string {
@@ -308,7 +314,7 @@ function frameMarkup(frame: LaidOutFrame): string {
 function wireMarkup(wire: LaidOutWire): string {
   const parts = [
     tag('path', { d: wire.path, class: 'wb-wire-hit' }),
-    tag('path', { d: wire.path, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: wire.isDashed ? 'wb-wire-line wb-dashed' : 'wb-wire-line' }),
+    tag('path', { d: wire.path, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: ['wb-wire-line', wire.isDashed ? 'wb-dashed' : null, wire.isBold ? 'wb-bold' : null].filter((name) => name !== null).join(' ') }),
     tag('circle', { cx: wire.start.x, cy: wire.start.y, r: 3, class: 'wb-wire-dot' }),
   ];
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));
