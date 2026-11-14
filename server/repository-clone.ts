@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -5,7 +6,8 @@ import path from 'node:path';
 import { clock } from '../shared/clock.ts';
 import type { RepositoryCloneJob } from '../shared/contracts/control/settings-messages.ts';
 import { spawn } from './child-process-safe.ts';
-import { cloneJobNameOf, cloneProgressOf, sourcesToStart } from './core/clone-jobs-core.ts';
+import { cloneJobNameOf, cloneProgressOf, inFlightCloneFolderName, inFlightCloneOwnerOf, isInterruptedClone, sourcesToStart } from './core/clone-jobs-core.ts';
+import type { InFlightCloneOwner } from './core/clone-jobs-core.ts';
 import { runGh } from './git/git-exec.ts';
 import { CLONE_SAFETY_ARGS, GITHUB_USER_INSTALLATIONS_PATH, GITHUB_USER_INSTALLATION_IDS_JQ_FILTER, chooseGithubCredential, cloneEnvOf, githubInstallationIdsFromLines, githubReposFromLines, githubReposJqFilter, githubReposPath, githubUserInstallationReposPath, mergedGithubRepos, parseRepositorySource } from './core/repository-source-core.ts';
 import type { GithubCredential, GithubRepo, ParsedRepositorySource } from './core/repository-source-core.ts';
@@ -18,6 +20,12 @@ const GH_LIST_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const CLONE_STDERR_TAIL_CHARS = 4_000;
 const LINE_BREAKS_RE = /[\r\n]+/;
 const CLONE_CHANGE_EVENT = 'change';
+const LONGEST_CLONE_MS = CLONE_TIMEOUT_MS + 60_000;
+const THIS_RUN: InFlightCloneOwner = { pid: process.pid, runId: crypto.randomBytes(4).toString('hex') };
+const TAKEN_FOLDER_CODES: ReadonlySet<string> = new Set(['EEXIST', 'ENOTEMPTY', 'ENOTDIR']);
+const PASSING_LOCK_CODES: ReadonlySet<string> = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const MOVE_ATTEMPTS = 20;
+const MOVE_RETRY_WAIT_MS = 500;
 
 type CloneOutcome = { ok: true; path: string } | { ok: false; error: string };
 type CloneWatch = { signal: AbortSignal; onProgress: (progress: string) => void };
@@ -35,13 +43,32 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function claimEmptyFolder(cloneRoot: string, target: string): Promise<string | null> {
+function alreadyExistsText(target: string): string {
+  return `${target} already exists; open it from the project list, or remove it first`;
+}
+
+async function claimWorkingFolder(cloneRoot: string, target: string, workingFolder: string): Promise<string | null> {
   const rootError = await fs.promises.mkdir(cloneRoot, { recursive: true }).then(() => null, (error: unknown) => `cannot create the repository folder ${cloneRoot}: ${messageOf(error)}`);
   if (rootError) return rootError;
-  return fs.promises.mkdir(target).then(() => null, (error: unknown) => {
-    if (errorCodeOf(error) === 'EEXIST') return `${target} already exists; open it from the project list, or remove it first`;
-    return `cannot create ${target}: ${messageOf(error)}`;
+  if (await isTaken(target)) return alreadyExistsText(target);
+  return fs.promises.mkdir(workingFolder).then(() => null, (error: unknown) => {
+    if (errorCodeOf(error) === 'EEXIST') return `another clone into ${target} is running`;
+    return `cannot create ${workingFolder}: ${messageOf(error)}`;
   });
+}
+
+function isTaken(target: string): Promise<boolean> {
+  return fs.promises.lstat(target).then(() => true, () => false);
+}
+
+async function moveIntoPlace(workingFolder: string, target: string, attemptsLeft = MOVE_ATTEMPTS): Promise<string | null> {
+  if (await isTaken(target)) return alreadyExistsText(target);
+  const moveError = await fs.promises.rename(workingFolder, target).then(() => null, (error: unknown) => error);
+  if (moveError === null) return null;
+  if (TAKEN_FOLDER_CODES.has(errorCodeOf(moveError))) return alreadyExistsText(target);
+  if (!PASSING_LOCK_CODES.has(errorCodeOf(moveError)) || attemptsLeft <= 1) return `cannot move the clone to ${target}: ${messageOf(moveError)}`;
+  await new Promise((resolve) => setTimeout(resolve, MOVE_RETRY_WAIT_MS));
+  return moveIntoPlace(workingFolder, target, attemptsLeft - 1);
 }
 
 function cloneInto(parsed: ParsedRepositorySource, target: string, cloneRoot: string, githubToken: string | null, watch: CloneWatch): Promise<CloneRun> {
@@ -68,18 +95,54 @@ async function cloneRepository({ source, cloneRoot, githubToken, watch }: { sour
   const parsed = parseRepositorySource(source);
   if (!parsed.ok) return parsed;
   const target = path.join(cloneRoot, parsed.repoName);
-  const claimError = await claimEmptyFolder(cloneRoot, target);
+  const workingFolder = path.join(cloneRoot, inFlightCloneFolderName(THIS_RUN, parsed.repoName));
+  const claimError = await claimWorkingFolder(cloneRoot, target, workingFolder);
   if (claimError) return { ok: false, error: claimError };
-  const cloned = await cloneInto(parsed, target, cloneRoot, githubToken, watch);
-  if (cloned.ok) return { ok: true, path: target };
-  if (githubToken && parsed.isGithubHttps && !watch.signal.aborted) {
-    await fs.promises.rm(target, { recursive: true, force: true });
-    await fs.promises.mkdir(target);
-    const clonedWithoutToken = await cloneInto(parsed, target, cloneRoot, null, watch);
-    if (clonedWithoutToken.ok) return { ok: true, path: target };
+  try {
+    const cloneError = await cloneWithTokenFallback(parsed, workingFolder, cloneRoot, githubToken, watch);
+    if (cloneError) return { ok: false, error: cloneError };
+    const moveError = await moveIntoPlace(workingFolder, target);
+    return moveError ? { ok: false, error: moveError } : { ok: true, path: target };
+  } finally {
+    await fs.promises.rm(workingFolder, { recursive: true, force: true }).catch(() => {});
   }
-  await fs.promises.rm(target, { recursive: true, force: true });
-  return { ok: false, error: `git clone ${parsed.url} failed: ${lastLineOf(cloned.err)}` };
+}
+
+async function cloneWithTokenFallback(parsed: ParsedRepositorySource, workingFolder: string, cloneRoot: string, githubToken: string | null, watch: CloneWatch): Promise<string | null> {
+  const cloned = await cloneInto(parsed, workingFolder, cloneRoot, githubToken, watch);
+  if (cloned.ok) return null;
+  const failureText = `git clone ${parsed.url} failed: ${lastLineOf(cloned.err)}`;
+  if (!githubToken || !parsed.isGithubHttps || watch.signal.aborted) return failureText;
+  await fs.promises.rm(workingFolder, { recursive: true, force: true });
+  await fs.promises.mkdir(workingFolder);
+  const clonedWithoutToken = await cloneInto(parsed, workingFolder, cloneRoot, null, watch);
+  return clonedWithoutToken.ok ? null : failureText;
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return errorCodeOf(error) === 'EPERM';
+  }
+}
+
+async function removeInterruptedCloneFolders(cloneRoots: readonly string[], { log = console.log, nowMs = clock.nowMs }: { log?: (line: string) => void; nowMs?: () => number } = {}): Promise<void> {
+  for (const cloneRoot of cloneRoots) {
+    const folderNames = await fs.promises.readdir(cloneRoot).catch((): string[] => []);
+    for (const folderName of folderNames) {
+      const owner = inFlightCloneOwnerOf(folderName);
+      if (owner === null) continue;
+      const folderPath = path.join(cloneRoot, folderName);
+      const folderStat = await fs.promises.lstat(folderPath).catch(() => null);
+      if (folderStat === null || !folderStat.isDirectory()) continue;
+      const isInterrupted = isInterruptedClone({ owner, ageMs: nowMs() - folderStat.mtimeMs }, THIS_RUN, { isOwnerRunning: isProcessRunning(owner.pid), longestCloneMs: LONGEST_CLONE_MS });
+      if (!isInterrupted) continue;
+      const removalError = await fs.promises.rm(folderPath, { recursive: true, force: true }).then(() => null, messageOf);
+      log(removalError ? `[clone] could not remove ${folderPath}: ${removalError}` : `[clone] removed ${folderPath}, left by a clone that was running when Glimmervoid stopped`);
+    }
+  }
 }
 
 type CloneJob = RepositoryCloneJob & { stop: AbortController };
@@ -186,11 +249,19 @@ function createCloneJobs({ cloneRootFor, tokenFor, onCloned, log = console.log, 
     settle(job, { state: 'cancelled' }, `[clone] cancelled ${job.name}`);
   }
 
+  async function forgetMissingFolders(): Promise<void> {
+    const doneJobs = [...jobsBySource.values()].filter((job) => job.state === 'done');
+    const isFolderThere = await Promise.all(doneJobs.map((job) => fs.promises.access(job.path ?? '').then(() => true, () => false)));
+    const goneJobs = doneJobs.filter((job, jobIndex) => !isFolderThere[jobIndex] && jobsBySource.get(job.source) === job && job.state === 'done');
+    for (const job of goneJobs) jobsBySource.delete(job.source);
+    if (goneJobs.length > 0) announce();
+  }
+
   function onChange(listener: () => void): void {
     events.on(CLONE_CHANGE_EVENT, listener);
   }
 
-  return { cancel, list, onChange, start };
+  return { cancel, forgetMissingFolders, list, onChange, start };
 }
 
 async function ghLoginToken(): Promise<string | null> {
@@ -256,4 +327,4 @@ async function listGithubReposAt(apiPath: string, jqFilter: string, token: strin
   return { ok: true, repos };
 }
 
-export { createCloneJobs, listGithubRepos, resolveGithubCredential };
+export { createCloneJobs, listGithubRepos, removeInterruptedCloneFolders, resolveGithubCredential };

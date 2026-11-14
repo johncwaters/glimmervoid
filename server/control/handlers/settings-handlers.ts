@@ -23,7 +23,7 @@ import { mergeSettingsBlock, settingsBlockSpecFor, validateSettingsBlock } from 
 import { mergeWorkflowsUpdateOverStored } from '../../core/workflows-core.ts';
 import { listFolders, suggestRepoRoots } from '../../repo-root-suggestions.ts';
 import { resolveFromHome } from '../../core/repo-root-suggestions-core.ts';
-import { createCloneJobs, listGithubRepos, resolveGithubCredential } from '../../repository-clone.ts';
+import { createCloneJobs, listGithubRepos, removeInterruptedCloneFolders, resolveGithubCredential } from '../../repository-clone.ts';
 import { cloneRootOf, defaultRepoRootOf, githubOwnerOfSource, parseRepositorySource } from '../../core/repository-source-core.ts';
 import type { GithubCredential, RootCheckouts } from '../../core/repository-source-core.ts';
 import { NO_GITHUB_APP_GRANTS } from '../../lanes/core/lane-permissions-core.ts';
@@ -367,6 +367,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
       if (!(config.repoRoots ?? []).includes(cloneRoot)) saveAddedRepoRoot(cloneRoot);
     },
   });
+  void removeInterruptedCloneFolders([...new Set([...(config.repoRoots ?? []), defaultRepoRootOf(os.homedir())])]);
   let cloneJobsBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
   cloneJobs.onChange(() => {
     if (cloneJobsBroadcastTimer !== null) return;
@@ -377,7 +378,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     cloneJobsBroadcastTimer.unref();
   });
 
-  function handleStartRepositoryClones(msg: ClientMessageOf<'start-repository-clones'>, ws: ControlSocket): void {
+  async function handleStartRepositoryClones(msg: ClientMessageOf<'start-repository-clones'>, ws: ControlSocket): Promise<void> {
+    await cloneJobs.forgetMissingFolders();
     const refusal = cloneJobs.start(msg.sources);
     replyTo(ws, msg, 'repository-clones', { jobs: cloneJobs.list(), ...(refusal === null ? {} : { error: refusal }) });
   }
@@ -509,6 +511,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   function connectFrames(): readonly unknown[] {
+    void cloneJobs.forgetMissingFolders();
     const cloneJobsFrame = { type: 'repository-clones', jobs: cloneJobs.list() };
     return deps.packs ? [deps.packs.statusFrame(), cloneJobsFrame] : [cloneJobsFrame];
   }

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { createCloneJobs } from '../server/repository-clone.ts';
+import { createCloneJobs, removeInterruptedCloneFolders } from '../server/repository-clone.ts';
 
 const FAKE_GIT = `#!/bin/sh
 target=""; for a in "$@"; do target="$a"; done
@@ -51,7 +51,8 @@ test('clone jobs run two at a time with progress, a cancel removes the partial f
     assert.match(String(refusal), /is not a repository URL/);
     assert.deepEqual(jobs.list().map((job) => job.state), ['cloning', 'cloning', 'queued', 'queued']);
     jobs.cancel('https://github.com/acme/four');
-    await waitUntil(() => fs.existsSync(path.join(cloneRoot, 'two')) && seenProgress.has('Receiving objects 10%'));
+    await waitUntil(() => fs.readdirSync(cloneRoot).some((folderName) => folderName.endsWith('-two')) && seenProgress.has('Receiving objects 10%'));
+    assert.deepEqual(fs.readdirSync(cloneRoot).filter((folderName) => !folderName.startsWith('.glimmervoid-clone-')), []);
     jobs.cancel('https://github.com/acme/two');
     await waitUntil(() => jobs.list().every((job) => job.state !== 'queued' && job.state !== 'cloning'));
     assert.deepEqual([stateOf('acme/one'), stateOf('acme/two'), stateOf('acme/broken'), stateOf('acme/four')], ['done', 'cancelled', 'failed', 'cancelled']);
@@ -61,8 +62,29 @@ test('clone jobs run two at a time with progress, a cancel removes the partial f
     assert.deepEqual(clonedRoots, [cloneRoot]);
     assert.deepEqual(logLines.map((line) => line.replace(/ in \d+ s$/, '')).sort(), ['[clone] cancelled acme/four', '[clone] cancelled acme/two', '[clone] failed acme/broken: git clone https://github.com/acme/broken failed: fatal: repository not found', '[clone] finished acme/one', '[clone] started acme/broken', '[clone] started acme/one', '[clone] started acme/two']);
     assert.equal(JSON.stringify([logLines, jobs.list()]).includes('secret-token'), false);
+    fs.rmSync(path.join(cloneRoot, 'one'), { recursive: true });
+    await jobs.forgetMissingFolders();
+    assert.equal(stateOf('acme/one'), undefined);
   } finally {
     process.env.PATH = pathBefore;
     fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test('a start removes the working folder of a clone no running server owns and nothing else', async () => {
+  const cloneRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-clone-restart-')));
+  const neverRunningPid = 2_147_483_646;
+  const leftByStoppedServer = `.glimmervoid-clone-${neverRunningPid}-0a1b2c3d-widget`;
+  const leftByThisPidEarlier = `.glimmervoid-clone-${process.pid}-0a1b2c3d-gadget`;
+  const ownedByRunningServer = `.glimmervoid-clone-${process.ppid}-0a1b2c3d-live`;
+  const keptFolders = [ownedByRunningServer, '.glimmervoid-clone-notes', 'widget'];
+  const logLines: string[] = [];
+  try {
+    for (const folderName of [leftByStoppedServer, leftByThisPidEarlier, ...keptFolders]) fs.mkdirSync(path.join(cloneRoot, folderName, '.git'), { recursive: true });
+    await removeInterruptedCloneFolders([cloneRoot, path.join(cloneRoot, 'absent')], { log: (line) => logLines.push(line) });
+    assert.deepEqual(fs.readdirSync(cloneRoot).sort(), [...keptFolders].sort());
+    assert.equal(logLines.length, 2);
+  } finally {
+    fs.rmSync(cloneRoot, { recursive: true, force: true });
   }
 });
