@@ -128,7 +128,17 @@ function switchedToBinaryText(status: UpdateStatusView | null | undefined): stri
   return `Installed at ${STANDALONE_BINARY_PATH}. Stop this server, start glimmervoid from a new shell, then ${leftover}`;
 }
 
+export function isVersionManaged(status: UpdateStatusView | null | undefined): boolean {
+  return textOr(status?.managedBy, null) !== null;
+}
+
+function managedVersionText(status: UpdateStatusView): string {
+  const runningVersion = versionLabel(status.current, status.currentSha) || 'its pinned version';
+  return `${status.managedBy} manages this version and keeps this host on ${runningVersion}.`;
+}
+
 function statusControls(runState: unknown, status: UpdateStatusView | null | undefined, isRequestInFlight: boolean): UpdateControls {
+  if (isVersionManaged(status)) return controls([]);
   if (runState === 'running' || isRequestInFlight) return controls([]);
   if (runState === 'succeeded' && isBinarySwitch(status)) return controls([], switchedToBinaryText(status));
   if (runState === 'staged') return controls(['restart']);
@@ -262,6 +272,7 @@ export function updateSummary(
   status: UpdateStatusView | null | undefined,
   journal: UpdateJournal | null | undefined,
 ): UpdateSummary {
+  if (status && isVersionManaged(status)) return { tone: 'current', headline: managedVersionText(status) };
   const runState = updateRunState(status, journal);
   const target = versionLabel(journal?.toVersion, journal?.toSha)
     || versionLabel(status?.latest, status?.latestSha)
@@ -316,7 +327,7 @@ export function shouldAutoCheckUpdates({
   now: number;
   lastAutoCheckAt: number | null;
 }): boolean {
-  if (checkForUpdates === false) return false;
+  if (checkForUpdates === false || isVersionManaged(status)) return false;
   if (lastAutoCheckAt !== null && now - lastAutoCheckAt < AUTO_CHECK_STALE_MS) return false;
   const lastCheckAt = typeof status?.lastCheckAt === 'number' ? status.lastCheckAt : null;
   return lastCheckAt === null || now - lastCheckAt >= AUTO_CHECK_STALE_MS;

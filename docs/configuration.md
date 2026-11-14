@@ -279,6 +279,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_HOST` | operator | Bind address for both listeners. Defaults to `127.0.0.1`; any non-loopback value is refused unless `GLIMMERVOID_INSECURE_BIND=1`. |
 | `GLIMMERVOID_INSECURE_BIND` | operator | Set to `1` to allow a non-loopback `GLIMMERVOID_HOST`. The local listener has no authentication, so this exposes full control of the machine to anyone who can reach the port. |
 | `GLIMMERVOID_SUPERVISOR` | operator | Set to `launchd` in a launchd job that keeps Glimmervoid alive, so Restart exits with code 75 for launchd to start it again instead of starting its own replacement. A systemd unit needs nothing: its `INVOCATION_ID` does the same. |
+| `GLIMMERVOID_MANAGED_BY` | operator | Name of whoever installs and pins this Glimmervoid, such as a hosting service. When set, Settings > Updates says that name manages the version, offers no update and the server makes no release check. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_POSTHOG_READ_API_KEY` | operator | Supplies `posthog.readApiKey`, the read-only PostHog key the watcher uses, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |

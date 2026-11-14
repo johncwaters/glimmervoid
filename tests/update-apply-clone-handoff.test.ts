@@ -69,6 +69,7 @@ function availableUpdate(install: ReturnType<typeof createCloneInstall>): Update
     channel: 'release',
     reason: null,
     deprecation: null,
+    managedBy: null,
     journalSummary: null,
     applyRefusal: null,
   };

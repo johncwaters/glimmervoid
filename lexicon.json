@@ -824,6 +824,10 @@
     {
       "name": "board file",
       "definition": "A .glimmerboard file: one board with its media, written by whiteboard export so an operator on another machine opens it as a new board with whiteboard import"
+    },
+    {
+      "name": "managed version",
+      "definition": "A Glimmervoid whose release someone other than the operator installs and pins, declared by GLIMMERVOID_MANAGED_BY holding the manager's name; Settings > Updates names the manager and offers no update"
     }
   ],
   "retired": [

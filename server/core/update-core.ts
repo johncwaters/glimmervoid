@@ -159,6 +159,11 @@ function normalizeUpdateChannel(channel: unknown): UpdateChannel {
   return parsed.success ? parsed.data : 'release';
 }
 
+function normalizeManagedBy(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim() || null;
+}
+
 function decideUpdateReason({ isReleaseAlreadyCheckedOut, reason }: {
   isReleaseAlreadyCheckedOut: boolean;
   reason: unknown;
@@ -214,4 +219,4 @@ function isCheckFresh(lastCheckAt: unknown, nowMs: unknown, ttlMs: unknown): boo
 }
 
 export type { InstallFlavor };
-export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, isBinarySwitchFlavor, installerFileName, installerUrl, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseRemoteTagSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseLatestRelease, decideUpdateStatus, isCheckFresh };
+export { BINARY_UPDATER_NAME, HOMEBREW_COMMAND, isBinarySwitchFlavor, installerFileName, installerUrl, normalizeManagedBy, normalizeSha, normalizeUpdateChannel, shortSha, parseResolvedSha, parseRemoteTagSha, decideInstallFlavor, buildUpdateCommand, compareSemver, parseLatestRelease, decideUpdateStatus, isCheckFresh };

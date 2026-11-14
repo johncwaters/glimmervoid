@@ -32,6 +32,7 @@ interface BackendUpdateDependencies {
   logger: Pick<Console, 'log'>;
   now?: () => number;
   downloadUpdate?: () => Promise<UpdateApplyOutcome>;
+  managedBy?: string | null;
 }
 
 interface BackendUpdateCheck {
@@ -57,6 +58,7 @@ function journalSummary(journal: UpdateJournal | null | undefined): UpdateJourna
 }
 
 function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): BackendUpdateCheck {
+  const managedBy = dependencies.managedBy ?? null;
   let recordedStatus: RecordedUpdateStatus | null = null;
   let lastLaneSignature: string | null = null;
   let updateAbort: AbortController | null = null;
@@ -135,12 +137,12 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     broadcastStatus(status);
   }
 
-  function failedStatus(channel: UpdateChannel, lastCheckAt: number): UpdateCheckStatus {
+  function uncheckedStatus(channel: UpdateChannel, lastCheckAt: number, reason: string | null): UpdateCheckStatus {
     return {
       ...decideUpdateStatus({
         currentVersion: dependencies.currentVersion,
         channel,
-        reason: 'update-check-failed',
+        reason,
       }),
       installedBranch: null,
       upstream: null,
@@ -149,8 +151,12 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     };
   }
 
+  function failedStatus(channel: UpdateChannel, lastCheckAt: number): UpdateCheckStatus {
+    return uncheckedStatus(channel, lastCheckAt, 'update-check-failed');
+  }
+
   function recordStatus(updateResult: UpdateCheckStatus | null, checkedAt: number, channel: UpdateChannel): UpdateStatus {
-    recordedStatus = { ...(updateResult || failedStatus(channel, checkedAt)), platform, lastCheckAt: checkedAt };
+    recordedStatus = { ...(updateResult || failedStatus(channel, checkedAt)), platform, lastCheckAt: checkedAt, managedBy };
     const status = projectStatus(recordedStatus);
     broadcastStatus(status);
     return status;
@@ -205,6 +211,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     if (inFlight) return inFlight;
     const channel = normalizeUpdateChannel(dependencies.config.updateChannel);
     const checkedAt = now();
+    if (managedBy) return Promise.resolve(recordStatus(uncheckedStatus(channel, checkedAt, null), checkedAt, channel));
     updateAbort = new AbortController();
     const runUpdateCheck = dependencies.checkForUpdate || defaultCheckForUpdate;
     const updaterProbe = Promise.resolve(dependencies.probeBinaryUpdater?.()).catch(() => null);
@@ -218,7 +225,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       .then(async (updateResult) => {
         await updaterProbe;
         if (stopped || channel !== normalizeUpdateChannel(dependencies.config.updateChannel)) {
-          return projectStatus({ ...failedStatus(channel, checkedAt), platform });
+          return projectStatus({ ...failedStatus(channel, checkedAt), platform, managedBy });
         }
         const status = recordStatus(updateResult, checkedAt, channel);
         surfaceAvailableUpdate(status);
@@ -265,6 +272,10 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   function applySettings(): void {
     if (stopped) return;
     const hasChannelChanged = resetRecordedStateOnChannelChange();
+    if (managedBy) {
+      void runCheck();
+      return;
+    }
     if (dependencies.config.checkForUpdates === false) {
       pendingChannelRefresh = false;
       cancelAutomaticChecks();
@@ -275,7 +286,12 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
   }
 
   function start(): void {
-    if (stopped || updateRecheckInterval || dependencies.config.checkForUpdates === false) return;
+    if (stopped) return;
+    if (managedBy) {
+      void runCheck();
+      return;
+    }
+    if (updateRecheckInterval || dependencies.config.checkForUpdates === false) return;
     void runCheck();
     updateRecheckInterval = setInterval(() => {
       if (stopped || dependencies.config.checkForUpdates === false) return;

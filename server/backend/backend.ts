@@ -60,7 +60,7 @@ import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
-import { normalizeUpdateChannel } from '../core/update-core.ts';
+import { normalizeManagedBy, normalizeUpdateChannel } from '../core/update-core.ts';
 import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
@@ -622,6 +622,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getUpdateJournal: () => updateApply.getJournal(),
     isRestartRequested: () => updateApply.isRestartRequested(),
     isSupervised: () => updateApply.isSupervised(),
+    managedBy: normalizeManagedBy(process.env.GLIMMERVOID_MANAGED_BY),
     getBinaryUpdaterPath: () => updateApply.getBinaryUpdaterPath(),
     probeBinaryUpdater: () => updateApply.probeBinaryUpdater(),
     getControlClientCount: viewerControlClientCount,

@@ -42,6 +42,7 @@ function availableUpdate(): UpdateStatus {
     channel: 'release',
     reason: null,
     deprecation: null,
+    managedBy: null,
     journalSummary: null,
     applyRefusal: null,
   };

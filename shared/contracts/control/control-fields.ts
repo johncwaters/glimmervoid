@@ -156,6 +156,7 @@ export const updateStatusShape = {
   channel: UpdateChannel,
   reason: nullableString,
   deprecation: nullableString,
+  managedBy: nullableString,
   journalSummary: UpdateJournalSummary.nullable(),
   applyRefusal: UpdateApplyRefusal.nullable(),
 };

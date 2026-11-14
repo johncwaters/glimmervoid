@@ -2,8 +2,8 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateState } from './settings-store.ts';
-import { installedUpdateText, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
-import type { UpdateActionId } from '../updates-view-core.ts';
+import { installedUpdateText, isVersionManaged, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
+import type { UpdateActionId, UpdateStatusView } from '../updates-view-core.ts';
 import { setAutoUpdateCheckAwaitingStatus, settingsPayload } from './settings-panel-state.ts';
 import { clock } from '#shared/clock.ts';
 
@@ -117,6 +117,15 @@ function buildLatestUpdateFact() {
   return buildUpdateFact('Latest', ...latestParts);
 }
 
+function buildLastCheckedFact(updateStatus: UpdateStatusView | null | undefined) {
+  const lastCheckedAt = typeof updateStatus?.lastCheckAt === 'number' ? updateStatus.lastCheckAt : null;
+  return buildUpdateFact('Last checked', lastUpdateCheckText({
+    status: updateStatus,
+    checkForUpdates: settingsPayload.checkForUpdates,
+    relativeTime: lastCheckedAt ? `${formatAgo(lastCheckedAt)}, ${clock.format(lastCheckedAt, 'date-time')}` : formatAgo(lastCheckedAt),
+  }));
+}
+
 function buildUpdateStatusBlock() {
   const block = el('div', 'settings-view-status-block settings-update-status');
   const { status: updateStatus, journal: updateJournal } = settingsUpdateState();
@@ -126,13 +135,7 @@ function buildUpdateStatusBlock() {
   block.appendChild(headline);
   block.appendChild(buildUpdateFact('Running', installedUpdateText(updateStatus)));
   if (shouldShowLatestUpdate(updateStatus)) block.appendChild(buildLatestUpdateFact());
-  const lastCheckedAt = typeof updateStatus?.lastCheckAt === 'number' ? updateStatus.lastCheckAt : null;
-  const lastChecked = buildUpdateFact('Last checked', lastUpdateCheckText({
-    status: updateStatus,
-    checkForUpdates: settingsPayload.checkForUpdates,
-    relativeTime: lastCheckedAt ? `${formatAgo(lastCheckedAt)}, ${clock.format(lastCheckedAt, 'date-time')}` : formatAgo(lastCheckedAt),
-  }));
-  block.appendChild(lastChecked);
+  if (!isVersionManaged(updateStatus)) block.appendChild(buildLastCheckedFact(updateStatus));
   block.appendChild(buildUpdateActions());
   const progress = buildUpdateProgress();
   if (progress) block.appendChild(progress);
