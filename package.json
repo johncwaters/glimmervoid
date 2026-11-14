@@ -89,14 +89,14 @@
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/headless": "6.0.0",
     "@xterm/xterm": "6.0.0",
-    "cc-safety-net": "2.7.1",
+    "cc-safety-net": "2.7.11",
     "croner": "11.0.0",
     "express": "5.3.0",
     "fs-native-extensions": "1.5.3",
     "httpxy": "0.5.6",
     "node-pty": "1.2.0-beta.18",
     "sharp": "0.35.5",
-    "ws": "8.22.1",
+    "ws": "8.22.2",
     "zod": "4.6.7"
   },
   "optionalDependencies": {
