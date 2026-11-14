@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-11-14
+
 ### Changed
 
 - **The question manager works out of the box.** Turning it on for a session now answers a question by picking its one option labeled (Recommended), with no rule to write first and no model call, so it works for Claude Code, Codex and Kimi Code alike. A question with no recommended option, more than one, or a risk word such as push or delete still comes to you. Writing your own `questionManager.rules` replaces this default; add `{ "name": "Take recommended", "pick": "recommended" }` to your list to keep it.
