@@ -296,12 +296,18 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     return notice;
   }
 
+  async function setUp(): Promise<string | null> {
+    await store.setup();
+    if (!await connectedGrant()) return null;
+    return register();
+  }
+
+  const problemOfAction: Record<CommitSigningAction, () => Promise<string | null>> = { read: async () => null, setup: setUp, register, remove };
+
   async function act(action: CommitSigningAction): Promise<CommitSigningStatus> {
     return serialized(async () => {
       try {
-        if (action === 'setup') await store.setup();
-        const problem = action === 'register' ? await register() : action === 'remove' ? await remove() : null;
-        return await statusWith(problem);
+        return await statusWith(await problemOfAction[action]());
       } catch (error) {
         return statusWith(errorMessage(error));
       }

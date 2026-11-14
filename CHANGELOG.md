@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The first-run checklist no longer shows a First task box.** The task it held never reached the agent, which first asks you to sign in, so picking an agent and a project now starts the session straight away, as the New session dialog does.
+- **Commit signing sets up in one click.** With GitHub connected, Set up under Settings, Vault, Commit signing now makes the signing key and registers it on GitHub in one go, so agents' commits show as Verified without a second press. Without a GitHub connection, Set up makes the key only and the section says so before you press; you add the key on GitHub by hand, or connect GitHub and press Register on GitHub. If GitHub refuses the key, the key stays on this host, the reason shows beside the buttons, and Register on GitHub tries again.
 
 ## [0.58.3] - 2026-11-13
 

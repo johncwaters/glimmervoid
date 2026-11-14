@@ -272,6 +272,11 @@ test('commit signing registers the host key on GitHub with the connected user to
     assert.equal(removed.state, 'off', removed.problem ?? '');
     assert.equal(github.keysById.size, 0, 'remove deletes every copy of the key GitHub holds, recorded or not');
     assert.deepEqual(await fs.readdir(keyFolder), [], 'remove deletes the key on this host');
+
+    const setUpWhileConnected = await commitSigning.act('setup');
+    assert.equal(setUpWhileConnected.state, 'registered', setUpWhileConnected.problem ?? '');
+    assert.equal(setUpWhileConnected.login, 'octo-carbon');
+    assert.deepEqual([...github.keysById.values()], [setUpWhileConnected.publicKey], 'with GitHub connected, setup registers the new key in the same request');
     assert.ok(!warnings.join('\n').includes(userToken), 'no warning carries the token');
     assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');
   } finally {

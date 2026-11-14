@@ -9,7 +9,7 @@ import { COMMIT_SIGNING_CONTROLS, commitSigningViewOf, GITHUB_SIGNING_KEY_PAGE }
 import type { CommitSigningControl } from './commit-signing-core.ts';
 
 const SIGNING_REQUEST_TIMEOUT_MS = 45_000;
-const BUSY_TEXT = { read: '', setup: 'Making a signing key.', register: 'Registering the key on GitHub.', remove: 'Removing the key.' } as const;
+const BUSY_TEXT = { read: '', setup: 'Setting up commit signing.', register: 'Registering the key on GitHub.', remove: 'Removing the key.' } as const;
 
 function buildCommitSigningSection(): HTMLElement {
   let status: CommitSigningStatus | null | 'reading' = 'reading';
