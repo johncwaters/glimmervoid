@@ -171,7 +171,7 @@ const BoxHeight = z.number().int()
 const boxFields = {
   kind: z.literal('box'),
   id: ElementId,
-  shape: z.enum(BOX_SHAPES, { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).default('box').describe('decision draws a diamond; note a note card; icon its icon large, with no lines or media; device a catalog device around its media, with no lines'),
+  shape: z.enum(BOX_SHAPES, { error: `a box shape is ${BOX_SHAPES.join(', ')}` }).default('box').describe('decision draws a diamond; ellipse an oval; note a note card; icon its icon large, with no lines or media; device a catalog device around its media, with no lines'),
   title: Title.min(1, { error: 'a box needs a title' }),
   icon: IconName.nullable().default(null).describe('drawn before the title; the big glyph of an icon box'),
   place: Place,
@@ -179,7 +179,7 @@ const boxFields = {
   width: BoxWidth.nullable().default(null).describe(`null is the 220 default`),
   height: BoxHeight.nullable().default(null).describe('the least height; content can still grow the box'),
   borderless: z.boolean().nullable().default(null).describe('true draws no card fill or outline; null is the shape default, bare for icon and device; a note always draws its card'),
-  tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision or note'),
+  tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision, ellipse or note'),
   textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large'),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,

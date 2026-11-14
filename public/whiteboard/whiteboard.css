@@ -200,6 +200,8 @@
 
 .wb-viewport[data-tool='box'],
 .wb-viewport[data-tool='decision'],
+.wb-viewport[data-tool='ellipse'],
+.wb-viewport[data-tool='eraser'],
 .wb-viewport[data-tool='note'],
 .wb-viewport[data-tool='text'],
 .wb-viewport[data-tool='wire'],
@@ -217,6 +219,16 @@
 .wb-viewport[data-tool='hand']:active,
 .wb-viewport[data-space-pan='true']:active {
   cursor: grabbing;
+}
+
+.wb-eraser-trail {
+  fill: none;
+  stroke: var(--wb-ink-dim);
+  stroke-opacity: 0.5;
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .wb-ink-draft {

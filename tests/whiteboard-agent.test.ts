@@ -905,18 +905,20 @@ test('an order op restacks boxes among their kind to the front, back, forward or
   assert.match(String(refused.body.error), /op 1: order names missing, which is not on the board/);
 });
 
-test('every card shape takes a fill tint, a large title grows its box, a bold wire draws bold, a device box refuses a tint, and the styles survive a restart', async () => {
+test('every card shape takes a fill tint, an ellipse keeps its shape, a large title grows its box, a bold wire draws bold, a device box refuses a tint, and the styles survive a restart', async () => {
   const boardId = await newBoard('styled');
   const titled = 'A title long enough to wrap';
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'add', element: { kind: 'box', id: 'plain', title: titled, place: { at: { x: 40, y: 40 } } } },
     { op: 'add', element: { kind: 'box', id: 'large', title: titled, place: { at: { x: 400, y: 40 } } } },
     { op: 'add', element: { kind: 'box', id: 'choice', shape: 'decision', title: 'Ship?', place: { at: { x: 40, y: 300 } } } },
+    { op: 'add', element: { kind: 'box', id: 'oval', shape: 'ellipse', title: 'Start', place: { at: { x: 400, y: 300 } } } },
     { op: 'add', element: { kind: 'wire', id: 'link', from: 'plain', to: 'large' } },
   ] })).status, 200);
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'set', id: 'plain', fields: { tone: 'blue' } },
     { op: 'set', id: 'choice', fields: { tone: 'pink' } },
+    { op: 'set', id: 'oval', fields: { tone: 'green' } },
     { op: 'set', id: 'large', fields: { textSize: 'L' } },
     { op: 'set', id: 'link', fields: { width: 'bold' } },
   ] })).status, 200);
@@ -927,8 +929,9 @@ test('every card shape takes a fill tint, a large title grows its box, a bold wi
   const large = styled.elements.get('large');
   const choice = styled.elements.get('choice');
   const link = styled.elements.get('link');
-  assert.ok(plain?.kind === 'box' && large?.kind === 'box' && choice?.kind === 'box' && link?.kind === 'wire');
-  assert.deepEqual([plain.tone, plain.textSize, choice.tone, large.textSize, link.width], ['blue', 'M', 'pink', 'L', 'bold'], 'the styles survive a restart');
+  const oval = styled.elements.get('oval');
+  assert.ok(plain?.kind === 'box' && large?.kind === 'box' && choice?.kind === 'box' && link?.kind === 'wire' && oval?.kind === 'box');
+  assert.deepEqual([plain.tone, plain.textSize, choice.tone, large.textSize, link.width, oval.shape, oval.tone], ['blue', 'M', 'pink', 'L', 'bold', 'ellipse', 'green'], 'the styles survive a restart');
   const drawn = layoutBoard(styled).elements;
   const drawnPlain = drawn.find((element) => element.id === 'plain');
   const drawnLarge = drawn.find((element) => element.id === 'large');

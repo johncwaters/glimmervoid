@@ -29,7 +29,7 @@ const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'frame', 'box'];
 const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = {
-  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', p: 'pen', 7: 'pen', t: 'text', 8: 'text',
+  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', o: 'ellipse', 4: 'ellipse', p: 'pen', 7: 'pen', t: 'text', 8: 'text', e: 'eraser', 0: 'eraser',
   h: 'hand', s: 'note', i: 'icon', m: 'device',
 };
 const NUDGE_UNITS = 1;
@@ -38,9 +38,9 @@ const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { ArrowLeft:
 const KEY_ZOOM_STEP = 1.25;
 const ZOOM_FACTOR_BY_KEY: Readonly<Record<string, number>> = { '=': 1 / KEY_ZOOM_STEP, '+': 1 / KEY_ZOOM_STEP, '-': KEY_ZOOM_STEP, _: KEY_ZOOM_STEP };
 
-type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen';
-type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device'>;
-const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'pen']);
+type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen' | 'eraser';
+type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'ellipse' | 'note' | 'text' | 'icon' | 'device'>;
+const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'pen', 'eraser']);
 
 interface ViewPoint {
   x: number;
@@ -132,6 +132,7 @@ type Gesture =
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | { kind: 'ink'; pointerId: number; points: ViewPoint[]; draftLine: SVGPolylineElement }
+  | { kind: 'erase'; pointerId: number; latest: ViewPoint; erasedIds: Set<string>; trail: SVGPolylineElement; trailPoints: ViewPoint[] }
   | null;
 
 export function newElementId(kind: BoardElement['kind']): string {
@@ -147,7 +148,7 @@ function isPlacementTool(tool: BoardTool): tool is PlacementTool {
   return !NON_PLACEMENT_TOOLS.has(tool);
 }
 
-const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', note: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
+const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', ellipse: 'Ellipse', note: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
 
 function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box> {
   switch (tool) {
@@ -156,6 +157,7 @@ function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box
     case 'note': return { shape: 'note', tone: 'yellow', media };
     case 'text': return { shape: 'box', borderless: true };
     case 'decision': return { shape: 'decision', media };
+    case 'ellipse': return { shape: 'ellipse', media };
     case 'box': return { shape: 'box', media };
   }
 }
@@ -227,6 +229,8 @@ function pressedImageOf(hit: BoardHit | null): PressedImage | null {
 
 const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
+const ERASER_SAMPLE_SPACING_PX = 4;
+const ERASER_TRAIL_POINTS = 24;
 const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in' };
 const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
@@ -679,6 +683,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function startPinch(): void {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
+    if (gesture?.kind === 'erase') endErase(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     paintGuides([]);
     gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewWidth() };
@@ -719,6 +724,41 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const isSent = await options.sendOps([{ op: 'add', element: { kind: 'stroke', id: newElementId('stroke'), points: flatPoints, width: 3, tone: 'ink' } }]);
     ink.draftLine.remove();
     if (!isSent) paintPreview();
+  }
+
+  function startErase(event: PointerEvent): void {
+    const trail = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    trail.setAttribute('class', 'wb-eraser-trail');
+    svg.append(trail);
+    const origin = toViewPoint(event.clientX, event.clientY);
+    gesture = { kind: 'erase', pointerId: event.pointerId, latest: origin, erasedIds: new Set(), trail, trailPoints: [] };
+    eraseAlong(gesture, origin);
+  }
+
+  function eraseAlong(erase: Extract<Gesture, { kind: 'erase' }>, point: ViewPoint): void {
+    const sampleSpacing = ERASER_SAMPLE_SPACING_PX * viewUnitsPerPixel();
+    const sampleCount = Math.max(1, Math.ceil(Math.hypot(point.x - erase.latest.x, point.y - erase.latest.y) / sampleSpacing));
+    const erasedBefore = erase.erasedIds.size;
+    for (let sampleIndex = 1; sampleIndex <= sampleCount; sampleIndex += 1) {
+      const progress = sampleIndex / sampleCount;
+      const hit = renderer.hitTest({ x: erase.latest.x + (point.x - erase.latest.x) * progress, y: erase.latest.y + (point.y - erase.latest.y) * progress });
+      if (hit) erase.erasedIds.add(hit.id);
+    }
+    erase.latest = point;
+    erase.trailPoints = [...erase.trailPoints, point].slice(-ERASER_TRAIL_POINTS);
+    erase.trail.setAttribute('points', erase.trailPoints.map((trailPoint) => `${trailPoint.x},${trailPoint.y}`).join(' '));
+    if (erase.erasedIds.size !== erasedBefore) renderer.setSelection(erase.erasedIds);
+  }
+
+  function endErase(erase: Extract<Gesture, { kind: 'erase' }>, shouldRemove: boolean): void {
+    erase.trail.remove();
+    renderer.setSelection(selectedIds);
+    const board = options.currentBoard();
+    if (!shouldRemove || !board || erase.erasedIds.size === 0) return;
+    const erased = [...erase.erasedIds].flatMap((elementId) => board.elements.get(elementId) ?? []);
+    const ops: Op[] = REMOVAL_ORDER.flatMap((kind) => erased.filter((element) => element.kind === kind)).map((element) => ({ op: 'remove', id: element.id }));
+    setSelection(new Set([...selectedIds].filter((elementId) => !erase.erasedIds.has(elementId))));
+    void options.sendOps(ops);
   }
 
   function startMarquee(event: PointerEvent, placementTool: PlacementTool | null): void {
@@ -767,6 +807,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (activeTool === 'pen') {
       startInk(event);
+      return;
+    }
+    if (activeTool === 'eraser') {
+      startErase(event);
       return;
     }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
@@ -1083,6 +1127,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (cancelled.kind === 'marquee') cancelled.outline.remove();
     if (cancelled.kind === 'wire') endWire(cancelled, false);
     if (cancelled.kind === 'ink') cancelled.draftLine.remove();
+    if (cancelled.kind === 'erase') endErase(cancelled, false);
     if (cancelled.kind !== 'drag') return true;
     paintGuides([]);
     cancelPreviewFrame();
@@ -1131,6 +1176,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (gesture?.kind === 'ink' && gesture.pointerId === event.pointerId) {
       moveInk(gesture, event);
+      return;
+    }
+    if (gesture?.kind === 'erase' && gesture.pointerId === event.pointerId) {
+      eraseAlong(gesture, toViewPoint(event.clientX, event.clientY));
       return;
     }
     if (gesture?.kind === 'pan' && gesture.pointerId === event.pointerId) movePan(gesture, event);
@@ -1221,6 +1270,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void finishInk(finished);
       return;
     }
+    if (finished?.kind === 'erase') {
+      endErase(finished, finished.pointerId === event.pointerId);
+      return;
+    }
     if (finished?.kind === 'pan' && finished.pressedButton === 'context' && !finished.hasMoved) {
       openContextMenuAt(event.clientX, event.clientY);
       return;
@@ -1243,6 +1296,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
+    if (gesture?.kind === 'erase') endErase(gesture, false);
     gesture = null;
     paintGuides([]);
     if (!wasDragging) return;

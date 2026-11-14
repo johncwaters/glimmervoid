@@ -583,6 +583,52 @@ async function verifyStylePopover(open: OpenBoard, anchorBoxId: string): Promise
   await page.keyboard.press('Escape');
 }
 
+async function verifyEllipseAndEraser(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const viewport = panel.locator('.wb-viewport');
+  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
+  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
+  assert.ok(anchorPoint, 'the anchor box has a point');
+  const boxAt = (id: string, y: number) => ({ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x: anchorPoint.x, y: anchorPoint.y + y } } } });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    boxAt('erase-top', 140), boxAt('erase-bottom', 340),
+    { op: 'add', element: { kind: 'wire', id: 'erase-wire', from: 'erase-top', to: 'erase-bottom' } },
+  ] });
+  await elementWhere(open, 'the eraser targets are on the board', (element) => element.id === 'erase-wire');
+  const bottomRect = await screenRectOf(open, 'erase-bottom');
+  await viewport.focus();
+  await page.keyboard.press('o');
+  const ovalStart = { x: bottomRect.x, y: bottomRect.y + bottomRect.height + 80 };
+  await page.mouse.move(ovalStart.x, ovalStart.y);
+  await page.mouse.down();
+  await page.mouse.move(ovalStart.x + 220, ovalStart.y + 110, { steps: 6 });
+  await page.mouse.up();
+  await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Oval');
+  await page.keyboard.press('Enter');
+  const oval = await elementWhere(open, 'the O key places an ellipse', titled('Oval'));
+  assert.ok(oval.kind === 'box' && oval.shape === 'ellipse', 'the ellipse tool places an ellipse box');
+  const topRect = await screenRectOf(open, 'erase-top');
+  await viewport.focus();
+  await page.keyboard.press('e');
+  assert.equal(await viewport.getAttribute('data-tool'), 'eraser', 'the E key picks the eraser');
+  const sweepX = topRect.x + topRect.width / 2;
+  await page.mouse.move(sweepX, topRect.y + topRect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sweepX, bottomRect.y + bottomRect.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await boardWithout(open, 'one eraser sweep removes every element it crosses', (element) => ['erase-top', 'erase-bottom', 'erase-wire'].includes(element.id));
+  assert.ok((await boardOf(open)).elements.get(oval.id), 'the eraser leaves what it never crossed');
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await pollFor('one undo brings back everything one sweep erased', BOARD_TIMEOUT_MS, async () => {
+    const restored = (await boardOf(open)).elements;
+    return ['erase-top', 'erase-bottom', 'erase-wire'].every((elementId) => restored.get(elementId)) ? true : null;
+  });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: ['erase-wire', 'erase-top', 'erase-bottom', oval.id].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the eraser targets are gone', (element) => element.id === 'erase-top' || element.id === oval.id);
+  await viewport.focus();
+  await page.keyboard.press('v');
+}
+
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
   const laidOut = await laidOutOf(open, boxId);
   return { x: laidOut.kind === 'wire' ? 0 : laidOut.x, y: laidOut.kind === 'wire' ? 0 : laidOut.y };
@@ -1656,6 +1702,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifySnapping(open);
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
     if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
+    if (desktopBoard) await verifyEllipseAndEraser(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
@@ -1682,7 +1729,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Wire', 'Pen', 'Text', 'Note', 'Icon', 'Device'], 'the toolbar shows the tool lock and every tool');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Ellipse', 'Wire', 'Pen', 'Text', 'Note', 'Icon', 'Device', 'Eraser'], 'the toolbar shows the tool lock and every tool');
     await page.keyboard.press('d');
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
     assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key places a decision');

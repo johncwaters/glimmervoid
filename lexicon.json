@@ -561,7 +561,7 @@
         "side": "The left, right, top or bottom of a box: where a box placed near another sits (near.side) and where a wire leaves or enters a box (fromSide, toSide); elsewhere (server-side, side by side, a side panel) ordinary English"
       },
       "name": "box",
-      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a point, near another box, aside in the stack right of the drawing, or plan in the build-order band), one of five shapes (box, decision, note, icon or device) and optionally media, a width and a step; borderless null takes the shape default, so an icon or device box draws bare; a plan step is a box with a step, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a remote box) ordinary English"
+      "definition": "The solid element of a whiteboard: it carries a title with an optional icon, lines, a place (a point, near another box, aside in the stack right of the drawing, or plan in the build-order band), one of six shapes (box, decision, ellipse, note, icon or device) and optionally media, a width and a step; borderless null takes the shape default, so an icon or device box draws bare; a plan step is a box with a step, an icon box (shape icon) draws its icon large and holds no lines or media, and a device box (shape device) draws a catalog device with its media on the screen and holds no lines; elsewhere (a message box, a remote box) ordinary English"
     },
     {
       "name": "transitions",
@@ -844,6 +844,14 @@
     {
       "name": "style popover",
       "definition": "The whiteboard panel above the properties panel that sets the fill tint, title size, wire tone and wire width of every selected element at once"
+    },
+    {
+      "name": "ellipse",
+      "definition": "The oval box shape on a whiteboard (shape ellipse): it holds a title, lines and media like a box and takes a fill tint"
+    },
+    {
+      "name": "eraser",
+      "definition": "The whiteboard tool that removes every element a drag crosses, in one undoable step"
     }
   ],
   "retired": [
