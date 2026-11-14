@@ -836,6 +836,10 @@
     {
       "name": "clone",
       "definition": "A copy of a repository that Glimmervoid makes with git clone into the operator's repository folder from the Add a repository step; a clone job is one such copy the server queues, runs, reports progress for and can cancel"
+    },
+    {
+      "name": "rename",
+      "definition": "To change the display name of a session or a board in place: double-click, F2 or Enter on a session name, or click on a board title; the stable id never changes"
     }
   ],
   "retired": [
