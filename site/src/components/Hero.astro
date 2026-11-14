@@ -1,8 +1,7 @@
 ---
 import { ANIMALS } from '../../../public/nyan-animals-core.ts';
 import DashboardRecording from './DashboardRecording.astro';
-import InstallCommand from './InstallCommand.astro';
-import { WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
+import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
 
 const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
 ---
@@ -12,7 +11,7 @@ const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, 
     <h1>See it <em>before it's built</em>.</h1>
     <p class="lede">Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
     <div class="install-line">
-      <code data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="windows" hidden><InstallCommand command={WINDOWS_INSTALL_COMMAND} /></span></code>
+      <code data-install-command title="Click to copy"><span data-install-for="default">{INSTALL_COMMAND}</span><span data-install-for="windows" hidden>{WINDOWS_INSTALL_COMMAND}</span></code>
       <span class="install-actions">
         <button class="btn" type="button" data-copy-install>Copy</button>
         <span class="copy-status" data-copy-status role="status"></span>

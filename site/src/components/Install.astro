@@ -98,6 +98,12 @@ const NEXT_COMMANDS = [
     .next-commands .next-copy { grid-row: 1 / span 2; grid-column: 2; }
   }
   @media (max-width: 640px) {
+    .console-bar { flex-wrap: nowrap; gap: 8px; padding-inline: 8px; }
+    .console-bar .platform-switch button { padding: 4px 8px; font-size: var(--type-meta); }
+    .console-copy { position: relative; }
+    .console-copy .btn { padding: 4px 12px; font-size: var(--type-meta); }
+    .console-copy .copy-status { position: absolute; top: calc(100% + 6px); right: 0; padding: 2px 6px; background: var(--bg-card); white-space: nowrap; }
+    .console-copy .copy-status:empty { display: none; }
     .console-screen { padding: 14px; font-size: var(--type-body); }
   }
 </style>
