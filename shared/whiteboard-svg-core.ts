@@ -131,6 +131,27 @@ function decisionOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
   ];
 }
 
+const ELLIPSE_OUTLINE_SEGMENTS = 48;
+
+function ellipseOutlinePoints(box: LaidOutBox): { x: number; y: number }[] {
+  const radiusX = box.width / 2;
+  const radiusY = box.height / 2;
+  return Array.from({ length: ELLIPSE_OUTLINE_SEGMENTS }, (_, index) => {
+    const angle = (index / ELLIPSE_OUTLINE_SEGMENTS) * Math.PI * 2;
+    return { x: box.x + radiusX + Math.cos(angle) * radiusX, y: box.y + radiusY + Math.sin(angle) * radiusY };
+  });
+}
+
+function shapedOutlinePoints(box: LaidOutBox): { x: number; y: number }[] | null {
+  if (box.shape === 'decision') return decisionOutlinePoints(box);
+  if (box.shape === 'ellipse') return ellipseOutlinePoints(box);
+  return null;
+}
+
+function ellipseAttributesOf(box: LaidOutBox): Record<string, number> {
+  return { cx: box.x + box.width / 2, cy: box.y + box.height / 2, rx: box.width / 2, ry: box.height / 2 };
+}
+
 function decisionOutlinePath(box: LaidOutBox): string {
   return `${decisionOutlinePoints(box).map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')} Z`;
 }
@@ -169,6 +190,7 @@ function bodyLinesMarkup(lines: readonly LaidOutLine[], left: number, top: numbe
 
 function boxOutlineMarkup(box: LaidOutBox): string {
   if (box.shape === 'decision') return tag('path', { d: decisionOutlinePath(box), class: 'wb-box-outline' });
+  if (box.shape === 'ellipse') return tag('ellipse', { ...ellipseAttributesOf(box), class: 'wb-box-outline' });
   return tag('rect', { x: box.x, y: box.y, width: box.width, height: box.height, rx: 8, class: 'wb-box-outline' });
 }
 
@@ -344,6 +366,7 @@ type PageOccluder = Exclude<LaidOutElement, { kind: 'wire' | 'frame' }>;
 function occluderMarkup(occluder: PageOccluder): string {
   const grownEdge = { fill: 'black', stroke: 'black', 'stroke-width': OCCLUDER_MARGIN * 2, 'stroke-linejoin': 'round' };
   if (occluder.kind === 'box' && occluder.shape === 'decision') return tag('path', { d: decisionOutlinePath(occluder), ...grownEdge });
+  if (occluder.kind === 'box' && occluder.shape === 'ellipse') return tag('ellipse', { ...ellipseAttributesOf(occluder), ...grownEdge });
   return tag('rect', { x: occluder.x, y: occluder.y, width: occluder.width, height: occluder.height, rx: OCCLUDER_CORNER_RADIUS, ...grownEdge });
 }
 
@@ -420,5 +443,5 @@ export {
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
-  boardSvgDocument, codeBandRectOf, decisionOutlinePoints, pageMaskImage,
+  boardSvgDocument, codeBandRectOf, pageMaskImage, shapedOutlinePoints,
 };

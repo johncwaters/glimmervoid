@@ -8,7 +8,7 @@ import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
-  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, decisionOutlinePoints,
+  RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, shapedOutlinePoints,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
 } from '#shared/whiteboard-svg-core.ts';
@@ -423,13 +423,13 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   const outline = boxOutlineColors(box, palette);
   const fill = faded(outline.fill, opacity);
   const stroke = faded(outline.stroke, opacity);
-  if (box.shape === 'decision') {
-    const polygon = decisionOutlinePoints(box);
-    pushConvexFill(part, polygon, fill, ALWAYS);
-    const [firstCorner] = polygon;
-    if (firstCorner) pushPolyline(part, [...polygon, firstCorner], outline.width, stroke, outline.dash, ALWAYS);
+  const outlinePolygon = shapedOutlinePoints(box);
+  const [firstCorner] = outlinePolygon ?? [];
+  if (outlinePolygon && firstCorner) {
+    pushConvexFill(part, outlinePolygon, fill, ALWAYS);
+    pushPolyline(part, [...outlinePolygon, firstCorner], outline.width, stroke, outline.dash, ALWAYS);
   }
-  if (box.shape !== 'decision') pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
+  if (!outlinePolygon) pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   if (box.step) {
     pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.accent, opacity), isBold: true });
@@ -615,10 +615,10 @@ function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rg
     pushPolyline(part, pointsOfStroke(element), element.strokeWidth + 4, color, SOLID, ALWAYS);
     return;
   }
-  if (element.kind === 'box' && element.shape === 'decision') {
-    const polygon = decisionOutlinePoints(element);
-    const [firstCorner] = polygon;
-    if (firstCorner) pushPolyline(part, [...polygon, firstCorner], width, color, SOLID, ALWAYS);
+  const outlinePolygon = element.kind === 'box' ? shapedOutlinePoints(element) : null;
+  const [firstCorner] = outlinePolygon ?? [];
+  if (outlinePolygon && firstCorner) {
+    pushPolyline(part, [...outlinePolygon, firstCorner], width, color, SOLID, ALWAYS);
     return;
   }
   const radiusByKind: Record<Exclude<LaidOutElement['kind'], 'wire' | 'stroke'>, number> = { box: 8, frame: 12 };
