@@ -45,6 +45,7 @@ const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHe
   ['machine-sessions', 'Sessions'],
   ['machine-safety', 'Sessions'],
   ['machine-vault', 'Sessions'],
+  ['machine-github', 'Sessions'],
   ['machine-packs', 'Sessions'],
   ['machine-hooks', 'Sessions'],
   ['browser-about', 'Machine'],

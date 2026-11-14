@@ -104,11 +104,15 @@ function buildVaultConnectionSlot(lookInSetting: SettingsSetting): HTMLElement {
 }
 
 function renderSecretsPage(container: HTMLElement): void {
-  const githubStack = el('div', 'settings-view-stack');
-  githubStack.append(buildGithubConnectSection(), buildCommitSigningSection());
   secretsContainer = el('div', 'settings-view-stack');
-  container.append(githubStack, secretsContainer);
+  container.append(secretsContainer);
   repaintSecrets();
 }
 
-export { applySecretApprovals, buildVaultConnectionSlot, renderSecretsPage };
+function renderGithubPage(container: HTMLElement): void {
+  const githubStack = el('div', 'settings-view-stack');
+  githubStack.append(buildGithubConnectSection(), buildCommitSigningSection());
+  container.append(githubStack);
+}
+
+export { applySecretApprovals, buildVaultConnectionSlot, renderGithubPage, renderSecretsPage };

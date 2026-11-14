@@ -5,6 +5,8 @@ import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentAccountSummary, agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { el, markAsNotCredential, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
+import { cloneJobOf, cloneJobStatusText, isCloneJobUnsettled, onCloneJobsChanged, requestGithubRepos, requestRepositoryClones } from '../onboarding/clone-jobs.ts';
+import type { GithubRepo } from '../onboarding/clone-jobs.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { buildRepoCheckbox } from '../session-card/workspace-repos-dialog.ts';
@@ -39,6 +41,7 @@ function isSaneYoloAvailable(settings: unknown): boolean {
 type AddSessionTarget =
   | { kind: 'none' }
   | { kind: 'project'; row: RecentRow }
+  | { kind: 'github'; repo: GithubRepo }
   | { kind: 'workspace' }
   | { kind: 'folder' };
 
@@ -63,6 +66,12 @@ function liveSessionsByPath(): LiveSession[] {
 function scannedProjectsOf(message: ServerMessage): ScannedProject[] {
   if (message.type !== 'repo-roots-scanned') return [];
   return message.directories.flatMap((directory) => directory.projects.map(({ name, path, lastActivityMs }) => ({ name, path, lastActivityMs })));
+}
+
+type GithubRow = { name: string; repo: GithubRepo };
+
+function repoFolderNameOf(repo: GithubRepo): string {
+  return lastPathSegment(repo.fullName).toLowerCase();
 }
 
 function settingFlag(settings: unknown, key: string): boolean | null {
@@ -136,6 +145,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let lastProjectTarget: AddSessionTarget = NO_TARGET;
   let scannedProjects: ScannedProject[] = [];
   let recentRows: RecentRow[] = [];
+  let githubRepos: GithubRepo[] = [];
+  let projectFolderNames: Set<string> | null = null;
   let agentOptions: { id: string; label: string }[] = [];
   let defaultAgentId = DEFAULT_AGENT_ID;
   let selectedAgentId = NO_AGENT_ID;
@@ -175,6 +186,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const wordByKind: Record<AddSessionTarget['kind'], string> = {
       none: 'a project',
       project: target.kind === 'project' ? target.row.name : '',
+      github: target.kind === 'github' ? lastPathSegment(target.repo.fullName) : '',
       workspace: 'several repos',
       folder: lastPathSegment(pathInput.value.trim()) || 'a folder',
     };
@@ -229,6 +241,38 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return rowEl;
   }
 
+  function buildGithubRow({ repo }: GithubRow) {
+    const isPicked = target.kind === 'github' && target.repo.cloneUrl === repo.cloneUrl;
+    const rowEl = buildSlotRow(repo.cloneUrl, repo.fullName, isPicked, () => {
+      setGithubTarget(repo);
+      advanceFromPick(true);
+    });
+    const job = cloneJobOf(repo.cloneUrl);
+    const metaText = job === null ? (repo.isPrivate ? 'private' : '') : cloneJobStatusText(job);
+    if (metaText !== '') rowEl.append(el('span', 'add-session-row-meta', metaText));
+    return rowEl;
+  }
+
+  function githubRowsOffered(): GithubRow[] {
+    const folderNamesOnHost = projectFolderNames;
+    if (folderNamesOnHost === null) return [];
+    return githubRepos
+      .filter((repo) => !folderNamesOnHost.has(repoFolderNameOf(repo)))
+      .map((repo) => ({ name: repo.fullName, repo }));
+  }
+
+  function visibleGithubRows(): GithubRow[] {
+    return filterRows(githubRowsOffered(), findInput.value);
+  }
+
+  function buildGithubGroup(): HTMLElement[] {
+    const githubRows = visibleGithubRows();
+    if (githubRows.length === 0) return [];
+    const label = el('div', 'add-session-list-label', 'GitHub');
+    label.setAttribute('role', 'presentation');
+    return [label, ...githubRows.map(buildGithubRow)];
+  }
+
   function buildAgentRow(agentOption: { id: string; label: string }) {
     const rowEl = buildSlotRow(agentOption.id, agentOption.label, agentOption.id === selectedAgentId, () => {
       const targetBeforePick = target;
@@ -243,6 +287,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const rows: HTMLElement[] = filterRows(recentRows, findInput.value).map(buildProjectRow);
     if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
     rows.push(buildChoiceRow('Any folder', pickFolder));
+    rows.push(...buildGithubGroup());
     return rows;
   }
 
@@ -303,7 +348,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function canStartOnPick() {
-    return firstEmptySlot() === null && target.kind === 'project' && selectedAgentId !== NO_AGENT_ID && hasSettingsLoaded && !isSpawnBlocked;
+    return firstEmptySlot() === null && (target.kind === 'project' || target.kind === 'github') && selectedAgentId !== NO_AGENT_ID && hasSettingsLoaded && !isSpawnBlocked;
   }
 
   function advanceFromPick(isTargetChosenByOperator: boolean) {
@@ -333,6 +378,12 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function setProjectTarget(row: RecentRow) {
     target = { kind: 'project', row };
+    lastProjectTarget = target;
+    errorEl.textContent = '';
+  }
+
+  function setGithubTarget(repo: GithubRepo) {
+    target = { kind: 'github', repo };
     lastProjectTarget = target;
     errorEl.textContent = '';
   }
@@ -470,19 +521,55 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         btnScanAgain.hidden = true;
         repoRootsEl.hidden = true;
         scannedProjects = scannedProjectsOf(message);
+        projectFolderNames = new Set(scannedProjects.map((project) => lastPathSegment(project.path).toLowerCase()));
         rebuildRows();
         if (scannedProjects.length === 0) showRepoRootsAdder(message);
       })
       .catch((reason: unknown) => { showScanFailure(requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)); });
   }
 
+  function isPickVisible() {
+    if (target.kind === 'project') {
+      const pickedPath = target.row.path;
+      return filterRows(recentRows, findInput.value).some((row) => row.path === pickedPath);
+    }
+    if (target.kind === 'github') {
+      const pickedUrl = target.repo.cloneUrl;
+      return visibleGithubRows().some((row) => row.repo.cloneUrl === pickedUrl);
+    }
+    return false;
+  }
+
+  function pickFirstVisible() {
+    const firstProjectRow = filterRows(recentRows, findInput.value)[0];
+    if (firstProjectRow) {
+      setProjectTarget(firstProjectRow);
+      return;
+    }
+    const firstGithubRow = visibleGithubRows()[0];
+    if (firstGithubRow) setGithubTarget(firstGithubRow.repo);
+  }
+
   findInput.addEventListener('input', () => {
     markOperatorActed();
-    const visibleRows = filterRows(recentRows, findInput.value);
-    const pickedPath = target.kind === 'project' ? target.row.path : null;
-    const isPickVisible = visibleRows.some((row) => row.path === pickedPath);
-    if (!isPickVisible && visibleRows[0]) setProjectTarget(visibleRows[0]);
+    if (!isPickVisible()) pickFirstVisible();
     renderList();
+  });
+
+  function loadGithubRepos() {
+    return requestGithubRepos().then((listing) => {
+      if (listing.kind !== 'listed') return;
+      githubRepos = listing.repos;
+      renderList();
+    });
+  }
+
+  const stopWatchingCloneJobs = onCloneJobsChanged(() => {
+    if (!dialog.isConnected) {
+      stopWatchingCloneJobs();
+      return;
+    }
+    if (openSlot === 'project') renderList();
   });
 
   for (const backButton of [workspaceBackButton, folderBackButton]) {
@@ -583,17 +670,28 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return decidePermissions({ isSaneYoloInstalled, isSaneYoloSettingOn, isShell: isShellChosen() }).fields;
   }
 
+  function refusesUnpickedAgent() {
+    if (selectedAgentId !== NO_AGENT_ID || agentOptions.length === 0) return false;
+    errorEl.textContent = 'Pick an agent.';
+    return true;
+  }
+
   function buildRequest(): AddSessionRequest | null {
-    if (selectedAgentId === NO_AGENT_ID && agentOptions.length > 0) {
-      errorEl.textContent = 'Pick an agent.';
-      return null;
-    }
+    if (refusesUnpickedAgent()) return null;
     const isShell = isShellChosen();
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
     if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
     if (target.kind === 'project') {
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
+    }
+    if (target.kind === 'github') {
+      const clonedPath = cloneJobOf(target.repo.cloneUrl)?.path ?? null;
+      if (clonedPath === null) {
+        errorEl.textContent = 'The clone has no folder yet.';
+        return null;
+      }
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(target.repo.fullName))), path: clonedPath }, rememberedPath: isShell ? null : clonedPath };
     }
     if (target.kind === 'workspace') {
       const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
@@ -618,8 +716,58 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function submit() {
     if (isSpawnBlocked || isAddPending) return;
     errorEl.textContent = '';
+    if (target.kind === 'github' && cloneJobOf(target.repo.cloneUrl)?.state !== 'done') {
+      void cloneThenSubmit(target.repo);
+      return;
+    }
     const request = buildRequest();
     if (request) requestAddSession(request);
+  }
+
+  function holdForWork(statusText: string) {
+    isAddPending = true;
+    btnConfirm.disabled = true;
+    lockPicking(true);
+    startStatus.show('busy', statusText);
+  }
+
+  function releaseHold() {
+    isAddPending = false;
+    startStatus.clear();
+    btnConfirm.disabled = isSpawnBlocked;
+    lockPicking(false);
+  }
+
+  async function cloneThenSubmit(repo: GithubRepo) {
+    if (refusesUnpickedAgent()) return;
+    holdForWork(`Cloning ${repo.fullName}`);
+    const failure = isCloneJobUnsettled(cloneJobOf(repo.cloneUrl)) ? null : await requestRepositoryClones([repo.cloneUrl]);
+    if (failure !== null) {
+      releaseHold();
+      errorEl.textContent = failure;
+      return;
+    }
+    const stopWatchingClone = onCloneJobsChanged(followClone);
+    followClone();
+
+    function followClone() {
+      if (!dialog.isConnected) {
+        stopWatchingClone();
+        return;
+      }
+      const job = cloneJobOf(repo.cloneUrl);
+      if (isCloneJobUnsettled(job)) {
+        startStatus.show('busy', `Cloning ${repo.fullName}: ${cloneJobStatusText(job)}`);
+        return;
+      }
+      stopWatchingClone();
+      releaseHold();
+      if (job?.state === 'done') {
+        submit();
+        return;
+      }
+      errorEl.textContent = `${repo.fullName} was not cloned: ${cloneJobStatusText(job)}`;
+    }
   }
 
   function rememberSuccessfulStart(rememberedPath: string | null) {
@@ -654,10 +802,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function requestAddSession({ message, rememberedPath, requestType = 'add-session' }: AddSessionRequest) {
-    isAddPending = true;
-    btnConfirm.disabled = true;
-    lockPicking(true);
-    startStatus.show('busy', 'Starting the session');
+    holdForWork('Starting the session');
     const showRefusal = (text: string) => { errorEl.textContent = text; };
     requestControl(requestType, message)
       .then((reply) => {
@@ -671,10 +816,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       })
       .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`); })
       .finally(() => {
-        isAddPending = false;
-        startStatus.clear();
-        btnConfirm.disabled = isSpawnBlocked;
-        lockPicking(false);
+        releaseHold();
         if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
       });
   }
@@ -684,10 +826,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (event.key === 'Enter') submit();
   });
   findInput.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' || target.kind !== 'project') return;
+    if (event.key !== 'Enter' || (target.kind !== 'project' && target.kind !== 'github')) return;
     event.preventDefault();
-    const pickedPath = target.row.path;
-    advanceFromPick(filterRows(recentRows, findInput.value).some((row) => row.path === pickedPath));
+    advanceFromPick(isPickVisible());
   });
 
   const stopWatchingPacks = subscribePacks(() => {
@@ -703,6 +844,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function refresh() {
     void fillProjectList();
+    void loadGithubRepos();
     void loadAgents();
     void loadSettings();
   }

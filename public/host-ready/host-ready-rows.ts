@@ -15,7 +15,7 @@ import type { HostReadyRowView } from './host-ready-core.ts';
 
 const READ_TIMEOUT_MS = 20_000;
 const SIGNING_REQUEST_TIMEOUT_MS = 45_000;
-const GITHUB_CONNECTION_SECTION_ID = 'machine-vault';
+const GITHUB_CONNECTION_SECTION_ID = 'machine-github';
 const SIGNING_ACTION_BY_FIX: Readonly<Record<Exclude<HostReadyFix, 'connect-github'>, CommitSigningAction>> = Object.freeze({ 'set-up-signing': 'setup', 'register-signing': 'register' });
 const BUSY_TEXT_BY_FIX: Readonly<Record<Exclude<HostReadyFix, 'connect-github'>, string>> = Object.freeze({ 'set-up-signing': 'Setting up commit signing.', 'register-signing': 'Registering the key on GitHub.' });
 

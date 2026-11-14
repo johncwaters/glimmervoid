@@ -311,3 +311,13 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 .dialog-hint-warning:empty {
   display: none;
 }
+
+.add-session-list-label {
+  padding: 10px 12px 4px;
+  border-top: 1px solid var(--border-dim);
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

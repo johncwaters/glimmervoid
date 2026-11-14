@@ -27,11 +27,11 @@ import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
-import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
+import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
 import { appendCopyControl, buildChip, buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksTabLink } from '../packs/packs-catalog.ts';
-import { renderSecretsPage } from '../secrets/secrets-settings.ts';
+import { renderGithubPage, renderSecretsPage } from '../secrets/secrets-settings.ts';
 import { refreshHooksPage, renderHooksPage } from '../hooks-panel.ts';
 import { refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
 
@@ -268,6 +268,7 @@ function renderContent() {
 
   if (selectedPage.id === PACKS_PAGE_ID) renderPacksTabLink(contentEl);
   if (selectedPage.id === VAULT_PAGE_ID) renderSecretsPage(contentEl);
+  if (selectedPage.id === GITHUB_PAGE_ID) renderGithubPage(contentEl);
 
   const stack = el('div', 'settings-view-stack');
   for (const part of pageParts(selectedPage)) {

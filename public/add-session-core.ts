@@ -79,7 +79,7 @@ export function orderRecentRows(
   return rows.sort((first, second) => recencyOf(second) - recencyOf(first));
 }
 
-export function filterRows(rows: readonly RecentRow[], query: string): RecentRow[] {
+export function filterRows<Row extends { name: string }>(rows: readonly Row[], query: string): Row[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [...rows];
   return rows.filter((row) => row.name.toLowerCase().includes(needle));

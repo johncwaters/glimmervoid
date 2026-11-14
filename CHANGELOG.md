@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New session lists your GitHub repositories.** With GitHub connected or `gh` signed in, the project list in New session shows your GitHub repositories that are not on this host yet, under a GitHub label and filtered by Find a project. Pick one and start: it clones in the background, shows the clone's progress beside Start session, and the session opens in the new checkout once the clone finishes.
+
+### Changed
+
+- **GitHub has its own Settings page.** Connecting GitHub and setting up commit signing moved out of Vault into a Settings page named GitHub under Sessions, and the Connect GitHub fix on the host-ready rows and the notices before a GitHub connection ends now point there.
+
 ### Fixed
 
 - **The question manager's line above the terminal gets out of the way.** The line saying a question was answered or passed to you now has a Dismiss control, closes by itself once you answer the question it passed to you, and shows at most two lines until you tap it, so on a phone the agent's question stays visible to answer. Its History times no longer break into one character per line on a phone.

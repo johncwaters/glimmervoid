@@ -11,7 +11,7 @@ function githubConnectionAlertStep(connection: GithubConnection, notified: Githu
   if (connection.state === 'reconnect-needed') {
     if (held.reconnectNeededLogin === connection.login) return { message: null, notified: held };
     return {
-      message: `The GitHub connection for ${connection.login} ${RECONNECT_REASON_TEXT[connection.reason]}, so git in your sessions cannot push as you. Connect GitHub again in Settings, Vault.`,
+      message: `The GitHub connection for ${connection.login} ${RECONNECT_REASON_TEXT[connection.reason]}, so git in your sessions cannot push as you. Connect GitHub again in Settings, GitHub.`,
       notified: { ...held, reconnectNeededLogin: connection.login },
     };
   }
@@ -20,7 +20,7 @@ function githubConnectionAlertStep(connection: GithubConnection, notified: Githu
   const isExpiringSoon = connection.refreshTokenExpiresAtMs - nowMs <= EXPIRY_WARNING_LEAD_MS;
   if (!isExpiringSoon || held.expiringRefreshTokenExpiresAtMs === connection.refreshTokenExpiresAtMs) return { message: null, notified: reconnected };
   return {
-    message: `The GitHub connection for ${connection.login} ends on ${operatorDayOf(connection.refreshTokenExpiresAtMs)}. Disconnect and connect GitHub again in Settings, Vault before then, so git in your sessions keeps pushing as you.`,
+    message: `The GitHub connection for ${connection.login} ends on ${operatorDayOf(connection.refreshTokenExpiresAtMs)}. Disconnect and connect GitHub again in Settings, GitHub before then, so git in your sessions keeps pushing as you.`,
     notified: { ...reconnected, expiringRefreshTokenExpiresAtMs: connection.refreshTokenExpiresAtMs },
   };
 }

@@ -38,6 +38,16 @@ const PACKS_SECTION: SettingsSection = Object.freeze({
 
 const VAULT_PAGE_ID = 'machine-vault';
 
+const GITHUB_PAGE_ID = 'machine-github';
+
+const GITHUB_SECTION: SettingsSection = Object.freeze({
+  id: GITHUB_PAGE_ID,
+  level: 'machine',
+  title: 'GitHub',
+  description: 'The GitHub account sessions clone, push and open pull requests as, and the key that signs their commits.',
+  settings: [],
+});
+
 const HOOKS_PAGE_ID = 'machine-hooks';
 
 const HOOKS_SECTION: SettingsSection = Object.freeze({
@@ -95,7 +105,7 @@ function buildSettingsViewMap(): readonly SettingsSection[] {
   const statusKeyIndex = sections.findIndex((section) => section.id === SHORTCUTS_PAGE_ID) + 1;
   const withStatusKey = [...sections.slice(0, statusKeyIndex), STATUS_KEY_SECTION, ...sections.slice(statusKeyIndex)];
   const firstLaneIndex = withStatusKey.findIndex((section) => section.level === 'lanes');
-  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), PACKS_SECTION, HOOKS_SECTION, FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex), ABOUT_SECTION]);
+  return Object.freeze([...withStatusKey.slice(0, firstLaneIndex), GITHUB_SECTION, PACKS_SECTION, HOOKS_SECTION, FEATURES_SECTION, ...withStatusKey.slice(firstLaneIndex), ABOUT_SECTION]);
 }
 
 const saveStatusById = new Map<string, SaveStatus>();
@@ -205,5 +215,5 @@ function panelRefresher(): PanelRefresher {
   return installedRefresher;
 }
 
-export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, websiteUrl };
+export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, websiteUrl };
 export type { SaveStatus };

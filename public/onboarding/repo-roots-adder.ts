@@ -7,15 +7,14 @@ import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 import { githubRepoListHintOf } from '../secrets/github-connect-core.ts';
 import { MAX_CLONE_SOURCES_PER_REQUEST } from '#shared/contracts/control/settings-messages.ts';
 import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
-import { applyCloneJobs, cloneJobOf, cloneJobStatusText, clonedSources, hasUnsettledCloneJobs, isCloneJobUnsettled, onCloneJobsChanged } from './clone-jobs.ts';
+import { applyCloneJobs, cloneJobOf, cloneJobStatusText, clonedSources, errorText, hasUnsettledCloneJobs, isCloneJobUnsettled, onCloneJobsChanged, requestGithubRepos, requestRepositoryClones } from './clone-jobs.ts';
+import type { GithubRepo } from './clone-jobs.ts';
 
 type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['suggestions']>[number];
-type GithubRepo = ServerMessageOf<'github-repos-listed'>['repos'][number];
 
 let adderSequence = 0;
 
 const CURRENT_ROOTS_UNREADABLE_MESSAGE = 'Could not read the current repository roots.';
-const GITHUB_LIST_REPLY_TIMEOUT_MS = 90_000;
 const FOLDER_COMPLETION_DELAY_MS = 150;
 const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
 const GITHUB_GRANT_WAIT_MS = 5_000;
@@ -38,10 +37,6 @@ export async function saveRepoRoots(addedRoots: readonly string[]): Promise<stri
 }
 
 type RepoRootSource = 'typed' | 'suggested' | 'cloned-url' | 'cloned-github';
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function buildInputRow(placeholder: string, actionLabel: string) {
   adderSequence += 1;
@@ -167,14 +162,9 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   async function startClones(sources: readonly string[], cloneKind: RepoRootSource): Promise<boolean> {
     errorEl.textContent = '';
     for (const source of sources) cloneKindBySource.set(source, cloneKind);
-    const reply = await sendControlRequest('start-repository-clones', { sources: [...sources] }).catch((error: unknown) => errorText(error));
-    if (typeof reply === 'string' || reply.type !== 'repository-clones') {
-      errorEl.textContent = `Could not start the clone: ${typeof reply === 'string' ? reply : 'the server gave no answer'}`;
-      return false;
-    }
-    applyCloneJobs(reply.jobs);
-    errorEl.textContent = reply.error ?? '';
-    return !reply.error;
+    const failure = await requestRepositoryClones(sources);
+    errorEl.textContent = failure ?? '';
+    return failure === null;
   }
 
   function cancelClone(source: string) {
@@ -347,23 +337,19 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   async function loadGithubRepos() {
     if (githubListState !== 'unloaded' || listedForConnection === null) return;
     githubListState = 'loading';
-    const reply = await sendControlRequest('list-github-repos', {}, { timeoutMs: GITHUB_LIST_REPLY_TIMEOUT_MS }).catch((error: unknown) => errorText(error));
+    const listing = await requestGithubRepos();
     githubListState = 'unloaded';
-    if (typeof reply === 'string' || reply.type !== 'github-repos-listed') {
-      showGithubHint(`Could not list your GitHub repositories: ${typeof reply === 'string' ? reply : 'the server gave no answer'}`);
-      return;
-    }
-    if (reply.source === 'none') {
+    if (listing.kind === 'unreachable') {
       showGithubHint(githubRepoListHintOf(githubConnection));
       return;
     }
-    if (reply.error) {
-      showGithubHint(reply.error);
+    if (listing.kind === 'failed') {
+      showGithubHint(listing.error);
       return;
     }
     githubListState = 'loaded';
     showGithubHint('');
-    githubRepos = reply.repos;
+    githubRepos = listing.repos;
     githubFilter.hidden = githubRepos.length === 0;
     if (githubRepos.length === 0) showGithubHint('No repositories found for this GitHub login.');
     renderGithubRepos();
