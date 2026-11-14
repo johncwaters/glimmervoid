@@ -161,6 +161,10 @@
   color: var(--text-muted);
 }
 
+.session-manager-history-time {
+  flex: none;
+}
+
 .session-manager-line-history[aria-expanded="true"] {
   text-decoration: underline;
 }

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The question manager's line above the terminal gets out of the way.** The line saying a question was answered or passed to you now has a Dismiss control, closes by itself once you answer the question it passed to you, and shows at most two lines until you tap it, so on a phone the agent's question stays visible to answer.
+- **The question manager's line above the terminal gets out of the way.** The line saying a question was answered or passed to you now has a Dismiss control, closes by itself once you answer the question it passed to you, and shows at most two lines until you tap it, so on a phone the agent's question stays visible to answer. Its History times no longer break into one character per line on a phone.
 
 ### Removed
 
