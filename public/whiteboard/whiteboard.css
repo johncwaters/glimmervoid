@@ -539,6 +539,28 @@
 
 .wb-line-style-menu > .popup-menu-item[role='menuitemradio'][aria-checked='true']::after { border-color: var(--accent); }
 
+.wb-context-menu {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+}
+
+.wb-context-menu[hidden] { display: none; }
+
+.wb-context-shortcut {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--text-muted);
+}
+
+.wb-context-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
 
 .wb-wire-line {
   fill: none;

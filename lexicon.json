@@ -832,6 +832,14 @@
     {
       "name": "resize handle",
       "definition": "One of the eight squares, four corners and four edges, around a selected whiteboard box or selection that drags to resize it"
+    },
+    {
+      "name": "context menu",
+      "definition": "The whiteboard menu a right-click, the Menu key or Shift+F10 opens on the board, holding clipboard, stacking order, align and distribute actions for the selection, or paste, select all and fit on empty board"
+    },
+    {
+      "name": "shortcut",
+      "definition": "A key chord that runs a dashboard or whiteboard action, such as Ctrl+] to bring a selection forward, shown beside the action in its menu"
     }
   ],
   "retired": [

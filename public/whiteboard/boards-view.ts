@@ -25,6 +25,10 @@ import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#sha
 import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
+import { createBoardContextMenu } from './board-context-menu.ts';
+import { isArrayIndexKey } from '#shared/whiteboard-element-table.ts';
+import type { BoardContextMenu, ContextMenuGroup } from './board-context-menu.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
@@ -127,6 +131,7 @@ const clickOpenedStacksByFrameId = new Map<string, ClickOpenedStack>();
 let parts: BoardsViewParts | null = null;
 let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
+let contextMenu: BoardContextMenu | null = null;
 let inspector: BoardInspector | null = null;
 let shouldFitOnNextRender = true;
 let pairedSessionId: string | null = null;
@@ -208,8 +213,86 @@ function fitsOnePut(ops: readonly Op[]): boolean {
 
 function undoEntryOf(patch: WhiteboardPatch | null): Op[] | null {
   if (!patch) return [];
-  const entry = undoOpsOf(patch.before, patch.diff);
+  const entry = [...undoOpsOf(patch.before, patch.diff), ...restoredStackOrderOpsOf(patch)];
   return fitsOnePut(entry) ? entry : null;
+}
+
+function restoredStackOrderOpsOf(patch: WhiteboardPatch): Op[] {
+  const reslottedIds = Object.keys(patch.before.elements).filter((id) => !isArrayIndexKey(id) && patch.before.elements[id] && patch.diff.elements[id]?.[0] === 'put');
+  return reslottedIds.length === 0 ? [] : [{ op: 'order', ids: reslottedIds, to: 'front' }];
+}
+
+function commandChord(key: string): string {
+  return `${SHORTCUT_PLATFORM === 'mac' ? 'Cmd' : 'Ctrl'}+${key}`;
+}
+
+async function copySelectionToClipboard(copiedTextOf: () => string | null | undefined, chordKey: string): Promise<void> {
+  if (!navigator.clipboard?.writeText) {
+    status.show('error', `This page cannot reach the clipboard here. Press ${commandChord(chordKey)} on the board instead.`);
+    return;
+  }
+  const copiedText = copiedTextOf();
+  if (!copiedText) return;
+  await navigator.clipboard.writeText(copiedText).catch(() => status.show('error', 'Could not copy: the browser refused the clipboard.'));
+}
+
+async function pasteFromClipboard(): Promise<void> {
+  const pastedText = navigator.clipboard?.readText ? await navigator.clipboard.readText().catch(() => null) : null;
+  if (pastedText === null) {
+    status.show('error', `Could not read the clipboard here. Press ${commandChord('V')} on the board instead.`);
+    return;
+  }
+  if (pastedText) await editor?.pasteText(pastedText);
+}
+
+function selectionMenuGroups(activeEditor: BoardEditor): ContextMenuGroup[] {
+  const selectedBoxCount = selectedElementsOfKind('box').length;
+  return [
+    [
+      { label: 'Cut', shortcut: commandChord('X'), run: () => void copySelectionToClipboard(() => activeEditor.cutSelection(), 'X') },
+      { label: 'Copy', shortcut: commandChord('C'), run: () => void copySelectionToClipboard(() => activeEditor.copySelection(), 'C') },
+      { label: 'Paste', shortcut: commandChord('V'), run: () => void pasteFromClipboard() },
+      { label: 'Duplicate', shortcut: commandChord('D'), run: () => activeEditor.duplicateSelection() },
+      { label: 'Delete', shortcut: 'Delete', run: () => activeEditor.removeSelected() },
+    ],
+    [
+      { label: 'Bring to front', shortcut: commandChord('Shift+]'), run: () => activeEditor.orderSelected('front') },
+      { label: 'Bring forward', shortcut: commandChord(']'), run: () => activeEditor.orderSelected('forward') },
+      { label: 'Send backward', shortcut: commandChord('['), run: () => activeEditor.orderSelected('backward') },
+      { label: 'Send to back', shortcut: commandChord('Shift+['), run: () => activeEditor.orderSelected('back') },
+    ],
+    selectedBoxCount < 2 ? [] : [
+      { label: 'Align left', shortcut: null, run: () => activeEditor.alignSelected('left') },
+      { label: 'Align center', shortcut: null, run: () => activeEditor.alignSelected('center') },
+      { label: 'Align right', shortcut: null, run: () => activeEditor.alignSelected('right') },
+      { label: 'Align top', shortcut: null, run: () => activeEditor.alignSelected('top') },
+      { label: 'Align middle', shortcut: null, run: () => activeEditor.alignSelected('middle') },
+      { label: 'Align bottom', shortcut: null, run: () => activeEditor.alignSelected('bottom') },
+    ],
+    selectedBoxCount < 3 ? [] : [
+      { label: 'Distribute horizontally', shortcut: null, run: () => activeEditor.distributeSelected('horizontal') },
+      { label: 'Distribute vertically', shortcut: null, run: () => activeEditor.distributeSelected('vertical') },
+    ],
+    selectedBoxCount < 2 ? [] : [
+      { label: 'Frame', shortcut: null, run: addFrame },
+      { label: 'Stack', shortcut: null, run: stackSelectedBoxes },
+    ],
+  ];
+}
+
+function canvasMenuGroups(activeEditor: BoardEditor): ContextMenuGroup[] {
+  return [
+    [{ label: 'Paste', shortcut: commandChord('V'), run: () => void pasteFromClipboard() }],
+    [
+      { label: 'Select all', shortcut: commandChord('A'), run: () => activeEditor.selectAll() },
+      { label: 'Fit', shortcut: 'Shift+1', run: () => activeEditor.fit() },
+    ],
+  ];
+}
+
+function openBoardContextMenu(clientX: number, clientY: number, target: 'selection' | 'canvas'): void {
+  if (!editor || !contextMenu) return;
+  contextMenu.openAt(clientX, clientY, target === 'selection' ? selectionMenuGroups(editor) : canvasMenuGroups(editor));
 }
 
 function recordPatch(boardId: string, patch: WhiteboardPatch | null): boolean {
@@ -1312,7 +1395,9 @@ export function mountBoardHost(): HTMLElement {
     onToolChange: paintActiveTool,
     onToolLockChange: paintToolLock,
     onClipboardNotice: (notice) => status.show(notice === 'cut' ? 'ok' : 'error', CLIPBOARD_NOTICE_TEXT[notice]),
+    onContextMenu: openBoardContextMenu,
   });
+  contextMenu = createBoardContextMenu(canvas, viewport);
 
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));
   wireMediaDrops(host, canvas);
