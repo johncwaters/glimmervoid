@@ -1,45 +1,66 @@
 ---
-import { BRAND_INK, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
 import StateIcon from './StateIcon.astro';
 import type { StatusIcon } from '../../../../shared/state-icons.ts';
+import { AGENT_CARDS } from '../../lib/product-facts.ts';
+import { shortcutHint } from '../../../../public/shortcuts-core.ts';
 
-const STATE_ROWS: readonly { label: string; icon: StatusIcon; colorToken: string; meaning: string; action: string }[] = [
-  { label: 'Needs input', icon: 'needs-input', colorToken: '--state-waiting', meaning: 'A question waits on your answer.', action: 'Alt+J' },
-  { label: 'Failed', icon: 'failed', colorToken: '--state-failed', meaning: 'The agent stopped on an error.', action: 'Open it' },
-  { label: 'Complete', icon: 'complete', colorToken: '--state-complete', meaning: 'The turn ended with a result.', action: 'Review' },
-  { label: 'Working', icon: 'working', colorToken: '--state-running', meaning: 'Nothing for you yet.', action: 'Leave it' },
+const DEFAULT_ATTENTION_HINT = shortcutHint('next-attention', 'other');
+
+const FULL_SUPPORT = 'Full support';
+const FULL_SUPPORT_LABELS = AGENT_CARDS.filter(({ support }) => support === FULL_SUPPORT).map(({ label }) => label);
+const ALSO_RUNS_LABELS = [...AGENT_CARDS.filter(({ support }) => support !== FULL_SUPPORT).map(({ label }) => label), 'Any other CLI'];
+
+const DEMO_SESSIONS: readonly { label: string; icon: StatusIcon; colorToken: string; task: string; lastLine: string }[] = [
+  { label: 'Needs input', icon: 'needs-input', colorToken: '--state-waiting', task: 'migrate-billing', lastLine: 'Run the backfill now? (y/n)' },
+  { label: 'Failed', icon: 'failed', colorToken: '--state-failed', task: 'flaky-upload-test', lastLine: 'upload.test.ts timed out after 5000 ms' },
+  { label: 'Complete', icon: 'complete', colorToken: '--state-complete', task: 'rename-color-tokens', lastLine: 'Renamed 38 tokens across 12 files.' },
+  { label: 'Working', icon: 'working', colorToken: '--state-running', task: 'fix-auth-redirect', lastLine: '' },
+  { label: 'Working', icon: 'working', colorToken: '--state-running', task: 'bump-node-22', lastLine: '' },
 ];
-const TAB_LIGHT_TOKENS = ['--accent', '--state-waiting', '--state-failed'];
-const tabLightMarkup = brandMarkMarkup({ frame: BRAND_INK, light: 'currentColor' });
 ---
-<section class="band">
+<section class="band" id="status">
   <div class="split reveal">
     <div>
       <p class="band-label">Status</p>
-      <h2>Six terminals and a guess.</h2>
-      <p class="band-lede">Status comes from your agents' own hooks, not from reading the screen.</p>
+      <h2>One needs you. You'll know which.</h2>
+      <p class="band-lede">Today it's six terminals and a guess. Here, status comes from your agents' own hooks, not screen reading.</p>
     </div>
     <div class="panel">
-      <h3>What each state asks of you</h3>
+      <div class="attention-banner">1 failed, 1 needs you, 1 finished<kbd data-attention-hint>{DEFAULT_ATTENTION_HINT}</kbd></div>
       <ul class="rows">
-        {STATE_ROWS.map(({ label, icon, colorToken, meaning, action }) => (
-          <li><span class="state-name" style={`color: var(${colorToken})`}><StateIcon icon={icon} />{label}</span>{meaning}<span class="row-end">{action}</span></li>
+        {DEMO_SESSIONS.map(({ label, icon, colorToken, task, lastLine }) => (
+          <li class="state-row"><span class="state-name" style={`color: var(${colorToken})`}><StateIcon icon={icon} />{label}</span><span class="task">{task}</span><span class="last-line">{lastLine}</span></li>
         ))}
       </ul>
-      <div class="tab-lights">
-        {TAB_LIGHT_TOKENS.map((colorToken) => (
-          <span class="tab-light" style={`color: var(${colorToken})`}><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={tabLightMarkup}></svg></span>
-        ))}
-        <p>The browser tab's light turns amber when a session needs you, red when one failed.</p>
-      </div>
+      <div class="jump-hint">Tap the banner or press <span data-attention-hint>{DEFAULT_ATTENTION_HINT}</span> to open the next session's terminal</div>
+      <dl class="agent-support">
+        <div><dt>{FULL_SUPPORT}</dt><dd>{FULL_SUPPORT_LABELS.join(', ')}</dd></div>
+        <div><dt>Also runs</dt><dd>{ALSO_RUNS_LABELS.join(', ')}</dd></div>
+      </dl>
     </div>
   </div>
 </section>
 
 <style>
-  .state-name { display: flex; gap: 8px; align-items: center; width: 150px; flex: none; font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-  .tab-lights { display: flex; gap: 12px; align-items: center; border-top: 1px solid var(--border-dim); padding: 16px 0 12px; color: var(--text-dim); font-size: var(--type-body); }
-  .tab-light { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: var(--radius-lg); background: var(--bg); }
-  .tab-light svg { width: 20px; height: 20px; }
-  @media (max-width: 640px) { .state-name { width: auto; } }
+  .attention-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--state-waiting); border-radius: var(--radius); color: var(--state-waiting); font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .attention-banner kbd { margin-left: auto; padding: 1px 6px; border: 1px solid currentColor; border-radius: 2px; font: inherit; letter-spacing: 0; }
+  .rows .state-row { display: grid; grid-template-columns: 150px 180px 1fr; gap: 6px 10px; }
+  .state-name { display: flex; gap: 8px; align-items: center; font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .last-line { color: var(--text-dim); }
+  .jump-hint { padding: 14px 0 12px; border-top: 1px solid var(--border-dim); color: var(--text-dim); font-size: var(--type-body); }
+  .agent-support { display: grid; gap: 10px; margin: 0; padding: 14px 0 16px; border-top: 1px solid var(--border-dim); font-size: var(--type-body); }
+  .agent-support div { display: grid; grid-template-columns: 150px 1fr; gap: 10px; }
+  .agent-support dt { color: var(--text-head); }
+  .agent-support dd { margin: 0; color: var(--text-dim); }
+  @media (max-width: 640px) {
+    .agent-support div { grid-template-columns: 1fr; gap: 2px; }
+    .rows .state-row { grid-template-columns: 1fr; }
+  }
 </style>
+
+<script>
+  import { shortcutHint, shortcutPlatformFor } from '../../../../public/shortcuts-core.ts';
+
+  const attentionHint = shortcutHint('next-attention', shortcutPlatformFor(navigator.userAgent));
+  for (const hintElement of document.querySelectorAll('[data-attention-hint]')) hintElement.textContent = attentionHint;
+</script>

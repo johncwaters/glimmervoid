@@ -5,6 +5,11 @@ import { WINDOWS_INSTALL_COMMAND } from '../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../lib/install-platform.ts';
 import { DEFAULT_PORT, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 
+interface Props {
+  commandLine?: string;
+}
+
+const { commandLine = 'One command. No Node needed.' } = Astro.props;
 const BOOT_LINES = [
   { text: `GLIMMERVOID ${PRODUCT_VERSION}`, isBanner: true },
   { text: `Open http://localhost:${DEFAULT_PORT}`, isBanner: false },
@@ -19,7 +24,7 @@ const NEXT_COMMANDS = [
 <section id="install">
   <div class="section-head reveal">
     <h2>Shipping in a minute.</h2>
-    <p>One command. No Node needed.</p>
+    <p>{commandLine}</p>
     <p>No account needed. Bring your own subscription. <a href={REPOSITORY_URL}>Open source</a>, MIT.</p>
   </div>
   <div class="install-console reveal" id="install-console">

@@ -3,9 +3,11 @@ import StateIcon from './StateIcon.astro';
 
 const NET_COMMANDS = [
   { command: 'npm test', isRefused: false },
-  { command: 'git commit -m "auth router"', isRefused: false },
-  { command: 'git reset --hard origin/main', isRefused: true },
-  { command: 'cat ~/.ssh/id_ed25519', isRefused: true },
+  { command: 'git reset --hard', isRefused: true },
+  { command: 'git commit -m "wip"', isRefused: false },
+  { command: 'rm -rf "$BUILD_DIR"', isRefused: true },
+  { command: 'git push', isRefused: false },
+  { command: 'git push --force', isRefused: true },
 ];
 const NET_RULES = [
   { title: 'Commands', detail: 'Run without prompts' },
