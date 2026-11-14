@@ -58,6 +58,7 @@ const REVERSE_DIRECTION = [1, 0, 3, 2];
 const STRAIGHT_ROUTE_MARGIN = 1;
 const CURVE_SAMPLES = 16;
 const CURVE_BEND_FRACTION = 0.2;
+const MIN_SEGMENT_HANDLE_LENGTH = 24;
 
 interface AreaObstacles {
   hardRects: readonly Rect[];
@@ -1520,13 +1521,13 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
       isDashed: plan.wire.dashed, isBold: plan.wire.width === 'bold', tone: plan.wire.tone,
-      hasArrowhead: (leader === undefined || leader === wire) && plan.wire.arrows !== 'none', hasStartArrowhead: plan.wire.arrows === 'both', joinAt: joinPointOf(wire, leader),
+      hasArrowhead: (leader === undefined || leader === wire) && plan.wire.arrows !== 'none', hasStartArrowhead: plan.wire.arrows === 'both', route: plan.wire.route, bends: [], joinAt: joinPointOf(wire, leader),
     };
   });
 }
 
 function isRoutedAroundBoxes(wire: Wire): boolean {
-  return wire.route === 'elbow' && typeof wire.from === 'string' && typeof wire.to === 'string';
+  return wire.route === 'elbow' && typeof wire.from === 'string' && typeof wire.to === 'string' && wire.via.length === 0;
 }
 
 interface WireAnchor {
@@ -1576,6 +1577,46 @@ function elbowPointsBetween(from: WireAnchor, to: WireAnchor): Point[] {
   return withoutBends([start, corner, end]);
 }
 
+function edgeAlignedToward(anchor: WireAnchor, toward: Point): Point {
+  const { box, point: center } = anchor;
+  if (!box) return center;
+  if (toward.y > box.y && toward.y < box.y + box.height) return { x: toward.x >= center.x ? box.x + box.width : box.x, y: toward.y };
+  if (toward.x > box.x && toward.x < box.x + box.width) return { x: toward.x, y: toward.y >= center.y ? box.y + box.height : box.y };
+  return sideMidpointToward(anchor, toward, Math.abs(toward.x - center.x) >= Math.abs(toward.y - center.y));
+}
+
+function orthogonalized(points: readonly Point[]): Point[] {
+  return points.flatMap((point, index) => {
+    const previous = points[index - 1];
+    if (!previous || previous.x === point.x || previous.y === point.y) return [point];
+    return [{ x: point.x, y: previous.y }, point];
+  });
+}
+
+function elbowPointsThrough(from: WireAnchor, corners: readonly Point[], to: WireAnchor): Point[] {
+  const firstCorner = corners[0] ?? to.point;
+  const lastCorner = corners[corners.length - 1] ?? from.point;
+  return withoutBends(orthogonalized([edgeAlignedToward(from, firstCorner), ...corners, edgeAlignedToward(to, lastCorner)]));
+}
+
+function catmullRomAt(before: Point, from: Point, to: Point, after: Point, progress: number): Point {
+  const squared = progress * progress;
+  const cubed = squared * progress;
+  const along = (pick: (point: Point) => number): number => 0.5 * (2 * pick(from) + (pick(to) - pick(before)) * progress + (2 * pick(before) - 5 * pick(from) + 4 * pick(to) - pick(after)) * squared + (3 * pick(from) - pick(before) - 3 * pick(to) + pick(after)) * cubed);
+  return { x: along((point) => point.x), y: along((point) => point.y) };
+}
+
+function curvedPointsThrough(controls: readonly Point[]): Point[] {
+  const first = controls[0];
+  if (!first) return [];
+  return [first, ...controls.slice(1).flatMap((to, spanIndex) => {
+    const from = controls[spanIndex] ?? to;
+    const before = controls[spanIndex - 1] ?? from;
+    const after = controls[spanIndex + 2] ?? to;
+    return Array.from({ length: CURVE_SAMPLES }, (_, sampleIndex) => catmullRomAt(before, from, to, after, (sampleIndex + 1) / CURVE_SAMPLES));
+  })];
+}
+
 function curvedPointsBetween(start: Point, end: Point): Point[] {
   const length = Math.hypot(end.x - start.x, end.y - start.y);
   if (length === 0) return [start, end];
@@ -1595,10 +1636,12 @@ function directWireOf(wire: Wire, input: RouteInput): DirectWire | null {
   const from = anchorOf(wire.from, input);
   const to = anchorOf(wire.to, input);
   if (!from || !to) return null;
-  if (wire.route === 'elbow') return { wire, points: elbowPointsBetween(from, to).map(roundedPoint) };
-  const start = edgePointToward(from, to.point);
-  const end = edgePointToward(to, from.point);
-  const points = wire.route === 'curved' ? curvedPointsBetween(start, end) : [start, end];
+  const { via } = wire;
+  if (wire.route === 'elbow') return { wire, points: (via.length === 0 ? elbowPointsBetween(from, to) : elbowPointsThrough(from, via, to)).map(roundedPoint) };
+  const start = edgePointToward(from, via[0] ?? to.point);
+  const end = edgePointToward(to, via[via.length - 1] ?? from.point);
+  const controls = [start, ...via, end];
+  const points = wire.route === 'sharp' ? controls : via.length === 0 ? curvedPointsBetween(start, end) : curvedPointsThrough(controls);
   return { wire, points: points.map(roundedPoint) };
 }
 
@@ -1618,6 +1661,47 @@ function pointAlongPath(points: readonly Point[], fraction: number): Point {
   return points[points.length - 1] ?? { x: 0, y: 0 };
 }
 
+interface WireHandle {
+  kind: 'bend' | 'midpoint' | 'segment';
+  index: number;
+  at: Point;
+}
+
+function midpointOf(from: Point, to: Point): Point {
+  return { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+}
+
+function wireHandlesOf(wire: LaidOutWire): WireHandle[] {
+  const pathPoints = pointsOfPath(wire.path);
+  if (wire.route === 'elbow') {
+    if (pathPoints.length > WHITEBOARD_LIMITS.wireBends) return [];
+    return pathPoints.slice(1).flatMap((to, index): WireHandle[] => {
+      const from = pathPoints[index];
+      if (!from || Math.hypot(to.x - from.x, to.y - from.y) < MIN_SEGMENT_HANDLE_LENGTH) return [];
+      return [{ kind: 'segment', index, at: midpointOf(from, to) }];
+    });
+  }
+  const controls = [wire.start, ...wire.bends, wire.end];
+  const canAddBend = wire.bends.length < WHITEBOARD_LIMITS.wireBends;
+  const midpoints = !canAddBend ? [] : controls.slice(1).map((to, index): WireHandle => {
+    const onCurve = wire.route === 'curved' ? pathPoints[index * CURVE_SAMPLES + CURVE_SAMPLES / 2] : undefined;
+    return { kind: 'midpoint', index, at: onCurve ?? midpointOf(controls[index] ?? to, to) };
+  });
+  return [...wire.bends.map((at, index): WireHandle => ({ kind: 'bend', index, at })), ...midpoints];
+}
+
+function elbowCornersAfterShift(pathPoints: readonly Point[], segmentIndex: number, drag: Point): Point[] {
+  const from = pathPoints[segmentIndex];
+  const to = pathPoints[segmentIndex + 1];
+  if (!from || !to) return pathPoints.slice(1, -1);
+  const isHorizontal = Math.abs(to.x - from.x) >= Math.abs(to.y - from.y);
+  const shifted = (point: Point): Point => (isHorizontal ? { x: point.x, y: point.y + drag.y } : { x: point.x + drag.x, y: point.y });
+  const isFirstSegment = segmentIndex === 0;
+  const isLastSegment = segmentIndex === pathPoints.length - 2;
+  const reshaped = [...pathPoints.slice(0, segmentIndex), ...(isFirstSegment ? [from] : []), shifted(from), shifted(to), ...(isLastSegment ? [to] : []), ...pathPoints.slice(segmentIndex + 2)];
+  return reshaped.slice(1, -1);
+}
+
 function laidOutDirectWireOf(direct: DirectWire): LaidOutWire {
   const { wire, points } = direct;
   const start = points[0] ?? { x: 0, y: 0 };
@@ -1627,7 +1711,7 @@ function laidOutDirectWireOf(direct: DirectWire): LaidOutWire {
     kind: 'wire', id: wire.id, path: pathOf(points), start, end,
     label: wire.label, labelAt: roundedPoint({ x: middle.x, y: middle.y - LABEL_GAP }),
     isDashed: wire.dashed, isBold: wire.width === 'bold', tone: wire.tone,
-    hasArrowhead: wire.arrows !== 'none', hasStartArrowhead: wire.arrows === 'both', joinAt: null,
+    hasArrowhead: wire.arrows !== 'none', hasStartArrowhead: wire.arrows === 'both', route: wire.route, bends: wire.via, joinAt: null,
   };
 }
 
@@ -1700,5 +1784,6 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
   return unionOf(wire.label ? [...pointRects, labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : pointRects);
 }
 
-export { cappedWarningLists, cappedWarnings, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf };
+export { cappedWarningLists, cappedWarnings, elbowCornersAfterShift, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
+export type { WireHandle };
 export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList };

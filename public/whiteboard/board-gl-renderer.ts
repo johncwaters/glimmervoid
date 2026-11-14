@@ -7,6 +7,8 @@ import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, Resiz
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
+import { wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
@@ -35,7 +37,7 @@ interface ReviewMarks {
   flaggedStepIds: ReadonlySet<string>;
 }
 
-type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end';
+type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end' | 'bend';
 type WireEndName = 'from' | 'to';
 
 interface BoardHit {
@@ -47,6 +49,7 @@ interface BoardHit {
   media: { href: string; alt: string } | null;
   handle: ResizeHandle | null;
   end: WireEndName | null;
+  bend: WireHandle | null;
 }
 
 interface BoardRenderer {
@@ -826,7 +829,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!handleArea) return null;
     const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
     const pressed = resizeHandleRectsOf(handleArea.area).find(({ rect }) => isInside(point, rect, handleSlop));
-    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null } : null;
+    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null, bend: null } : null;
   }
 
   function selectedWiresOf(current: GlScene): Extract<LaidOutElement, { kind: 'wire' }>[] {
@@ -841,7 +844,16 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     for (const wire of selectedWiresOf(current)) {
       const ends: [WireEndName, Point][] = [['from', wire.start], ['to', wire.end]];
       const pressed = ends.find(([, center]) => Math.hypot(center.x - point.x, center.y - point.y) <= reach);
-      if (pressed) return { id: wire.id, kind: 'wire', part: 'end', lineIndex: null, port: null, media: null, handle: null, end: pressed[0] };
+      if (pressed) return { id: wire.id, kind: 'wire', part: 'end', lineIndex: null, port: null, media: null, handle: null, end: pressed[0], bend: null };
+    }
+    return null;
+  }
+
+  function wireBendHitAt(current: GlScene, point: Point, slop: number): BoardHit | null {
+    const reach = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
+    for (const wire of selectedWiresOf(current)) {
+      const pressed = wireHandlesOf(wire).find(({ at }) => Math.hypot(at.x - point.x, at.y - point.y) <= reach);
+      if (pressed) return { id: wire.id, kind: 'wire', part: 'bend', lineIndex: null, port: null, media: null, handle: null, end: null, bend: pressed };
     }
     return null;
   }
@@ -1442,7 +1454,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null, end: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null, end: null, bend: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1483,6 +1495,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (handleHit) return handleHit;
     const wireEndHit = wireEndHitAt(current, point, slop);
     if (wireEndHit) return wireEndHit;
+    const wireBendHit = wireBendHitAt(current, point, slop);
+    if (wireBendHit) return wireBendHit;
     const portReach = PORT_RADIUS + slop;
     let best: BoardHit | null = null;
     let bestRank = -1;

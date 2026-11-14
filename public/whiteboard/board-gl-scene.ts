@@ -3,7 +3,7 @@ import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
-import { pointsOfPath } from '#shared/whiteboard-route-core.ts';
+import { pointsOfPath, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
@@ -121,6 +121,7 @@ const ARROWHEAD_OVERSHOOT = 1.28;
 const WIRE_WIDTH = 1.6;
 const BOLD_WIRE_WIDTH = 3.2;
 const OUTLINE_WIDTH = 1.6;
+const WIRE_MIDPOINT_HANDLE_SCALE = 0.7;
 const LETTER_SPACING_EM = 0.08;
 const CHAR_WIDTH_EM = MONO_CHAR_WIDTH / 12;
 const LABEL_HALO_PAD = 3;
@@ -671,6 +672,10 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       continue;
     }
     if (decoration.kind === 'wire-ends') {
+      for (const handle of wireHandlesOf(decoration.wire)) {
+        const isBend = handle.kind === 'bend';
+        pushCircle(part, handle.at, isBend ? PORT_RADIUS : PORT_RADIUS * WIRE_MIDPOINT_HANDLE_SCALE, isBend ? palette.accent : palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      }
       for (const center of [decoration.wire.start, decoration.wire.end]) pushCircle(part, center, PORT_RADIUS, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
       continue;
     }
