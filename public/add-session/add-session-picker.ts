@@ -371,6 +371,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function setAgent(agentId: string) {
+    if (agentId !== selectedAgentId) errorEl.textContent = '';
     selectedAgentId = agentId;
     paintAgentChoiceMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
     applyAgentRules();
