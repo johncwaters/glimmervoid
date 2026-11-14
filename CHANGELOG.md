@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **The first-run checklist no longer shows a First task box.** The task it held never reached the agent, which first asks you to sign in, so picking an agent and a project now starts the session straight away, as the New session dialog does.
-- **Commit signing sets up in one click.** With GitHub connected, Set up under Settings, Vault, Commit signing now makes the signing key and registers it on GitHub in one go, so agents' commits show as Verified without a second press. Without a GitHub connection, Set up makes the key only and the section says so before you press; you add the key on GitHub by hand, or connect GitHub and press Register on GitHub. If GitHub refuses the key, the key stays on this host, the reason shows beside the buttons, and Register on GitHub tries again.
-
 ## [0.58.3] - 2026-11-13
 
 ### Added
@@ -21,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The first-run checklist no longer shows a First task box.** The task it held never reached the agent, which first asks you to sign in, so picking an agent and a project now starts the session straight away, as the New session dialog does.
+- **Commit signing sets up in one click.** With GitHub connected, Set up under Settings, Vault, Commit signing now makes the signing key and registers it on GitHub in one go, so agents' commits show as Verified without a second press. Without a GitHub connection, Set up makes the key only and the section says so before you press; you add the key on GitHub by hand, or connect GitHub and press Register on GitHub. If GitHub refuses the key, the key stays on this host, the reason shows beside the buttons, and Register on GitHub tries again.
 - **The waking page of a hosted Glimmervoid shows the wake as it happens.** Opening a hosted dashboard while its machine sleeps now shows the Glimmervoid mark, the seconds the wake has taken against the usual 15, and a bar that fills as it goes, in your saved dashboard theme. The page checks every second and opens the dashboard the moment the server answers, without reloading in between. When a wake gets no answer, the page says so, the mark's light turns red, and it wakes the host again on its own. The page that says a host was woken too often this hour has the same look, and so does the page for a host that has used its hours for the month, which now names the day it can wake again. With scripts off, the page still reloads itself every 5 seconds. This reaches a hosted doorman with its next release.
 - **Type straight into the terminal on your phone, with autocorrect.** The phone Terminal screen no longer has a separate text field with a Send button above the keys, so there is one place to type: tap the terminal and your keyboard types into the agent's own prompt. Suggestions, autocorrect and dictation now work there, and accepting a correction fixes the word in the prompt. Agent sessions capitalize the start of a sentence; shell sessions do not, so commands stay as you type them. Raw under More is gone, since typing always goes straight to the terminal now.
 - **Smaller text on your phone.** Every phone screen draws its text a step smaller, so more fits and the chrome crowds the content less: small text is 11px, body 13px, buttons and titles 15px, and the big numbers 18px. Fields you type into stay at 16px, so iOS does not zoom the page when you tap one, and the terminal text is unchanged. Desktop sizes are the same as before.
