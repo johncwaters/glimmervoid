@@ -16,8 +16,8 @@ const frameByViewId = new Map<string, HTMLIFrameElement>();
 let openPackView: (viewId: string) => void = () => {};
 const panelByViewId = new Map<string, PackPanelView>();
 
-export function packTabIcon(iconUrl: string): HTMLImageElement {
-  const icon = el('img', 'pack-tab-icon');
+export function packTabIcon(iconUrl: string, className = 'pack-tab-icon'): HTMLImageElement {
+  const icon = el('img', className);
   icon.src = iconUrl;
   icon.alt = '';
   icon.decoding = 'async';
