@@ -112,7 +112,7 @@ type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
-  | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement }
+  | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | { kind: 'ink'; pointerId: number; points: ViewPoint[]; draftLine: SVGPolylineElement }
   | null;
@@ -146,6 +146,38 @@ function placedShapeOf(tool: PlacementTool, media: BoxMedia | null): Partial<Box
 function placedBox(at: ViewPoint, title: string, media: BoxMedia | null, tool: PlacementTool): ElementInput {
   const sparseBox = { kind: 'box' as const, id: newElementId('box'), title, place: { at }, ...placedShapeOf(tool, media) };
   return filledElement(sparseBox);
+}
+
+interface BoxSize {
+  width: number;
+  height: number;
+}
+
+const BLANK_TEXT_LINE: BoxLine = { text: '', muted: false, style: 'text', key: null };
+
+function isTextBox(box: Box): boolean {
+  return box.shape === 'box' && box.borderless === true && !box.media;
+}
+
+function typedRowsOf(typedText: string): string[] {
+  const rows = typedText.replace(/\s+$/, '').split('\n');
+  const firstWrittenRow = rows.findIndex((row) => row.trim() !== '');
+  return firstWrittenRow === -1 ? [] : rows.slice(firstWrittenRow);
+}
+
+function fittedTextOf(typedText: string): string {
+  const rows = typedText.split('\n').slice(0, WHITEBOARD_LIMITS.linesPerBox + 1);
+  return rows.map((row, index) => row.slice(0, index === 0 ? WHITEBOARD_LIMITS.title : WHITEBOARD_LIMITS.line)).join('\n');
+}
+
+function textEditOps(openedBox: Box, liveBox: Box, typedText: string): Op[] {
+  const [titleRow, ...lineRows] = typedRowsOf(typedText);
+  const title = titleRow?.trim();
+  if (!title) return [{ op: 'remove', id: openedBox.id }];
+  const isLinesEdited = lineRows.length !== openedBox.lines.length || lineRows.some((row, index) => row !== openedBox.lines[index]?.text);
+  const lines = lineRows.map((row, index) => ({ ...(liveBox.lines[index] ?? BLANK_TEXT_LINE), text: row }));
+  const fields = { ...(title === openedBox.title ? {} : { title }), ...(isLinesEdited ? { lines } : {}) };
+  return Object.keys(fields).length === 0 ? [] : [{ op: 'set', id: openedBox.id, fields }];
 }
 
 function pressedImageOf(hit: BoardHit | null): PressedImage | null {
@@ -520,6 +552,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function startPinch(): void {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
+    if (gesture?.kind === 'marquee') gesture.outline.remove();
     gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewWidth() };
   }
 
@@ -560,11 +593,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (!isSent) paintPreview();
   }
 
-  function startMarquee(event: PointerEvent): void {
+  function startMarquee(event: PointerEvent, placementTool: PlacementTool | null): void {
     const origin = toViewPoint(event.clientX, event.clientY);
     const outline = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     outline.setAttribute('class', 'wb-wire-line wb-dashed wb-wire-draft');
-    gesture = { kind: 'marquee', pointerId: event.pointerId, origin, latest: origin, hasMoved: false, isAdditive: event.shiftKey, baseSelection: event.shiftKey ? new Set(selectedIds) : new Set(), outline };
+    const isAdditive = event.shiftKey && placementTool === null;
+    gesture = { kind: 'marquee', pointerId: event.pointerId, origin, latest: origin, hasMoved: false, isAdditive, baseSelection: isAdditive ? new Set(selectedIds) : new Set(), outline, placementTool };
   }
 
   function stackTopped(boxId: string): Frame | undefined {
@@ -600,7 +634,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (isPlacementTool(activeTool)) {
-      void placeElement(activeTool, toViewPoint(event.clientX, event.clientY));
+      startMarquee(event, activeTool);
       return;
     }
     if (activeTool === 'pen') {
@@ -635,18 +669,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (!hit && event.pointerType === 'mouse' && !isPhoneLayout()) {
-      startMarquee(event);
+      startMarquee(event, null);
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
     gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: false, tappedBoxId, pressedImage: pressedImageOf(hit) };
   }
 
-  async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
+  async function placeElement(tool: PlacementTool, point: ViewPoint, size: BoxSize | null): Promise<void> {
     finishToolUse();
     if (!options.currentBoard()) return;
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, PLACED_TITLE_BY_TOOL[tool], null, tool);
+    const element = { ...placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, PLACED_TITLE_BY_TOOL[tool], null, tool), ...(size ?? {}) };
     pendingTitleEditId = element.id;
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (!isSent) pendingTitleEditId = null;
@@ -734,6 +768,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     marquee.outline.setAttribute('y', String(area.y));
     marquee.outline.setAttribute('width', String(area.width));
     marquee.outline.setAttribute('height', String(area.height));
+    if (marquee.placementTool) return;
     const nextSelectedIds = new Set([...marquee.baseSelection, ...renderer.elementsInRect(area)]);
     if (nextSelectedIds.size === selectedIds.size && [...nextSelectedIds].every((elementId) => selectedIds.has(elementId))) return;
     setSelection(nextSelectedIds);
@@ -741,8 +776,38 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function finishMarquee(marquee: Extract<Gesture, { kind: 'marquee' }>): void {
     marquee.outline.remove();
+    if (marquee.placementTool) {
+      finishPlacement(marquee, marquee.placementTool);
+      return;
+    }
     if (marquee.hasMoved || marquee.isAdditive) return;
     setSelection(new Set());
+  }
+
+  function finishPlacement(marquee: Extract<Gesture, { kind: 'marquee' }>, tool: PlacementTool): void {
+    if (!marquee.hasMoved) {
+      void placeElement(tool, marquee.origin, null);
+      return;
+    }
+    const area = rectBetween(marquee.origin, marquee.latest);
+    const width = Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, Math.round(area.width)));
+    const height = Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.max(1, Math.round(area.height)));
+    void placeElement(tool, { x: area.x, y: area.y }, { width, height });
+  }
+
+  function cancelGesture(): boolean {
+    const cancelled = gesture;
+    if (!cancelled || cancelled.kind === 'pinch') return false;
+    gesture = null;
+    activePointers.delete(cancelled.pointerId);
+    if (cancelled.kind === 'marquee') cancelled.outline.remove();
+    if (cancelled.kind === 'wire') endWire(cancelled, false);
+    if (cancelled.kind === 'ink') cancelled.draftLine.remove();
+    if (cancelled.kind !== 'drag') return true;
+    cancelPreviewFrame();
+    renderer.setWireTarget(null);
+    paintPreview();
+    return true;
   }
 
   function movePinch(pinch: Extract<Gesture, { kind: 'pinch' }>): void {
@@ -932,6 +997,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function editTitle(elementId: string): void {
     const titled = options.currentBoard()?.elements.get(elementId);
     if (titled?.kind !== 'box' || !renderer.boxTextRectsOf(elementId)) return;
+    if (isTextBox(titled)) {
+      editText(titled);
+      return;
+    }
     const input = markAsNotCredential(el('input', 'wb-title-input'));
     input.type = 'text';
     input.value = titled.title;
@@ -956,6 +1025,40 @@ export function createBoardEditor(options: BoardEditorOptions) {
     input.addEventListener('blur', closeInlineEditor, { signal });
     input.focus();
     input.select();
+  }
+
+  function editText(box: Box): void {
+    const textArea = el('textarea', 'wb-text-input');
+    textArea.value = [box.title, ...box.lines.map((line) => line.text)].join('\n');
+    textArea.rows = Math.max(2, box.lines.length + 1);
+    textArea.setAttribute('aria-label', 'Text');
+    const signal = openInlineEditor(textArea, () => renderer.boundsOf(box.id), MIN_TITLE_EDITOR_WIDTH_PX);
+    const commit = () => {
+      const typedText = textArea.value;
+      closeInlineEditor();
+      viewport.focus();
+      const liveBox = editedBox(box.id);
+      const editOps = liveBox ? textEditOps(box, liveBox, typedText) : [];
+      if (editOps.length > 0) void options.sendOps(editOps);
+    };
+    textArea.addEventListener('keydown', (event) => {
+      const isCommitKey = event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey));
+      if (!isCommitKey) return;
+      event.preventDefault();
+      commit();
+    }, { signal });
+    textArea.addEventListener('input', () => {
+      const fittedText = fittedTextOf(textArea.value);
+      if (fittedText !== textArea.value) {
+        const caret = Math.min(textArea.selectionStart, fittedText.length);
+        textArea.value = fittedText;
+        textArea.setSelectionRange(caret, caret);
+      }
+      textArea.rows = Math.max(2, textArea.value.split('\n').length);
+    }, { signal });
+    textArea.addEventListener('blur', commit, { signal });
+    textArea.focus();
+    textArea.select();
   }
 
   function editedBox(boxId: string): Box | null {
@@ -1157,8 +1260,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function onDoubleClick(event: MouseEvent): void {
     if (isPhoneLayout()) return;
     const hit = hitAt(event.clientX, event.clientY);
-    const box = hit?.kind === 'box' ? editedBox(hit.id) : null;
-    if (!hit || !box) return;
+    if (!hit) {
+      void placeElement('text', toViewPoint(event.clientX, event.clientY), null);
+      return;
+    }
+    const box = hit.kind === 'box' ? editedBox(hit.id) : null;
+    if (!box) return;
+    if (isTextBox(box)) {
+      editText(box);
+      return;
+    }
     const lineCount = linesOfBox(box).length;
     const { lineIndex } = hit;
     if (hit.part === 'line' && lineIndex !== null && lineIndex < lineCount) {
@@ -1203,6 +1314,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (nudgeDirection) return () => nudgeSelected(nudgeDirection, event.shiftKey ? SHIFTED_NUDGE_UNITS : NUDGE_UNITS);
     if (event.key === 'Delete' || event.key === 'Backspace') return removeSelected;
     if (event.key === 'Escape') return () => {
+      if (cancelGesture()) return;
       setSelection(new Set());
       setTool('select');
     };

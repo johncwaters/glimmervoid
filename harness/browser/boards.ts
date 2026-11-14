@@ -162,6 +162,68 @@ async function addPlanStep(open: OpenBoard, offset: { x: number; y: number }, ti
   return elementWhere(open, `${title} as a planned step`, (element) => element.id === box.id && element.kind === 'box' && element.step?.status === 'planned');
 }
 
+async function placeTextWithTool(open: OpenBoard, offset: { x: number; y: number }, typedText: string): Promise<BoardElement> {
+  const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  await open.page.mouse.click(canvasBox.x + offset.x, canvasBox.y + offset.y);
+  await open.page.getByRole('textbox', { name: 'Text', exact: true }).fill(typedText);
+  await open.page.keyboard.press('Escape');
+  return elementWhere(open, `a text box starting ${typedText}`, titled(typedText.split('\n')[0] ?? typedText));
+}
+
+async function verifyDragPlacement(open: OpenBoard): Promise<void> {
+  const { page, panel } = open;
+  const viewport = panel.locator('.wb-viewport');
+  const canvasBox = await panel.locator('.wb-canvas').boundingBox();
+  assert.ok(canvasBox);
+  await viewport.focus();
+  await page.keyboard.press('d');
+  const dragStart = { x: canvasBox.x + 60, y: canvasBox.y + 560 };
+  await page.mouse.move(dragStart.x, dragStart.y);
+  await page.mouse.down();
+  await page.mouse.move(dragStart.x + 360, dragStart.y + 140, { steps: 6 });
+  await page.mouse.up();
+  await page.getByRole('textbox', { name: 'Box title', exact: true }).fill('Dragged out');
+  await page.keyboard.press('Enter');
+  const { scale } = await cameraOf(open);
+  const draggedOut = await elementWhere(open, 'a decision dragged out to size', titled('Dragged out'));
+  assert.ok(draggedOut.kind === 'box' && draggedOut.shape === 'decision', 'the decision tool drags out a decision');
+  assert.ok(Math.abs((draggedOut.width ?? 0) - 360 / scale) <= 2 && Math.abs((draggedOut.height ?? 0) - 140 / scale) <= 2, `the dragged decision takes the dragged size, got ${draggedOut.width} by ${draggedOut.height} at scale ${scale}`);
+  const emptySpot = { x: canvasBox.x + 60, y: canvasBox.y + 760 };
+  await page.mouse.dblclick(emptySpot.x, emptySpot.y);
+  await page.getByRole('textbox', { name: 'Text', exact: true }).fill('Typed on the canvas');
+  await page.mouse.click(canvasBox.x + 500, canvasBox.y + 400);
+  const typedText = await elementWhere(open, 'double-clicking empty canvas makes a text box', titled('Typed on the canvas'));
+  assert.ok(typedText.kind === 'box' && typedText.borderless === true, 'the double-click text is a borderless text box');
+  const textArea = page.getByRole('textbox', { name: 'Text', exact: true });
+  const openTextEditor = async () => {
+    const typedRect = await screenRectOf(open, typedText.id);
+    await page.mouse.dblclick(typedRect.x + 10, typedRect.y + 12);
+    await textArea.waitFor();
+  };
+  await openTextEditor();
+  await textArea.fill(['   ', 'Kept heading', 'kept body'].join('\n'));
+  await page.keyboard.press('Escape');
+  await elementWhere(open, 'a blank first row leaves the next row as the title and keeps the body', (element) => element.id === typedText.id && titled('Kept heading')(element) && element.kind === 'box' && element.lines.map((line) => line.text).join('|') === 'kept body');
+  await openTextEditor();
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'set', id: typedText.id, fields: { lines: [{ text: 'kept body' }, { text: 'an agent line' }] } }] });
+  await elementWhere(open, 'the agent line lands while the editor is open', (element) => element.id === typedText.id && element.kind === 'box' && element.lines.length === 2);
+  await textArea.press('ControlOrMeta+Home');
+  await textArea.press('End');
+  await page.keyboard.type(' too');
+  await page.keyboard.press('Escape');
+  await elementWhere(open, 'a title-only edit keeps a line an agent added while the editor was open', (element) => element.id === typedText.id && titled('Kept heading too')(element) && element.kind === 'box' && element.lines.length === 2);
+  await openTextEditor();
+  await textArea.fill(['Long one', ...Array.from({ length: 15 }, (_unused, index) => `row ${index + 1}`)].join('\n'));
+  assert.equal((await textArea.inputValue()).split('\n').length, 13, 'the text field stops at a title and twelve lines, in view while typing');
+  await textArea.fill('');
+  await page.keyboard.press('Escape');
+  await boardWithout(open, 'emptying a text box removes it', (element) => element.id === typedText.id);
+  await selectBoxes(open, [draggedOut.id]);
+  await page.keyboard.press('Delete');
+  await boardWithout(open, 'Delete removes the dragged decision', (element) => element.id === draggedOut.id);
+}
+
 async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
@@ -354,8 +416,9 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('t');
-  const looseWords = await placeBoxWithTool(open, { x: 40, y: 420 }, 'Loose words');
+  const looseWords = await placeTextWithTool(open, { x: 40, y: 420 }, 'Loose words\nand a second line');
   assert.ok(looseWords.kind === 'box' && looseWords.shape === 'box' && looseWords.borderless === true, 'the text tool places a borderless box');
+  assert.deepEqual(looseWords.kind === 'box' ? looseWords.lines.map((line) => line.text) : [], ['and a second line'], 'the lines after the first become plain lines of the text box');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
   await page.keyboard.press('p');
@@ -1256,7 +1319,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await boxTool.click();
     assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
     const toolHint = panel.locator('.wb-tool-hint');
-    await toolHint.filter({ hasText: 'Click the board to place a box' }).waitFor();
+    await toolHint.filter({ hasText: 'Click or drag on the board to place a box' }).waitFor();
     const parseFeed = await placeBoxWithTool(open, { x: 60, y: 60 }, 'Parse feed');
     assert.equal(await drawingTool(panel, 'Select').getAttribute('aria-pressed'), 'true', 'the tool returns to select after one placement');
     assert.equal(await toolHint.isVisible(), false, 'the hint line hides once the select tool is back');
@@ -1265,6 +1328,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
     await verifyResizedBoxes(open, [parseFeed.id]);
     await verifyKeyboardEditing(open, parseFeed.id);
+    if (desktopBoard) await verifyDragPlacement(open);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
@@ -1291,10 +1355,10 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Note', 'Text', 'Wire', 'Pen'], 'the toolbar shows the tool lock and seven tools');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Wire', 'Pen', 'Text', 'Note', 'Icon', 'Device'], 'the toolbar shows the tool lock and every tool');
     await page.keyboard.press('d');
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
-    assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key still places a decision with no toolbar button');
+    assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key places a decision');
     await verifyBoxStaysWhereDropped(open, priorArt.id, 'a decision placed with the D key');
     await selectBoxes(open, [sourceBox.id, targetBox.id]);
     await verifyResizedBoxes(open, [sourceBox.id, targetBox.id]);

@@ -177,7 +177,9 @@
 .wb-viewport[data-tool='note'],
 .wb-viewport[data-tool='text'],
 .wb-viewport[data-tool='wire'],
-.wb-viewport[data-tool='pen'] {
+.wb-viewport[data-tool='pen'],
+.wb-viewport[data-tool='icon'],
+.wb-viewport[data-tool='device'] {
   cursor: crosshair;
 }
 
@@ -462,6 +464,18 @@
   background: var(--bg-card);
   color: var(--text-head);
   font: 700 var(--type-body) var(--wb-font);
+}
+
+.wb-text-input {
+  position: absolute;
+  z-index: 2;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text-head);
+  font: 700 var(--type-body) var(--wb-font);
+  resize: none;
 }
 
 .wb-line-editor {
