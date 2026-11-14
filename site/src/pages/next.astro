@@ -35,6 +35,11 @@ import NextHero from '../components/next/NextHero.astro';
 <style is:global>
   .next-page section { padding-block: 128px; }
   .next-page .section-head { margin-bottom: 64px; }
+  @media (min-width: 1180px) {
+    .next-page section:has(> .section-head) { display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }
+    .next-page section > .section-head { grid-column: 1; grid-row: 1 / span 12; position: sticky; top: 48px; margin-bottom: 0; }
+    .next-page section:has(> .section-head) > :not(.section-head) { grid-column: 2; }
+  }
   @media (max-width: 640px) {
     .next-page section { padding-block: 96px; }
     .next-page .section-head { margin-bottom: 48px; }

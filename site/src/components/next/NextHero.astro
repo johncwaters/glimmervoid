@@ -111,6 +111,9 @@ const NAV_LINKS = [
   .copy-install:hover { background: color-mix(in oklab, var(--accent) 85%, var(--text-head)); }
   .copy-status { display: block; margin-top: 10px; min-height: 21px; }
 
+  .next-hero :global(.recording) { width: min(1000px, 100%); margin: 72px auto 0; }
+  .next-hero :global(.recording-frame) { aspect-ratio: 1440 / 780; border-bottom: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .next-hero :global(.recording figcaption) { display: none; }
   .spectrum { display: grid; grid-template-columns: repeat(6, 1fr); list-style: none; margin: 0; padding: 0; background: var(--bg-header); border-bottom: 1px solid var(--border-dim); }
   .spectrum li { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; border-top: 2px solid currentColor; }
   .spectrum li + li { border-left: 1px solid var(--border-dim); }
