@@ -248,13 +248,16 @@ test('commit signing registers the host key on GitHub with the connected user to
   let connectionState: GithubConnection | null = { state: 'disconnected' };
   const store = createHostSigningKeyStore({ folder: keyFolder });
   const warnings: string[] = [];
-  const commitSigning = createCommitSigning({ store, githubUserCredential: async () => grant, githubConnectionState: async () => connectionState, githubApiUrl: `http://127.0.0.1:${boundPort(github.server)}`, log: { warn: (line: string) => { warnings.push(line); } } });
+  let changeCount = 0;
+  const commitSigning = createCommitSigning({ store, githubUserCredential: async () => grant, githubConnectionState: async () => connectionState, onChanged: () => { changeCount += 1; }, githubApiUrl: `http://127.0.0.1:${boundPort(github.server)}`, log: { warn: (line: string) => { warnings.push(line); } } });
   let linkConnection: GithubConnection = { state: 'disconnected' };
   const disconnect = followingGithubConnection(async () => linkConnection, commitSigning);
   try {
     assert.equal((await commitSigning.act('read')).state, 'off');
+    assert.equal(changeCount, 0, 'a read announces no change');
     const unregistered = await commitSigning.act('setup');
     assert.equal(unregistered.state, 'unregistered');
+    assert.equal(changeCount, 1, 'a change is announced so an open dashboard reads it again');
     assert.equal(unregistered.canRegister, false, 'with no GitHub connection the key is added by hand');
     assert.match(unregistered.publicKey ?? '', /^ssh-ed25519 /);
     assert.match(unregistered.fingerprint ?? '', /^SHA256:/);
@@ -348,6 +351,31 @@ test('commit signing registers the host key on GitHub with the connected user to
     assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');
   } finally {
     await closeServer(github.server);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a host that cannot be prepared announces nothing, and a connection that changes state is announced once', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gv-signing-announce-'));
+  let announcedChanges = 0;
+  const announce = () => { announcedChanges += 1; };
+  const connected: GithubConnection = { state: 'connected', login: 'octo-carbon', accounts: [], refreshTokenExpiresAtMs: Date.parse('2099-01-01T00:00:00Z'), installUrl: 'https://github.com/apps/glimmervoid/installations/new' };
+  let linkConnection: GithubConnection = connected;
+  const commitSigning = createCommitSigning({ store: createHostSigningKeyStore({ folder: path.join(root, 'commit-signing') }), githubUserCredential: async () => null, githubConnectionState: async () => linkConnection, onChanged: announce, log: { warn: () => {} } });
+  const githubConnection = followingGithubConnection(async () => linkConnection, commitSigning, announce);
+  try {
+    await githubConnection('read');
+    await githubConnection('read');
+    await commitSigning.act('read');
+    assert.equal(announcedChanges, 0, 'a prepare that could not run announces nothing, so an open dashboard does not read in a loop');
+    linkConnection = { state: 'reconnect-needed', login: 'octo-carbon', reason: 'expired' };
+    await githubConnection('read');
+    await githubConnection('read');
+    assert.equal(announcedChanges, 1, 'a connection that ends without a disconnect is announced once');
+    linkConnection = connected;
+    await githubConnection('read');
+    assert.equal(announcedChanges, 2, 'the same account connecting again is announced');
+  } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });

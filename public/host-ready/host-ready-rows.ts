@@ -9,6 +9,7 @@ import { el } from '../dom-helpers.ts';
 import { settingsHash } from '../settings/settings-link.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { button } from '../ui/button.ts';
+import { refreshWhileShown } from './host-ready-changes.ts';
 import { FIX_LABELS, HOST_READY_FIXES, hostReadyRowViewsOf } from './host-ready-core.ts';
 import type { HostReadyRowView } from './host-ready-core.ts';
 
@@ -97,5 +98,6 @@ export function buildHostReadyRows({ openGithubConnection = openGithubConnection
 
   readStatus.show('busy', 'Reading this host.');
   void refresh();
+  refreshWhileShown(section, () => { if (!isRequesting) void refresh(); });
   return { element: section, refresh };
 }

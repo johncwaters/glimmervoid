@@ -255,8 +255,8 @@ function renderContent() {
   if (pageScope) titleRow.appendChild(buildChip('scope', SCOPE_LABELS[pageScope]));
   header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
   if (isExperimentalPage) header.appendChild(el('p', 'settings-view-warning settings-view-experimental-caution', 'Experimental: this may change or break between releases.'));
-  if (selectedPage.id === availableSettingsSections()[0]?.id) contentEl.appendChild(buildHostReadyRows().element);
   contentEl.appendChild(header);
+  if (selectedPage.id === availableSettingsSections()[0]?.id) contentEl.appendChild(buildHostReadyRows().element);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {
     const stack = el('div', 'settings-view-stack');

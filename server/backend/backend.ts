@@ -47,7 +47,7 @@ import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-star
 import { createCommitSigning, createUnsignedCommitNotices, followingGithubConnection } from '../commit-signing.ts';
 import { createHostReady } from '../ready-host.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
-import { setOperatorTimezoneSource } from '../../shared/clock.ts';
+import { clock, setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf, NO_GITHUB_APP_GRANTS } from '../lanes/core/lane-permissions-core.ts';
@@ -697,8 +697,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
   githubUserCredentialOfLink = watcherLink.githubUserCredential;
-  const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read') });
-  const githubConnection = followingGithubConnection(watcherLink.githubConnection, commitSigning);
+  const announceHostReadyChanged = () => { broadcastControl?.({ type: 'host-ready-changed', timestamp: clock.nowMs() }); };
+  const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read'), onChanged: announceHostReadyChanged });
+  const githubConnection = followingGithubConnection(watcherLink.githubConnection, commitSigning, announceHostReadyChanged);
   const hostReady = createHostReady({ githubConnection: () => githubConnection('read'), commitSigningStatus: () => commitSigning.act('read'), ghShimDir });
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,

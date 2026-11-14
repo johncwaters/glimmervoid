@@ -7,7 +7,7 @@ import { GithubConnection, GithubConnectionAction } from '../watcher-link.ts';
 import { CommitSigningAction, CommitSigningStatus } from '../commit-signing.ts';
 import { HostReady } from '../host-ready.ts';
 import { PrActionRunRequest, PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
-import { requestId, GithubTeam, PullRequestKey, loose, optionalError } from './control-fields.ts';
+import { requestId, GithubTeam, PullRequestKey, loose, optionalError, timestamp } from './control-fields.ts';
 
 export const githubClientVariants = [
   loose('list-github-teams', { requestId }),
@@ -49,6 +49,7 @@ export const githubServerVariants = [
   loose('github-connection-result', { requestId, connection: GithubConnection.nullable() }),
   loose('commit-signing-result', { requestId, status: CommitSigningStatus.nullable() }),
   loose('host-ready-result', { requestId, hostReady: HostReady.nullable() }),
+  loose('host-ready-changed', { timestamp }),
   TeamReviewStatus,
   MyPrsStatus,
   PrFlowsStatus,

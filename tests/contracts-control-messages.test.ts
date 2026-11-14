@@ -88,6 +88,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'secret-source-test-result', requestId: 'r1', ok: false, message: '1Password did not sign in', detail: '[ERROR] not signed in' },
   { type: 'github-connection-result', requestId: 'r1', connection: { state: 'awaiting-code', userCode: 'WDJB-MJHT', verificationUri: 'https://github.com/login/device', expiresAtMs: NOW + 900_000 } },
   { type: 'commit-signing-result', requestId: 'r1', status: { state: 'registered', fingerprint: 'SHA256:2ab9wBZAGTUKqm6V2WXzZXnPb0Bd9cpyAEXrbUuZ3hQ', publicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl', login: 'octo-carbon', canRegister: true, problem: null, identity: { name: 'Octo Carbon', email: '7+octo-carbon@users.noreply.github.com' } } },
+  { type: 'host-ready-changed', timestamp: 1 },
   { type: 'host-ready-result', requestId: 'r1', hostReady: { rows: [{ id: 'github', state: 'ready', text: 'Connected as octo-cat.', fix: null }, { id: 'commit-signing', state: 'needs-action', text: 'Off, so commits show as Unverified on GitHub.', fix: 'set-up-signing' }] } },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },

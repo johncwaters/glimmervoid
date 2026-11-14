@@ -242,10 +242,11 @@ function byHandNotice(login: string): string {
   return `Glimmervoid has no GitHub access for ${login}: delete the key named "${GITHUB_KEY_TITLE}" at github.com/settings/keys.`;
 }
 
-function createCommitSigning({ store, githubUserCredential, githubConnectionState, githubApiUrl = GITHUB_API_URL, fetchImpl = fetch, log = console }: {
+function createCommitSigning({ store, githubUserCredential, githubConnectionState, onChanged = () => {}, githubApiUrl = GITHUB_API_URL, fetchImpl = fetch, log = console }: {
   store: HostSigningKeyStore;
   githubUserCredential: () => Promise<GithubUserGrant | null>;
   githubConnectionState: () => Promise<GithubConnection | null>;
+  onChanged?: () => void;
   githubApiUrl?: string;
   fetchImpl?: typeof fetch;
   log?: Pick<Console, 'warn'>;
@@ -257,6 +258,10 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     const next = actionChain.then(work, work);
     actionChain = next.catch(() => {});
     return next;
+  }
+
+  function serializedChange<T>(work: () => Promise<T>): Promise<T> {
+    return serialized(work).finally(onChanged);
   }
 
   async function connectedGrant(): Promise<GithubUserGrant | null> {
@@ -359,7 +364,8 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   const problemOfAction: Record<CommitSigningAction, () => Promise<string | null>> = { read: async () => null, setup: setUp, register, remove };
 
   async function act(action: CommitSigningAction): Promise<CommitSigningStatus> {
-    return serialized(async () => {
+    const run = action === 'read' ? serialized : serializedChange;
+    return run(async () => {
       try {
         return await statusWith(await problemOfAction[action]());
       } catch (error) {
@@ -391,6 +397,13 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   }
 
   function prepareHost(): Promise<boolean> {
+    return preparedHost().then((didPrepare) => {
+      if (didPrepare) onChanged();
+      return didPrepare;
+    });
+  }
+
+  function preparedHost(): Promise<boolean> {
     return serialized(async () => {
       const grant = await connectedGrant();
       if (!grant) return false;
@@ -410,7 +423,7 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   }
 
   function disconnectGithub<T>(disconnect: () => Promise<T>): Promise<T> {
-    return serialized(async () => {
+    return serializedChange(async () => {
       await forgetGithubKey().catch((error: unknown) => {
         pendingProblem = `Disconnect left the signing key on GitHub: ${errorMessage(error)}`;
         log.warn(`[commit-signing] ${pendingProblem}`);
@@ -425,6 +438,7 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     if (!held || !record.github || !grant || grant.login !== record.github.login) return null;
     if ((await githubKeyIdsMatching(grant, held)).length > 0) return null;
     await store.writeRecord({ ...record, github: null });
+    onChanged();
     return `The commit signing key is no longer on GitHub for ${grant.login}, so new commits will not show as Verified there. Register it again in Settings.`;
   }
 
@@ -464,8 +478,17 @@ function createUnsignedCommitNotices({ store, notify, log = console }: {
   return { watches, report };
 }
 
-function followingGithubConnection(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub' | 'prepareHost'>): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
+function followingGithubConnection(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub' | 'prepareHost'>, onConnectionChanged: () => void = () => {}): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
   let preparedLogin: string | null = null;
+  let lastSeenConnection: string | null = null;
+
+  function noteSeen(connection: GithubConnection | null): void {
+    if (connection === null) return;
+    const seenConnection = `${connection.state} ${'login' in connection ? connection.login : ''}`;
+    const isChange = lastSeenConnection !== null && lastSeenConnection !== seenConnection;
+    lastSeenConnection = seenConnection;
+    if (isChange) onConnectionChanged();
+  }
 
   function prepareOnce(login: string): void {
     if (login === preparedLogin) return;
@@ -481,6 +504,7 @@ function followingGithubConnection(githubConnection: (action: GithubConnectionAc
       return commitSigning.disconnectGithub(() => githubConnection(action));
     }
     const connection = await githubConnection(action);
+    noteSeen(connection);
     if (connection?.state === 'connected') prepareOnce(connection.login);
     return connection;
   };

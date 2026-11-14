@@ -1,6 +1,7 @@
 import type { CommitSigningAction, CommitSigningStatus } from '#shared/contracts/commit-signing.ts';
 import { createActionStatus, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { refreshWhileShown } from '../host-ready/host-ready-changes.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -88,6 +89,7 @@ function buildCommitSigningSection(): HTMLElement {
 
   paint();
   void request('read');
+  refreshWhileShown(article, () => { if (!isRequesting) void request('read'); });
   return article;
 }
 
