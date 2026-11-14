@@ -962,11 +962,20 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   assert.equal(wakingPage.status, 503);
   assert.match(wakingPage.body, /Waking your Glimmervoid/);
   assert.match(wakingPage.body, /http-equiv="refresh"/);
+  const pageScript = /<script>([\s\S]*)<\/script>/.exec(wakingPage.body)?.[1] ?? '';
+  const pagePolicy = await new Promise<string>((resolve, reject) => {
+    http.request({ host: '127.0.0.1', port: doormanPort, path: '/', headers: { ...browserHeaders, host: tenantHost } }, (response) => {
+      response.resume();
+      resolve(String(response.headers['content-security-policy']));
+    }).on('error', reject).end();
+  });
+  assert.ok(pagePolicy.includes(`script-src 'sha256-${crypto.createHash('sha256').update(pageScript).digest('base64')}'`), 'the policy admits exactly the script the page carries');
   await eventually(() => wakeCalls.length === 1 ? true : undefined);
   assert.deepEqual(await eventually(async () => {
     const answer = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
     return answer.status === 200 ? answer : undefined;
   }), { status: 200, body: 'awake' });
+  assert.deepEqual(await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'the page\'s own poll never reaches the awake server, so a one-use link is spent only by the operator\'s navigation');
 
   const stopped = await requestHostStop(doormanPort, tenantHost, directionKey(linkSecret, 'server-to-watcher'));
   assert.equal(stopped.status, 202);

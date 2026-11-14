@@ -39,3 +39,4 @@ literalSizesAllowedIn:
   - public/tailwind.css
   - public/index.html
   - server/remote-auth.ts
+  - cloud/doorman/host-page.ts

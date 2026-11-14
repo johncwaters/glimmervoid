@@ -16,6 +16,7 @@ type MeterTotal = { periodStartMs: number; closedAwakeMs: number; openSinceMs: n
 type ForwardState = 'answering' | 'waking' | 'unreachable';
 type ForwardEvent = 'connectFailed' | 'connected' | 'holdTimedOut' | 'cooldownPassedAndRequest' | 'hostStopped';
 type GceWakeAction = 'resume' | 'start';
+type WakePageState = { phase: 'waking'; elapsedMs: number; didLastWakeFail: boolean } | { phase: 'holding'; retryInMs: number | null };
 
 const FORWARD_TRANSITIONS: Readonly<Record<ForwardState, Partial<Record<ForwardEvent, ForwardState>>>> = Object.freeze({
   answering: { connectFailed: 'waking', hostStopped: 'unreachable' },
@@ -60,6 +61,12 @@ function nextForwardState(state: ForwardState, event: ForwardEvent): ForwardStat
 
 function isWakeAllowed(lastWakeAtMs: number | null, nowMs: number, wakeCooldownMs: number): boolean {
   return lastWakeAtMs === null || nowMs - lastWakeAtMs >= wakeCooldownMs;
+}
+
+function wakePageState({ isWakeInFlight, didLastWakeFail, lastWakeAtMs, nowMs, wakeCooldownMs }: { isWakeInFlight: boolean; didLastWakeFail: boolean; lastWakeAtMs: number | null; nowMs: number; wakeCooldownMs: number }): WakePageState {
+  if (isWakeInFlight) return { phase: 'waking', elapsedMs: Math.max(0, nowMs - (lastWakeAtMs ?? nowMs)), didLastWakeFail };
+  if (lastWakeAtMs === null || isWakeAllowed(lastWakeAtMs, nowMs, wakeCooldownMs)) return { phase: 'holding', retryInMs: null };
+  return { phase: 'holding', retryInMs: wakeCooldownMs - (nowMs - lastWakeAtMs) };
 }
 
 function gceWakeAction(status: string): GceWakeAction | null {
@@ -185,5 +192,5 @@ function isOverCap(usage: AwakeUsage): boolean {
   return usage.capMs !== null && usage.usedMs >= usage.capMs;
 }
 
-export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wantsWakingPage };
-export type { DoormanRoute, ForwardState, GceWakeAction, MeterTotal };
+export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
+export type { DoormanRoute, ForwardState, GceWakeAction, MeterTotal, WakePageState };
