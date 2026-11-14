@@ -72,12 +72,14 @@ const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
   note: { label: 'Note', key: 'S', iconPath: 'M2.5 2.5h11v7l-4 4h-7z M9.5 13.5v-4h4', hint: 'Click the board to place a note. Esc to cancel.' },
   text: { label: 'Text', key: 'T', iconPath: 'M3 3.5h10 M8 3.5v9.5', hint: 'Click the board to place text. Esc to cancel.' },
   wire: { label: 'Wire', key: 'A', iconPath: 'M2.5 13.5L13 3 M8.5 3H13v4.5', hint: 'Drag from one box to another to connect them. Esc to cancel.' },
-  pen: { label: 'Pen', key: 'B', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
+  hand: { label: 'Hand', key: 'H', iconPath: 'M5.5 8V3.5a1 1 0 0 1 2 0V7.5 M7.5 7V2.5a1 1 0 0 1 2 0V7 M9.5 7V3.5a1 1 0 0 1 2 0V8 M11.5 8V5.5a1 1 0 0 1 2 0V10c0 2.5-2 4.5-4.5 4.5h-1c-1.6 0-2.6-.6-3.5-1.8L2.3 9.8a1 1 0 0 1 1.6-1.2L5.5 10', hint: 'Drag to pan the board. Esc to stop.' },
+  pen: { label: 'Pen', key: 'P', iconPath: 'M2.5 13.5c2-1 3-4 5-4s2 3 4 3s2-3 2-5', hint: 'Drag on the board to draw. Esc to stop drawing.' },
   decision: { label: 'Decision', key: 'D', iconPath: 'M8 2l6 6l-6 6l-6-6z', hint: 'Click the board to place a decision. Esc to cancel.' },
   icon: { label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click the board to place an icon. Esc to cancel.' },
   device: { label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click the board to place a device mockup. Esc to cancel.' },
 };
-const TOOLBAR_TOOLS: readonly BoardTool[] = ['select', 'box', 'note', 'text', 'wire', 'pen'];
+const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'note', 'text', 'wire', 'pen'];
+const TOOL_LOCK_ICON_PATH = 'M4.5 7.5h7v6h-7z M6 7.5V5.5a2 2 0 0 1 4 0v2';
 
 interface TextDialogOptions {
   title: string;
@@ -104,6 +106,7 @@ interface BoardsViewParts {
   queuedForSession: HTMLElement;
   buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
+  toolLockButton: HTMLButtonElement;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
   mediaLayer: BoardMediaLayer;
@@ -289,7 +292,7 @@ function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extra
 function paintToolbar(): void {
   if (!parts) return;
   const board = selectedBoard();
-  for (const button of parts.toolButtons.values()) button.disabled = !board;
+  for (const button of [...parts.toolButtons.values(), parts.toolLockButton]) button.disabled = !board;
   for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
 }
@@ -1053,6 +1056,25 @@ function toolButton(tool: BoardTool): HTMLButtonElement {
   return toolOption;
 }
 
+function toolLockButton(): HTMLButtonElement {
+  const lockToggle = createPressable('wb-tool wb-tool-lock');
+  lockToggle.setAttribute('aria-label', 'Keep tool selected');
+  const keyHint = el('span', 'wb-tool-key', 'Q');
+  keyHint.setAttribute('aria-hidden', 'true');
+  lockToggle.append(createLineIcon(TOOL_LOCK_ICON_PATH, '1.5'), keyHint);
+  lockToggle.setAttribute('aria-keyshortcuts', 'Q');
+  lockToggle.setAttribute('aria-pressed', 'false');
+  lockToggle.addEventListener('click', () => {
+    editor?.toggleToolLock();
+    editor?.focusCanvas();
+  });
+  return lockToggle;
+}
+
+function paintToolLock(isToolLocked: boolean): void {
+  parts?.toolLockButton.setAttribute('aria-pressed', String(isToolLocked));
+}
+
 function island(className: string, label: string, ...children: HTMLElement[]): HTMLElement {
   const container = el('div', `wb-island ${className}`);
   container.setAttribute('role', 'toolbar');
@@ -1163,7 +1185,8 @@ export function mountBoardHost(): HTMLElement {
   const toolGroup = el('div', 'wb-tools');
   toolGroup.setAttribute('role', 'group');
   toolGroup.setAttribute('aria-label', 'Drawing tools');
-  toolGroup.append(...toolButtons.values());
+  const lockButton = toolLockButton();
+  toolGroup.append(lockButton, ...toolButtons.values());
   const buttons = {
     fit: iconButton('Fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     undo: iconButton('Undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
@@ -1223,7 +1246,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolLockButton: lockButton, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
@@ -1262,6 +1285,7 @@ export function mountBoardHost(): HTMLElement {
     onOpenStack: openStack,
     isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),
     onToolChange: paintActiveTool,
+    onToolLockChange: paintToolLock,
   });
 
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));

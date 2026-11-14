@@ -200,6 +200,70 @@ async function verifyResizedBoxes(open: OpenBoard, boxIds: readonly [string, ...
   await pollFor('one undo puts every box back to its width', RESIZE_TIMEOUT_MS, async () => ((await widthsOf()).every((width, index) => width === widthsBefore[index]) ? true : null));
 }
 
+async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
+  const laidOut = await laidOutOf(open, boxId);
+  return { x: laidOut.kind === 'wire' ? 0 : laidOut.x, y: laidOut.kind === 'wire' ? 0 : laidOut.y };
+}
+
+async function verifyKeyboardEditing(open: OpenBoard, boxId: string): Promise<void> {
+  const { page, panel } = open;
+  const viewport = panel.locator('.wb-viewport');
+  const undo = panel.getByRole('button', { name: 'Undo', exact: true });
+  const cornerBefore = await laidOutCornerOf(open, boxId);
+  await selectBoxes(open, [boxId]);
+  for (const _press of [1, 2, 3]) await page.keyboard.press('ArrowRight');
+  await pollFor('three quick ArrowRight presses nudge the selected box three units right', BOARD_TIMEOUT_MS, async () => ((await laidOutCornerOf(open, boxId)).x === cornerBefore.x + 3 ? true : null));
+  await page.keyboard.press('Shift+ArrowDown');
+  await pollFor('Shift+ArrowDown nudges the selected box five units down', BOARD_TIMEOUT_MS, async () => ((await laidOutCornerOf(open, boxId)).y === cornerBefore.y + 5 ? true : null));
+  for (const _nudge of [1, 2, 3, 4]) await undo.click();
+  await pollFor('one undo per nudge puts the nudged box back', BOARD_TIMEOUT_MS, async () => {
+    const corner = await laidOutCornerOf(open, boxId);
+    return corner.x === cornerBefore.x && corner.y === cornerBefore.y ? true : null;
+  });
+  await viewport.focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('ControlOrMeta+0');
+  await pollFor('Ctrl+0 resets the zoom to 100%', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
+  await page.keyboard.press('ControlOrMeta+Equal');
+  await pollFor('Ctrl+= zooms in', BOARD_TIMEOUT_MS, async () => ((await cameraOf(open)).scale > 1.1 ? true : null));
+  await page.keyboard.press('ControlOrMeta+Minus');
+  await pollFor('Ctrl+- zooms back out', BOARD_TIMEOUT_MS, async () => (Math.abs((await cameraOf(open)).scale - 1) < 0.001 ? true : null));
+  const viewportBox = await viewport.boundingBox();
+  assert.ok(viewportBox);
+  const panStart = { x: viewportBox.x + viewportBox.width - 40, y: viewportBox.y + viewportBox.height - 40 };
+  const cameraBeforePan = await cameraOf(open);
+  await page.keyboard.down('Space');
+  await page.mouse.move(panStart.x, panStart.y);
+  await page.mouse.down();
+  await page.mouse.move(panStart.x - 60, panStart.y - 30, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Space');
+  const cameraAfterPan = await cameraOf(open);
+  assert.ok(Math.abs(cameraAfterPan.translateX - cameraBeforePan.translateX + 60) < 2, 'holding Space and dragging pans the board left');
+  await page.keyboard.press('Shift+Digit1');
+  await pollFor('Shift+1 fits the board again', BOARD_TIMEOUT_MS, async () => ((await cameraOf(open)).translateX !== cameraAfterPan.translateX ? true : null));
+  await page.keyboard.press('h');
+  assert.equal(await drawingTool(panel, 'Hand').getAttribute('aria-pressed'), 'true', 'H picks the hand tool');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('q');
+  assert.equal(await drawingTool(panel, 'Keep tool selected').getAttribute('aria-pressed'), 'true', 'Q locks the tool');
+  await page.keyboard.press('r');
+  const lockedOne = await placeBoxWithTool(open, { x: 60, y: 300 }, 'Locked one');
+  assert.equal(await drawingTool(panel, 'Box').getAttribute('aria-pressed'), 'true', 'a locked tool stays picked after a placement');
+  const lockedTwo = await placeBoxWithTool(open, { x: 60, y: 420 }, 'Locked two');
+  await viewport.focus();
+  await page.keyboard.press('q');
+  await page.keyboard.press('Escape');
+  await selectBoxes(open, [lockedOne.id, lockedTwo.id]);
+  await page.keyboard.press('Delete');
+  await boardWithout(open, 'Delete removes both locked placements', (element) => element.id === lockedOne.id || element.id === lockedTwo.id);
+  await viewport.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await panel.locator('.wb-inspect').waitFor();
+  await page.keyboard.press('Escape');
+  await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
+}
+
 async function selectBoxes(open: OpenBoard, boxIds: readonly string[]): Promise<void> {
   for (const [index, boxId] of boxIds.entries()) {
     const center = centerOf(await screenRectOf(open, boxId));
@@ -294,7 +358,7 @@ async function verifyNoteShapes(open: OpenBoard): Promise<void> {
   assert.ok(looseWords.kind === 'box' && looseWords.shape === 'box' && looseWords.borderless === true, 'the text tool places a borderless box');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
-  await page.keyboard.press('b');
+  await page.keyboard.press('p');
   const canvasBox = await panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
   await page.mouse.move(canvasBox.x + 40, canvasBox.y + 520);
@@ -1200,6 +1264,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
     await verifyResizedBoxes(open, [parseFeed.id]);
+    await verifyKeyboardEditing(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
@@ -1226,7 +1291,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Select', 'Box', 'Note', 'Text', 'Wire', 'Pen'], 'the toolbar shows six tools');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Note', 'Text', 'Wire', 'Pen'], 'the toolbar shows the tool lock and seven tools');
     await page.keyboard.press('d');
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
     assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key still places a decision with no toolbar button');

@@ -824,6 +824,10 @@
     {
       "name": "board file",
       "definition": "A .glimmerboard file: one board with its media, written by whiteboard export so an operator on another machine opens it as a new board with whiteboard import"
+    },
+    {
+      "name": "tool lock",
+      "definition": "The whiteboard toolbar toggle (Q) that keeps the picked drawing tool after each placement instead of returning to Select"
     }
   ],
   "retired": [
