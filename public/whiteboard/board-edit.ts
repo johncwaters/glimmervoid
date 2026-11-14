@@ -17,8 +17,11 @@ import { clock } from '#shared/clock.ts';
 import { boardIndexOf } from '#shared/whiteboard-board-index.ts';
 import { centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf } from './board-clipboard-core.ts';
 import type { BoardClipboard } from './board-clipboard-core.ts';
+import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
+import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
 
 const DRAG_THRESHOLD_PX = 4;
+const SNAP_THRESHOLD_PX = 8;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
@@ -115,7 +118,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
@@ -160,6 +163,10 @@ interface BoxSize {
 }
 
 const DUPLICATE_OFFSET = { x: 20, y: 20 };
+
+function shiftedRectOf(rect: Rect, offset: ViewPoint): Rect {
+  return { ...rect, x: rect.x + offset.x, y: rect.y + offset.y };
+}
 
 const BLANK_TEXT_LINE: BoxLine = { text: '', muted: false, style: 'text', key: null };
 
@@ -234,6 +241,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   const activePointers = new Map<number, ViewPoint>();
   let selectedIds = new Set<string>();
   let lastPointerClient: ViewPoint | null = null;
+  let guideLines: SVGLineElement[] = [];
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let gesture: Gesture = null;
   let inlineEditor: InlineEditor | null = null;
@@ -267,6 +275,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
     renderer.setCamera(camera);
     placeInlineEditor();
+    forgetSnapTargets();
+  }
+
+  function forgetSnapTargets(): void {
+    if (gesture?.kind === 'drag') gesture.snapTargets = null;
+    if (gesture?.kind !== 'drag') paintGuides([]);
   }
 
   function viewWidth(): number {
@@ -303,11 +317,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function fitSelection(): void {
     const selectedRects = [...selectedIds].flatMap((elementId) => renderer.boundsOf(elementId) ?? []);
     if (selectedRects.length === 0) return;
-    const left = Math.min(...selectedRects.map((rect) => rect.x));
-    const top = Math.min(...selectedRects.map((rect) => rect.y));
-    const right = Math.max(...selectedRects.map((rect) => rect.x + rect.width));
-    const bottom = Math.max(...selectedRects.map((rect) => rect.y + rect.height));
-    fitArea({ x: left, y: top, width: right - left, height: bottom - top }, MAX_FIT_ZOOM);
+    fitArea(rectAround(selectedRects), MAX_FIT_ZOOM);
   }
 
   function fitArea(bounds: Rect, maxZoom: number): void {
@@ -562,6 +572,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     if (gesture?.kind === 'marquee') gesture.outline.remove();
+    paintGuides([]);
     gesture = { kind: 'pinch', distance: pinchDistance(), viewWidth: viewWidth() };
   }
 
@@ -654,7 +665,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizeRect = hit?.part === 'resize' && !isPhoneLayout() ? hitBoxRect : null;
     if (hit && resizeRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false };
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null };
       return;
     }
     if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
@@ -670,7 +681,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -833,11 +844,59 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (shouldConnect && targetBoxId) options.onConnectBoxes(wire.fromBoxId, targetBoxId);
   }
 
-  function moveDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): void {
+  function snapTargetsFor(drag: Extract<Gesture, { kind: 'drag' }>): SnapTargets {
+    const board = options.currentBoard();
+    const movingIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
+    const visibleArea = { x: camera.x, y: camera.y, width: viewWidth(), height: (viewport.clientHeight || 1) / camera.scale };
+    const visibleRects = renderer.elementsInRect(visibleArea).flatMap((elementId) => {
+      const isOtherBox = !movingIds.has(elementId) && board?.elements.get(elementId)?.kind === 'box';
+      const rect = isOtherBox ? renderer.boundsOf(elementId) : null;
+      return rect ? [rect] : [];
+    });
+    return snapTargetsOf(visibleRects);
+  }
+
+  function snappedLatestOf(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): ViewPoint {
     const point = toViewPoint(event.clientX, event.clientY);
-    if (!drag.hasMoved && Math.hypot(point.x - drag.origin.x, point.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
+    const isSnapOff = event.ctrlKey || event.metaKey || drag.movingBoxes.length === 0;
+    if (isSnapOff) {
+      paintGuides([]);
+      return point;
+    }
+    drag.snapTargets ??= snapTargetsFor(drag);
+    const offset = { x: point.x - drag.origin.x, y: point.y - drag.origin.y };
+    const isResize = drag.mode === 'resize';
+    const moved = isResize
+      ? { ...drag.start, width: drag.start.width + offset.x, height: drag.start.height + offset.y }
+      : shiftedRectOf(rectAround(drag.movingBoxes.map((movingBox) => movingBox.start)), offset);
+    const edges = isResize
+      ? { xs: [moved.x + moved.width], ys: isResizedVertically({ ...drag, latest: point }) ? [moved.y + moved.height] : [] }
+      : { xs: [moved.x, moved.x + moved.width / 2, moved.x + moved.width], ys: [moved.y, moved.y + moved.height / 2, moved.y + moved.height] };
+    const thresholdUnits = SNAP_THRESHOLD_PX * viewUnitsPerPixel();
+    const firstSnap = snappedCorrectionOf(drag.snapTargets, edges, moved, thresholdUnits);
+    const losesVerticalResize = isResize && edges.ys.length > 0 && !isResizedVertically({ ...drag, latest: { x: point.x, y: point.y + firstSnap.correction.y } });
+    const snap = losesVerticalResize ? snappedCorrectionOf(drag.snapTargets, { xs: edges.xs, ys: [] }, moved, thresholdUnits) : firstSnap;
+    paintGuides(snap.guides);
+    return { x: point.x + snap.correction.x, y: point.y + snap.correction.y };
+  }
+
+  function paintGuides(guides: readonly SnapGuide[]): void {
+    for (const line of guideLines) line.remove();
+    guideLines = guides.map((guide) => {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('class', 'wb-snap-guide');
+      const ends = guide.axis === 'x' ? [guide.at, guide.from, guide.at, guide.to] : [guide.from, guide.at, guide.to, guide.at];
+      for (const [index, attribute] of ['x1', 'y1', 'x2', 'y2'].entries()) line.setAttribute(attribute, String(ends[index]));
+      svg.append(line);
+      return line;
+    });
+  }
+
+  function moveDrag(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): void {
+    const rawPoint = toViewPoint(event.clientX, event.clientY);
+    if (!drag.hasMoved && Math.hypot(rawPoint.x - drag.origin.x, rawPoint.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
     drag.hasMoved = true;
-    drag.latest = point;
+    drag.latest = snappedLatestOf(drag, event);
     renderer.setWireTarget(stackTargetOf(drag));
     requestPreviewFrame();
   }
@@ -903,6 +962,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (cancelled.kind === 'wire') endWire(cancelled, false);
     if (cancelled.kind === 'ink') cancelled.draftLine.remove();
     if (cancelled.kind !== 'drag') return true;
+    paintGuides([]);
     cancelPreviewFrame();
     renderer.setWireTarget(null);
     paintPreview();
@@ -961,7 +1021,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     cancelPreviewFrame();
-    drag.latest = toViewPoint(event.clientX, event.clientY);
+    drag.latest = snappedLatestOf(drag, event);
+    paintGuides([]);
     renderer.setWireTarget(null);
     if (drag.isDuplicating && drag.mode === 'move') {
       paintPreview();
@@ -1020,6 +1081,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     gesture = null;
+    paintGuides([]);
     if (finished?.kind === 'drag' && finished.pointerId === event.pointerId) {
       void finishDrag(finished, event);
       return;
@@ -1056,6 +1118,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     gesture = null;
+    paintGuides([]);
     if (!wasDragging) return;
     renderer.setWireTarget(null);
     paintPreview();
@@ -1356,6 +1419,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function afterBoardPaint(): void {
     endSettledNudgeRun();
+    forgetSnapTargets();
     settleUnconfirmedLines();
     closeStaleLineEdit();
     placeInlineEditor();

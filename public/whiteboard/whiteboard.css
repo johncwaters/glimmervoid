@@ -631,6 +631,13 @@
 
 .wb-wire-draft { stroke: var(--accent); }
 
+.wb-snap-guide {
+  stroke: var(--accent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .wb-inspect {
   display: flex;
   flex-direction: column;
