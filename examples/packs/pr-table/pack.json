@@ -2,6 +2,7 @@
   "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
   "name": "pr-table",
   "version": 1,
+  "preview": "preview.webp",
   "description": "A panel of your pull requests as one dense table: in review, in the merge queue and recently merged, with status, CI, reviews, age and size, Add to queue on approved green ones, and a Game of Life and rain animating the quiet cells of merged rows.",
   "ui": {
     "panels": [

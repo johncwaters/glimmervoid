@@ -2,6 +2,7 @@
   "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
   "name": "plan-usage",
   "version": 1,
+  "preview": "preview.webp",
   "description": "A panel: Claude, Codex and Kimi plan usage for the 5-hour and 7-day windows as bars, restyled from the active theme.",
   "ui": {
     "panels": [

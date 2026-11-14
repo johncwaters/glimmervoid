@@ -2,6 +2,7 @@
   "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
   "name": "pr-radar",
   "version": 1,
+  "preview": "preview.webp",
   "description": "A panel of the Reviews queue, your pull requests and the team reviews waiting on you, that opens a review session for a team pull request, plus a My PRs action that prints a review checklist from a script in the pack.",
   "requires": { "programs": ["node"] },
   "ui": {

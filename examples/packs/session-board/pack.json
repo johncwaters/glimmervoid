@@ -2,6 +2,7 @@
   "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
   "name": "session-board",
   "version": 1,
+  "preview": "preview.webp",
   "description": "A panel: every session as a card with its state, task and attention counts, restyled from the active theme.",
   "ui": {
     "panels": [

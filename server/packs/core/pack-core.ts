@@ -192,8 +192,8 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
 
 export const PACK_ICON_MAX_BYTES = 16 * 1024;
 export const SOURCE_ICONS_MAX_BYTES = 256 * 1024;
-export const PACK_PREVIEW_MAX_BYTES = 48 * 1024;
-const PACK_PREVIEWS_MAX_BYTES = 384 * 1024;
+export const PACK_PREVIEW_MAX_BYTES = 32 * 1024;
+const PACK_PREVIEWS_MAX_BYTES = 256 * 1024;
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
