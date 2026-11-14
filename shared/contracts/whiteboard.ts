@@ -87,10 +87,11 @@ export const BoardPageContentWidth = z.object({ type: z.literal(BOARD_PAGE_CONTE
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc'] as const;
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown'] as const;
+const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc', 'sheet'] as const;
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/csv', 'text/tab-separated-values'] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 export const BOARD_DOC_CAP_BYTES = 256 * 1024;
+export const BOARD_SHEET_CAP_BYTES = 256 * 1024;
 
 const DialId = z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, { error: 'a dial id is 1 to 40 letters, digits, dashes or underscores' });
 const DialLabel = z.string().min(1, { error: 'a dial needs a label' }).max(WHITEBOARD_LIMITS.title, { error: `a dial label is at most ${WHITEBOARD_LIMITS.title} characters` });
@@ -360,7 +361,7 @@ export const BoardFile = z.object({
   format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board file' }),
   version: z.literal(READABLE_BOARD_FILE_VERSIONS, { error: `this board file is from another Glimmervoid version; this one reads versions ${READABLE_BOARD_FILE_VERSIONS.join(' and ')}` }),
   board: Board.pick({ title: true, caption: true, legend: true, elements: true }),
-  assets: z.record(AssetId, BoardFileAsset),
+  assets: z.record(z.string().regex(/^[0-9a-f]{64}\.[a-z0-9]+$/, { error: 'a board file names each file it carries by its asset id and extension' }), BoardFileAsset),
 }).strict();
 export type BoardFile = z.infer<typeof BoardFile>;
 export type BoardFileAsset = z.infer<typeof BoardFileAsset>;
@@ -442,7 +443,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     sub: z.literal('show'),
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
-    link: z.boolean().optional().describe('link a Markdown or HTML card to the file, so the card follows it when the board is read and an operator save writes it'),
+    link: z.boolean().optional().describe('link a Markdown, CSV, TSV or HTML card to the file, so the card follows it when the board is read and an operator save writes it'),
   }).strict(),
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),
@@ -541,8 +542,8 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
   return Object.fromEntries(sparseEntries);
 }
 
-const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md',
+export const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {

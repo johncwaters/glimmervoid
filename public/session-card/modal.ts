@@ -159,12 +159,14 @@ export function applyDialogAria(dialog: HTMLElement, titleId: string) {
   dialog.setAttribute('aria-labelledby', titleId);
 }
 
-export function buildDialogShell({ title, dialogClass = 'dialog', cancelLabel = 'Cancel' }: {
+export function buildDialogShell({ title, dialogClass = 'dialog', cancelLabel = 'Cancel', closeOnBackdrop, onEscape }: {
   title: string;
   dialogClass?: string;
   cancelLabel?: string;
+  closeOnBackdrop?: boolean;
+  onEscape?: () => void;
 }) {
-  const { overlay, dialog, close } = createModalOverlay({ dialogClass });
+  const { overlay, dialog, close } = createModalOverlay({ dialogClass, closeOnBackdrop, onEscape });
   const titleId = `dialog-title-${Math.random().toString(36).slice(2)}`;
 
   const titleEl = el('h3', 'dialog-title', title);

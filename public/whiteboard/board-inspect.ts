@@ -10,6 +10,7 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
+import { isLinkableMediaKind } from '#shared/whiteboard-link-core.ts';
 import { iconGlyph, iconPicker } from './board-icon-picker.ts';
 import { LINE_STYLE_LABELS, lineWithStyle } from './board-line-edit.ts';
 
@@ -291,7 +292,7 @@ function linesEditor(owner: string, lines: readonly BoxLine[], latestLines: Late
 
 function linkableMediaOf(box: Box | null): BoxMedia | null {
   const media = box?.media ?? null;
-  return media?.kind === 'doc' || media?.kind === 'page' ? media : null;
+  return media && isLinkableMediaKind(media.kind) ? media : null;
 }
 
 function shapeRow(shape: BoxShape, commitShape: (shape: BoxShape) => void): HTMLElement {

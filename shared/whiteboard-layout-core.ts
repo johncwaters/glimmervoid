@@ -333,7 +333,7 @@ function artRoomOf(art: ContentArt | null): number {
 }
 
 function artFillingSpareHeight(content: BoxContent, art: ContentArt | null, spareHeight: number): ContentArt | null {
-  const isScrollingMedia = content.media?.kind === 'page' || content.media?.kind === 'doc';
+  const isScrollingMedia = content.media?.kind === 'page' || content.media?.kind === 'doc' || content.media?.kind === 'sheet';
   if (!art || content.device || !isScrollingMedia || spareHeight <= 0) return art;
   const height = art.height + spareHeight;
   return { ...art, height, screen: { ...art.screen, height } };

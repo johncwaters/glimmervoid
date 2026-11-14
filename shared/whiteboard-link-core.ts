@@ -7,7 +7,7 @@ type FileReading = { ok: true; hash: string } | { ok: false; problem: string };
 
 const MediaWithLink = z.looseObject({ link: MediaLink });
 
-const LINKABLE_MEDIA_KINDS: ReadonlySet<string> = new Set(['doc', 'page']);
+const LINKABLE_MEDIA_KINDS: ReadonlySet<string> = new Set(['doc', 'page', 'sheet']);
 
 const LINK_STATE_TEXT: Readonly<Record<Exclude<LinkState, 'broken'>, string>> = {
   'in-sync': 'In sync with the file',

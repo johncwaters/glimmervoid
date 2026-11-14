@@ -419,8 +419,8 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
     options: [{ name: 'out', type: 'string', valueName: 'path', summary: 'The SVG file to write' }],
     missingArgumentHint: 'render needs a board and --out, for example "glimmervoid whiteboard render flow --out flow.svg"',
   },
-  { name: 'doc', summary: 'Print the Markdown text of the document a box shows, as the operator last saved it', positionals: { usage: '<board> <box>', min: 2, max: 2 }, missingArgumentHint: 'doc needs a board and a box, for example "glimmervoid whiteboard doc flow abstract"' },
-  { name: 'attach', summary: 'Store a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown file and print the media a box takes to show it', positionals: { usage: '<path>', min: 1, max: null } },
+  { name: 'doc', summary: 'Print the text of the Markdown document or CSV or TSV sheet a box shows, as the operator last saved it', positionals: { usage: '<board> <box>', min: 2, max: 2 }, missingArgumentHint: 'doc needs a board and a box, for example "glimmervoid whiteboard doc flow abstract"' },
+  { name: 'attach', summary: 'Store a PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV or TSV file and print the media a box takes to show it', positionals: { usage: '<path>', min: 1, max: null } },
   {
     name: 'export',
     summary: 'Write a board with its media to a .glimmerboard file another operator can import; --out copies it to a path you name',

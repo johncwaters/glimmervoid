@@ -572,6 +572,9 @@ function describeSet(op: Extract<Op, { op: 'set' }>, previous: Element | undefin
   if (fieldNames.length === 1 && fieldNames[0] === 'media' && previous?.kind === 'box' && afterElement?.kind === 'box' && previous.media?.kind === 'doc' && afterElement.media?.kind === 'doc') {
     return `edited the document in ${nameOf(after, op.id)} (read it with whiteboard doc)`;
   }
+  if (fieldNames.length === 1 && fieldNames[0] === 'media' && previous?.kind === 'box' && afterElement?.kind === 'box' && previous.media?.kind === 'sheet' && afterElement.media?.kind === 'sheet') {
+    return `edited the sheet in ${nameOf(after, op.id)} (read it with whiteboard doc)`;
+  }
   return `changed ${fieldNames.join(', ')} of ${nameOf(after, op.id)}`;
 }
 

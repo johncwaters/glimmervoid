@@ -10,8 +10,14 @@ import { WHEEL_ZOOM_STEP } from './board-edit.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
+import { parseSheetText, sheetDelimiterOfMime } from '#shared/sheet-csv-core.ts';
 
-const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800 } as const;
+const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800, sheet: 960 } as const;
+const SHEET_CARD_HEAD_BYTES = 32 * 1024;
+const RANGE_NOT_SATISFIABLE_STATUS = 416;
+const SHEET_CARD_MAX_ROWS = 40;
+const SHEET_CARD_MAX_COLUMNS = 24;
+const SHEET_UNREAD_TEXT = 'This sheet could not be read.';
 const DOC_CARD_TEXT_MAX_CHARS = 16 * 1024;
 const DOC_UNREAD_TEXT = 'This document could not be read.';
 const OCCLUDER_REACH = 8;
@@ -27,7 +33,7 @@ interface PlacedPage {
 }
 
 function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
-  return media?.kind === 'page' || media?.kind === 'doc';
+  return media?.kind === 'page' || media?.kind === 'doc' || media?.kind === 'sheet';
 }
 
 function identityOf(media: PageMedia): string {
@@ -45,7 +51,7 @@ function placeNode(node: HTMLElement, media: PageMedia, viewportWidth: number, t
   node.style.top = `${media.y}px`;
   node.style.width = `${media.width}px`;
   node.style.height = `${media.height}px`;
-  const scaledContent = node.querySelector<HTMLElement>('.wb-media-page, .wb-media-doc');
+  const scaledContent = node.querySelector<HTMLElement>('.wb-media-page, .wb-media-doc, .wb-media-sheet');
   if (!scaledContent) return;
   const scale = media.width / viewportWidth;
   scaledContent.style.width = `${viewportWidth}px`;
@@ -82,6 +88,13 @@ export async function fetchBoardDocText(media: Pick<BoxMedia, 'asset' | 'mime'>)
   return response.text().catch(() => null);
 }
 
+export async function fetchBoardSheetText(media: Pick<BoxMedia, 'asset' | 'mime'>): Promise<string | null> {
+  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`).catch(() => null);
+  if (!response?.ok) return null;
+  const bytes = await response.arrayBuffer().catch(() => null);
+  return bytes ? new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) : null;
+}
+
 function openingOf(docText: string): string {
   if (docText.length <= DOC_CARD_TEXT_MAX_CHARS) return docText;
   const lastWholeLineEnd = docText.lastIndexOf('\n', DOC_CARD_TEXT_MAX_CHARS);
@@ -99,6 +112,36 @@ function docCardOf(media: PageMedia): HTMLElement {
   card.inert = true;
   void fetchBoardDocText(media).then((docText) => {
     card.replaceChildren(docText === null ? el('p', 'wb-media-doc-unread', DOC_UNREAD_TEXT) : renderedDocOpening(docText));
+  });
+  return card;
+}
+
+async function fetchSheetHead(media: Pick<BoxMedia, 'asset' | 'mime'>): Promise<{ text: string; isWhole: boolean } | null> {
+  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`, { headers: { Range: `bytes=0-${SHEET_CARD_HEAD_BYTES - 1}` } }).catch(() => null);
+  if (response?.status === RANGE_NOT_SATISFIABLE_STATUS) return { text: '', isWhole: true };
+  if (!response?.ok) return null;
+  const bytes = await response.arrayBuffer().catch(() => null);
+  if (!bytes) return null;
+  const isWhole = response.status !== 206 || bytes.byteLength < SHEET_CARD_HEAD_BYTES;
+  return { text: new TextDecoder().decode(bytes), isWhole };
+}
+
+function sheetTableOf(headText: string, isWhole: boolean, mime: string): HTMLElement {
+  const parsed = parseSheetText(headText, sheetDelimiterOfMime(mime), SHEET_CARD_MAX_ROWS + 1);
+  const wholeRows = isWhole ? parsed.cells : parsed.cells.slice(0, -1);
+  const table = el('table', 'wb-media-sheet-table');
+  for (const [rowIndex, row] of wholeRows.slice(0, SHEET_CARD_MAX_ROWS).entries()) {
+    const tableRow = table.appendChild(el('tr'));
+    for (const cell of row.slice(0, SHEET_CARD_MAX_COLUMNS)) tableRow.append(el(rowIndex === 0 ? 'th' : 'td', undefined, cell));
+  }
+  return table;
+}
+
+function sheetCardOf(media: PageMedia): HTMLElement {
+  const card = el('div', 'wb-media-sheet');
+  card.inert = true;
+  void fetchSheetHead(media).then((head) => {
+    card.replaceChildren(head === null ? el('p', 'wb-media-doc-unread', SHEET_UNREAD_TEXT) : sheetTableOf(head.text, head.isWhole, media.mime));
   });
   return card;
 }
@@ -154,13 +197,16 @@ function pageFrameOf(media: PageMedia): HTMLIFrameElement {
   return frame;
 }
 
+const TEXT_CARD_BUILDER_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], (media: PageMedia) => HTMLElement>>> = { doc: docCardOf, sheet: sheetCardOf };
+
 function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<string, DialValue>>): PlacedPage {
   const { boxId, media, identity, viewportWidth, turn } = page;
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
-  if (media.kind === 'doc') {
-    node.append(docCardOf(media));
+  const textCardOf = TEXT_CARD_BUILDER_BY_KIND[media.kind];
+  if (textCardOf) {
+    node.append(textCardOf(media));
     placeNode(node, media, viewportWidth, turn);
     return { identity, node, frame: null, postedDialValues: '{}' };
   }

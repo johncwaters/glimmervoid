@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync } from '../../server/child-process-safe.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
-import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, pointOfBox } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_SHEET_CAP_BYTES, Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_LIMITS, boardMediaDrawnFilename, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
@@ -30,6 +30,11 @@ const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n\nSee
 const BOARD_DOC_LINK_URL = 'https://example.com/spec';
 const LINKED_DOC_BOX_ID = 'linked-doc';
 const LINKED_DOC_PATH = 'docs/linked-card.md';
+const LINKED_SHEET_BOX_ID = 'linked-sheet';
+const LINKED_SHEET_PATH = 'docs/linked-sheet.csv';
+const LINKED_SHEET_REPO_TEXT = 'team,q1\r\n"Platform, core",900\r\ninfra,1200\r\n"said ""hi""",3\r\n';
+const SHEET_AT_CAP_HEADER = 'name,digits,letters\n';
+const SHEET_AT_CAP_OPEN_BUDGET_MS = 3000;
 
 interface OpenBoard {
   page: Page;
@@ -1207,6 +1212,7 @@ async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Prom
   await linkedCard.locator('.plan-heading', { hasText: /^Linked$/ }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await linkStatus.filter({ hasText: 'In sync with the file' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   assert.equal(await linkedCard.locator('.wb-media-link-chip').count(), 0, 'a card in sync with its file carries no chip');
+  await deselectAll(open);
   await clickElement(open, LINKED_DOC_BOX_ID);
   const editor = page.locator('.doc-editor');
   const paper = editor.locator('.doc-markup-paper');
@@ -1239,6 +1245,61 @@ async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Prom
   await linkStatus.filter({ hasText: 'Not linked' }).waitFor();
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: LINKED_DOC_BOX_ID }] });
   await linkedCard.waitFor({ state: 'detached' });
+}
+
+async function verifyLinkedBoardSheet(open: OpenBoard, worktreePath: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const linkedFilePath = path.join(worktreePath, LINKED_SHEET_PATH);
+  fs.mkdirSync(path.dirname(linkedFilePath), { recursive: true });
+  fs.writeFileSync(linkedFilePath, LINKED_SHEET_REPO_TEXT);
+  const boardCopyMedia = await uploadBoardDoc(page, 'team,q1\nboard copy,1\n', 'linked-sheet.csv');
+  assert.equal(boardCopyMedia.kind, 'sheet', 'the board keeps a CSV upload as a sheet');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: LINKED_SHEET_BOX_ID, title: 'Linked sheet', place: { at: { x: 40, y: 700 } }, media: boardCopyMedia } }] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  const sheetCard = panel.locator(`.wb-media[data-box-id="${LINKED_SHEET_BOX_ID}"]`);
+  await sheetCard.locator('.wb-media-sheet-table td', { hasText: 'board copy' }).waitFor();
+  await selectBoxByTitle(open, LINKED_SHEET_BOX_ID);
+  const inspect = panel.locator('.wb-inspect');
+  await openMoreIn(inspect);
+  await inspect.getByRole('textbox', { name: 'Linked file path, relative to the code session worktree', exact: true }).fill(LINKED_SHEET_PATH);
+  await inspect.getByRole('button', { name: 'Link this card to the file', exact: true }).click();
+  await sheetCard.locator('.wb-media-sheet-table td', { hasText: 'Platform, core' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await inspect.locator('.wb-inspect-link-status').filter({ hasText: 'In sync with the file' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  await deselectAll(open);
+  await clickElement(open, LINKED_SHEET_BOX_ID);
+  const sheetEditor = page.locator('.wb-sheet-editor');
+  const infraCell = sheetEditor.locator('revogr-data .rgCell', { hasText: /^1200$/ });
+  await infraCell.waitFor();
+  await infraCell.dblclick();
+  await sheetEditor.locator('revogr-edit input').fill('9999');
+  await page.keyboard.press('Escape');
+  await sheetEditor.locator('revogr-edit').waitFor({ state: 'detached' });
+  assert.deepEqual([await sheetEditor.count(), await infraCell.count(), await sheetEditor.locator('.wb-sheet-editor-status').textContent()], [1, 1, ''], 'Escape in a cell drops that cell edit and leaves the sheet open with nothing unsaved');
+  await infraCell.dblclick();
+  await sheetEditor.locator('revogr-edit input').fill('1400');
+  await page.keyboard.press('Enter');
+  await sheetEditor.getByRole('button', { name: 'Save', exact: true }).click();
+  await sheetEditor.locator('.wb-sheet-editor-status', { hasText: /^Saved$/ }).waitFor();
+  assert.equal(fs.readFileSync(linkedFilePath, 'utf8'), LINKED_SHEET_REPO_TEXT.replace('infra,1200', 'infra,1400'), 'a cell edit rewrites only its own record and keeps every other byte of the file');
+  await sheetEditor.getByRole('button', { name: 'Close', exact: true }).click();
+  await sheetEditor.waitFor({ state: 'detached' });
+  await sheetCard.locator('.wb-media-sheet-table td', { hasText: /^1400$/ }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  const capRowText = 'row,0123456789,abcdefghijklmnopqrstuvwxyz\n';
+  const capRowCount = Math.floor((BOARD_SHEET_CAP_BYTES - SHEET_AT_CAP_HEADER.length) / capRowText.length);
+  fs.writeFileSync(linkedFilePath, `${SHEET_AT_CAP_HEADER}${capRowText.repeat(capRowCount)}`);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: LINKED_SHEET_BOX_ID, fields: { title: 'Linked sheet at the cap' } }] });
+  await sheetCard.locator('.wb-media-sheet-table th', { hasText: 'digits' }).waitFor({ timeout: REVIEW_TIMEOUT_MS });
+  const openedAtMs = Date.now();
+  await clickElement(open, LINKED_SHEET_BOX_ID);
+  await sheetEditor.locator('revogr-data .rgCell', { hasText: 'abcdefghijklmnopqrstuvwxyz' }).first().waitFor();
+  const openMs = Date.now() - openedAtMs;
+  assert.ok(openMs < SHEET_AT_CAP_OPEN_BUDGET_MS, `a sheet at the ${BOARD_SHEET_CAP_BYTES / 1024} KiB cap (${capRowCount} rows) opens in ${openMs} ms, inside ${SHEET_AT_CAP_OPEN_BUDGET_MS} ms`);
+  console.log(`[boards] sheet at cap: ${capRowCount} rows opened in ${openMs} ms`);
+  await page.keyboard.press('Escape');
+  await sheetEditor.waitFor({ state: 'detached' });
+  fs.rmSync(linkedFilePath);
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: LINKED_SHEET_BOX_ID }] });
+  await sheetCard.waitFor({ state: 'detached' });
 }
 
 function drawnMediaUrlOf(element: BoardElement): string {
@@ -2281,6 +2342,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Not a step' });
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);
+  await verifyLinkedBoardSheet(open, worktreePath);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId);
 }

@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
-import { BOARD_DOC_CAP_BYTES } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_DOC_CAP_BYTES, BOARD_SHEET_CAP_BYTES } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, LinkStateOfBox, MediaLink, Op } from '../../shared/contracts/whiteboard.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
 import { linkPathProblem, linkStateOf, linkStateText } from '../../shared/whiteboard-link-core.ts';
@@ -42,8 +42,12 @@ function linkedMediaOf(board: Board, boxId: string): LinkedMedia | null {
   return { ...media, link: media.link };
 }
 
+const LINKED_CAP_BYTES_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], number>>> = { doc: BOARD_DOC_CAP_BYTES, sheet: BOARD_SHEET_CAP_BYTES };
+
+const LINKED_KIND_NAME_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], string>>> = { doc: 'Markdown document', sheet: 'CSV or TSV sheet', page: 'HTML page' };
+
 function capBytesOf(media: BoxMedia): number {
-  return media.kind === 'doc' ? BOARD_DOC_CAP_BYTES : SHOWN_FILE_CAP_BYTES;
+  return LINKED_CAP_BYTES_BY_KIND[media.kind] ?? SHOWN_FILE_CAP_BYTES;
 }
 
 async function openLinkedFile(root: string | null, media: LinkedMedia, opensForWriting: boolean): Promise<OpenedLink> {
@@ -98,7 +102,7 @@ async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<
     }
     const ingested = await assets.adoptIncoming(incomingPath, path.basename(media.link.path), pageSourcePath);
     if (!ingested.ok) return { ok: false, problem: ingested.error };
-    if (ingested.media.kind !== media.kind) return { ok: false, problem: `The linked file is no longer a ${media.kind === 'doc' ? 'Markdown document' : 'HTML page'}` };
+    if (ingested.media.kind !== media.kind) return { ok: false, problem: `The linked file is no longer a ${LINKED_KIND_NAME_BY_KIND[media.kind] ?? media.kind}` };
     return { ok: true, media: ingested.media, unloadedText: unloadedNote(ingested.unloaded) };
   } finally {
     await fsp.rm(incomingPath, { force: true }).catch(() => {});
@@ -141,13 +145,13 @@ async function writeLinkedDoc(boxId: string, file: OpenedFile, media: LinkedMedi
 
 async function saveLinkedDoc(board: Board, boxId: string, root: string | null, text: string, baseAsset: string, assets: WhiteboardAssetStore): Promise<LinkedDocSave> {
   const media = linkedMediaOf(board, boxId);
-  if (media?.kind !== 'doc') return { ok: false, error: 'That card is not a Markdown document linked to a file', isConflict: false };
+  if (media?.kind !== 'doc' && media?.kind !== 'sheet') return { ok: false, error: 'That card is not a Markdown document or a CSV or TSV sheet linked to a file', isConflict: false };
   if (media.asset !== baseAsset) return { ok: false, error: 'The card changed since the editor loaded it', isConflict: true };
   const { syncedHash } = media.link;
   if (syncedHash === null) return { ok: false, error: 'The card has not been synced with its file yet; open the board again before saving', isConflict: true };
-  if (Buffer.byteLength(text, 'utf8') > BOARD_DOC_CAP_BYTES) return { ok: false, error: `A linked document holds at most ${BOARD_DOC_CAP_BYTES / 1024} KiB`, isConflict: false };
+  if (Buffer.byteLength(text, 'utf8') > capBytesOf(media)) return { ok: false, error: `A linked ${LINKED_KIND_NAME_BY_KIND[media.kind]} holds at most ${capBytesOf(media) / 1024} KiB`, isConflict: false };
   const textAsCard = await ingestChunks(assets, [Buffer.from(text, 'utf8')], media, null).catch((error: unknown) => ({ ok: false as const, problem: errorMessage(error) }));
-  if (!textAsCard.ok) return { ok: false, error: `Nothing was saved: this text cannot be a Markdown card (${textAsCard.problem})`, isConflict: false };
+  if (!textAsCard.ok) return { ok: false, error: `Nothing was saved: this text cannot be a ${LINKED_KIND_NAME_BY_KIND[media.kind]} card (${textAsCard.problem})`, isConflict: false };
   const opened = await openLinkedFile(root, media, true);
   if (!opened.ok) return { ok: false, error: opened.problem, isConflict: false };
   try {

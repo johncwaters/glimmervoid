@@ -22,7 +22,7 @@ const TOO_MANY_ELEMENTS_TEXT = `more than the ${BOARD_FILE_ELEMENTS_MAX} element
 
 type Refusal = { ok: false; status: number; error: string };
 type AdoptedAsset = { media: BoxMedia; name: string };
-type ExportSource = { assetId: string; name: string; originalPath: string; memberFilePathByPath: Map<string, string> };
+type ExportSource = { filename: string; name: string; originalPath: string; memberFilePathByPath: Map<string, string> };
 
 function refusal(status: number, error: string): Refusal {
   return { ok: false, status, error };
@@ -37,7 +37,7 @@ function exportSourceOf(assets: WhiteboardAssetStore, media: BoxMedia, name: str
     if (!member) return null;
     memberFilePathByPath.set(memberPath, member.path);
   }
-  return { assetId: media.asset, name, originalPath: original.path, memberFilePathByPath };
+  return { filename: boardMediaOriginalFilename(media), name, originalPath: original.path, memberFilePathByPath };
 }
 
 async function encodedSizeOf(sources: readonly ExportSource[]): Promise<number> {
@@ -65,7 +65,7 @@ async function boardFileBytes(board: Board, assets: WhiteboardAssetStore): Promi
   const overCap = refusal(413, `the board and its media come to more than the ${CAP_TEXT} a board file holds`);
   if (await encodedSizeOf(sources) > BOARD_FILE_CAP_BYTES) return overCap;
   const exportedAssets: Record<string, BoardFileAsset> = {};
-  for (const source of sources) exportedAssets[source.assetId] = await exportedAssetOf(source);
+  for (const source of sources) exportedAssets[source.filename] = await exportedAssetOf(source);
   const json = Buffer.from(JSON.stringify({ ...exportedBoardOf(board), assets: exportedAssets }));
   if (json.byteLength > BOARD_FILE_CAP_BYTES) return overCap;
   return { ok: true, bytes: await gzip(json) };
@@ -185,14 +185,14 @@ async function adoptAsset(assets: WhiteboardAssetStore, scratchRoot: string, ass
   }
 }
 
-async function adoptBoardFileAssets(file: BoardFile, assets: WhiteboardAssetStore, scratchRoot: string): Promise<{ ok: true; adoptedByExportedAssetId: Map<string, AdoptedAsset> } | Refusal> {
-  const adoptedByExportedAssetId = new Map<string, AdoptedAsset>();
-  for (const [exportedAssetId, asset] of Object.entries(file.assets)) {
+async function adoptBoardFileAssets(file: BoardFile, assets: WhiteboardAssetStore, scratchRoot: string): Promise<{ ok: true; adoptedByExportedFilename: Map<string, AdoptedAsset> } | Refusal> {
+  const adoptedByExportedFilename = new Map<string, AdoptedAsset>();
+  for (const [exportedFilename, asset] of Object.entries(file.assets)) {
     const adopted = await adoptAsset(assets, scratchRoot, asset);
     if (!adopted.ok) return adopted;
-    adoptedByExportedAssetId.set(exportedAssetId, { media: adopted.media, name: adopted.name });
+    adoptedByExportedFilename.set(exportedFilename, { media: adopted.media, name: adopted.name });
   }
-  return { ok: true, adoptedByExportedAssetId };
+  return { ok: true, adoptedByExportedFilename };
 }
 
 export { adoptBoardFileAssets, boardFileBytes, forgetBoardFileExport, parseBoardFile, readBoardFileAt, writeBoardFile };

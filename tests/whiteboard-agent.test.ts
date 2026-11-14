@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, boardMediaOriginalFilename, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -24,6 +24,8 @@ import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.t
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { parseSheetText, serializeEditedSheet } from '../shared/sheet-csv-core.ts';
+import { decideShownKind } from '../server/core/shown-files-core.ts';
 import { boardIndexOf, copyOfElements, dropElement } from '../shared/whiteboard-board-index.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
@@ -604,7 +606,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   const docRead = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'abstract' });
   assert.deepEqual([docRead.status, docRead.body], [200, { ok: true, box: 'abstract', text: savedDocText }], 'an agent reads the text the box shows now, not the text it attached');
   const notADoc = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'login' });
-  assert.deepEqual([notADoc.status, notADoc.body.error], [400, 'login on board "pictures" holds no document; whiteboard doc reads a box whose media kind is doc']);
+  assert.deepEqual([notADoc.status, notADoc.body.error], [400, 'login on board "pictures" holds no document or sheet; whiteboard doc reads a box whose media kind is doc or sheet']);
   const docWrites: string[] = [];
   context.mock.method(process.stdout, 'write', (chunk: string) => { docWrites.push(chunk); return true; });
   const docPrinted = await runPlannerCli(context, ['whiteboard', 'doc', boardId, 'abstract']);
@@ -701,10 +703,16 @@ test('a board exported to a board file and imported comes back as a new board wi
   const boardId = await newBoard('Shared flow');
   const picture = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/flow.png' })).body.media as BoxMedia;
   const page = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/flow.html' })).body.media as BoxMedia;
+  for (const sameBytesName of ['parts.md', 'parts.csv']) fs.writeFileSync(path.join(shareDir, sameBytesName), 'name,qty\nbolt,4\n');
+  const partsDoc = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/parts.md' })).body.media as BoxMedia;
+  const partsSheet = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'share/parts.csv' })).body.media as BoxMedia;
+  assert.deepEqual([partsDoc.kind, partsSheet.kind, partsDoc.asset], ['doc', 'sheet', partsSheet.asset]);
   const put = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
     { op: 'board', caption: 'how a login flows', legend: [{ tone: 'fail', label: 'refused' }] },
     { op: 'add', element: { kind: 'box', id: 'shot', title: 'Login', place: { at: { x: 40, y: 40 } }, media: { ...picture, alt: 'login screen' }, refs: ['server/auth.ts#L12'] } },
     { op: 'add', element: { kind: 'box', id: 'demo', title: 'Demo', place: { at: { x: 400, y: 40 } }, media: page } },
+    { op: 'add', element: { kind: 'box', id: 'parts-doc', title: 'Parts notes', place: { at: { x: 40, y: 800 } }, media: partsDoc } },
+    { op: 'add', element: { kind: 'box', id: 'parts-sheet', title: 'Parts', place: { at: { x: 400, y: 800 } }, media: partsSheet } },
     { op: 'add', element: { kind: 'box', id: 'why', shape: 'note', title: 'Check the refusal', place: { at: { x: 40, y: 400 } } } },
     { op: 'add', element: { kind: 'wire', id: 'shot-demo', from: 'shot', to: 'demo', tone: 'fail' } },
     { op: 'add', element: { kind: 'frame', id: 'flow', title: 'Flow', contains: ['shot', 'demo'] } },
@@ -751,7 +759,7 @@ test('a board exported to a board file and imported comes back as a new board wi
   const boardCountBefore = ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length;
   const parsedFile = JSON.parse(fileText) as { assets: Record<string, { members: Record<string, string> }> };
   const escapingPage = structuredClone(parsedFile);
-  const pageAsset = escapingPage.assets[page.asset];
+  const pageAsset = escapingPage.assets[boardMediaOriginalFilename(page)];
   assert.ok(pageAsset);
   pageAsset.members = { '../escaped.js': pageAsset.members['app.js'] ?? '' };
   const damagedFiles = [
@@ -1249,7 +1257,7 @@ test('the next prompt tells a connected session once per new change to read the 
   assert.equal(wiring.takeBoardNotice(agent.id, null), null);
 });
 
-test('the same bytes attached at once under an svg and an html name are stored once as one kind', async () => {
+test('the same bytes attached at once under an svg and an html name are each stored as the kind their name gives', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'asset-race-'));
   const wiring = createWhiteboardWiring({ boardsRoot });
   await wiring.loaded;
@@ -1258,8 +1266,9 @@ test('the same bytes attached at once under an svg and an html name are stored o
   for (const racedPath of racedPaths) fs.writeFileSync(racedPath, markup);
   const [asSvg, asPage] = await Promise.all(racedPaths.map((racedPath) => wiring.assets.ingestFile(racedPath)));
   assert.ok(asSvg?.ok && asPage?.ok);
-  assert.deepEqual({ ...asPage.media, source: null }, { ...asSvg.media, source: null });
-  assert.equal(fs.readdirSync(path.join(boardsRoot, 'assets')).length, 1);
+  assert.deepEqual([asSvg.media.kind, asPage.media.kind, asSvg.media.asset], ['image', 'page', asPage.media.asset]);
+  assert.equal(fs.readdirSync(path.join(boardsRoot, 'assets')).length, 2);
+  assert.deepEqual([asSvg.media, asPage.media].map((media) => wiring.assets.mismatchOf(media)), [null, null]);
 });
 
 test('a stored file keeps the preview it was stored with when attached again after a restart, whether or not the preview can be read', async () => {
@@ -1691,6 +1700,61 @@ test('a linked card follows its file in the code session worktree on each read, 
   assert.ok(boardIndexOf(linkedElements).linkedBoxIds.has('shown-1'));
   dropElement(linkedElements, 'shown-1');
   assert.equal(boardIndexOf(linkedElements).linkedBoxIds.has('shown-1'), false, 'a removed linked card leaves the linked-box index');
+});
+
+test('an agent links a CSV or TSV sheet from its worktree and reads it back verbatim, an operator save writes the file unless it moved, and the card follows the file until it outgrows the sheet cap', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-sheet-'));
+  const worktree = path.join(boardsRoot, 'worktree');
+  fs.mkdirSync(worktree, { recursive: true });
+  const budgetPath = path.join(worktree, 'budget.csv');
+  const quotedCsv = 'team,"note, with comma",q1\r\ninfra,"said ""hi""",1200\r\n';
+  fs.writeFileSync(budgetPath, quotedCsv, 'utf8');
+  fs.writeFileSync(path.join(worktree, 'scores.tsv'), 'name\tscore\nada\t9\n', 'utf8');
+  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf: () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) }) });
+  const linker = { id: 'sheet-agent', name: 'linker', project: worktree, cwd: worktree };
+
+  const shown = await wiring.handleAgent(linker, { sub: 'show', path: 'budget.csv', link: true });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  const boardId = (shown.body as { board: { id: string } }).board.id;
+  const cardMedia = async (boxId: string) => {
+    const card = (await wiring.handleOperator.get(boardId)).board?.elements.get(boxId);
+    return card?.kind === 'box' ? card.media : null;
+  };
+  const shownMedia = await cardMedia('shown-1');
+  assert.deepEqual([shownMedia?.kind, shownMedia?.mime, shownMedia?.link?.path], ['sheet', 'text/csv', 'budget.csv']);
+  const read = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-1' });
+  assert.equal((read.body as { text: string }).text, quotedCsv);
+
+  const tsvShown = await wiring.handleAgent(linker, { sub: 'show', path: 'scores.tsv', link: true });
+  assert.equal(tsvShown.status, 200, JSON.stringify(tsvShown.body));
+  assert.equal((await cardMedia('shown-2'))?.mime, 'text/tab-separated-values');
+
+  fs.writeFileSync(budgetPath, 'team,q1\ninfra,1300\n', 'utf8');
+  const followed = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-1' });
+  assert.equal((followed.body as { text: string }).text, 'team,q1\ninfra,1300\n');
+
+  const sameBytesPaths = ['same.md', 'same.csv', 'same.tsv'].map((name) => path.join(worktree, name));
+  for (const sameBytesPath of sameBytesPaths) fs.writeFileSync(sameBytesPath, 'name,qty\nbolt,4\n', 'utf8');
+  const sameBytes = await Promise.all(sameBytesPaths.map((sameBytesPath) => wiring.assets.ingestFile(sameBytesPath)));
+  assert.deepEqual(sameBytes.map((stored) => stored.ok && [stored.media.kind, stored.media.mime]), [['doc', 'text/markdown'], ['sheet', 'text/csv'], ['sheet', 'text/tab-separated-values']], 'files with the same bytes each keep the format their own name gives them');
+  for (const stored of sameBytes) assert.equal(stored.ok && wiring.assets.mismatchOf(stored.media), null);
+  const byteOrderMark = String.fromCharCode(0xfeff);
+  const markedSheet = parseSheetText(`${byteOrderMark}ref,ftype\r\nbolt,4\r\n`, ',');
+  assert.equal(serializeEditedSheet(markedSheet, [['ref', 'ftype'], ['bolt', '5']]), `${byteOrderMark}ref,ftype\r\nbolt,5\r\n`, 'a save keeps the byte order mark Excel writes');
+  const videoLikeHeader = decideShownKind(Buffer.from('ref,ftype\n1,video\n'), 'data.csv');
+  assert.equal(videoLikeHeader.ok && videoLikeHeader.kind, 'sheet', 'a CSV whose header reads like a video signature is still a sheet');
+  const syncedMedia = await cardMedia('shown-1');
+  const saved = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', 'team,q1\ninfra,1400\n', syncedMedia?.asset ?? '');
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  assert.equal(fs.readFileSync(budgetPath, 'utf8'), 'team,q1\ninfra,1400\n');
+  fs.writeFileSync(budgetPath, 'team,q1\ninfra,1500\n', 'utf8');
+  const behindSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-1', 'team,q1\ninfra,1600\n', saved.savedMedia?.asset ?? '');
+  assert.deepEqual([behindSave.ok, behindSave.isConflict], [false, true]);
+  assert.equal(fs.readFileSync(budgetPath, 'utf8'), 'team,q1\ninfra,1500\n');
+
+  fs.writeFileSync(budgetPath, `team,q1\n${'x,1\n'.repeat(BOARD_SHEET_CAP_BYTES / 4 + 1)}`, 'utf8');
+  const review = (await wiring.handleOperator.review(boardId)).review;
+  assert.deepEqual(review?.linkStates.map(({ boxId, state, text }) => [boxId, state, text]), [['shown-1', 'broken', `The linked file is over ${BOARD_SHEET_CAP_BYTES / 1024} KiB`]]);
 });
 
 test('a board show creates is renamed once by the title lane, never over a rename the operator made first', async () => {

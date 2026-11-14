@@ -62,7 +62,7 @@ const PUT_GUIDE = [
   '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
   `Element kinds: box (title, icon, place, lines, refs, change none|added|removed|relabeled, was, order, shape ${BOX_SHAPES.join('|')}, tone ${NOTE_TONES.join('|')} as a fill tint on a box, decision, ellipse or note, textSize S|M|L for the title, width, height, device, fit, borderless, params, step {status planned|building|landed} to make it a plan step), wire (from and to each a box id or a free point {"x","y"}, dashed, tone plain|fail|join, width thin|bold, arrows none|end|both, route elbow|sharp|curved where elbow routes around boxes and sharp or curved runs straight or bowed, label, fromSide and toSide left|right|top|bottom), frame (title, contains, collapsed).`,
-  'To show a picture, video, HTML page or Markdown document, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML or Markdown) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, and a Markdown document shows the operator its rendered text, which they can edit and save on the board.',
+  'To show a picture, video, HTML page, Markdown document or CSV or TSV sheet, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV or TSV) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, a Markdown document shows the operator its rendered text, which they can edit and save on the board, and a CSV or TSV sheet shows its rows as a grid the operator can edit; whiteboard doc reads a document or sheet back as its text.',
   `An icon draws before a box title in the text color, as in "icon":"database"; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
   `A box with shape device draws a ${DEVICE_NAMES.join(', ')} with its media on the screen, as in "shape":"device","device":"phone","fit":"fill" plus media from attach; fill covers the screen and crops, fit shows all of the media letterboxed, a device box holds no lines, and without media it draws an empty screen with its title for a wireframe. A device or icon box draws with no card fill or outline, standing alone with its title, and "borderless":false gives it the card; "borderless":true on a box or decision drops its card the same way, so a picture or plain text stands alone; a note always draws its card.`,
   'A line takes style text|code|item|kv; kv needs a key, as in {"style":"kv","key":"timeout","text":"30s"}.',
@@ -218,6 +218,7 @@ function withUnloadedNote(note: string, unloaded: readonly UnloadedReference[]):
 
 function attachedMediaUse(media: BoxMedia): string {
   if (media.kind === 'doc') return 'to show the operator the document, which they can edit and save on the board';
+  if (media.kind === 'sheet') return 'to show the operator the sheet as a table, which they can open in a grid, edit and save on the board';
   if (media.kind === 'image' || media.hasPreview) return 'to draw it';
   return 'to show it as a labelled placeholder until live playback ships';
 }
@@ -532,7 +533,7 @@ function createWhiteboardWiring({
 
   function linkRefusalOf(boxId: string, media: BoxMedia, mediaBefore: BoxMedia | null): string | null {
     if (media.link === null) return null;
-    if (!isLinkableMediaKind(media.kind)) return `box ${boxId} links its ${media.kind} to a file, but only a Markdown doc or an HTML page can be linked`;
+    if (!isLinkableMediaKind(media.kind)) return `box ${boxId} links its ${media.kind} to a file, but only a Markdown doc, a CSV or TSV sheet or an HTML page can be linked`;
     if (media.link.path === mediaBefore?.link?.path) return null;
     const pathProblem = linkPathProblem(media.link.path);
     return pathProblem ? `box ${boxId}: ${pathProblem}` : null;
@@ -656,8 +657,8 @@ function createWhiteboardWiring({
     const { board } = loading.record;
     const element = board.elements.get(boxId);
     const media = element?.kind === 'box' ? element.media : null;
-    if (media?.kind !== 'doc') {
-      return refusal(400, `${boxId} on board "${board.title}" holds no document; whiteboard doc reads a box whose media kind is doc`);
+    if (media?.kind !== 'doc' && media?.kind !== 'sheet') {
+      return refusal(400, `${boxId} on board "${board.title}" holds no document or sheet; whiteboard doc reads a box whose media kind is doc or sheet`);
     }
     const text = await assets.readDocText(media);
     if (text === null) return refusal(404, `the document ${boxId} on board "${board.title}" shows is not stored any more`);
@@ -1039,7 +1040,7 @@ function createWhiteboardWiring({
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
     const ingested = await assets.ingestFile(sourcePath, caller.id);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
-    if (isLinked && !isLinkableMediaKind(ingested.media.kind)) return refusal(400, `show links only a Markdown doc or an HTML page, and ${requestedPath} is a ${ingested.media.kind}, so nothing was shown`);
+    if (isLinked && !isLinkableMediaKind(ingested.media.kind)) return refusal(400, `show links only a Markdown doc, a CSV or TSV sheet or an HTML page, and ${requestedPath} is a ${ingested.media.kind}, so nothing was shown`);
     const pageTitle = ingested.media.kind === 'page' ? await pageTitleOf(sourcePath) : null;
     const fileName = path.basename(sourcePath);
     const target = await showBoardIdFor(caller, pageTitle ?? (path.parse(fileName).name || fileName));
@@ -1106,7 +1107,7 @@ function createWhiteboardWiring({
     if (!parsed.ok) return refusal(parsed.status, parsed.error);
     const adopted = await adoptBoardFileAssets(parsed.file, assets, path.join(boardsRoot, IMPORTS_FOLDER_NAME));
     if (!adopted.ok) return refusal(adopted.status, adopted.error);
-    const ops = importOpsOf(parsed.file, adopted.adoptedByExportedAssetId);
+    const ops = importOpsOf(parsed.file, adopted.adoptedByExportedFilename);
     if ('error' in ops) return refusal(400, `the board file is damaged: ${ops.error}`);
     const nowMs = now();
     const existingTitles = new Set([...recordsByBoardId.values()].map((record) => record.board.title));

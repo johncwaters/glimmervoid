@@ -469,6 +469,36 @@
   line-height: 1.5;
 }
 
+.wb-media-sheet {
+  box-sizing: border-box;
+  overflow: hidden;
+  transform-origin: 0 0;
+  background: var(--bg-card);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--type-title);
+}
+
+.wb-media-sheet-table {
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.wb-media-sheet-table th,
+.wb-media-sheet-table td {
+  max-width: 320px;
+  overflow: hidden;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  text-overflow: clip;
+}
+
+.wb-media-sheet-table th {
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
 .wb-media-doc-unread {
   margin: 0;
   color: var(--text-muted);
@@ -947,3 +977,29 @@
 .wb-icon-group-label { font-size: var(--type-meta); color: var(--wb-ink-dim); }
 .wb-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(28px, 1fr)); gap: 2px; }
 .wb-icon-choice[aria-pressed='true'] { color: var(--accent); }
+
+.wb-sheet-editor {
+  display: flex;
+  flex-direction: column;
+  width: calc(100vw - 32px);
+  height: calc(100dvh - 32px);
+  max-width: none;
+  max-height: none;
+}
+
+.wb-sheet-editor-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.wb-sheet-grid {
+  display: block;
+  height: 100%;
+}
+
+.wb-sheet-editor-status {
+  margin-right: auto;
+  align-self: center;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+}

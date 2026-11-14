@@ -1,4 +1,4 @@
-import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaSavedName, sparseElement } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaOriginalFilename, boardMediaSavedName, sparseElement } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardFile, BoxMedia, Element, Op } from '../../shared/contracts/whiteboard.ts';
 
 type ExportedBoard = Omit<BoardFile, 'assets' | 'board'> & { board: Pick<Board, 'title' | 'caption' | 'legend'> & { elements: Record<string, unknown> } };
@@ -18,12 +18,12 @@ function exportedBoardOf(board: Board): ExportedBoard {
 }
 
 function exportedAssetsOf(board: Board): Map<string, { media: BoxMedia; name: string }> {
-  const exportedByAssetId = new Map<string, { media: BoxMedia; name: string }>();
+  const exportedByFilename = new Map<string, { media: BoxMedia; name: string }>();
   for (const box of board.elements.valuesOfKind('box')) {
-    if (!box.media || exportedByAssetId.has(box.media.asset)) continue;
-    exportedByAssetId.set(box.media.asset, { media: box.media, name: boardMediaSavedName(box.media, box.title) });
+    if (!box.media || exportedByFilename.has(boardMediaOriginalFilename(box.media))) continue;
+    exportedByFilename.set(boardMediaOriginalFilename(box.media), { media: box.media, name: boardMediaSavedName(box.media, box.title) });
   }
-  return exportedByAssetId;
+  return exportedByFilename;
 }
 
 function importedMediaOf(exported: BoxMedia, adopted: BoxMedia, name: string): BoxMedia {
@@ -36,14 +36,14 @@ function elementsInAddOrder(elements: Iterable<Element>): Element[] {
   return [...elements].sort((first, second) => ADD_RANK_BY_KIND[first.kind] - ADD_RANK_BY_KIND[second.kind]);
 }
 
-function importOpsOf(file: BoardFile, adoptedByExportedAssetId: ReadonlyMap<string, { media: BoxMedia; name: string }>): Op[] | { error: string } {
+function importOpsOf(file: BoardFile, adoptedByExportedFilename: ReadonlyMap<string, { media: BoxMedia; name: string }>): Op[] | { error: string } {
   const ops: Op[] = [];
   for (const element of elementsInAddOrder(file.board.elements.values())) {
     if (element.kind !== 'box' || !element.media) {
       ops.push({ op: 'add', element });
       continue;
     }
-    const adopted = adoptedByExportedAssetId.get(element.media.asset);
+    const adopted = adoptedByExportedFilename.get(boardMediaOriginalFilename(element.media));
     if (!adopted) return { error: `box ${element.id} shows media ${element.media.asset}, which the board file does not carry` };
     ops.push({ op: 'add', element: { ...element, media: importedMediaOf(element.media, adopted.media, adopted.name) } });
   }

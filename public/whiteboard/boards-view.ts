@@ -40,12 +40,14 @@ import { countDashboardTabs } from '../boot/dashboard-tab-lock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
-import { createBoardMediaLayer, fetchBoardDocText, tunePageOnLoad } from './board-media-layer.ts';
+import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
 import type { MediaZoomControl } from './media-zoom.ts';
 import { MAX_MEDIA_SCALE } from './media-zoom-core.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
+import { openSheetEditor } from './sheet-editor.ts';
+import type { SheetSaveOutcome } from './sheet-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
   boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
@@ -861,6 +863,49 @@ function openBoardDoc(boardId: string, boxId: string): void {
   openDocEditorOn(boardDocSource(boardId, boxId, box.title));
 }
 
+function sheetMediaOf(boardId: string, boxId: string): BoxMedia | null {
+  const held = heldBoardOf(boardId)?.elements.get(boxId);
+  const media = held?.kind === 'box' ? held.media : null;
+  return media?.kind === 'sheet' ? media : null;
+}
+
+async function saveBoardSheet(boardId: string, boxId: string, sheetText: string, loadedAsset: string): Promise<SheetSaveOutcome> {
+  const media = sheetMediaOf(boardId, boxId);
+  if (!media || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  if (media.link) {
+    const saved = await inHistoryOrder(async () => {
+      const outcome = await saveLinkedBoardDoc(boardId, boxId, sheetText, loadedAsset);
+      if (outcome.ok) recordPatch(boardId, outcome.patch);
+      return outcome;
+    });
+    return saved.ok ? { ok: true, asset: saved.savedMedia.asset } : { ok: false, isConflict: saved.isConflict, error: saved.isConflict ? null : saved.error };
+  }
+  const stored = await uploadBoardMedia(new File([sheetText], boardMediaSavedName(media, boxId), { type: media.mime }));
+  if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
+  if (sheetMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
+  const savedMedia = { ...stored.media, alt: media.alt, source: media.source };
+  const sent = await sendRecordedOps(boardId, [{ op: 'set', id: boxId, fields: { media: savedMedia } }]);
+  if (!sent.ok) return { ok: false, isConflict: false, error: sent.error };
+  return { ok: true, asset: savedMedia.asset };
+}
+
+function openBoardSheet(boardId: string, boxId: string): void {
+  const box = heldBoardOf(boardId)?.elements.get(boxId);
+  if (box?.kind !== 'box') return;
+  const board = heldBoardOf(boardId);
+  if (board && box.media?.link) refreshReviewOf(board);
+  openSheetEditor({
+    title: box.title,
+    media: () => sheetMediaOf(boardId, boxId),
+    readText: (media) => fetchBoardSheetText(media),
+    unsaveableText: () => {
+      const linkState = linkStateOf(boardId, boxId);
+      return linkState?.state === 'broken' ? `${linkState.text}, so this sheet is read-only until it is linked again or unlinked.` : null;
+    },
+    save: (sheetText, loadedAsset) => saveBoardSheet(boardId, boxId, sheetText, loadedAsset),
+  });
+}
+
 const VIEWER_WIDTH_BOUNDS = { minPx: 240, maxPx: BOARD_MEDIA_MAX_EDGE_PX };
 const VIEWER_WIDTH_KEY_STEP_PX = 40;
 const MIN_PAGE_SCALE = 1 / MAX_MEDIA_SCALE;
@@ -925,6 +970,10 @@ function openImageViewer(pressedImage: PressedImage): void {
   if (!media && !pressedImage.href) return;
   if (media?.kind === 'doc' && selectedBoardId && pressedImage.boxId) {
     openBoardDoc(selectedBoardId, pressedImage.boxId);
+    return;
+  }
+  if (media?.kind === 'sheet' && selectedBoardId && pressedImage.boxId) {
+    openBoardSheet(selectedBoardId, pressedImage.boxId);
     return;
   }
   const { overlay, dialog, close, titleEl, btnCancel } = buildDialogShell({ title: alt || 'Picture', dialogClass: 'dialog wb-image-viewer', cancelLabel: 'Close' });
