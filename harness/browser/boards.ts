@@ -317,6 +317,50 @@ async function verifyClipboard(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'the clipboard check cleans up', (element) => leftoverIds.includes(element.id));
 }
 
+async function verifySnapping(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('r');
+  const anchor = await placeBoxWithTool(open, { x: 60, y: 560 }, 'Snap anchor');
+  await page.keyboard.press('r');
+  const mover = await placeBoxWithTool(open, { x: 420, y: 760 }, 'Snap mover');
+  const dragMoverLeftTo = async (screenX: number, holdsControl: boolean) => {
+    const moverRect = await screenRectOf(open, mover.id);
+    const grab = { x: moverRect.x + 30, y: moverRect.y + moverRect.height / 2 };
+    await page.mouse.move(grab.x, grab.y);
+    await page.mouse.down();
+    if (holdsControl) await page.keyboard.down('Control');
+    await page.mouse.move(screenX + 30, grab.y + 50, { steps: 8 });
+    const guideCount = await panel.locator('.wb-snap-guide').count();
+    await page.mouse.up();
+    if (holdsControl) await page.keyboard.up('Control');
+    return guideCount;
+  };
+  const anchorRect = await screenRectOf(open, anchor.id);
+  const guidesWhileDragging = await dragMoverLeftTo(anchorRect.x + 4, false);
+  assert.ok(guidesWhileDragging > 0, 'a guide line shows while a box lines up with another');
+  await pollFor('the dragged box snaps its left edge onto the other box', BOARD_TIMEOUT_MS, async () => (Math.abs((await screenRectOf(open, mover.id)).x - anchorRect.x) < 0.5 ? true : null));
+  assert.equal(await panel.locator('.wb-snap-guide').count(), 0, 'the guide goes away on drop');
+  const moverBefore = await screenRectOf(open, mover.id);
+  await dragMoverLeftTo(moverBefore.x + 4, true);
+  await pollFor('holding Ctrl moves the box freely', BOARD_TIMEOUT_MS, async () => (Math.abs((await screenRectOf(open, mover.id)).x - (moverBefore.x + 4)) < 2 ? true : null));
+  const moverResting = await screenRectOf(open, mover.id);
+  const anchorPlace = anchor.kind === 'box' ? pointOfBox(anchor) : null;
+  assert.ok(anchorPlace, 'the anchor box has a point');
+  const grab = { x: moverResting.x + 30, y: moverResting.y + moverResting.height / 2 };
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(anchorRect.x + 34, grab.y - 40, { steps: 4 });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: anchor.id, fields: { place: { at: { x: anchorPlace.x - 300, y: anchorPlace.y } } } }] });
+  await elementWhere(open, 'an agent moves the anchor mid-drag', (element) => element.id === anchor.id && element.kind === 'box' && pointOfBox(element)?.x === anchorPlace.x - 300);
+  await page.mouse.move(anchorRect.x + 34, grab.y - 60, { steps: 4 });
+  await page.mouse.up();
+  await pollFor('a box no longer snaps to where a moved box used to be', BOARD_TIMEOUT_MS, async () => (Math.abs((await screenRectOf(open, mover.id)).x - (anchorRect.x + 4)) < 2 ? true : null));
+  assert.equal(await panel.locator('.wb-snap-guide').count(), 0, 'no guide is left behind');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: anchor.id }, { op: 'remove', id: mover.id }] });
+  await boardWithout(open, 'the snapping check cleans up', (element) => element.id === anchor.id || element.id === mover.id);
+}
+
 async function placeBoxWithTool(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   const canvasBox = await open.panel.locator('.wb-canvas').boundingBox();
   assert.ok(canvasBox);
@@ -1423,6 +1467,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyKeyboardEditing(open, parseFeed.id);
     if (desktopBoard) await verifyDragPlacement(open);
     if (desktopBoard) await verifyClipboard(open);
+    if (desktopBoard) await verifySnapping(open);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
