@@ -19,6 +19,8 @@ import { centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, p
 import type { BoardClipboard } from './board-clipboard-core.ts';
 import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
+import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
+import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-menu.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const SNAP_THRESHOLD_PX = 8;
@@ -87,6 +89,7 @@ interface BoardEditorOptions {
   onToolChange: (tool: BoardTool) => void;
   onToolLockChange: (isToolLocked: boolean) => void;
   onClipboardNotice: (notice: ClipboardNotice) => void;
+  onContextMenu: (clientX: number, clientY: number, target: ContextMenuTarget) => void;
 }
 
 export interface PressedImage {
@@ -110,7 +113,12 @@ interface NudgeRun {
 
 type BoxFields = { place: { at: ViewPoint } } | { width: number };
 
-const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([1, 2]);
+const CONTEXT_MENU_BUTTON = 2;
+const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([1, CONTEXT_MENU_BUTTON]);
+
+type PanButton = 'primary' | 'auxiliary' | 'context';
+type StackOrder = Extract<Op, { op: 'order' }>['to'];
+type ContextMenuTarget = 'selection' | 'canvas';
 
 function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
   return { x: Math.min(first.x, second.x), y: Math.min(first.y, second.y), width: Math.abs(first.x - second.x), height: Math.abs(first.y - second.y) };
@@ -120,7 +128,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 type Gesture =
   | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean } | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
-  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
+  | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; pressedButton: PanButton; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | { kind: 'ink'; pointerId: number; points: ViewPoint[]; draftLine: SVGPolylineElement }
@@ -251,6 +259,10 @@ function hoverCursorOf(hit: BoardHit | null): string {
 }
 
 const MAX_FIT_ZOOM = 2;
+const STACK_ORDER_BY_KEY_CODE: Readonly<Record<string, { plain: StackOrder; withShift: StackOrder }>> = {
+  BracketRight: { plain: 'forward', withShift: 'front' },
+  BracketLeft: { plain: 'backward', withShift: 'back' },
+};
 const WHOLE_BOARD_ZOOM_OUT_MARGIN = 1.25;
 
 function unitsPerPixelShowing(area: { width: number; height: number }, canvasWidth: number, canvasHeight: number): number {
@@ -510,6 +522,59 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (nudgeRun?.sendsInFlight === 0) nudgeRun = null;
   }
 
+  function openContextMenuAt(clientX: number, clientY: number): void {
+    const hit = hitAt(clientX, clientY);
+    if (!hit) setSelection(new Set());
+    if (hit && !selectedIds.has(hit.id)) setSelection(new Set([hit.id]));
+    options.onContextMenu(clientX, clientY, selectedIds.size > 0 ? 'selection' : 'canvas');
+  }
+
+  function openContextMenuFromKeyboard(): void {
+    const selectedRects = [...selectedIds].flatMap((elementId) => renderer.boundsOf(elementId) ?? []);
+    const viewportRect = viewport.getBoundingClientRect();
+    const anchor = selectedRects.length > 0 ? toClientPoint(rectAround(selectedRects)) : { x: viewportRect.left + viewportRect.width / 2, y: viewportRect.top + viewportRect.height / 2 };
+    options.onContextMenu(anchor.x, anchor.y, selectedIds.size > 0 ? 'selection' : 'canvas');
+  }
+
+  function toClientPoint(area: Rect): ViewPoint {
+    const viewportRect = viewport.getBoundingClientRect();
+    return { x: viewportRect.left + (area.x + area.width / 2 - camera.x) * camera.scale, y: viewportRect.top + (area.y + area.height / 2 - camera.y) * camera.scale };
+  }
+
+  function orderSelected(to: StackOrder): void {
+    const boardElements = options.currentBoard()?.elements;
+    const ids = boardElements ? [...boardElements.keys()].filter((elementId) => selectedIds.has(elementId)) : [];
+    if (ids.length === 0) return;
+    void options.sendOps([{ op: 'order', ids, to }]);
+  }
+
+  function selectedBoxRects(): ArrangedRect[] {
+    const board = options.currentBoard();
+    return [...selectedIds].flatMap((elementId) => {
+      const bounds = board?.elements.get(elementId)?.kind === 'box' ? renderer.boundsOf(elementId) : null;
+      return bounds ? [{ id: elementId, ...bounds }] : [];
+    });
+  }
+
+  function arrangeSelected(arrangedRectsOf: (rects: readonly ArrangedRect[]) => ArrangedRect[]): void {
+    const startRects = selectedBoxRects();
+    const arrangedById = new Map(arrangedRectsOf(startRects).map((arranged) => [arranged.id, arranged] as const));
+    const movingBoxes = startRects.flatMap((start) => {
+      const arranged = arrangedById.get(start.id);
+      const hasMoved = arranged && (Math.round(arranged.x) !== Math.round(start.x) || Math.round(arranged.y) !== Math.round(start.y));
+      return hasMoved ? [{ boxId: start.id, start }] : [];
+    });
+    if (movingBoxes.length === 0) return;
+    const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+    const arrangedAtOf = (boxId: string): ViewPoint => {
+      const arranged = arrangedById.get(boxId);
+      return { x: Math.round(arranged?.x ?? 0), y: Math.round((arranged?.y ?? 0) - pinnedOffsetY) };
+    };
+    const boxIdByStart = new Map<Rect, string>(movingBoxes.map((movingBox) => [movingBox.start, movingBox.boxId]));
+    const fields = movedPlaceFields(movingBoxes, (start) => arrangedAtOf(boxIdByStart.get(start) ?? ''), pinnedOffsetY);
+    void options.sendOps(fields.map(({ boxId, fields: boxFields }): Op => ({ op: 'set', id: boxId, fields: boxFields })));
+  }
+
   function selectAll(): void {
     const board = options.currentBoard();
     if (!board) return;
@@ -624,7 +689,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     event.preventDefault();
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     viewport.setPointerCapture(event.pointerId);
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: true, tappedBoxId: null, pressedImage: null };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: event.button === CONTEXT_MENU_BUTTON ? 'context' : 'auxiliary', tappedBoxId: null, pressedImage: null };
   }
 
   function startInk(event: PointerEvent): void {
@@ -740,7 +805,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const tappedBoxId = hit?.kind === 'box' ? hit.id : null;
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, isAuxiliaryButton: false, tappedBoxId, pressedImage: pressedImageOf(hit) };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: 'primary', tappedBoxId, pressedImage: pressedImageOf(hit) };
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint, size: BoxSize | null): Promise<void> {
@@ -1157,7 +1222,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
       void finishInk(finished);
       return;
     }
-    if (finished?.kind !== 'pan' || finished.hasMoved || finished.isAuxiliaryButton) return;
+    if (finished?.kind === 'pan' && finished.pressedButton === 'context' && !finished.hasMoved) {
+      openContextMenuAt(event.clientX, event.clientY);
+      return;
+    }
+    if (finished?.kind !== 'pan' || finished.hasMoved || finished.pressedButton !== 'primary') return;
     if (finished.pressedImage && isPhoneLayout()) {
       options.onOpenImage(finished.pressedImage);
       return;
@@ -1522,6 +1591,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function commandKeyAction(event: KeyboardEvent): (() => void) | null {
+    const stackOrder = STACK_ORDER_BY_KEY_CODE[event.code];
+    if (stackOrder) return () => orderSelected(event.shiftKey ? stackOrder.withShift : stackOrder.plain);
     const key = event.key.toLowerCase();
     if (key === 'a') return selectAll;
     if (key === 'd') return duplicateSelection;
@@ -1581,7 +1652,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('pointercancel', onPointerCancel);
   viewport.addEventListener('wheel', onWheel, { passive: false });
   viewport.addEventListener('dblclick', onDoubleClick);
-  viewport.addEventListener('contextmenu', (event) => event.preventDefault());
+  viewport.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    if (gesture || event.button === CONTEXT_MENU_BUTTON || isPhoneLayout()) return;
+    openContextMenuFromKeyboard();
+  });
   viewport.addEventListener('keydown', onKeyDown);
   viewport.addEventListener('keyup', onKeyUp);
   viewport.addEventListener('blur', () => holdSpace(false));
@@ -1608,6 +1683,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     afterBoardPaint,
     focusCanvas: () => viewport.focus(),
     removeSelected,
+    selectAll,
+    duplicateSelection,
+    orderSelected,
+    alignSelected: (edge: AlignEdge) => arrangeSelected((rects) => alignedRectsOf(rects, edge)),
+    distributeSelected: (axis: DistributeAxis) => arrangeSelected((rects) => distributedRectsOf(rects, axis)),
     copySelection,
     cutSelection,
     pasteText,

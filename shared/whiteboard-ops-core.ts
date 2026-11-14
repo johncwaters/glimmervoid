@@ -5,7 +5,7 @@ import { BOX_SHAPES, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { fittedBoxWidthOf, isAsideBox, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
 import type { PlacedBox } from './whiteboard-layout-core.ts';
 import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
-import { elementTableOf } from './whiteboard-element-table.ts';
+import { elementTableOf, isArrayIndexKey } from './whiteboard-element-table.ts';
 import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from './whiteboard-board-index.ts';
 
 type Author = { id: string; name: string };
@@ -20,7 +20,9 @@ type StagedOps = {
   commit: () => void;
 } | { ok: false; error: string; opIndex: number };
 type AlignOp = Extract<Op, { op: 'align' }>;
-type ElementOp = Exclude<Op, AlignOp>;
+type OrderOp = Extract<Op, { op: 'order' }>;
+type ElementOp = Exclude<Op, AlignOp | OrderOp>;
+type OrderedKindIds = { kind: Element['kind']; ids: string[] };
 type OpOutcome = { ok: true } | { ok: false; error: string };
 type PinPositions = { laidOutBoxOf: (id: string) => PlacedBox | undefined; pinnedOffsetY: number };
 type ElementLookup = (id: string) => Element | undefined;
@@ -276,6 +278,79 @@ function alignedSetOpsOf(draft: Draft, align: AlignOp): { ok: true; ops: Element
   return { ok: true, ops: rects.map((rect) => ({ op: 'set', id: rect.id, fields: { place: { at: { x: left, y: rect.y } }, width } })) };
 }
 
+function currentIdsOfKind(draft: Draft, kind: Element['kind']): string[] {
+  const restackedIds = new Set([...draft.afterById.keys()].filter((id) => draft.erasedIds.has(id) || !draft.base.elements.has(id)));
+  const keptIds = [...draft.base.elements.valuesOfKind(kind)].flatMap((element) => (restackedIds.has(element.id) ? [] : [element.id]));
+  const appendedIds = [...restackedIds].filter((id) => draft.afterById.get(id)?.kind === kind);
+  return [...keptIds, ...appendedIds].filter((id) => !isArrayIndexKey(id) && elementOf(draft, id) !== undefined);
+}
+
+function steppedIds(ids: readonly string[], movingIds: ReadonlySet<string>): string[] {
+  const stepped = [...ids];
+  for (let index = stepped.length - 2; index >= 0; index -= 1) {
+    const current = stepped[index];
+    const next = stepped[index + 1];
+    if (current === undefined || next === undefined || !movingIds.has(current) || movingIds.has(next)) continue;
+    stepped[index] = next;
+    stepped[index + 1] = current;
+  }
+  return stepped;
+}
+
+function restackedIdsOf(ids: readonly string[], movingIds: readonly string[], to: OrderOp['to']): string[] {
+  const movingIdSet = new Set(movingIds);
+  const staying = ids.filter((id) => !movingIdSet.has(id));
+  switch (to) {
+    case 'front': return [...staying, ...movingIds];
+    case 'back': return [...movingIds, ...staying];
+    case 'forward': return steppedIds(ids, movingIdSet);
+    case 'backward': return steppedIds([...ids].reverse(), movingIdSet).reverse();
+  }
+}
+
+function restackedSpanOf(ids: readonly string[], movingIds: readonly string[], to: OrderOp['to']): string[] {
+  const restacked = restackedIdsOf(ids, movingIds, to);
+  const firstMovedIndex = restacked.findIndex((id, index) => ids[index] !== id);
+  return firstMovedIndex === -1 ? [] : restacked.slice(firstMovedIndex);
+}
+
+function orderedKindIdsOf(draft: Draft, order: OrderOp): { ok: true; restacks: OrderedKindIds[]; scannedCount: number } | { ok: false; error: string } {
+  const movingIdsByKind = new Map<Element['kind'], string[]>();
+  for (const id of new Set(order.ids)) {
+    const element = elementOf(draft, id);
+    if (!element) return { ok: false, error: `order names ${id}, which is not on the board` };
+    if (isArrayIndexKey(id)) return { ok: false, error: `order names ${id}, an id of only digits, which always draws first among its kind and cannot be restacked` };
+    movingIdsByKind.set(element.kind, [...(movingIdsByKind.get(element.kind) ?? []), id]);
+  }
+  let scannedCount = 0;
+  const restacks = [...movingIdsByKind].flatMap(([kind, movingIds]) => {
+    const ids = currentIdsOfKind(draft, kind);
+    scannedCount += ids.length;
+    const span = restackedSpanOf(ids, movingIds, order.to);
+    return span.length === 0 ? [] : [{ kind, ids: span }];
+  });
+  return { ok: true, restacks, scannedCount };
+}
+
+function restackElements(draft: Draft, restacks: readonly OrderedKindIds[]): string[] {
+  const restackedIds = restacks.flatMap((restack) => restack.ids);
+  for (const id of restackedIds) {
+    const element = elementOf(draft, id);
+    if (!element) continue;
+    draft.afterById.delete(id);
+    draft.afterById.set(id, element);
+    if (draft.base.elements.has(id)) draft.erasedIds.add(id);
+  }
+  return restackedIds;
+}
+
+function describeOrder(order: OrderOp, after: ElementLookup): string {
+  const names = order.ids.slice(0, 3).map((id) => nameOf(after, id)).join(', ');
+  const more = order.ids.length > 3 ? ` and ${order.ids.length - 3} more` : '';
+  const placeByTo: Record<OrderOp['to'], string> = { front: 'to the front', back: 'to the back', forward: 'forward', backward: 'backward' };
+  return `moved ${names}${more} ${placeByTo[order.to]}`;
+}
+
 function applyOne(draft: Draft, op: ElementOp, author: Author): OpOutcome {
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
@@ -298,10 +373,23 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
   const changes: BoardChange[] = [];
+  let restackedCount = 0;
+  let orderScannedCount = 0;
   for (const [opIndex, op] of ops.entries()) {
+    if (op.op === 'order') {
+      const ordered = orderedKindIdsOf(draft, op);
+      if (!ordered.ok) return { ok: false, error: `op ${opIndex + 1}: ${ordered.error}`, opIndex };
+      orderScannedCount += ordered.scannedCount;
+      restackedCount += ordered.restacks.reduce((total, restack) => total + restack.ids.length, 0);
+      if (orderScannedCount > WHITEBOARD_LIMITS.elements) return { ok: false, error: `op ${opIndex + 1}: the put's order ops look through more than ${WHITEBOARD_LIMITS.elements} elements, so send them in separate puts`, opIndex };
+      if (changes.length + restackedCount > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put restacks more than ${WHITEBOARD_LIMITS.opsPerPut} elements, so send the order ops in separate puts or move fewer elements past more neighbors`, opIndex };
+      const restackedIds = restackElements(draft, ordered.restacks);
+      if (restackedIds.length > 0) changes.push({ version, author: author.id, elementId: op.ids[0] ?? null, summary: `${author.name} ${describeOrder(op, lookup)}` });
+      continue;
+    }
     const expanded = op.op === 'align' ? alignedSetOpsOf(draft, op) : { ok: true as const, ops: [op] };
     if (!expanded.ok) return { ok: false, error: `op ${opIndex + 1}: ${expanded.error}`, opIndex };
-    if (changes.length + expanded.ops.length > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put changes more than ${WHITEBOARD_LIMITS.opsPerPut} elements once its align ops are counted box by box`, opIndex };
+    if (changes.length + restackedCount + expanded.ops.length > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put changes more than ${WHITEBOARD_LIMITS.opsPerPut} elements once its align ops are counted box by box`, opIndex };
     for (const elementOp of expanded.ops) {
       const elementId = changedElementId(elementOp);
       const previous = elementId === null ? undefined : elementOf(draft, elementId);
@@ -415,8 +503,18 @@ function beforeOf(board: Board, diff: BoardDiff): DiffBefore {
       ...('legend' in diff.fields ? { legend: board.legend } : {}),
       ...('codeSessionId' in diff.fields ? { codeSessionId: board.codeSessionId } : {}),
     },
-    elements: Object.fromEntries(Object.keys(diff.elements).map((id) => [id, board.elements.get(id) ?? null])),
+    elements: Object.fromEntries(idsInBoardOrder(board, diff).map((id) => [id, board.elements.get(id) ?? null])),
   };
+}
+
+function idsInBoardOrder(board: Board, diff: BoardDiff): string[] {
+  const changedIds = Object.keys(diff.elements);
+  const hasReslot = Object.entries(diff.elements).some(([id, change]) => change[0] === 'put' && board.elements.has(id));
+  if (!hasReslot) return changedIds;
+  const changedIdSet = new Set(changedIds);
+  const existingIds = [...board.elements.keys()].filter((id) => changedIdSet.has(id));
+  const existingIdSet = new Set(existingIds);
+  return [...existingIds, ...changedIds.filter((id) => !existingIdSet.has(id))];
 }
 
 function applyBoardDiff(board: Board, diff: BoardDiff, version: number, updatedAt: number): Board | null {

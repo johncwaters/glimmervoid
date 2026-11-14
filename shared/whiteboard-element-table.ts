@@ -58,7 +58,7 @@ function jsonOfStored(body: string): string {
   return body.replace(KEY_CODE_PATTERN, (code) => QUOTED_KEY_BY_CODE.get(code) ?? code);
 }
 
-function isArrayIndexKey(id: string): boolean {
+export function isArrayIndexKey(id: string): boolean {
   return ARRAY_INDEX_KEY.test(id) && Number(id) <= MAX_ARRAY_INDEX;
 }
 

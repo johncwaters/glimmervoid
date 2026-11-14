@@ -202,6 +202,7 @@ function elementIdsNamedBy(op: Op): string[] {
     case 'add': return [op.element.id];
     case 'board': return [];
     case 'align': return op.ids;
+    case 'order': return op.ids;
     default: return [op.id];
   }
 }

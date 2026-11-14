@@ -879,6 +879,32 @@ test('an align op gives boxes of ragged heights one top and one height as a row,
   assert.match(String(pastTheOpCap.body.error), /the put changes more than \d+ elements once its align ops are counted box by box/);
 });
 
+test('an order op restacks boxes among their kind to the front, back, forward or backward, the agent reads the new order, it survives a restart, and an id of only digits is refused', async () => {
+  const boardId = await newBoard('restacked');
+  const boxAt = (id: string, x: number) => ({ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x, y: 40 } } } });
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [boxAt('first', 40), boxAt('second', 80), boxAt('third', 120), boxAt('fourth', 160)] })).status, 200);
+  const boxOrder = async () => Object.values((await boardOf(PLANNER_ID, boardId)).board.elements).flatMap((element) => (element?.kind === 'box' ? [element.id] : []));
+  const restack = async (ids: string[], to: string) => assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'order', ids, to }] })).status, 200);
+  await restack(['first'], 'front');
+  assert.deepEqual(await boxOrder(), ['second', 'third', 'fourth', 'first']);
+  await restack(['third', 'first'], 'back');
+  assert.deepEqual(await boxOrder(), ['third', 'first', 'second', 'fourth']);
+  await restack(['third'], 'forward');
+  assert.deepEqual(await boxOrder(), ['first', 'third', 'second', 'fourth']);
+  await restack(['fourth'], 'backward');
+  assert.deepEqual(await boxOrder(), ['first', 'third', 'fourth', 'second']);
+  await shutDown(fixture.booted);
+  fixture.booted = await boot();
+  assert.deepEqual(await boxOrder(), ['first', 'third', 'fourth', 'second'], 'the restacked order survives a restart');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [boxAt('7', 200)] })).status, 200);
+  const digitsOnly = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'order', ids: ['7'], to: 'front' }] });
+  assert.equal(digitsOnly.status, 400, 'an id of only digits always draws first, so restacking it is refused rather than reported done');
+  assert.match(String(digitsOnly.body.error), /an id of only digits/);
+  const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'order', ids: ['missing'], to: 'front' }] });
+  assert.equal(refused.status, 400);
+  assert.match(String(refused.body.error), /op 1: order names missing, which is not on the board/);
+});
+
 test('a box placed near another stays where it was drawn when that box moves, and near a box with no drawn place is refused', async () => {
   const boardId = await newBoard('near chain');
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [

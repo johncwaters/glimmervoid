@@ -347,7 +347,8 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('remove'), id: ElementId }).strict(),
   z.object({ op: z.literal('board'), title: Title.min(1).optional(), caption: z.string().max(WHITEBOARD_LIMITS.caption).nullable().optional(), legend: LegendEntries.optional(), codeSessionId: CodeSessionId.nullable().optional() }).strict(),
   z.object({ op: z.literal('align'), ids: z.array(ElementId).min(2).max(50).describe('the placed boxes to line up'), as: z.enum(['row', 'column']).describe('row gives every box the top of the highest and the height of the tallest; column gives the left of the leftmost and the width of the widest') }).strict(),
-], { error: 'an op is add, set, remove, board or align' });
+  z.object({ op: z.literal('order'), ids: z.array(ElementId).min(1).max(WHITEBOARD_LIMITS.opsPerPut).describe('the elements to restack, each among elements of its own kind; an id of only digits always draws first, so it cannot be restacked'), to: z.enum(['front', 'back', 'forward', 'backward']).describe('front and back move them above or below every element of their kind, stacked in the order the ids are given; forward and backward move each one step past its nearest neighbor of that kind') }).strict(),
+], { error: 'an op is add, set, remove, board, align or order' });
 
 export const BoardChange = z.object({
   version: z.number().int(),

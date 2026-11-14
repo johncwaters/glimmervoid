@@ -462,6 +462,71 @@ async function verifyEightHandles(open: OpenBoard, boxId: string): Promise<void>
   await page.keyboard.press('Escape');
 }
 
+async function boxOrderOf(open: OpenBoard, boxIds: readonly string[]): Promise<string[]> {
+  return [...(await boardOf(open)).elements.keys()].filter((elementId) => boxIds.includes(elementId));
+}
+
+async function chooseFromContextMenu(open: OpenBoard, at: { x: number; y: number }, label: string): Promise<void> {
+  const { page, panel } = open;
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  const menu = panel.getByRole('menu', { name: 'Board actions' });
+  await menu.waitFor();
+  await menu.getByRole('menuitem', { name: label }).click();
+  await menu.waitFor({ state: 'hidden' });
+}
+
+async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
+  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
+  assert.ok(anchorPoint, 'the anchor box has a point');
+  const boxAt = (id: string, x: number, y: number) => ({ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x: anchorPoint.x + x, y: anchorPoint.y + y } } } });
+  const boxIds = ['menu-first', 'menu-second', 'menu-third'] as const;
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [boxAt('menu-first', 0, 120), boxAt('menu-second', 60, 180), boxAt('menu-third', 120, 240)] });
+  await elementWhere(open, 'the menu boxes are on the board', (element) => element.id === 'menu-third');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+  const firstRect = await screenRectOf(open, 'menu-first');
+  await page.mouse.click(firstRect.x + firstRect.width / 2, firstRect.y - 40, { button: 'right' });
+  const menu = panel.getByRole('menu', { name: 'Board actions' });
+  await menu.getByRole('menuitem', { name: 'Select all' }).waitFor();
+  assert.equal(await menu.getByRole('menuitem', { name: 'Bring to front' }).count(), 0, 'the empty canvas menu offers no stacking');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Shift+F10');
+  await menu.getByRole('menuitem', { name: 'Select all' }).waitFor();
+  assert.ok(await menu.getByRole('menuitem', { name: 'Paste' }).evaluate((item) => item === document.activeElement), 'the keyboard menu focuses its first item');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+  await selectBoxes(open, ['menu-first', 'menu-second']);
+  await chooseFromContextMenu(open, centerOf(await screenRectOf(open, 'menu-second')), 'Align left');
+  const firstLeft = (await laidOutRectOf(open, 'menu-first')).x;
+  await pollFor('Align left lines up the selected boxes on the leftmost edge', BOARD_TIMEOUT_MS, async () => (Math.abs((await laidOutRectOf(open, 'menu-second')).x - firstLeft) <= 1 ? true : null));
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await pollFor('undo puts the aligned box back', BOARD_TIMEOUT_MS, async () => ((await laidOutRectOf(open, 'menu-second')).x > firstLeft + 20 ? true : null));
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+  const orderBefore = await boxOrderOf(open, boxIds);
+  assert.deepEqual(orderBefore, [...boxIds]);
+  await clickElement(open, 'menu-first');
+  await chooseFromContextMenu(open, centerOf(await screenRectOf(open, 'menu-first')), 'Bring to front');
+  await pollFor('Bring to front stacks the box above the others', BOARD_TIMEOUT_MS, async () => ((await boxOrderOf(open, boxIds)).at(-1) === 'menu-first' ? true : null));
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Control+BracketLeft');
+  await pollFor('Ctrl+[ sends the box one step back', BOARD_TIMEOUT_MS, async () => (JSON.stringify(await boxOrderOf(open, boxIds)) === JSON.stringify(['menu-second', 'menu-first', 'menu-third']) ? true : null));
+  await page.keyboard.press('Control+Shift+BracketLeft');
+  await pollFor('Ctrl+Shift+[ sends the box to the back', BOARD_TIMEOUT_MS, async () => (JSON.stringify(await boxOrderOf(open, boxIds)) === JSON.stringify(orderBefore) ? true : null));
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await pollFor('undo restores the stacking order before the send to back', BOARD_TIMEOUT_MS, async () => (JSON.stringify(await boxOrderOf(open, boxIds)) === JSON.stringify(['menu-second', 'menu-first', 'menu-third']) ? true : null));
+  await panel.getByRole('button', { name: 'Redo', exact: true }).click();
+  await pollFor('redo sends the box to the back again', BOARD_TIMEOUT_MS, async () => (JSON.stringify(await boxOrderOf(open, boxIds)) === JSON.stringify(orderBefore) ? true : null));
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: boxIds.map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the menu boxes are gone', (element) => element.id === 'menu-first');
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Escape');
+}
+
 async function laidOutCornerOf(open: OpenBoard, boxId: string): Promise<{ x: number; y: number }> {
   const laidOut = await laidOutOf(open, boxId);
   return { x: laidOut.kind === 'wire' ? 0 : laidOut.x, y: laidOut.kind === 'wire' ? 0 : laidOut.y };
@@ -1533,6 +1598,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyDragPlacement(open);
     if (desktopBoard) await verifyClipboard(open);
     if (desktopBoard) await verifySnapping(open);
+    if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
