@@ -822,7 +822,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function handleHitAt(current: GlScene, point: Point, slop: number): BoardHit | null {
-    if (document.documentElement.dataset.layout === 'phone') return null;
     const handleArea = selectionHandleArea(current);
     if (!handleArea) return null;
     const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
@@ -862,7 +861,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const isPhone = document.documentElement.dataset.layout === 'phone';
     const hoveredBox = !isPhone && hoveredBoxId && !selectedIds.has(hoveredBoxId) ? elementOf(current, hoveredBoxId) : undefined;
     if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
-    const handleArea = isPhone ? null : selectionHandleArea(current);
+    const handleArea = selectionHandleArea(current);
     if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area });
     for (const wire of selectedWiresOf(current)) listed.push({ kind: 'wire-ends', wire });
     for (const elementId of reviewMarks.worthALookIds) {
@@ -1460,7 +1459,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       return isNearEdge ? hit : null;
     }
     const portSlop = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
-    const hasResizeHandles = selectedIds.has(element.id) && document.documentElement.dataset.layout !== 'phone';
+    const hasResizeHandles = selectedIds.has(element.id);
     if (element.kind === 'box' && !hasResizeHandles) {
       const port = boxPortCenters(element).find((center) => Math.hypot(center.x - point.x, center.y - point.y) <= portSlop);
       if (port) return { ...hit, part: 'port', port };
