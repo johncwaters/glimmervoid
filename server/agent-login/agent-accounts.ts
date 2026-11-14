@@ -51,6 +51,12 @@ function loginOf(state: AgentAccountLogin['state'], reason: string | null = null
   return { state, verificationUrl: null, userCode: null, needsPastedCode: false, reason };
 }
 
+function loginFor(identity: AccountIdentity | null): AgentAccountLogin {
+  if (identity === null) return loginOf('signed-out', 'Checking the sign-in.');
+  if (!identity.isChecked) return loginOf('unchecked', identity.detail ?? 'Could not check the sign-in.');
+  return loginOf(identity.isSignedIn ? 'signed-in' : 'signed-out');
+}
+
 function accountLoginFrom(login: AgentLoginStatus): AgentAccountLogin {
   return { state: login.state, verificationUrl: login.verificationUrl, userCode: login.userCode, needsPastedCode: login.needsPastedCode, reason: login.reason };
 }
@@ -110,7 +116,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     const lanes = lanesPinnedTo(agent, account?.id ?? null);
     const isDefault = defaultAccountIdOf(agent) === (account?.id ?? null);
     const identity = identityByKey.get(identityKey(agent, account?.id ?? null)) ?? null;
-    const login = identity === null ? loginOf('signed-out', 'Checking the sign-in.') : loginOf(identity.isSignedIn ? 'signed-in' : 'signed-out');
+    const login = loginFor(identity);
     if (account === null) {
       return { accountId: null, agent, label: machineLoginLabel(identity?.label ?? null), detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault, lanes };
     }

@@ -2,7 +2,7 @@ import addSessionHTML from '../components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
-import { agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
+import { agentAccountSummary, agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { el, markAsNotCredential, query, queryTag } from '../dom-helpers.ts';
 import { createRepoRootsAdder } from '../onboarding/repo-roots-adder.ts';
 import { button } from '../ui/button.ts';
@@ -49,6 +49,7 @@ type AddSessionSlot = 'agent' | 'project';
 const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'project'];
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
+const SIGN_IN_ON_START_TEXT = 'The session opens on its sign-in; follow it in the terminal once.';
 const UNPROTECTED_SKIPS_TEXT = 'Sane YOLO is not available here, so this session skips permission prompts unprotected.';
 
 function liveSessionsByPath(): LiveSession[] {
@@ -109,6 +110,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const accountEl = query(dialog, '#add-session-account');
   const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
+  const signInHintEl = query(dialog, '#add-session-sign-in');
   const errorEl = query(dialog, '#add-session-error');
   const launchersEl = query(dialog, '#add-session-launchers');
   const agentWord = createPressable('add-session-word');
@@ -405,10 +407,26 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     }));
     const isChosenListed = chosenValue !== null && accounts.some((account) => optionValueOf(account.accountId) === chosenValue);
     accountSelect.value = isChosenListed ? chosenValue : defaultValue;
+    showSignInHint();
+  }
+
+  function accountForTheStart() {
+    const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
+    if (accountEl.hidden) return accounts.find((account) => account.isDefault) ?? null;
+    return accounts.find((account) => (account.accountId ?? '') === accountSelect.value) ?? null;
+  }
+
+  function showSignInHint() {
+    const account = accountForTheStart();
+    const isSignedOut = account?.login.state === 'signed-out' && account.login.reason === null;
+    signInHintEl.hidden = !isSignedOut;
+    const signedOutText = account?.accountId === null ? `${agentLabelOf(selectedAgentId)} is not signed in yet.` : agentAccountSummary(account);
+    signInHintEl.textContent = isSignedOut ? `${signedOutText} ${SIGN_IN_ON_START_TEXT}` : '';
   }
   accountSelect.addEventListener('change', () => {
     markOperatorActed();
     operatorAccountChoice = { agentId: selectedAgentId, accountId: accountSelect.value };
+    showSignInHint();
   });
   const unsubscribeAgentAccounts = onAgentAccountsChanged(showAccountPick);
   refreshAgentAccounts();

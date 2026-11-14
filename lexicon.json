@@ -832,6 +832,10 @@
     {
       "name": "register",
       "definition": "To add this host's commit signing key to the connected GitHub account as a signing key, so commits signed with it show as Verified; Register on GitHub is the control that does it"
+    },
+    {
+      "name": "clone",
+      "definition": "A copy of a repository that Glimmervoid makes with git clone into the operator's repository folder from the Add a repository step; a clone job is one such copy the server queues, runs, reports progress for and can cancel"
     }
   ],
   "retired": [
