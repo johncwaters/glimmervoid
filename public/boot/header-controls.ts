@@ -17,14 +17,9 @@ const btnHelp = outlineIconButton({ label: 'Keyboard shortcuts and version', ico
 const muteToggle = outlineIconButton({ label: 'Mute alerts', icon: createLineIcon(MUSIC_NOTE_ICON_PATH, '1.6'), action: 'toggle-mute', states: ['idle', 'off'] });
 const btnMute = muteToggle.element;
 
-
-const headerStatusDismiss = button({ variant: 'secondary', size: 'small', label: 'Dismiss', action: 'dismiss-header-status' });
-headerStatusDismiss.id = 'header-status-dismiss';
-
 const celebrationTray = queryTag(document, '#celebration-tray', 'div');
 celebrationTray.prepend(celebrationsToggle.element);
 queryTag(document, '.header-right', 'div').append(btnAddSession, btnHelp, btnMute);
-queryTag(document, '#header-status', 'p').append(headerStatusDismiss);
 
 function mountHeaderControls() {
   mountMuteButton(muteToggle);

@@ -26,6 +26,7 @@ interface PhoneScreenSpec {
 
 interface PhoneShellHooks {
   headerControls?: AdoptableElement[];
+  noticeStack?: AdoptableElement;
   panels?: PhonePanel<HTMLElement>[];
   onScreenShown?: (screenId: string) => void;
   canGoBack?: (screenId: string) => boolean;
@@ -39,6 +40,7 @@ const NAV_SCREENS: readonly PhoneScreenSpec[] = Object.freeze([
 let panels: PhonePanel<AdoptableElement>[] = [];
 const panelMountElById = new Map<string, HTMLDivElement>();
 let shellEl: HTMLDivElement | null = null;
+let noticeSlotEl: HTMLDivElement | null = null;
 const navButtonById = new Map<string, HTMLButtonElement>();
 const screenElById = new Map<string, HTMLElement>();
 const screenAttentionById = new Map<string, string | boolean>();
@@ -218,7 +220,8 @@ function build() {
 
   shellEl = el('div', 'phone-shell');
   shellEl.id = 'phone-shell';
-  shellEl.append(screens, buildNav());
+  noticeSlotEl = el('div', 'phone-notice-slot');
+  shellEl.append(noticeSlotEl, screens, buildNav());
   document.body.appendChild(shellEl);
   syncMoreAttention();
 
@@ -463,6 +466,7 @@ export function activatePhoneShell({ sessionId, linkedScreenId }: { sessionId?: 
   active = true;
   shellEl.hidden = false;
   for (const control of (hooks.headerControls || [])) adoptElement(control, boardScreen.topBarEl);
+  adoptElement(hooks.noticeStack, noticeSlotEl);
   setSessionPageHost(phonePageHost);
   for (const panel of panels) {
     adoptElement(panel.el, panelMountElById.get(panel.id));
@@ -492,6 +496,7 @@ export function deactivatePhoneShell() {
   releaseSessionPageHost(phonePageHost);
   for (const panel of panels) releaseElement(panel.el);
   for (const control of (hooks.headerControls || [])) releaseElement(control);
+  releaseElement(hooks.noticeStack);
   setMoreMenuOpen(false);
   shellEl.hidden = true;
   shellEl.removeAttribute('data-keyboard');

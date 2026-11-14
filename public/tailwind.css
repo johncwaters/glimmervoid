@@ -61,7 +61,7 @@
 @import "./dialog-advanced.css" layer(components);
 @import "./phone/phone.css" layer(components);
 @import "./debug-overlay.css" layer(components);
-@import "./update-banner.css" layer(components);
+@import "./ui/notice.css" layer(components);
 @import "./flying-animals.css" layer(components);
 @import "./github/reviews-refresh.css" layer(components);
 @import "./onboarding/first-run.css" layer(components);

@@ -32,7 +32,6 @@ import { wireViewerFocus } from './boot/viewer-focus.ts';
 import { mountViewTabs, openBoardsSurface, openView, refreshViewsIfVisible } from './boot/view-tabs.ts';
 import { wireHashRouting } from './boot/hash-routes.ts';
 import { mountHeaderControls, mountHeaderTrays } from './boot/header-controls.ts';
-import { mountTelemetryBanner } from './boot/banners.ts';
 import { mountConnectionScreen, scheduleServerUnreachableHint } from './boot/connection-screen.ts';
 import { wireStatusPainters } from './boot/session-frames.ts';
 import { wireMessageDispatch } from './boot/message-dispatch.ts';
@@ -83,7 +82,6 @@ onStreamerModeChanged(() => refreshViewsIfVisible('settings-updated'));
 
 wireMessageDispatch();
 
-mountTelemetryBanner();
 
 mountHeaderControls();
 

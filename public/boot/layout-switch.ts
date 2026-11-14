@@ -4,6 +4,7 @@ import { canReturnToReviewQueue, onPhoneReviewScreenChanged, returnToReviewQueue
 import { phonePanelsFromDesktopViews } from '../phone/phone-panels-core.ts';
 import { activatePhoneShell, deactivatePhoneShell, getPhoneSessionId, isPhoneShellActive, mountPhoneShell, syncPhoneHistory } from '../phone/phone-shell-gate.ts';
 import { queryTag } from '../dom-helpers.ts';
+import { noticeStack } from '../ui/notice.ts';
 import { isSettingsHash } from '../settings/settings-link.ts';
 import { activateSettingsSection, canReturnToSettingsList, onPhoneSettingsScreenChanged, returnToSettingsList } from '../settings/settings-store.ts';
 import { mountedViewModule } from '../view-registry.ts';
@@ -36,6 +37,8 @@ function mountPhoneLayout() {
       btnHelp,
       btnMute,
     ],
+
+    noticeStack: noticeStack(),
   });
   onPhoneSettingsScreenChanged(syncPhoneHistory);
   onPhoneReviewScreenChanged(syncPhoneHistory);

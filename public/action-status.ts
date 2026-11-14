@@ -4,6 +4,8 @@ import type { StatusIcon } from '#shared/state-icons.ts';
 import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
+import { createNotice, noticeStack } from './ui/notice.ts';
+import type { Notice, NoticeTone } from './ui/notice.ts';
 import { paintStatusIcon } from './status-icon.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
 import { clock } from '#shared/clock.ts';
@@ -124,8 +126,6 @@ interface HeaderErrorAction {
   run: () => void;
 }
 
-const HEADER_STATUS_ACTION = 'header-status-action';
-
 interface ShownHeaderError {
   source: string;
   sessionId: string | null;
@@ -135,48 +135,41 @@ interface ShownHeaderError {
 let shownHeaderError: ShownHeaderError | null = null;
 const HEADER_ERROR_AGE_REPAINT_MS = 30_000;
 let headerAgeTimer: number | null = null;
+let headerErrorNotice: Notice | null = null;
 
-function headerStatusParts() {
-  const line = document.getElementById('header-status');
-  const text = document.getElementById('header-status-text');
-  const age = document.getElementById('header-status-age');
-  const dismiss = document.getElementById('header-status-dismiss');
-  if (!line || !text || !age || !dismiss) return null;
-  if (dismiss.dataset.wired === undefined) {
-    dismiss.dataset.wired = '';
-    dismiss.addEventListener('click', dismissHeaderStatus);
-  }
-  return { line, text, age };
+const NOTICE_TONE_BY_HEADER_TONE: Record<HeaderNoticeTone, NoticeTone> = {
+  error: 'failed',
+  warning: 'warning',
+};
+
+function ensureHeaderErrorNotice(): Notice {
+  if (headerErrorNotice) return headerErrorNotice;
+  headerErrorNotice = createNotice({ id: 'header-error-notice', dismissLabel: 'Dismiss', isDismissIcon: false, onDismiss: dismissHeaderStatus });
+  noticeStack().prepend(headerErrorNotice.element);
+  return headerErrorNotice;
+}
+
+function headerErrorAgeText(): string {
+  if (!shownHeaderError) return '';
+  return elapsedText(clock.nowMs() - shownHeaderError.raisedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: 60 });
 }
 
 function paintHeaderErrorAge() {
-  const parts = headerStatusParts();
-  if (!parts || !shownHeaderError) return;
-  const ageText = elapsedText(clock.nowMs() - shownHeaderError.raisedAt, { ...COMPACT_FLOORED_AGO, justNowBelowSeconds: 60 });
-  if (parts.age.textContent !== ageText) parts.age.textContent = ageText;
-}
-
-function replaceHeaderAction(line: HTMLElement, beforeElement: HTMLElement, action: HeaderErrorAction | undefined) {
-  line.querySelector(`[data-action="${HEADER_STATUS_ACTION}"]`)?.remove();
-  if (!action) return;
-  const actionButton = button({ variant: 'secondary', size: 'small', label: action.label, action: HEADER_STATUS_ACTION, onClick: action.run });
-  actionButton.classList.add('shrink-0');
-  line.insertBefore(actionButton, beforeElement);
+  headerErrorNotice?.setMeta(headerErrorAgeText());
 }
 
 export function reportHeaderError({ source, sessionId, message, kind, tone = 'error', action, hidesInStreamerMode = true }: HeaderError) {
   reportHeaderErrorToServer(source, message, tone, kind);
-  const parts = headerStatusParts();
-  if (!parts) return;
+  const notice = ensureHeaderErrorNotice();
   const shownMessage = hidesInStreamerMode ? streamerSafeText('error', message) : message;
-  const sourceElement = el('strong', 'header-status-source', source);
-  parts.text.replaceChildren(sourceElement, ` ${shownMessage}`);
-  replaceHeaderAction(parts.line, parts.age, action);
   shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: clock.nowMs() };
-  paintHeaderErrorAge();
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
-  parts.line.dataset.tone = tone;
-  parts.line.hidden = false;
+  notice.show({
+    text: [el('strong', null, source), ` ${shownMessage}`],
+    tone: NOTICE_TONE_BY_HEADER_TONE[tone],
+    actions: action ? [button({ variant: 'secondary', size: 'small', label: action.label, action: 'header-status-action', onClick: action.run })] : [],
+    meta: headerErrorAgeText(),
+  });
 }
 
 export function clearHeaderError(source: string, sessionId?: string) {
@@ -194,11 +187,5 @@ function dismissHeaderStatus() {
   shownHeaderError = null;
   if (headerAgeTimer !== null) window.clearInterval(headerAgeTimer);
   headerAgeTimer = null;
-  const parts = headerStatusParts();
-  if (!parts) return;
-  parts.line.hidden = true;
-  delete parts.line.dataset.tone;
-  parts.text.replaceChildren();
-  replaceHeaderAction(parts.line, parts.age, undefined);
-  parts.age.textContent = '';
+  headerErrorNotice?.hide();
 }

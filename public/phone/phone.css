@@ -43,6 +43,16 @@ html[data-layout="phone"] .phone-shell[hidden] { display: none; }
 .phone-topbar > .status-indicator,
 .phone-topbar .header-connection { min-width: 0; overflow: hidden; }
 
+.phone-notice-slot { flex: 0 0 auto; max-height: 40%; overflow-y: auto; }
+.phone-notice-slot:has(.notice:not([hidden])) { padding-top: env(safe-area-inset-top); background: var(--bg-surface); }
+.phone-shell:not([data-keyboard="open"]):has(.phone-notice-slot .notice:not([hidden])) .phone-topbar { padding-top: 8px; }
+html[data-layout="phone"] .notice { padding: 8px 12px; }
+html[data-layout="phone"] .notice > * { order: 2; }
+html[data-layout="phone"] .notice > :is(.notice-telemetry-cat, .notice-text) { order: 0; }
+html[data-layout="phone"] .notice > .notice-text { flex: 1 1 0; }
+html[data-layout="phone"] .notice > .notice-dismiss { order: 1; align-self: flex-start; }
+html[data-layout="phone"] .notice::after { content: ""; order: 1; flex-basis: 100%; height: 0; }
+
 .phone-board { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 .phone-board-list {
@@ -245,7 +255,7 @@ html[data-layout="phone"] .pr-link { display: inline-flex; align-items: center; 
   border-top: 1px solid var(--border-dim);
   padding-bottom: env(safe-area-inset-bottom);
 }
-html[data-layout="phone"] .phone-shell[data-keyboard="open"] :is(.phone-nav, .phone-terminal-bar:not(:focus-within)) { display: none; }
+html[data-layout="phone"] .phone-shell[data-keyboard="open"] :is(.phone-nav, .phone-notice-slot, .phone-terminal-bar:not(:focus-within)) { display: none; }
 .phone-nav-item {
   position: relative;
   flex: 1 1 0;
