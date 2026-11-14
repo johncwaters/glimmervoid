@@ -682,6 +682,24 @@ function savedThroughJson(world: LayoutWorld) {
   };
 }
 
+test('restacking on a kept layout world rebuilds it, so the tile index paints the new stacking order', () => {
+  const author = { id: 'operator', name: 'operator' };
+  let { board } = generateBoardRecord({ elementCount: 400, seed: 7, boardId: 'restack', title: 'restack', createdAt: 0 });
+  const world = createLayoutWorld(board, null, 0);
+  const [bottomBox] = [...board.elements.values()].filter((element) => element.kind === 'box' && !/^[0-9]+$/.test(element.id));
+  assert.ok(bottomBox);
+  const staged = stageOps(board, [Op.parse({ op: 'order', ids: [bottomBox.id], to: 'front' })], author, 0, null);
+  assert.ok(staged.ok, staged.ok ? '' : staged.error);
+  const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  staged.commit();
+  board = staged.board;
+  const applied = applyLayoutDelta(world, board, changes);
+  assert.equal(applied.delta.isRebuilt, true);
+  const tileIndex = tileIndexOf(layoutOf(applied.world), board.version, board);
+  const boxesInPaintOrder = tileIndex.painted.flatMap((painted) => (painted?.element.kind === 'box' ? [painted] : [])).sort((first, second) => first.paintOrder - second.paintOrder);
+  assert.equal(boxesInPaintOrder.at(-1)?.element.id, bottomBox.id);
+});
+
 test('a layout world kept across a box rotation routes its wires as a fresh layout does, around the turned box and from a turned end box', () => {
   const author = { id: 'operator', name: 'operator' };
   let board = Board.parse({ id: 'turning', title: 'turning', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {

@@ -712,6 +712,9 @@ async function verifyArrowAndLineTools(open: OpenBoard, anchorBoxId: string): Pr
   await dragOnScreen(open, lineStart, { x: lineStart.x + 200, y: lineStart.y + 40 });
   const line = await elementWhere(open, 'the line tool draws a free line on empty canvas', (element) => element.kind === 'wire' && element.id !== arrow.id && typeof element.from === 'object' && typeof element.to === 'object');
   assert.ok(line.kind === 'wire' && line.arrows === 'none' && line.route === 'sharp', 'a line has no arrowheads and runs straight');
+  const lineStartX = typeof line.from === 'object' ? line.from.x : Number.NaN;
+  await page.keyboard.press('ArrowRight');
+  await elementWhere(open, 'an arrow key nudges a selected free line, both ends with it', (element) => element.id === line.id && element.kind === 'wire' && typeof element.from === 'object' && element.from.x === lineStartX + 1);
   await verifyWireBends(open, line.id, arrow.id);
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [arrow.id, line.id, 'bind-source', 'bind-target'].map((id) => ({ op: 'remove', id })) });
   await boardWithout(open, 'the arrow targets are gone', (element) => element.id === 'bind-source' || element.id === line.id);
@@ -1092,6 +1095,8 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
     await docCard.locator('.plan-paragraph', { hasText: undoneText }).waitFor({ state: 'detached' });
   }
   await docCard.locator('.plan-paragraph', { hasText: 'First draft.' }).waitFor();
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'set', id: BOARD_DOC_BOX_ID, fields: { angle: 30 } }] });
+  await page.waitForFunction(() => document.querySelector<HTMLElement>('.wb-media[data-media-kind="doc"]')?.style.transform === 'rotate(30deg)');
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: BOARD_DOC_BOX_ID }] });
   await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();

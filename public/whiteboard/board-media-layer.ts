@@ -3,7 +3,8 @@ import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whit
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
-import type { PageOccluder } from '#shared/whiteboard-svg-core.ts';
+import type { PageOccluder, PageTurn } from '#shared/whiteboard-svg-core.ts';
+import { rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import { el } from '../dom-helpers.ts';
 import { WHEEL_ZOOM_STEP } from './board-edit.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
@@ -37,7 +38,9 @@ function viewportWidthOf(box: Pick<LaidOutBox, 'device'>, media: PageMedia): num
   return box.device ? DEVICE_CATALOG[box.device.name].screen.width : VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
 }
 
-function placeNode(node: HTMLElement, media: PageMedia, viewportWidth: number): void {
+function placeNode(node: HTMLElement, media: PageMedia, viewportWidth: number, turn: PageTurn): void {
+  node.style.transformOrigin = `${turn.pivot.x - media.x}px ${turn.pivot.y - media.y}px`;
+  node.style.transform = turn.angle === 0 ? '' : `rotate(${turn.angle}deg)`;
   node.style.left = `${media.x}px`;
   node.style.top = `${media.y}px`;
   node.style.width = `${media.width}px`;
@@ -54,12 +57,14 @@ function isOccluder(element: LaidOutElement): element is PageOccluder {
   return element.kind !== 'wire' && element.kind !== 'frame';
 }
 
-function overlaps(page: Rect, element: Rect): boolean {
+function overlaps(turnedPage: Rect, turnedElement: Rect): boolean {
+  const page = rotatedBoundsOf(turnedPage);
+  const element = rotatedBoundsOf(turnedElement);
   return element.x - OCCLUDER_REACH < page.x + page.width && element.x + element.width + OCCLUDER_REACH > page.x
     && element.y - OCCLUDER_REACH < page.y + page.height && element.y + element.height + OCCLUDER_REACH > page.y;
 }
 
-function occludersAbove(pageBoxId: string, page: Rect, elementsInPaintOrder: readonly LaidOutElement[]): PageOccluder[] {
+function occludersAbove(pageBoxId: string, page: Rect & { angle: number }, elementsInPaintOrder: readonly LaidOutElement[]): PageOccluder[] {
   const pagePaintIndex = elementsInPaintOrder.findIndex((element) => element.id === pageBoxId);
   return elementsInPaintOrder.slice(pagePaintIndex + 1).filter(isOccluder).filter((element) => overlaps(page, element));
 }
@@ -150,18 +155,18 @@ function pageFrameOf(media: PageMedia): HTMLIFrameElement {
 }
 
 function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<string, DialValue>>): PlacedPage {
-  const { boxId, media, identity, viewportWidth } = page;
+  const { boxId, media, identity, viewportWidth, turn } = page;
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
   if (media.kind === 'doc') {
     node.append(docCardOf(media));
-    placeNode(node, media, viewportWidth);
+    placeNode(node, media, viewportWidth, turn);
     return { identity, node, frame: null, postedDialValues: '{}' };
   }
   const frame = pageFrameOf(media);
   node.append(frame);
-  placeNode(node, media, viewportWidth);
+  placeNode(node, media, viewportWidth, turn);
   const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues) };
   tunePageOnLoad(frame, node, () => {
     const dialValues = latestDialValues();
@@ -185,6 +190,7 @@ function paintLinkChip(node: HTMLElement, linkState: LinkStateOfBox | undefined)
 interface ShownPage {
   boxId: string;
   media: PageMedia;
+  turn: PageTurn;
   viewportWidth: number;
   identity: string;
   maskImage: string | null;
@@ -282,7 +288,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
       liveBoxIds.add(page.boxId);
       const placed = placedByBoxId.get(page.boxId);
       if (placed?.identity === page.identity) {
-        placeNode(placed.node, page.media, page.viewportWidth);
+        placeNode(placed.node, page.media, page.viewportWidth, page.turn);
         applyMask(placed.node, page.maskImage);
         postChangedDialValues(page, placed);
         paintLinkChip(placed.node, linkStateByBoxId.get(page.boxId));
@@ -308,7 +314,9 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
     shownPages = layout.elements.flatMap((element) => {
       if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
-      return [{ boxId: element.id, media: element.media, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occludersAbove(element.id, element.media, elementsInPaintOrder)) }];
+      const turn = { angle: element.angle, pivot: { x: element.x + element.width / 2, y: element.y + element.height / 2 } };
+      const occluders = occludersAbove(element.id, { x: element.x, y: element.y, width: element.width, height: element.height, angle: element.angle }, elementsInPaintOrder);
+      return [{ boxId: element.id, media: element.media, turn, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occluders, turn) }];
     });
     placeLivePages();
   }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Element, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Box, BoxLine, Op, WireEnd } from '#shared/contracts/whiteboard.ts';
+import type { Box, BoxLine, Op, Wire, WireEnd } from '#shared/contracts/whiteboard.ts';
 
 const BOARD_CLIPBOARD_TYPE = 'glimmervoid/board-elements';
 
@@ -78,13 +78,15 @@ export function copiedClipboardOf(source: CopySource): BoardClipboard | null {
     const contains = frame.contains.filter((boxId) => rectsByBoxId.has(boxId));
     return contains.length > 0 ? [{ ...frame, contains }] : [];
   });
-  const wireIds = new Set([...rectsByBoxId.keys()].flatMap((boxId) => [...source.wireIdsOf(boxId)]));
+  const selectedWireIds = selectedOfKind(source, 'wire').map((wire) => wire.id);
+  const wireIds = new Set([...selectedWireIds, ...[...rectsByBoxId.keys()].flatMap((boxId) => [...source.wireIdsOf(boxId)])]);
   const wires = [...wireIds].flatMap((wireId) => {
     const wire = source.elements.get(wireId);
     return wire?.kind === 'wire' && [wire.from, wire.to].every((end) => typeof end !== 'string' || rectsByBoxId.has(end)) ? [wire] : [];
   });
   const strokes = selectedOfKind(source, 'stroke');
-  const rects = [...rectsByBoxId.values(), ...strokes.map((stroke) => strokeRectOf(stroke.points))];
+  const wirePointRects = wires.flatMap((wire) => [wire.from, wire.to, ...wire.via].flatMap((end) => (typeof end === 'string' ? [] : [{ x: end.x, y: end.y, width: 0, height: 0 }])));
+  const rects = [...rectsByBoxId.values(), ...strokes.map((stroke) => strokeRectOf(stroke.points)), ...wirePointRects];
   if (rects.length === 0) return null;
   return { type: BOARD_CLIPBOARD_TYPE, version: 1, area: areaAround(rects), elements: [...boxes, ...strokes, ...frames, ...wires] };
 }
@@ -126,6 +128,25 @@ function shiftedElementOf(element: Element, offset: ClipboardPoint, newIdById: R
       return { ...element, id, from: freshEndOf(element.from), to: freshEndOf(element.to), via: element.via.map(shiftedPointOf) };
     }
   }
+}
+
+export function carriedWiresOf(elements: Iterable<Element>, selectedIds: ReadonlySet<string>, movingBoxIds: ReadonlySet<string>): Wire[] {
+  return [...elements].flatMap((element) => {
+    if (element.kind !== 'wire') return [];
+    const ends = [element.from, element.to];
+    const boundEnds = ends.filter((end): end is string => typeof end === 'string');
+    if (!boundEnds.every((boxId) => movingBoxIds.has(boxId))) return [];
+    const hasFreePoints = element.via.length > 0 || boundEnds.length < ends.length;
+    if (!hasFreePoints) return [];
+    const isCarriedByBoxes = boundEnds.length === ends.length;
+    return selectedIds.has(element.id) || isCarriedByBoxes ? [element] : [];
+  });
+}
+
+export function shiftedWireOpOf(wire: Wire, offset: ClipboardPoint): Op {
+  const shiftedPointOf = (point: { x: number; y: number }) => ({ x: Math.round(point.x + offset.x), y: Math.round(point.y + offset.y) });
+  const shiftedEndOf = (end: WireEnd): WireEnd => (typeof end === 'string' ? end : shiftedPointOf(end));
+  return { op: 'set', id: wire.id, fields: { from: shiftedEndOf(wire.from), to: shiftedEndOf(wire.to), via: wire.via.map(shiftedPointOf) } };
 }
 
 export function pastedOpsOf(clipboard: BoardClipboard, offset: ClipboardPoint, newIdOf: (kind: ElementKind) => string): { ops: Op[]; pastedIds: string[] } {

@@ -17,7 +17,7 @@ import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-re
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf } from '#shared/whiteboard-board-index.ts';
-import { centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf } from './board-clipboard-core.ts';
+import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';
 import type { BoardClipboard } from './board-clipboard-core.ts';
 import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
@@ -113,6 +113,7 @@ interface MovingBox {
 interface NudgeRun {
   movingBoxes: MovingBox[];
   strokeStartPointsById: Map<string, number[]>;
+  carriedWires: Wire[];
   offset: ViewPoint;
   pinnedOffsetY: number;
   sendsInFlight: number;
@@ -510,7 +511,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const stroke = board.elements.get(elementId);
       return stroke?.kind === 'stroke' ? [[elementId, stroke.points] as const] : [];
     }));
-    return { movingBoxes, strokeStartPointsById, offset: { x: 0, y: 0 }, pinnedOffsetY: renderer.layout()?.pinnedOffsetY ?? 0, sendsInFlight: 0 };
+    const carriedWires = carriedWiresOf(board.elements.values(), selectedIds, new Set(movingBoxes.map((movingBox) => movingBox.boxId)));
+    return { movingBoxes, strokeStartPointsById, carriedWires, offset: { x: 0, y: 0 }, pinnedOffsetY: renderer.layout()?.pinnedOffsetY ?? 0, sendsInFlight: 0 };
   }
 
   function nudgeSelected(direction: ViewPoint, distance: number): void {
@@ -526,7 +528,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const points = startPoints.map((coordinate, index) => coordinate + Math.round(index % 2 === 0 ? offset.x : offset.y));
       return { op: 'set', id: strokeId, fields: { points } };
     });
-    const nudgeOps = [...boxOps, ...strokeOps];
+    const wireOps = run.carriedWires.map((wire) => shiftedWireOpOf(wire, { x: Math.round(offset.x), y: Math.round(offset.y) }));
+    const nudgeOps = [...boxOps, ...strokeOps, ...wireOps];
     if (nudgeOps.length === 0) return;
     run.sendsInFlight += 1;
     void options.sendOps(nudgeOps).finally(() => {
@@ -1357,7 +1360,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const changes = draggedBoxFields(drag);
     const board = options.currentBoard();
     if (board && !paintMovePreview(drag, board)) paintResizePreview(drag, board);
-    const moveOps = changes.map(({ boxId, fields }): Op => ({ op: 'set', id: boxId, fields }));
+    const boxMoveOps = changes.map(({ boxId, fields }): Op => ({ op: 'set', id: boxId, fields }));
+    const carriedWires = board && drag.mode === 'move' ? carriedWiresOf(board.elements.values(), selectedIds, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId))) : [];
+    const moveOps = [...boxMoveOps, ...carriedWires.map((wire) => shiftedWireOpOf(wire, dragOffsetOf(drag)))];
     const departureOps = board ? frameDepartureOps(drag, board) : [];
     const isSent = await options.sendOps([...moveOps, ...departureOps]) || (departureOps.length > 0 && await options.sendOps(moveOps));
     if (!isSent) paintPreview();

@@ -396,6 +396,7 @@ function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
   const index = boardIndexOf(board.elements);
   if (world.version !== board.version - 1 || index.elementCount < world.minIncrementalElements || world.laidOutById.size === 0) return true;
   for (const change of changes.values()) {
+    if (change.isAppended && change.before) return true;
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
     if (touchesStack(board, change.before) || touchesStack(board, change.after)) return true;
     const isSolidChange = change.before?.kind === 'box' || change.after?.kind === 'box';

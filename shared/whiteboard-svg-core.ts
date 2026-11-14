@@ -364,17 +364,30 @@ function elementMarkup(element: LaidOutElement, assetHref: AssetHref = NO_ASSET_
 
 type PageOccluder = Exclude<LaidOutElement, { kind: 'wire' | 'frame' }>;
 
+interface PageTurn {
+  angle: number;
+  pivot: { x: number; y: number };
+}
+
 function occluderMarkup(occluder: PageOccluder): string {
+  const shape = unturnedOccluderMarkup(occluder);
+  if (occluder.kind !== 'box' || occluder.angle === 0) return shape;
+  return tag('g', { transform: `rotate(${occluder.angle} ${occluder.x + occluder.width / 2} ${occluder.y + occluder.height / 2})` }, shape);
+}
+
+function unturnedOccluderMarkup(occluder: PageOccluder): string {
   const grownEdge = { fill: 'black', stroke: 'black', 'stroke-width': OCCLUDER_MARGIN * 2, 'stroke-linejoin': 'round' };
   if (occluder.kind === 'box' && occluder.shape === 'decision') return tag('path', { d: decisionOutlinePath(occluder), ...grownEdge });
   if (occluder.kind === 'box' && occluder.shape === 'ellipse') return tag('ellipse', { ...ellipseAttributesOf(occluder), ...grownEdge });
   return tag('rect', { x: occluder.x, y: occluder.y, width: occluder.width, height: occluder.height, rx: OCCLUDER_CORNER_RADIUS, ...grownEdge });
 }
 
-function pageMaskImage(page: Rect, occluders: readonly PageOccluder[]): string | null {
+function pageMaskImage(page: Rect, occluders: readonly PageOccluder[], pageTurn: PageTurn = { angle: 0, pivot: { x: 0, y: 0 } }): string | null {
   if (occluders.length === 0) return null;
   const pageArea = { x: page.x, y: page.y, width: page.width, height: page.height };
-  const mask = tag('mask', { id: 'page-mask', maskUnits: 'userSpaceOnUse', ...pageArea }, [tag('rect', { ...pageArea, fill: 'white' }), ...occluders.map(occluderMarkup)].join(''));
+  const occluderShapes = occluders.map(occluderMarkup).join('');
+  const turnedOccluders = pageTurn.angle === 0 ? occluderShapes : tag('g', { transform: `rotate(${-pageTurn.angle} ${pageTurn.pivot.x} ${pageTurn.pivot.y})` }, occluderShapes);
+  const mask = tag('mask', { id: 'page-mask', maskUnits: 'userSpaceOnUse', ...pageArea }, tag('rect', { ...pageArea, fill: 'white' }) + turnedOccluders);
   const markup = tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${page.x} ${page.y} ${page.width} ${page.height}`, width: page.width, height: page.height, preserveAspectRatio: 'none' }, tag('defs', {}, mask) + tag('rect', { ...pageArea, mask: 'url(#page-mask)' }));
   return `url("data:image/svg+xml,${encodeURIComponent(markup)}")`;
 }
@@ -437,7 +450,7 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
   return `${tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${x} ${y} ${width} ${height}`, width, height }, body)}\n`;
 }
 
-export type { AssetHref, PageOccluder };
+export type { AssetHref, PageOccluder, PageTurn };
 export {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
