@@ -1,9 +1,11 @@
 import type { GithubTeam, OperatorActionOf } from '#shared/contracts/control-messages.ts';
+import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 import { button } from '../ui/button.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
+import { buildGithubConnectSection, isConnectOffered } from '../secrets/github-connect.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { applySettingsBroadcast, subscribeSettings } from '../settings/settings-store.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from './team-review-view-core.ts';
@@ -27,6 +29,12 @@ function typedTextInput(inputId: string, placeholder: string): HTMLInputElement 
   return input;
 }
 
+function githubStepBadgeOf(connection: GithubConnection): string {
+  if (!isConnectOffered(connection)) return 'NOT SIGNED IN';
+  if (connection.state === 'connected') return 'NOT READ YET';
+  return 'NOT CONNECTED';
+}
+
 export function createReviewSetupCard() {
   const element = el('section', 'first-run-checklist review-setup');
   element.setAttribute('aria-labelledby', 'review-setup-title');
@@ -43,6 +51,22 @@ export function createReviewSetupCard() {
   let loadSequence = 0;
   let checkAgainButton: HTMLButtonElement | null = null;
   const checkedEntries = new Set<string>();
+  let isGithubConnectOffered = false;
+  let githubStepBadge = 'NOT SIGNED IN';
+  let seenGithubConnection: string | null = null;
+  const githubConnectSection = buildGithubConnectSection({ layout: 'stacked', isHiddenWithoutConnect: true, onConnectionChange: noteGithubConnection });
+
+  function noteGithubConnection(connection: GithubConnection | null): void {
+    if (connection === null) return;
+    const githubConnection = connection.state === 'connected' ? `connected ${connection.login}` : connection.state;
+    if (githubConnection === seenGithubConnection) return;
+    const isFirstAnswer = seenGithubConnection === null;
+    seenGithubConnection = githubConnection;
+    isGithubConnectOffered = isConnectOffered(connection);
+    githubStepBadge = githubStepBadgeOf(connection);
+    render();
+    if (!isFirstAnswer) void load();
+  }
 
   function githubStepBody(): HTMLElement[] {
     const actions = el('div', 'first-run-step-actions');
@@ -51,7 +75,9 @@ export function createReviewSetupCard() {
       void load();
     } });
     actions.append(checkAgainButton);
+    if (isGithubConnectOffered) return [githubConnectSection, actions];
     return [
+      githubConnectSection,
       el('p', 'first-run-step-text', 'The GitHub CLI is not signed in on the machine running Glimmervoid. Sign in there, then check again.'),
       buildCommandRow(GH_SIGN_IN_COMMAND),
       actions,
@@ -184,7 +210,7 @@ export function createReviewSetupCard() {
     renderedHasReadToken = hasLaneReadToken();
     const steps = decideReviewSetupSteps(listing.viewer, renderedHasReadToken);
     stepsList.replaceChildren(
-      buildSetupStep({ title: '1. GitHub CLI', state: steps.github, summary: listing.viewer ? `Signed in as ${listing.viewer}` : '', badge: 'NOT SIGNED IN', body: githubStepBody }),
+      buildSetupStep({ title: '1. GitHub', state: steps.github, summary: listing.viewer ? `Signed in as ${listing.viewer}` : '', badge: githubStepBadge, body: githubStepBody }),
       buildSetupStep({ title: '2. Read-only GitHub token', state: steps.readToken, summary: 'Token saved', badge: 'REQUIRED', body: () => laneReadTokenStepBody({ laneWork: 'Team review reads each pull request, its issues and linked pages itself.', onSaved: render }) }),
       buildSetupStep({ title: '3. Who to review for', state: steps.teams, summary: '', badge: 'NEEDED', body: teamsStepBody }),
       buildSetupStep({ title: '4. Review skill (optional)', state: steps.skill, summary: '', badge: '', body: () => [] }),

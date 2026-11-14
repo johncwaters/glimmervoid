@@ -133,4 +133,4 @@ function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect 
   return article;
 }
 
-export { buildGithubConnectSection };
+export { buildGithubConnectSection, isConnectOffered };
