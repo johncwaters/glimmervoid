@@ -13,6 +13,7 @@ import type { LinkedLiveSession } from './my-prs-view-core.ts';
 import { emptyStateText as myPrsEmptyStateText, queueNotices as myPrsQueueNotices } from './my-prs-view-core.ts';
 import { createPrQueueColumns } from './pr-queue-columns.ts';
 import { createReviewBoard } from './review-queue-board.ts';
+import type { DropPoint } from './review-queue-board.ts';
 import { onLayoutChange } from '../form-factor.ts';
 import { getReviewsBoardDetailWidth, getReviewsCardOrder, getReviewsLayout, getReviewsMovedToWaiting, getReviewsPulledKeys, getReviewsTurnLimit, setReviewsBoardDetailWidth, setReviewsCardOrder, setReviewsLayout, setReviewsMovedToWaiting, setReviewsPulledKeys } from '../ui-prefs.ts';
 import type { ReviewsLayout } from '../ui-prefs.ts';
@@ -220,29 +221,47 @@ function moveToWaiting(item: QueueItem, isMoved: boolean, shouldBePulled: boolea
   rowsByKey.get(item.key)?.focus({ preventScroll: true });
 }
 
-function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId): void {
+function isReviewingNowFull(): boolean {
+  const limit = getReviewsTurnLimit();
+  return limit > 0 && getReviewsPulledKeys().length >= limit;
+}
+
+function isSlotDrop(item: QueueItem, sourceGroupId: DisplayGroupId, targetGroupId: DisplayGroupId): boolean {
+  const kind = boardDropOf(item, sourceGroupId, targetGroupId, isMovedToWaiting(item))?.kind;
+  return kind === 'pull' || kind === 'wait';
+}
+
+function placeInColumn(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null): void {
+  const columnKeys = displayGroups.find((group) => group.id === groupId)?.items.map((item) => item.key).filter((key) => key !== queueKey) ?? [];
+  setReviewsCardOrder(placeCardBefore({ cardOrder: getReviewsCardOrder(), columnKeys: [...columnKeys, queueKey], key: queueKey, beforeKey: beforeQueueKey }));
+}
+
+function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId, beforeQueueKey: string | null, dropPoint: DropPoint): void {
   const sourceGroup = displayGroups.find((group) => group.items.some((item) => item.key === queueKey));
   const item = sourceGroup?.items.find((groupItem) => groupItem.key === queueKey);
   if (!sourceGroup || !item) return;
   const drop = boardDropOf(item, sourceGroup.id, targetGroupId, isMovedToWaiting(item));
   if (!drop) return;
-  if (drop.kind === 'pull') {
-    movePulled(queueKey, drop.shouldBePulled);
+  if (drop.kind === 'team-action') {
+    selectItem(queueKey, { isFromQueue: true });
+    detailHost?.querySelector<HTMLButtonElement>(`button[data-action="${drop.action}"]:not(:disabled)`)?.click();
     return;
   }
-  if (drop.kind === 'wait') {
-    moveToWaiting(item, drop.isMoved, drop.shouldBePulled);
-    return;
-  }
-  selectItem(queueKey, { isFromQueue: true });
-  detailHost?.querySelector<HTMLButtonElement>(`button[data-action="${drop.action}"]:not(:disabled)`)?.click();
+  const isPullRefused = drop.shouldBePulled && isReviewingNowFull();
+  if (drop.kind === 'pull' && isPullRefused) return;
+  if (!isPullRefused) placeInColumn(queueKey, targetGroupId, beforeQueueKey);
+  pendingLanding = isPullRefused ? null : { queueKey, dropPoint };
+  if (drop.kind === 'pull') movePulled(queueKey, drop.shouldBePulled);
+  if (drop.kind === 'wait') moveToWaiting(item, drop.isMoved, drop.shouldBePulled);
+  pendingLanding = null;
 }
 
-function reorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null): void {
-  const columnKeys = displayGroups.find((group) => group.id === groupId)?.items.map((item) => item.key) ?? [];
-  setReviewsCardOrder(placeCardBefore({ cardOrder: getReviewsCardOrder(), columnKeys, key: queueKey, beforeKey: beforeQueueKey }));
+function reorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null, dropPoint: DropPoint): void {
+  placeInColumn(queueKey, groupId, beforeQueueKey);
+  pendingLanding = { queueKey, dropPoint };
   renderedSignature = null;
   render();
+  pendingLanding = null;
   rowsByKey.get(queueKey)?.focus({ preventScroll: true });
 }
 
@@ -367,6 +386,7 @@ const DETAIL_FADE_MS = 250;
 const MIN_MOVE_PX = 1;
 
 type RowSnapshot = { rect: DOMRect; element: HTMLElement };
+let pendingLanding: { queueKey: string; dropPoint: DropPoint } | null = null;
 const runningQueueAnimations = new Set<Animation>();
 const leavingGhosts = new Set<HTMLElement>();
 let outlinedKey: string | null = null;
@@ -393,7 +413,8 @@ function snapshotRows(): Map<string, RowSnapshot> {
   const snapshots = new Map<string, RowSnapshot>();
   if (!isQueueMotionOn() || motionLayout !== shownLayout()) return snapshots;
   for (const [key, row] of rowsByKey) {
-    if (row.isConnected) snapshots.set(key, { rect: row.getBoundingClientRect(), element: row });
+    const rect = row.getBoundingClientRect();
+    if (row.isConnected && rect.width > 0) snapshots.set(key, { rect, element: row });
   }
   return snapshots;
 }
@@ -438,13 +459,19 @@ function slideSelectionOutline(fromRect: DOMRect, toRow: HTMLElement, toRect: DO
   slide.addEventListener('cancel', land);
 }
 
+function landingRectOf(key: string, toRect: DOMRect): DOMRect | undefined {
+  if (pendingLanding?.queueKey !== key) return undefined;
+  const { clientX, clientY } = pendingLanding.dropPoint;
+  return new DOMRect(clientX - toRect.width / 2, clientY - toRect.height / 2, toRect.width, toRect.height);
+}
+
 function playRowMotion(before: ReadonlyMap<string, RowSnapshot>): void {
   if (before.size === 0 || !isQueueMotionOn()) return;
   const afterRects = new Map([...rowsByKey].map(([key, row]) => [key, row.getBoundingClientRect()]));
   for (const [key, row] of rowsByKey) {
-    const fromRect = before.get(key)?.rect;
     const toRect = afterRects.get(key);
     if (!toRect) continue;
+    const fromRect = landingRectOf(key, toRect) ?? before.get(key)?.rect;
     if (!fromRect) {
       trackAnimation(row.animate(eased([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }]), { duration: CARD_ARRIVE_MS }));
       continue;
@@ -565,6 +592,7 @@ function createBoard(hasMultipleRepos: boolean, sessionsByPrKey: ReadonlyMap<str
       render();
     },
     dropLaneIdsOf: (item, group) => boardDropLaneIds(item, group.id, isMovedToWaiting(item)),
+    isSlotDrop: (item, group, targetGroupId) => isSlotDrop(item, group.id, targetGroupId),
     onDropCard: dropCardOnLane,
     onReorderCard: reorderCard,
   });

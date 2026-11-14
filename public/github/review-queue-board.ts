@@ -1,3 +1,4 @@
+import { canAnimate, eased, prefersReducedMotion } from '../attention-banner.ts';
 import { el } from '../dom-helpers.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { SLIM_GROUP_IDS, boardColumns } from './review-queue-core.ts';
@@ -12,8 +13,9 @@ interface ReviewBoardOptions {
   isParkedOpen: boolean;
   onToggleParked(): void;
   dropLaneIdsOf(item: QueueItem, group: DisplayGroup): readonly DisplayGroupId[];
-  onDropCard(queueKey: string, groupId: DisplayGroupId): void;
-  onReorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null): void;
+  isSlotDrop(item: QueueItem, group: DisplayGroup, targetGroupId: DisplayGroupId): boolean;
+  onDropCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null, dropPoint: DropPoint): void;
+  onReorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: string | null, dropPoint: DropPoint): void;
 }
 
 const QUEUE_KEY_MIME = 'application/x-glimmervoid-queue-key';
@@ -40,79 +42,165 @@ function createColumnHeading(group: DisplayGroup, options: ReviewBoardOptions, i
   return heading;
 }
 
-let draggedCardDropLaneIds: ReadonlySet<DisplayGroupId> = new Set();
-let draggedCardReorderGroupId: DisplayGroupId | null = null;
+const SLOT_OPEN_MS = 220;
+const SLOT_CLOSE_MS = 160;
+
+export interface DropPoint { clientX: number; clientY: number }
 
 interface CardDrag {
   queueKey: string;
-  dropLaneIds: readonly DisplayGroupId[];
+  slotLaneIds: ReadonlySet<DisplayGroupId>;
+  litLaneIds: ReadonlySet<DisplayGroupId>;
   reorderGroupId: DisplayGroupId | null;
 }
 
-function forgetDraggedCard(): void {
-  draggedCardDropLaneIds = new Set();
-  draggedCardReorderGroupId = null;
+interface ActiveDrag extends CardDrag {
+  source: HTMLElement;
+  slotHeightPx: number;
+  slot: HTMLElement | null;
+  slotBeforeKey: string | null;
+}
+
+let activeDrag: ActiveDrag | null = null;
+
+function isSlotMotionOn(element: HTMLElement): boolean {
+  return !prefersReducedMotion() && canAnimate(element);
+}
+
+function rowGapPx(cards: HTMLElement): number {
+  return Number.parseFloat(getComputedStyle(cards).rowGap) || 0;
+}
+
+function closeSlot(slot: HTMLElement): void {
+  slot.dataset.closing = 'true';
+  const cards = slot.parentElement;
+  if (!cards || !isSlotMotionOn(slot)) {
+    slot.remove();
+    return;
+  }
+  const close = slot.animate(eased([{ height: `${slot.offsetHeight}px`, marginBottom: '0px' }, { height: '0px', marginBottom: `-${rowGapPx(cards)}px` }]), { duration: SLOT_CLOSE_MS, fill: 'forwards' });
+  close.addEventListener('finish', () => slot.remove());
+  close.addEventListener('cancel', () => slot.remove());
+}
+
+function openSlot(cards: HTMLElement, beforeCard: Element | null, heightPx: number, isAnimated: boolean): HTMLElement {
+  const slot = el('div', 'review-board-slot');
+  slot.setAttribute('aria-hidden', 'true');
+  slot.style.height = `${heightPx}px`;
+  cards.insertBefore(slot, beforeCard);
+  if (isAnimated && isSlotMotionOn(slot)) slot.animate(eased([{ height: '0px', marginBottom: `-${rowGapPx(cards)}px` }, { height: `${heightPx}px`, marginBottom: '0px' }]), { duration: SLOT_OPEN_MS });
+  return slot;
+}
+
+function placedCardsOf(cards: HTMLElement, drag: ActiveDrag): HTMLElement[] {
+  return [...cards.querySelectorAll<HTMLElement>(':scope > [data-card-key]')].filter((card) => card.dataset.cardKey !== drag.queueKey);
+}
+
+function cardBelowPointer(cards: HTMLElement, drag: ActiveDrag, pointerY: number): HTMLElement | null {
+  return placedCardsOf(cards, drag).find((card) => {
+    const rect = card.getBoundingClientRect();
+    return rect.top + rect.height / 2 > pointerY;
+  }) ?? null;
+}
+
+function moveSlot(drag: ActiveDrag, cards: HTMLElement, pointerY: number): void {
+  const beforeCard = cardBelowPointer(cards, drag, pointerY);
+  const beforeKey = beforeCard?.dataset.cardKey ?? null;
+  if (drag.slot?.parentElement === cards && drag.slotBeforeKey === beforeKey) return;
+  if (drag.slot) closeSlot(drag.slot);
+  const hint = cards.querySelector(':scope > .review-board-drop-hint');
+  drag.slot = openSlot(cards, beforeCard ?? hint, drag.slotHeightPx, true);
+  drag.slotBeforeKey = beforeKey;
+}
+
+function dropSlot(drag: ActiveDrag): void {
+  if (drag.slot) closeSlot(drag.slot);
+  drag.slot = null;
+}
+
+function liftSource(drag: ActiveDrag): void {
+  const cards = drag.source.parentElement;
+  if (!cards?.classList.contains('review-board-cards')) {
+    drag.source.dataset.lifted = 'true';
+    return;
+  }
+  drag.slot = openSlot(cards, drag.source.nextElementSibling, drag.slotHeightPx, false);
+  drag.slotBeforeKey = drag.source.nextElementSibling instanceof HTMLElement ? drag.source.nextElementSibling.dataset.cardKey ?? null : null;
+  drag.source.dataset.lifted = 'true';
+}
+
+function endDrag(drag: ActiveDrag): void {
+  if (activeDrag?.queueKey === drag.queueKey) activeDrag = null;
+  if (drag.slot) drag.slot.remove();
+  drag.slot = null;
+  delete drag.source.dataset.lifted;
 }
 
 function makeDraggable(card: HTMLElement, drag: CardDrag): HTMLElement {
-  if (drag.dropLaneIds.length === 0 && drag.reorderGroupId === null) return card;
+  if (drag.slotLaneIds.size === 0 && drag.litLaneIds.size === 0 && drag.reorderGroupId === null) return card;
   card.draggable = true;
   card.addEventListener('dragstart', (event) => {
-    draggedCardDropLaneIds = new Set(drag.dropLaneIds);
-    draggedCardReorderGroupId = drag.reorderGroupId;
     event.dataTransfer?.setData(QUEUE_KEY_MIME, drag.queueKey);
+    const started: ActiveDrag = { ...drag, source: card, slotHeightPx: card.offsetHeight, slot: null, slotBeforeKey: null };
+    activeDrag = started;
+    requestAnimationFrame(() => {
+      if (activeDrag === started) liftSource(started);
+    });
   });
-  card.addEventListener('dragend', forgetDraggedCard);
+  card.addEventListener('dragend', () => {
+    if (activeDrag?.queueKey === drag.queueKey) endDrag(activeDrag);
+  });
   return card;
 }
 
-function clearDropMarks(column: HTMLElement): void {
-  delete column.dataset.dropTarget;
-  for (const card of column.querySelectorAll<HTMLElement>('[data-drop-before]')) delete card.dataset.dropBefore;
-}
-
-function cardUnder(event: DragEvent, column: HTMLElement): HTMLElement | null {
-  if (!(event.target instanceof Element)) return null;
-  const card = event.target.closest<HTMLElement>('[data-card-key]');
-  if (card && column.contains(card)) return card;
-  if (!event.target.classList.contains('review-board-cards')) return null;
-  const cardsBelowPointer = [...event.target.querySelectorAll<HTMLElement>(':scope > [data-card-key]')].filter((gapCard) => gapCard.getBoundingClientRect().top >= event.clientY);
-  return cardsBelowPointer[0] ?? null;
+function laneRoleOf(drag: ActiveDrag, groupId: DisplayGroupId): 'slot' | 'lit' | null {
+  if (drag.reorderGroupId === groupId || drag.slotLaneIds.has(groupId)) return 'slot';
+  if (drag.litLaneIds.has(groupId)) return 'lit';
+  return null;
 }
 
 function acceptDrops(column: HTMLElement, groupId: DisplayGroupId, options: ReviewBoardOptions): void {
-  const isQueueKeyDrag = (event: DragEvent) => event.dataTransfer?.types.includes(QUEUE_KEY_MIME) === true;
+  const cardsOf = () => column.querySelector<HTMLElement>(':scope > .review-board-cards');
   column.addEventListener('dragover', (event) => {
-    if (!isQueueKeyDrag(event)) return;
-    const isReorder = draggedCardReorderGroupId === groupId;
-    if (!isReorder && !draggedCardDropLaneIds.has(groupId)) return;
+    if (!activeDrag || event.dataTransfer?.types.includes(QUEUE_KEY_MIME) !== true) return;
+    const role = laneRoleOf(activeDrag, groupId);
+    if (!role) return;
     event.preventDefault();
-    clearDropMarks(column);
-    const cardBelow = isReorder ? cardUnder(event, column) : null;
-    if (cardBelow) {
-      cardBelow.dataset.dropBefore = 'true';
+    const cards = cardsOf();
+    if (role === 'lit' || !cards) {
+      dropSlot(activeDrag);
+      column.dataset.dropTarget = 'true';
       return;
     }
-    column.dataset.dropTarget = 'true';
+    moveSlot(activeDrag, cards, event.clientY);
   });
   column.addEventListener('dragleave', (event) => {
     if (event.relatedTarget instanceof Node && column.contains(event.relatedTarget)) return;
-    clearDropMarks(column);
+    delete column.dataset.dropTarget;
+    if (activeDrag?.slot && column.contains(activeDrag.slot)) dropSlot(activeDrag);
   });
   column.addEventListener('drop', (event) => {
-    clearDropMarks(column);
-    const queueKey = event.dataTransfer?.getData(QUEUE_KEY_MIME);
-    const isReorder = draggedCardReorderGroupId === groupId;
-    const isLegalDrop = draggedCardDropLaneIds.has(groupId);
-    forgetDraggedCard();
-    if (!queueKey || (!isReorder && !isLegalDrop)) return;
+    delete column.dataset.dropTarget;
+    const drag = activeDrag;
+    const role = drag ? laneRoleOf(drag, groupId) : null;
+    if (!drag || !role || event.dataTransfer?.getData(QUEUE_KEY_MIME) !== drag.queueKey) return;
     event.preventDefault();
-    if (isReorder) {
-      options.onReorderCard(queueKey, groupId, cardUnder(event, column)?.dataset.cardKey ?? null);
-      return;
-    }
-    options.onDropCard(queueKey, groupId);
+    activeDrag = null;
+    const isSlotHere = drag.slot !== null && column.contains(drag.slot);
+    const beforeKey = isSlotHere ? drag.slotBeforeKey : null;
+    const dropPoint: DropPoint = { clientX: event.clientX, clientY: event.clientY };
+    if (drag.reorderGroupId === groupId) options.onReorderCard(drag.queueKey, groupId, beforeKey, dropPoint);
+    if (drag.reorderGroupId !== groupId) options.onDropCard(drag.queueKey, groupId, beforeKey, dropPoint);
+    if (column.isConnected) endDrag(drag);
   });
+}
+
+function dropLanesOf(item: QueueItem, group: DisplayGroup, options: ReviewBoardOptions): Pick<CardDrag, 'slotLaneIds' | 'litLaneIds'> {
+  const dropLaneIds = options.dropLaneIdsOf(item, group);
+  return {
+    slotLaneIds: new Set(dropLaneIds.filter((laneId) => options.isSlotDrop(item, group, laneId))),
+    litLaneIds: new Set(dropLaneIds.filter((laneId) => !options.isSlotDrop(item, group, laneId))),
+  };
 }
 
 function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLElement {
@@ -130,15 +218,16 @@ function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLEle
   if (SLIM_GROUP_IDS.has(group.id)) {
     column.dataset.slim = 'true';
     const tiles = el('div', 'review-board-tiles');
-    tiles.append(...group.items.map((item) => makeDraggable(options.createTile(item, group), { queueKey: item.key, dropLaneIds: options.dropLaneIdsOf(item, group), reorderGroupId: null })));
+    tiles.append(...group.items.map((item) => makeDraggable(options.createTile(item, group), { queueKey: item.key, ...dropLanesOf(item, group, options), reorderGroupId: null })));
     column.append(tiles);
     return column;
   }
   const cards = el('div', 'review-board-cards');
   const reorderGroupId = group.items.length > 1 ? group.id : null;
   for (const item of group.items) {
-    const card = makeDraggable(options.createCard(item, group), { queueKey: item.key, dropLaneIds: options.dropLaneIdsOf(item, group), reorderGroupId });
+    const card = options.createCard(item, group);
     card.dataset.cardKey = item.key;
+    makeDraggable(card, { queueKey: item.key, ...dropLanesOf(item, group, options), reorderGroupId });
     cards.append(card);
   }
   if (group.items.length === 0 && dropHint) cards.append(el('p', 'review-board-drop-hint', dropHint));
@@ -173,6 +262,7 @@ function watchBoardEdges(board: HTMLElement): void {
 
 export function createReviewBoard(groups: readonly DisplayGroup[], options: ReviewBoardOptions): HTMLElement {
   const board = el('div', 'review-board');
+  if (activeDrag) activeDrag.slot = null;
   board.append(...boardColumns(groups).map((group) => createColumn(group, options)));
   watchBoardEdges(board);
   return board;
