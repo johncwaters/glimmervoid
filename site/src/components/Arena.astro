@@ -46,7 +46,7 @@ const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each o
       <text {...shownAtRest(PROMPT_FRAME)} class="note prompt-note" x="96" y="16">one prompt</text>
       {CONTESTANTS.map((contestant) => (
         <g class:list={['lane', `tone-${contestant.tone}`, { loser: !contestant.isWinner }]}>
-          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M110 30 C ${contestant.wideForkX} 30, ${contestant.wideForkX} ${contestant.wideY}, ${contestant.wideForkX + 40} ${contestant.wideY} L 560 ${contestant.wideY}`}/>
+          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M110 30 C ${contestant.wideForkX} 30, ${contestant.wideForkX} ${contestant.wideY}, ${contestant.wideForkX + 40} ${contestant.wideY} L 580 ${contestant.wideY}`}/>
           <text {...shownAtRest(contestant.branchFrame)} class="lbl" x="240" y={contestant.wideY - 10}>{contestant.name}</text>
           {contestant.commitXs.map((commitX, commitIndex) => (
             <circle {...shownAtRest(COMMIT_FRAMES[commitIndex])} class="commit-dot pops-in" cx={commitX} cy={contestant.wideY} r="6"/>
@@ -76,7 +76,7 @@ const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each o
       <text {...shownAtRest(PROMPT_FRAME)} class="note prompt-note" x="58" y="10">one prompt</text>
       {CONTESTANTS.map((contestant) => (
         <g class:list={['lane', `tone-${contestant.tone}`, { loser: !contestant.isWinner }]}>
-          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M72 24 C 90 24, 90 ${contestant.compactY}, 108 ${contestant.compactY} L 200 ${contestant.compactY}`}/>
+          <path {...shownAtRest(contestant.branchFrame)} class="branch" pathLength="1" d={`M72 24 C 90 24, 90 ${contestant.compactY}, 108 ${contestant.compactY} L 212 ${contestant.compactY}`}/>
           <text {...shownAtRest(contestant.branchFrame)} class="lbl" x="112" y={contestant.compactY - 10}>{contestant.shortName}</text>
           {contestant.compactCommitXs.map((commitX, commitIndex) => (
             <circle {...shownAtRest(COMMIT_FRAMES[commitIndex])} class="commit-dot pops-in" cx={commitX} cy={contestant.compactY} r="5"/>

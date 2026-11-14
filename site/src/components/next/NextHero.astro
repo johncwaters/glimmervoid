@@ -30,7 +30,7 @@ const NAV_LINKS = [
 ];
 ---
 <header class="next-hero">
-  <svg class="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: 'currentColor' })}></svg>
+  <div class="ghost-field" aria-hidden="true"><svg class="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} set:html={brandMarkMarkup({ frame: 'currentColor', light: 'currentColor' })}></svg></div>
   <nav class="next-nav" aria-label="Main">
     <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>Glimmervoid</a>
     <ul>
@@ -71,8 +71,9 @@ const NAV_LINKS = [
 </header>
 
 <style>
-  .next-hero { position: relative; overflow-x: clip; }
-  .ghost-mark { position: absolute; right: -140px; top: 60px; width: 620px; opacity: .03; pointer-events: none; color: var(--text-head); }
+  .next-hero { position: relative; }
+  .ghost-field { position: absolute; top: 0; bottom: 0; left: calc(50% - 50vw); width: 100vw; overflow: hidden; pointer-events: none; }
+  .ghost-mark { position: absolute; right: max(-140px, calc(50vw - 700px)); top: 60px; width: 620px; opacity: .03; color: var(--text-head); }
 
   .next-nav { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 64px; }
   .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-weight: 700; color: var(--text-head); letter-spacing: .1em; text-transform: uppercase; font-size: var(--type-body); text-decoration: none; }
