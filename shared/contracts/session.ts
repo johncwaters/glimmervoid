@@ -100,6 +100,7 @@ export const SessionSnapshot = z.object({
   failureReason: z.string().nullable().optional(),
   unseenOutcome: UnseenOutcome.nullable().default(null),
   managerSeenSeq: z.number().int().nonnegative().default(0),
+  passedQuestionSeq: z.number().int().nonnegative().default(0),
   isQuestionManagerOn: z.boolean().nullable().default(null),
   accountId: AgentAccountId.nullable().default(null),
   effectiveBase: z.string().nullable(),

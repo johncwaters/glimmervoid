@@ -349,6 +349,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => noteStatus({ pendingPromptKind: nextKind }));
     session.on('unseen-outcome-change', ({ unseenOutcome }: { unseenOutcome: UnseenOutcome | null }) => noteStatus({ unseenOutcome }));
     session.on('manager-seen-change', ({ managerSeenSeq }: { managerSeenSeq: number }) => noteStatus({ managerSeenSeq }));
+    session.on('passed-question-change', ({ passedQuestionSeq }: { passedQuestionSeq: number }) => noteStatus({ passedQuestionSeq }));
     session.on('question-manager-change', ({ isQuestionManagerOn }: { isQuestionManagerOn: boolean }) => {
       persistProjectField('questionManagerOn', isQuestionManagerOn ? true : undefined);
       noteStatus({ isQuestionManagerOn });

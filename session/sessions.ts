@@ -262,6 +262,7 @@ class Session extends EventEmitter {
   failureReason: string | null;
   unseenOutcome: UnseenOutcome | null;
   managerSeenSeq: number;
+  passedQuestionSeq: number;
   ephemeral: boolean;
   agentId: string;
   usageVendor: string;
@@ -478,6 +479,7 @@ class Session extends EventEmitter {
     this.failureReason = null;
     this.unseenOutcome = null;
     this.managerSeenSeq = 0;
+    this.passedQuestionSeq = 0;
     this._receivedFirstOutput = false;
     this._hasPromptSinceSpawn = false;
     this._teardown = NO_TEARDOWN;
@@ -518,6 +520,7 @@ class Session extends EventEmitter {
       questionManager: this._questionManager,
       port: {
         emit: (event, detail) => this.emit(event, detail),
+        notePassedQuestion: (seq) => this._setPassedQuestionSeq(seq),
         ingestStatus: (signal) => this._ingestHookSignal(signal),
         pushAuditEntry: (entry) => this._pushAuditEntry(entry),
         taskTitle: () => this.refocusTaskTitle,
@@ -965,6 +968,7 @@ class Session extends EventEmitter {
       this._observeCompaction("resume");
       this._titleQuiet = false;
       this._setPendingPromptKind(null);
+      this._setPassedQuestionSeq(0);
 
       this.backgroundTracking.noteTaskNotificationsDelivered(raw.payload?.prompt);
       this.backgroundTracking.clearGateHeldReady();
@@ -1143,7 +1147,10 @@ class Session extends EventEmitter {
 
     const signalSeq = this.backgroundTracking.noteStatus(s.signal);
 
-    if (s.signal === "working") this._setPendingPromptKind(null);
+    if (s.signal === "working") {
+      this._setPendingPromptKind(null);
+      this._setPassedQuestionSeq(0);
+    }
 
     const active = this.backgroundTracking.activeAgentCount();
     const eventWithoutGate = mapSignalToEvent(s.signal, this.state, s.confidence, 0);
@@ -1499,6 +1506,7 @@ class Session extends EventEmitter {
       failureReason: this.failureReason,
       unseenOutcome: this.unseenOutcome,
       managerSeenSeq: this.managerSeenSeq,
+      passedQuestionSeq: this.passedQuestionSeq,
       isQuestionManagerOn: this.isQuestionManagerOn,
       accountId: this.accountId,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
@@ -2154,6 +2162,12 @@ class Session extends EventEmitter {
     this._dispatchAttention({ type: "dismiss" });
     if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome || hadAttentionNotes;
     return this.transition("user_dismiss");
+  }
+
+  _setPassedQuestionSeq(seq: number): void {
+    if (seq === this.passedQuestionSeq) return;
+    this.passedQuestionSeq = seq;
+    this.emit("passed-question-change", { passedQuestionSeq: seq });
   }
 
   markManagerDecisionsSeen(throughSeq: number): void {

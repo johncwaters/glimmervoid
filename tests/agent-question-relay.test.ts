@@ -198,6 +198,11 @@ test('the question manager answers a covered question only in a session switched
     assert.equal(await session.holdClaudePermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
     assert.equal(session.state, STATES.WAITING);
     assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
+    assert.equal(session.passedQuestionSeq, managerEntries().at(-1)?.seq);
+    session.dismiss();
+    assert.equal(session.passedQuestionSeq, managerEntries().at(-1)?.seq);
+    session.ingestHookSignal({ signal: 'working', source: 'hook', ts: Date.now(), event: 'PostToolUse', payload: askPayload('Delete the sqlite store?') });
+    assert.equal(session.passedQuestionSeq, 0);
     assert.equal(await switchedOff.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
     const codexAsk = { tool_name: 'request_user_input', tool_input: { questions: [{ header: 'Store', id: 'store', question: 'Which store?', options: [{ label: 'sqlite', description: '' }, { label: 'postgres', description: '' }] }] } };
     codex.transition('user_start');

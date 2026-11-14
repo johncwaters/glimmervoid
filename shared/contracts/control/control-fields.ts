@@ -121,6 +121,7 @@ export const SessionStatusFields = z.object({
   awaitingBackgroundTasks: z.boolean().optional(),
   unseenOutcome: UnseenOutcome.nullable().optional(),
   managerSeenSeq: z.number().int().nonnegative().optional(),
+  passedQuestionSeq: z.number().int().nonnegative().optional(),
   isQuestionManagerOn: z.boolean().optional(),
   accountId: AgentAccountId.nullable().optional(),
   pendingPromptKind: nullableString.optional(),

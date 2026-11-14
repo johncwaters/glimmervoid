@@ -143,7 +143,17 @@
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.session-manager-line[data-expanded] .session-manager-line-text {
+  display: block;
 }
 
 .session-manager-line-earlier,

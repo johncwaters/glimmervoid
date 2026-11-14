@@ -18,6 +18,7 @@ interface ApprovalPort<Signal extends QuestionStatusSignal> {
   emit: (event: string, detail: Record<string, unknown>) => void;
   ingestStatus: (signal: Signal) => void;
   pushAuditEntry: (entry: Record<string, unknown>) => void;
+  notePassedQuestion: (seq: number) => void;
   taskTitle: () => string | null;
 }
 
@@ -180,7 +181,9 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
 
   function recordManagerEscalation(approval: ConversationApproval, reason: string): void {
     const questions = (approval.questions ?? []).map((question) => question.question);
-    recordManagerDecision({ ...nextDecisionHeader(), outcome: "escalated", questions, reason });
+    const decision = { ...nextDecisionHeader(), outcome: "escalated" as const, questions, reason };
+    recordManagerDecision(decision);
+    port.notePassedQuestion(decision.seq);
   }
 
   function replyFromVerdict(request: ClaudePermissionRequest, approval: ConversationApproval, verdict: ManagerVerdict | null): ClaudeHookReply | null {

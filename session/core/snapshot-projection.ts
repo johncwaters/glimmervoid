@@ -82,6 +82,7 @@ interface SnapshotSource {
   failureReason?: string | null;
   unseenOutcome?: UnseenOutcome | null;
   managerSeenSeq?: number;
+  passedQuestionSeq?: number;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
   effectiveBase: string | null;
@@ -120,6 +121,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     failureReason: source.failureReason ?? null,
     unseenOutcome: source.unseenOutcome ?? null,
     managerSeenSeq: source.managerSeenSeq ?? 0,
+    passedQuestionSeq: source.passedQuestionSeq ?? 0,
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
     accountId: source.accountId ?? null,
     effectiveBase: source.effectiveBase ?? null,

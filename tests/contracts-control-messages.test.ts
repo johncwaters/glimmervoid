@@ -66,6 +66,7 @@ const SESSION = {
   worktreeNotice: null,
   unseenOutcome: null,
   managerSeenSeq: 0,
+  passedQuestionSeq: 0,
   isQuestionManagerOn: true,
   accountId: null,
   effectiveBase: 'develop',

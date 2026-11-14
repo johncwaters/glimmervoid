@@ -144,6 +144,7 @@ export function openManagerDecisionLine(sessionId: string) {
   const line = existingLine ?? buildManagerDecisionLine(sessionId);
   const summary = line.querySelector<HTMLElement>('.session-manager-line-text');
   if (summary) summary.textContent = managerDecisionText(latestUnseen);
+  line.dataset.outcome = latestUnseen.outcome;
   const earlierCount = unseenDecisions.length - 1;
   const earlier = line.querySelector<HTMLElement>('.session-manager-line-earlier');
   if (earlier) earlier.textContent = earlierCount > 0 ? `${earlierCount} earlier` : '';
@@ -168,7 +169,10 @@ function buildManagerDecisionLine(sessionId: string): HTMLElement {
   });
   historyButton.classList.add('session-manager-line-history');
   historyButton.setAttribute('aria-expanded', 'false');
-  line.append(el('p', 'session-manager-line-text'), el('span', 'session-manager-line-earlier'), historyButton, history);
+  const dismissButton = button({ variant: 'quiet', size: 'small', label: 'Dismiss', onClick: () => closeManagerDecisionLine(sessionId) });
+  const summary = el('p', 'session-manager-line-text');
+  summary.addEventListener('click', () => line.toggleAttribute('data-expanded'));
+  line.append(summary, el('span', 'session-manager-line-earlier'), historyButton, dismissButton, history);
   return line;
 }
 
@@ -181,6 +185,12 @@ function fillManagerHistory(history: HTMLElement, sessionId: string) {
     return item;
   });
   history.replaceChildren(...items);
+}
+
+export function closeAnsweredPassedLine(sessionId: string) {
+  const line = findSessionUi(sessionId)?.card.querySelector<HTMLElement>(':scope > .session-manager-line');
+  if (line?.dataset.outcome !== 'escalated') return;
+  closeManagerDecisionLine(sessionId);
 }
 
 function closeManagerDecisionLine(sessionId: string) {

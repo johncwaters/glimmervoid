@@ -16,7 +16,7 @@ import { attentionTally, sessionName, sessionUIs } from '../session-card/card-re
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { setSessionAccount } from '../session-card/card-account.ts';
-import { forgetAttentionNotes, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
+import { forgetAttentionNotes, closeAnsweredPassedLine, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
 import { applySettingsProjects } from '../settings/settings-store.ts';
 import { forgetReview, refreshReview } from '../review/review-store.ts';
@@ -97,6 +97,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionPrompt(s.id, s.pendingPromptKind);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
     seedManagerDecisions(s.id, s.auditLog, s.managerSeenSeq);
+    if (s.passedQuestionSeq === 0) closeAnsweredPassedLine(s.id);
 
   }
   updateAttentionTitle();
@@ -205,6 +206,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
+  if (msg.passedQuestionSeq === 0) closeAnsweredPassedLine(msg.id);
   if (msg.attentionNotes !== undefined) setSessionAttentionNotes(msg.id, msg.attentionNotes);
   if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
   if (msg.accountId !== undefined) setSessionAccount(msg.id, msg.accountId);

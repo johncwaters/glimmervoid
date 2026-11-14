@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The question manager's line above the terminal gets out of the way.** The line saying a question was answered or passed to you now has a Dismiss control, closes by itself once you answer the question it passed to you, and shows at most two lines until you tap it, so on a phone the agent's question stays visible to answer.
+
 ### Removed
 
 - **Streamer mode is gone.** The Settings row, its keyboard shortcut and everything it hid or masked (terminal secrets, home folder paths, review titles and avatars, Radar text, error details, browser notifications) are removed, and pack panels no longer receive `isStreamerMode` in the focus topic. A `streamerMode` left in config.json is ignored.
