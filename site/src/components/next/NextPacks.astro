@@ -18,7 +18,7 @@ const themeRules = shownThemes.map(({ id, palette }) => {
 }).join('\n');
 
 const BUILT_IN_TABS = ['Focus', 'Reviews', 'Arena', 'Packs'];
-const PACK_TABS = ['PR table', 'Plan usage', 'Sessions'];
+const PACK_TABS = ['PR table'];
 const REVIEW_ROWS = [
   { repo: 'web', number: '#412', title: 'Fix login redirect', stateToken: 'running', status: 'Approved' },
   { repo: 'api', number: '#408', title: 'Cache billing lookups', stateToken: 'waiting', status: 'Changes' },
@@ -28,31 +28,13 @@ const MERGED_ROWS = [
   { repo: 'cli', number: '#399', title: 'Bump Node to 24' },
   { repo: 'api', number: '#396', title: 'Drop the v1 routes' },
 ];
-const PLAN_USAGE = [
-  { agent: 'Claude', fiveHourShare: 0.72, sevenDayShare: 0.41 },
-  { agent: 'Codex', fiveHourShare: 0.35, sevenDayShare: 0.58 },
-  { agent: 'Kimi', fiveHourShare: 0.18, sevenDayShare: 0.22 },
-];
-const BOARD_SESSIONS = [
-  { task: 'fix-auth-redirect', stateToken: 'running' },
-  { task: 'migrate-billing', stateToken: 'waiting' },
-  { task: 'flaky-upload-test', stateToken: 'failed' },
-  { task: 'rename-color-tokens', stateToken: 'complete' },
-];
-const BADGE_BY_STATE_TOKEN: Record<string, string> = {
-  running: BADGE_LABELS[STATES.RUNNING],
-  waiting: BADGE_LABELS[STATES.WAITING],
-  failed: BADGE_LABELS[STATES.FAILED],
-  complete: BADGE_LABELS[STATES.COMPLETE],
-};
-const percentOf = (share: number) => `${Math.round(share * 100)}%`;
 ---
 <section id="packs">
   <div class="section-head reveal">
     <h2>Your agent changes Glimmervoid however you want. With packs.</h2>
     <p>Ask for a new theme or a tab of your pull requests. Your agent builds it and shows you a preview on its board. Nothing changes until you approve it.</p>
   </div>
-  <figure class="packs-demo reveal" id="packs-demo" aria-label="A Glimmervoid dashboard with four pack panels: a pull request table whose merged rows play Game of Life and rain, plan usage bars, a session board and a launcher that starts a session at 9 on weekdays. The theme picker below it restyles all of it.">
+  <figure class="packs-demo reveal" id="packs-demo" aria-label="A Glimmervoid dashboard with two pack panels: a pull request table whose merged rows play Game of Life and rain, and a launch button in the new session picker that also starts a session at 9 on weekdays. The theme picker below it restyles all of it.">
     <style set:html={themeRules}></style>
     <div class="theme-stage" aria-hidden="true">
       <div class="mock-header">
@@ -82,46 +64,13 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
             </div>
           </div>
         </div>
-        <div class="pack-panel is-plan-usage">
-          <span class="panel-name">Plan usage</span>
-          <div class="usage-grid">
-            <span></span><span class="usage-window">5 hours</span><span class="usage-window">7 days</span>
-            {PLAN_USAGE.map(({ agent, fiveHourShare, sevenDayShare }) => (
-              <>
-                <span class="usage-agent">{agent}</span>
-                {[fiveHourShare, sevenDayShare].map((share) => (
-                  <span class="usage-cell"><span class="usage-meter" style={`--share: ${share}`}><span class="usage-fill"></span></span><span class="usage-value">{percentOf(share)}</span></span>
-                ))}
-              </>
-            ))}
-          </div>
-        </div>
-        <div class="pack-panel is-session-board">
-          <span class="panel-name">Sessions</span>
-          <ol class="board-cards" id="packs-board-cards">
-            {BOARD_SESSIONS.map(({ task, stateToken }) => (
-              <li class="board-card" data-state={stateToken}>
-                <span class="board-task">{task}</span>
-                {Object.entries(BADGE_BY_STATE_TOKEN).map(([token, badge]) => <span class="board-badge" data-badge-for={token}>{badge}</span>)}
-              </li>
-            ))}
-          </ol>
-        </div>
         <div class="pack-panel is-launcher">
-          <span class="panel-name">Launcher</span>
-          <div class="launcher-stage">
-            <svg class="launcher-clock" viewBox="0 0 64 64" aria-hidden="true">
-              <circle class="clock-face" cx="32" cy="32" r="29" />
-              {Array.from({ length: 12 }, (_, hour) => <line class="clock-tick" x1="32" y1="6" x2="32" y2="10" transform={`rotate(${hour * 30} 32 32)`} />)}
-              <line class="clock-hand" x1="32" y1="32" x2="32" y2="14" />
-              <circle class="clock-pin" cx="32" cy="32" r="2.5" />
-            </svg>
-            <div class="launcher-side">
-              <span class="launcher-button">Standup</span>
-              <code class="launcher-cron">0 9 * * 1-5</code>
-            </div>
+          <span class="panel-name">New session</span>
+          <div class="launcher-row">
+            <span class="launcher-button">Standup</span>
+            <code class="launcher-cron">0 9 * * 1-5</code>
           </div>
-          <div class="launched-session"><span class="launched-dot"></span><span class="board-task">standup-notes</span><span class="launched-badge">{BADGE_BY_STATE_TOKEN.running}</span></div>
+          <div class="launched-session"><span class="launched-dot"></span><span class="board-task">standup-notes</span><span class="launched-badge">{BADGE_LABELS[STATES.RUNNING]}</span></div>
         </div>
       </div>
     </div>
@@ -140,26 +89,14 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
 </section>
 
 <script>
-  import { markWhileOnScreen, runFramesWhileVisible } from '../../lib/dom.ts';
+  import { markWhileOnScreen } from '../../lib/dom.ts';
   import { isAmbientKind, runAmbientWhileVisible } from '../../lib/pack-ambient.ts';
-
-  const STATE_CYCLE = ['running', 'waiting', 'complete', 'failed'];
-  const BOARD_STEP_MS = 1600;
 
   const packsDemo = document.getElementById('packs-demo');
   if (packsDemo) markWhileOnScreen(packsDemo);
   for (const canvas of document.querySelectorAll<HTMLCanvasElement>('#packs-demo canvas[data-ambient]')) {
     const kind = canvas.dataset.ambient;
     if (isAmbientKind(kind)) runAmbientWhileVisible(canvas, kind);
-  }
-  const boardCards = document.getElementById('packs-board-cards');
-  if (boardCards) {
-    const cards = [...boardCards.querySelectorAll<HTMLElement>('.board-card')];
-    runFramesWhileVisible(boardCards, cards.map(() => BOARD_STEP_MS), (frameIndex) => {
-      const card = cards[frameIndex];
-      const nextStateIndex = (STATE_CYCLE.indexOf(card.dataset.state ?? '') + 1) % STATE_CYCLE.length;
-      card.dataset.state = STATE_CYCLE[nextStateIndex];
-    });
   }
 </script>
 
@@ -175,11 +112,9 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
   .mock-tab { padding: 4px 10px; border-radius: 999px; font-size: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
   .mock-tab.is-pack { color: var(--accent); }
   .mock-tab.is-active { background: var(--bg-surface); color: var(--text-head); }
-  .pack-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "pr pr" "usage board" "launcher board"; gap: 10px; }
+  .pack-gallery { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-areas: "pr launcher"; gap: 10px; }
   .pack-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-dim); border-radius: var(--radius-lg); background: var(--bg-card); }
   .pack-panel.is-pr-table { grid-area: pr; }
-  .pack-panel.is-plan-usage { grid-area: usage; }
-  .pack-panel.is-session-board { grid-area: board; }
   .pack-panel.is-launcher { grid-area: launcher; }
   .panel-name { color: var(--text-head); font-size: var(--type-meta); font-weight: 700; }
   .pr-grid { display: grid; gap: 4px; font-size: var(--type-meta); }
@@ -194,43 +129,17 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
   .pr-row.is-merged { grid-template-columns: 4ch 5ch minmax(0, 1fr) 9ch 10px; background: transparent; border: 1px solid var(--border-dim); }
   .pr-row.is-merged .pr-title { color: var(--text-dim); }
   .pr-ambient { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; pointer-events: none; }
-  .pr-ambient.is-life { right: 120px; width: 34%; }
-  .pr-ambient.is-rain { right: 0; width: 110px; }
-  .usage-grid { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 8px 10px; font-size: var(--type-meta); }
-  .usage-window { color: var(--text-muted); }
-  .usage-agent { color: var(--text-head); }
-  .usage-cell { display: grid; grid-template-columns: minmax(0, 1fr) 4ch; align-items: center; gap: 8px; }
-  .usage-meter { position: relative; display: block; height: 12px; border-radius: 999px; background: var(--bg-surface); overflow: hidden; }
-  .usage-fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); transition: width 1400ms var(--ease-out-expo); }
-  .packs-demo[data-on-screen="true"] .usage-fill { width: calc(var(--share) * 100%); }
-  .usage-value { color: var(--text-dim); font-size: var(--type-meta); text-align: right; }
-  .board-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .board-card { --card-state: var(--state-running); display: grid; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--card-state) 45%, var(--border-dim)); border-radius: 6px; background: color-mix(in oklab, var(--card-state) 8%, var(--bg-surface)); transition: border-color 400ms var(--ease-out-expo), background 400ms var(--ease-out-expo); }
-  .board-card[data-state="waiting"] { --card-state: var(--state-waiting); }
-  .board-card[data-state="failed"] { --card-state: var(--state-failed); }
-  .board-card[data-state="complete"] { --card-state: var(--state-complete); }
+  .pr-ambient.is-life { right: 92px; width: 22%; }
+  .pr-ambient.is-rain { right: 0; width: 84px; }
   .board-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-head); font-size: var(--type-meta); }
-  .board-badge { display: none; color: var(--card-state); font-size: var(--type-meta); font-weight: 700; }
-  .board-card[data-state="running"] [data-badge-for="running"],
-  .board-card[data-state="waiting"] [data-badge-for="waiting"],
-  .board-card[data-state="failed"] [data-badge-for="failed"],
-  .board-card[data-state="complete"] [data-badge-for="complete"] { display: block; }
-  .launcher-stage { display: flex; align-items: center; gap: 16px; }
-  .launcher-clock { width: 64px; height: 64px; flex: none; }
-  .clock-face { fill: var(--bg-surface); stroke: var(--border); stroke-width: 1.5; }
-  .clock-tick { stroke: var(--text-muted); stroke-width: 1.5; }
-  .clock-hand { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; transform-origin: 32px 32px; rotate: 180deg; }
-  .clock-pin { fill: var(--accent); }
-  .launcher-side { display: grid; gap: 6px; justify-items: start; }
+  .launcher-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .launcher-button { padding: 6px 14px; border-radius: 999px; background: var(--accent); color: var(--bg); font-size: var(--type-meta); font-weight: 700; }
   .launcher-cron { color: var(--text-dim); font-size: var(--type-meta); }
   .launched-session { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--state-running) 45%, var(--border-dim)); border-radius: 6px; background: var(--state-running-bg); }
   .launched-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--state-running); }
   .launched-badge { margin-left: auto; color: var(--state-running); font-size: var(--type-meta); font-weight: 700; }
-  .packs-demo[data-on-screen="true"] .clock-hand { animation: clock-sweep var(--launch-cycle-ms) var(--ease-out-expo) infinite; }
   .packs-demo[data-on-screen="true"] .launcher-button { animation: launcher-press var(--launch-cycle-ms) linear infinite; }
   .packs-demo[data-on-screen="true"] .launched-session { animation: session-arrive var(--launch-cycle-ms) var(--ease-out-expo) infinite; }
-  @keyframes clock-sweep { 0% { rotate: 180deg; } 40%, 100% { rotate: 270deg; } }
   @keyframes launcher-press { 0%, 40% { scale: 1; } 43% { scale: 0.94; } 47%, 100% { scale: 1; } }
   @keyframes session-arrive { 0%, 45% { opacity: 0; translate: 0 8px; } 55%, 92% { opacity: 1; translate: 0 0; } 100% { opacity: 0; translate: 0 0; } }
   .theme-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
@@ -243,7 +152,7 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
   .theme-source { padding: 1px 6px; border-radius: 999px; background: var(--bg-surface); color: var(--accent); font-size: var(--type-micro, 11px); }
   @media (max-width: 820px) {
     .mock-brand { display: none; }
-    .pack-gallery { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pr" "usage" "board" "launcher"; }
+    .pack-gallery { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pr" "launcher"; }
     .pr-row, .pr-row.is-merged { grid-template-columns: 5ch minmax(0, 1fr) 9ch 10px; }
     .pr-repo { display: none; }
     .pr-ambient.is-life { right: 80px; width: 22%; }
@@ -254,8 +163,7 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
     .pr-ambient.is-life { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .theme-stage, .usage-fill, .board-card { transition: none; }
-    .packs-demo[data-on-screen="true"] :is(.clock-hand, .launcher-button, .launched-session) { animation: none; }
-    .clock-hand { rotate: 270deg; }
+    .theme-stage { transition: none; }
+    .packs-demo[data-on-screen="true"] :is(.launcher-button, .launched-session) { animation: none; }
   }
 </style>
