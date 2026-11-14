@@ -43,6 +43,8 @@ export const WIRE_TONES = ['plain', 'fail', 'join'] as const;
 export const NOTE_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
 export const TEXT_SIZES = ['S', 'M', 'L'] as const;
 export const WIRE_WIDTHS = ['thin', 'bold'] as const;
+export const WIRE_ARROWS = ['none', 'end', 'both'] as const;
+export const WIRE_ROUTES = ['elbow', 'sharp', 'curved'] as const;
 export type NoteTone = (typeof NOTE_TONES)[number];
 export type TextSize = (typeof TEXT_SIZES)[number];
 export const NOTE_TONE_HEX: Readonly<Record<NoteTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
@@ -256,14 +258,28 @@ export const Frame = z.object({
   collapsed: z.boolean().default(false).describe('a stack: draws as one card showing its first box, hides the rest, and ends their wires at the card; a box sits in at most one collapsed frame'),
 }).strict();
 
+const WirePoint = z.object({ x: z.number().int(), y: z.number().int() }).strict();
+const WireEnd = z.union([ElementId, WirePoint], { error: 'a wire end is a box id or a point {"x":0,"y":0}' });
+export type WireEnd = z.infer<typeof WireEnd>;
+
+export function boxIdOfEnd(end: WireEnd): string | null {
+  return typeof end === 'string' ? end : null;
+}
+
+export function boxIdsOfWire(wire: { from: WireEnd; to: WireEnd }): string[] {
+  return [wire.from, wire.to].flatMap((end) => boxIdOfEnd(end) ?? []);
+}
+
 export const Wire = z.object({
   kind: z.literal('wire'),
   id: ElementId,
-  from: ElementId.describe('the element id it starts at'),
-  to: ElementId.describe('the element id it ends at'),
+  from: WireEnd.describe('the box id it starts at, or a free point'),
+  to: WireEnd.describe('the box id it ends at, or a free point'),
   dashed: z.boolean().default(false),
   tone: z.enum(WIRE_TONES).default('plain'),
   width: z.enum(WIRE_WIDTHS).default('thin').describe('the line weight'),
+  arrows: z.enum(WIRE_ARROWS).default('end').describe('arrowheads: none, at the end, or at both ends'),
+  route: z.enum(WIRE_ROUTES).default('elbow').describe('elbow routes around boxes; sharp is one straight line; curved one bowed line'),
   label: z.string().max(WHITEBOARD_LIMITS.wireLabel, { error: `a wire label is at most ${WHITEBOARD_LIMITS.wireLabel} characters` }).nullable().default(null),
   fromSide: Side.nullable().default(null),
   toSide: Side.nullable().default(null),
@@ -609,6 +625,7 @@ export function filledElement(element: SparseElement): Element {
     case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, collapsed: element.collapsed ?? false };
     case 'wire': return {
       kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain', width: element.width ?? 'thin',
+      arrows: element.arrows ?? 'end', route: element.route ?? 'elbow',
       label: element.label ?? null, fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
     };
     case 'stroke': return { kind: 'stroke', id: element.id, points: element.points, width: element.width ?? 3, tone: element.tone ?? 'ink' };

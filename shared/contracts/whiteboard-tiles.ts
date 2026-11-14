@@ -65,6 +65,7 @@ export const LaidOutWire = z.object({
   isBold: z.boolean().default(false),
   tone: Wire.shape.tone.unwrap(),
   hasArrowhead: z.boolean(),
+  hasStartArrowhead: z.boolean().default(false),
   joinAt: LayoutPoint.nullable(),
 });
 

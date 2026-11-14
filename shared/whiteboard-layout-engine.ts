@@ -1,9 +1,9 @@
-import { pointOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { boxIdOfEnd, boxIdsOfWire, pointOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Element } from './contracts/whiteboard.ts';
 import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy,
   placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
@@ -372,7 +372,7 @@ function createLayoutWorld(board: Board, previous: LayoutWorld | null = null, mi
 
 function touchesStepBox(element: Element | null | undefined, stepBoxIds: ReadonlySet<string>): boolean {
   if (element?.kind === 'box') return element.step !== null || isAsideBox(element);
-  if (element?.kind === 'wire') return stepBoxIds.has(element.from) || stepBoxIds.has(element.to);
+  if (element?.kind === 'wire') return boxIdsOfWire(element).some((boxId) => stepBoxIds.has(boxId));
   return false;
 }
 
@@ -388,7 +388,7 @@ function touchesStack(board: Board, element: Element | null | undefined): boolea
   if (!element) return false;
   if (element.kind === 'frame') return element.collapsed;
   if (element.kind === 'box') return isInStack(board, element.id);
-  if (element.kind === 'wire') return isInStack(board, element.from) || isInStack(board, element.to);
+  if (element.kind === 'wire') return boxIdsOfWire(element).some((boxId) => isInStack(board, boxId));
   return false;
 }
 
@@ -585,8 +585,7 @@ function endpointIdsOf(board: Board, wireIds: Iterable<string>): Set<string> {
   for (const id of wireIds) {
     const wire = board.elements.get(id);
     if (wire?.kind !== 'wire') continue;
-    endpointIds.add(wire.from);
-    endpointIds.add(wire.to);
+    for (const boxId of boxIdsOfWire(wire)) endpointIds.add(boxId);
   }
   return endpointIds;
 }
@@ -625,7 +624,7 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
   const wiresOf = (ids: ReadonlySet<string>) => [...ids].flatMap((id) => {
     const wire = board.elements.get(id);
     if (wire?.kind !== 'wire') return [];
-    return wireEndingAtCard(wire, (boxId) => cardIdOf(board, boxId)) ?? [];
+    return wireEndingAtCard(wireShiftedBy(wire, world.pinnedOffsetY), (boxId) => cardIdOf(board, boxId)) ?? [];
   });
   return {
     wires: wiresOf(rerouteIds), contextWires: wiresOf(contextIds), boxesById, softObstacles: [...softById.values()], contentTop: world.contentTop,
@@ -699,7 +698,8 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
       const wire = board.elements.get(id);
       if (!ends || !remembered || wire?.kind !== 'wire') return true;
       if (ends.busKey !== null && reroutedBusKeys.has(ends.busKey)) return true;
-      return (completeBoxIds.has(wire.from) && !isSamePoint(ends.start, remembered.start)) || (completeBoxIds.has(wire.to) && !isSamePoint(ends.end, remembered.end));
+      const isCompleteEnd = (end: typeof wire.from) => completeBoxIds.has(boxIdOfEnd(end) ?? '');
+      return (isCompleteEnd(wire.from) && !isSamePoint(ends.start, remembered.start)) || (isCompleteEnd(wire.to) && !isSamePoint(ends.end, remembered.end));
     });
     const routedWires = new Map(result.wires.map((wire) => [wire.id, wire]));
     const neighborIds = pathNeighborIdsOf(world, rerouteIds, routedWires);

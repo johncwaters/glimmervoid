@@ -124,6 +124,11 @@ test('wires run at right angles around boxes, and same-style wires into one box 
   assert.deepEqual(layout.warnings.filter((warning) => warning.includes('runs through')), []);
 });
 
+function pointsOfLaidOutPath(path: string): { x: number; y: number }[] {
+  const numbers = path.match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+  return Array.from({ length: Math.floor(numbers.length / 2) }, (_, index) => ({ x: numbers[index * 2] ?? 0, y: numbers[index * 2 + 1] ?? 0 }));
+}
+
 function stepBox(id: string, title: string) {
   return { kind: 'box', id, title, step: {} };
 }
@@ -556,6 +561,53 @@ test('a long identifier breaks after a separator, an agent box with no width is 
   const applied = applyLayoutDelta(world, widened.board, changes);
   assert.equal(applied.delta.isRebuilt, false);
   assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
+});
+
+test('a wire ends at a free point or a box edge, runs sharp, curved or elbow, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
+  const freeBoard = Board.parse({ id: 'free', title: 'free', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
+    plan: { kind: 'box', id: 'plan', title: 'Planned', place: 'plan', step: {} },
+    left: { kind: 'box', id: 'left', title: 'Left', place: { at: { x: 0, y: 0 } } },
+    right: { kind: 'box', id: 'right', title: 'Right', place: { at: { x: 600, y: 300 } } },
+    pointer: { kind: 'wire', id: 'pointer', from: 'left', to: { x: 300, y: -200 }, route: 'sharp', arrows: 'both' },
+    bowed: { kind: 'wire', id: 'bowed', from: 'left', to: 'right', route: 'curved', arrows: 'none', label: 'bends' },
+    bent: { kind: 'wire', id: 'bent', from: { x: -300, y: 500 }, to: 'right', arrows: 'end' },
+    loose: { kind: 'wire', id: 'loose', from: { x: 900, y: 0 }, to: { x: 1100, y: 40 }, route: 'sharp' },
+    routed: { kind: 'wire', id: 'routed', from: 'right', to: 'left' },
+  } });
+  const layout = layoutBoard(freeBoard);
+  const laidOutById = new Map(layout.elements.map((element) => [element.id, element]));
+  const wireOf = (id: string) => {
+    const laidOut = laidOutById.get(id);
+    assert.ok(laidOut?.kind === 'wire', `${id} is drawn`);
+    return { ...laidOut, points: pointsOfLaidOutPath(laidOut.path) };
+  };
+  const left = laidOutById.get('left');
+  assert.ok(left?.kind === 'box' && layout.pinnedOffsetY > 0, 'the plan band pushes the free drawing down');
+  const pointer = wireOf('pointer');
+  assert.equal(pointer.points.length, 2, 'a sharp wire is one straight line');
+  assert.deepEqual(pointer.end, { x: 300, y: -200 + layout.pinnedOffsetY }, 'a free point moves with the plan band like the boxes do');
+  const onLeftEdge = Math.abs(pointer.start.x - left.x) < 0.2 || Math.abs(pointer.start.x - (left.x + left.width)) < 0.2 || Math.abs(pointer.start.y - left.y) < 0.2 || Math.abs(pointer.start.y - (left.y + left.height)) < 0.2;
+  assert.ok(onLeftEdge, `a sharp wire leaves its box from the edge, got ${JSON.stringify(pointer.start)}`);
+  assert.deepEqual([pointer.hasArrowhead, pointer.hasStartArrowhead], [true, true]);
+  const bowed = wireOf('bowed');
+  const straightLine = { from: bowed.points[0], to: bowed.points[bowed.points.length - 1] };
+  assert.ok(bowed.points.length > 3 && straightLine.from && straightLine.to, 'a curved wire is drawn as many points');
+  const middle = bowed.points[Math.floor(bowed.points.length / 2)];
+  assert.ok(middle && Math.hypot(middle.x - (straightLine.from.x + straightLine.to.x) / 2, middle.y - (straightLine.from.y + straightLine.to.y) / 2) > 20, 'a curved wire bows away from the straight line');
+  assert.deepEqual([bowed.hasArrowhead, bowed.hasStartArrowhead], [false, false]);
+  const bent = wireOf('bent');
+  assert.ok(bent.points.length <= 3, 'an elbow wire with a free end bends at most once');
+  for (const [index, point] of bent.points.slice(1).entries()) {
+    const previous = bent.points[index];
+    assert.ok(previous && (previous.x === point.x || previous.y === point.y), 'an elbow wire with a free end runs at right angles');
+  }
+  assert.equal(wireOf('loose').points.length, 2, 'a wire with two free ends needs no box');
+  assert.ok(wireOf('routed').points.every((point, index, points) => index === 0 || points[index - 1]?.x === point.x || points[index - 1]?.y === point.y), 'a box to box elbow wire still takes the router');
+  const pictured = boardSvgDocument(layout);
+  assert.ok(/data-element-id="pointer"[\s\S]*?marker-start="url\(#wb-arrow\)"/.test(pictured), 'the SVG draws an arrowhead at the start of a both-ends wire');
+  const world = createLayoutWorld(freeBoard, null, 0);
+  const incremental = layoutOf(world).elements.find((element) => element.id === 'pointer');
+  assert.ok(incremental?.kind === 'wire' && incremental.path === pointer.path, 'the incremental layout draws the free wire the same way');
 });
 
 test('a wire to a box beside and below leaves through the facing side with a jog, never around the corner from the bottom', () => {

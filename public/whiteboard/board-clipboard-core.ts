@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Element, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
-import type { Box, BoxLine, Op } from '#shared/contracts/whiteboard.ts';
+import type { Box, BoxLine, Op, WireEnd } from '#shared/contracts/whiteboard.ts';
 
 const BOARD_CLIPBOARD_TYPE = 'glimmervoid/board-elements';
 
@@ -17,7 +17,7 @@ function isSelfContained(clipboard: { elements: readonly Element[] }): boolean {
   const boxIds = new Set(clipboard.elements.flatMap((element) => (element.kind === 'box' ? [element.id] : [])));
   return clipboard.elements.every((element) => {
     if (element.kind === 'frame') return element.contains.every((boxId) => boxIds.has(boxId));
-    if (element.kind === 'wire') return boxIds.has(element.from) && boxIds.has(element.to);
+    if (element.kind === 'wire') return [element.from, element.to].every((end) => typeof end !== 'string' || boxIds.has(end));
     return true;
   });
 }
@@ -81,7 +81,7 @@ export function copiedClipboardOf(source: CopySource): BoardClipboard | null {
   const wireIds = new Set([...rectsByBoxId.keys()].flatMap((boxId) => [...source.wireIdsOf(boxId)]));
   const wires = [...wireIds].flatMap((wireId) => {
     const wire = source.elements.get(wireId);
-    return wire?.kind === 'wire' && rectsByBoxId.has(wire.from) && rectsByBoxId.has(wire.to) ? [wire] : [];
+    return wire?.kind === 'wire' && [wire.from, wire.to].every((end) => typeof end !== 'string' || rectsByBoxId.has(end)) ? [wire] : [];
   });
   const strokes = selectedOfKind(source, 'stroke');
   const rects = [...rectsByBoxId.values(), ...strokes.map((stroke) => strokeRectOf(stroke.points))];
@@ -120,7 +120,10 @@ function shiftedElementOf(element: Element, offset: ClipboardPoint, newIdById: R
     }
     case 'stroke': return { ...element, id, points: element.points.map((coordinate, index) => Math.round(coordinate + (index % 2 === 0 ? offset.x : offset.y))) };
     case 'frame': return { ...element, id, contains: element.contains.map(freshIdOf) };
-    case 'wire': return { ...element, id, from: freshIdOf(element.from), to: freshIdOf(element.to) };
+    case 'wire': {
+      const freshEndOf = (end: WireEnd): WireEnd => (typeof end === 'string' ? freshIdOf(end) : { x: Math.round(end.x + offset.x), y: Math.round(end.y + offset.y) });
+      return { ...element, id, from: freshEndOf(element.from), to: freshEndOf(element.to) };
+    }
   }
 }
 

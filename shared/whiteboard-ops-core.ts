@@ -1,5 +1,5 @@
 import { Box, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, pointOfBox } from './contracts/whiteboard.ts';
-import type { Board, BoardChange, Element, ElementInput, Op } from './contracts/whiteboard.ts';
+import type { Board, BoardChange, Element, ElementInput, Op, WireEnd } from './contracts/whiteboard.ts';
 import { isRecord } from './coerce.ts';
 import { BOX_SHAPES, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { fittedBoxWidthOf, isAsideBox, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
@@ -117,8 +117,8 @@ function currentDependentsOf(draft: Draft, boxId: string): Element[] {
 function checkReferences(draft: Draft, element: Element): OpOutcome {
   if (element.kind === 'box') return checkBoxReferences(element);
   if (element.kind === 'wire') {
-    if (!isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
-    if (!isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
+    if (typeof element.from === 'string' && !isBox(draft, element.from)) return refuse(`wire ${element.id} starts at ${element.from}, which is not a box`);
+    if (typeof element.to === 'string' && !isBox(draft, element.to)) return refuse(`wire ${element.id} ends at ${element.to}, which is not a box`);
     return OK;
   }
   if (element.kind !== 'frame') return OK;
@@ -544,10 +544,14 @@ function changedElementId(op: ElementOp): string | null {
   return null;
 }
 
+function endNameOf(after: ElementLookup, end: WireEnd): string {
+  return typeof end === 'string' ? nameOf(after, end) : `(${end.x}, ${end.y})`;
+}
+
 function nameOf(after: ElementLookup, id: string, element: Element | undefined = after(id)): string {
   if (!element) return id;
   if (element.kind === 'box' || element.kind === 'frame') return `"${element.title || id}"`;
-  if (element.kind === 'wire') return `wire ${nameOf(after, element.from)} to ${nameOf(after, element.to)}`;
+  if (element.kind === 'wire') return `wire ${endNameOf(after, element.from)} to ${endNameOf(after, element.to)}`;
   return `${element.kind} ${id}`;
 }
 

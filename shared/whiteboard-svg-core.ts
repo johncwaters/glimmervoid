@@ -336,9 +336,9 @@ function frameMarkup(frame: LaidOutFrame): string {
 function wireMarkup(wire: LaidOutWire): string {
   const parts = [
     tag('path', { d: wire.path, class: 'wb-wire-hit' }),
-    tag('path', { d: wire.path, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: ['wb-wire-line', wire.isDashed ? 'wb-dashed' : null, wire.isBold ? 'wb-bold' : null].filter((name) => name !== null).join(' ') }),
-    tag('circle', { cx: wire.start.x, cy: wire.start.y, r: 3, class: 'wb-wire-dot' }),
+    tag('path', { d: wire.path, 'marker-start': wire.hasStartArrowhead ? 'url(#wb-arrow)' : null, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: ['wb-wire-line', wire.isDashed ? 'wb-dashed' : null, wire.isBold ? 'wb-bold' : null].filter((name) => name !== null).join(' ') }),
   ];
+  if (!wire.hasStartArrowhead) parts.push(tag('circle', { cx: wire.start.x, cy: wire.start.y, r: 3, class: 'wb-wire-dot' }));
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));
   if (wire.label) parts.push(text(wire.label, wire.labelAt.x, wire.labelAt.y, 'wb-wire-label'));
   return elementGroup(wire, `wb-wire wb-tone-${wire.tone}`, parts);

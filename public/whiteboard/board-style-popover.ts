@@ -1,4 +1,4 @@
-import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES, WIRE_TONES, WIRE_WIDTHS } from '#shared/contracts/whiteboard.ts';
+import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES, WIRE_ARROWS, WIRE_ROUTES, WIRE_TONES, WIRE_WIDTHS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Box, NoteTone, Op, TextSize, Wire } from '#shared/contracts/whiteboard.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { el } from '../dom-helpers.ts';
@@ -20,6 +20,9 @@ interface StyledSelection {
 const SWATCH_SIZE_PX = 16;
 const NOTE_TONE_LABELS: Readonly<Record<NoteTone, string>> = { yellow: 'Yellow', pink: 'Pink', green: 'Green', blue: 'Blue', violet: 'Violet' };
 const WIRE_WIDTH_LABELS: Readonly<Record<Wire['width'], string>> = { thin: 'Thin', bold: 'Bold' };
+const WIRE_ROUTE_LABELS: Readonly<Record<Wire['route'], string>> = { elbow: 'Elbow', sharp: 'Sharp', curved: 'Curved' };
+const WIRE_ARROW_LABELS: Readonly<Record<Wire['arrows'], string>> = { none: 'None', end: 'End', both: 'Both' };
+const WIRE_ARROW_NAMES: Readonly<Record<Wire['arrows'], string>> = { none: 'No arrowheads', end: 'Arrowhead at the end', both: 'Arrowheads at both ends' };
 const TEXT_SIZE_NAMES: Readonly<Record<TextSize, string>> = { S: 'Small', M: 'Medium', L: 'Large' };
 
 function toneSwatch(tone: NoteTone): SVGSVGElement {
@@ -87,9 +90,18 @@ export function createBoardStylePopover(options: StylePopoverOptions) {
   function wireRows(wires: readonly Wire[]): HTMLElement[] {
     const tone = sharedValueOf(wires, (wire) => wire.tone);
     const width = sharedValueOf(wires, (wire) => wire.width);
+    const route = sharedValueOf(wires, (wire) => wire.route);
+    const arrows = sharedValueOf(wires, (wire) => wire.arrows);
     const tonePicks = WIRE_TONES.map((choice) => pressedTextButton(`wire-tone-${choice}`, WIRE_TONE_LABELS[choice], choice === tone, () => restyle(wires, (wire) => wire.tone === choice, { tone: choice })));
     const widthPicks = WIRE_WIDTHS.map((choice) => pressedTextButton(`wire-width-${choice}`, WIRE_WIDTH_LABELS[choice], choice === width, () => restyle(wires, (wire) => wire.width === choice, { width: choice })));
-    return [styleRow('Wire', pickGroup('Wire tone', 'wb-style-picks', tonePicks)), styleRow('Width', pickGroup('Wire width', 'wb-style-picks', widthPicks))];
+    const routePicks = WIRE_ROUTES.map((choice) => pressedTextButton(`wire-route-${choice}`, WIRE_ROUTE_LABELS[choice], choice === route, () => restyle(wires, (wire) => wire.route === choice, { route: choice })));
+    const arrowPicks = WIRE_ARROWS.map((choice) => pressedTextButton(`wire-arrows-${choice}`, WIRE_ARROW_LABELS[choice], choice === arrows, () => restyle(wires, (wire) => wire.arrows === choice, { arrows: choice }), WIRE_ARROW_NAMES[choice]));
+    return [
+      styleRow('Wire', pickGroup('Wire tone', 'wb-style-picks', tonePicks)),
+      styleRow('Width', pickGroup('Wire width', 'wb-style-picks', widthPicks)),
+      styleRow('Route', pickGroup('Wire route', 'wb-style-picks', routePicks)),
+      styleRow('Arrows', pickGroup('Arrowheads', 'wb-style-picks', arrowPicks)),
+    ];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {

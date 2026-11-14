@@ -573,6 +573,11 @@ async function verifyStylePopover(open: OpenBoard, anchorBoxId: string): Promise
   assert.equal(await popover.getByRole('group', { name: 'Fill', exact: true }).count(), 0, 'a wire alone offers no fill');
   await stylePick(open, 'Wire width', 'Bold');
   await elementWhere(open, 'a width pick makes the wire bold', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.width === 'bold');
+  await stylePick(open, 'Wire route', 'Curved');
+  await elementWhere(open, 'a route pick curves the wire', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.route === 'curved');
+  await pollFor('a curved wire draws as many points', BOARD_TIMEOUT_MS, async () => (pointsOfPath(await wirePathOf(open, 'style-wire')).length > 3 ? true : null));
+  await stylePick(open, 'Arrowheads', 'Arrowheads at both ends');
+  await elementWhere(open, 'an arrowhead pick puts arrowheads at both ends', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.arrows === 'both');
   await stylePick(open, 'Wire tone', 'Failure');
   await elementWhere(open, 'a tone pick recolors the wire', (element) => element.id === 'style-wire' && element.kind === 'wire' && element.tone === 'fail');
   await panel.getByRole('button', { name: 'Undo', exact: true }).click();

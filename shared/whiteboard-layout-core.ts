@@ -1,5 +1,5 @@
-import { BOX_CHANGES, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire, WireEnd } from './contracts/whiteboard.ts';
 import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
 import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
@@ -483,9 +483,10 @@ function stackedViewOf(board: IndexedBoard, boxesById: Map<string, PlacedBox>): 
 }
 
 function wireEndingAtCard(wire: Wire, cardIdOf: (boxId: string) => string): Wire | null {
-  const from = cardIdOf(wire.from);
-  const to = cardIdOf(wire.to);
-  if (from === to) return null;
+  const endAtCard = (end: WireEnd): WireEnd => (typeof end === 'string' ? cardIdOf(end) : end);
+  const from = endAtCard(wire.from);
+  const to = endAtCard(wire.to);
+  if (typeof from === 'string' && from === to) return null;
   if (from === wire.from && to === wire.to) return wire;
   return { ...wire, from, to };
 }
@@ -656,9 +657,21 @@ function laidOutStrokeOf(stroke: Stroke, pinnedOffsetY: number): LaidOutStroke {
   return { kind: 'stroke', id: stroke.id, points, strokeWidth: stroke.width, tone: stroke.tone, x: left - halfWidth, y: top - halfWidth, width: right - left + stroke.width, height: bottom - top + stroke.width };
 }
 
+function endShiftedBy(end: WireEnd, offsetY: number): WireEnd {
+  return typeof end === 'string' ? end : { x: end.x, y: end.y + offsetY };
+}
+
+function wireShiftedBy(wire: Wire, offsetY: number): Wire {
+  if (offsetY === 0 || (typeof wire.from === 'string' && typeof wire.to === 'string')) return wire;
+  return { ...wire, from: endShiftedBy(wire.from, offsetY), to: endShiftedBy(wire.to, offsetY) };
+}
+
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   if (offsetY === 0) return board;
-  const elements = [...board.elements.values()].map((element) => (element.kind !== 'box' || typeof element.place !== 'object' ? element : { ...element, place: { at: { x: element.place.at.x, y: element.place.at.y + offsetY } } }));
+  const elements = [...board.elements.values()].map((element) => {
+    if (element.kind === 'wire') return wireShiftedBy(element, offsetY);
+    return element.kind !== 'box' || typeof element.place !== 'object' ? element : { ...element, place: { at: { x: element.place.at.x, y: element.place.at.y + offsetY } } };
+  });
   return { ...board, elements: elementTableOf(elements) };
 }
 
@@ -797,7 +810,7 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     if (element.kind === 'frame') stillSoftObstacles.push(frameTitleStripOf(element));
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
-  const wires = [...storedBoard.elements.values()].flatMap((element) => (element.kind === 'wire' && (movingIds.has(element.from) || movingIds.has(element.to)) ? [element] : []));
+  const wires = [...storedBoard.elements.values()].flatMap((element) => (element.kind === 'wire' && boxIdsOfWire(element).some((boxId) => movingIds.has(boxId)) ? [wireShiftedBy(element, layout.pinnedOffsetY)] : []));
   const contentTop = wireCeilingOf(layout.pinnedOffsetY + MARGIN);
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
@@ -855,6 +868,6 @@ export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };

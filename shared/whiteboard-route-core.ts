@@ -1,5 +1,5 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Wire } from './contracts/whiteboard.ts';
+import type { Wire, WireEnd } from './contracts/whiteboard.ts';
 import type { RememberedRoute } from './contracts/whiteboard-tiles.ts';
 import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
@@ -56,6 +56,8 @@ const OUTWARD_DIRECTION_BY_SIDE: Record<Side, number> = { right: 0, left: 1, bot
 const INWARD_DIRECTION_BY_SIDE: Record<Side, number> = { left: 0, right: 1, top: 2, bottom: 3 };
 const REVERSE_DIRECTION = [1, 0, 3, 2];
 const STRAIGHT_ROUTE_MARGIN = 1;
+const CURVE_SAMPLES = 16;
+const CURVE_BEND_FRACTION = 0.2;
 
 interface AreaObstacles {
   hardRects: readonly Rect[];
@@ -540,12 +542,12 @@ function joinFacingBuses(plans: readonly WirePlan[], countedPlans: readonly Wire
 }
 
 function plannedWireOf(wire: Wire, input: RouteInput, remembered: RememberedRoute | undefined): { plan: WirePlan; facing: SidePair } | null {
-  const from = input.boxesById.get(wire.from);
-  const to = input.boxesById.get(wire.to);
+  const from = typeof wire.from === 'string' ? input.boxesById.get(wire.from) : undefined;
+  const to = typeof wire.to === 'string' ? input.boxesById.get(wire.to) : undefined;
   if (!from || !to) return null;
   const facing = facingSides(from, to);
   const plan: WirePlan = {
-    wire, from, to, styleKey: `${wire.dashed}|${wire.tone}`,
+    wire, from, to, styleKey: `${wire.dashed}|${wire.tone}|${wire.width}|${wire.arrows}`,
     exitSide: wire.fromSide ?? facing.exitSide, entrySide: wire.toSide ?? facing.entrySide,
     busKey: null, exitKey: '', start: centerOf(from), end: centerOf(to), found: null,
   };
@@ -1518,22 +1520,144 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
       isDashed: plan.wire.dashed, isBold: plan.wire.width === 'bold', tone: plan.wire.tone,
-      hasArrowhead: leader === undefined || leader === wire, joinAt: joinPointOf(wire, leader),
+      hasArrowhead: (leader === undefined || leader === wire) && plan.wire.arrows !== 'none', hasStartArrowhead: plan.wire.arrows === 'both', joinAt: joinPointOf(wire, leader),
     };
   });
 }
 
+function isRoutedAroundBoxes(wire: Wire): boolean {
+  return wire.route === 'elbow' && typeof wire.from === 'string' && typeof wire.to === 'string';
+}
+
+interface WireAnchor {
+  point: Point;
+  box: PlacedBox | null;
+}
+
+interface DirectWire {
+  wire: Wire;
+  points: Point[];
+}
+
+function anchorOf(end: WireEnd, input: RouteInput): WireAnchor | null {
+  if (typeof end !== 'string') return { point: end, box: null };
+  const box = input.boxesById.get(end);
+  return box ? { point: centerOf(box), box } : null;
+}
+
+function roundedPoint(point: Point): Point {
+  return { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+}
+
+function edgePointToward(anchor: WireAnchor, toward: Point): Point {
+  const { box, point: center } = anchor;
+  if (!box) return center;
+  const deltaX = toward.x - center.x;
+  const deltaY = toward.y - center.y;
+  if (deltaX === 0 && deltaY === 0) return center;
+  const scaleX = deltaX === 0 ? Number.POSITIVE_INFINITY : box.width / 2 / Math.abs(deltaX);
+  const scaleY = deltaY === 0 ? Number.POSITIVE_INFINITY : box.height / 2 / Math.abs(deltaY);
+  const scale = Math.min(scaleX, scaleY);
+  return { x: center.x + deltaX * scale, y: center.y + deltaY * scale };
+}
+
+function sideMidpointToward(anchor: WireAnchor, toward: Point, isHorizontalLeg: boolean): Point {
+  const { box, point: center } = anchor;
+  if (!box) return center;
+  if (isHorizontalLeg) return { x: toward.x >= center.x ? box.x + box.width : box.x, y: center.y };
+  return { x: center.x, y: toward.y >= center.y ? box.y + box.height : box.y };
+}
+
+function elbowPointsBetween(from: WireAnchor, to: WireAnchor): Point[] {
+  const isHorizontalFirst = Math.abs(to.point.x - from.point.x) >= Math.abs(to.point.y - from.point.y);
+  const start = sideMidpointToward(from, to.point, isHorizontalFirst);
+  const end = sideMidpointToward(to, from.point, !isHorizontalFirst);
+  const corner = isHorizontalFirst ? { x: end.x, y: start.y } : { x: start.x, y: end.y };
+  return withoutBends([start, corner, end]);
+}
+
+function curvedPointsBetween(start: Point, end: Point): Point[] {
+  const length = Math.hypot(end.x - start.x, end.y - start.y);
+  if (length === 0) return [start, end];
+  const bend = length * CURVE_BEND_FRACTION;
+  const control = { x: (start.x + end.x) / 2 - ((end.y - start.y) / length) * bend, y: (start.y + end.y) / 2 + ((end.x - start.x) / length) * bend };
+  return Array.from({ length: CURVE_SAMPLES + 1 }, (_, sampleIndex) => {
+    const progress = sampleIndex / CURVE_SAMPLES;
+    const remaining = 1 - progress;
+    return {
+      x: remaining * remaining * start.x + 2 * remaining * progress * control.x + progress * progress * end.x,
+      y: remaining * remaining * start.y + 2 * remaining * progress * control.y + progress * progress * end.y,
+    };
+  });
+}
+
+function directWireOf(wire: Wire, input: RouteInput): DirectWire | null {
+  const from = anchorOf(wire.from, input);
+  const to = anchorOf(wire.to, input);
+  if (!from || !to) return null;
+  if (wire.route === 'elbow') return { wire, points: elbowPointsBetween(from, to).map(roundedPoint) };
+  const start = edgePointToward(from, to.point);
+  const end = edgePointToward(to, from.point);
+  const points = wire.route === 'curved' ? curvedPointsBetween(start, end) : [start, end];
+  return { wire, points: points.map(roundedPoint) };
+}
+
+function pointAlongPath(points: readonly Point[], fraction: number): Point {
+  const lengths = points.slice(1).map((point, index) => {
+    const previous = points[index] ?? point;
+    return Math.hypot(point.x - previous.x, point.y - previous.y);
+  });
+  let remaining = lengths.reduce((sum, length) => sum + length, 0) * fraction;
+  for (const [index, length] of lengths.entries()) {
+    const from = points[index];
+    const to = points[index + 1];
+    if (!from || !to) break;
+    if (remaining <= length && length > 0) return { x: from.x + ((to.x - from.x) * remaining) / length, y: from.y + ((to.y - from.y) * remaining) / length };
+    remaining -= length;
+  }
+  return points[points.length - 1] ?? { x: 0, y: 0 };
+}
+
+function laidOutDirectWireOf(direct: DirectWire): LaidOutWire {
+  const { wire, points } = direct;
+  const start = points[0] ?? { x: 0, y: 0 };
+  const end = points[points.length - 1] ?? start;
+  const middle = pointAlongPath(points, 0.5);
+  return {
+    kind: 'wire', id: wire.id, path: pathOf(points), start, end,
+    label: wire.label, labelAt: roundedPoint({ x: middle.x, y: middle.y - LABEL_GAP }),
+    isDashed: wire.dashed, isBold: wire.width === 'bold', tone: wire.tone,
+    hasArrowhead: wire.arrows !== 'none', hasStartArrowhead: wire.arrows === 'both', joinAt: null,
+  };
+}
+
+function directWiresOf(input: RouteInput): DirectWire[] {
+  return input.wires.flatMap((wire) => (isRoutedAroundBoxes(wire) ? [] : directWireOf(wire, input) ?? []));
+}
+
+function boxRoutedInput(input: RouteInput): RouteInput {
+  return { ...input, wires: input.wires.filter(isRoutedAroundBoxes), contextWires: input.contextWires?.filter(isRoutedAroundBoxes) };
+}
+
+function rememberedDirectRoute(input: RouteInput, direct: DirectWire): RememberedRoute {
+  const start = direct.points[0] ?? { x: 0, y: 0 };
+  const end = direct.points[direct.points.length - 1] ?? start;
+  return { wireKey: wireKeyOf(input, direct.wire), exitSide: 'right', entrySide: 'left', start, end, points: direct.points, isRouted: true };
+}
+
 function previewWires(unindexedInput: RouteInput): LaidOutWire[] {
-  const input = withAreaQuery(unindexedInput);
+  const directWires = directWiresOf(unindexedInput);
+  const input = withAreaQuery(boxRoutedInput(unindexedInput));
   const reuse: RouteReuse = { routeById: new Map(), cleanIds: new Set(), isPreview: true };
   const planned = planWires(input, reuse);
   const requestsBySide = portRequestsBySide(planned.plans);
   const drawn = routeWithPortOrder(planned, input, requestsBySide, defaultPortOrders(requestsBySide), reuse);
-  return laidOutWiresOf(drawn, placeLabels(drawn, input, []));
+  return [...laidOutWiresOf(drawn, placeLabels(drawn, input, [])), ...directWires.map(laidOutDirectWireOf)];
 }
 
 function routeWires(unindexedInput: RouteInput, previous: RouteMemory | null): RouteResult {
-  const input = withAreaQuery(unindexedInput);
+  const directWires = directWiresOf(unindexedInput);
+  const input = withAreaQuery(boxRoutedInput(unindexedInput));
   const rectByKey = obstacleRectsByKey(input);
   const changes = previous && previous.contentTop === input.contentTop ? obstacleChangesOf(previous.rectByKey, rectByKey) : null;
   const reuse = routeReuseOf(input, previous, changes);
@@ -1544,17 +1668,23 @@ function routeWires(unindexedInput: RouteInput, previous: RouteMemory | null): R
   const drawn = routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
   const labelWarnings: string[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
-  const wires = laidOutWiresOf(drawn, labelById);
+  const laidOutDirectWires = directWires.map(laidOutDirectWireOf);
+  const wires = [...laidOutWiresOf(drawn, labelById), ...laidOutDirectWires];
   const labelRects = [...labelById.values()].map((placed) => placed.bounds);
+  const directLabelRects = laidOutDirectWires.flatMap((wire) => (wire.label ? [labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : []));
   const memory = routeMemoryOf(input, rectByKey, drawn);
-  const pointRects = drawn.flatMap((wire) => wire.points).map((point) => ({ x: point.x, y: point.y, width: 0, height: 0 }));
+  for (const direct of directWires) memory.routeById.set(direct.wire.id, rememberedDirectRoute(input, direct));
+  const pointRects = [...drawn.flatMap((wire) => wire.points), ...directWires.flatMap((direct) => direct.points)].map((point) => ({ x: point.x, y: point.y, width: 0, height: 0 }));
   return {
     wires,
     segments: drawn.flatMap((wire) => wire.segments),
     collectWarnings: () => [warningListOf(routeQualityWarnings(drawn)), ...crossingWarningsOf(drawn, input, changes?.keys ?? null, memory, previous?.warningPairs ?? null), warningListOf([...crowdedSideWarnings(requestsBySide, groupOrderBySide), ...labelWarnings])],
-    extent: unionOf([...pointRects, ...labelRects]),
+    extent: unionOf([...pointRects, ...labelRects, ...directLabelRects]),
     memory,
-    portEndsById: new Map([...planned.plans, ...planned.contextPlans].map((plan) => [plan.wire.id, { start: plan.start, end: plan.end, busKey: plan.busKey }])),
+    portEndsById: new Map([
+      ...[...planned.plans, ...planned.contextPlans].map((plan): [string, PortEnds] => [plan.wire.id, { start: plan.start, end: plan.end, busKey: plan.busKey }]),
+      ...laidOutDirectWires.map((wire): [string, PortEnds] => [wire.id, { start: wire.start, end: wire.end, busKey: null }]),
+    ]),
   };
 }
 

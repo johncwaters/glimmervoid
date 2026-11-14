@@ -905,6 +905,29 @@ test('an order op restacks boxes among their kind to the front, back, forward or
   assert.match(String(refused.body.error), /op 1: order names missing, which is not on the board/);
 });
 
+test('a wire ends at a free point, takes a route and arrowheads, survives a restart, goes when its box goes, and still refuses an end that is no box', async () => {
+  const boardId = await newBoard('free ends');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: 'anchor', title: 'Anchor', place: { at: { x: 40, y: 40 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'pointing', from: 'anchor', to: { x: 500, y: 60 }, route: 'curved', arrows: 'both' } },
+    { op: 'add', element: { kind: 'wire', id: 'floating', from: { x: 0, y: 400 }, to: { x: 300, y: 400 }, route: 'sharp', arrows: 'none' } },
+  ] })).status, 200);
+  const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'wire', id: 'dangling', from: 'nowhere', to: { x: 0, y: 0 } } }] });
+  assert.equal(refused.status, 400);
+  assert.match(JSON.stringify(refused.body), /starts at nowhere, which is not a box/);
+  await shutDown(fixture.booted);
+  fixture.booted = await boot();
+  const restarted = Board.parse((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.board);
+  const pointing = restarted.elements.get('pointing');
+  const floating = restarted.elements.get('floating');
+  assert.ok(pointing?.kind === 'wire' && floating?.kind === 'wire');
+  assert.deepEqual([pointing.to, pointing.route, pointing.arrows, floating.from, floating.route, floating.arrows], [{ x: 500, y: 60 }, 'curved', 'both', { x: 0, y: 400 }, 'sharp', 'none'], 'free ends, routes and arrowheads survive a restart');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'anchor' }] })).status, 200);
+  const afterRemoval = Board.parse((await whiteboard(PLANNER_ID, { sub: 'get', board: boardId })).body.board);
+  assert.equal(afterRemoval.elements.get('pointing'), undefined, 'removing a box removes the wire bound to it');
+  assert.ok(afterRemoval.elements.get('floating'), 'a wire with two free ends stays');
+});
+
 test('every card shape takes a fill tint, an ellipse keeps its shape, a large title grows its box, a bold wire draws bold, a device box refuses a tint, and the styles survive a restart', async () => {
   const boardId = await newBoard('styled');
   const titled = 'A title long enough to wrap';
