@@ -11,7 +11,7 @@ import type { ManagerVerdict } from '../../shared/contracts/question-manager.ts'
 import type { ConversationQuestion } from '../../shared/contracts/session.ts';
 import {
   buildManagerRequest, decideByRules, MANAGER_BOOTSTRAP_PROMPT, MANAGER_ITEM_CHARS, MANAGER_PROMPT_FILENAME, MANAGER_RESULT_FILENAME,
-  MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, mightAnswer, NO_RULE_REASON, parseManagerVerdict, pinByRules, plainLanguageRules, withRulePins,
+  MANAGER_TIMEOUT_MS, MANAGER_UNTRUSTED_SOURCE, mightAnswer, NO_RULE_REASON, parseManagerVerdict, pinByRules, plainLanguageRules, rulesOf, withRulePins,
 } from './core/question-manager-core.ts';
 import { clock } from '../../shared/clock.ts';
 
@@ -62,14 +62,14 @@ function createQuestionManagerLane(spawn: LaneSpawn): QuestionManagerLane {
 }
 
 function createQuestionManager({ getSettings, getLane = () => null }: QuestionManagerDependencies) {
-  let lastRawSettings: unknown;
+  let lastRawSettings: unknown = Symbol('settings not read yet');
   let lastParsedSettings: QuestionManagerSettings | null = null;
 
   function currentSettings(): QuestionManagerSettings | null {
     const rawSettings = getSettings();
     if (rawSettings === lastRawSettings) return lastParsedSettings;
     lastRawSettings = rawSettings;
-    const parsed = QuestionManagerSettings.safeParse(rawSettings);
+    const parsed = QuestionManagerSettings.safeParse(rawSettings ?? {});
     lastParsedSettings = parsed.success ? parsed.data : null;
     return lastParsedSettings;
   }
@@ -90,7 +90,7 @@ function createQuestionManager({ getSettings, getLane = () => null }: QuestionMa
       const plainRules = plainLanguageRules(settings);
       const lane = getLane();
       if (!questions || plainRules.length === 0 || !lane) return { kind: 'escalate', reason: NO_RULE_REASON };
-      const pins = pinByRules(questions, settings.rules ?? []);
+      const pins = pinByRules(questions, rulesOf(settings));
       const request = { questions: pins.unmatched, plainRules, task: { title: taskTitle, repo: projectPath }, model: settings.model ?? DEFAULT_MODELS.questionManager, signal: deadline };
       return lane(request)
         .then((laneVerdict) => withRulePins(laneVerdict, pins))

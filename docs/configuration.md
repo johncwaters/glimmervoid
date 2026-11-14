@@ -250,7 +250,7 @@ Rules that answer a session question in the sessions you switch the question man
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `questionManager.rules` | Question manager rules | `[]` | Rules the question manager answers from. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `questionManager.rules` | Question manager rules | `[{"name":"Take recommended","pick":"recommended"}]` | Rules the question manager answers from. The default rule, pick "recommended", picks the one option labeled (Recommended) on each question. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. Your rules replace the default, so [] leaves nothing to answer. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 | `questionManager.model` | Question manager model | `"haiku"` | Claude model alias that applies the plain-language question manager rules. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ## Keys outside the Settings view

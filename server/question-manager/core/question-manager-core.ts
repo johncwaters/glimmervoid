@@ -1,6 +1,6 @@
 import type { ConversationAnswers, ConversationQuestion } from '../../../shared/contracts/session.ts';
-import { ManagerLaneResult } from '../../../shared/contracts/question-manager.ts';
-import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
+import { DEFAULT_QUESTION_RULES, ManagerLaneResult, RECOMMENDED_PICK } from '../../../shared/contracts/question-manager.ts';
+import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRecommendedRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
@@ -17,11 +17,18 @@ const NO_RULE_REASON = 'no rule covers this question';
 const HIGH_RISK_STEMS = [
   'push', 'forc', 'delet', 'remov', 'drop', 'deploy', 'publish', 'releas', 'merg', 'secret', 'token', 'password',
   'credential', 'reset', 'revert', 'rebas', 'destro', 'wip', 'purg', 'truncat', 'overwrit', 'production', 'rm',
+  'discard', 'clean', 'clear', 'eras', 'kill', 'squash', 'amend', 'stash', 'uninstall', 'prun', 'nuke', 'abandon',
 ];
+const RECOMMENDED_LABEL_SUFFIX = '(recommended)';
 const HIGH_RISK_PATTERN = new RegExp(`\\b(?:${HIGH_RISK_STEMS.join('|')})\\w*`, 'i');
 
+export function rulesOf(settings: QuestionManagerSettings | null | undefined): readonly QuestionRule[] {
+  if (!settings) return [];
+  return settings.rules ?? DEFAULT_QUESTION_RULES;
+}
+
 export function mightAnswer(settings: QuestionManagerSettings | null | undefined): boolean {
-  return (settings?.rules ?? []).length > 0;
+  return rulesOf(settings).length > 0;
 }
 
 function splitIdentifiers(text: string): string {
@@ -39,12 +46,12 @@ function riskWordIn(questions: readonly ConversationQuestion[]): string | null {
   return null;
 }
 
-function isMatchRule(rule: QuestionRule): rule is QuestionMatchRule {
+function isObjectRule(rule: QuestionRule): rule is QuestionMatchRule | QuestionRecommendedRule {
   return typeof rule !== 'string';
 }
 
 export function plainLanguageRules(settings: QuestionManagerSettings): string[] {
-  return (settings.rules ?? []).filter((rule): rule is string => typeof rule === 'string');
+  return rulesOf(settings).filter((rule): rule is string => typeof rule === 'string');
 }
 
 function exactLabels(question: ConversationQuestion, picks: readonly string[]): string[] | null {
@@ -54,7 +61,14 @@ function exactLabels(question: ConversationQuestion, picks: readonly string[]): 
   return labels.filter((label): label is string => label !== undefined);
 }
 
-function pickedLabels(question: ConversationQuestion, rule: QuestionMatchRule): string[] | null {
+function recommendedLabels(question: ConversationQuestion): string[] | null {
+  const recommended = question.options.filter((option) => option.label.trim().toLowerCase().endsWith(RECOMMENDED_LABEL_SUFFIX));
+  if (recommended.length !== 1) return null;
+  return [recommended[0].label];
+}
+
+function pickedLabels(question: ConversationQuestion, rule: QuestionMatchRule | QuestionRecommendedRule): string[] | null {
+  if (rule.pick === RECOMMENDED_PICK) return recommendedLabels(question);
   if (!question.question.toLowerCase().includes(rule.question.toLowerCase())) return null;
   return exactLabels(question, rule.pick);
 }
@@ -67,7 +81,7 @@ interface RulePins {
 
 export function pinByRules(questions: readonly ConversationQuestion[], rules: readonly QuestionRule[]): RulePins {
   const pins: RulePins = { answers: {}, ruleNames: [], unmatched: [] };
-  const objectRules = rules.filter(isMatchRule);
+  const objectRules = rules.filter(isObjectRule);
   for (const question of questions) {
     const matched = objectRules
       .map((rule) => ({ rule, labels: pickedLabels(question, rule) }))
@@ -98,7 +112,7 @@ export function decideByRules(questions: readonly ConversationQuestion[] | null,
   if (!questions || questions.length === 0) return { kind: 'escalate', reason: 'the question could not be read' };
   const riskWord = riskWordIn(questions);
   if (riskWord) return { kind: 'escalate', reason: `risk word "${riskWord}"` };
-  return matchRules(questions, settings.rules ?? []);
+  return matchRules(questions, rulesOf(settings));
 }
 
 function questionRef(index: number): string {

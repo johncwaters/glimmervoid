@@ -211,6 +211,16 @@ test('the question manager answers a covered question only in a session switched
     assert.match(String(denied?.hookSpecificOutput.permissionDecisionReason), /Which store\?: sqlite/);
     assert.equal(codex.state, codexRunningState);
     assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
+    const unconfigured = factory.makeSession({ id: 'unconfigured', name: 'unconfigured', path: projectPath, questionManager: createQuestionManager({ getSettings: () => undefined }).forSession({ projectPath, isOn: true }) });
+    const recommendedAsk = (labels: string[]) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which layout?', options: labels.map((label) => ({ label })) }] } });
+    const answeredByDefault = await unconfigured.holdClaudePermission(recommendedAsk(['Grid (Recommended)', 'List']), new AbortController().signal);
+    assert.deepEqual(answeredByDefault?.hookSpecificOutput.decision, {
+      behavior: 'allow',
+      updatedInput: { questions: recommendedAsk(['Grid (Recommended)', 'List']).tool_input.questions, answers: { 'Which layout?': 'Grid (Recommended)' } },
+    });
+    assert.equal(unconfigured.auditLog.filter((entry) => entry.kind === 'question-manager').at(-1)?.rule, 'Take recommended');
+    assert.equal(await unconfigured.holdClaudePermission(recommendedAsk(['Grid (Recommended)', 'List (Recommended)']), new AbortController().signal), null);
+    assert.equal(await unconfigured.holdClaudePermission(recommendedAsk(['Grid', 'List']), new AbortController().signal), null);
   } finally {
     for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });

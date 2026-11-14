@@ -5,17 +5,22 @@ export const QUESTION_ANSWERED_NOTIFY_CATEGORY = 'answered';
 export const QUESTION_TOOL_HOLD_HOOK_EVENT = 'pretooluse-question';
 export const QUESTION_TOOL_HOLD_TIMEOUT_MS = 90_000;
 
-const RULE_SHAPE_ERROR = 'questionManager.rules entries must be a plain-language rule or an object with name, question and pick';
+const RULE_SHAPE_ERROR = 'questionManager.rules entries must be a plain-language rule, an object with name, question and pick, or an object with name and pick "recommended"';
+export const RECOMMENDED_PICK = 'recommended';
+
+const RuleName = z.string({ error: 'questionManager.rules[].name must be a string' }).trim().min(1).max(80);
 
 export const QuestionMatchRule = z.object({
-  name: z.string({ error: 'questionManager.rules[].name must be a string' }).trim().min(1).max(80),
+  name: RuleName,
   question: z.string({ error: 'questionManager.rules[].question must be a string' }).trim().min(1).max(500),
   pick: z.array(z.string().trim().min(1).max(200), { error: 'questionManager.rules[].pick must list option labels' }).min(1).max(8),
 }, { error: RULE_SHAPE_ERROR });
 
 const PlainLanguageRule = z.string().trim().min(1).max(1000);
 
-export const QuestionRule = z.union([PlainLanguageRule, QuestionMatchRule], { error: RULE_SHAPE_ERROR });
+export const QuestionRecommendedRule = z.strictObject({ name: RuleName, pick: z.literal(RECOMMENDED_PICK) }, { error: RULE_SHAPE_ERROR });
+
+export const QuestionRule = z.union([PlainLanguageRule, QuestionMatchRule, QuestionRecommendedRule], { error: RULE_SHAPE_ERROR });
 
 export const QuestionManagerSettings = z.object({
   rules: z.array(QuestionRule, { error: 'questionManager.rules must be an array' }).max(QUESTION_MANAGER_RULES_MAX).optional(),
@@ -23,8 +28,11 @@ export const QuestionManagerSettings = z.object({
 }, { error: 'questionManager must be an object' });
 
 export type QuestionMatchRule = z.infer<typeof QuestionMatchRule>;
+export type QuestionRecommendedRule = z.infer<typeof QuestionRecommendedRule>;
 export type QuestionRule = z.infer<typeof QuestionRule>;
 export type QuestionManagerSettings = z.infer<typeof QuestionManagerSettings>;
+
+export const DEFAULT_QUESTION_RULES: readonly QuestionRule[] = Object.freeze([{ name: 'Take recommended', pick: RECOMMENDED_PICK }]);
 
 export const ManagerVerdict = z.discriminatedUnion('kind', [
   z.object({
