@@ -146,8 +146,34 @@ function createColumn(group: DisplayGroup, options: ReviewBoardOptions): HTMLEle
   return column;
 }
 
+const HIDDEN_EDGE_MIN_PX = 1;
+
+let boardEdgeObserver: ResizeObserver | null = null;
+
+function setBoardFlag(board: HTMLElement, flag: 'overflowStart' | 'overflowEnd', isOn: boolean): void {
+  if (isOn) {
+    board.dataset[flag] = 'true';
+    return;
+  }
+  delete board.dataset[flag];
+}
+
+function flagOverflowingEdges(board: HTMLElement): void {
+  const hiddenEndPx = board.scrollWidth - board.clientWidth - board.scrollLeft;
+  setBoardFlag(board, 'overflowStart', board.scrollLeft >= HIDDEN_EDGE_MIN_PX);
+  setBoardFlag(board, 'overflowEnd', hiddenEndPx >= HIDDEN_EDGE_MIN_PX);
+}
+
+function watchBoardEdges(board: HTMLElement): void {
+  boardEdgeObserver?.disconnect();
+  boardEdgeObserver = new ResizeObserver(() => flagOverflowingEdges(board));
+  boardEdgeObserver.observe(board);
+  board.addEventListener('scroll', () => flagOverflowingEdges(board), { passive: true });
+}
+
 export function createReviewBoard(groups: readonly DisplayGroup[], options: ReviewBoardOptions): HTMLElement {
   const board = el('div', 'review-board');
   board.append(...boardColumns(groups).map((group) => createColumn(group, options)));
+  watchBoardEdges(board);
   return board;
 }

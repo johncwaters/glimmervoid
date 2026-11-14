@@ -312,8 +312,15 @@ html[data-layout="phone"] .review-layout-switch { display: none; }
 .review-queue[data-reviews-layout="board"] > .pr-columns > .pr-detail-resizer { display: block; }
 .review-queue[data-reviews-layout="board"] .pr-queue-pane { border-right: 0; }
 
-.review-board { display: flex; align-items: stretch; gap: 12px; flex: 1 0 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 8px; }
-.review-board-column { container: review-board-column / inline-size; display: flex; flex-direction: column; gap: 8px; flex: 1 0 200px; min-width: 200px; padding: 10px 8px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-surface); }
+.review-board { display: flex; align-items: stretch; gap: 12px; flex: 1 0 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 8px; --board-fade-width: 32px; scroll-snap-type: x proximity; scroll-padding-inline: var(--board-fade-width); }
+.review-board-column { container: review-board-column / inline-size; display: flex; flex-direction: column; gap: 8px; flex: 1 0 200px; min-width: 200px; padding: 10px 8px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-surface); scroll-snap-align: start; }
+.review-queue[data-reviews-layout="board"] .pr-queue { container: review-board-host / inline-size; }
+.review-board[data-overflow-start="true"] { --board-fade-start: var(--board-fade-width); }
+.review-board[data-overflow-end="true"] { --board-fade-end: var(--board-fade-width); }
+.review-board:is([data-overflow-start="true"], [data-overflow-end="true"]) { mask-image: linear-gradient(to right, transparent, #000 var(--board-fade-start, 0px), #000 calc(100% - var(--board-fade-end, 0px)), transparent); }
+@container review-board-host (max-width: 439px) {
+  .review-board-column:not([data-slim="true"], [data-collapsed="true"]) { flex: 0 0 85cqi; min-width: 0; }
+}
 .review-board-column-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 8px 6px; }
 .review-board-column-title { flex-shrink: 0; white-space: nowrap; }
 .review-board-cards { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

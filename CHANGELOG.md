@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reviews board columns fit the board.** Columns snap into place as you scroll the board sideways, the edge that hides more columns fades so you can tell more sit off to the side, and on a narrow board each column takes most of the width with the next one peeking.
 - **Shorter session and board menus.** The Session actions menu drops Rename session (double-click the session name, or press F2 or Enter on it) and Connect board (opening a board beside a session in Focus connects it). To disconnect a session from a board, use the x beside its name on the open board. On a shell session it also hides Pull requests, Debug state and Trace, which need an agent. The Board actions menu drops Rename board (click the board title) and folds Export SVG, Export PNG and Export board file into one Export board, which asks for the format.
 - **Phone Boards opens the session's board.** On the phone, tapping Boards while viewing a session opens the board connected to it (the most recently edited one when it has several), instead of whichever board was open last. The board header no longer shows the connected count.
 
