@@ -828,6 +828,10 @@
     {
       "name": "managed version",
       "definition": "A Glimmervoid whose release someone other than the operator installs and pins, declared by GLIMMERVOID_MANAGED_BY holding the manager's name; Settings > Updates names the manager and offers no update"
+    },
+    {
+      "name": "register",
+      "definition": "To add this host's commit signing key to the connected GitHub account as a signing key, so commits signed with it show as Verified; Register on GitHub is the control that does it"
     }
   ],
   "retired": [
