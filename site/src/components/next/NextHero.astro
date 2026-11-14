@@ -30,7 +30,7 @@ const NAV_LINKS = [
 ];
 ---
 <header class="next-hero">
-  <div class="ghost-field" aria-hidden="true"><svg class="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} set:html={brandMarkMarkup({ frame: 'currentColor', light: 'currentColor' })}></svg></div>
+  <div class="ghost-field"><svg class="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: 'currentColor' })}></svg></div>
   <nav class="next-nav" aria-label="Main">
     <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>Glimmervoid</a>
     <ul>
