@@ -9,7 +9,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
 import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
-import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers } from './core/pack-core.ts';
+import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers, withinPreviewBudget } from './core/pack-core.ts';
 import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
 import { servedPackFile } from './core/pack-page-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
@@ -190,7 +190,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   function rows(): PackRow[] {
-    return currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, isPlacedByHand(packDir, read)));
+    return withinPreviewBudget(currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, isPlacedByHand(packDir, read))));
   }
 
   function packEntriesInUse(): { packDir: string; pack: PackOnDisk }[] {

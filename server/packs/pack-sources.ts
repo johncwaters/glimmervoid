@@ -9,7 +9,7 @@ import { parseJsonOrNull } from '../core/json-core.ts';
 import { firstLine } from '../core/text-core.ts';
 import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
-import { PACK_ICON_MAX_BYTES, SOURCE_ICONS_MAX_BYTES, packIconDataUrl, sourcePackDetails } from './core/pack-core.ts';
+import { PACK_ICON_MAX_BYTES, PACK_PREVIEW_MAX_BYTES, SOURCE_ICONS_MAX_BYTES, packIconDataUrl, packPreviewDataUrl, sourcePackDetails, withinPreviewBudget } from './core/pack-core.ts';
 import { packSourceOf } from './core/pack-sources-core.ts';
 import { PACK_MAX_TOTAL_BYTES, PACKS_DIR_NAME, readPackDir } from './pack-files.ts';
 import { installPack, readInstalledFingerprints, removeHandPlacedPack, removeInstalledPack } from './pack-install.ts';
@@ -54,26 +54,27 @@ async function packHereIn(folder: string): Promise<SourcePack[]> {
   return header?.success ? [{ name: header.data.name, dir: folder, ...sourcePackDetails(header.data) }] : [];
 }
 
-async function iconBytesOf(pack: SourcePack): Promise<Buffer | null> {
-  if (pack.iconPath === null) return null;
-  const iconPath = path.join(pack.dir, pack.iconPath);
-  const [realPackDir, realIconPath] = await Promise.all([fs.promises.realpath(pack.dir), fs.promises.realpath(iconPath)]).catch(() => [null, null]);
-  if (realPackDir === null || realIconPath === null || !realIconPath.startsWith(`${realPackDir}${path.sep}`)) return null;
-  const iconStat = await fs.promises.lstat(iconPath).catch(() => null);
-  if (!iconStat?.isFile() || iconStat.size > PACK_ICON_MAX_BYTES) return null;
-  return fs.promises.readFile(iconPath).catch(() => null);
+async function containedFileBytes(packDir: string, relativePath: string | null, maxBytes: number): Promise<Buffer | null> {
+  if (relativePath === null) return null;
+  const filePath = path.join(packDir, relativePath);
+  const [realPackDir, realFilePath] = await Promise.all([fs.promises.realpath(packDir), fs.promises.realpath(filePath)]).catch(() => [null, null]);
+  if (realPackDir === null || realFilePath === null || !realFilePath.startsWith(`${realPackDir}${path.sep}`)) return null;
+  const fileStat = await fs.promises.lstat(filePath).catch(() => null);
+  if (!fileStat?.isFile() || fileStat.size > maxBytes) return null;
+  return fs.promises.readFile(filePath).catch(() => null);
 }
 
 async function sourcePackRows(packs: readonly SourcePack[], enabledPacks: readonly string[]): Promise<SourcePackRow[]> {
   const rows: SourcePackRow[] = [];
   let remainingIconBytes = SOURCE_ICONS_MAX_BYTES;
-  for (const { iconPath, ...pack } of packs) {
-    const iconBytes = remainingIconBytes <= 0 ? null : await iconBytesOf({ ...pack, iconPath });
+  for (const { iconPath, previewPath, ...pack } of packs) {
+    const iconBytes = remainingIconBytes <= 0 ? null : await containedFileBytes(pack.dir, iconPath, PACK_ICON_MAX_BYTES);
     const isIconInBudget = iconBytes !== null && iconBytes.length <= remainingIconBytes;
     if (isIconInBudget) remainingIconBytes -= iconBytes.length;
-    rows.push({ ...pack, isEnabled: enabledPacks.includes(pack.name), iconDataUrl: isIconInBudget ? packIconDataUrl(iconBytes) : null });
+    const previewBytes = await containedFileBytes(pack.dir, previewPath, PACK_PREVIEW_MAX_BYTES);
+    rows.push({ ...pack, isEnabled: enabledPacks.includes(pack.name), iconDataUrl: isIconInBudget ? packIconDataUrl(iconBytes) : null, previewDataUrl: previewBytes === null ? null : packPreviewDataUrl(previewBytes) });
   }
-  return rows;
+  return withinPreviewBudget(rows);
 }
 
 async function packFoldersIn(folder: string, depth: number): Promise<SourcePack[]> {

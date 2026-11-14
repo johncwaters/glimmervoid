@@ -1,5 +1,6 @@
 import path from 'node:path';
-import type { PackRow, PackSourceRow, PacksStatus } from '../../../shared/contracts/control/pack-messages.ts';
+import type { PackRow, PackSourceRow, PacksStatus, PackThemeSwatch } from '../../../shared/contracts/control/pack-messages.ts';
+import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
 import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
@@ -173,7 +174,8 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     state: approvedFingerprints.has(pack.fingerprint) ? 'approved' : 'pending', fingerprint: pack.fingerprint,
     files: [...pack.filesByPath.keys()].sort(), needs: packNeeds(pack), missingRequires: pack.missingRequires,
     prFlows: prFlowsPack ? packApproval(prFlowsPack) : null,
-    themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode })),
+    themes: packThemes(pack).map((theme) => ({ id: theme.id, label: theme.label, mode: theme.mode, swatch: themeSwatchOf(theme) })),
+    previewDataUrl: pack.previewDataUrl,
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack), errors: sectionErrors,
@@ -184,14 +186,44 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors, isPlacedByHand,
   };
 }
 
 export const PACK_ICON_MAX_BYTES = 16 * 1024;
 export const SOURCE_ICONS_MAX_BYTES = 256 * 1024;
+export const PACK_PREVIEW_MAX_BYTES = 48 * 1024;
+const PACK_PREVIEWS_MAX_BYTES = 384 * 1024;
 
-type SourcePackDetails = Pick<PackSourceRow['packs'][number], 'version' | 'description' | 'kinds'> & { iconPath: string | null };
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function themeSwatchOf(palette: ThemePalette): PackThemeSwatch {
+  return { bg: palette.chrome.bg, card: palette.chrome['bg-card'], text: palette.chrome.text, accent: palette.chrome.accent };
+}
+
+function previewMimeOf(previewBytes: Buffer): string | null {
+  if (previewBytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) return 'image/png';
+  const isWebp = previewBytes.toString('latin1', 0, 4) === 'RIFF' && previewBytes.toString('latin1', 8, 12) === 'WEBP';
+  return isWebp ? 'image/webp' : null;
+}
+
+export function packPreviewDataUrl(previewBytes: Buffer): string | null {
+  if (previewBytes.length > PACK_PREVIEW_MAX_BYTES) return null;
+  const mime = previewMimeOf(previewBytes);
+  return mime === null ? null : `data:${mime};base64,${previewBytes.toString('base64')}`;
+}
+
+export function withinPreviewBudget<Row extends { previewDataUrl: string | null }>(rows: readonly Row[]): Row[] {
+  let remainingPreviewBytes = PACK_PREVIEWS_MAX_BYTES;
+  return rows.map((row) => {
+    if (row.previewDataUrl === null) return row;
+    if (row.previewDataUrl.length > remainingPreviewBytes) return { ...row, previewDataUrl: null };
+    remainingPreviewBytes -= row.previewDataUrl.length;
+    return row;
+  });
+}
+
+type SourcePackDetails = Pick<PackSourceRow['packs'][number], 'version' | 'description' | 'kinds' | 'themeSwatches'> & { iconPath: string | null; previewPath: string | null };
 
 function parsedOrNull<Value>(schema: z.ZodType<Value>, raw: unknown): Value | null {
   if (raw === undefined) return null;
@@ -208,7 +240,7 @@ export function sourcePackDetails(header: PackHeader): SourcePackDetails {
     prFlows: parsedOrNull(PackPrFlows, header.prFlows),
   });
   const iconPath = ui?.panels.find((panel) => panel.icon !== undefined)?.icon ?? null;
-  return { version: header.version, description: header.description ?? null, kinds, iconPath };
+  return { version: header.version, description: header.description ?? null, kinds, themeSwatches: (ui?.themes ?? []).map(themeSwatchOf), iconPath, previewPath: header.preview ?? null };
 }
 
 export function packIconDataUrl(iconBytes: Buffer): string {

@@ -7,6 +7,11 @@ import { loose, optionalError, requestId, sessionId } from './control-fields.ts'
 
 const PackRowState = z.enum(['pending', 'approved', 'invalid']);
 
+export const PackThemeSwatch = z.strictObject({ bg: z.string(), card: z.string(), text: z.string(), accent: z.string() });
+export type PackThemeSwatch = z.infer<typeof PackThemeSwatch>;
+
+const PackPreviewDataUrl = z.string().nullable().describe('The manifest preview image as a data:image URL, so an unapproved pack shows it without a route serving its files; null when absent or over the preview budget');
+
 
 export const PackRow = z.strictObject({
   name: z.string(),
@@ -19,7 +24,8 @@ export const PackRow = z.strictObject({
   needs: z.array(z.string()),
   missingRequires: z.array(z.string()),
   prFlows: PrFlowPendingApproval.nullable(),
-  themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode })),
+  themes: z.array(z.strictObject({ id: z.string(), label: z.string(), mode: ThemePalette.shape.mode, swatch: PackThemeSwatch })),
+  previewDataUrl: PackPreviewDataUrl,
   panels: z.array(z.strictObject({ id: z.string(), label: z.string(), reads: z.array(PackBridgeTopic), acts: z.array(PackPanelAct) })),
   launchers: z.array(z.strictObject({ id: z.string(), label: z.string(), project: z.string(), agent: z.string(), model: z.string().nullable(), effort: z.string().nullable(), prompt: z.string(), schedule: z.string().nullable() })),
   sessions: z.strictObject({ dangerouslySkipPermissions: z.boolean(), saneYolo: z.boolean().optional() }).nullable(),
@@ -53,6 +59,7 @@ export const PackSourceRow = z.strictObject({
     name: z.string(), dir: z.string(), isEnabled: z.boolean(),
     version: z.number().nullable(), description: z.string().nullable(), kinds: z.array(z.string()),
     iconDataUrl: z.string().nullable().describe('The first panel icon as a data:image/svg+xml URL, so an unapproved pack shows its icon without a route serving its files'),
+    themeSwatches: z.array(PackThemeSwatch), previewDataUrl: PackPreviewDataUrl,
   })),
   error: z.string().nullable(),
 });

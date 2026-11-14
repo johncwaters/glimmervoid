@@ -10,11 +10,14 @@ import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, P
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
 export const PACK_FILE_NAME = 'pack.json';
 
+const PackFilePath = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._/-]{1,200}$/, { error: 'a pack file path is relative, inside the pack, and uses letters, digits, dot, dash, underscore and slash' });
+
 export const PackHeader = z.strictObject({
   $schema: z.string().optional(),
   name: PackName.describe('Unique among installed packs; a second pack with the same name is refused. Theme and panel ids are scoped to it, so they never clash with another pack'),
   version: z.number().int().positive().describe('Your release number, shown to the operator beside the pack; raise it with each change. Approval follows the files, not this number: any changed file asks again'),
   description: z.string().max(500).optional(),
+  preview: PackFilePath.refine((filePath) => /\.(png|webp)$/.test(filePath), { error: 'a pack preview is a .png or .webp file' }).optional().describe('An image of what the pack adds, shown on its card in the Packs tab before it is approved. Glimmervoid releases after 0.58.4 read it; older ones refuse a manifest that sets it'),
   requires: PrFlowPackRequires.default({ env: [], programs: [] }),
   prFlows: z.unknown().optional(),
   ui: z.unknown().optional(),
@@ -44,7 +47,6 @@ export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
 const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' });
 
-const PackFilePath = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._/-]{1,200}$/, { error: 'a pack file path is relative, inside the pack, and uses letters, digits, dot, dash, underscore and slash' });
 
 export const PackPanel = z.strictObject({
   id: PackItemId,
@@ -165,6 +167,7 @@ export type PackOnDisk = {
   status: PackSection<PackStatus> | null;
   agent: PackSection<PackAgent> | null;
   missingRequires: string[];
+  previewDataUrl: string | null;
 };
 
 const PackManifestForSchema = PackHeader.extend({

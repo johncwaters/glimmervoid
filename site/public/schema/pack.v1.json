@@ -22,6 +22,11 @@
       "type": "string",
       "maxLength": 500
     },
+    "preview": {
+      "description": "An image of what the pack adds, shown on its card in the Packs tab before it is approved. Glimmervoid releases after 0.58.4 read it; older ones refuse a manifest that sets it",
+      "type": "string",
+      "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+    },
     "requires": {
       "default": {
         "env": [],

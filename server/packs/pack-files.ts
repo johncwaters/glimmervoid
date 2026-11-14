@@ -6,6 +6,7 @@ import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
+import { packPreviewDataUrl } from './core/pack-core.ts';
 import type { z } from 'zod';
 
 export const PACK_MAX_TOTAL_BYTES = 1024 * 1024;
@@ -85,6 +86,11 @@ async function missingRequires(requires: PackHeader['requires'], env: NodeJS.Pro
     if (!await isProgramOnPath(program, env)) missingPrograms.push(`program ${program}`);
   }
   return [...requires.env.filter((name) => !commandEnv[name]).map((name) => `env ${name}`), ...missingPrograms];
+}
+
+function previewDataUrlOf(previewPath: string | undefined, filesByPath: ReadonlyMap<string, Buffer>): string | null {
+  const previewBytes = previewPath === undefined ? undefined : filesByPath.get(previewPath);
+  return previewBytes === undefined ? null : packPreviewDataUrl(previewBytes);
 }
 
 function missingPanelFiles(panel: z.infer<typeof PackPanel>, index: number, filesByPath: ReadonlyMap<string, Buffer>): string[] {
@@ -170,12 +176,14 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const sessions = parseSection(PackSessions, header.data.sessions, 'sessions');
   const status = parseSection(PackStatus, header.data.status, 'status');
   const agent = withAgentFilesPresent(parseSection(PackAgent, header.data.agent, 'agent'), read.filesByPath);
+  if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
   if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
       prFlows, ui, launchers, sessions, status, agent, missingRequires: await missingRequires(header.data.requires, env),
+      previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };
 }

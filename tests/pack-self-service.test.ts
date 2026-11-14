@@ -539,6 +539,9 @@ test('an agent adds a git pack source whose packs stay off until the operator en
     await fixture.packStore.start();
     const remoteDir = path.join(fixture.homeDir, 'remotes', 'team', 'packs');
     fs.cpSync(EXAMPLE_THEME_PACK, path.join(remoteDir, 'themes', 'night-shift'), { recursive: true });
+    const sharedManifestPath = path.join(remoteDir, 'themes', 'night-shift', 'pack.json');
+    fs.writeFileSync(sharedManifestPath, JSON.stringify({ ...JSON.parse(fs.readFileSync(sharedManifestPath, 'utf8')), preview: 'preview.png' }, null, 2));
+    fs.writeFileSync(path.join(remoteDir, 'themes', 'night-shift', 'preview.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]));
     assert.ok((await runGit(['init', '-q', '-b', 'main'], { cwd: remoteDir })).ok);
     await commitAll(remoteDir, 'add night-shift');
 
@@ -549,13 +552,15 @@ test('an agent adds a git pack source whose packs stay off until the operator en
     assert.match(added.body.text ?? '', /its packs: night-shift\. Each stays off until the operator enables it/);
     const [source] = fixture.packSources.rows();
     assert.deepEqual(source?.packs.map((pack) => [pack.name, pack.isEnabled]), [['night-shift', false]]);
-    assert.deepEqual(source?.packs.map(({ version, kinds, iconDataUrl }) => ({ version, kinds, iconDataUrl })), [{ version: 1, kinds: ['2 themes'], iconDataUrl: null }]);
+    assert.deepEqual(source?.packs.map(({ version, kinds, iconDataUrl, themeSwatches }) => ({ version, kinds, iconDataUrl, swatchCount: themeSwatches.length })), [{ version: 1, kinds: ['2 themes'], iconDataUrl: null, swatchCount: 2 }]);
+    assert.equal(source?.packs[0]?.previewDataUrl, 'data:image/png;base64,iVBORw0KGgoA', 'an unapproved source pack carries its manifest preview inline');
     assert.match(source?.packs[0]?.description ?? '', /^Themes only/);
     assert.equal(fixture.rowNamed('night-shift'), undefined, 'adding a source installs nothing');
 
     const enabled = await fixture.packSources.setPackEnabled(source?.slug ?? '', 'night-shift', true);
     assert.ok(enabled.ok, enabled.ok ? '' : enabled.error);
     await waitFor(() => fixture.rowNamed('night-shift')?.state === 'pending');
+    assert.equal(fixture.rowNamed('night-shift')?.previewDataUrl, source?.packs[0]?.previewDataUrl, 'the installed pending row shows the same preview');
     assert.deepEqual(await fixture.packStore.approve(fixture.rowNamed('night-shift')?.fingerprint ?? ''), { ok: true });
     await waitFor(() => fixture.rowNamed('night-shift')?.state === 'approved');
 
