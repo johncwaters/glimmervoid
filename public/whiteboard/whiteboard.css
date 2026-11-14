@@ -137,6 +137,10 @@
   gap: 2px;
 }
 
+.wb-tool-lock {
+  margin-right: 4px;
+}
+
 .wb-tool[aria-pressed='true'] {
   border-color: transparent;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -175,6 +179,16 @@
 .wb-viewport[data-tool='wire'],
 .wb-viewport[data-tool='pen'] {
   cursor: crosshair;
+}
+
+.wb-viewport[data-tool='hand'],
+.wb-viewport[data-space-pan='true'] {
+  cursor: grab;
+}
+
+.wb-viewport[data-tool='hand']:active,
+.wb-viewport[data-space-pan='true']:active {
+  cursor: grabbing;
 }
 
 .wb-ink-draft {

@@ -833,6 +833,10 @@
     {
       "name": "rename",
       "definition": "To change the display name of a session or a board in place: double-click, F2 or Enter on a session name, or click on a board title; the stable id never changes"
+    },
+    {
+      "name": "tool lock",
+      "definition": "The whiteboard toolbar toggle (Q) that keeps the picked drawing tool after each placement instead of returning to Select"
     }
   ],
   "retired": [

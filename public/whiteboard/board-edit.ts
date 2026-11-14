@@ -20,10 +20,19 @@ const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
 export const WHEEL_ZOOM_STEP = 1.1;
 const REMOVAL_ORDER: readonly BoardElement['kind'][] = ['stroke', 'wire', 'frame', 'box'];
-const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = { v: 'select', r: 'box', d: 'decision', s: 'note', t: 'text', i: 'icon', m: 'device', a: 'wire', b: 'pen' };
+const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = {
+  v: 'select', 1: 'select', r: 'box', 2: 'box', d: 'decision', 3: 'decision', a: 'wire', 5: 'wire', p: 'pen', 7: 'pen', t: 'text', 8: 'text',
+  h: 'hand', s: 'note', i: 'icon', m: 'device',
+};
+const NUDGE_UNITS = 1;
+const SHIFTED_NUDGE_UNITS = 5;
+const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
+const KEY_ZOOM_STEP = 1.25;
+const ZOOM_FACTOR_BY_KEY: Readonly<Record<string, number>> = { '=': 1 / KEY_ZOOM_STEP, '+': 1 / KEY_ZOOM_STEP, '-': KEY_ZOOM_STEP, _: KEY_ZOOM_STEP };
 
-type BoardTool = 'select' | 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen';
+type BoardTool = 'select' | 'hand' | 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device' | 'wire' | 'pen';
 type PlacementTool = Extract<BoardTool, 'box' | 'decision' | 'note' | 'text' | 'icon' | 'device'>;
+const NON_PLACEMENT_TOOLS: ReadonlySet<BoardTool> = new Set(['select', 'hand', 'wire', 'pen']);
 
 interface ViewPoint {
   x: number;
@@ -68,6 +77,7 @@ interface BoardEditorOptions {
   onOpenStack: (frameId: string) => void;
   isOpenedStack: (frameId: string) => boolean;
   onToolChange: (tool: BoardTool) => void;
+  onToolLockChange: (isToolLocked: boolean) => void;
 }
 
 export interface PressedImage {
@@ -79,6 +89,14 @@ export interface PressedImage {
 interface MovingBox {
   boxId: string;
   start: Rect;
+}
+
+interface NudgeRun {
+  movingBoxes: MovingBox[];
+  strokeStartPointsById: Map<string, number[]>;
+  offset: ViewPoint;
+  pinnedOffsetY: number;
+  sendsInFlight: number;
 }
 
 type BoxFields = { place: { at: ViewPoint } } | { width: number };
@@ -109,7 +127,7 @@ function isPhoneLayout(): boolean {
 }
 
 function isPlacementTool(tool: BoardTool): tool is PlacementTool {
-  return tool !== 'select' && tool !== 'wire' && tool !== 'pen';
+  return !NON_PLACEMENT_TOOLS.has(tool);
 }
 
 const PLACED_TITLE_BY_TOOL: Readonly<Record<PlacementTool, string>> = { box: 'Box', decision: 'Decision', note: 'Note', text: 'Text', icon: 'Icon', device: 'Device' };
@@ -183,6 +201,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let linesUnderLineEdit: readonly BoxLine[] | null = null;
   let previewFrameId: number | null = null;
   let activeTool: BoardTool = 'select';
+  let isToolLocked = false;
+  let isSpaceHeld = false;
+  let nudgeRun: NudgeRun | null = null;
   let pendingTitleEditId: string | null = null;
   let isFitOwedOnceSized = false;
 
@@ -190,6 +211,15 @@ export function createBoardEditor(options: BoardEditorOptions) {
     activeTool = tool;
     viewport.dataset.tool = tool;
     options.onToolChange(tool);
+  }
+
+  function setToolLocked(shouldLock: boolean): void {
+    isToolLocked = shouldLock;
+    options.onToolLockChange(shouldLock);
+  }
+
+  function finishToolUse(): void {
+    if (!isToolLocked) setTool('select');
   }
 
   function applyCamera(): void {
@@ -226,7 +256,20 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function fit(): void {
     const layout = renderer.layout();
     if (!layout) return;
-    const { bounds } = layout;
+    fitArea(layout.bounds, layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM);
+  }
+
+  function fitSelection(): void {
+    const selectedRects = [...selectedIds].flatMap((elementId) => renderer.boundsOf(elementId) ?? []);
+    if (selectedRects.length === 0) return;
+    const left = Math.min(...selectedRects.map((rect) => rect.x));
+    const top = Math.min(...selectedRects.map((rect) => rect.y));
+    const right = Math.max(...selectedRects.map((rect) => rect.x + rect.width));
+    const bottom = Math.max(...selectedRects.map((rect) => rect.y + rect.height));
+    fitArea({ x: left, y: top, width: right - left, height: bottom - top }, MAX_FIT_ZOOM);
+  }
+
+  function fitArea(bounds: Rect, maxZoom: number): void {
     const canvasWidth = viewport.clientWidth;
     const canvasHeight = viewport.clientHeight;
     if (canvasWidth === 0 || canvasHeight === 0) {
@@ -237,7 +280,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     isFitOwedOnceSized = false;
     const band = islandFreeBand();
-    const maxZoom = layout.elements.length === 0 ? 1 : MAX_FIT_ZOOM;
     const unitsPerPixel = Math.max(1 / maxZoom, unitsPerPixelShowing(bounds, canvasWidth, band.heightPx));
     const fittedViewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
@@ -271,6 +313,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
     applyCamera();
   }
 
+  function viewportCenter(): ViewPoint {
+    const viewportRect = viewport.getBoundingClientRect();
+    return toViewPoint(viewportRect.left + viewportRect.width / 2, viewportRect.top + viewportRect.height / 2);
+  }
+
   function panByPixels(deltaX: number, deltaY: number): void {
     camera = { ...camera, x: camera.x - deltaX / camera.scale, y: camera.y - deltaY / camera.scale };
     applyCamera();
@@ -278,6 +325,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function setSelection(nextSelectedIds: Set<string>): void {
     selectedIds = nextSelectedIds;
+    nudgeRun = null;
     renderer.setSelection(selectedIds);
     options.onSelectionChange(selectedIds);
   }
@@ -315,14 +363,67 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
     if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start), ...(isResizedVertically(drag) ? { height: draggedHeight(drag, movingBox.start) } : {}) } }));
-    const droppedAts = drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, at: draggedAt(drag, movingBox.start) }));
+    return movedPlaceFields(drag.movingBoxes, (start) => draggedAt(drag, start), drag.pinnedOffsetY);
+  }
+
+  function movedPlaceFields(movingBoxes: readonly MovingBox[], droppedAtOf: (start: Rect) => ViewPoint, pinnedOffsetY: number): { boxId: string; fields: BoxFields }[] {
     const board = options.currentBoard();
-    const leavingBand = drag.movingBoxes.filter((movingBox) => {
+    const leavingBand = movingBoxes.filter((movingBox) => {
       const record = board?.elements.get(movingBox.boxId);
       return record?.kind === 'box' && isInStepBand(record);
     });
-    const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
-    return droppedAts.map(({ boxId, at }) => ({ boxId, fields: { place: { at: { x: at.x, y: at.y + bandShrinkY } } } }));
+    const bandShrinkY = pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((movingBox) => movingBox.start));
+    return movingBoxes.map((movingBox) => {
+      const at = droppedAtOf(movingBox.start);
+      return { boxId: movingBox.boxId, fields: { place: { at: { x: at.x, y: at.y + bandShrinkY } } } };
+    });
+  }
+
+  function startNudgeRun(board: Board): NudgeRun {
+    const movingBoxes = [...selectedIds].flatMap((elementId) => {
+      const start = board.elements.get(elementId)?.kind === 'box' ? renderer.boundsOf(elementId) : null;
+      return start ? [{ boxId: elementId, start }] : [];
+    });
+    const strokeStartPointsById = new Map([...selectedIds].flatMap((elementId) => {
+      const stroke = board.elements.get(elementId);
+      return stroke?.kind === 'stroke' ? [[elementId, stroke.points] as const] : [];
+    }));
+    return { movingBoxes, strokeStartPointsById, offset: { x: 0, y: 0 }, pinnedOffsetY: renderer.layout()?.pinnedOffsetY ?? 0, sendsInFlight: 0 };
+  }
+
+  function nudgeSelected(direction: ViewPoint, distance: number): void {
+    const board = options.currentBoard();
+    if (!board || selectedIds.size === 0) return;
+    const run = nudgeRun ?? startNudgeRun(board);
+    nudgeRun = run;
+    run.offset = { x: run.offset.x + direction.x * distance, y: run.offset.y + direction.y * distance };
+    const { offset, pinnedOffsetY } = run;
+    const boxOps = movedPlaceFields(run.movingBoxes, (start) => ({ x: Math.round(start.x + offset.x), y: Math.round(start.y + offset.y - pinnedOffsetY) }), pinnedOffsetY)
+      .map(({ boxId, fields }): Op => ({ op: 'set', id: boxId, fields }));
+    const strokeOps = [...run.strokeStartPointsById].map(([strokeId, startPoints]): Op => {
+      const points = startPoints.map((coordinate, index) => coordinate + Math.round(index % 2 === 0 ? offset.x : offset.y));
+      return { op: 'set', id: strokeId, fields: { points } };
+    });
+    const nudgeOps = [...boxOps, ...strokeOps];
+    if (nudgeOps.length === 0) return;
+    run.sendsInFlight += 1;
+    void options.sendOps(nudgeOps).finally(() => {
+      run.sendsInFlight -= 1;
+    });
+  }
+
+  function endSettledNudgeRun(): void {
+    if (nudgeRun?.sendsInFlight === 0) nudgeRun = null;
+  }
+
+  function selectAll(): void {
+    const board = options.currentBoard();
+    if (!board) return;
+    setSelection(new Set(board.elements.keys()));
+  }
+
+  function resetZoom(): void {
+    zoomAround(viewportCenter(), (viewport.clientWidth || 1) / viewWidth());
   }
 
   function cancelPreviewFrame(): void {
@@ -487,6 +588,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (event.button !== 0) return;
+    if ((isSpaceHeld || activeTool === 'hand') && !gesture) {
+      startButtonPan(event);
+      return;
+    }
     const hit = hitAt(event.clientX, event.clientY);
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     viewport.setPointerCapture(event.pointerId);
@@ -538,7 +643,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   async function placeElement(tool: PlacementTool, point: ViewPoint): Promise<void> {
-    setTool('select');
+    finishToolUse();
     if (!options.currentBoard()) return;
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
     const element = placedBox({ x: Math.round(point.x), y: Math.round(point.y - pinnedOffsetY) }, PLACED_TITLE_BY_TOOL[tool], null, tool);
@@ -654,7 +759,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = hitAt(event.clientX, event.clientY);
     renderer.setHover(hit?.kind === 'box' ? hit.id : null);
     viewport.dataset.hoverKind = hit?.kind ?? '';
-    viewport.style.cursor = activeTool === 'select' ? hoverCursorOf(hit) : '';
+    viewport.style.cursor = activeTool === 'select' && !isSpaceHeld ? hoverCursorOf(hit) : '';
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -751,7 +856,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (finished?.kind === 'wire') {
       endWire(finished, finished.pointerId === event.pointerId);
-      if (activeTool === 'wire') setTool('select');
+      if (activeTool === 'wire') finishToolUse();
       return;
     }
     if (finished?.kind === 'marquee') {
@@ -1042,6 +1147,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function afterBoardPaint(): void {
+    endSettledNudgeRun();
     settleUnconfirmedLines();
     closeStaleLineEdit();
     placeInlineEditor();
@@ -1077,23 +1183,54 @@ export function createBoardEditor(options: BoardEditorOptions) {
     void options.sendOps(ops);
   }
 
+  function commandKeyAction(event: KeyboardEvent): (() => void) | null {
+    const key = event.key.toLowerCase();
+    if (key === 'a') return selectAll;
+    if (key === '0') return resetZoom;
+    const zoomFactor = ZOOM_FACTOR_BY_KEY[key];
+    if (zoomFactor === undefined) return null;
+    return () => zoomAround(viewportCenter(), zoomFactor);
+  }
+
+  function shiftedKeyAction(event: KeyboardEvent): (() => void) | null {
+    if (event.code === 'Digit1') return fit;
+    if (event.code === 'Digit2') return fitSelection;
+    return null;
+  }
+
+  function plainKeyAction(event: KeyboardEvent): (() => void) | null {
+    const nudgeDirection = NUDGE_DIRECTION_BY_KEY[event.key];
+    if (nudgeDirection) return () => nudgeSelected(nudgeDirection, event.shiftKey ? SHIFTED_NUDGE_UNITS : NUDGE_UNITS);
+    if (event.key === 'Delete' || event.key === 'Backspace') return removeSelected;
+    if (event.key === 'Escape') return () => {
+      setSelection(new Set());
+      setTool('select');
+    };
+    if (event.shiftKey) return shiftedKeyAction(event);
+    if (event.key === ' ') return () => holdSpace(true);
+    const key = event.key.toLowerCase();
+    if (key === 'q') return () => setToolLocked(!isToolLocked);
+    const tool = TOOL_BY_KEY[key];
+    return tool ? () => setTool(tool) : null;
+  }
+
+  function holdSpace(isHeld: boolean): void {
+    isSpaceHeld = isHeld;
+    viewport.dataset.spacePan = String(isHeld);
+    if (isHeld) viewport.style.cursor = '';
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
-    if (event.target !== viewport) return;
-    if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      event.preventDefault();
-      removeSelected();
-      return;
-    }
-    const tool = TOOL_BY_KEY[event.key.toLowerCase()];
-    if (tool && !event.shiftKey) {
-      event.preventDefault();
-      setTool(tool);
-      return;
-    }
-    if (event.key !== 'Escape') return;
-    setSelection(new Set());
-    setTool('select');
+    if (event.target !== viewport || event.altKey) return;
+    const action = event.metaKey || event.ctrlKey ? commandKeyAction(event) : plainKeyAction(event);
+    if (!action) return;
+    event.preventDefault();
+    if (event.repeat && event.key === ' ') return;
+    action();
+  }
+
+  function onKeyUp(event: KeyboardEvent): void {
+    if (event.key === ' ') holdSpace(false);
   }
 
   world.style.transition = 'none';
@@ -1106,6 +1243,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => event.preventDefault());
   viewport.addEventListener('keydown', onKeyDown);
+  viewport.addEventListener('keyup', onKeyUp);
+  viewport.addEventListener('blur', () => holdSpace(false));
   viewport.addEventListener('pointerleave', () => {
     if (gesture) return;
     renderer.setHover(null);
@@ -1123,6 +1262,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     repaintPreview,
     closeInlineEditor,
     setTool,
+    toggleToolLock: () => setToolLocked(!isToolLocked),
     placeMediaBox,
     afterBoardPaint,
     focusCanvas: () => viewport.focus(),
