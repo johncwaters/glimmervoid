@@ -44,7 +44,7 @@ import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
-import { createCommitSigning, forgettingSigningKeyOnDisconnect } from '../commit-signing.ts';
+import { createCommitSigning, followingGithubConnection } from '../commit-signing.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { setOperatorTimezoneSource } from '../../shared/clock.ts';
 import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
@@ -695,6 +695,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   githubAppGrantsOfLink = { tokenFor: watcherLink.githubAppTokenFor, tokens: watcherLink.githubAppTokens, hasAny: watcherLink.hasGithubAppGrants };
   githubUserCredentialOfLink = watcherLink.githubUserCredential;
   const commitSigning = createCommitSigning({ store: hostSigningKeys, githubUserCredential: () => githubUserCredentialOfLink(), githubConnectionState: () => watcherLink.githubConnection('read') });
+  const githubConnection = followingGithubConnection(watcherLink.githubConnection, commitSigning);
   const idleStop = startIdleStop({
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
@@ -709,7 +710,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   });
   watcherLink.whenLinked(awakeUsageAlerts.check);
   const githubConnectionAlerts = startGithubConnectionAlerts({
-    githubConnection: watcherLink.githubConnection,
+    githubConnection,
     notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
     statePath: configSiblingPath(configStore.configPath, 'github-connection-alerts.json'),
   });
@@ -845,7 +846,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionDocs,
     secrets: secretsBroker,
     testSecretSource,
-    githubConnection: forgettingSigningKeyOnDisconnect(watcherLink.githubConnection, commitSigning),
+    githubConnection,
     commitSigning,
     whiteboards,
     reviews,

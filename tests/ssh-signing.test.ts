@@ -9,7 +9,7 @@ import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { parseSshPublicKey } from '../server/core/ssh-signing-core.ts';
 import { createSshSigner, installCommitSigningShim } from '../server/ssh-signing.ts';
 import http from 'node:http';
-import { createCommitSigning, createHostSigningKeyStore, forgettingSigningKeyOnDisconnect } from '../server/commit-signing.ts';
+import { createCommitSigning, createHostSigningKeyStore, followingGithubConnection } from '../server/commit-signing.ts';
 import type { GithubConnection } from '../shared/contracts/watcher-link.ts';
 import { createAgentIngressApp } from '../server/backend/backend-http.ts';
 import { HookRouter } from '../detection/hook-source.ts';
@@ -142,6 +142,7 @@ test('a session commit is signed with the host signing key outside the session, 
   try {
     const hostKey = await hostSigningKeys.setup();
     assert.match(hostKey.fingerprint, /^SHA256:[A-Za-z0-9+/]{43}$/);
+    await hostSigningKeys.writeRecord({ github: null, identity: { name: 'Octo Carbon', email: '7+octo-carbon@users.noreply.github.com' }, isSwitchedOff: false });
     const privateKeyStats = await fs.stat(path.join(root, 'commit-signing', 'signing-key'));
     assert.equal(privateKeyStats.mode & 0o077, 0, 'the private key is readable by its owner only');
 
@@ -150,10 +151,12 @@ test('a session commit is signed with the host signing key outside the session, 
     sessions.push(plain.session);
     assert.ok(!Object.values(plain.env).some((value) => value?.includes('PRIVATE KEY')), 'no session variable carries the private key');
     await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'signed by the host key'], { cwd: plainRepository, env: plain.env });
-    const allowedSigners = path.join(root, 'allowed-signers');
-    await fs.writeFile(allowedSigners, `test@glimmervoid.invalid ${hostKey.publicKeyText}\n`);
-    const verified = await execFileAsync('git', ['-c', `gpg.ssh.allowedSignersFile=${allowedSigners}`, 'verify-commit', 'HEAD'], { cwd: plainRepository, encoding: 'utf8' });
-    assert.match(verified.stderr, /Good "git" signature/);
+    const shownSignature = await execFileAsync('git', ['log', '-1', '--show-signature', '--format=%an <%ae>'], { cwd: plainRepository, env: plain.env, encoding: 'utf8' });
+    assert.match(shownSignature.stdout, /Good "git" signature for 7\+octo-carbon@users\.noreply\.github\.com/, 'the session checks the host signature with no setup of its own');
+    assert.match(shownSignature.stdout, /Glimmervoid Test <test@glimmervoid\.invalid>/, 'a git identity the operator set wins over the GitHub one');
+    await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'authored as the GitHub account'], { cwd: plainRepository, env: { ...plain.env, GIT_CONFIG_GLOBAL: os.devNull } });
+    const hostAuthored = await execFileAsync('git', ['log', '-1', '--format=%an <%ae> %cn <%ce>'], { cwd: plainRepository, env: plain.env, encoding: 'utf8' });
+    assert.equal(hostAuthored.stdout.trim(), 'Octo Carbon <7+octo-carbon@users.noreply.github.com> Octo Carbon <7+octo-carbon@users.noreply.github.com>', 'with no identity of its own, a session commits as the connected GitHub account');
 
     const ownSigningRepository = await newRepository(root, 'own-signing');
     await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: ownSigningRepository });
@@ -167,7 +170,8 @@ test('a session commit is signed with the host signing key outside the session, 
     await execFileAsync('git', ['config', 'tag.gpgsign', 'true'], { cwd: tagSigningRepository });
     const tagSigning = await startedSessionIn(tagSigningRepository, { port: boundPort(server), hooksBaseDir: root, signingProgram, hostSigningKeys });
     sessions.push(tagSigning.session);
-    assert.equal(tagSigning.env.GIT_CONFIG_SYSTEM, process.env.GIT_CONFIG_SYSTEM, 'a project that signs tags its own way gets no host signing defaults');
+    assert.equal(tagSigning.env.GIT_CONFIG_SYSTEM, path.join(root, 'commit-signing', 'identity.gitconfig'), 'a project that signs tags its own way gets the identity and no host signing defaults');
+    assert.ok(!(await fs.readFile(path.join(root, 'commit-signing', 'identity.gitconfig'), 'utf8')).includes('gpgsign'));
 
     const siblingRepository = await newRepository(root, 'sibling');
     await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: siblingRepository });
@@ -203,6 +207,7 @@ function fakeGithubSigningKeys(expectedToken: string): { server: http.Server; ca
         keysById.set(nextKeyId, key);
         return answer(201, { id: nextKeyId, key, title: 'Glimmervoid commit signing', created_at: '2026-11-13T00:00:00Z' });
       }
+      if (request.method === 'GET' && request.url === '/user') return answer(200, { id: 7, login: 'octo-carbon', name: 'Octo Carbon', email: null });
       if (request.method === 'GET' && request.url?.startsWith('/user/ssh_signing_keys')) return answer(200, [...keysById].map(([id, key]) => ({ id, key })));
       const deleted = /^\/user\/ssh_signing_keys\/(\d+)$/.exec(request.url ?? '');
       if (request.method === 'DELETE' && deleted && isNextDeleteFailing) {
@@ -229,7 +234,8 @@ test('commit signing registers the host key on GitHub with the connected user to
   const store = createHostSigningKeyStore({ folder: keyFolder });
   const warnings: string[] = [];
   const commitSigning = createCommitSigning({ store, githubUserCredential: async () => grant, githubConnectionState: async () => connectionState, githubApiUrl: `http://127.0.0.1:${boundPort(github.server)}`, log: { warn: (line: string) => { warnings.push(line); } } });
-  const disconnect = forgettingSigningKeyOnDisconnect(async () => ({ state: 'disconnected' }), commitSigning);
+  let linkConnection: GithubConnection = { state: 'disconnected' };
+  const disconnect = followingGithubConnection(async () => linkConnection, commitSigning);
   try {
     assert.equal((await commitSigning.act('read')).state, 'off');
     const unregistered = await commitSigning.act('setup');
@@ -243,7 +249,7 @@ test('commit signing registers the host key on GitHub with the connected user to
     assert.equal(registered.state, 'registered', registered.problem ?? '');
     assert.equal(registered.login, 'octo-carbon');
     assert.deepEqual([...github.keysById.values()], [unregistered.publicKey]);
-    await store.writeRecord({ github: null });
+    await store.writeRecord({ github: null, identity: null, isSwitchedOff: false });
     assert.equal((await commitSigning.act('register')).state, 'registered', 'a key GitHub already holds is found by listing');
 
     grant = null;
@@ -271,12 +277,30 @@ test('commit signing registers the host key on GitHub with the connected user to
     const removed = await commitSigning.act('remove');
     assert.equal(removed.state, 'off', removed.problem ?? '');
     assert.equal(github.keysById.size, 0, 'remove deletes every copy of the key GitHub holds, recorded or not');
-    assert.deepEqual(await fs.readdir(keyFolder), [], 'remove deletes the key on this host');
+    assert.deepEqual(await fs.readdir(keyFolder), ['commit-signing.json'], 'remove deletes the key on this host');
 
     const setUpWhileConnected = await commitSigning.act('setup');
     assert.equal(setUpWhileConnected.state, 'registered', setUpWhileConnected.problem ?? '');
     assert.equal(setUpWhileConnected.login, 'octo-carbon');
     assert.deepEqual([...github.keysById.values()], [setUpWhileConnected.publicKey], 'with GitHub connected, setup registers the new key in the same request');
+
+    await commitSigning.act('remove');
+    await fs.rm(path.join(keyFolder, 'commit-signing.json'));
+    linkConnection = { state: 'connected', login: 'octo-carbon', accounts: [], refreshTokenExpiresAtMs: Date.parse('2099-01-01T00:00:00Z'), installUrl: 'https://github.com/apps/glimmervoid/installations/new' };
+    await disconnect('read');
+    const connectedAfterRemove = await commitSigning.act('read');
+    assert.equal(connectedAfterRemove.state, 'off', 'a key the operator removed, on this release or an earlier one that kept no record of it, is not made again when GitHub connects');
+    assert.deepEqual(connectedAfterRemove.identity, { name: 'Octo Carbon', email: '7+octo-carbon@users.noreply.github.com' }, 'connecting GitHub records the account as the git identity');
+
+    assert.equal((await commitSigning.act('setup')).state, 'registered');
+    await disconnect('disconnect');
+    const afterDisconnect = await commitSigning.act('read');
+    assert.equal(afterDisconnect.state, 'unregistered');
+    assert.equal(afterDisconnect.identity, null, 'disconnecting GitHub stops sessions committing as that account');
+    await disconnect('read');
+    const connectedAgain = await commitSigning.act('read');
+    assert.equal(connectedAgain.state, 'registered', connectedAgain.problem ?? '');
+    assert.equal(github.keysById.size, 1, 'connecting GitHub registers the signing key with no press');
     assert.ok(!warnings.join('\n').includes(userToken), 'no warning carries the token');
     assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');
   } finally {

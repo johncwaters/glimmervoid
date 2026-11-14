@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,18 +7,20 @@ import { execFileAsync } from './child-process-safe.ts';
 import { runGit } from './git/git-exec.ts';
 import { formatSshPublicKey, isSameSshKey, parseSshPublicKey } from './core/ssh-signing-core.ts';
 import type { SshPublicKey } from './core/ssh-signing-core.ts';
-import { CommitSigningRecord, GithubSigningKeyCreated, GithubSigningKeyList } from '../shared/contracts/commit-signing.ts';
+import { CommitSigningRecord, GithubSigningKeyCreated, GithubSigningKeyList, GithubUser } from '../shared/contracts/commit-signing.ts';
 import type { CommitSigningAction, CommitSigningStatus } from '../shared/contracts/commit-signing.ts';
 import type { GithubConnection, GithubConnectionAction, GithubUserGrant } from '../shared/contracts/watcher-link.ts';
-import { commitSigningStatusOf, githubRefusalText, hostSigningGitEnv, hostSigningSystemConfigText, includedSystemConfigPath, isHostSigningSystemConfig, OWN_SIGNING_SETTINGS_PATTERN, sshPublicKeyFingerprint } from './core/commit-signing-core.ts';
+import { allowedSignersText, commitSigningStatusOf, githubNoreplyIdentity, githubRefusalText, hostGitConfigText, hostSigningGitEnv, includedSystemConfigPath, isHostSigningSystemConfig, OWN_SIGNING_SETTINGS_PATTERN, sshPublicKeyFingerprint } from './core/commit-signing-core.ts';
 import { errorMessage } from '../shared/text.ts';
 
 const KEY_FOLDER_MODE = 0o700;
 const PRIVATE_KEY_FILE_NAME = 'signing-key';
 const KEY_COMMENT = 'glimmervoid-commit-signing';
 const SYSTEM_CONFIG_FILE_NAME = 'system.gitconfig';
+const IDENTITY_CONFIG_FILE_NAME = 'identity.gitconfig';
+const ALLOWED_SIGNERS_FILE_NAME = 'allowed-signers';
 const RECORD_FILE_NAME = 'commit-signing.json';
-const NO_REGISTRATION: CommitSigningRecord = { github: null };
+const NO_REGISTRATION: CommitSigningRecord = { github: null, identity: null, isSwitchedOff: false };
 const GITHUB_API_URL = 'https://api.github.com';
 const GITHUB_API_VERSION = '2022-11-28';
 const GITHUB_REQUEST_TIMEOUT_MS = 15_000;
@@ -66,7 +69,7 @@ async function discoverSystemConfigBase(): Promise<SystemConfigBase> {
 }
 
 async function writePrivateFile(filePath: string, text: string): Promise<void> {
-  const stagedPath = `${filePath}.${process.pid}.tmp`;
+  const stagedPath = `${filePath}.${randomUUID()}.tmp`;
   await fs.writeFile(stagedPath, text, { mode: 0o600 });
   await fs.rename(stagedPath, filePath);
 }
@@ -79,6 +82,8 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   const privateKeyPath = path.join(folder, PRIVATE_KEY_FILE_NAME);
   const publicKeyPath = `${privateKeyPath}.pub`;
   const systemConfigPath = path.join(folder, SYSTEM_CONFIG_FILE_NAME);
+  const identityConfigPath = path.join(folder, IDENTITY_CONFIG_FILE_NAME);
+  const allowedSignersPath = path.join(folder, ALLOWED_SIGNERS_FILE_NAME);
   const recordPath = path.join(folder, RECORD_FILE_NAME);
   let systemConfigBase: Promise<SystemConfigBase> | null = null;
 
@@ -108,21 +113,33 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   }
 
   async function remove(): Promise<void> {
-    await fs.rm(recordPath, { force: true });
+    const { identity } = await readRecord().catch(() => NO_REGISTRATION);
     await fs.rm(systemConfigPath, { force: true });
+    await fs.rm(allowedSignersPath, { force: true });
     await fs.rm(privateKeyPath, { force: true });
     await fs.rm(publicKeyPath, { force: true });
+    await fs.mkdir(folder, { recursive: true, mode: KEY_FOLDER_MODE });
+    await writeRecord({ github: null, identity, isSwitchedOff: true });
   }
 
-  async function writeSystemConfig(configText: string): Promise<void> {
-    const current = await fs.readFile(systemConfigPath, 'utf8').catch(() => null);
-    if (current === configText) return;
-    await writePrivateFile(systemConfigPath, configText);
+  async function writePrivateFileIfChanged(filePath: string, text: string): Promise<void> {
+    const current = await fs.readFile(filePath, 'utf8').catch(() => null);
+    if (current === text) return;
+    await writePrivateFile(filePath, text);
+  }
+
+  async function recordOfFolderWithNone(): Promise<CommitSigningRecord> {
+    const folderStats = await fs.stat(folder).catch(() => null);
+    const wasKeyRemovedByAnEarlierRelease = folderStats !== null && await read() === null;
+    if (!wasKeyRemovedByAnEarlierRelease) return NO_REGISTRATION;
+    const switchedOff = { ...NO_REGISTRATION, isSwitchedOff: true };
+    await writePrivateFile(recordPath, `${JSON.stringify(switchedOff)}\n`);
+    return switchedOff;
   }
 
   async function readRecord(): Promise<CommitSigningRecord> {
     const recordText = await fs.readFile(recordPath, 'utf8').catch(() => null);
-    if (recordText === null) return NO_REGISTRATION;
+    if (recordText === null) return recordOfFolderWithNone();
     const parsed = CommitSigningRecord.safeParse(JSON.parse(recordText));
     if (!parsed.success) throw new Error(`${recordPath} is not a commit signing record: ${parsed.error.message}`);
     return parsed.data;
@@ -133,7 +150,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   }
 
   async function projectSetsOwnSigning(cwd: string, base: SystemConfigBase): Promise<boolean> {
-    const baseSystemEnv = hostSigningGitEnv({ systemConfigPath, baseSystemConfigPath: base.baseSystemConfigPath, signsWithHostKey: false, inheritsHostSigningConfig: true });
+    const baseSystemEnv = hostSigningGitEnv({ systemConfigPath, baseSystemConfigPath: base.baseSystemConfigPath, usesHostConfig: false, inheritsHostSigningConfig: true });
     const ownSigning = await runGit(['config', '--get-regexp', OWN_SIGNING_SETTINGS_PATTERN], { cwd, env: baseSystemEnv });
     return ownSigning.ok || gitExitCodeOf(ownSigning.error) !== GIT_CONFIG_NO_MATCH_EXIT_CODE;
   }
@@ -142,9 +159,20 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     systemConfigBase ??= discoverSystemConfigBase();
     const base = await systemConfigBase;
     const held = await read();
-    const signsWithHostKey = held !== null && !await projectSetsOwnSigning(cwd, base);
-    if (held && signsWithHostKey) await writeSystemConfig(hostSigningSystemConfigText({ publicKeyText: held.publicKeyText, baseSystemConfigPath: base.baseSystemConfigPath }));
-    return hostSigningGitEnv({ systemConfigPath, baseSystemConfigPath: base.baseSystemConfigPath, signsWithHostKey, inheritsHostSigningConfig: base.inheritsHostSigningConfig });
+    const { identity } = await readRecord().catch(() => NO_REGISTRATION);
+    const signingKey = held !== null && !await projectSetsOwnSigning(cwd, base) ? held : null;
+    const hostConfigPath = signingKey ? systemConfigPath : identityConfigPath;
+    const usesHostConfig = signingKey !== null || identity !== null;
+    if (signingKey) await writePrivateFileIfChanged(allowedSignersPath, allowedSignersText({ principal: identity?.email ?? KEY_COMMENT, publicKeyText: signingKey.publicKeyText }));
+    if (usesHostConfig) {
+      await fs.mkdir(folder, { recursive: true, mode: KEY_FOLDER_MODE });
+      await writePrivateFileIfChanged(hostConfigPath, hostGitConfigText({
+        signing: signingKey ? { publicKeyText: signingKey.publicKeyText, allowedSignersPath } : null,
+        identity,
+        baseSystemConfigPath: base.baseSystemConfigPath,
+      }));
+    }
+    return hostSigningGitEnv({ systemConfigPath: hostConfigPath, baseSystemConfigPath: base.baseSystemConfigPath, usesHostConfig, inheritsHostSigningConfig: base.inheritsHostSigningConfig });
   }
 
   async function signIfHeld({ publicKey, namespace, payload }: { publicKey: SshPublicKey; namespace: string; payload: Buffer }): Promise<SignOutcome | null> {
@@ -174,6 +202,7 @@ interface GithubAnswer {
 
 interface CommitSigning {
   act: (action: CommitSigningAction) => Promise<CommitSigningStatus>;
+  prepareHost: () => Promise<boolean>;
   disconnectGithub: <T>(disconnect: () => Promise<T>) => Promise<T>;
 }
 
@@ -265,7 +294,8 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     const createdKey = created.status === 201 ? GithubSigningKeyCreated.safeParse(created.body) : null;
     const keyId = createdKey?.success ? createdKey.data.id : created.status === 422 ? (await githubKeyIdsMatching(grant, held))[0] ?? null : null;
     if (keyId === null) return githubRefusalText('register', created.status, githubMessageOf(created.body));
-    await store.writeRecord({ github: { login: grant.login, keyId } });
+    const { record } = await readableRecord();
+    await store.writeRecord({ ...record, github: { login: grant.login, keyId } });
     return null;
   }
 
@@ -298,6 +328,8 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
 
   async function setUp(): Promise<string | null> {
     await store.setup();
+    const { record } = await readableRecord();
+    if (record.isSwitchedOff) await store.writeRecord({ ...record, isSwitchedOff: false });
     if (!await connectedGrant()) return null;
     return register();
   }
@@ -320,7 +352,39 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
     const grant = await connectedGrant();
     if (!grant || grant.login !== record.github.login) throw new Error(byHandNotice(record.github.login));
     await deleteEveryCopyOnGithub(grant, record);
-    await store.writeRecord(NO_REGISTRATION);
+    await store.writeRecord({ ...record, github: null });
+  }
+
+  async function rememberGithubIdentity(grant: GithubUserGrant): Promise<void> {
+    const answered = await githubRequest(grant, 'GET', '/user');
+    if (answered.status !== 200) throw new Error(`GitHub did not say who is connected (HTTP ${answered.status}).`);
+    const record = await store.readRecord();
+    await store.writeRecord({ ...record, identity: githubNoreplyIdentity(GithubUser.parse(answered.body)) });
+  }
+
+  async function signingProblemAfterConnect(): Promise<string | null> {
+    const record = await store.readRecord();
+    if (record.isSwitchedOff || record.github) return null;
+    return setUp();
+  }
+
+  function prepareHost(): Promise<boolean> {
+    return serialized(async () => {
+      const grant = await connectedGrant();
+      if (!grant) return false;
+      const identityProblem = await rememberGithubIdentity(grant).then(() => null, (error: unknown) => `Glimmervoid could not read the git identity from GitHub: ${errorMessage(error)}`);
+      const signingProblem = await signingProblemAfterConnect().catch((error: unknown) => errorMessage(error));
+      const problems = [identityProblem, signingProblem].filter((line) => line !== null);
+      if (problems.length === 0) return true;
+      pendingProblem = problems.join(' ');
+      log.warn(`[commit-signing] ${pendingProblem}`);
+      return identityProblem === null;
+    });
+  }
+
+  async function forgetGithubIdentity(): Promise<void> {
+    const record = await store.readRecord();
+    if (record.identity) await store.writeRecord({ ...record, identity: null });
   }
 
   function disconnectGithub<T>(disconnect: () => Promise<T>): Promise<T> {
@@ -329,16 +393,35 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
         pendingProblem = `Disconnect left the signing key on GitHub: ${errorMessage(error)}`;
         log.warn(`[commit-signing] ${pendingProblem}`);
       });
+      await forgetGithubIdentity().catch((error: unknown) => log.warn(`[commit-signing] disconnect left the git identity in place: ${errorMessage(error)}`));
       return disconnect();
     });
   }
 
-  return { act, disconnectGithub };
+  return { act, disconnectGithub, prepareHost };
 }
 
-function forgettingSigningKeyOnDisconnect(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub'>): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
-  return (action) => (action === 'disconnect' ? commitSigning.disconnectGithub(() => githubConnection(action)) : githubConnection(action));
+function followingGithubConnection(githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>, commitSigning: Pick<CommitSigning, 'disconnectGithub' | 'prepareHost'>): (action: GithubConnectionAction) => Promise<GithubConnection | null> {
+  let preparedLogin: string | null = null;
+
+  function prepareOnce(login: string): void {
+    if (login === preparedLogin) return;
+    preparedLogin = login;
+    void commitSigning.prepareHost().then((didPrepare) => {
+      if (!didPrepare && preparedLogin === login) preparedLogin = null;
+    });
+  }
+
+  return async (action) => {
+    if (action === 'disconnect') {
+      preparedLogin = null;
+      return commitSigning.disconnectGithub(() => githubConnection(action));
+    }
+    const connection = await githubConnection(action);
+    if (connection?.state === 'connected') prepareOnce(connection.login);
+    return connection;
+  };
 }
 
-export { createCommitSigning, createHostSigningKeyStore, forgettingSigningKeyOnDisconnect };
+export { createCommitSigning, createHostSigningKeyStore, followingGithubConnection };
 export type { CommitSigning, HostSigningKeyStore };

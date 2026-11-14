@@ -19,8 +19,9 @@ function buildCommitSigningSection(): HTMLElement {
   const heading = el('div', 'settings-view-setting-heading');
   heading.append(el('h2', 'settings-view-setting-title', 'Commit signing'));
   const description = el('p', 'settings-view-setting-description');
+  const identityLine = el('p', 'settings-view-setting-description');
   const publicKeyText = el('pre', 'settings-vault-test-details-text');
-  text.append(heading, description, publicKeyText);
+  text.append(heading, description, identityLine, publicKeyText);
   const requestStatus = createActionStatus('settings-vault-test-status');
   const buttonsByControl: Record<CommitSigningControl, HTMLButtonElement> = {
     setup: button({ variant: 'primary', label: 'Set up', action: 'commit-signing-setup', onClick: () => { void request('setup'); } }),
@@ -38,6 +39,8 @@ function buildCommitSigningSection(): HTMLElement {
   function paint(): void {
     const view = commitSigningViewOf(status);
     description.textContent = view.text;
+    identityLine.hidden = view.identityText === null;
+    identityLine.textContent = view.identityText ?? '';
     publicKeyText.hidden = view.publicKey === null;
     publicKeyText.textContent = view.publicKey ?? '';
     for (const controlName of COMMIT_SIGNING_CONTROLS) {
