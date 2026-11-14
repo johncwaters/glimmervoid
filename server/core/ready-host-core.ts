@@ -48,4 +48,4 @@ function hostReadyOf(facts: HostReadyFacts): HostReady {
 }
 
 export { hostReadyOf };
-export type { GhState, HostReadyFacts };
+export type { GhState };

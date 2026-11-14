@@ -99,5 +99,3 @@ export function buildHostReadyRows({ openGithubConnection = openGithubConnection
   void refresh();
   return { element: section, refresh };
 }
-
-export type { HostReadyRows };
