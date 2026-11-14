@@ -18,7 +18,7 @@ import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
 import { CLOSE_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
-import type { ViewModule } from '../view-registry-core.ts';
+import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
@@ -42,9 +42,10 @@ import { MAX_MEDIA_SCALE } from './media-zoom-core.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
+import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
@@ -452,12 +453,9 @@ function disconnectPairedSession(): void {
 
 function paintPresence(boardId: string | null, connectedSessionIds: readonly string[]): void {
   if (!parts) return;
-  const connectedNames = connectedSessionIds.map(sessionLabel);
-  const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
-  if (connectedNames.length > 0) connectedCount.append(el('span', 'sr-only', `: ${connectedNames.join(', ')}`));
   const pills = boardId === null ? [] : connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map((sessionId) => presencePill(boardId, sessionId));
-  parts.presence.replaceChildren(...pills, connectedCount);
-  if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
+  parts.presence.replaceChildren(...pills);
+  if (connectedSessionIds.length === 0) parts.presence.append(el('span', 'wb-presence-none', 'no sessions connected'));
 }
 
 function queuedForSessionText(summary: BoardSummary | null, sessionId: string): string {
@@ -1398,13 +1396,19 @@ function mountBoardsScreen(panel: HTMLElement): void {
   panel.replaceChildren(mountBoardHost());
 }
 
-function refreshBoardsScreen(): void {
+function refreshBoardsScreen(reason: ViewRefreshReason): void {
   const host = mountBoardHost();
   if (boardsScreen && host.parentElement !== boardsScreen) boardsScreen.replaceChildren(host);
   placeBoardTitle(null);
   const request = takeOpenBoardRequest();
-  showBoardBeside(request?.boardId ?? null, null);
+  const sessionBoardId = reason === 'shown' ? newestBoardConnectedTo(getPhoneSessionId()) : null;
+  showBoardBeside(request?.boardId ?? sessionBoardId, null);
   reopenSelectedBoard();
+}
+
+function newestBoardConnectedTo(sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  return boardsConnectedTo(sessionId)[0]?.id ?? null;
 }
 
 export const view: ViewModule<HTMLElement> = { mount: mountBoardsScreen, refresh: refreshBoardsScreen };

@@ -1357,6 +1357,20 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
   assert.equal(await panel.getByRole('button', { name: 'Fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
   await verifyBoardFileRoundTrip(page, panel, boardTitle);
+  if (layout === 'phone') await verifyPhoneBoardsOpensShownSessionBoard(page, panel, sessionId, boardTitle);
+}
+
+async function verifyPhoneBoardsOpensShownSessionBoard(page: Page, panel: Locator, sessionId: string, unconnectedBoardTitle: string): Promise<void> {
+  const connectedBoardTitle = `Connected plan ${sessionId.slice(0, 8)}`;
+  const connectedBoardId = await createBoardOverControl(page, connectedBoardTitle);
+  await controlReplyOf(page, 'whiteboard-connect', { boardId: connectedBoardId, sessionId });
+  await openBoardTitle(panel, unconnectedBoardTitle).waitFor();
+  await page.getByRole('button', { name: 'Focus', exact: true }).click();
+  await page.locator(`section.phone-screen[data-screen="board"] .session-row[data-id="${sessionId}"]`).click();
+  await page.locator('section.phone-screen[data-screen="terminal"]').waitFor({ state: 'visible' });
+  await page.locator('.phone-nav > .phone-nav-item[data-screen="boards"]').click();
+  await openBoardTitle(panel, connectedBoardTitle).waitFor();
+  assert.equal(await panel.locator('.wb-presence').isVisible(), false, 'the phone board header shows no connected count');
 }
 
 async function verifyEmptyStateImportRefusal(page: Page, panel: Locator): Promise<void> {
@@ -1465,7 +1479,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await agentIsland.isVisible(), false, 'the session island stays hidden while the session has read every change');
   const centeredSessionName = await card.getAttribute('data-session');
   assert.ok(centeredSessionName);
-  assert.equal(await panel.locator('.wb-presence-pill:not(.wb-presence-count)', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
+  assert.equal(await panel.locator('.wb-presence-pill', { hasText: centeredSessionName }).count(), 0, 'the strip does not repeat the centered session as a presence pill');
   const step = await addPlanStep(open, { x: 60, y: 260 }, 'Uncovered change');
   await agentIsland.locator('.wb-session-queued', { hasText: 'queued for' }).waitFor();
   const agentBox = await agentIsland.boundingBox();
@@ -1652,7 +1666,7 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   const boardPane = panel.locator('#focus-pane-board');
   assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
   assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the board title bar carries no board tools');
-  assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill:not(.wb-presence-count)').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
+  assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
 }
 
 const SCALE_BOARD_ELEMENTS = 20000;

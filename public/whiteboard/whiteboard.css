@@ -244,8 +244,6 @@
   white-space: nowrap;
 }
 
-.wb-presence-count.wb-presence-pill { padding-right: 8px; }
-
 .wb-presence-name { overflow: hidden; text-overflow: ellipsis; }
 
 .wb-presence-disconnect {
@@ -269,8 +267,6 @@
 }
 
 .wb-presence-none { color: var(--text-muted); }
-
-.wb-presence-count { display: none; }
 
 .wb-status { margin: 0; }
 
@@ -812,9 +808,7 @@
   min-width: 0;
 }
 
-[data-layout='phone'] .wb-presence > :not(.wb-presence-count) { display: none; }
-
-[data-layout='phone'] .wb-presence > .wb-presence-count { display: inline; }
+[data-layout='phone'] .wb-presence { display: none; }
 
 [data-layout='phone'] .wb-top-left > .wb-island-view {
   position: absolute;
