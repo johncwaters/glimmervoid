@@ -4,6 +4,8 @@ import type { GithubPollingRefreshResult } from '../../shared/contracts/github-p
 import type { MyPrThreadNode } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { PrGh } from './pr-gh.ts';
+import { NO_GITHUB_SOURCE_TEXT } from './github-source.ts';
+import type { GithubSourceKind } from './github-source.ts';
 import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../lanes/core/lane-backoff.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
@@ -24,7 +26,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'teamReviewCompare' | 'teamReviewThreads' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'sourceKind' | 'teamReviewCompare' | 'teamReviewThreads' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -71,6 +73,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   let notificationsIntervalMs = DEFAULT_NOTIFICATIONS_INTERVAL_MS;
   let notificationsLastModified: string | undefined;
   let isNotificationsDisabled = false;
+  let lastSourceKind: GithubSourceKind = 'gh';
   let lastRefreshedAt: number | null = null;
   let pollingError: string | null = null;
   let backoffUntil = 0;
@@ -138,6 +141,11 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     rateLimitedUntil = retryAfterMs === undefined ? 0 : backoffUntil;
     log.warn(`[github-store] ${pollingError}`);
     return { failed: true, retryAfterMs: schedule.waitMs, error: pollingError };
+  }
+
+  function withoutGithubSource(isRequested: boolean): TickOutcome {
+    pollingError = NO_GITHUB_SOURCE_TEXT;
+    return isRequested ? { failed: true, error: pollingError } : { failed: false };
   }
 
   function recordReadFailure(error: unknown): void {
@@ -355,8 +363,12 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
         const isLightTimerDue = !coverage.isLightCovered && (isGithubStorePollDue(lastLightPolledAt, tickStartedAt, githubStoreLightIntervalMs(isDashboardConnected())) || isFixedLightDue);
         const isLightDue = watchNames !== undefined || due === 'light' || isTimerDue && (isLightTimerDue
           || [...watches.values()].some((watch) => isWatchMembershipDue(watch, tickStartedAt) && !isWatchCovered(watch)));
-        const isNotificationsDue = watchNames === undefined && !isNotificationsDisabled && (due === 'notifications' || isTimerDue && !coverage.isNotificationsCovered && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs));
+        const isNotificationsWanted = watchNames === undefined && !isNotificationsDisabled && (due === 'notifications' || isTimerDue && !coverage.isNotificationsCovered && isGithubStorePollDue(lastNotificationsPolledAt, tickStartedAt, notificationsIntervalMs));
         const isBehindDue = watchNames === undefined && (due === 'behind' || isTimerDue && !coverage.isBehindCovered && isGithubStorePollDue(lastBehindPolledAt, tickStartedAt, GITHUB_STORE_BEHIND_INTERVAL_MS));
+        if (!isLightDue && !isNotificationsWanted && !isBehindDue) return { failed: false };
+        lastSourceKind = await github.sourceKind?.() ?? 'gh';
+        if (lastSourceKind === 'none') return withoutGithubSource(isRequested);
+        const isNotificationsDue = isNotificationsWanted && lastSourceKind === 'gh';
         if (!isLightDue && !isNotificationsDue && !isBehindDue) return { failed: false };
         const rateLimitWaitMs = await github.rateLimitWaitMs(now(), RATE_LIMIT_RESOURCES);
         if (rateLimitWaitMs !== null && rateLimitWaitMs > 0) {
@@ -391,7 +403,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       behindPrs: Object.values(prs).filter((pr) => pr.state === 'OPEN' && detailWatchKeys.has(pr.key)).sort((left, right) => left.key.localeCompare(right.key))
         .map((pr) => ({ repo: pr.repo, number: pr.number, headSha: pr.headRefOid })),
       viewerLogin,
-      isNotificationsReadable: !isNotificationsDisabled,
+      isNotificationsReadable: !isNotificationsDisabled && lastSourceKind === 'gh',
     };
   }
 

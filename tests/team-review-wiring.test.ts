@@ -16,6 +16,7 @@ import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT,
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
+import type { GithubSource } from '../server/github/github-source.ts';
 import { createTeamReviewActions } from '../server/github/team-review-actions.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
 import { createTeamReviewDispatcher } from '../server/github/team-review-dispatcher.ts';
@@ -842,6 +843,32 @@ test('a re-review whose new work cannot be isolated, or whose earlier review sto
   }
 });
 
+
+test('the store runs no gh and logs nothing without a GitHub source, then reads on the connection token and leaves notifications alone', async () => {
+  const ghCalls: { token: string | undefined; path: string }[] = [];
+  const warnings: string[] = [];
+  let source: GithubSource = { kind: 'none' };
+  const github = createPrGh(os.tmpdir(), async (_command, args, _cwd, _input, _preserveOutput, _timeoutMs, env) => {
+    ghCalls.push({ token: env?.GH_TOKEN, path: args.join(' ') });
+    return { ok: false, out: '', err: 'To get started with GitHub CLI, please run:  gh auth login' };
+  }, null, undefined, { current: async () => source });
+  const poller = createGithubStorePoller({
+    now: Date.now, isDashboardConnected: () => true, exclusive: async (work) => work(),
+    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn: (warning: string) => { warnings.push(warning); } }, github,
+  });
+  poller.registerWatch({ name: 'mine', qualifiers: 'is:open author:@me', needsDetail: false });
+
+  const outcomeWithoutSource = await poller.tick();
+
+  assert.deepEqual({ failed: outcomeWithoutSource.failed, ghCalls, warnings }, { failed: false, ghCalls: [], warnings: [] });
+  assert.equal(poller.probeInputs().isNotificationsReadable, false);
+
+  source = { kind: 'connection', token: 'user-token' };
+  await poller.tick();
+
+  assert.ok(ghCalls.length > 0);
+  assert.deepEqual(ghCalls.filter((call) => call.token !== 'user-token' || call.path.includes('notifications')), []);
+});
 
 function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePoller>[0]['github']> = {}) {
   const searches: string[] = [];

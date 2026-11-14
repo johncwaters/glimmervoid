@@ -1,6 +1,8 @@
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { GithubPrDetailNode as GithubPrDetailNodeType, GithubPrLightSearchNode as GithubPrLightSearchNodeType } from '../../shared/contracts/github-prs.ts';
 import { runCommand } from '../git/git-exec.ts';
+import { GH_LOGIN_SOURCE, NO_GITHUB_SOURCE_TEXT } from './github-source.ts';
+import type { GithubSource, GithubSourceKind, GithubSourceReader } from './github-source.ts';
 import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -67,6 +69,7 @@ interface PrGh {
   prHead(repo: string, number: number): Promise<string | null>;
   postReview(review: { repo: string; number: number; commitId: string; event: PostedReviewEvent; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
   dismissReview(dismissal: { repo: string; number: number; reviewId: number; message: string }): Promise<{ ok: boolean; err: string }>;
+  sourceKind(): Promise<GithubSourceKind>;
 }
 
 interface PostedReview {
@@ -79,9 +82,9 @@ const GH_READ_TIMEOUT_MS = 15000;
 const GH_WRITE_TIMEOUT_MS = 30000;
 const GH_MAX_BUFFER_BYTES = 2 * 1024 * 1024 + 1;
 
-function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
+function run(cmd: string, args: string[], cwd: string, input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS, env?: Record<string, string>): Promise<CommandResult> {
   return runCommand(cmd, args, {
-    cwd, input, timeoutMs, maxBuffer: GH_MAX_BUFFER_BYTES, trim: !preserveOutput, keepStdoutOnFailure: true, preferStderr: true,
+    cwd, input, timeoutMs, env, maxBuffer: GH_MAX_BUFFER_BYTES, trim: !preserveOutput, keepStdoutOnFailure: true, preferStderr: true,
   });
 }
 
@@ -128,7 +131,7 @@ function ghFailure(error: unknown): CommandResult {
   return { ok: false, out: '', err: errorMessage(error) };
 }
 
-function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null, waitMs: (delayMs: number) => Promise<unknown> = waitFor): PrGh {
+function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null, waitMs: (delayMs: number) => Promise<unknown> = waitFor, source: GithubSourceReader = GH_LOGIN_SOURCE): PrGh {
   function recordUsage(args: readonly string[], response: CommandResult): void {
     if (usage === null) return;
     const isOk = response.ok || isNotModifiedResponse(response.out);
@@ -136,15 +139,26 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     for (const resource of githubCallResources(args)) usage.record({ operation, resource, points: githubCallPoints(args, resource, response.out), isOk });
   }
 
-  async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS): Promise<CommandResult> {
-    const response = await commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs).catch(ghFailure);
+  async function spawnGh(args: string[], input: string | undefined, preserveOutput: boolean, timeoutMs: number, sourceAlreadyRead?: GithubSource): Promise<CommandResult> {
+    const githubSource = sourceAlreadyRead ?? await source.current();
+    if (githubSource.kind === 'none') return { ok: false, out: '', err: NO_GITHUB_SOURCE_TEXT };
+    const tokenEnv = githubSource.kind === 'connection' ? { GH_TOKEN: githubSource.token } : undefined;
+    return commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs, tokenEnv).catch(ghFailure);
+  }
+
+  async function sourceKind(): Promise<GithubSourceKind> {
+    return (await source.current()).kind;
+  }
+
+  async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS, sourceAlreadyRead?: GithubSource): Promise<CommandResult> {
+    const response = await spawnGh(args, input, preserveOutput, timeoutMs, sourceAlreadyRead);
     recordUsage(args, response);
     return response;
   }
 
   async function runGraphql(query: string, fieldArgs: readonly string[], timeoutMs = GH_READ_TIMEOUT_MS, attempt = 1): Promise<CommandResult> {
     const args = ['api', 'graphql', '-i', '-f', `query=${withRateLimitCost(query)}`, ...fieldArgs];
-    const response = await commandRunner('gh', args, cwd, undefined, false, timeoutMs).catch(ghFailure);
+    const response = await spawnGh(args, undefined, false, timeoutMs);
     const httpResponse = ghHttpResponseOf(response.out);
     const bodyResponse = httpResponse === null ? response : { ...response, out: (httpResponse.body ?? '').trim() };
     recordUsage(args, bodyResponse);
@@ -164,11 +178,11 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     return parsed.success ? parsed.data : null;
   }
 
-  async function conditionalGet(path: string, validators: RestValidators = {}): Promise<ConditionalGetResult> {
+  async function conditionalGet(path: string, validators: RestValidators = {}, sourceAlreadyRead?: GithubSource): Promise<ConditionalGetResult> {
     const args = ['api', '-i', '-X', 'GET'];
     if (validators.etag !== undefined) args.push('-H', `If-None-Match: ${validators.etag}`);
     if (validators.lastModified !== undefined) args.push('-H', `If-Modified-Since: ${validators.lastModified}`);
-    const response = await runGh([...args, path], undefined, true);
+    const response = await runGh([...args, path], undefined, true, GH_READ_TIMEOUT_MS, sourceAlreadyRead);
     return conditionalGetResult(response);
   }
 
@@ -276,7 +290,8 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
   }
 
   return scopedToOperations({
-    conditionalGet,
+    conditionalGet: (path, validators) => conditionalGet(path, validators),
+    sourceKind,
 
     async searchPrsLight(qualifiers, maxMembers) {
       if (maxMembers !== undefined && (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100)) return { ok: false, items: [], isComplete: false, error: 'invalid PR membership cap' };
@@ -314,7 +329,9 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     },
 
     async notificationsSince(lastModified) {
-      const response = await conditionalGet('notifications', lastModified === undefined ? {} : { lastModified });
+      const githubSource = await source.current();
+      if (githubSource.kind !== 'gh') return { kind: 'unchanged' };
+      const response = await conditionalGet('notifications', lastModified === undefined ? {} : { lastModified }, githubSource);
       if (response.kind !== 'ok') return response;
       const parsed = GITHUB_NOTIFICATIONS.safeParse(response.body);
       if (!parsed.success) return { kind: 'error', message: 'invalid gh notifications response' };

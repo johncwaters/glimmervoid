@@ -63,7 +63,7 @@ export const settingsServerVariants = [
   loose('folders-listed', { requestId, folder: z.string(), entries: z.array(z.object({ name: z.string(), path: z.string(), isGit: z.boolean() })), error: optionalError }),
   loose('github-repos-listed', {
     requestId,
-    source: z.enum(['gh', 'app', 'token', 'none']),
+    source: z.enum(['gh', 'app', 'connection', 'token', 'none']),
     repos: z.array(z.object({ fullName: z.string(), cloneUrl: z.string(), isPrivate: z.boolean(), pushedAt: z.string().nullable() })),
     error: optionalError,
   }),

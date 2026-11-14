@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`gh` works in sessions when GitHub is connected.** On a host where `gh` is installed but not signed in, `gh` in a new session now runs as your connected GitHub account, so an agent can open a pull request or read an issue without you running `gh auth login`. The token is handed to `gh` each time it runs and is never written to disk. A `gh` you signed in yourself, or a `GH_TOKEN` you set, is left alone. Not on Windows.
 - **Connecting GitHub gets sessions ready to commit, with nothing more to press.** When GitHub is connected, new sessions that have no git identity of their own commit as your GitHub account, using your profile name and your GitHub noreply address, which GitHub always counts as yours when it verifies a signature. A name and email you set yourself in git always win, and Glimmervoid writes nothing into your own git config. Commit signing is set up and registered on GitHub at the same moment, so Set up is only needed where GitHub could not register the key; after you press Remove, the key stays removed until you press Set up. Sessions can also check the signature themselves: `git log --show-signature` reports a good signature instead of "No signature". Settings, Vault, Commit signing shows the identity sessions commit as.
+- **A connected GitHub lists your repositories without a gh login.** On a Glimmervoid with no `gh` login on its machine, such as a hosted one, Add a repository now lists the repositories of the accounts you installed the Glimmervoid App on as soon as you connect GitHub, and clones them as you. Reviews and pull request status read GitHub through the same connection. A machine where `gh` is logged in keeps reading through `gh`, and notifications are read only there, because GitHub does not give them to an App.
+
+### Fixed
+
+- **The log no longer repeats "gh auth login" every minute.** A Glimmervoid with no `gh` login and no GitHub connection used to ask `gh` for your pull requests once a minute and log its refusal each time. It now makes no GitHub call until `gh` has a login or you connect GitHub in Settings.
 
 ## [0.58.3] - 2026-11-13
 

@@ -178,6 +178,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     agentAccounts = null,
     remoteSetup = null,
     githubAppGrants = NO_GITHUB_APP_GRANTS,
+    githubUserCredential = async () => null,
   } = deps;
 
   function buildSettingsPayload() {
@@ -324,7 +325,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
   }
 
   function currentGithubCredential() {
-    return resolveGithubCredential({ readToken: config.github?.readToken || null, appTokens: githubAppGrants.tokens() });
+    return resolveGithubCredential({ readToken: config.github?.readToken || null, userToken: async () => (await githubUserCredential())?.token ?? null, appTokens: githubAppGrants.tokens() });
   }
 
   async function handleListFolders(msg: ClientMessageOf<'list-folders'>, ws: ControlSocket): Promise<void> {

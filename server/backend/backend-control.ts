@@ -74,6 +74,7 @@ interface BackendControlDependencies {
   markChildWorktreeDiscard: (childId: string) => void;
   sessionWakes: SessionWakesControl;
   githubAppGrants: GithubAppGrants;
+  githubUserCredential: () => Promise<{ token: string } | null>;
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
@@ -142,6 +143,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     markChildWorktreeDiscard: dependencies.markChildWorktreeDiscard,
     sessionWakes: dependencies.sessionWakes,
     githubAppGrants: dependencies.githubAppGrants,
+    githubUserCredential: dependencies.githubUserCredential,
     config,
     configStore,
     broadcastControl,

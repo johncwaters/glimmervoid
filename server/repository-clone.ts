@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { runGh, runGit } from './git/git-exec.ts';
-import { CLONE_SAFETY_ARGS, chooseGithubCredential, cloneEnvOf, githubReposFromLines, githubReposJqFilter, githubReposPath, parseRepositorySource } from './core/repository-source-core.ts';
+import { CLONE_SAFETY_ARGS, GITHUB_USER_INSTALLATIONS_PATH, GITHUB_USER_INSTALLATION_IDS_JQ_FILTER, chooseGithubCredential, cloneEnvOf, githubInstallationIdsFromLines, githubReposFromLines, githubReposJqFilter, githubReposPath, githubUserInstallationReposPath, mergedGithubRepos, parseRepositorySource } from './core/repository-source-core.ts';
 import type { GithubCredential, GithubRepo, ParsedRepositorySource } from './core/repository-source-core.ts';
 
 const CLONE_TIMEOUT_MS = 10 * 60_000;
@@ -66,8 +66,10 @@ async function ghLoginToken(): Promise<string | null> {
   return result.out.trim() || null;
 }
 
-async function resolveGithubCredential({ readToken, appTokens }: { readToken: string | null; appTokens: readonly string[] }): Promise<GithubCredential> {
-  return chooseGithubCredential({ ghLoginToken: await ghLoginToken(), readToken, appTokens });
+async function resolveGithubCredential({ readToken, userToken, appTokens }: { readToken: string | null; userToken: () => Promise<string | null>; appTokens: readonly string[] }): Promise<GithubCredential> {
+  const loginToken = await ghLoginToken();
+  const hasEarlierCredential = loginToken !== null || readToken !== null;
+  return chooseGithubCredential({ ghLoginToken: loginToken, readToken, userToken: hasEarlierCredential ? null : await userToken(), appTokens });
 }
 
 function parsedJsonOf(text: string): unknown {
@@ -81,23 +83,41 @@ function parsedJsonOf(text: string): unknown {
 type RepoListing = { ok: true; repos: GithubRepo[] } | { ok: false; error: string };
 
 async function listGithubRepos(credential: Exclude<GithubCredential, { kind: 'none' }>): Promise<RepoListing> {
-  if (credential.kind !== 'app') return listGithubReposWith(credential.kind, credential.token);
-  const reposByFullName = new Map<string, GithubRepo>();
-  for (const token of credential.tokens) {
-    const listed = await listGithubReposWith('app', token);
-    if (!listed.ok) return listed;
-    for (const repo of listed.repos) reposByFullName.set(repo.fullName.toLowerCase(), repo);
-  }
-  return { ok: true, repos: [...reposByFullName.values()].toSorted((first, second) => (second.pushedAt ?? '').localeCompare(first.pushedAt ?? '')) };
+  if (credential.kind === 'connection') return listConnectionRepos(credential.token);
+  if (credential.kind !== 'app') return listGithubReposAt(githubReposPath(credential.kind), githubReposJqFilter(credential.kind), credential.token);
+  const installationReposPath = githubReposPath('app');
+  return mergedListings(credential.tokens.map((token) => () => listGithubReposAt(installationReposPath, githubReposJqFilter('app'), token)));
 }
 
-async function listGithubReposWith(kind: 'gh' | 'token' | 'app', token: string): Promise<RepoListing> {
-  const listed = await runGh(['api', '--paginate', githubReposPath(kind), '--jq', githubReposJqFilter(kind)], {
+async function mergedListings(listings: readonly (() => Promise<RepoListing>)[]): Promise<RepoListing> {
+  const repoLists: GithubRepo[][] = [];
+  for (const list of listings) {
+    const listed = await list();
+    if (!listed.ok) return listed;
+    repoLists.push(listed.repos);
+  }
+  return { ok: true, repos: mergedGithubRepos(repoLists) };
+}
+
+function couldNotList(ghError: string): RepoListing {
+  return { ok: false, error: `gh api could not list your repositories: ${lastLineOf(ghError)}` };
+}
+
+async function listConnectionRepos(userToken: string): Promise<RepoListing> {
+  const installations = await runGh(['api', '--paginate', GITHUB_USER_INSTALLATIONS_PATH, '--jq', GITHUB_USER_INSTALLATION_IDS_JQ_FILTER], { timeoutMs: GH_LIST_TIMEOUT_MS, env: { GH_TOKEN: userToken } });
+  if (!installations.ok) return couldNotList(installations.err);
+  const installationIds = githubInstallationIdsFromLines(installations.out.split('\n').filter(Boolean));
+  if (!installationIds) return { ok: false, error: 'GitHub answered the installation list in a shape Glimmervoid does not read' };
+  return mergedListings(installationIds.map((installationId) => () => listGithubReposAt(githubUserInstallationReposPath(installationId), githubReposJqFilter('app'), userToken)));
+}
+
+async function listGithubReposAt(apiPath: string, jqFilter: string, token: string): Promise<RepoListing> {
+  const listed = await runGh(['api', '--paginate', apiPath, '--jq', jqFilter], {
     timeoutMs: GH_LIST_TIMEOUT_MS,
     maxBuffer: GH_LIST_MAX_BUFFER_BYTES,
     env: { GH_TOKEN: token },
   });
-  if (!listed.ok) return { ok: false, error: `gh api could not list your repositories: ${lastLineOf(listed.err)}` };
+  if (!listed.ok) return couldNotList(listed.err);
   const repos = githubReposFromLines(listed.out.split('\n').filter(Boolean).map(parsedJsonOf));
   if (!repos) return { ok: false, error: 'GitHub answered the repository list in a shape Glimmervoid does not read' };
   return { ok: true, repos };

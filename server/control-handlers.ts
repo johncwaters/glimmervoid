@@ -104,6 +104,7 @@ interface ControlHandlerDeps {
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;
   githubAppGrants?: GithubAppGrants;
+  githubUserCredential?: () => Promise<{ token: string } | null>;
 
   makeSession?: (project: ProjectEntry, config: GlimmervoidConfig) => Session;
   wireSessionEvents?: (session: Session) => void;

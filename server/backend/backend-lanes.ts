@@ -62,6 +62,7 @@ import { createWorkflowSpawn, createWorkflowsWiring } from '../workflows-wiring.
 import { createGithubClock } from '../github/github-clock.ts';
 import { createGithubStatus, createProviderStatus } from '../github/github-status.ts';
 import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
+import { createGithubSource } from '../github/github-source.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
 import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
 import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
@@ -89,6 +90,7 @@ interface BackendLaneDependencies {
   appVersion: string;
   configStore: ConfigStore;
   githubAppGrants: GithubAppGrants;
+  githubUserCredential: () => Promise<{ token: string } | null>;
   sessions: Map<string, Session>;
   agentSessions: Map<string, Session>;
   reviewSessions: Map<string, Session>;
@@ -117,6 +119,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     frameSecret,
     configStore,
     githubAppGrants,
+    githubUserCredential,
     sessions,
     agentSessions,
     reviewSessions,
@@ -205,7 +208,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const githubClock = createGithubClock({ baseIntervalMs: GITHUB_CLOCK_INTERVAL_MINUTES * 60000, log: logger, githubStatus });
   const glimmervoidHome = glimmervoidHomeDir();
   const githubUsage = createGithubUsageLedger({ homeDir: glimmervoidHome, readAccountPool: () => githubStore.readAccountRateLimit(), log: logger });
-  const github = createPrGh(glimmervoidHome, undefined, githubUsage.recorder);
+  const github = createPrGh(glimmervoidHome, undefined, githubUsage.recorder, undefined, createGithubSource({ userCredential: githubUserCredential }));
   githubUsage.start(githubClock);
   const githubStore = createGithubStoreWiring({
     github,

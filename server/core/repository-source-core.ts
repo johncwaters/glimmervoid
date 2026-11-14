@@ -6,11 +6,15 @@ type RepositorySource = { ok: true; url: string; repoName: string; isGithubHttps
 type ParsedRepositorySource = Extract<RepositorySource, { ok: true }>;
 type RootCheckouts = { root: string; isCheckoutItself: boolean; hasGitCheckout: boolean };
 type GithubCredentialKind = 'gh' | 'app' | 'token';
-type GithubCredential = { kind: 'gh' | 'token'; token: string } | { kind: 'app'; tokens: readonly string[] } | { kind: 'none' };
+type GithubCredential = { kind: 'gh' | 'token' | 'connection'; token: string } | { kind: 'app'; tokens: readonly string[] } | { kind: 'none' };
 type GithubRepo = { fullName: string; cloneUrl: string; isPrivate: boolean; pushedAt: string | null };
 
 const GithubApiRepo = z.object({ full_name: z.string(), clone_url: z.string(), private: z.boolean(), pushed_at: z.string().nullable() });
 const GithubApiRepoList = z.array(GithubApiRepo);
+
+const GITHUB_USER_INSTALLATIONS_PATH = 'user/installations?per_page=100';
+const GITHUB_USER_INSTALLATION_IDS_JQ_FILTER = '.installations[].id';
+const INSTALLATION_ID_RE = /^[1-9][0-9]*$/;
 
 const DEFAULT_REPO_ROOT_FOLDER = 'glimmervoid';
 const REPO_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -79,9 +83,10 @@ function cloneEnvOf(source: ParsedRepositorySource, githubToken: string | null, 
   return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: githubAuthHeaderOf(githubToken) };
 }
 
-function chooseGithubCredential({ ghLoginToken, readToken, appTokens }: { ghLoginToken: string | null; readToken: string | null; appTokens: readonly string[] }): GithubCredential {
+function chooseGithubCredential({ ghLoginToken, readToken, userToken, appTokens }: { ghLoginToken: string | null; readToken: string | null; userToken: string | null; appTokens: readonly string[] }): GithubCredential {
   if (ghLoginToken) return { kind: 'gh', token: ghLoginToken };
   if (readToken) return { kind: 'token', token: readToken };
+  if (userToken) return { kind: 'connection', token: userToken };
   if (appTokens.length > 0) return { kind: 'app', tokens: appTokens };
   return { kind: 'none' };
 }
@@ -96,6 +101,14 @@ function githubReposPath(kind: GithubCredentialKind): string {
   return 'user/repos?sort=pushed&per_page=100&affiliation=owner,collaborator,organization_member';
 }
 
+function githubUserInstallationReposPath(installationId: string): string {
+  return `user/installations/${installationId}/repositories?per_page=100`;
+}
+
+function githubInstallationIdsFromLines(idLines: readonly string[]): string[] | null {
+  return idLines.every((idLine) => INSTALLATION_ID_RE.test(idLine)) ? [...idLines] : null;
+}
+
 function githubReposJqFilter(kind: GithubCredentialKind): string {
   const repoStream = kind === 'app' ? '.repositories[]' : '.[]';
   return `${repoStream} | {full_name, clone_url, private, pushed_at} | @json`;
@@ -106,9 +119,18 @@ function githubReposFromLines(apiRepoLines: readonly unknown[]): GithubRepo[] | 
   if (!parsed.success) return null;
   return parsed.data
     .map((apiRepo) => ({ fullName: apiRepo.full_name, cloneUrl: apiRepo.clone_url, isPrivate: apiRepo.private, pushedAt: apiRepo.pushed_at }))
-    .toSorted((first, second) => (second.pushedAt ?? '').localeCompare(first.pushedAt ?? ''));
+    .toSorted(byLatestPush);
 }
 
-export { chooseGithubCredential, githubOwnerOfSource, githubReposFromLines, githubReposJqFilter, githubReposPath };
+function byLatestPush(first: GithubRepo, second: GithubRepo): number {
+  return (second.pushedAt ?? '').localeCompare(first.pushedAt ?? '');
+}
+
+function mergedGithubRepos(repoLists: readonly (readonly GithubRepo[])[]): GithubRepo[] {
+  const reposByFullName = new Map(repoLists.flat().map((repo) => [repo.fullName.toLowerCase(), repo]));
+  return [...reposByFullName.values()].toSorted(byLatestPush);
+}
+
+export { GITHUB_USER_INSTALLATIONS_PATH, GITHUB_USER_INSTALLATION_IDS_JQ_FILTER, chooseGithubCredential, githubInstallationIdsFromLines, githubOwnerOfSource, githubReposFromLines, githubReposJqFilter, githubReposPath, githubUserInstallationReposPath, mergedGithubRepos };
 export { CLONE_SAFETY_ARGS, cloneEnvOf, cloneRootOf, defaultRepoRootOf, parseRepositorySource };
 export type { GithubCredential, GithubRepo, ParsedRepositorySource, RootCheckouts };
