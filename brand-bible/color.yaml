@@ -359,6 +359,7 @@ pairs:
   - { foreground: state-monitoring, background: bg-card, minContrast: 4.5 }
 literalColorsAllowedIn:
   - public/theme.ts
+  - shared/theme-palettes.ts
   - public/style.css
   - site/src/styles/global.css
   - shared/brand-mark.ts
