@@ -203,6 +203,10 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     .sticky-note { right: -64px; top: 24px; width: 108px; padding: 10px; font-size: var(--type-meta); }
     .board-beats { grid-template-columns: minmax(0, 1fr); }
   }
+  @media (max-width: 480px) {
+    .phone-stage { margin-right: 0; }
+    .sticky-note { right: 4px; top: 8px; width: 96px; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .board-demo[data-on-screen="true"] :is(.pen-stroke, .sticky-note) { animation: none; }
     .board-beats[data-on-screen="true"] :is(.mini-knob, .mini-bar, .arch-wire, .plan-step, .marks-box, .marks-pen path, .marks-note) { animation: none; }
