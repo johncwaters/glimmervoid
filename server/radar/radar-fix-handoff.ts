@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runGh, runGit } from '../git/git-exec.ts';
+import { runGit } from '../git/git-exec.ts';
 import type { ExecFileFn, RunCommandOptions } from '../git/git-exec.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
 import type { RadarErrorReason, RadarHandoffStep } from '../../shared/contracts/telemetry.ts';
@@ -45,7 +45,7 @@ async function runCli(cmd: string, args: string[], cwd: string, execFileFn?: Exe
     preferStderr: true,
     ...(execFileFn ? { execFileFn } : {}),
   };
-  const result = cmd === 'gh' ? await runGh(args, options) : await runGit(args, { ...options, gitPath: cmd });
+  const result = await runGit(args, { ...options, gitPath: cmd });
   return { ok: result.ok, out: result.out, err: result.err };
 }
 

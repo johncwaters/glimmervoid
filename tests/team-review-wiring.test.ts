@@ -16,6 +16,7 @@ import { REMERGE_OBJECTS_DIRNAME, REVIEW_BOOTSTRAP_PROMPT, REVIEW_RESUME_PROMPT,
 import type { ReviewTier } from '../server/github/core/team-review-core.ts';
 import { createTeamReviewPoller } from '../server/github/team-review-poller.ts';
 import { createPrGh } from '../server/github/pr-gh.ts';
+import { ghLoginAnswerOfViewerRead } from '../server/github/github-source.ts';
 import type { GithubSource } from '../server/github/github-source.ts';
 import { createTeamReviewActions } from '../server/github/team-review-actions.ts';
 import type { SpawnReviewArgs } from '../server/github/team-review-poller.ts';
@@ -1244,4 +1245,12 @@ test('opening a review detail refetches its teammate threads at most once a minu
   } finally {
     await poller.stop();
   }
+});
+
+test('a gh token GitHub refuses reads as no gh login, and an unreachable GitHub keeps it', () => {
+  const refusedRead = { ok: false, err: 'Command failed: gh api user --silent\ngh: Bad credentials (HTTP 401)' };
+  const unreachableRead = { ok: false, err: 'Get "https://api.github.com/user": dial tcp: lookup api.github.com: no such host' };
+  assert.equal(ghLoginAnswerOfViewerRead(refusedRead), 'absent');
+  assert.equal(ghLoginAnswerOfViewerRead(unreachableRead), 'present');
+  assert.equal(ghLoginAnswerOfViewerRead({ ok: true, err: '' }), 'present');
 });
