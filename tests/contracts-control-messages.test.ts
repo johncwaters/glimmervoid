@@ -114,7 +114,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     },
   },
   { type: 'review-result', requestId: 'review-send-comment-1', ok: false, error: 'The comment was saved, but it could not be sent to the agent (destroyed)' },
-  { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
+  { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, commits: [{ member: null, sha: 'db44dc0c9a0f4b1b8f0f6b1c2d3e4f5a6b7c8d9e', subject: 'Fix dashboard', isSigned: true }], bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
   { type: 'session-diff-error', id: 'session-1', message: 'git diff HEAD timed out after 15000ms' },
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },

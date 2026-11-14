@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
 import { MergeStatus } from '../session.ts';
-import { sessionId, requestId, loose, nullableString, DiffBase, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
+import { sessionId, requestId, loose, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
 const diffFilePath = z.string().min(1).max(4096);
 const blobId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
@@ -43,6 +43,7 @@ export const worktreeServerVariants = [
     timestamp,
   }),
   loose('session-diff', {
+    commits: z.array(SessionCommit),
     id: sessionId,
     patch: z.string(),
     contentHashByPath: z.record(z.string(), z.string().nullable()),

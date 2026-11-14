@@ -4,8 +4,8 @@ import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { z } from "zod";
-import type { DiffBase } from "../../shared/contracts/control/control-fields.ts";
-import { diffHeaderPathsOf } from "../../shared/git-text.ts";
+import type { DiffBase, SessionCommit } from "../../shared/contracts/control/control-fields.ts";
+import { diffHeaderPathsOf, parseRawCommitLog } from "../../shared/git-text.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
 import { decideDiffSelfHeal } from "../core/merge-gate.ts";
 import type { WorkspaceMember } from "../core/workspace-core.ts";
@@ -17,6 +17,7 @@ const CHECK_ATTR_BATCH_SIZE = 200;
 const MISSING_BLOB_ID = /^0+$/;
 const NUL = String.fromCharCode(0);
 const DIFF_FILE_CAP_BYTES = 1024 * 1024;
+const MAX_LISTED_COMMITS = 50;
 const LOCKFILE_NAMES = new Set([
   "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb", "deno.lock",
   "Cargo.lock", "Gemfile.lock", "composer.lock", "poetry.lock", "Pipfile.lock", "uv.lock", "pdm.lock", "go.sum",
@@ -31,12 +32,16 @@ interface WorktreeChanges {
 
 interface SessionChanges extends WorktreeChanges {
   hasCommits: boolean;
+  commits: z.infer<typeof SessionCommit>[];
   bases: z.infer<typeof DiffBase>[];
 }
+
+type DatedCommit = z.infer<typeof SessionCommit> & { committedAt: number };
 
 interface MemberChanges extends WorktreeChanges {
   name: string;
   hasCommits: boolean;
+  datedCommits: DatedCommit[];
   baseRef: string | null;
   baseSha: string;
 }
@@ -147,6 +152,19 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     return { base: baseRef, aheadCount: (await gitOut(["rev-list", "--count", `${baseRef}..HEAD`], opts)).trim(), ref: null, verified };
   }
 
+  async function readDatedCommits(dir: string, base: string, member: string | null): Promise<DatedCommit[]> {
+    if (!base) return [];
+    const rawLog = await gitLookup(["log", "--no-color", "--no-show-signature", "--pretty=raw", `--max-count=${MAX_LISTED_COMMITS}`, `${base}..HEAD`], diffGitOptions(dir));
+    return parseRawCommitLog(rawLog ?? "").map(({ sha, subject, isSigned, committedAt }) => ({ member, sha, subject, isSigned, committedAt }));
+  }
+
+  function newestListedCommits(datedCommits: readonly DatedCommit[]): z.infer<typeof SessionCommit>[] {
+    return datedCommits
+      .toSorted((earlier, later) => later.committedAt - earlier.committedAt)
+      .slice(0, MAX_LISTED_COMMITS)
+      .map(({ member, sha, subject, isSigned }) => ({ member, sha, subject, isSigned }));
+  }
+
   async function readChangeScope(name: string, root: string, base: string, sessionPathPrefix: string): Promise<ChangeScope> {
     const run = (args: string[]): Promise<string> => gitOut(args, diffGitOptions(root));
     const trackedNameStatus = await run(["diff", "-z", "--name-status", "-M", "HEAD"]);
@@ -192,10 +210,12 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
     const { ref: baseRef, sha: base } = await memberMergeBase(member);
     const aheadCount = base ? (await gitOut(["rev-list", "--count", `${base}..HEAD`], diffGitOptions(member.dir))).trim() : "0";
     const changes = await readChangesWithUntracked(member.dir, base || "HEAD", member.name);
+    const hasCommits = aheadCount !== "" && aheadCount !== "0";
     return {
       name: member.name,
       ...changes,
-      hasCommits: aheadCount !== "" && aheadCount !== "0",
+      hasCommits,
+      datedCommits: hasCommits ? await readDatedCommits(member.dir, base, member.name) : [],
       baseRef,
       baseSha: base,
     };
@@ -213,6 +233,7 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
       contentHashByPath: Object.assign({}, ...memberChanges.map((member) => member.contentHashByPath)),
       generatedPaths: memberChanges.flatMap((member) => member.generatedPaths),
       hasCommits: memberChanges.some((member) => member.hasCommits),
+      commits: newestListedCommits(memberChanges.flatMap((member) => member.datedCommits)),
       bases: memberChanges
         .filter((member) => member.baseSha)
         .map((member) => ({ member: member.name, ref: member.baseRef, sha: member.baseSha, verified: true })),
@@ -321,14 +342,15 @@ function createWorktreeDiffScopes(context: WorktreeLifecycleContext) {
 
   async function getDiff(): Promise<SessionChanges> {
     if (lifecycleState.provisionedMembers) return getWorkspaceDiff(lifecycleState.provisionedMembers);
-    if (!lifecycleState.worktreeDir) return { patch: "", contentHashByPath: {}, generatedPaths: [], hasCommits: false, bases: [] };
+    if (!lifecycleState.worktreeDir) return { patch: "", contentHashByPath: {}, generatedPaths: [], hasCommits: false, commits: [], bases: [] };
     const { base, aheadCount, ref, verified } = await resolveDiffBase(diffGitOptions(lifecycleState.worktreeDir));
     const changes = await readChangesWithUntracked(lifecycleState.worktreeDir, base || "HEAD", null);
     const hasCommits = aheadCount !== "" && aheadCount !== "0";
     const healed = decideDiffSelfHeal(lifecycleState.mergeStatus, changes.patch, hasCommits);
     if (healed) setMergeStatus(healed);
     const bases = base ? [{ member: null, ref, sha: base, verified }] : [];
-    return { ...changes, hasCommits, bases };
+    const commits = hasCommits ? newestListedCommits(await readDatedCommits(lifecycleState.worktreeDir, base, null)) : [];
+    return { ...changes, hasCommits, commits, bases };
   }
 
   return { resolveEffectiveBase, resolveVerifiedBaseRef, diffGitOptions, getChangeScopes, getDiff, getDiffFileContents };

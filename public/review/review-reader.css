@@ -8,6 +8,11 @@
 .review-reader-totals { display: flex; gap: var(--review-stat-gap); margin: 0 0 8px; padding: 0 var(--review-row-pad); font: var(--type-meta) var(--font-mono); }
 .review-reader-file-list { display: grid; margin-bottom: 16px; }
 .review-reader-group { margin: 0; padding: 0 var(--review-row-pad) 4px; color: var(--text-muted); font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.review-reader-commit-list { margin-bottom: 12px; }
+.review-reader-commit { display: flex; align-items: baseline; gap: 8px; padding: 3px var(--review-row-pad); color: var(--text); font: var(--type-meta)/1.5 var(--font-mono); }
+.review-commit-sha { flex: none; color: var(--text-muted); }
+.review-commit-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-commit-signature { flex: none; color: var(--text-muted); }
 .review-file-status { flex: 0 0 1ch; color: var(--text-muted); }
 .review-reader-file[data-status="A"] .review-file-status { color: color-mix(in oklab, var(--state-running) 70%, var(--text-muted)); }
 .review-reader-file[data-status="D"] .review-file-status { color: color-mix(in oklab, var(--state-failed) 70%, var(--text-muted)); }

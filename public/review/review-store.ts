@@ -14,6 +14,7 @@ import { getSelectedId, onSelectionChange, setSelectedId } from './selection.ts'
 export interface SessionReview extends ReviewView {
   sessionId: string;
   files: ReaderFile[];
+  commits: SessionDiffPayload['commits'];
   diffError: string | null;
   changeMapView: ChangeMapView | null;
   isWorkspace: boolean;
@@ -85,6 +86,7 @@ export function reviewOf(sessionId: string): SessionReview | null {
     ...view,
     sessionId,
     files,
+    commits: payload?.commits ?? [],
     diffError,
     changeMapView: changeMapViewOf(mapById.get(sessionId)),
     isWorkspace: isWorkspaceSession(sessionId),

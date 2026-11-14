@@ -1,5 +1,6 @@
 import { repoNameForPath } from '#shared/change-map-view-core.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { shortSha } from '#shared/git-text.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
 import { announceSessionPageChange } from '../session-pages/session-pages.ts';
@@ -206,11 +207,27 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   appendFileGroup(fileColumn, 'New', newFiles, review);
   appendFileGroup(fileColumn, 'Viewed', viewedFiles, review);
   appendFileGroup(fileColumn, 'Generated', generatedFiles, review);
+  appendCommitGroup(fileColumn, review);
   const worthALook = review.changeMapView
     ? renderWorthALook(review.changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
     : null;
   if (worthALook) fileColumn.append(worthALook);
   fileColumn.scrollTop = scrollTop;
+}
+
+function appendCommitGroup(fileColumn: HTMLElement, review: SessionReview) {
+  if (review.commits.length === 0) return;
+  fileColumn.append(el('p', 'review-reader-group', `Commits ${String.fromCharCode(183)} ${review.commits.length}`));
+  const list = el('div', 'review-reader-commit-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Commits');
+  for (const commit of review.commits) {
+    const row = el('div', 'review-reader-commit');
+    row.setAttribute('role', 'listitem');
+    row.append(el('span', 'review-commit-sha', shortSha(commit.sha)), el('span', 'review-commit-subject', commit.subject), el('span', 'review-commit-signature', commit.isSigned ? 'Signed' : 'Unsigned'));
+    list.append(row);
+  }
+  fileColumn.append(list);
 }
 
 function appendFileGroup(fileColumn: HTMLElement, groupName: string, files: readonly ReaderFile[], review: SessionReview) {

@@ -122,6 +122,9 @@ test('workspace session diff prefixes member paths, shows an untracked file with
     assert.equal(git(['status', '--porcelain', '--', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')), '?? added.txt\n');
     assert.equal(diff.contentHashByPath['second/added.txt'], git(['hash-object', 'added.txt'], path.join(path.dirname(firstScope.root), 'second')).trim());
     assert.deepEqual(diff.generatedPaths, ['first/package-lock.json']);
+    assert.deepEqual(diff.commits, []);
+    git(['commit', '-q', '--allow-empty', '-m', 'an empty commit in first'], firstScope.root);
+    assert.deepEqual((await session.getDiff()).commits.map((commit) => [commit.member, commit.subject, commit.isSigned]), [['first', 'an empty commit in first', false]]);
     const readmeBlobIds = /^index ([0-9a-f]+)\.\.([0-9a-f]+)/m.exec(diff.patch.slice(diff.patch.indexOf('a/first/README.md')));
     const oldBlobId = readmeBlobIds?.[1] ?? null;
     const newBlobId = readmeBlobIds?.[2] ?? '';

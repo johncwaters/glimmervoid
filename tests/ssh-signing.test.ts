@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { parseSshPublicKey } from '../server/core/ssh-signing-core.ts';
+import { parseRawCommitLog } from '../shared/git-text.ts';
 import { createSshSigner, installCommitSigningShim } from '../server/ssh-signing.ts';
 import http from 'node:http';
 import { createCommitSigning, createHostSigningKeyStore, followingGithubConnection } from '../server/commit-signing.ts';
@@ -157,6 +158,14 @@ test('a session commit is signed with the host signing key outside the session, 
     await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'authored as the GitHub account'], { cwd: plainRepository, env: { ...plain.env, GIT_CONFIG_GLOBAL: os.devNull } });
     const hostAuthored = await execFileAsync('git', ['log', '-1', '--format=%an <%ae> %cn <%ce>'], { cwd: plainRepository, env: plain.env, encoding: 'utf8' });
     assert.equal(hostAuthored.stdout.trim(), 'Octo Carbon <7+octo-carbon@users.noreply.github.com> Octo Carbon <7+octo-carbon@users.noreply.github.com>', 'with no identity of its own, a session commits as the connected GitHub account');
+
+    await execFileAsync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'left unsigned'], { cwd: plainRepository, env: plain.env });
+    const rawLog = await execFileAsync('git', ['log', '--pretty=raw', '-3'], { cwd: plainRepository, env: plain.env, encoding: 'utf8' });
+    assert.deepEqual(
+      parseRawCommitLog(rawLog.stdout).map((commit) => [commit.subject, commit.isSigned]),
+      [['left unsigned', false], ['authored as the GitHub account', true], ['signed by the host key', true]],
+      'a raw log tells a signed commit from an unsigned one',
+    );
 
     const ownSigningRepository = await newRepository(root, 'own-signing');
     await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: ownSigningRepository });

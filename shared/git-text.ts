@@ -26,4 +26,33 @@ function diffHeaderPathsOf(header: string): { oldPath: string; path: string } | 
   return { oldPath: match[1] ?? '', path: match[2] ?? '' };
 }
 
-export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, shortSha };
+interface RawLoggedCommit {
+  sha: string;
+  committedAt: number;
+  subject: string;
+  isSigned: boolean;
+}
+
+const RAW_COMMIT_START = /^commit ([0-9a-f]{40,64})\b/;
+const RAW_COMMITTER_TIME = /^committer .* (\d+) [+-]\d{4}$/;
+
+function rawLoggedCommitOf(entry: string): RawLoggedCommit | null {
+  const sha = RAW_COMMIT_START.exec(entry)?.[1];
+  if (!sha) return null;
+  const headerEnd = entry.indexOf('\n\n');
+  const headerLines = (headerEnd === -1 ? entry : entry.slice(0, headerEnd)).split('\n');
+  const messageLines = headerEnd === -1 ? [] : entry.slice(headerEnd + 2).split('\n');
+  const committerSeconds = headerLines.map((line) => RAW_COMMITTER_TIME.exec(line)?.[1]).find((seconds) => seconds !== undefined);
+  return {
+    sha,
+    committedAt: Number(committerSeconds ?? 0) * 1000,
+    subject: (messageLines[0] ?? '').trim(),
+    isSigned: headerLines.some((line) => line.startsWith('gpgsig')),
+  };
+}
+
+function parseRawCommitLog(rawLog: string): RawLoggedCommit[] {
+  return rawLog.split(/\n(?=commit [0-9a-f]{40,64}\b)/).flatMap((entry) => rawLoggedCommitOf(entry) ?? []);
+}
+
+export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, parseRawCommitLog, shortSha };

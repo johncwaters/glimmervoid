@@ -40,6 +40,7 @@ export function openObject(shape: z.ZodRawShape = {}) {
 }
 export const nullableString = z.string().nullable();
 export const DiffBase = z.object({ member: nullableString, ref: nullableString, sha: z.string(), verified: z.boolean() });
+export const SessionCommit = z.object({ member: nullableString, sha: z.string().regex(/^[0-9a-f]{40,64}$/), subject: z.string(), isSigned: z.boolean() });
 export const timestamp = z.number().finite();
 export const optionalTimestamp = timestamp.optional();
 export const optionalError = nullableString.optional();

@@ -47,4 +47,4 @@ export function parkedStatusText(reason: string | null | undefined): string {
   return 'Needs manual merge';
 }
 
-export type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'patch' | 'contentHashByPath' | 'generatedPaths' | 'hasCommits' | 'bases'>;
+export type SessionDiffPayload = Pick<ServerMessageOf<'session-diff'>, 'patch' | 'contentHashByPath' | 'generatedPaths' | 'hasCommits' | 'commits' | 'bases'>;
