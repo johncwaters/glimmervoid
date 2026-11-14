@@ -285,11 +285,10 @@ test('commit signing registers the host key on GitHub with the connected user to
     assert.deepEqual([...github.keysById.values()], [setUpWhileConnected.publicKey], 'with GitHub connected, setup registers the new key in the same request');
 
     await commitSigning.act('remove');
-    await fs.rm(path.join(keyFolder, 'commit-signing.json'));
     linkConnection = { state: 'connected', login: 'octo-carbon', accounts: [], refreshTokenExpiresAtMs: Date.parse('2099-01-01T00:00:00Z'), installUrl: 'https://github.com/apps/glimmervoid/installations/new' };
     await disconnect('read');
     const connectedAfterRemove = await commitSigning.act('read');
-    assert.equal(connectedAfterRemove.state, 'off', 'a key the operator removed, on this release or an earlier one that kept no record of it, is not made again when GitHub connects');
+    assert.equal(connectedAfterRemove.state, 'off', 'a key the operator removed is not made again when GitHub connects');
     assert.deepEqual(connectedAfterRemove.identity, { name: 'Octo Carbon', email: '7+octo-carbon@users.noreply.github.com' }, 'connecting GitHub records the account as the git identity');
 
     assert.equal((await commitSigning.act('setup')).state, 'registered');
@@ -301,6 +300,29 @@ test('commit signing registers the host key on GitHub with the connected user to
     const connectedAgain = await commitSigning.act('read');
     assert.equal(connectedAgain.state, 'registered', connectedAgain.problem ?? '');
     assert.equal(github.keysById.size, 1, 'connecting GitHub registers the signing key with no press');
+
+    const signingOfHostAt = (folder: string) => createCommitSigning({ store: createHostSigningKeyStore({ folder }), githubUserCredential: async () => grant, githubConnectionState: async () => connectionState, githubApiUrl: `http://127.0.0.1:${boundPort(github.server)}`, log: { warn: (line: string) => { warnings.push(line); } } });
+    const freshHostSigning = signingOfHostAt(path.join(root, 'fresh-host'));
+    await followingGithubConnection(async () => linkConnection, freshHostSigning)('read');
+    const freshHost = await freshHostSigning.act('read');
+    assert.equal(freshHost.problem, null, 'the first GitHub connection of a host that never held a key reports no problem');
+    assert.equal(freshHost.state, 'registered');
+    assert.equal(freshHost.identity?.email, '7+octo-carbon@users.noreply.github.com');
+
+    const folderAnEarlierRemoveEmptied = path.join(root, 'earlier-remove');
+    await fs.mkdir(folderAnEarlierRemoveEmptied);
+    const earlierRemoveSigning = signingOfHostAt(folderAnEarlierRemoveEmptied);
+    await followingGithubConnection(async () => linkConnection, earlierRemoveSigning)('read');
+    assert.equal((await earlierRemoveSigning.act('read')).state, 'off', 'a key removed on an earlier release, which kept no record of it, is not made again when GitHub connects');
+
+    const failingKeygenFolder = path.join(root, 'failing-keygen');
+    await fs.mkdir(failingKeygenFolder);
+    await fs.writeFile(path.join(failingKeygenFolder, 'ssh-keygen'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const pathBefore = process.env.PATH;
+    process.env.PATH = `${failingKeygenFolder}${path.delimiter}${pathBefore}`;
+    const failedSetup = await signingOfHostAt(path.join(root, 'failed-setup')).act('setup').finally(() => { process.env.PATH = pathBefore; });
+    assert.notEqual(failedSetup.problem, null);
+    assert.equal((await createHostSigningKeyStore({ folder: path.join(root, 'failed-setup') }).readRecord()).isSwitchedOff, false, 'a Set up that failed is not read after a restart as a Remove');
     assert.ok(!warnings.join('\n').includes(userToken), 'no warning carries the token');
     assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');
   } finally {

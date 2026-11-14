@@ -84,6 +84,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   const systemConfigPath = path.join(folder, SYSTEM_CONFIG_FILE_NAME);
   const identityConfigPath = path.join(folder, IDENTITY_CONFIG_FILE_NAME);
   const allowedSignersPath = path.join(folder, ALLOWED_SIGNERS_FILE_NAME);
+  let earlierRemoveRecording: Promise<void> | null = null;
   const recordPath = path.join(folder, RECORD_FILE_NAME);
   let systemConfigBase: Promise<SystemConfigBase> | null = null;
 
@@ -94,6 +95,7 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
   }
 
   async function setup(): Promise<HostSigningKey> {
+    await earlierRemoveRecorded();
     const existing = await read();
     if (existing) return existing;
     await fs.mkdir(folder, { recursive: true, mode: KEY_FOLDER_MODE });
@@ -118,7 +120,6 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     await fs.rm(allowedSignersPath, { force: true });
     await fs.rm(privateKeyPath, { force: true });
     await fs.rm(publicKeyPath, { force: true });
-    await fs.mkdir(folder, { recursive: true, mode: KEY_FOLDER_MODE });
     await writeRecord({ github: null, identity, isSwitchedOff: true });
   }
 
@@ -128,24 +129,31 @@ function createHostSigningKeyStore({ folder }: { folder: string }): HostSigningK
     await writePrivateFile(filePath, text);
   }
 
-  async function recordOfFolderWithNone(): Promise<CommitSigningRecord> {
+  async function recordRemoveOfAnEarlierRelease(): Promise<void> {
     const folderStats = await fs.stat(folder).catch(() => null);
-    const wasKeyRemovedByAnEarlierRelease = folderStats !== null && await read() === null;
-    if (!wasKeyRemovedByAnEarlierRelease) return NO_REGISTRATION;
-    const switchedOff = { ...NO_REGISTRATION, isSwitchedOff: true };
-    await writePrivateFile(recordPath, `${JSON.stringify(switchedOff)}\n`);
-    return switchedOff;
+    if (folderStats === null || await read() !== null) return;
+    const recordText = await fs.readFile(recordPath, 'utf8').catch(() => null);
+    if (recordText !== null) return;
+    await writePrivateFile(recordPath, `${JSON.stringify({ ...NO_REGISTRATION, isSwitchedOff: true })}\n`);
+  }
+
+  function earlierRemoveRecorded(): Promise<void> {
+    earlierRemoveRecording ??= recordRemoveOfAnEarlierRelease();
+    return earlierRemoveRecording;
   }
 
   async function readRecord(): Promise<CommitSigningRecord> {
+    await earlierRemoveRecorded();
     const recordText = await fs.readFile(recordPath, 'utf8').catch(() => null);
-    if (recordText === null) return recordOfFolderWithNone();
+    if (recordText === null) return NO_REGISTRATION;
     const parsed = CommitSigningRecord.safeParse(JSON.parse(recordText));
     if (!parsed.success) throw new Error(`${recordPath} is not a commit signing record: ${parsed.error.message}`);
     return parsed.data;
   }
 
   async function writeRecord(record: CommitSigningRecord): Promise<void> {
+    await earlierRemoveRecorded();
+    await fs.mkdir(folder, { recursive: true, mode: KEY_FOLDER_MODE });
     await writePrivateFile(recordPath, `${JSON.stringify(CommitSigningRecord.parse(record))}\n`);
   }
 
@@ -327,9 +335,9 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   }
 
   async function setUp(): Promise<string | null> {
-    await store.setup();
     const { record } = await readableRecord();
-    if (record.isSwitchedOff) await store.writeRecord({ ...record, isSwitchedOff: false });
+    await store.writeRecord({ ...record, isSwitchedOff: false });
+    await store.setup();
     if (!await connectedGrant()) return null;
     return register();
   }
