@@ -12,7 +12,7 @@ type NoticeOptions = {
   leading?: HTMLElement;
 };
 
-export type NoticeContent = {
+type NoticeContent = {
   text: string | readonly (string | Node)[];
   tone?: NoticeTone;
   actions?: readonly HTMLElement[];
