@@ -34,11 +34,6 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     startInlineRename(ui, sessionId);
   });
 
-  ui.btnRename.addEventListener('click', () => {
-    closeSessionMenu(ui);
-    startInlineRename(ui, sessionId, { returnsFocusToTerminal: !ui.renameTargetEl?.isConnected });
-  });
-
   ui.btnRestart.addEventListener('click', () => {
     closeSessionMenu(ui);
     void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined }));

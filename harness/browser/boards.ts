@@ -1352,6 +1352,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyBoxStaysWhereDropped(open, step.id, 'a plan step');
     await openBoardMenuItem(page, panel, 'Board settings');
     await inspect.getByRole('heading', { name: 'Board', exact: true }).waitFor({ timeout: 3000 });
+    await verifyPairedSessionDisconnect(page, panel);
   }
   assert.equal(await panel.getByRole('button', { name: 'Fit', exact: true }).isVisible(), true);
   assert.equal(await panel.getByRole('button', { name: boardTitle, exact: true }).count(), 1);
@@ -1369,7 +1370,9 @@ async function verifyEmptyStateImportRefusal(page: Page, panel: Locator): Promis
 
 async function verifyBoardFileRoundTrip(page: Page, panel: Locator, boardTitle: string): Promise<void> {
   const downloadStarted = page.waitForEvent('download');
-  await openBoardMenuItem(page, panel, 'Export board file');
+  await openBoardMenuItem(page, panel, 'Export board');
+  await page.getByRole('radio', { name: 'Board file, to import elsewhere', exact: true }).check();
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
   const download = await downloadStarted;
   assert.equal(download.suggestedFilename(), `${boardTitle}.glimmerboard`);
   const savedPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'board-file-')), download.suggestedFilename());
@@ -1378,6 +1381,15 @@ async function verifyBoardFileRoundTrip(page: Page, panel: Locator, boardTitle: 
   await openBoardMenuItem(page, panel, 'Import board');
   await (await chooserOpened).setFiles(savedPath);
   await panel.getByRole('button', { name: `${boardTitle} (2)`, exact: true }).waitFor();
+}
+
+async function verifyPairedSessionDisconnect(page: Page, panel: Locator): Promise<void> {
+  const sessionIsland = panel.getByRole('toolbar', { name: 'Session', exact: true });
+  const disconnect = sessionIsland.getByRole('button', { name: /^Disconnect / });
+  await disconnect.click();
+  await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await disconnect.waitFor({ state: 'hidden' });
+  await sessionIsland.getByText('is not connected to this board').waitFor();
 }
 
 async function openDesktopBoard(page: Page, sessionId: string, boardTitle: string): Promise<OpenBoard> {
@@ -1427,10 +1439,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   assert.equal(await page.locator('.pane-layout .pane-group[data-pane="board"]').count(), 0, 'a session with no board shows Terminal only');
   assert.equal(await page.locator('.pane-tab').count(), 0, 'Focus shows no pane tabs');
   const terminalWindow = page.locator('.pane-group[data-pane="terminal"]');
-  await terminalWindow.getByRole('button', { name: 'Session actions', exact: true }).click();
-  await terminalWindow.locator('.overflow-connect-board').click();
-  await page.getByRole('combobox', { name: 'Board to connect', exact: true }).selectOption({ label: boardTitle });
-  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await controlReplyOf(page, 'whiteboard-connect', { boardId, sessionId });
   await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#focus-pane-terminal').isVisible(), true, 'a board arriving for the centered session splits the pane and keeps Terminal showing');
   assert.equal(await page.locator('.pane-layout .pane-group[data-pane="board"]').count(), 1, 'a board arriving for the centered session opens the stored split');

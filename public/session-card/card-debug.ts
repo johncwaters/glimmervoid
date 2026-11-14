@@ -3,6 +3,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { escapeMarkup } from '#shared/escape-markup.ts';
 import { el } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
+import { SHELL_AGENT_ID } from './agent-core.ts';
 import type { SessionUi } from './card-registry.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import { button } from '../ui/button.ts';
@@ -19,10 +20,6 @@ export function setDebugMode(on: boolean) {
 export function onDebugModeChanged(listener: (isEnabled: boolean) => void) {
   debugModeListeners.add(listener);
   return () => debugModeListeners.delete(listener);
-}
-
-export function isDebugModeEnabled() {
-  return _debugMode;
 }
 
 
@@ -195,10 +192,14 @@ export function closeDebugOverlay(ui: SessionUi) {
   ui.debugOpen = false;
 }
 
+export function showsDebugItems(ui: SessionUi): boolean {
+  return _debugMode && ui.agent !== SHELL_AGENT_ID;
+}
+
 function updateDebugVisibility() {
   for (const [, ui] of sessionUIs) {
-    ui.btnDebug.classList.toggle('visible', _debugMode);
-    ui.btnTrace.classList.toggle('visible', _debugMode);
+    ui.btnDebug.classList.toggle('visible', showsDebugItems(ui));
+    ui.btnTrace.classList.toggle('visible', showsDebugItems(ui));
     if (_debugMode) continue;
     if (ui.debugOpen) closeDebugOverlay(ui);
   }

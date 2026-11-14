@@ -134,7 +134,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   },
   { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, updatedAt: NOW } } },
   { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
-  { type: 'session-setup-response', requestId: 'r-setup', id: 'session-1', ok: true, setup: { model: null, mcpServers: [], plugins: [], skills: [], agents: [], hookEvents: [], hookCommands: [] } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

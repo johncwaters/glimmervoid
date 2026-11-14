@@ -231,16 +231,41 @@
 }
 
 .wb-presence-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   max-width: 32ch;
   height: 20px;
-  padding: 0 8px;
-  overflow: hidden;
+  padding: 0 4px 0 8px;
   border: 1px solid var(--state-running);
   border-radius: 999px;
   color: var(--state-running);
   line-height: 20px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.wb-presence-count.wb-presence-pill { padding-right: 8px; }
+
+.wb-presence-name { overflow: hidden; text-overflow: ellipsis; }
+
+.wb-presence-disconnect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.wb-presence-disconnect .line-icon { width: 10px; height: 10px; }
+.wb-presence-disconnect:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+@media (hover: hover) {
+  .wb-presence-disconnect:hover { color: var(--text-head); }
 }
 
 .wb-presence-none { color: var(--text-muted); }

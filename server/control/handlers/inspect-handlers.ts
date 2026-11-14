@@ -2,9 +2,8 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
-import { readSessionSetup } from '../../session/session-setup-wiring.ts';
 import type { ControlContext } from '../control-context.ts';
-import { SESSION_GONE_TEXT, replyTo, sendError } from '../control-context.ts';
+import { SESSION_GONE_TEXT, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
 function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
@@ -58,18 +57,6 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
       if (!journal.ok) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: journal.error }));
       ws.send(JSON.stringify({ ...reply, ok: true, entries: journal.entries }));
     },
-    'session-setup': async (message: ClientMessageOf<'session-setup'>, ws: ControlSocket) => {
-      const session = findSession(message);
-      if (!session) return replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'Session not found' });
-      const transcriptPath = session.transcriptPath;
-      if (session.agentId !== 'claude-code' || !transcriptPath) return replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'No Claude Code transcript for this session yet' });
-      try {
-        const setup = await readSessionSetup(transcriptPath);
-        replyTo(ws, message, 'session-setup-response', { id: message.id, ok: true, setup });
-      } catch {
-        replyTo(ws, message, 'session-setup-response', { id: message.id, ok: false, error: 'Could not read the Claude Code transcript for this session' });
-      }
-    },
     'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
       const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
       const session = findSession(message);
@@ -87,7 +74,6 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
     'session-doc-asset-read': (msg, requestId, message) => ({ type: 'session-doc-asset-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', src: typeof msg?.src === 'string' ? msg.src : '', ok: false, error: message }),
     'session-doc-save': (msg, requestId, message) => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-coherence-journal': (msg, requestId, message) => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
-    'session-setup': (msg, requestId, message) => ({ type: 'session-setup-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: ['debug-state', 'session-trace'] };

@@ -17,7 +17,7 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
-import { createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
@@ -42,7 +42,7 @@ import { MAX_MEDIA_SCALE } from './media-zoom-core.ts';
 import { applyDocsToOpenEditor, openDocEditorOn } from '../doc-editor/doc-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, createBoard, deleteBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
 
@@ -102,6 +102,7 @@ interface BoardsViewParts {
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
   queuedForSession: HTMLElement;
+  pairedDisconnect: HTMLElement;
   buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolHint: HTMLElement;
@@ -360,13 +361,10 @@ function buildBoardMenu(onBoardSettings: () => void) {
   };
   const boardSettingsItem = actionItem('Board settings', onBoardSettings);
   const actionItems = [
-    actionItem('Rename board', startTitleRename),
     actionItem('New board', newBoardFromDialog),
     actionItem('Import board', pickBoardFileToImport),
+    actionItem('Export board', openExportBoardDialog),
     boardSettingsItem,
-    actionItem('Export SVG', () => void exportBoardPicture('svg')),
-    actionItem('Export PNG', () => void exportBoardPicture('png')),
-    actionItem('Export board file', () => void exportBoardFile()),
     actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
   menu.addEventListener('click', (event) => {
@@ -416,13 +414,49 @@ function paintBoardEditedAge(): void {
   if (parts.boardMeta.textContent !== editedText) parts.boardMeta.textContent = editedText;
 }
 
-function paintPresence(connectedSessionIds: readonly string[]): void {
+function confirmDisconnectSession(boardId: string, sessionId: string): void {
+  const summary = boardSummariesOf().find((candidate) => candidate.id === boardId);
+  if (!summary) return;
+  openConfirmDialog({
+    title: 'Disconnect session',
+    message: `Disconnect ${sessionLabel(sessionId)} from ${summary.title}? It stops getting summaries of changes to the board until it connects again.`,
+    confirmLabel: 'Disconnect',
+    onConfirm: () => {
+      void disconnectSessionFromBoard(boardId, sessionId).then((outcome) => {
+        if (!outcome.ok) status.show('error', outcome.error);
+      });
+    },
+  });
+}
+
+function disconnectControl(sessionName: string, onChoose: () => void): HTMLElement {
+  const disconnect = createPressable('wb-presence-disconnect');
+  disconnect.setAttribute('aria-label', `Disconnect ${sessionName}`);
+  disconnect.append(createLineIcon(CLOSE_ICON_PATH));
+  disconnect.addEventListener('click', onChoose);
+  return disconnect;
+}
+
+function presencePill(boardId: string, sessionId: string): HTMLElement {
+  const name = sessionLabel(sessionId);
+  const pill = el('span', 'wb-presence-pill');
+  pill.append(el('span', 'wb-presence-name', name), disconnectControl(name, () => confirmDisconnectSession(boardId, sessionId)));
+  return pill;
+}
+
+function disconnectPairedSession(): void {
+  const summary = selectedSummary();
+  if (!summary || !pairedSessionId) return;
+  confirmDisconnectSession(summary.id, pairedSessionId);
+}
+
+function paintPresence(boardId: string | null, connectedSessionIds: readonly string[]): void {
   if (!parts) return;
   const connectedNames = connectedSessionIds.map(sessionLabel);
-  const pillNames = connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map(sessionLabel);
   const connectedCount = el('span', connectedNames.length === 0 ? 'wb-presence-count wb-presence-none' : 'wb-presence-count wb-presence-pill', `${connectedNames.length} connected`);
   if (connectedNames.length > 0) connectedCount.append(el('span', 'sr-only', `: ${connectedNames.join(', ')}`));
-  parts.presence.replaceChildren(...pillNames.map((name) => el('span', 'wb-presence-pill', name)), connectedCount);
+  const pills = boardId === null ? [] : connectedSessionIds.filter((sessionId) => sessionId !== pairedSessionId).map((sessionId) => presencePill(boardId, sessionId));
+  parts.presence.replaceChildren(...pills, connectedCount);
   if (connectedNames.length === 0) parts.presence.prepend(el('span', 'wb-presence-none', 'no sessions connected'));
 }
 
@@ -437,11 +471,13 @@ function queuedForSessionText(summary: BoardSummary | null, sessionId: string): 
 function paintPairedSession(): void {
   if (!parts) return;
   const summary = selectedSummary();
-  paintPresence(summary?.connectedSessionIds ?? []);
+  paintPresence(summary?.id ?? null, summary?.connectedSessionIds ?? []);
   parts.agentIsland.hidden = !pairedSessionId;
   if (!pairedSessionId) return;
   parts.agentIsland.toggleAttribute('data-idle', !hasNewsForPairedSession(summary, pairedSessionId));
   parts.queuedForSession.textContent = queuedForSessionText(summary, pairedSessionId);
+  parts.pairedDisconnect.hidden = !summary?.connectedSessionIds.includes(pairedSessionId);
+  parts.pairedDisconnect.setAttribute('aria-label', `Disconnect ${sessionLabel(pairedSessionId)}`);
 }
 
 function hasNewsForPairedSession(summary: BoardSummary | null, sessionId: string): boolean {
@@ -945,12 +981,42 @@ function addFrame(): void {
   });
 }
 
-function exportBoardPicture(format: 'svg' | 'png'): Promise<void> {
-  return downloadBoardExport(`${WHITEBOARD_PICTURE_ROUTE}/{boardId}/picture.${format}`, `.${format}`);
+const BOARD_EXPORT_FORMATS = [
+  { value: 'svg', label: 'SVG picture', routeTemplate: `${WHITEBOARD_PICTURE_ROUTE}/{boardId}/picture.svg`, extension: '.svg' },
+  { value: 'png', label: 'PNG picture', routeTemplate: `${WHITEBOARD_PICTURE_ROUTE}/{boardId}/picture.png`, extension: '.png' },
+  { value: 'board-file', label: 'Board file, to import elsewhere', routeTemplate: `${WHITEBOARD_FILE_ROUTE}/{boardId}/${BOARD_FILE_DOWNLOAD_NAME}`, extension: BOARD_FILE_EXTENSION },
+] as const;
+
+function buildExportFormatChoice(format: typeof BOARD_EXPORT_FORMATS[number], isChecked: boolean): HTMLLabelElement {
+  const choice = el('label', 'dialog-checkbox-label');
+  const radio = el('input');
+  radio.type = 'radio';
+  radio.name = 'board-export-format';
+  radio.className = 'dialog-checkbox';
+  radio.value = format.value;
+  radio.checked = isChecked;
+  choice.append(radio, el('span', null, format.label));
+  return choice;
 }
 
-function exportBoardFile(): Promise<void> {
-  return downloadBoardExport(`${WHITEBOARD_FILE_ROUTE}/{boardId}/${BOARD_FILE_DOWNLOAD_NAME}`, BOARD_FILE_EXTENSION);
+function openExportBoardDialog(): void {
+  if (!selectedSummary()) return;
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Export board' });
+  const formatList = el('fieldset', 'dialog-workspace-list');
+  formatList.setAttribute('aria-label', 'Export format');
+  formatList.append(...BOARD_EXPORT_FORMATS.map((format, index) => buildExportFormatChoice(format, index === 0)));
+  const btnExport = button({ variant: 'primary', label: 'Export' });
+  actions.append(btnExport);
+  dialog.append(formatList, actions);
+  btnCancel.addEventListener('click', close);
+  btnExport.addEventListener('click', () => {
+    const pickedValue = formatList.querySelector<HTMLInputElement>('input:checked')?.value;
+    const pickedFormat = BOARD_EXPORT_FORMATS.find((format) => format.value === pickedValue);
+    if (!pickedFormat) return;
+    close();
+    void downloadBoardExport(pickedFormat.routeTemplate, pickedFormat.extension);
+  });
+  requestAnimationFrame(() => btnExport.focus());
 }
 
 async function downloadBoardExport(routeTemplate: string, extension: string): Promise<void> {
@@ -1201,7 +1267,9 @@ export function mountBoardHost(): HTMLElement {
   viewport.append(glCanvas, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
-  const agentIsland = island('wb-island-agent', 'Session', queuedForSession);
+  const pairedDisconnect = disconnectControl('session', disconnectPairedSession);
+  pairedDisconnect.hidden = true;
+  const agentIsland = island('wb-island-agent', 'Session', queuedForSession, pairedDisconnect);
   agentIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
   bottomLeftStack.append(agentIsland);
@@ -1223,7 +1291,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, pairedDisconnect, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,

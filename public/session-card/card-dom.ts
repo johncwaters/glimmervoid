@@ -31,17 +31,6 @@ export function setCardCoherenceJournal(journal: CardCoherenceJournal) {
   cardCoherenceJournal = journal;
 }
 
-let openCardSessionSetup: ((sessionId: string) => void) | null = null;
-let openCardConnectBoard: ((sessionId: string) => void) | null = null;
-
-export function setCardConnectBoard(open: (sessionId: string) => void) {
-  openCardConnectBoard = open;
-}
-
-export function setCardSessionSetup(open: (sessionId: string) => void) {
-  openCardSessionSetup = open;
-}
-
 export type { CardOptions };
 
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
@@ -114,7 +103,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.setAttribute('role', 'menu');
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
-  const btnRename = buildMenuItem('Rename session', 'overflow-rename visible');
   const btnRestart = buildMenuItem('Restart', 'overflow-restart');
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
@@ -124,13 +112,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     sessionMenu.classList.remove('open');
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
-  };
-  const btnConnectBoard = buildMenuItem('Connect board', 'overflow-connect-board visible');
-  btnConnectBoard.setAttribute('aria-haspopup', 'dialog');
-  btnConnectBoard.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openCardConnectBoard?.(sessionId);
   };
   const btnCoherenceJournal = buildMenuItem('Coherence journal', 'overflow-coherence-journal');
   btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
@@ -152,13 +133,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     cardCoherenceJournal?.open(sessionId);
   };
-  const btnSessionSetup = buildMenuItem('Session setup', 'overflow-session-setup visible');
-  btnSessionSetup.setAttribute('aria-haspopup', 'dialog');
-  btnSessionSetup.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openCardSessionSetup?.(sessionId);
-  };
   const btnQuestionManager = buildMenuItem('Question manager', 'overflow-question-manager');
   btnQuestionManager.setAttribute('role', 'menuitemcheckbox');
   paintQuestionManager(card, btnQuestionManager, options.isQuestionManagerOn ?? null);
@@ -176,7 +150,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnRename, btnWorkspaceRepos, btnCoherenceJournal, btnSessionSetup, btnWakes, btnQuestionManager, btnLinkPr, btnConnectBoard, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnWorkspaceRepos, btnCoherenceJournal, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
@@ -209,7 +183,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   card.append(header, termWrap);
   headerByCard.set(card, header);
 
-  return { card, header, nameEl, taskTitleEl, btnRename, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnDocs, btnDebug, sessionMenu, termWrap };
+  return { card, header, nameEl, taskTitleEl, btnRestart, btnSessionMenu, btnWorkspaceRepos, tags, btnTrace, btnRemove, btnDocs, btnDebug, sessionMenu, termWrap };
 }
 
 function openLinkPullRequestDialog(sessionId: string) {

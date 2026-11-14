@@ -27,7 +27,6 @@ export interface SessionUi {
   sessionMenu: HTMLDivElement;
   termWrap: HTMLDivElement;
   btnDebug: HTMLButtonElement;
-  btnRename: HTMLButtonElement;
   btnRestart: HTMLButtonElement;
   btnSessionMenu: HTMLButtonElement;
   btnWorkspaceRepos: HTMLButtonElement;

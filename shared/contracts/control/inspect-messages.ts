@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { COHERENCE_JOURNAL_DRAWER_MAX_ROWS, CoherenceJournalEntry, SessionCoherence } from '../coherence.ts';
 import { SessionDoc } from '../session.ts';
 import { TraceRecord } from '../trace.ts';
-import { SessionSetup } from '../session-setup.ts';
 import { requestId, sessionId, loose, optionalError, opaqueObject, sessionDocPath } from './control-fields.ts';
 
 export const inspectClientVariants = [
@@ -16,7 +15,6 @@ export const inspectClientVariants = [
   loose('session-doc-asset-read', { id: sessionId, path: sessionDocPath, src: sessionDocPath, requestId }),
   loose('session-doc-save', { id: sessionId, path: sessionDocPath, text: z.string(), baseHash: z.string().min(1), requestId }),
   loose('session-coherence-journal', { id: sessionId, requestId }),
-  loose('session-setup', { id: sessionId, requestId }),
 ] as const;
 
 export const inspectServerVariants = [
@@ -39,5 +37,4 @@ export const inspectServerVariants = [
   loose('session-coherence', { id: sessionId, ...SessionCoherence.shape }),
   loose('session-coherence-snapshot', { sessions: z.record(z.string(), SessionCoherence) }),
   loose('session-coherence-journal-response', { requestId, id: sessionId, ok: z.boolean(), entries: z.array(CoherenceJournalEntry).max(COHERENCE_JOURNAL_DRAWER_MAX_ROWS), error: optionalError }),
-  loose('session-setup-response', { requestId, id: sessionId, ok: z.boolean(), setup: SessionSetup.optional(), error: optionalError }),
 ] as const;
