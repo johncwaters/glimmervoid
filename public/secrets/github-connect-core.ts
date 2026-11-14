@@ -1,6 +1,6 @@
 import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 
-const GITHUB_CONNECT_CONTROLS = ['connect', 'open-github', 'install', 'disconnect'] as const;
+const GITHUB_CONNECT_CONTROLS = ['connect', 'open-github', 'install', 'add-accounts', 'disconnect'] as const;
 type GithubConnectControl = typeof GITHUB_CONNECT_CONTROLS[number];
 
 type GithubConnectView = {
@@ -28,6 +28,12 @@ function minutesLeft(expiresAtMs: number, nowMs: number): number {
   return Math.max(1, Math.ceil((expiresAtMs - nowMs) / 60_000));
 }
 
+function connectedTextOf(login: string, accounts: readonly string[]): string {
+  const otherAccounts = accounts.filter((account) => account !== login);
+  if (otherAccounts.length === 0) return `Connected as ${login}.`;
+  return `Connected as ${login}. App installed on ${accounts.join(', ')}.`;
+}
+
 function githubConnectViewOf(connection: GithubConnection | null | 'reading', nowMs: number): GithubConnectView {
   const view = { controls: [], isConnectWaiting: false, recheckAfterMs: null };
   if (connection === 'reading') return { ...view, text: 'Reading the GitHub connection.' };
@@ -52,7 +58,7 @@ function githubConnectViewOf(connection: GithubConnection | null | 'reading', no
         recheckAfterMs: NEEDS_INSTALL_RECHECK_MS,
       };
     case 'connected':
-      return { ...view, text: `Connected as ${connection.login}: ${connection.accounts.join(', ')}`, controls: ['install', 'disconnect'] };
+      return { ...view, text: connectedTextOf(connection.login, connection.accounts), controls: ['add-accounts', 'disconnect'] };
     case 'reconnect-needed':
       return { ...view, text: `GitHub access for ${connection.login} ${RECONNECT_REASON_TEXT[connection.reason]}. Agents cannot push.`, controls: ['connect'] };
   }

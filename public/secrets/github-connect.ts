@@ -47,14 +47,17 @@ function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect 
     'open-github': button({ variant: 'secondary', label: 'Open GitHub', action: 'github-open-device-page', onClick: () => {
       if (connection !== null && connection !== 'reading' && connection.state === 'awaiting-code') openExternalUrl(connection.verificationUri);
     } }),
-    install: button({ variant: 'secondary', label: 'Install the App', action: 'github-install-app', onClick: () => {
-      if (connection !== null && connection !== 'reading' && (connection.state === 'needs-install' || connection.state === 'connected')) openExternalUrl(connection.installUrl);
-    } }),
+    install: button({ variant: 'secondary', label: 'Install the App', action: 'github-install-app', onClick: openInstallPage }),
+    'add-accounts': button({ variant: 'quiet', label: 'Add accounts', action: 'github-install-app', onClick: openInstallPage }),
     disconnect: button({ variant: 'secondary', label: 'Disconnect', action: 'github-disconnect', onClick: () => { void request('disconnect'); } }),
   };
   const controlRow = el('div', layout === 'stacked' ? 'github-connect-stacked-actions' : 'settings-telegram-test');
   controlRow.append(...GITHUB_CONNECT_CONTROLS.map((controlName) => buttonsByControl[controlName]), requestStatus.element);
   article.append(...(layout === 'stacked' ? [description, controlRow] : settingColumnsOf(description, controlRow)));
+
+  function openInstallPage(): void {
+    if (connection !== null && connection !== 'reading' && (connection.state === 'needs-install' || connection.state === 'connected')) openExternalUrl(connection.installUrl);
+  }
 
   function paint(): void {
     const view = githubConnectViewOf(connection, clock.nowMs());
