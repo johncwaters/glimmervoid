@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.4] - 2026-11-14
+
 ### Added
 
 - **Settings opens with whether this host is ready for agents to commit as you.** Four lines at the top of Settings read GitHub, git identity, `gh` and commit signing, each with its state in a sentence and, where something is missing, the one button that fixes it: Connect GitHub, Set up or Register on GitHub.
