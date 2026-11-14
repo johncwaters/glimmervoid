@@ -1,0 +1,85 @@
+---
+import { ANIMALS } from '../../../../public/nyan-animals-core.ts';
+import { REPOSITORY_URL } from '../../lib/product-facts.ts';
+
+const skyAnimals = JSON.stringify(ANIMALS.map(({ sprite, trail }) => ({ sprite, trail })));
+const STATS = [
+  { value: '3', label: 'First-class agents' },
+  { value: '0', label: 'Screens scraped for status' },
+  { value: String(ANIMALS.length), label: 'Animals that fly when you merge' },
+  { value: '1', label: 'Session that needs you' },
+];
+---
+<section class="band">
+  <div class="reveal">
+    <p class="band-label">Open source</p>
+    <h2>Read every line.</h2>
+    <p class="band-lede">MIT on GitHub at <a href={REPOSITORY_URL}>johncwaters/glimmervoid</a>.</p>
+    <ul class="stats">
+      {STATS.map(({ value, label }) => <li><span class="stat-value">{value}</span><span>{label}</span></li>)}
+    </ul>
+    <div class="source-actions">
+      <a class="btn" href={`${REPOSITORY_URL}#readme`}>Docs</a>
+      <a class="btn btn-primary" href={REPOSITORY_URL} data-github-star>Star on GitHub</a>
+    </div>
+  </div>
+  <div class="merge">
+    <button class="btn" type="button" id="merge-demo">Merge a session</button>
+    <p id="merge-status" role="status">Every merge gets a flyby.</p>
+  </div>
+  <div class="sky merge-sky" id="merge-sky" aria-hidden="true" data-animals={skyAnimals}></div>
+</section>
+
+<style>
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; margin: 32px 0 0; padding: 0; border-top: 1px solid var(--border-dim); }
+  .stats li { display: flex; flex-direction: column; gap: 10px; padding: 24px 0 8px 24px; border-left: 1px solid var(--border-dim); color: var(--text-dim); font-size: var(--type-body); }
+  .stats li:first-child { padding-left: 0; border-left: 0; }
+  .stat-value { color: var(--text-head); font-size: clamp(56px, 7vw, 88px); letter-spacing: -.04em; line-height: 1; }
+  .source-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 36px; }
+  .source-actions .btn { text-decoration: none; }
+  .merge { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 80px; padding-top: 28px; border-top: 1px solid var(--border-dim); }
+  .merge p { color: var(--text-dim); font-size: var(--type-body); }
+  .merge-sky { position: relative; height: 96px; margin-inline: calc(50% - 50vw); overflow: hidden; pointer-events: none; }
+  @media (max-width: 640px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stats li:nth-child(3) { padding-left: 0; border-left: 0; }
+  }
+</style>
+
+<script>
+  import { launchAnimalFlight } from '../../lib/animal-flight.ts';
+  import type { FlyingAnimalLook } from '../../lib/animal-flight.ts';
+  import { captureSiteEvent } from '../../lib/analytics.ts';
+  import { prefersReducedMotion } from '../../lib/dom.ts';
+
+  const FLYBY_SIZE = 4;
+  const FLYBY_STAGGER_MS = 500;
+
+  function isSkyAnimal(candidate: unknown): candidate is FlyingAnimalLook {
+    if (typeof candidate !== 'object' || candidate === null) return false;
+    return 'sprite' in candidate && typeof candidate.sprite === 'string' && 'trail' in candidate && typeof candidate.trail === 'string';
+  }
+
+  function readSkyAnimals(sky: HTMLElement): FlyingAnimalLook[] {
+    const parsed: unknown = JSON.parse(sky.dataset.animals ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isSkyAnimal);
+  }
+
+  function flyAnimalsAcross(sky: HTMLElement): void {
+    if (prefersReducedMotion() || sky.childElementCount > 0) return;
+    const skyAnimals = readSkyAnimals(sky).sort(() => Math.random() - 0.5).slice(0, FLYBY_SIZE);
+    skyAnimals.forEach((animal, flightIndex) => {
+      setTimeout(() => launchAnimalFlight(sky, animal, 4 + (flightIndex % 2) * 40), flightIndex * FLYBY_STAGGER_MS);
+    });
+  }
+
+  const mergeButton = document.getElementById('merge-demo');
+  const mergeStatus = document.getElementById('merge-status');
+  const mergeSky = document.getElementById('merge-sky');
+  mergeButton?.addEventListener('click', () => {
+    if (mergeStatus) mergeStatus.textContent = 'fix-auth-redirect merged into main.';
+    if (mergeSky) flyAnimalsAcross(mergeSky);
+  });
+  document.querySelector('[data-github-star]')?.addEventListener('click', () => captureSiteEvent({ event: 'github_star_clicked', properties: { location: 'install' } }));
+</script>

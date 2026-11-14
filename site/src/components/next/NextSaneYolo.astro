@@ -1,0 +1,54 @@
+---
+import StateIcon from './StateIcon.astro';
+
+const NET_COMMANDS = [
+  { command: 'npm test', isRefused: false },
+  { command: 'git commit -m "auth router"', isRefused: false },
+  { command: 'git reset --hard origin/main', isRefused: true },
+  { command: 'cat ~/.ssh/id_ed25519', isRefused: true },
+];
+const NET_RULES = [
+  { title: 'Commands', detail: 'Run without prompts' },
+  { title: 'Reads', detail: 'Everywhere except credentials' },
+  { title: 'Writes', detail: 'Anywhere' },
+];
+---
+<section class="band" id="sane-yolo">
+  <div class="split reveal">
+    <div>
+      <p class="band-label">Sane YOLO</p>
+      <h2>You only live once. Your repo gets a net.</h2>
+      <p class="band-lede">Sane YOLO skips the prompts. Safe commands run. The rest land in the net.</p>
+    </div>
+    <div class="panel">
+      <h3>See exactly what is blocked</h3>
+      <p>Accident protection, not a security boundary.</p>
+      <ul class="net">
+        {NET_COMMANDS.map(({ command, isRefused }) => (
+          <li><span class="prompt">$</span>{command}<span class="verdict" data-refused={String(isRefused)}><StateIcon icon={isRefused ? 'failed' : 'complete'} />{isRefused ? 'refused' : 'ran'}</span></li>
+        ))}
+      </ul>
+      <dl class="net-rules">
+        {NET_RULES.map(({ title, detail }) => <div><dt>{title}</dt><dd>{detail}</dd></div>)}
+      </dl>
+    </div>
+  </div>
+</section>
+
+<style>
+  .net { list-style: none; margin: 20px 0 0; padding: 12px 16px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg); font-size: 13px; line-height: 2.1; }
+  .net li { display: flex; gap: 12px; align-items: center; min-width: 0; }
+  .prompt { color: var(--text-dim); }
+  .verdict { display: flex; gap: 6px; align-items: center; margin-left: auto; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--state-complete); }
+  .verdict[data-refused="true"] { color: var(--state-failed); }
+  .net-rules { display: grid; grid-template-columns: repeat(3, 1fr); margin: 20px 0 0; border-top: 1px solid var(--border-dim); }
+  .net-rules div { padding: 14px 16px 12px 0; }
+  .net-rules div + div { padding-left: 16px; border-left: 1px solid var(--border-dim); }
+  .net-rules dt { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
+  .net-rules dd { margin: 0; color: var(--text-dim); font-size: var(--type-body); }
+  @media (max-width: 640px) {
+    .net-rules { grid-template-columns: 1fr; }
+    .net-rules div, .net-rules div + div { padding: 12px 0; border-left: 0; }
+    .net-rules div + div { border-top: 1px solid var(--border-dim); }
+  }
+</style>

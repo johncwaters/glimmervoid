@@ -1,0 +1,62 @@
+---
+import { DEFAULT_PORT, PRODUCT_VERSION } from '../../lib/product-facts.ts';
+
+const BOOT_LINES = [`GLIMMERVOID ${PRODUCT_VERSION}`, `Open http://localhost:${DEFAULT_PORT}`, 'Ctrl+C stops the server.'];
+const NEXT_COMMANDS = [
+  { command: 'glimmervoid doctor', line: 'Checks PATH, agent CLIs and node-pty' },
+  { command: 'glimmervoid pair', line: 'Links your phone' },
+  { command: 'glimmervoid-update', line: 'Updates to the latest release' },
+];
+---
+<section class="band" id="install">
+  <div class="split reveal">
+    <div>
+      <p class="band-label">Get started</p>
+      <h2>Shipping in a minute.</h2>
+      <p class="band-lede">One command at the top of this page. No Node needed. No account needed.</p>
+      <a class="btn band-action" href="#hero-install">Get the install command</a>
+    </div>
+    <div class="panel">
+      <h3>After the install</h3>
+      <p>Run <code>glimmervoid</code> and open the dashboard.</p>
+      <pre class="boot">{BOOT_LINES.map((line, lineIndex) => <span class:list={['boot-line', { 'is-banner': lineIndex === 0 }]}>{line}</span>)}</pre>
+      <ul class="next-commands">
+        {NEXT_COMMANDS.map(({ command, line }) => (
+          <li data-next-command>
+            <code data-copy-source title="Click to copy">{command}</code>
+            <span class="command-line">{line}</span>
+            <button class="btn" type="button" data-copy-control>Copy</button>
+            <span class="copy-status" data-copy-status role="status"></span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .band-action { display: inline-block; margin-top: 28px; text-decoration: none; }
+  .boot { margin: 20px 0 0; padding: 14px 16px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg); font-family: var(--font-mono); font-size: 13px; line-height: 1.9; color: var(--text-dim); white-space: normal; }
+  .boot-line { display: block; }
+  .boot-line.is-banner { color: var(--text-head); font-weight: 700; letter-spacing: .1em; }
+  .next-commands { list-style: none; margin: 20px 0 0; padding: 0; }
+  .next-commands li { display: grid; grid-template-columns: auto 1fr auto 9ch; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border-dim); }
+  .next-commands code { padding: 2px 8px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-surface); font-family: var(--font-mono); font-size: 13px; cursor: copy; }
+  .command-line { color: var(--text-dim); font-size: var(--type-body); }
+  .next-commands .btn { padding: 4px 12px; }
+  @media (max-width: 640px) {
+    .next-commands li { grid-template-columns: 1fr auto; }
+    .command-line { grid-column: 1 / -1; grid-row: 2; }
+  }
+</style>
+
+<script>
+  import { wireCopyControl } from '../../lib/install-picker.ts';
+
+  for (const row of document.querySelectorAll<HTMLElement>('[data-next-command]')) {
+    const copySource = row.querySelector<HTMLElement>('[data-copy-source]');
+    const copyControl = row.querySelector<HTMLElement>('[data-copy-control]');
+    const copyStatus = row.querySelector<HTMLElement>('[data-copy-status]');
+    if (copySource && copyControl && copyStatus) wireCopyControl(copyControl, copySource, copyStatus, () => copySource);
+  }
+</script>

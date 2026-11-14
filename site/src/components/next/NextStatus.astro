@@ -1,0 +1,45 @@
+---
+import { BRAND_INK, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
+import StateIcon from './StateIcon.astro';
+import type { StatusIcon } from '../../../../shared/state-icons.ts';
+
+const STATE_ROWS: readonly { label: string; icon: StatusIcon; colorToken: string; meaning: string; action: string }[] = [
+  { label: 'Needs input', icon: 'needs-input', colorToken: '--state-waiting', meaning: 'A question waits on your answer.', action: 'Alt+J' },
+  { label: 'Failed', icon: 'failed', colorToken: '--state-failed', meaning: 'The agent stopped on an error.', action: 'Open it' },
+  { label: 'Complete', icon: 'complete', colorToken: '--state-complete', meaning: 'The turn ended with a result.', action: 'Review' },
+  { label: 'Working', icon: 'working', colorToken: '--state-running', meaning: 'Nothing for you yet.', action: 'Leave it' },
+];
+const TAB_LIGHT_TOKENS = ['--accent', '--state-waiting', '--state-failed'];
+const tabLightMarkup = brandMarkMarkup({ frame: BRAND_INK, light: 'currentColor' });
+---
+<section class="band">
+  <div class="split reveal">
+    <div>
+      <p class="band-label">Status</p>
+      <h2>Six terminals and a guess.</h2>
+      <p class="band-lede">Status comes from your agents' own hooks, not from reading the screen.</p>
+    </div>
+    <div class="panel">
+      <h3>What each state asks of you</h3>
+      <ul class="rows">
+        {STATE_ROWS.map(({ label, icon, colorToken, meaning, action }) => (
+          <li><span class="state-name" style={`color: var(${colorToken})`}><StateIcon icon={icon} />{label}</span>{meaning}<span class="row-end">{action}</span></li>
+        ))}
+      </ul>
+      <div class="tab-lights">
+        {TAB_LIGHT_TOKENS.map((colorToken) => (
+          <span class="tab-light" style={`color: var(${colorToken})`}><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={tabLightMarkup}></svg></span>
+        ))}
+        <p>The browser tab's light turns amber when a session needs you, red when one failed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .state-name { display: flex; gap: 8px; align-items: center; width: 150px; flex: none; font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .tab-lights { display: flex; gap: 12px; align-items: center; border-top: 1px solid var(--border-dim); padding: 16px 0 12px; color: var(--text-dim); font-size: var(--type-body); }
+  .tab-light { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: var(--radius-lg); background: var(--bg); }
+  .tab-light svg { width: 20px; height: 20px; }
+  @media (max-width: 640px) { .state-name { width: auto; } }
+</style>

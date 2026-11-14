@@ -1,0 +1,61 @@
+---
+import { sitePath } from '../../lib/site-path.ts';
+
+const PLAN_STEPS = [
+  { title: 'settings screen', detail: 'prototype', status: 'landed', left: 24, top: 40 },
+  { title: 'layout dial', detail: 'compact or roomy', status: 'building', left: 250, top: 40 },
+  { title: 'save action', detail: 'sticky footer', status: 'planned', left: 250, top: 160 },
+];
+---
+<section class="band" id="boards">
+  <div class="split reveal">
+    <div>
+      <p class="band-label">Boards</p>
+      <h2>Point, don't paragraph.</h2>
+      <p class="band-lede">Your agent puts the screen on a board beside its terminal. Turn a dial, circle what is wrong, and it sees your marks on its next prompt.</p>
+      <a class="btn band-action" href={sitePath('#boards')}>Try the board demo</a>
+    </div>
+    <div class="panel">
+      <h3>settings-redesign</h3>
+      <p>A prototype, the plan as steps, and your marks on both.</p>
+      <div class="board" aria-hidden="true">
+        <svg class="wires" aria-hidden="true"><path d="M157 73 H250 M90 126 V193 H250" /></svg>
+        {PLAN_STEPS.map(({ title, detail, status, left, top }) => (
+          <div class="plan-step" style={`left: ${left}px; top: ${top}px`}>{title}<small>{detail}</small><span class="step-status" data-status={status}>{status}</span></div>
+        ))}
+        <p class="sticky-note">Save sits too low.</p>
+        <div class="prototype"><i style="width: 60%"></i><i></i><i style="width: 80%"></i><i class="gap" style="width: 70%"></i><i></i><b></b></div>
+        <div class="pen-circle"></div>
+      </div>
+      <div class="dials">
+        <span class="dial">Accent <i><b></b></i></span>
+        <span class="dial">Layout: compact</span>
+        <span class="dial">Header: bigger</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .band-action { display: inline-block; margin-top: 28px; text-decoration: none; }
+  .board { position: relative; container-type: inline-size; height: 330px; margin-top: 20px; overflow: hidden; border: 1px solid var(--border-dim); border-radius: var(--radius); background-color: var(--bg); background-image: radial-gradient(circle, var(--border) 1px, transparent 1.5px); background-size: 16px 16px; }
+  .wires { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .wires path { fill: none; stroke: var(--accent-dim); stroke-width: 1.5; }
+  .plan-step { position: absolute; padding: 10px 12px; border: 1px solid var(--border-hover); border-radius: var(--radius); background: var(--bg-card); font-size: var(--type-meta); color: var(--text-head); }
+  .plan-step small { display: block; margin-top: 2px; color: var(--text-dim); font-size: 11px; }
+  .step-status { display: inline-block; margin-top: 6px; padding: 1px 6px; border: 1px solid; border-radius: 2px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+  .step-status[data-status="landed"] { color: var(--state-complete); }
+  .step-status[data-status="building"] { color: var(--accent); }
+  .step-status[data-status="planned"] { color: var(--text-dim); }
+  .sticky-note { position: absolute; left: 40px; top: 236px; padding: 9px 12px; border-radius: 2px; rotate: -3deg; background: var(--state-idle); color: var(--bg); font-family: var(--font-doc); font-size: var(--type-body); }
+  .prototype { position: absolute; right: 28px; top: 24px; width: 148px; height: 280px; padding: 18px 12px; border: 6px solid var(--border-dim); border-radius: 22px; background: var(--bg-card); }
+  .prototype i { display: block; height: 8px; margin-bottom: 8px; border-radius: 2px; background: var(--border); }
+  .prototype i.gap { margin-top: 18px; }
+  .prototype b { position: absolute; left: 12px; right: 12px; bottom: 14px; height: 28px; border-radius: var(--radius); background: var(--accent); }
+  .pen-circle { position: absolute; right: 10px; bottom: 4px; width: 172px; height: 58px; border: 2.5px solid var(--state-failed); border-radius: 50%; rotate: -6deg; }
+  .dials { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 0 16px; }
+  .dial { display: flex; gap: 8px; align-items: center; padding: 4px 10px; border: 1px solid var(--border-hover); border-radius: var(--radius); font-size: var(--type-meta); color: var(--text-head); }
+  .dial i { display: block; width: 28px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .dial i b { display: block; width: 60%; height: 100%; background: var(--accent); }
+  @container (max-width: 560px) { .prototype, .pen-circle { display: none; } }
+</style>
