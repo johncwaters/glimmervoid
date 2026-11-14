@@ -131,6 +131,8 @@ function ghFailure(error: unknown): CommandResult {
   return { ok: false, out: '', err: errorMessage(error) };
 }
 
+const NEVER_SENT_WITHOUT_SOURCE: CommandResult = Object.freeze({ ok: false, out: '', err: NO_GITHUB_SOURCE_TEXT });
+
 function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null, waitMs: (delayMs: number) => Promise<unknown> = waitFor, source: GithubSourceReader = GH_LOGIN_SOURCE): PrGh {
   function recordUsage(args: readonly string[], response: CommandResult): void {
     if (usage === null) return;
@@ -139,9 +141,9 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     for (const resource of githubCallResources(args)) usage.record({ operation, resource, points: githubCallPoints(args, resource, response.out), isOk });
   }
 
-  async function spawnGh(args: string[], input: string | undefined, preserveOutput: boolean, timeoutMs: number, sourceAlreadyRead?: GithubSource): Promise<CommandResult> {
+  async function spawnGh(args: string[], input: string | undefined, preserveOutput: boolean, timeoutMs: number, sourceAlreadyRead?: GithubSource): Promise<CommandResult | null> {
     const githubSource = sourceAlreadyRead ?? await source.current();
-    if (githubSource.kind === 'none') return { ok: false, out: '', err: NO_GITHUB_SOURCE_TEXT };
+    if (githubSource.kind === 'none') return null;
     const tokenEnv = githubSource.kind === 'connection' ? { GH_TOKEN: githubSource.token } : undefined;
     return commandRunner('gh', args, cwd, input, preserveOutput, timeoutMs, tokenEnv).catch(ghFailure);
   }
@@ -152,6 +154,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
 
   async function runGh(args: string[], input?: string, preserveOutput = false, timeoutMs = GH_READ_TIMEOUT_MS, sourceAlreadyRead?: GithubSource): Promise<CommandResult> {
     const response = await spawnGh(args, input, preserveOutput, timeoutMs, sourceAlreadyRead);
+    if (response === null) return NEVER_SENT_WITHOUT_SOURCE;
     recordUsage(args, response);
     return response;
   }
@@ -159,6 +162,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
   async function runGraphql(query: string, fieldArgs: readonly string[], timeoutMs = GH_READ_TIMEOUT_MS, attempt = 1): Promise<CommandResult> {
     const args = ['api', 'graphql', '-i', '-f', `query=${withRateLimitCost(query)}`, ...fieldArgs];
     const response = await spawnGh(args, undefined, false, timeoutMs);
+    if (response === null) return NEVER_SENT_WITHOUT_SOURCE;
     const httpResponse = ghHttpResponseOf(response.out);
     const bodyResponse = httpResponse === null ? response : { ...response, out: (httpResponse.body ?? '').trim() };
     recordUsage(args, bodyResponse);

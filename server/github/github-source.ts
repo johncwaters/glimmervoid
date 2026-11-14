@@ -14,7 +14,7 @@ interface GithubSourceDependencies {
 
 const GH_LOGIN_ANSWER_TTL_MS = 60_000;
 const GH_LOGIN_READ_TIMEOUT_MS = 20_000;
-const GH_WITHOUT_LOGIN_RE = /no oauth token|ENOENT/;
+const GH_WITHOUT_LOGIN_RE = /no oauth token|not logged in|ENOENT/i;
 const NO_GITHUB_SOURCE_TEXT = 'GitHub is not reachable: gh has no login on this machine and GitHub is not connected in Settings';
 const GH_LOGIN_SOURCE: GithubSourceReader = { current: async () => ({ kind: 'gh' }) };
 
@@ -24,8 +24,15 @@ function ghLoginAnswerOf(tokenRead: { ok: boolean; out: string; err: string }): 
   return 'unknown';
 }
 
+function ghStatusAnswerOf(statusRead: { ok: boolean; err: string }): GhLoginAnswer {
+  if (statusRead.ok) return 'present';
+  return GH_WITHOUT_LOGIN_RE.test(statusRead.err) ? 'absent' : 'unknown';
+}
+
 async function readGhLoginFromGh(): Promise<GhLoginAnswer> {
-  return ghLoginAnswerOf(await runGh(['auth', 'token'], { timeoutMs: GH_LOGIN_READ_TIMEOUT_MS }));
+  const tokenAnswer = ghLoginAnswerOf(await runGh(['auth', 'token'], { timeoutMs: GH_LOGIN_READ_TIMEOUT_MS }));
+  if (tokenAnswer !== 'unknown') return tokenAnswer;
+  return ghStatusAnswerOf(await runGh(['auth', 'status', '--hostname', 'github.com'], { timeoutMs: GH_LOGIN_READ_TIMEOUT_MS }));
 }
 
 function createGithubSource({ userCredential, readGhLogin = readGhLoginFromGh, now = clock.nowMs }: GithubSourceDependencies): GithubSourceReader {
