@@ -81,7 +81,36 @@ function gitCredentialShimText(cliLaunch: readonly string[]): string {
   return cliShimText(cliLaunch, 'git-credential');
 }
 
+const GH_SHIM_NAME = 'gh';
+const GH_SHIM_MARKER_LINE = 'GLIMMERVOID_GH_SHIM=1';
+const GH_SHIM_HEAD_BYTES = 64;
+
+function isGhShimHead(headText: string): boolean {
+  return headText.split('\n')[1] === GH_SHIM_MARKER_LINE;
+}
+
+function ghShimText(cliLaunch: readonly string[], shimDir: string): string {
+  return [
+    '#!/bin/sh',
+    GH_SHIM_MARKER_LINE,
+    'real_gh=',
+    'old_ifs=$IFS',
+    'IFS=:',
+    'for dir in $PATH; do',
+    `  if [ "$dir" != ${posixSingleQuote(shimDir)} ] && [ -f "$dir/gh" ] && [ -x "$dir/gh" ] && ! head -c ${GH_SHIM_HEAD_BYTES} "$dir/gh" 2>/dev/null | grep -q '^${GH_SHIM_MARKER_LINE}$'; then real_gh="$dir/gh"; break; fi`,
+    'done',
+    'IFS=$old_ifs',
+    `if [ -z "$real_gh" ]; then echo 'gh: command not found' >&2; exit 127; fi`,
+    'if [ -z "$GH_TOKEN$GITHUB_TOKEN" ] && ! "$real_gh" auth token >/dev/null 2>&1 && ! "$real_gh" auth status --hostname github.com >/dev/null 2>&1; then',
+    `  GH_TOKEN=$(printf 'protocol=https\\nhost=github.com\\n\\n' | ${cliLaunch.map(posixSingleQuote).join(' ')} git-credential get 2>/dev/null | sed -n 's/^password=//p')`,
+    '  if [ -n "$GH_TOKEN" ]; then export GH_TOKEN; else unset GH_TOKEN; fi',
+    'fi',
+    'exec "$real_gh" "$@"',
+    '',
+  ].join('\n');
+}
+
 const NO_AGENT_HOLDS_KEY = 'no reachable ssh agent holds the signing key; connect to this machine with agent forwarding (ssh -A, or ForwardAgent yes from coder config-ssh) and commit again';
 
-export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, isSameSshKey, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
+export { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, isSameSshKey, isSignableGitObject, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths };
 export type { AgentSocketCandidate, SshPublicKey };

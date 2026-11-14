@@ -19,6 +19,7 @@ import { seedWorktreeDependencies } from '../git/dependency-clone.ts';
 import { runGit } from '../git/git-exec.ts';
 import { GITHUB_CREDENTIAL_SCOPE } from '../../session/core/git-credential-env.ts';
 import type { HostSigningKeyStore } from '../commit-signing.ts';
+import { hasGhOutside } from '../ssh-signing.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './core/session-registry-core.ts';
@@ -41,6 +42,7 @@ interface SessionFactoryDependencies {
   questionManager?: { forSession: (session: { projectPath: string; isOn: boolean }) => QuestionManagerPort } | null;
   commitSigningProgram?: string | null;
   gitCredentialProgram?: string | null;
+  ghShimDir?: string | null;
   hostSigningKeys?: Pick<HostSigningKeyStore, 'gitEnvFor'> | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
@@ -59,6 +61,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
+  }
+
+  function ghShimDirsForSpawn(): string[] {
+    const shimDir = dependencies.ghShimDir;
+    return shimDir && hasGhOutside(shimDir, process.env.PATH) ? [shimDir] : [];
   }
 
   return function makeSession(
@@ -120,6 +127,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       resolveAccountHome,
       getPackAgentLaunch: isMachineShell ? null : dependencies.getPackAgentLaunch ?? null,
       ...overrides,
+      prependPathDirs: [...ghShimDirsForSpawn(), ...(overrides.prependPathDirs ?? [])],
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
     });
     const captureConfig = {

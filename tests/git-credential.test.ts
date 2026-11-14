@@ -5,9 +5,9 @@ import http from 'node:http';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from '../server/child-process-safe.ts';
+import { execFileAsync, spawn } from '../server/child-process-safe.ts';
 import { createAgentIngressApp } from '../server/backend/backend-http.ts';
-import { installGitCredentialShim } from '../server/ssh-signing.ts';
+import { hasGhOutside, installGhShim, installGitCredentialShim } from '../server/ssh-signing.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -89,6 +89,21 @@ test('git in an operator session reads the connected GitHub user token for githu
     assert.ok(github.stdout.split('\n').includes('username=octo-carbon'), 'git reads the connected login');
     assert.ok(github.stdout.split('\n').includes(`password=${USER_TOKEN}`), 'git reads the connected user token');
 
+    const ghShimDir = installGhShim({ binDir: path.join(binDir, 'gh-bin'), cliLaunch: [process.execPath, path.resolve('bin/glimmervoid.ts')] });
+    assert.ok(ghShimDir);
+    const signedOutGhDir = path.join(binDir, 'signed-out-gh');
+    await fsp.mkdir(signedOutGhDir);
+    await fsp.writeFile(path.join(signedOutGhDir, 'gh'), '#!/bin/sh\nif [ "$1" = "auth" ]; then exit 1; fi\nprintf "%s" "$GH_TOKEN"\n', { mode: 0o755 });
+    const ghEnv = { ...sessionEnv, PATH: [ghShimDir, signedOutGhDir, process.env.PATH].join(path.delimiter), GH_TOKEN: undefined, GITHUB_TOKEN: undefined };
+    const tokenGhRanWith = async (env: NodeJS.ProcessEnv) => (await execFileAsync(path.join(ghShimDir, 'gh'), ['api', 'user'], { env, encoding: 'utf8', timeout: 20_000 })).stdout;
+    assert.equal(await tokenGhRanWith(ghEnv), USER_TOKEN, 'a signed-out gh in a session runs as the connected GitHub account');
+    assert.equal(await tokenGhRanWith({ ...ghEnv, GH_TOKEN: 'ghp_set_by_the_operator' }), 'ghp_set_by_the_operator', 'a token the operator set for gh is left alone');
+    assert.ok(!(await fsp.readFile(path.join(ghShimDir, 'gh'), 'utf8')).includes(USER_TOKEN), 'no token is written to disk');
+    const outerShimDir = installGhShim({ binDir: path.join(binDir, 'outer-gh-bin'), cliLaunch: [process.execPath, path.resolve('bin/glimmervoid.ts')] });
+    assert.ok(outerShimDir);
+    assert.equal(hasGhOutside(ghShimDir, outerShimDir), false, 'the gh wrapper of another Glimmervoid is not taken for gh');
+    assert.equal(await tokenGhRanWith({ ...ghEnv, PATH: [ghShimDir, outerShimDir, signedOutGhDir, process.env.PATH].join(path.delimiter) }), USER_TOKEN, 'a session of a server started inside a session still reaches the real gh');
+
     const otherHost = await gitCredentialFill(sessionEnv, 'gitlab.com');
     assert.notEqual(otherHost.exitCode, 0);
     assert.ok(!otherHost.stdout.includes(USER_TOKEN), 'another host gets no token');
@@ -102,6 +117,7 @@ test('git in an operator session reads the connected GitHub user token for githu
     const afterEnd = await gitCredentialFill(sessionEnv, 'github.com');
     assert.notEqual(afterEnd.exitCode, 0);
     assert.ok(!afterEnd.stdout.includes(USER_TOKEN), 'an ended session gets no token');
+    assert.equal(await tokenGhRanWith(ghEnv), '', 'gh in an ended session runs signed out');
   } finally {
     session.destroy();
     await closeServer(server);

@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { accessSync, closeSync, constants as fsConstants, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { execFileAsync } from './child-process-safe.ts';
 import { writeTextAtomicSync } from './json-file.ts';
-import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
+import { agentListsKey, COMMIT_SIGNING_SHIM_NAME, commitSigningShimText, formatSshPublicKey, GH_SHIM_HEAD_BYTES, GH_SHIM_NAME, ghShimText, isGhShimHead, GIT_CREDENTIAL_SHIM_NAME, gitCredentialShimText, isForwardedAgentDirName, NO_AGENT_HOLDS_KEY, orderAgentSockets, parseSshPublicKey, wellKnownAgentSocketPaths } from './core/ssh-signing-core.ts';
 import type { AgentSocketCandidate, SshPublicKey } from './core/ssh-signing-core.ts';
 import type { HostSigningKeyStore } from './commit-signing.ts';
 import { errorMessage } from '../shared/text.ts';
@@ -144,5 +144,33 @@ function installGitCredentialShim(install: ShimInstall): string | null {
   return installCliShim(install, { shimName: GIT_CREDENTIAL_SHIM_NAME, shimText: gitCredentialShimText(install.cliLaunch), offWarning: '[git-credential] the GitHub credential helper is off' });
 }
 
-export { createSshSigner, installCommitSigningShim, installGitCredentialShim, readSigningKeySetting };
+function installGhShim(install: ShimInstall): string | null {
+  const shimPath = installCliShim(install, { shimName: GH_SHIM_NAME, shimText: ghShimText(install.cliLaunch, install.binDir), offWarning: '[gh] sessions do not get the connected GitHub account in gh' });
+  return shimPath === null ? null : install.binDir;
+}
+
+function headTextOf(filePath: string): string {
+  const descriptor = openSync(filePath, 'r');
+  try {
+    const head = Buffer.alloc(GH_SHIM_HEAD_BYTES);
+    return head.toString('latin1', 0, readSync(descriptor, head, 0, GH_SHIM_HEAD_BYTES, 0));
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function isRealGh(filePath: string): boolean {
+  try {
+    accessSync(filePath, fsConstants.X_OK);
+    return statSync(filePath).isFile() && !isGhShimHead(headTextOf(filePath));
+  } catch {
+    return false;
+  }
+}
+
+function hasGhOutside(shimDir: string, pathText: string | undefined): boolean {
+  return (pathText ?? '').split(path.delimiter).some((dir) => dir !== '' && dir !== shimDir && isRealGh(path.join(dir, GH_SHIM_NAME)));
+}
+
+export { createSshSigner, hasGhOutside, installCommitSigningShim, installGhShim, installGitCredentialShim, readSigningKeySetting };
 export type { SshSigner };
