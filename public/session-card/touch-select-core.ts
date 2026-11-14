@@ -1,4 +1,4 @@
-export const LONG_PRESS_MS = 500;
+export const SELECTION_MIRROR_HOLD_MS = 150;
 
 const PROMPT_SCAN_LIMIT = 512;
 

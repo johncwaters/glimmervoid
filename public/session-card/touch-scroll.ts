@@ -13,7 +13,8 @@ import {
   shouldSendWheelReport,
   stepInertia,
 } from './touch-scroll-core.ts';
-import { LONG_PRESS_MS } from './touch-select-core.ts';
+import { hideSelectionMirrorUnlessSelected } from './selection-mirror.ts';
+import { SELECTION_MIRROR_HOLD_MS } from './touch-select-core.ts';
 
 const SELECTION_LAYER_SELECTOR = '.terminal-select-mirror';
 
@@ -34,7 +35,7 @@ function findTouch(touchList: TouchList, identifier: number) {
   return null;
 }
 
-export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPress: (clientX: number, clientY: number) => void) {
+export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onStillHold: () => void) {
   if (hasNativeTouchScroll(term)) return;
 
   const isPhoneLayout = () => document.documentElement.dataset.layout === 'phone';
@@ -45,8 +46,8 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
   let lastX = 0;
   let lastY = 0;
   let touchStartedAtMs = 0;
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  let didLongPress = false;
+  let stillHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  let isMirrorUpForTouch = false;
   let isScrolling = false;
   let pendingPx = 0;
   let velocitySamples: VelocitySample[] = [];
@@ -67,22 +68,28 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
     return cellHeightFromElement(screen?.clientHeight || term.element?.clientHeight || 0, term.rows);
   };
 
-  const cancelLongPress = () => {
-    if (longPressTimer !== null) clearTimeout(longPressTimer);
-    longPressTimer = null;
+  const cancelStillHold = () => {
+    if (stillHoldTimer !== null) clearTimeout(stillHoldTimer);
+    stillHoldTimer = null;
   };
 
-  const fireLongPress = () => {
-    longPressTimer = null;
+  const fireStillHold = () => {
+    stillHoldTimer = null;
     if (activeTouchId === null || isScrolling || !isPhoneLayout()) return;
     const heldMs = performance.now() - touchStartedAtMs;
-    if (!isLongPress({ deltaXPx: lastX - startX, deltaYPx: lastY - startY, heldMs, longPressMs: LONG_PRESS_MS })) return;
-    didLongPress = true;
-    onLongPress(lastX, lastY);
+    if (!isLongPress({ deltaXPx: lastX - startX, deltaYPx: lastY - startY, heldMs, longPressMs: SELECTION_MIRROR_HOLD_MS })) return;
+    isMirrorUpForTouch = true;
+    onStillHold();
+  };
+
+  const releaseMirrorUnlessSelected = () => {
+    if (!isMirrorUpForTouch) return false;
+    isMirrorUpForTouch = false;
+    return hideSelectionMirrorUnlessSelected(termWrap);
   };
 
   const endGesture = () => {
-    cancelLongPress();
+    cancelStillHold();
     activeTouchId = null;
     isScrolling = false;
     pendingPx = 0;
@@ -142,8 +149,9 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
   termWrap.addEventListener('touchstart', (event) => {
     cancelInertia();
 
-    didLongPress = false;
-    const startsOnSelectionLayer = event.target instanceof Element && event.target.closest(SELECTION_LAYER_SELECTOR) !== null;
+    isMirrorUpForTouch = false;
+    const isSelectionKept = hideSelectionMirrorUnlessSelected(termWrap);
+    const startsOnSelectionLayer = isSelectionKept && event.target instanceof Element && event.target.closest(SELECTION_LAYER_SELECTOR) !== null;
     if (!isPhoneLayout() || event.touches.length !== 1 || startsOnSelectionLayer) {
       endGesture();
       return;
@@ -155,21 +163,27 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
     lastX = touch.clientX;
     lastY = touch.clientY;
     touchStartedAtMs = performance.now();
-    longPressTimer = setTimeout(fireLongPress, LONG_PRESS_MS);
+    stillHoldTimer = setTimeout(fireStillHold, SELECTION_MIRROR_HOLD_MS);
     isScrolling = false;
     pendingPx = 0;
     velocitySamples = [];
   }, { passive: true });
 
   termWrap.addEventListener('touchmove', (event) => {
-    if (activeTouchId === null || didLongPress || !isPhoneLayout()) return;
+    if (activeTouchId === null || !isPhoneLayout()) return;
     const touch = findTouch(event.touches, activeTouchId);
     if (!touch) return;
 
     if (!isScrolling) {
       lastX = touch.clientX;
       lastY = touch.clientY;
-      if (!isWithinTapSlop(touch.clientX - startX, touch.clientY - startY)) cancelLongPress();
+      if (!isWithinTapSlop(touch.clientX - startX, touch.clientY - startY)) {
+        cancelStillHold();
+        if (releaseMirrorUnlessSelected()) {
+          endGesture();
+          return;
+        }
+      }
       if (!isScrollGesture(touch.clientX - startX, touch.clientY - startY)) return;
       isScrolling = true;
 
@@ -200,9 +214,9 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
   }, { passive: false });
 
   termWrap.addEventListener('touchend', (event) => {
-    if (didLongPress) {
-      didLongPress = false;
-      if (event.cancelable) event.preventDefault();
+    if (isMirrorUpForTouch) {
+      const isSelectionKept = releaseMirrorUnlessSelected();
+      if (isSelectionKept && event.cancelable) event.preventDefault();
       endGesture();
       return;
     }
@@ -223,5 +237,6 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onLongPre
   termWrap.addEventListener('touchcancel', () => {
     cancelInertia();
     endGesture();
+    requestAnimationFrame(() => requestAnimationFrame(() => releaseMirrorUnlessSelected()));
   }, { passive: true });
 }

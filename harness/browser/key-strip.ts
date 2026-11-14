@@ -201,9 +201,9 @@ export async function verifyFullScreenAppRow(page: Page, typeCommand: (command: 
   return 'a shell terminal gets autocorrect without sentence capitals; a full-screen app gets Tab on a row that fits';
 }
 
-const LONG_PRESS_HELD_MS = 800;
-const SELECTION_DRAG_STEPS = 5;
-const SELECTION_DRAG_STEP_PX = 20;
+const STILL_HOLD_MS = 400;
+const SCROLL_DRAG_STEPS = 5;
+const SCROLL_DRAG_STEP_PX = 40;
 const selectionMirror = '.terminal-select-mirror';
 const selectSheet = '.terminal-select-sheet';
 
@@ -239,8 +239,20 @@ async function cellCenter(page: Page, screenText: string, rowNumber: number, col
 async function pressAndHold(page: Page, touch: CDPSession, point: ScreenPoint) {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
-  await page.waitForTimeout(LONG_PRESS_HELD_MS);
+  await page.waitForTimeout(STILL_HOLD_MS);
   await page.locator(selectionMirror).waitFor({ timeout: CONTEXT_TIMEOUT_MS });
+}
+
+async function selectMirrorWordAt(page: Page, point: ScreenPoint) {
+  await page.evaluate(({ x, y }) => {
+    const caret = document.caretRangeFromPoint(x, y);
+    const selection = document.getSelection();
+    if (!caret || !selection) return;
+    selection.removeAllRanges();
+    selection.addRange(caret);
+    selection.modify('move', 'backward', 'word');
+    selection.modify('extend', 'forward', 'word');
+  }, point);
 }
 
 async function releaseTouch(touch: CDPSession) {
@@ -289,19 +301,27 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
 
   const digitsPoint = await cellCenter(page, screenText, 2, 20);
   await pressAndHold(page, touch, digitsPoint);
-  assert.match(await selectedText(page), /^\d+$/, `a long-press selects the word under the finger (${JSON.stringify(await selectedText(page))})`);
+  assert.equal(await selectedText(page), '', 'a still hold selects nothing itself, so the phone\'s own long-press makes the selection and shows its Copy menu');
+  await selectMirrorWordAt(page, digitsPoint);
+  assert.match(await selectedText(page), /^\d+$/, `the text layer puts the word under the finger (${JSON.stringify(await selectedText(page))})`);
   await assertSelectionUnderFinger(page, digitsPoint, 'the selected word');
   await releaseTouch(touch);
+  assert.equal(await page.locator(selectionMirror).count(), 1, 'a selection made during the hold stays after the finger lifts');
   assert.equal(await page.locator(terminalTextarea).evaluate((element) => element === document.activeElement), false, 'a long-press does not open the keyboard');
   await clearSelection(page);
 
   const wideRowTargetColumn = WIDE_ROW_LEAD.length * 2 + WIDE_ROW_TARGET.length;
   const wideRowPoint = await cellCenter(page, screenText, WIDE_ROW_NUMBER, wideRowTargetColumn);
   await pressAndHold(page, touch, wideRowPoint);
+  await selectMirrorWordAt(page, wideRowPoint);
   await releaseTouch(touch);
-  assert.equal(await selectedText(page), WIDE_ROW_TARGET, 'after wide characters the long-press still selects the word under the finger');
+  assert.equal(await selectedText(page), WIDE_ROW_TARGET, 'after wide characters the text layer still puts the word under the finger');
   await assertSelectionUnderFinger(page, wideRowPoint, 'a word after wide characters');
   await clearSelection(page);
+
+  await pressAndHold(page, touch, digitsPoint);
+  await releaseTouch(touch);
+  await page.locator(selectionMirror).waitFor({ state: 'detached', timeout: CONTEXT_TIMEOUT_MS });
 
   await toggleStreamerMode(page);
   await page.locator('html[data-streamer]').waitFor({ state: 'attached', timeout: CONTEXT_TIMEOUT_MS });
@@ -317,12 +337,13 @@ export async function verifyTouchSelectCopy(page: Page, typeCommand: (command: s
   await typeCommand('history');
   await waitForScreenText(page, 'burst 199');
   const historyPoint = await cellCenter(page, screenText, 2, 1);
+  const screenBeforeDrag = await copyScreenText(page);
   await pressAndHold(page, touch, historyPoint);
-  for (let step = 1; step <= SELECTION_DRAG_STEPS; step++) {
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: historyPoint.x, y: historyPoint.y + step * SELECTION_DRAG_STEP_PX }] });
+  for (let step = 1; step <= SCROLL_DRAG_STEPS; step++) {
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: historyPoint.x, y: historyPoint.y + step * SCROLL_DRAG_STEP_PX }] });
   }
   await releaseTouch(touch);
-  assert.equal(await page.locator(selectionMirror).count(), 1, 'dragging after a long-press keeps the selection instead of scrolling it away');
-  await clearSelection(page);
-  return 'Copy screen copies the rows; a long-press selects the word under the finger, also after wide characters, without opening the keyboard, and a drag over scrollback keeps it; the select sheet masks secrets in streamer mode';
+  assert.equal(await page.locator(selectionMirror).count(), 0, 'a finger that rests and then drags leaves no text layer behind');
+  assert.notEqual(await copyScreenText(page), screenBeforeDrag, 'a finger that rests and then drags still scrolls');
+  return 'Copy screen copies the rows; a still hold lays the text under the finger for a native selection, also after wide characters, a hold lifted with nothing selected leaves no layer, and a rest then drag still scrolls; the select sheet masks secrets in streamer mode';
 }

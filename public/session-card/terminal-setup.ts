@@ -269,7 +269,7 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   });
 
   wireSoftKeyboardInput(termWrap, term, ui);
-  wireTouchScroll(termWrap, term, (clientX, clientY) => showSelectionMirror(term, termWrap, clientX, clientY, () => ui._syncGrid?.()));
+  wireTouchScroll(termWrap, term, () => showSelectionMirror(term, termWrap, () => ui._syncGrid?.()));
 }
 
 export { setTerminalCursorBlink, setupTerminal };

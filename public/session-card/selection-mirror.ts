@@ -4,18 +4,12 @@ import { el } from '../dom-helpers.ts';
 const MIRROR_CLASS = 'terminal-select-mirror';
 const WIDTH_PROBE_CHARACTERS = 'M'.repeat(20);
 
-const dismissByWrap = new WeakMap<HTMLElement, () => void>();
-
-function caretRangeAt(clientX: number, clientY: number): Range | null {
-  const position = 'caretPositionFromPoint' in document ? document.caretPositionFromPoint(clientX, clientY) : null;
-  if (position) {
-    const range = document.createRange();
-    range.setStart(position.offsetNode, position.offset);
-    return range;
-  }
-  if (!('caretRangeFromPoint' in document)) return null;
-  return document.caretRangeFromPoint(clientX, clientY);
+interface ShownMirror {
+  dismiss: () => void;
+  hasSelection: () => boolean;
 }
+
+const shownMirrorByWrap = new WeakMap<HTMLElement, ShownMirror>();
 
 function measureCharacterWidth(layer: HTMLElement) {
   const probe = el('span');
@@ -24,17 +18,6 @@ function measureCharacterWidth(layer: HTMLElement) {
   const width = probe.getBoundingClientRect().width / WIDTH_PROBE_CHARACTERS.length;
   probe.remove();
   return width;
-}
-
-function selectWordAt(layer: HTMLElement, clientX: number, clientY: number) {
-  const selection = document.getSelection();
-  const caret = caretRangeAt(clientX, clientY);
-  if (!selection || !caret || !layer.contains(caret.startContainer)) return false;
-  selection.removeAllRanges();
-  selection.addRange(caret);
-  selection.modify('move', 'backward', 'word');
-  selection.modify('extend', 'forward', 'word');
-  return !selection.isCollapsed;
 }
 
 function fillRow(rowElement: HTMLElement, line: IBufferLine | undefined, cols: number, cellWidthPx: number) {
@@ -60,14 +43,22 @@ function fillRow(rowElement: HTMLElement, line: IBufferLine | undefined, cols: n
 }
 
 export function isSelectionMirrorShown(termWrap: HTMLElement) {
-  return dismissByWrap.has(termWrap);
+  return shownMirrorByWrap.has(termWrap);
 }
 
 function hideSelectionMirror(termWrap: HTMLElement) {
-  dismissByWrap.get(termWrap)?.();
+  shownMirrorByWrap.get(termWrap)?.dismiss();
 }
 
-export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, clientX: number, clientY: number, onDismiss: () => void) {
+export function hideSelectionMirrorUnlessSelected(termWrap: HTMLElement) {
+  const shownMirror = shownMirrorByWrap.get(termWrap);
+  if (!shownMirror) return false;
+  if (shownMirror.hasSelection()) return true;
+  shownMirror.dismiss();
+  return false;
+}
+
+export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, onDismiss: () => void) {
   const screen = term.element?.querySelector<HTMLElement>('.xterm-screen');
   if (!screen) return;
   hideSelectionMirror(termWrap);
@@ -87,31 +78,43 @@ export function showSelectionMirror(term: Terminal, termWrap: HTMLElement, clien
   termWrap.append(layer);
   layer.style.letterSpacing = `${cellWidthPx - measureCharacterWidth(layer)}px`;
 
-  const buffer = term.buffer.active;
-  for (let row = 0; row < term.rows; row++) {
-    const rowElement = el('div', 'terminal-select-mirror-row');
-    fillRow(rowElement, buffer.getLine(buffer.viewportY + row), term.cols, cellWidthPx);
-    layer.append(rowElement);
-  }
-  if (!selectWordAt(layer, clientX, clientY)) {
-    layer.remove();
-    return;
-  }
-
+  const rowElements = Array.from({ length: term.rows }, () => el('div', 'terminal-select-mirror-row'));
+  layer.append(...rowElements);
+  const fillRowsFromViewport = () => {
+    const buffer = term.buffer.active;
+    rowElements.forEach((rowElement, row) => {
+      rowElement.replaceChildren();
+      fillRow(rowElement, buffer.getLine(buffer.viewportY + row), term.cols, cellWidthPx);
+    });
+  };
+  fillRowsFromViewport();
   let scrollSubscription: IDisposable | null = null;
+  let hasSelectedInLayer = false;
+  const isSelectingInLayer = () => {
+    const selection = document.getSelection();
+    return !!selection && !selection.isCollapsed && layer.contains(selection.anchorNode);
+  };
   const dismiss = () => {
-    dismissByWrap.delete(termWrap);
+    shownMirrorByWrap.delete(termWrap);
     document.removeEventListener('selectionchange', onSelectionChange);
     scrollSubscription?.dispose();
     layer.remove();
     onDismiss();
   };
   const onSelectionChange = () => {
-    const selection = document.getSelection();
-    const isSelectingInLayer = !!selection && !selection.isCollapsed && layer.contains(selection.anchorNode);
-    if (!isSelectingInLayer) dismiss();
+    if (isSelectingInLayer()) {
+      hasSelectedInLayer = true;
+      return;
+    }
+    if (hasSelectedInLayer) dismiss();
   };
   document.addEventListener('selectionchange', onSelectionChange);
-  scrollSubscription = term.onScroll(dismiss);
-  dismissByWrap.set(termWrap, dismiss);
+  scrollSubscription = term.onScroll(() => {
+    if (hasSelectedInLayer || isSelectingInLayer()) {
+      dismiss();
+      return;
+    }
+    fillRowsFromViewport();
+  });
+  shownMirrorByWrap.set(termWrap, { dismiss, hasSelection: isSelectingInLayer });
 }
