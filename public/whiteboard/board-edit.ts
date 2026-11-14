@@ -87,6 +87,7 @@ interface BoardEditorOptions {
   currentBoard: () => Board | null;
   repaint: () => void;
   sendOps: (ops: Op[]) => Promise<boolean>;
+  sendOpsReportingVersion: (ops: Op[]) => Promise<{ isSent: boolean; version: number | null }>;
   onSelectionChange: (selectedIds: ReadonlySet<string>) => void;
   onPhoneTapBox: (boxId: string) => void;
   onOpenImage: (image: PressedImage) => void;
@@ -117,6 +118,7 @@ interface NudgeRun {
   offset: ViewPoint;
   pinnedOffsetY: number;
   sendsInFlight: number;
+  awaitedVersion: number | null;
 }
 
 type BoxFields = { place: { at: ViewPoint } } | { width: number };
@@ -512,7 +514,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return stroke?.kind === 'stroke' ? [[elementId, stroke.points] as const] : [];
     }));
     const carriedWires = carriedWiresOf(board.elements.values(), selectedIds, new Set(movingBoxes.map((movingBox) => movingBox.boxId)));
-    return { movingBoxes, strokeStartPointsById, carriedWires, offset: { x: 0, y: 0 }, pinnedOffsetY: renderer.layout()?.pinnedOffsetY ?? 0, sendsInFlight: 0 };
+    return { movingBoxes, strokeStartPointsById, carriedWires, offset: { x: 0, y: 0 }, pinnedOffsetY: renderer.layout()?.pinnedOffsetY ?? 0, sendsInFlight: 0, awaitedVersion: null };
   }
 
   function nudgeSelected(direction: ViewPoint, distance: number): void {
@@ -532,13 +534,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const nudgeOps = [...boxOps, ...strokeOps, ...wireOps];
     if (nudgeOps.length === 0) return;
     run.sendsInFlight += 1;
-    void options.sendOps(nudgeOps).finally(() => {
+    void options.sendOpsReportingVersion(nudgeOps).then(({ version }) => {
+      if (version !== null) run.awaitedVersion = Math.max(run.awaitedVersion ?? version, version);
+    }).finally(() => {
       run.sendsInFlight -= 1;
     });
   }
 
-  function endSettledNudgeRun(): void {
-    if (nudgeRun?.sendsInFlight === 0) nudgeRun = null;
+  function endSettledNudgeRun(paintedVersion: number): void {
+    if (!nudgeRun || nudgeRun.sendsInFlight > 0) return;
+    if (nudgeRun.awaitedVersion !== null && paintedVersion < nudgeRun.awaitedVersion) return;
+    nudgeRun = null;
   }
 
   function openContextMenuAt(clientX: number, clientY: number): void {
@@ -1795,8 +1801,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
     applyLineEdit({ kind: 'linesChangedUnderEditor' });
   }
 
-  function afterBoardPaint(): void {
-    endSettledNudgeRun();
+  function afterBoardPaint(paintedVersion: number): void {
+    endSettledNudgeRun(paintedVersion);
     forgetSnapTargets();
     settleUnconfirmedLines();
     closeStaleLineEdit();

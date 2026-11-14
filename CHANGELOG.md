@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Quick arrow presses on a board no longer drop moves.** A nudge started while the board was still drawing an earlier nudge could start from the old position, so the box moved less than you pressed.
 - **Unlocking your phone no longer shows a false "The server is not answering" error.** The 10 second wait before that error now counts only time the dashboard is on screen, so a normal reconnect after the phone was locked or the app backgrounded stays quiet. A server that is really down is still reported after 10 seconds of the visible page failing to reach it.
 
 ## [0.59.1] - 2026-11-14

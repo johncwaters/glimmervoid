@@ -146,7 +146,8 @@ let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
 let reviewRequestKey: string | null = null;
 let openDocBox: { boardId: string; box: Extract<Element, { kind: 'box' }> } | null = null;
-type RecordedSend = { ok: true; isUndoable: boolean } | { ok: false; error: string };
+type RecordedSend = { ok: true; isUndoable: boolean; version: number | null } | { ok: false; error: string };
+type SentOps = { isSent: boolean; version: number | null };
 
 const status = createActionStatus('action-status wb-status');
 const emptyStatus = createActionStatus('action-status wb-empty-status');
@@ -316,7 +317,7 @@ function recordPatch(boardId: string, patch: WhiteboardPatch | null): boolean {
 async function sendAndRecord(boardId: string, ops: Op[]): Promise<RecordedSend> {
   const outcome = await sendBoardOps(boardId, ops);
   if (!outcome.ok) return outcome;
-  return { ok: true, isUndoable: recordPatch(boardId, outcome.patch) };
+  return { ok: true, isUndoable: recordPatch(boardId, outcome.patch), version: outcome.patch?.toVersion ?? null };
 }
 
 function stepHistory(direction: UndoDirection): Promise<void> {
@@ -345,18 +346,22 @@ async function runHistoryStep(direction: UndoDirection): Promise<void> {
 }
 
 async function sendOps(ops: Op[]): Promise<boolean> {
-  if (!selectedBoardId || ops.length === 0) return false;
+  return (await sendOpsReportingVersion(ops)).isSent;
+}
+
+async function sendOpsReportingVersion(ops: Op[]): Promise<SentOps> {
+  if (!selectedBoardId || ops.length === 0) return { isSent: false, version: null };
   const outcome = await sendRecordedOps(selectedBoardId, ops);
   if (outcome.ok && !outcome.isUndoable) {
     status.show('ok', TOO_BIG_TO_UNDO_TEXT);
-    return true;
+    return { isSent: true, version: outcome.version };
   }
   if (outcome.ok) {
     status.clear();
-    return true;
+    return { isSent: true, version: outcome.version };
   }
   status.show('error', outcome.error);
-  return false;
+  return { isSent: false, version: null };
 }
 
 async function sendOpsFromDialog(ops: Op[]): Promise<string | null> {
@@ -659,7 +664,7 @@ function paintBoard(): void {
   editor?.pruneSelection(board);
   if (parts) parts.emptyBoardHint.hidden = tiled.elementCount > 0;
   paintReview();
-  editor?.afterBoardPaint();
+  editor?.afterBoardPaint(tiled.version);
   if (shouldFitOnNextRender) {
     editor?.fit();
     shouldFitOnNextRender = false;
@@ -1448,6 +1453,7 @@ export function mountBoardHost(): HTMLElement {
     currentBoard: selectedBoard,
     repaint: paintBoard,
     sendOps,
+    sendOpsReportingVersion,
     onSelectionChange: (selectedIds) => {
       paintToolbar();
       mediaLayer.setInteractiveBox(livePageBoxIdOf(selectedIds));
