@@ -299,6 +299,9 @@
 }
 
 .wb-viewport {
+  --type-meta: 12px;
+  --type-body: 14px;
+  --type-title: 16px;
   position: absolute;
   inset: 0;
   overflow: hidden;

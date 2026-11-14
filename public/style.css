@@ -127,6 +127,7 @@
   --type-body:    14px;
   --type-title:   16px;
   --type-display: 20px;
+  --type-field:   16px;
   --type-doc-h1:  28px;
   --type-doc-h2:  22px;
   --type-doc-h3:  18px;
@@ -137,6 +138,13 @@
 
   --transition-fast: 150ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-med:  250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-layout="phone"] {
+  --type-meta:    11px;
+  --type-body:    13px;
+  --type-title:   15px;
+  --type-display: 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {

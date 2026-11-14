@@ -39,7 +39,7 @@
 .doc-markup-card { display: flex; flex-wrap: wrap; box-sizing: border-box; max-width: 100%; gap: 2px; padding: 2px; border: 1px solid var(--border-hover); border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-md), 0 -2px 6px 6px var(--pen-paper); }
 .doc-markup-card > [hidden] { display: none; }
 .doc-markup-card-divider { align-self: stretch; width: 1px; margin: 4px 2px; background: var(--border-hover); }
-.doc-markup-paper { padding-block: 44px 24px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); }
+.doc-markup-paper { --type-meta: 12px; --type-body: 14px; --type-title: 16px; padding-block: 44px 24px; border-radius: var(--radius); background: var(--pen-paper); color: var(--pen-text); }
 .doc-markup-chunk { content-visibility: auto; contain-intrinsic-size: auto 0px auto calc(var(--type-doc-body) * 1.75 * 40); }
 .doc-markup-row { display: grid; grid-template-columns: minmax(0, 1fr); }
 .doc-markup-row > :is(.doc-markup-line, .doc-preview-block, .doc-markup-row-margin) { box-sizing: border-box; width: 100%; max-width: 60rem; justify-self: center; }

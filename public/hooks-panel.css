@@ -343,7 +343,7 @@ html[data-layout="phone"] .hooks-chip { min-height: 44px; padding: 8px 14px; fon
 html[data-layout="phone"] .hooks-section-head > [data-action="new-hook"] { flex-basis: 100%; margin-left: 0; }
 html[data-layout="phone"] .hooks-templates { gap: 8px; }
 html[data-layout="phone"] .hooks-templates-label { flex-basis: 100%; }
-html[data-layout="phone"] .hooks-filter { max-width: none; min-height: 44px; font-size: var(--type-title); }
+html[data-layout="phone"] .hooks-filter { max-width: none; min-height: 44px; font-size: var(--type-field); }
 
 html[data-layout="phone"] .hooks-row { flex-direction: column; gap: 10px; padding: 12px 10px; }
 html[data-layout="phone"] .hooks-row-name { font-size: var(--type-body); }

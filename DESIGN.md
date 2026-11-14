@@ -17,7 +17,7 @@ This system explicitly rejects the generic AI-SaaS dashboard (no gradient hero, 
 - Violet-tinted graphite surfaces and one vivid violet accent used sparingly.
 - Flat by default; depth comes from tonal layering and 1px borders, never resting shadows.
 - Color and motion are reserved for genuine state signals, so a signal always means something.
-- Four interface sizes (the `--type-*` tokens) carry the chrome, and the doc editor's paper adds its own doc sizes; hierarchy is built from weight, tracking, color, and case, not size.
+- Four interface sizes (the `--type-*` tokens) carry the chrome, each a step smaller on the phone layout, and the doc editor's paper adds its own doc sizes; hierarchy is built from weight, tracking, color, and case, not size.
 - Glimmer is the default theme, Glimmer Light its light counterpart, with Phyrexian, Midnight, Golgari and Compleated among the alternates; the system is theme-agnostic and reads colors from CSS variables.
 
 ## 2. Colors
@@ -72,10 +72,12 @@ Agent marks take their brand color (Claude clay, Gemini and Kimi blue, Qwen Code
 Each role names a `--type-*` size token in `public/style.css`, and Tailwind exposes the same four as `text-meta`, `text-body`, `text-title`, `text-display`; `tests/gates/design-type-scale.test.ts` fails any other size and keeps these sizes equal to the tokens.
 
 - **Display** (700, `--type-display`, 0.1em tracking, uppercase): The GLIMMERVOID wordmark, the loading screen, and the big stat numbers. The only place tracking opens up this wide.
-- **Title** (700, `--type-title`): Page and section titles (settings sections, plan headings, first run, merge celebration). Dialog titles stay at body size. Phone and dialog form fields also sit at 16px, because iOS Safari zooms the page into any smaller focused field.
+- **Title** (700, `--type-title`): Page and section titles (settings sections, plan headings, first run, merge celebration). Dialog titles stay at body size.
 - **Body** (400, `--type-body`, line-height 1.5): Base reading size; the document default.
-- **Meta** (400, `--type-meta`, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels, and the floor: CommitMono's 0.54 x-height keeps 12px legible.
+- **Meta** (400, `--type-meta`, line-height ~1.55): Descriptions, summaries, secondary metadata. The workhorse of the dense panels, and the floor: CommitMono's 0.54 x-height keeps 12px legible, and 11px on a phone, whose denser screen is held closer.
 - **Label** (700, `--type-meta`, 0.08em tracking, uppercase): Field labels, section eyebrows, state badges. A style of the meta size, not a brand bible scale role; the tracking gate pins it.
+- **Field** (400, `--type-field`): Phone and touch dialog inputs, selects and textareas. Fixed at 16px on both layouts, because iOS Safari zooms the page into any smaller focused field.
+- **Phone sizes:** the four chrome roles drop to 11, 13, 15 and 18px under `[data-layout="phone"]`, since desktop sizes crowd a phone screen; the brand bible carries them as `phoneSizePx` and the same gate pins them. Whiteboard content and the doc paper keep the desktop sizes on every layout: box layout is measured for them, and a document reads the same on every device.
 - **Doc** (IBM Plex Sans; `--type-doc-body` 400 at line-height 1.75, 1.5 on phone; `--type-doc-h1`, `--type-doc-h2`, `--type-doc-h3` 700): The doc editor's paper only.
 
 ### Named Rules
@@ -121,7 +123,7 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 - **Layout belongs to the parent:** `button()` takes no class, so spacing, alignment and placement come from the container.
 
 ### Inputs / Fields
-- **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-title` on phone).
+- **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-field` on phone).
 - **Focus:** border shifts to Glimmer Violet (no glow). Placeholders use Faint Ash.
 - **Label:** sits above the field as an uppercase tracked Label.
 - **Error:** Failed red caption below the field, hidden when empty.

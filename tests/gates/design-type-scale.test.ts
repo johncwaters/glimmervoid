@@ -18,8 +18,7 @@ const tailwindStylesheet = readRepoFile('public/tailwind.css');
 const typographyBible = readRepoFile('brand-bible/typography.yaml');
 const designDoc = readRepoFile('DESIGN.md');
 
-const TYPE_TOKEN_BY_ROLE = { meta: 'meta', body: 'body', title: 'title', display: 'display', 'doc-h1': 'doc-h1', 'doc-h2': 'doc-h2', 'doc-h3': 'doc-h3', 'doc-body': 'doc-body' } as const;
-const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)', 'var(--type-doc-body)']);
+const TYPE_TOKENS = new Set(['var(--type-meta)', 'var(--type-body)', 'var(--type-title)', 'var(--type-display)', 'var(--type-field)', 'var(--type-doc-h1)', 'var(--type-doc-h2)', 'var(--type-doc-h3)', 'var(--type-doc-body)']);
 const LITERAL_SIZE_TOKENS = new Map([['12px', 'var(--type-meta)'], ['14px', 'var(--type-body)'], ['16px', 'var(--type-title)'], ['20px', 'var(--type-display)']]);
 const BIBLE_FONT_WEIGHTS = new Set(['400', '700']);
 const LABEL_TRACKING = '0.08em';
@@ -61,13 +60,16 @@ function rulesWithLiteralSizesAsTokens(stylesheet: string): StyleRule[] {
   }));
 }
 
-function typeTokenValues(): Map<string, string> {
-  return new Map([...dashboardStylesheet.matchAll(/--type-([a-z0-9-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
+function typeTokenValues(blockSelector: string): Record<string, string> {
+  const tokenBlocks = styleRules(dashboardStylesheet).filter((rule) => rule.selector === blockSelector && /--type-/.test(rule.declarations));
+  assert.equal(tokenBlocks.length, 1, `expected one ${blockSelector} rule setting type tokens`);
+  return Object.fromEntries([...tokenBlocks[0].declarations.matchAll(/--type-([a-z0-9-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2].trim()]));
 }
 
-function bibleRoleSizes(): Map<string, string> {
+function bibleRoleSizes(sizeKey: 'sizePx' | 'phoneSizePx'): Record<string, string> {
   const scaleBlock = typographyBible.match(/^scale:\n((?: {2}.*\n)+)/m)?.[1] ?? '';
-  return new Map([...scaleBlock.matchAll(/^ {2}([a-z0-9-]+):.*\bsizePx: (\d+)/gm)].map((match) => [match[1], `${match[2]}px`]));
+  const roleSize = new RegExp(`^ {2}([a-z0-9-]+):.*[{ ]${sizeKey}: (\\d+)`, 'gm');
+  return Object.fromEntries([...scaleBlock.matchAll(roleSize)].map((match) => [match[1], `${match[2]}px`]));
 }
 
 test('every dashboard font size is a type token', () => {
@@ -76,13 +78,27 @@ test('every dashboard font size is a type token', () => {
 });
 
 test('the type tokens carry the brand bible typography sizes, role for role', () => {
-  const tokenValues = typeTokenValues();
-  const bibleSizes = Object.fromEntries(bibleRoleSizes());
-  const tokenSizes = Object.fromEntries(Object.entries(TYPE_TOKEN_BY_ROLE).map(([role, token]) => [role, tokenValues.get(token) ?? '']));
-  assert.deepEqual(bibleSizes, tokenSizes);
+  const bibleSizes = bibleRoleSizes('sizePx');
+  assert.deepEqual(bibleSizes, typeTokenValues(':root'));
   const tokensNamedInDesignDoc = new Set([...designDoc.matchAll(/--type-([a-z0-9-]+)/g)].map((match) => match[1]));
   const rolesMissingFromDesignDoc = Object.keys(bibleSizes).filter((role) => !tokensNamedInDesignDoc.has(role));
   assert.deepEqual(rolesMissingFromDesignDoc, []);
+});
+
+test('the phone layout overrides exactly the type tokens the brand bible gives a phone size, at that size', () => {
+  const biblePhoneSizes = bibleRoleSizes('phoneSizePx');
+  assert.notDeepEqual(biblePhoneSizes, {});
+  assert.deepEqual(biblePhoneSizes, typeTokenValues('html[data-layout="phone"]'));
+  const minSizePx = Number(typographyBible.match(/^minSizePx: (\d+)/m)?.[1]);
+  const sizesBelowFloor = [...Object.entries(bibleRoleSizes('sizePx')), ...Object.entries(biblePhoneSizes)].filter(([, size]) => Number.parseInt(size, 10) < minSizePx);
+  assert.deepEqual(sizesBelowFloor, []);
+});
+
+test('board content and the doc paper pin their text to the root sizes, so the phone layout shrinks chrome only', () => {
+  const rootSizes = typeTokenValues(':root');
+  const pinnedSizes = { meta: rootSizes.meta, body: rootSizes.body, title: rootSizes.title };
+  assert.deepEqual(typeTokenValues('.wb-viewport'), pinnedSizes);
+  assert.deepEqual(typeTokenValues('.doc-markup-paper'), pinnedSizes);
 });
 
 test('the dashboard shell and the login page set sizes only on the type scale', () => {

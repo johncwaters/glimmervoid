@@ -119,7 +119,7 @@
 }
 
 [data-layout="phone"] .settings-view :is(input, select, textarea) {
-  font-size: var(--type-title);
+  font-size: var(--type-field);
 }
 
 [data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea, a):focus-visible {

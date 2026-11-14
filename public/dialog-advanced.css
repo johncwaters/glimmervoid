@@ -81,7 +81,7 @@
 
   .dialog input,
   .dialog select,
-  .dialog textarea { font-size: var(--type-title); }
+  .dialog textarea { font-size: var(--type-field); }
 
   .header-tab { min-height: 44px; }
 

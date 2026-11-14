@@ -71,7 +71,7 @@ html[data-layout="phone"] .hooks-stat-label { display: block; margin: 2px 0 0; f
 
 html[data-layout="phone"] .hooks-choice { min-height: 44px; font-size: var(--type-body); }
 html[data-layout="phone"] .hooks-choice .settings-view-checkbox { width: 20px; height: 20px; }
-html[data-layout="phone"] .hooks-form .settings-view-input { font-size: var(--type-title); min-height: 44px; }
+html[data-layout="phone"] .hooks-form .settings-view-input { font-size: var(--type-field); min-height: 44px; }
 html[data-layout="phone"] .hooks-type-row,
 html[data-layout="phone"] .hooks-projects { flex-direction: column; gap: 0; }
 
