@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Element, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Box, BoxLine, Op } from '#shared/contracts/whiteboard.ts';
 
-export const BOARD_CLIPBOARD_TYPE = 'glimmervoid/board-elements';
+const BOARD_CLIPBOARD_TYPE = 'glimmervoid/board-elements';
 
 const ClipboardArea = z.object({ x: z.number(), y: z.number(), width: z.number().nonnegative(), height: z.number().nonnegative() }).strict();
 
@@ -31,7 +31,7 @@ interface ClipboardPoint {
   y: number;
 }
 
-export interface CopySource {
+interface CopySource {
   elements: { get: (elementId: string) => Element | undefined };
   selectedIds: ReadonlySet<string>;
   wireIdsOf: (boxId: string) => Iterable<string>;
@@ -89,7 +89,7 @@ export function copiedClipboardOf(source: CopySource): BoardClipboard | null {
   return { type: BOARD_CLIPBOARD_TYPE, version: 1, area: areaAround(rects), elements: [...boxes, ...strokes, ...frames, ...wires] };
 }
 
-export type ParsedClipboard = { kind: 'board'; clipboard: BoardClipboard } | { kind: 'unreadable' } | { kind: 'text' };
+type ParsedClipboard = { kind: 'board'; clipboard: BoardClipboard } | { kind: 'unreadable' } | { kind: 'text' };
 
 export function parsedClipboardOf(text: string): ParsedClipboard {
   const json = text.includes(BOARD_CLIPBOARD_TYPE) ? jsonOf(text) : null;
@@ -136,7 +136,7 @@ export function centeringOffsetOf(clipboard: BoardClipboard, center: ClipboardPo
   return { x: Math.round(center.x - (area.x + area.width / 2)), y: Math.round(center.y - (area.y + area.height / 2)) };
 }
 
-export interface PastedText {
+interface PastedText {
   title: string;
   lines: BoxLine[];
   isLink: boolean;

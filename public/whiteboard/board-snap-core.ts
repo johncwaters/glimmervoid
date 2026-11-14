@@ -22,12 +22,12 @@ export interface SnapGuide {
   to: number;
 }
 
-export interface SnapResult {
+interface SnapResult {
   correction: { x: number; y: number };
   guides: SnapGuide[];
 }
 
-export interface SnapEdges {
+interface SnapEdges {
   xs: readonly number[];
   ys: readonly number[];
 }

@@ -3,7 +3,7 @@ import type { NoteTone } from '#shared/contracts/whiteboard.ts';
 import { BLOCK_RASTER_PX } from '#shared/contracts/whiteboard-tiles.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
@@ -14,11 +14,12 @@ import { createGlyphAtlas, RASTER_PX } from './board-gl-glyphs.ts';
 import type { GlyphAtlas } from './board-gl-glyphs.ts';
 import {
   BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
-  boxPortCenters, decorationPart, resizeHandleRect, sceneOf,
+  boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
 } from './board-gl-scene.ts';
 import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
 import { FANNED_STACK_SPREAD, STACK_FAN_MS, STACK_MOTION_MS, easedProgress, movedBoxesAt, stackFrameOfTopCard, stackMovesBetween } from './stack-motion-core.ts';
 import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
+import { rectAround } from './board-snap-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
 import type { BoardGraphicsEvent, BoardGraphicsEventKind } from './board-graphics-report-core.ts';
@@ -43,6 +44,7 @@ interface BoardHit {
   lineIndex: number | null;
   port: Point | null;
   media: { href: string; alt: string } | null;
+  handle: ResizeHandle | null;
 }
 
 interface BoardRenderer {
@@ -807,6 +809,25 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return preview?.elementById.get(elementId) ?? current.elementById.get(elementId);
   }
 
+  function selectionHandleArea(current: GlScene): { area: Rect; boxId: string } | null {
+    const selectedBoxes = [...selectedIds].flatMap((elementId) => {
+      const element = elementOf(current, elementId);
+      return element?.kind === 'box' ? [element] : [];
+    });
+    const [firstBox] = selectedBoxes;
+    if (!firstBox) return null;
+    return { area: rectAround(selectedBoxes), boxId: firstBox.id };
+  }
+
+  function handleHitAt(current: GlScene, point: Point, slop: number): BoardHit | null {
+    if (document.documentElement.dataset.layout === 'phone') return null;
+    const handleArea = selectionHandleArea(current);
+    if (!handleArea) return null;
+    const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
+    const pressed = resizeHandleRectsOf(handleArea.area).find(({ rect }) => isInside(point, rect, handleSlop));
+    return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle } : null;
+  }
+
   function decorations(current: GlScene): Decoration[] {
     const listed: Decoration[] = [];
     for (const elementId of reviewMarks.flaggedStepIds) {
@@ -820,11 +841,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const target = wireTargetId ? elementOf(current, wireTargetId) : undefined;
     if (target) listed.push({ kind: 'wire-target', element: target });
     const isPhone = document.documentElement.dataset.layout === 'phone';
-    const handleBoxIds = isPhone ? new Set<string>() : new Set([...selectedIds, ...(hoveredBoxId ? [hoveredBoxId] : [])]);
-    for (const boxId of handleBoxIds) {
-      const box = elementOf(current, boxId);
-      if (box?.kind === 'box') listed.push({ kind: 'hover-handles', box });
-    }
+    const hoveredBox = !isPhone && hoveredBoxId && !selectedIds.has(hoveredBoxId) ? elementOf(current, hoveredBoxId) : undefined;
+    if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
+    const handleArea = isPhone ? null : selectionHandleArea(current);
+    if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area });
     for (const elementId of reviewMarks.worthALookIds) {
       const element = elementOf(current, elementId);
       if (element && element.kind !== 'wire') listed.push({ kind: 'look', element });
@@ -1403,7 +1423,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   function hitPartOf(current: GlScene, geometry: ElementGeometry, point: Point, slop: number): BoardHit | null {
     const element = elementOf(current, geometry.id);
     if (!element) return null;
-    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null };
+    const hit: BoardHit = { id: geometry.id, kind: geometry.kind, part: 'body', lineIndex: null, port: null, media: null, handle: null };
     const shape = geometry.hitShape;
     if (shape.kind === 'path') {
       for (let index = 1; index < shape.points.length; index += 1) {
@@ -1420,8 +1440,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       return isNearEdge ? hit : null;
     }
     const portSlop = PORT_RADIUS + (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
-    if (element.kind === 'box' && isInside(point, resizeHandleRect(element), (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop)) return { ...hit, part: 'resize' };
-    if (element.kind === 'box') {
+    const hasResizeHandles = selectedIds.has(element.id) && document.documentElement.dataset.layout !== 'phone';
+    if (element.kind === 'box' && !hasResizeHandles) {
       const port = boxPortCenters(element).find((center) => Math.hypot(center.x - point.x, center.y - point.y) <= portSlop);
       if (port) return { ...hit, part: 'port', port };
     }
@@ -1440,6 +1460,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const current = scene;
     if (!current) return null;
     const slop = HIT_TOLERANCE_PX / camera.scale;
+    const handleHit = handleHitAt(current, point, slop);
+    if (handleHit) return handleHit;
     const portReach = PORT_RADIUS + slop;
     let best: BoardHit | null = null;
     let bestRank = -1;

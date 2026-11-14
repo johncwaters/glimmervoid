@@ -9,8 +9,8 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { menuButton } from '../ui/button.ts';
 import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
-import { createDragPreview, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving } from '#shared/whiteboard-layout-core.ts';
-import type { BoardLayout, DragPreview, LaidOutElement, Rect } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview, handleSidesOf, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin } from '#shared/whiteboard-layout-core.ts';
+import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
 import type { BoardHit, BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
@@ -118,7 +118,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean } | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string; start: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; isAuxiliaryButton: boolean; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
@@ -166,6 +166,24 @@ const DUPLICATE_OFFSET = { x: 20, y: 20 };
 
 function shiftedRectOf(rect: Rect, offset: ViewPoint): Rect {
   return { ...rect, x: rect.x + offset.x, y: rect.y + offset.y };
+}
+
+interface ResizedBox {
+  boxId: string;
+  start: Rect;
+  rect: Rect;
+  changesHeight: boolean;
+}
+
+function clampedSize(size: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, size));
+}
+
+function clampedBoxRect(rect: Rect, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Rect {
+  const width = clampedSize(rect.width, WHITEBOARD_LIMITS.boxWidthMin, WHITEBOARD_LIMITS.boxWidthMax);
+  const height = clampedSize(rect.height, 1, WHITEBOARD_LIMITS.boxHeightMax);
+  const keptStart = (start: number, size: number, clamped: number, sideSign: -1 | 0 | 1) => (sideSign === -1 ? start + size - clamped : sideSign === 0 ? start + (size - clamped) / 2 : start);
+  return { x: keptStart(rect.x, rect.width, width, side.x), y: keptStart(rect.y, rect.height, height, side.y), width, height };
 }
 
 const BLANK_TEXT_LINE: BoxLine = { text: '', muted: false, style: 'text', key: null };
@@ -223,8 +241,11 @@ interface UnconfirmedLines {
   lines: readonly BoxLine[];
 }
 
+const CURSOR_BY_RESIZE_HANDLE: Readonly<Record<ResizeHandle, string>> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+
 function hoverCursorOf(hit: BoardHit | null): string {
   if (!hit) return '';
+  if (hit.handle) return CURSOR_BY_RESIZE_HANDLE[hit.handle];
   if (hit.kind === 'box' && MOVABLE_BOX_PARTS.has(hit.part)) return 'move';
   return CURSOR_BY_HIT_PART[hit.part];
 }
@@ -250,8 +271,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let linesUnderLineEdit: readonly BoxLine[] | null = null;
   let previewFrameId: number | null = null;
   let activeTool: BoardTool = 'select';
-  let isToolLocked = false;
-  let isSpaceHeld = false;
+  let toolKeeping: 'until placed' | 'kept' = 'until placed';
+  let spaceHeldTool: 'hand' | null = null;
   let nudgeRun: NudgeRun | null = null;
   let pendingTitleEditId: string | null = null;
   let isFitOwedOnceSized = false;
@@ -263,12 +284,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function setToolLocked(shouldLock: boolean): void {
-    isToolLocked = shouldLock;
+    toolKeeping = shouldLock ? 'kept' : 'until placed';
     options.onToolLockChange(shouldLock);
   }
 
   function finishToolUse(): void {
-    if (!isToolLocked) setTool('select');
+    if (toolKeeping === 'until placed') setTool('select');
   }
 
   function applyCamera(): void {
@@ -398,22 +419,44 @@ export function createBoardEditor(options: BoardEditorOptions) {
     };
   }
 
-  function draggedWidth(drag: Extract<Gesture, { kind: 'drag' }>, start: Rect): number {
-    const width = Math.round(start.width + drag.latest.x - drag.origin.x);
-    return Math.min(WHITEBOARD_LIMITS.boxWidthMax, Math.max(WHITEBOARD_LIMITS.boxWidthMin, width));
+  function resizeStretchOf(drag: Extract<Gesture, { kind: 'drag' }>, latest: ViewPoint): ResizeStretch | null {
+    if (!drag.resize) return null;
+    const offset = { x: latest.x - drag.origin.x, y: latest.y - drag.origin.y };
+    const side = handleSidesOf(drag.resize.handle);
+    const isPastVerticalThreshold = Math.abs(offset.y) >= VERTICAL_RESIZE_THRESHOLD_PX * viewUnitsPerPixel();
+    const changesHeight = drag.resize.keepsRatio || (side.y !== 0 && (side.x === 0 || isPastVerticalThreshold));
+    return { handle: drag.resize.handle, offset, keepsRatio: drag.resize.keepsRatio, changesHeight };
   }
 
-  function isResizedVertically(drag: Extract<Gesture, { kind: 'drag' }>): boolean {
-    return Math.abs(drag.latest.y - drag.origin.y) >= VERTICAL_RESIZE_THRESHOLD_PX * viewUnitsPerPixel();
+  function resizedBoxesOf(drag: Extract<Gesture, { kind: 'drag' }>): ResizedBox[] {
+    const stretch = resizeStretchOf(drag, drag.latest);
+    if (!stretch) return [];
+    const target = resizedRectOf(drag.start, stretch);
+    const side = handleSidesOf(stretch.handle);
+    return drag.movingBoxes.map((movingBox) => {
+      const stretched = drag.movingBoxes.length === 1 ? target : scaledRectWithin(movingBox.start, drag.start, target);
+      return { boxId: movingBox.boxId, start: movingBox.start, rect: clampedBoxRect(stretched, side), changesHeight: stretch.changesHeight };
+    });
   }
 
-  function draggedHeight(drag: Extract<Gesture, { kind: 'drag' }>, start: Rect): number {
-    const height = Math.round(start.height + drag.latest.y - drag.origin.y);
-    return Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.max(1, height));
+  function resizedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
+    const board = options.currentBoard();
+    const resizedBoxes = resizedBoxesOf(drag);
+    const shiftedBoxes = resizedBoxes.filter(({ start, rect }) => Math.round(rect.x) !== Math.round(start.x) || Math.round(rect.y) !== Math.round(start.y));
+    const leavingBand = shiftedBoxes.filter(({ boxId }) => {
+      const record = board?.elements.get(boxId);
+      return record?.kind === 'box' && isInStepBand(record);
+    });
+    const bandShrinkY = drag.pinnedOffsetY - pinnedOffsetYAfterLeaving(renderer.layout()?.plan ?? null, leavingBand.map((resized) => resized.start));
+    const shiftedIds = new Set(shiftedBoxes.map((resized) => resized.boxId));
+    return resizedBoxes.map(({ boxId, rect, changesHeight }) => {
+      const place = { at: { x: Math.round(rect.x), y: Math.round(rect.y - drag.pinnedOffsetY + bandShrinkY) } };
+      return { boxId, fields: { width: Math.round(rect.width), ...(changesHeight ? { height: Math.round(rect.height) } : {}), ...(shiftedIds.has(boxId) ? { place } : {}) } };
+    });
   }
 
   function draggedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
-    if (drag.mode === 'resize') return drag.movingBoxes.map((movingBox) => ({ boxId: movingBox.boxId, fields: { width: draggedWidth(drag, movingBox.start), ...(isResizedVertically(drag) ? { height: draggedHeight(drag, movingBox.start) } : {}) } }));
+    if (drag.mode === 'resize') return resizedBoxFields(drag);
     return movedPlaceFields(drag.movingBoxes, (start) => draggedAt(drag, start), drag.pinnedOffsetY);
   }
 
@@ -505,16 +548,17 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizedIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
     const laidOutById = new Map(layout.elements.flatMap((element) => (element.kind === 'box' && resizedIds.has(element.id) ? [[element.id, element]] : [])));
     const resizedElements = elementTableOf();
+    const resizedRectsById = new Map(resizedBoxesOf(drag).map((resized) => [resized.boxId, resized.rect] as const));
     for (const { boxId, fields } of draggedBoxFields(drag)) {
       const box = board.elements.get(boxId);
-      const laidOut = laidOutById.get(boxId);
-      if (box?.kind !== 'box' || !laidOut) continue;
-      resizedElements.put({ ...box, ...fields, step: null, place: { at: { x: laidOut.x, y: laidOut.y } } });
+      const rect = resizedRectsById.get(boxId);
+      if (box?.kind !== 'box' || !laidOutById.has(boxId) || !rect) continue;
+      resizedElements.put({ ...box, ...fields, step: null, place: { at: { x: Math.round(rect.x), y: Math.round(rect.y) } } });
     }
     const resizedById = new Map<string, LaidOutElement>();
     for (const element of layoutBoard({ ...board, elements: resizedElements }).elements) {
-      const laidOut = laidOutById.get(element.id);
-      if (element.kind === 'box' && laidOut) resizedById.set(element.id, movedBox(element, laidOut.x - element.x, laidOut.y - element.y));
+      const rect = resizedRectsById.get(element.id);
+      if (element.kind === 'box' && rect) resizedById.set(element.id, movedBox(element, Math.round(rect.x) - element.x, Math.round(rect.y) - element.y));
     }
     const resizedLayout = { ...layout, elements: layout.elements.map((element) => resizedById.get(element.id) ?? element) };
     return createDragPreview(board, resizedLayout, new Set(resizedById.keys()))(0, 0);
@@ -642,7 +686,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     if (event.button !== 0) return;
-    if ((isSpaceHeld || activeTool === 'hand') && !gesture) {
+    if ((spaceHeldTool ?? activeTool) === 'hand' && !gesture) {
       startButtonPan(event);
       return;
     }
@@ -662,10 +706,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return;
     }
     const hitBoxRect = hit?.kind === 'box' ? renderer.boundsOf(hit.id) : null;
-    const resizeRect = hit?.part === 'resize' && !isPhoneLayout() ? hitBoxRect : null;
-    if (hit && resizeRect) {
+    const resizeHandle = hit?.part === 'resize' && !isPhoneLayout() ? hit.handle : null;
+    if (hit && hitBoxRect && resizeHandle) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start: resizeRect, movingBoxes: movingBoxesFor(hit.id, resizeRect, false), pinnedOffsetY: 0, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null };
+      const movingBoxes = movingBoxesFor(hit.id, hitBoxRect, false);
+      const start = rectAround(movingBoxes.map((movingBox) => movingBox.start));
+      const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start, movingBoxes, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: { handle: resizeHandle, keepsRatio: event.shiftKey } };
       return;
     }
     if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
@@ -681,7 +728,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null, resize: null };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -864,18 +911,28 @@ export function createBoardEditor(options: BoardEditorOptions) {
       return point;
     }
     drag.snapTargets ??= snapTargetsFor(drag);
-    const offset = { x: point.x - drag.origin.x, y: point.y - drag.origin.y };
-    const isResize = drag.mode === 'resize';
-    const moved = isResize
-      ? { ...drag.start, width: drag.start.width + offset.x, height: drag.start.height + offset.y }
-      : shiftedRectOf(rectAround(drag.movingBoxes.map((movingBox) => movingBox.start)), offset);
-    const edges = isResize
-      ? { xs: [moved.x + moved.width], ys: isResizedVertically({ ...drag, latest: point }) ? [moved.y + moved.height] : [] }
-      : { xs: [moved.x, moved.x + moved.width / 2, moved.x + moved.width], ys: [moved.y, moved.y + moved.height / 2, moved.y + moved.height] };
     const thresholdUnits = SNAP_THRESHOLD_PX * viewUnitsPerPixel();
-    const firstSnap = snappedCorrectionOf(drag.snapTargets, edges, moved, thresholdUnits);
-    const losesVerticalResize = isResize && edges.ys.length > 0 && !isResizedVertically({ ...drag, latest: { x: point.x, y: point.y + firstSnap.correction.y } });
-    const snap = losesVerticalResize ? snappedCorrectionOf(drag.snapTargets, { xs: edges.xs, ys: [] }, moved, thresholdUnits) : firstSnap;
+    const stretch = resizeStretchOf(drag, point);
+    if (stretch?.keepsRatio) {
+      paintGuides([]);
+      return point;
+    }
+    if (stretch) {
+      const moved = resizedRectOf(drag.start, stretch);
+      const side = handleSidesOf(stretch.handle);
+      const edgeOf = (start: number, size: number, sideSign: -1 | 0 | 1) => (sideSign === 0 ? [] : [sideSign === 1 ? start + size : start]);
+      const xs = edgeOf(moved.x, moved.width, side.x);
+      const firstSnap = snappedCorrectionOf(drag.snapTargets, { xs, ys: stretch.changesHeight ? edgeOf(moved.y, moved.height, side.y) : [] }, moved, thresholdUnits);
+      const snappedStretch = resizeStretchOf(drag, { x: point.x, y: point.y + firstSnap.correction.y });
+      const losesHeightChange = stretch.changesHeight && !snappedStretch?.changesHeight;
+      const resizeSnap = losesHeightChange ? snappedCorrectionOf(drag.snapTargets, { xs, ys: [] }, moved, thresholdUnits) : firstSnap;
+      paintGuides(resizeSnap.guides);
+      return { x: point.x + resizeSnap.correction.x, y: point.y + resizeSnap.correction.y };
+    }
+    const offset = { x: point.x - drag.origin.x, y: point.y - drag.origin.y };
+    const moved = shiftedRectOf(rectAround(drag.movingBoxes.map((movingBox) => movingBox.start)), offset);
+    const edges = { xs: [moved.x, moved.x + moved.width / 2, moved.x + moved.width], ys: [moved.y, moved.y + moved.height / 2, moved.y + moved.height] };
+    const snap = snappedCorrectionOf(drag.snapTargets, edges, moved, thresholdUnits);
     paintGuides(snap.guides);
     return { x: point.x + snap.correction.x, y: point.y + snap.correction.y };
   }
@@ -896,6 +953,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const rawPoint = toViewPoint(event.clientX, event.clientY);
     if (!drag.hasMoved && Math.hypot(rawPoint.x - drag.origin.x, rawPoint.y - drag.origin.y) < DRAG_THRESHOLD_PX * viewUnitsPerPixel()) return;
     drag.hasMoved = true;
+    if (drag.resize) drag.resize.keepsRatio = event.shiftKey;
     drag.latest = snappedLatestOf(drag, event);
     renderer.setWireTarget(stackTargetOf(drag));
     requestPreviewFrame();
@@ -983,7 +1041,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = hitAt(event.clientX, event.clientY);
     renderer.setHover(hit?.kind === 'box' ? hit.id : null);
     viewport.dataset.hoverKind = hit?.kind ?? '';
-    viewport.style.cursor = activeTool === 'select' && !isSpaceHeld ? hoverCursorOf(hit) : '';
+    viewport.style.cursor = (spaceHeldTool ?? activeTool) === 'select' ? hoverCursorOf(hit) : '';
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -1491,13 +1549,13 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (event.shiftKey) return shiftedKeyAction(event);
     if (event.key === ' ') return () => holdSpace(true);
     const key = event.key.toLowerCase();
-    if (key === 'q') return () => setToolLocked(!isToolLocked);
+    if (key === 'q') return () => setToolLocked(toolKeeping === 'until placed');
     const tool = TOOL_BY_KEY[key];
     return tool ? () => setTool(tool) : null;
   }
 
   function holdSpace(isHeld: boolean): void {
-    isSpaceHeld = isHeld;
+    spaceHeldTool = isHeld ? 'hand' : null;
     viewport.dataset.spacePan = String(isHeld);
     if (isHeld) viewport.style.cursor = '';
   }
@@ -1545,7 +1603,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     repaintPreview,
     closeInlineEditor,
     setTool,
-    toggleToolLock: () => setToolLocked(!isToolLocked),
+    toggleToolLock: () => setToolLocked(toolKeeping === 'until placed'),
     placeMediaBox,
     afterBoardPaint,
     focusCanvas: () => viewport.focus(),
