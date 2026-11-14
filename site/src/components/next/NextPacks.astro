@@ -205,7 +205,7 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
   .packs-demo[data-on-screen="true"] .usage-fill { width: calc(var(--share) * 100%); }
   .usage-value { color: var(--text-dim); font-size: var(--type-meta); text-align: right; }
   .board-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  .board-card { --card-state: var(--state-running); display: grid; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-dim); border-top: 2px solid var(--card-state); border-radius: 6px; background: var(--bg-surface); transition: border-color 400ms var(--ease-out-expo); }
+  .board-card { --card-state: var(--state-running); display: grid; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--card-state) 45%, var(--border-dim)); border-radius: 6px; background: color-mix(in oklab, var(--card-state) 8%, var(--bg-surface)); transition: border-color 400ms var(--ease-out-expo), background 400ms var(--ease-out-expo); }
   .board-card[data-state="waiting"] { --card-state: var(--state-waiting); }
   .board-card[data-state="failed"] { --card-state: var(--state-failed); }
   .board-card[data-state="complete"] { --card-state: var(--state-complete); }
@@ -224,7 +224,7 @@ const percentOf = (share: number) => `${Math.round(share * 100)}%`;
   .launcher-side { display: grid; gap: 6px; justify-items: start; }
   .launcher-button { padding: 6px 14px; border-radius: 999px; background: var(--accent); color: var(--bg); font-size: var(--type-meta); font-weight: 700; }
   .launcher-cron { color: var(--text-dim); font-size: var(--type-meta); }
-  .launched-session { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-dim); border-left: 2px solid var(--state-running); border-radius: 6px; background: var(--bg-surface); }
+  .launched-session { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--state-running) 45%, var(--border-dim)); border-radius: 6px; background: var(--state-running-bg); }
   .launched-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--state-running); }
   .launched-badge { margin-left: auto; color: var(--state-running); font-size: var(--type-meta); font-weight: 700; }
   .packs-demo[data-on-screen="true"] .clock-hand { animation: clock-sweep var(--launch-cycle-ms) var(--ease-out-expo) infinite; }
