@@ -32,7 +32,7 @@ import { createFileTenantRecordStore } from './tenant-record-store.ts';
 import type { TenantRecordStore } from './tenant-record-store.ts';
 import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import type { DoormanRoute, ForwardState, WakePageState } from './doorman-core.ts';
-import { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, wakeLimitedPage, wakingPage } from './host-page.ts';
+import { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, overCapPage, wakeLimitedPage, wakingPage } from './host-page.ts';
 import { createFileDoormanState, createFileTenantState, createGcsDoormanState, stateBucketOf } from './doorman-state.ts';
 import type { DoormanState, DoormanTenantState } from './doorman-state.ts';
 import { clock } from '../../shared/clock.ts';
@@ -69,27 +69,35 @@ function answerBusy(response: http.ServerResponse): void {
   answerStatus(response, 503, { 'retry-after': RETRY_AFTER_SECONDS });
 }
 
-function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMonth, nowMs }: { usage: AwakeUsage; awakeHoursPerMonth: number | null; nowMs: number }): void {
+function answerHostPage(response: http.ServerResponse, page: string, { status, retryAfterSeconds }: { status: number; retryAfterSeconds: number }): void {
   if (response.headersSent) {
     response.destroy();
     return;
   }
-  const secondsUntilReset = Math.max(1, Math.ceil((Date.parse(usage.periodEndsAt) - nowMs) / 1000));
-  response.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(secondsUntilReset) });
-  response.end(`This Glimmervoid host has used its ${awakeHoursPerMonth} awake hours for this month. It can wake again at ${usage.periodEndsAt}.\n`);
-}
-
-function answerHostPage(response: http.ServerResponse, page: string, retryAfterSeconds: number): void {
-  if (response.headersSent) {
-    response.destroy();
-    return;
-  }
-  response.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(retryAfterSeconds), 'content-security-policy': HOST_PAGE_CONTENT_SECURITY_POLICY });
+  response.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(retryAfterSeconds), 'content-security-policy': HOST_PAGE_CONTENT_SECURITY_POLICY });
   response.end(page);
 }
 
-function answerWakingPage(response: http.ServerResponse, state: WakePageState): void {
-  answerHostPage(response, wakingPage(state, Number(RETRY_AFTER_SECONDS)), Number(RETRY_AFTER_SECONDS));
+function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMonth, nowMs, isBrowser }: { usage: AwakeUsage; awakeHoursPerMonth: number | null; nowMs: number; isBrowser: boolean }): void {
+  const secondsUntilReset = Math.max(1, Math.ceil((Date.parse(usage.periodEndsAt) - nowMs) / 1000));
+  if (isBrowser) {
+    answerHostPage(response, overCapPage({ awakeHoursPerMonth, periodEndsAt: usage.periodEndsAt }), { status: 503, retryAfterSeconds: secondsUntilReset });
+    return;
+  }
+  if (response.headersSent) {
+    response.destroy();
+    return;
+  }
+  response.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'retry-after': String(secondsUntilReset) });
+  response.end(`This Glimmervoid has been awake for its ${awakeHoursPerMonth} hour${awakeHoursPerMonth === 1 ? '' : 's'} this month, so it stays asleep. It can wake again at ${usage.periodEndsAt}.\n`);
+}
+
+function isWakePoll(request: http.IncomingMessage): boolean {
+  return request.headers[WAKE_POLL_HEADER] !== undefined;
+}
+
+function answerWakingPage(request: http.IncomingMessage, response: http.ServerResponse, state: WakePageState): void {
+  answerHostPage(response, wakingPage(state, Number(RETRY_AFTER_SECONDS)), { status: isWakePoll(request) ? 202 : 503, retryAfterSeconds: Number(RETRY_AFTER_SECONDS) });
 }
 
 function answerAwakeToWakePoll(response: http.ServerResponse): void {
@@ -101,7 +109,7 @@ function answerWakeLimited(response: http.ServerResponse, { retryAfterMs, isBrow
   const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
   if (!isBrowser) return answerStatus(response, 503, { 'retry-after': String(retryAfterSeconds) });
   const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  answerHostPage(response, wakeLimitedPage(minutes), retryAfterSeconds);
+  answerHostPage(response, wakeLimitedPage(minutes), { status: 503, retryAfterSeconds });
 }
 
 function refuseUpgrade(socket: Duplex, status: number, extraHeaderLines = ''): void {
@@ -283,12 +291,12 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
 
   function answerNotAwake(entry: TenantEntry, outcome: Exclude<WakeOutcome, 'answering'> | 'over-capacity', request: http.IncomingMessage, response: http.ServerResponse) {
     if (outcome === 'no-adapter') return answerStatus(response, 502);
-    const overCap = outcome === 'over-cap' ? overCapUsage(entry) : null;
-    if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now() });
     const isBrowser = wantsWakingPage(request.method, request.headers.accept);
+    const overCap = outcome === 'over-cap' ? overCapUsage(entry) : null;
+    if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now(), isBrowser });
     const limitedRetryAfterMs = outcome === 'wake-limited' ? edgeWakeRetryAfterFor(entry) : null;
     if (limitedRetryAfterMs !== null) return answerWakeLimited(response, { retryAfterMs: limitedRetryAfterMs, isBrowser });
-    if (isBrowser) return answerWakingPage(response, wakePageStateOf(entry));
+    if (isBrowser) return answerWakingPage(request, response, wakePageStateOf(entry));
     return answerBusy(response);
   }
 
@@ -299,7 +307,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function forwardAfterHold(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, bodyless: Readable | undefined): Promise<void> {
-    if (wantsWakingPage(request.method, request.headers.accept)) return answerWhileWaking(entry, request, response, () => answerWakingPage(response, wakePageStateOf(entry)));
+    if (wantsWakingPage(request.method, request.headers.accept)) return answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
     const outcome = await holdUntilAwake(entry);
     if (outcome !== 'answering') return answerNotAwake(entry, outcome, request, response);
     if (response.destroyed) return;
@@ -312,7 +320,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
 
   async function forwardWeb(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     if (entry.gate.state !== 'answering') return forwardAfterHold(entry, request, response, undefined);
-    if (request.headers[WAKE_POLL_HEADER] !== undefined) return answerAwakeToWakePoll(response);
+    if (isWakePoll(request)) return answerAwakeToWakePoll(response);
     forwardedFor(entry, request);
     try {
       await proxy.web(request, response, { target: entry.tenant.serverUrl });
@@ -324,7 +332,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       if (adapterFor(entry) === null) return answerStatus(response, 502);
       noteHostDown(entry);
       const overCap = overCapUsage(entry);
-      if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now() });
+      if (overCap !== null) return answerOverCap(response, { usage: overCap, awakeHoursPerMonth: entry.tenant.awakeHoursPerMonth, nowMs: now(), isBrowser: wantsWakingPage(request.method, request.headers.accept) });
       if (hasRequestBody(request)) return answerWhileWaking(entry, request, response, () => answerBusy(response));
       return forwardAfterHold(entry, request, response, Readable.from([]));
     }

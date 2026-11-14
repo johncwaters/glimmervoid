@@ -901,7 +901,11 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   await eventually(async () => (await fsp.readFile(path.join(tenant.watcherHome, 'awake-ledger.jsonl'), 'utf8').catch(() => '')).includes('slept') ? true : undefined);
   const refused = await requestThroughDoorman(firstPort, { host: tenantHost, path: '/' });
   assert.equal(refused.status, 503);
-  assert.match(refused.body, /used its 0.0001 awake hours for this month/);
+  assert.match(refused.body, /^This Glimmervoid has been awake for its 0\.0001 hours this month, so it stays asleep\. It can wake again at \d{4}-\d{2}-01T00:00:00\.000Z\.\n$/);
+  const refusedPage = await requestThroughDoorman(firstPort, { host: tenantHost, path: '/', headers: { accept: 'text/html' } });
+  assert.equal(refusedPage.status, 503);
+  assert.match(refusedPage.body, /<h1>Asleep until [A-Z][a-z]{2} 1<\/h1>/);
+  assert.doesNotMatch(refusedPage.body, /awake hours/);
   assert.deepEqual(wakeCalls, ['cappedtenant0001']);
   await firstDoorman.close();
 
@@ -962,6 +966,9 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   assert.equal(wakingPage.status, 503);
   assert.match(wakingPage.body, /Waking your Glimmervoid/);
   assert.match(wakingPage.body, /http-equiv="refresh"/);
+  const polledPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } });
+  assert.equal(polledPage.status, 202, 'the page\'s own poll gets no error status, so the browser console stays quiet while the host sleeps');
+  assert.match(polledPage.body, /id="wake"/);
   const pageScript = /<script>([\s\S]*)<\/script>/.exec(wakingPage.body)?.[1] ?? '';
   const pagePolicy = await new Promise<string>((resolve, reject) => {
     http.request({ host: '127.0.0.1', port: doormanPort, path: '/', headers: { ...browserHeaders, host: tenantHost } }, (response) => {

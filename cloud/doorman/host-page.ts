@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '../../shared/brand-mark.ts';
+import { clock } from '../../shared/clock.ts';
 import type { WakePageState } from './doorman-core.ts';
 
 const TYPICAL_WAKE_SECONDS = 15;
@@ -56,7 +57,7 @@ const HOST_PAGE_SCRIPT = `(() => {
   };
   const readRender = async () => {
     const response = await fetch(location.href, { headers: { accept: 'text/html', '${WAKE_POLL_HEADER}': '1' }, cache: 'no-store', redirect: 'manual' });
-    if (response.status !== 503) return null;
+    if (response.status !== 202) return null;
     return new DOMParser().parseFromString(await response.text(), 'text/html').getElementById('wake');
   };
   const poll = async () => {
@@ -132,4 +133,14 @@ function wakeLimitedPage(minutesUntilWake: number): string {
   });
 }
 
-export { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, wakeLimitedPage, wakingPage };
+function overCapPage({ awakeHoursPerMonth, periodEndsAt }: { awakeHoursPerMonth: number | null; periodEndsAt: string }): string {
+  const wakeDay = clock.format(Date.parse(periodEndsAt), 'month-day', 'UTC');
+  return hostPage({
+    heading: `Asleep until ${wakeDay}`,
+    headExtra: '',
+    mainAttributes: '',
+    body: `<p>This Glimmervoid has been awake for its ${awakeHoursPerMonth} hour${awakeHoursPerMonth === 1 ? '' : 's'} this month, so it stays asleep.</p><p class="meta">It can wake again on ${wakeDay} at 00:00 UTC.</p>`,
+  });
+}
+
+export { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, overCapPage, wakeLimitedPage, wakingPage };
