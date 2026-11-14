@@ -11,6 +11,7 @@ import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-co
 import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
 import { playMarkLock } from '../boot/loading-unlock.ts';
 import { hasUnsettledCloneJobs, onCloneJobsSettled } from './clone-jobs.ts';
+import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
 import { buildCommandRow, buildSetupStep } from './setup-step.ts';
 import { button } from '../ui/button.ts';
@@ -26,6 +27,7 @@ let lockupEl: HTMLElement | null = null;
 let setupPhase: 'unloaded' | 'in-progress' | 'folding' | 'done' = 'unloaded';
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
+let hostReadyRowsElement: HTMLElement | null = null;
 let currentState: FirstRunState = { steps: UPCOMING_STEPS, agentSummary: '', installableAgents: installableAgentsText(null), repoRoots: [], notificationChoice: 'ask' };
 let loadSequence = 0;
 let hasRescanFoundNoAgent = false;
@@ -71,7 +73,21 @@ function repoRootsStepBody(): HTMLElement[] {
     void loadFirstRunState({ rescanAgents: false });
   } });
   repoRootsAdder = adder;
-  return [adder.element];
+  return [adder.element, hostReadyRowsFor(adder.element)];
+}
+
+function hostReadyRowsFor(adderElement: HTMLElement): HTMLElement {
+  if (hostReadyRowsElement?.isConnected) return hostReadyRowsElement;
+  hostReadyRowsElement = buildHostReadyRows({ openGithubConnection: () => focusGithubConnect(adderElement) }).element;
+  return hostReadyRowsElement;
+}
+
+function focusGithubConnect(adderElement: HTMLElement) {
+  const connectTarget = adderElement.querySelector<HTMLElement>('[data-action="github-connect"]:not([hidden])') ?? adderElement.querySelector<HTMLElement>('.repo-roots-adder-github');
+  if (!connectTarget) return;
+  if (!(connectTarget instanceof HTMLButtonElement)) connectTarget.tabIndex = -1;
+  connectTarget.scrollIntoView({ block: 'center' });
+  connectTarget.focus();
 }
 
 const SAMPLE_NOTIFICATION_TEXT = 'auth-refactor needs attention';
