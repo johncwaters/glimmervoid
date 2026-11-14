@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createBackendUpdateCheck } from '../server/backend/backend-update.ts';
 import { createUpdateApplyLane } from '../server/update-apply.ts';
 import type { UpdateStatus } from '../shared/contracts/control-messages.ts';
 
@@ -214,6 +215,39 @@ test('a standalone binary update whose binary prints no version fails instead of
     await lane.stop();
     assert.equal(outcome.ok, false);
     assert.equal(lane.getJournal().state, 'failed');
+  } finally {
+    fs.rmSync(install.root, { recursive: true, force: true });
+  }
+});
+
+test('a standalone binary whose updater is written after the server started offers the update at the next check', async () => {
+  const install = makeBinaryInstall();
+  const updaterPath = path.join(path.dirname(install.executablePath), 'glimmervoid-update');
+  const updaterScript = fs.readFileSync(updaterPath);
+  fs.rmSync(updaterPath);
+  try {
+    const lane = startBinaryLane(install);
+    const { platform: _platform, journalSummary: _journalSummary, applyRefusal: _applyRefusal, ...checkedStatus } = availableUpdate();
+    const updateCheck = createBackendUpdateCheck({
+      config: { checkForUpdates: false, updateChannel: 'release' },
+      currentVersion: '1.0.0',
+      platform: 'darwin',
+      checkForUpdate: async () => ({ ...checkedStatus, flavor: 'binary', command: 'glimmervoid-update' }),
+      getUpdateJournal: () => lane.getJournal(),
+      getBinaryUpdaterPath: () => lane.getBinaryUpdaterPath(),
+      probeBinaryUpdater: () => lane.probeBinaryUpdater(),
+      getControlClientCount: () => 0,
+      broadcastControl: () => {},
+      logger: { log: () => {} },
+    });
+    const checkedBeforeUpdaterExists = await updateCheck.checkNow();
+    assert.equal(checkedBeforeUpdaterExists.applyRefusal?.reason, 'unsupported-flavor');
+
+    fs.writeFileSync(updaterPath, updaterScript, { mode: 0o755 });
+    const checkedAfterUpdaterExists = await updateCheck.checkNow();
+    updateCheck.stop();
+    await lane.stop();
+    assert.equal(checkedAfterUpdaterExists.applyRefusal, null);
   } finally {
     fs.rmSync(install.root, { recursive: true, force: true });
   }

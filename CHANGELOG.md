@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Updates offers Update after you install the updater.** On a standalone install, Settings > Updates could keep saying to use the install command because no `glimmervoid-update` sits beside this binary, although the installer had just put it there, until you restarted the server. Glimmervoid now looks for the updater at every update check, so pressing Check is enough.
 - **Notices show on your phone.** The update notice, the old report notice, the usage data notice and error messages now appear at the top of every phone screen, with the same Update, Restart, Copy and Dismiss controls as on desktop. They tuck away while your keyboard is open. On desktop, an error message now sits under the header with the other notices instead of covering the top of the page.
 - **A cut in document markup is just a strike through.** The pen loop drawn after struck text is gone, so a cut at the end of a line no longer pushes a stray mark onto its own line.
 - **Large worktrees no longer stay half deleted after a session ends.** Removing a big session worktree (one with its own `node_modules` and `.venv`) used to be cut off after 20 seconds, leaving most of its files behind where no later cleanup would touch them, so the disk slowly filled. Glimmervoid now moves the worktree aside in one step and deletes it in the background; a restart partway through leaves only the set-aside folder, which the next removal there clears. A worktree locked by someone else is still left alone.

@@ -26,6 +26,7 @@ interface BackendUpdateDependencies {
   isRestartRequested?: () => boolean;
   isSupervised?: () => boolean;
   getBinaryUpdaterPath?: () => string | null;
+  probeBinaryUpdater?: () => Promise<unknown>;
   getControlClientCount: () => number;
   broadcastControl: ControlBroadcast;
   logger: Pick<Console, 'log'>;
@@ -206,6 +207,7 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
     const checkedAt = now();
     updateAbort = new AbortController();
     const runUpdateCheck = dependencies.checkForUpdate || defaultCheckForUpdate;
+    const updaterProbe = Promise.resolve(dependencies.probeBinaryUpdater?.()).catch(() => null);
     const run = runUpdateCheck({
       currentVersion: dependencies.currentVersion,
       updateChannel: channel,
@@ -213,7 +215,8 @@ function createBackendUpdateCheck(dependencies: BackendUpdateDependencies): Back
       ...(ttlMs === undefined ? {} : { ttlMs }),
     })
       .catch(() => null)
-      .then((updateResult) => {
+      .then(async (updateResult) => {
+        await updaterProbe;
         if (stopped || channel !== normalizeUpdateChannel(dependencies.config.updateChannel)) {
           return projectStatus({ ...failedStatus(channel, checkedAt), platform });
         }

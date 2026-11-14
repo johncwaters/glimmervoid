@@ -138,6 +138,7 @@ interface UpdateApplyLane {
   getJournal(): UpdateJournal;
   isSupervised(): boolean;
   getBinaryUpdaterPath(): string | null;
+  probeBinaryUpdater(): Promise<string | null>;
   handOffStagedUpdate(): Promise<void>;
   isRestartRequested(): boolean;
   noteRestartRequested(): void;
@@ -180,22 +181,13 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
   const standaloneExecutablePath = dependencies.standaloneExecutablePath === undefined
     ? standaloneExecutableRealpath()
     : dependencies.standaloneExecutablePath;
-  let knownBinaryUpdaterPath = standaloneExecutablePath ? executableUpdaterOrNull(standaloneExecutablePath) : null;
+  let knownBinaryUpdaterPath: string | null = null;
 
   function binaryUpdaterPathBeside(executablePath: string): string {
     const updaterFileName = (dependencies.platform || process.platform) === 'win32' ? `${BINARY_UPDATER_NAME}.exe` : BINARY_UPDATER_NAME;
     return path.join(path.dirname(executablePath), updaterFileName);
   }
 
-  function executableUpdaterOrNull(executablePath: string): string | null {
-    const updaterPath = binaryUpdaterPathBeside(executablePath);
-    try {
-      fs.accessSync(updaterPath, fs.constants.X_OK);
-      return updaterPath;
-    } catch {
-      return null;
-    }
-  }
   let journal = idleJournal(dependencies.getUpdateChannel());
   let stagedDescriptor: StagedDescriptor | null = null;
   let inFlight = false;
@@ -483,6 +475,11 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
       knownBinaryUpdaterPath = null;
       return null;
     }
+  }
+
+  function probeBinaryUpdater(): Promise<string | null> {
+    if (!standaloneExecutablePath) return Promise.resolve(null);
+    return findBinaryUpdater(standaloneExecutablePath);
   }
 
   function getBinaryUpdaterPath(): string | null {
@@ -855,6 +852,7 @@ function createUpdateApplyLane(dependencies: UpdateApplyDependencies): UpdateApp
     getJournal,
     isSupervised,
     getBinaryUpdaterPath,
+    probeBinaryUpdater,
     handOffStagedUpdate,
     isRestartRequested,
     noteRestartRequested,

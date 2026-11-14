@@ -623,6 +623,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     isRestartRequested: () => updateApply.isRestartRequested(),
     isSupervised: () => updateApply.isSupervised(),
     getBinaryUpdaterPath: () => updateApply.getBinaryUpdaterPath(),
+    probeBinaryUpdater: () => updateApply.probeBinaryUpdater(),
     getControlClientCount: viewerControlClientCount,
     broadcastControl,
     logger: console,
