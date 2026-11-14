@@ -719,6 +719,32 @@ async function verifyArrowAndLineTools(open: OpenBoard, anchorBoxId: string): Pr
   await page.keyboard.press('v');
 }
 
+async function verifyRotation(open: OpenBoard, anchorBoxId: string): Promise<void> {
+  const { page, panel, boardId } = open;
+  const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
+  const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
+  assert.ok(anchorPoint, 'the anchor box has a point');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'turn-box', title: 'Turn me', place: { at: { x: anchorPoint.x, y: anchorPoint.y + 220 } } } }] });
+  await elementWhere(open, 'the box to rotate is on the board', (element) => element.id === 'turn-box');
+  await selectBoxes(open, ['turn-box']);
+  const laidOut = await laidOutOf(open, 'turn-box');
+  assert.ok(laidOut.kind === 'box');
+  const handle = await screenPointOf(open, { x: laidOut.x + laidOut.width / 2, y: laidOut.y - 28 });
+  const center = await screenPointOf(open, { x: laidOut.x + laidOut.width / 2, y: laidOut.y + laidOut.height / 2 });
+  await page.keyboard.down('Shift');
+  await dragOnScreen(open, handle, { x: center.x + 120, y: center.y + 7 });
+  await page.keyboard.up('Shift');
+  await elementWhere(open, 'dragging the rotate handle with Shift turns the box to a 15 degree step', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 90);
+  const angleField = panel.locator('[data-field="angle"]');
+  await angleField.fill('30');
+  await angleField.press('Tab');
+  await elementWhere(open, 'typing in the Angle field sets the rotation', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 30);
+  const turned = await laidOutOf(open, 'turn-box');
+  assert.ok(turned.kind === 'box' && turned.angle === 30, 'the laid out box carries the typed angle');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'turn-box' }] });
+  await boardWithout(open, 'the rotated box is gone', (element) => element.id === 'turn-box');
+}
+
 async function wireHandleOnScreen(open: OpenBoard, wireId: string, kind: WireHandle['kind']): Promise<{ x: number; y: number }> {
   const laidOut = await laidOutOf(open, wireId);
   assert.ok(laidOut.kind === 'wire', `${wireId} is a wire`);
@@ -1887,6 +1913,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
     if (desktopBoard) await verifyEllipseAndEraser(open, parseFeed.id);
     if (desktopBoard) await verifyArrowAndLineTools(open, parseFeed.id);
+    if (desktopBoard) await verifyRotation(open, parseFeed.id);
     await verifyStacking(open, parseFeed.id);
     await verifyNoteShapes(open);
     await verifyLineEditing(open);

@@ -8,7 +8,7 @@ import type { ElementTable } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
-import { labelWidthOf, pointsOfPath } from './whiteboard-route-core.ts';
+import { labelWidthOf, pointsOfPath, rotatedAbout, rotatedBoundsOf } from './whiteboard-route-core.ts';
 
 const CHUNK_SIZE = 2048;
 const FULL_MIN_SCALE = 0.3;
@@ -132,6 +132,7 @@ function paintedBoundsOf(element: PlacedElement): Rect {
     return boundsOfPoints(points, WIRE_PAD);
   }
   if (element.kind === 'frame') return { ...rectOf(element), width: Math.max(element.width, FRAME_TITLE_PAD + labelWidthOf(element.title)) };
+  if (element.kind === 'box') return rectOf(rotatedBoundsOf(element));
   return rectOf(element);
 }
 
@@ -304,12 +305,19 @@ function rasterOf(index: TileIndex, key: TileKey): string | null {
   for (const slot of slotsTouching(index, tileRect)) {
     const element = index.painted[slot]?.element;
     if (!element || element.kind === 'wire' || element.kind === 'frame') continue;
-    const left = Math.max(0, Math.floor((element.x - tileRect.x) / unitsPerPixel));
-    const top = Math.max(0, Math.floor((element.y - tileRect.y) / unitsPerPixel));
-    const right = Math.min(BLOCK_RASTER_PX - 1, Math.floor((element.x + element.width - tileRect.x) / unitsPerPixel));
-    const bottom = Math.min(BLOCK_RASTER_PX - 1, Math.floor((element.y + element.height - tileRect.y) / unitsPerPixel));
+    const footprint = rotatedBoundsOf(element);
+    const turn = element.kind === 'box' ? element.angle : 0;
+    const center = { x: element.x + element.width / 2, y: element.y + element.height / 2 };
+    const left = Math.max(0, Math.floor((footprint.x - tileRect.x) / unitsPerPixel));
+    const top = Math.max(0, Math.floor((footprint.y - tileRect.y) / unitsPerPixel));
+    const right = Math.min(BLOCK_RASTER_PX - 1, Math.floor((footprint.x + footprint.width - tileRect.x) / unitsPerPixel));
+    const bottom = Math.min(BLOCK_RASTER_PX - 1, Math.floor((footprint.y + footprint.height - tileRect.y) / unitsPerPixel));
     for (let row = top; row <= bottom; row += 1) {
       for (let column = left; column <= right; column += 1) {
+        const pixelCenter = { x: tileRect.x + (column + 0.5) * unitsPerPixel, y: tileRect.y + (row + 0.5) * unitsPerPixel };
+        const local = rotatedAbout(pixelCenter, center, -turn);
+        const isInsideTurned = turn === 0 || (Math.abs(local.x - center.x) <= element.width / 2 + unitsPerPixel / 2 && Math.abs(local.y - center.y) <= element.height / 2 + unitsPerPixel / 2);
+        if (!isInsideTurned) continue;
         const offset = (row * BLOCK_RASTER_PX + column) * 4;
         pixels[offset + 3] = 255;
         isEmpty = false;

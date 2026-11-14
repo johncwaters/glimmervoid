@@ -1550,20 +1550,48 @@ function roundedPoint(point: Point): Point {
   return { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
 }
 
+function angleOfRect(rect: Rect): number {
+  return 'angle' in rect && typeof rect.angle === 'number' ? rect.angle : 0;
+}
+
+function rotatedAbout(point: Point, pivot: Point, degrees: number): Point {
+  if (degrees === 0) return point;
+  const radians = (degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const offsetX = point.x - pivot.x;
+  const offsetY = point.y - pivot.y;
+  return { x: pivot.x + offsetX * cos - offsetY * sin, y: pivot.y + offsetX * sin + offsetY * cos };
+}
+
+function rotatedBoundsOf<T extends Rect>(rect: T): T {
+  const angle = angleOfRect(rect);
+  if (angle === 0) return rect;
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const width = rect.width * cos + rect.height * sin;
+  const height = rect.width * sin + rect.height * cos;
+  return { ...rect, x: rect.x + (rect.width - width) / 2, y: rect.y + (rect.height - height) / 2, width, height };
+}
+
 function edgePointToward(anchor: WireAnchor, toward: Point): Point {
   const { box, point: center } = anchor;
   if (!box) return center;
-  const deltaX = toward.x - center.x;
-  const deltaY = toward.y - center.y;
+  const angle = angleOfRect(box);
+  const localToward = rotatedAbout(toward, center, -angle);
+  const deltaX = localToward.x - center.x;
+  const deltaY = localToward.y - center.y;
   if (deltaX === 0 && deltaY === 0) return center;
   const scaleX = deltaX === 0 ? Number.POSITIVE_INFINITY : box.width / 2 / Math.abs(deltaX);
   const scaleY = deltaY === 0 ? Number.POSITIVE_INFINITY : box.height / 2 / Math.abs(deltaY);
   const scale = Math.min(scaleX, scaleY);
-  return { x: center.x + deltaX * scale, y: center.y + deltaY * scale };
+  return rotatedAbout({ x: center.x + deltaX * scale, y: center.y + deltaY * scale }, center, angle);
 }
 
 function sideMidpointToward(anchor: WireAnchor, toward: Point, isHorizontalLeg: boolean): Point {
-  const { box, point: center } = anchor;
+  const { point: center } = anchor;
+  const box = anchor.box ? rotatedBoundsOf(anchor.box) : null;
   if (!box) return center;
   if (isHorizontalLeg) return { x: toward.x >= center.x ? box.x + box.width : box.x, y: center.y };
   return { x: center.x, y: toward.y >= center.y ? box.y + box.height : box.y };
@@ -1578,7 +1606,8 @@ function elbowPointsBetween(from: WireAnchor, to: WireAnchor): Point[] {
 }
 
 function edgeAlignedToward(anchor: WireAnchor, toward: Point): Point {
-  const { box, point: center } = anchor;
+  const { point: center } = anchor;
+  const box = anchor.box ? rotatedBoundsOf(anchor.box) : null;
   if (!box) return center;
   if (toward.y > box.y && toward.y < box.y + box.height) return { x: toward.x >= center.x ? box.x + box.width : box.x, y: toward.y };
   if (toward.x > box.x && toward.x < box.x + box.width) return { x: toward.x, y: toward.y >= center.y ? box.y + box.height : box.y };
@@ -1720,7 +1749,25 @@ function directWiresOf(input: RouteInput): DirectWire[] {
 }
 
 function boxRoutedInput(input: RouteInput): RouteInput {
-  return { ...input, wires: input.wires.filter(isRoutedAroundBoxes), contextWires: input.contextWires?.filter(isRoutedAroundBoxes) };
+  const { obstaclesIn } = input;
+  const rotatedBySource = new WeakMap<Rect, Rect>();
+  const sharedRotatedBoundsOf = <Shape extends Rect>(source: Shape): Shape => {
+    const known = rotatedBySource.get(source);
+    if (known) return known as Shape;
+    const rotated = rotatedBoundsOf(source);
+    rotatedBySource.set(source, rotated);
+    return rotated;
+  };
+  return {
+    ...input,
+    wires: input.wires.filter(isRoutedAroundBoxes),
+    contextWires: input.contextWires?.filter(isRoutedAroundBoxes),
+    boxesById: new Map([...input.boxesById].map(([boxId, box]) => [boxId, sharedRotatedBoundsOf(box)])),
+    obstaclesIn: obstaclesIn && ((area) => {
+      const obstacles = obstaclesIn(area);
+      return { ...obstacles, hardRects: obstacles.hardRects.map(sharedRotatedBoundsOf) };
+    }),
+  };
 }
 
 function rememberedDirectRoute(input: RouteInput, direct: DirectWire): RememberedRoute {
@@ -1784,6 +1831,6 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
   return unionOf(wire.label ? [...pointRects, labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : pointRects);
 }
 
-export { cappedWarningLists, cappedWarnings, elbowCornersAfterShift, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
+export { cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
 export type { WireHandle };
 export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList };

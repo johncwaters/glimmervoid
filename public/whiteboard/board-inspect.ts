@@ -100,6 +100,22 @@ function textField(field: string, value: string, maxLength: number, commit: (val
   return input;
 }
 
+function angleField(angle: number, commit: (angle: number) => void): HTMLInputElement {
+  const input = markAsNotCredential(el('input', 'wb-inspect-input'));
+  input.type = 'number';
+  input.min = '0';
+  input.max = '359';
+  input.step = '1';
+  input.value = String(angle);
+  input.dataset.field = 'angle';
+  input.addEventListener('change', () => {
+    const typed = Math.round(Number(input.value));
+    if (!Number.isFinite(typed)) return;
+    commit(((typed % 360) + 360) % 360);
+  });
+  return input;
+}
+
 function selectField(field: string, choices: readonly Choice[], value: string, commit: (value: string) => void, accessibleName?: string): HTMLSelectElement {
   const select = el('select', 'wb-inspect-select');
   select.dataset.field = field;
@@ -360,6 +376,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...(box.shape === 'device' ? [fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device })))] : []),
     fieldRow('Step', selectField('step', STEP_CHOICES, box.step?.status ?? 'none', commitStep)),
     ...(box.step ? [el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.')] : []),
+    fieldRow('Angle', angleField(box.angle, (angle) => set({ angle }))),
     ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
     ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     disclosure('more', 'More', hasSetMoreField(box), disclosures, moreFields),

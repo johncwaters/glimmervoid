@@ -26,6 +26,7 @@ import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-me
 
 const DRAG_THRESHOLD_PX = 4;
 const BOX_LIFT_HOLD_MS = 300;
+const ROTATE_SNAP_DEGREES = 15;
 const SNAP_THRESHOLD_PX = 8;
 const MIN_VIEW_WIDTH = 200;
 const MAX_VIEW_WIDTH = 20000;
@@ -138,6 +139,7 @@ type Gesture =
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
   | { kind: 'pinch'; distance: number; viewWidth: number }
   | { kind: 'ink'; pointerId: number; points: ViewPoint[]; draftLine: SVGPolylineElement }
+  | { kind: 'rotate'; pointerId: number; boxId: string; center: ViewPoint; startAngle: number; angle: number }
   | { kind: 'bend'; pointerId: number; wireId: string; handle: WireHandle; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement }
   | { kind: 'erase'; pointerId: number; latest: ViewPoint; erasedIds: Set<string>; trail: SVGPolylineElement; trailPoints: ViewPoint[] }
   | null;
@@ -242,7 +244,7 @@ const VERTICAL_RESIZE_THRESHOLD_PX = 4;
 const INK_POINT_SPACING_PX = 2;
 const ERASER_SAMPLE_SPACING_PX = 4;
 const ERASER_TRAIL_POINTS = 24;
-const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in', end: 'move', bend: 'move' };
+const CURSOR_BY_HIT_PART: Readonly<Record<BoardHit['part'], string>> = { body: 'pointer', line: 'pointer', emptyBody: 'pointer', port: 'crosshair', resize: 'nwse-resize', media: 'zoom-in', end: 'move', bend: 'move', rotate: 'grab' };
 const MOVABLE_BOX_PARTS: ReadonlySet<BoardHit['part']> = new Set(['body', 'line', 'emptyBody']);
 const MIN_TITLE_EDITOR_WIDTH_PX = 160;
 const MIN_LINE_EDITOR_WIDTH_PX = 240;
@@ -694,6 +696,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function startPinch(): void {
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'bend') endBend(gesture, false);
+    if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     if (gesture?.kind === 'erase') endErase(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
@@ -827,6 +830,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (hit?.part === 'end' && hit.end) {
       startRewire(event.pointerId, hit.id, hit.end, toViewPoint(event.clientX, event.clientY));
+      return;
+    }
+    if (hit?.part === 'rotate') {
+      startRotate(event.pointerId, hit.id);
       return;
     }
     if (hit?.part === 'bend' && hit.bend) {
@@ -1023,6 +1030,28 @@ export function createBoardEditor(options: BoardEditorOptions) {
   function laidOutWireOf(wireId: string): Extract<LaidOutElement, { kind: 'wire' }> | null {
     const laidOut = renderer.layout()?.elements.find((element) => element.id === wireId);
     return laidOut?.kind === 'wire' ? laidOut : null;
+  }
+
+  function startRotate(pointerId: number, boxId: string): void {
+    const laidOut = renderer.layout()?.elements.find((element) => element.id === boxId);
+    if (laidOut?.kind !== 'box') return;
+    const center = { x: laidOut.x + laidOut.width / 2, y: laidOut.y + laidOut.height / 2 };
+    gesture = { kind: 'rotate', pointerId, boxId, center, startAngle: laidOut.angle, angle: laidOut.angle };
+  }
+
+  function moveRotate(rotate: Extract<Gesture, { kind: 'rotate' }>, event: PointerEvent): void {
+    const point = toViewPoint(event.clientX, event.clientY);
+    const pointerDegrees = (Math.atan2(point.y - rotate.center.y, point.x - rotate.center.x) * 180) / Math.PI + 90;
+    const snapped = event.shiftKey ? Math.round(pointerDegrees / ROTATE_SNAP_DEGREES) * ROTATE_SNAP_DEGREES : Math.round(pointerDegrees);
+    rotate.angle = ((snapped % 360) + 360) % 360;
+    const laidOut = renderer.layout()?.elements.find((element) => element.id === rotate.boxId);
+    if (laidOut?.kind === 'box') renderer.paintElements([{ ...laidOut, angle: rotate.angle }]);
+  }
+
+  function endRotate(rotate: Extract<Gesture, { kind: 'rotate' }>, shouldRotate: boolean): void {
+    options.repaint();
+    if (!shouldRotate || rotate.angle === rotate.startAngle) return;
+    void options.sendOps([{ op: 'set', id: rotate.boxId, fields: { angle: rotate.angle } }]);
   }
 
   function startBend(pointerId: number, wireId: string, handle: WireHandle, pressedAt: ViewPoint): void {
@@ -1236,6 +1265,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (cancelled.kind === 'marquee') cancelled.outline.remove();
     if (cancelled.kind === 'wire') endWire(cancelled, false);
     if (cancelled.kind === 'bend') endBend(cancelled, false);
+    if (cancelled.kind === 'rotate') endRotate(cancelled, false);
     if (cancelled.kind === 'ink') cancelled.draftLine.remove();
     if (cancelled.kind === 'erase') endErase(cancelled, false);
     if (cancelled.kind !== 'drag') return true;
@@ -1282,6 +1312,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     if (gesture?.kind === 'bend' && gesture.pointerId === event.pointerId) {
       moveBend(gesture, event);
+      return;
+    }
+    if (gesture?.kind === 'rotate' && gesture.pointerId === event.pointerId) {
+      moveRotate(gesture, event);
       return;
     }
     if (gesture?.kind === 'marquee' && gesture.pointerId === event.pointerId) {
@@ -1380,6 +1414,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
       endBend(finished, finished.pointerId === event.pointerId);
       return;
     }
+    if (finished?.kind === 'rotate') {
+      endRotate(finished, finished.pointerId === event.pointerId);
+      return;
+    }
     if (finished?.kind === 'marquee') {
       finishMarquee(finished);
       return;
@@ -1413,6 +1451,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const wasDragging = gesture?.kind === 'drag';
     if (gesture?.kind === 'wire') endWire(gesture, false);
     if (gesture?.kind === 'bend') endBend(gesture, false);
+    if (gesture?.kind === 'rotate') endRotate(gesture, false);
     if (gesture?.kind === 'marquee') gesture.outline.remove();
     if (gesture?.kind === 'ink') gesture.draftLine.remove();
     if (gesture?.kind === 'erase') endErase(gesture, false);
