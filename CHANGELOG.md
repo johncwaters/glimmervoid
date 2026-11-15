@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-11-15
+
 ### Added
 
 - **A shorter board toolbar.** Icon and Device move into a More tools menu at the end of the row, which now matches Excalidraw's twelve. Their keys, I and M, still pick them, and More tools looks pressed while one of them is the tool.
