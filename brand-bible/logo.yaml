@@ -10,22 +10,19 @@ mark:
 variants:
   - id: mark-only
     file: shared/brand-mark.ts
-    use: The mark alone in the dashboard header and the loading screen, and the glyph inside the horizontal lockup.
-  - id: wordmark
-    file: public/index.html
-    use: GLIMMERVOID set uppercase in CommitMono 700 with 0.1em tracking in solid ink; the dashboard header. Never mixed case, never another face.
+    use: The mark alone wherever the lockup does not fit; the favicon and app icon are this mark exported, and the dashboard loading and shutdown screens set GLIMMERVOID under it.
+  - id: horizontal
+    file: site/src/components/Wordmark.astro
+    use: The lockup, the mark left of GLIMMERVOID in uppercase CommitMono 700, 0.1em tracking, one solid ink; the dashboard header (public/index.html), the site nav and the site footer.
   - id: stacked
     file: site/src/components/Wordmark.astro
-    use: GLIMMER over VOID with a violet diamond after VOID; the site hero and the link image (marketing/social/templates/link-card.html) outline VOID, while the footer and any size below display sets VOID in muted ink, because a thin outline breaks up at small sizes.
-  - id: horizontal
-    file: site/src/components/Nav.astro
-    use: The mark left of the website's wordmark (site/src/components/Wordmark.astro, 0.06em tracking, GLIMMER in ink and VOID in muted ink), mark height matching the cap height plus clear space; the site nav lockup.
+    use: GLIMMER over VOID in one solid ink with a violet diamond after VOID, 0.06em tracking; display only, the site hero and the link image (marketing/social/templates/link-card.html), never set below 48px.
   - id: favicon
     file: public/favicon.svg
-    use: Browser tab; the light turns amber or red when a session needs the operator or failed.
+    use: The mark in the browser tab; the light turns amber or red when a session needs the operator or failed.
   - id: app-icon
     file: site/public/apple-touch-icon.png
-    use: Home screen icon for the site and paired phones.
+    use: The mark as the home screen icon for the site and paired phones.
 clearSpaceRatio: 0.25
 minSizePx: 12
 colorways:
@@ -35,6 +32,7 @@ colorways:
     background: bg
 misuse:
   - Never set the wordmark in mixed case or a typeface other than CommitMono.
+  - Never style VOID apart from GLIMMER (outline, second color, weight); the wordmark is one ink.
   - Never fill the brackets or round their joins; they are mitered strokes.
   - Never recolor the brackets with a state color; only the light carries state.
   - Never add a gradient, glow or drop shadow to the mark at rest.

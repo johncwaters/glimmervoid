@@ -4,7 +4,7 @@
     "template": "templates/link-card.html",
     "placement": "link-card",
     "out": "out/final/og.png",
-    "alt": "GLIMMERVOID wordmark, GLIMMER solid over VOID in outline with a violet diamond, above the line See it before it's built. Below, the real dashboard, its attention banner showing one finished session.",
+    "alt": "GLIMMERVOID wordmark, GLIMMER over VOID with a violet diamond, above the line See it before it's built. Below, the real dashboard, its attention banner showing one finished session.",
     "source": "site/src/components/next/NextHero.astro wordmark and headline; screenshot cropped from site/public/capture/hero.webp",
     "vars": { "subline": "See it before it's built.", "image": "assets/dashboard-top.png" }
   }]
