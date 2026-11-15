@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 const ESC = '\x1b';
 const DEL = '\x7f';
 const BACKSPACE = '\x08';
@@ -15,12 +17,22 @@ const TYPED_WORDS = ['hello', 'wor', 'teh', 'the', 'I', 'dont', 'café', 'naïve
 const AUTOCORRECT_WORDS = ['world', 'the', "don't", 'Hello', 'cafe'];
 const PASTED_TEXTS = ['pasted', 'two words'];
 
+const PRESSED_KEYS = ['Backspace', 'Enter', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const;
+type PressedKey = (typeof PRESSED_KEYS)[number];
+
+interface KeydownStamp {
+  key: string;
+  keyCode: number;
+}
+
 type SearchAction =
+  | { kind: 'keyboard-edit'; keydown: KeydownStamp | null; inputType: string; data: string | null; isComposing: boolean; value: string; caret: number }
+  | { kind: 'composition'; phase: 'start' | 'end'; data: string }
   | { kind: 'type'; text: string }
   | { kind: 'compose'; word: string }
   | { kind: 'autocorrect'; replacement: string }
   | { kind: 'keyboard-delete' }
-  | { kind: 'press'; key: 'Backspace' | 'Enter' }
+  | { kind: 'press'; key: PressedKey }
   | { kind: 'tap-terminal'; xFraction: number; yFraction: number }
   | { kind: 'scroll'; lines: number }
   | { kind: 'strip-key'; position: number }
@@ -258,11 +270,104 @@ async function shrinkActions(
   return shortest;
 }
 
+const HELPER_TEXTAREA_CLASS = '.xterm-helper-textarea';
+
+const deviceLogLineSchema = z.object({
+  kind: z.string(),
+  atMs: z.number().optional(),
+  count: z.number().optional(),
+  target: z.string().optional(),
+  key: z.string().optional(),
+  keyCode: z.number().optional(),
+  inputType: z.string().optional(),
+  data: z.string().nullable().optional(),
+  isComposing: z.boolean().optional(),
+  value: z.string().optional(),
+  caret: z.number().nullable().optional(),
+  peer: z.string().optional(),
+  userAgent: z.string().optional(),
+});
+type DeviceLogLine = z.infer<typeof deviceLogLineSchema>;
+
+interface DeviceReplay {
+  device: string;
+  actions: SearchAction[];
+  inputsWithoutFieldValue: number;
+  droppedBatchCount: number;
+}
+
+function isPressedKey(key: string): key is PressedKey {
+  return (PRESSED_KEYS as readonly string[]).includes(key);
+}
+
+function translateDeviceLines(lines: DeviceLogLine[]): Omit<DeviceReplay, 'device'> {
+  const actions: SearchAction[] = [];
+  let inputsWithoutFieldValue = 0;
+  let droppedBatchCount = 0;
+  let pendingKeydown: KeydownStamp | null = null;
+  let isPressAwaitingItsInput = false;
+  for (const line of lines) {
+    if (line.kind === 'batches-dropped') droppedBatchCount += line.count ?? 1;
+    const isOnHelperTextarea = line.target?.includes(HELPER_TEXTAREA_CLASS) === true;
+    if (!isOnHelperTextarea) continue;
+    if (line.kind === 'focusin') actions.push({ kind: 'keyboard-open' });
+    if (line.kind === 'focusout') actions.push({ kind: 'keyboard-close' });
+    if (line.kind === 'input' && isPressAwaitingItsInput) {
+      isPressAwaitingItsInput = false;
+      continue;
+    }
+    if (line.kind !== 'input' && line.kind !== 'beforeinput' && line.kind !== 'keyup') isPressAwaitingItsInput = false;
+    if (line.kind === 'keydown' && line.key !== undefined && isPressedKey(line.key) && line.isComposing !== true) {
+      actions.push({ kind: 'press', key: line.key });
+      isPressAwaitingItsInput = true;
+      pendingKeydown = null;
+      continue;
+    }
+    if (line.kind === 'keydown' && line.key !== undefined) pendingKeydown = { key: line.key, keyCode: line.keyCode ?? 0 };
+    if (line.kind === 'compositionstart' || line.kind === 'compositionend') {
+      actions.push({ kind: 'composition', phase: line.kind === 'compositionstart' ? 'start' : 'end', data: line.data ?? '' });
+    }
+    if (line.kind !== 'input') continue;
+    if (line.value === undefined) {
+      inputsWithoutFieldValue += 1;
+      continue;
+    }
+    actions.push({
+      kind: 'keyboard-edit',
+      keydown: pendingKeydown,
+      inputType: line.inputType ?? 'insertText',
+      data: line.data ?? null,
+      isComposing: line.isComposing === true,
+      value: line.value,
+      caret: line.caret ?? line.value.length,
+    });
+    pendingKeydown = null;
+  }
+  return { actions, inputsWithoutFieldValue, droppedBatchCount };
+}
+
+function deviceReplaysFromLog(jsonl: string): DeviceReplay[] {
+  const linesByDevice = new Map<string, DeviceLogLine[]>();
+  for (const text of jsonl.split('\n')) {
+    if (text.trim() === '') continue;
+    const parsed = deviceLogLineSchema.safeParse(JSON.parse(text));
+    if (!parsed.success) continue;
+    const device = `${parsed.data.peer ?? 'unknown peer'} ${parsed.data.userAgent ?? ''}`.trim();
+    const deviceLines = linesByDevice.get(device) ?? [];
+    deviceLines.push(parsed.data);
+    linesByDevice.set(device, deviceLines);
+  }
+  return [...linesByDevice].map(([device, lines]) => {
+    const linesInEventOrder = lines.toSorted((first, second) => (first.atMs ?? 0) - (second.atMs ?? 0));
+    return { device, ...translateDeviceLines(linesInEventOrder) };
+  });
+}
+
 function describeAction(action: SearchAction): string {
   const { kind, ...details } = action;
   const detailText = Object.values(details).map((value) => JSON.stringify(value)).join(' ');
   return detailText === '' ? kind : `${kind} ${detailText}`;
 }
 
-export { AGENT_COMMANDS, EMPTY_LINE, OUT_OF_BAND_PREFIX, checkStep, describeAction, generateAction, graphemesOf, rebuildLine, shrinkActions };
-export type { AgentCommand, FieldWrite, LineState, OracleFailure, SearchAction, StepObservation };
+export { AGENT_COMMANDS, EMPTY_LINE, OUT_OF_BAND_PREFIX, checkStep, describeAction, deviceReplaysFromLog, generateAction, graphemesOf, rebuildLine, shrinkActions };
+export type { AgentCommand, DeviceReplay, FieldWrite, KeydownStamp, LineState, OracleFailure, SearchAction, StepObservation };

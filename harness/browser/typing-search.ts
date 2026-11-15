@@ -1,12 +1,14 @@
+import fs from 'node:fs';
 import type { Page } from 'playwright-core';
 import { seededRandom } from '../load-cost/whiteboard-board-generator.ts';
 import { focusTerminalTextarea, keyboardTextOf, modifierState, recordTerminalInputs, sentInputs, terminalTextarea } from './key-strip.ts';
-import { checkStep, describeAction, EMPTY_LINE, generateAction, graphemesOf, OUT_OF_BAND_PREFIX, rebuildLine, shrinkActions } from './typing-search-core.ts';
-import type { AgentCommand, FieldWrite, OracleFailure, SearchAction, StepObservation } from './typing-search-core.ts';
+import { checkStep, describeAction, deviceReplaysFromLog, EMPTY_LINE, generateAction, graphemesOf, OUT_OF_BAND_PREFIX, rebuildLine, shrinkActions } from './typing-search-core.ts';
+import type { AgentCommand, FieldWrite, KeydownStamp, OracleFailure, SearchAction, StepObservation } from './typing-search-core.ts';
 
 interface TypingSearchOptions {
   seed: number;
   budgetSeconds: number;
+  deviceLogPath: string | null;
 }
 
 interface ReplayFailure {
@@ -54,15 +56,19 @@ async function settle(page: Page, extraMs: number) {
 
 type FieldEdit =
   | { kind: 'append'; text: string }
+  | { kind: 'set'; value: string; caret: number }
   | { kind: 'replace-composition'; previous: string; next: string }
   | { kind: 'replace-last-word'; word: string }
   | { kind: 'delete-last-grapheme' };
 
-async function editFieldAsSoftKeyboard(page: Page, edit: FieldEdit, inputType: string, data: string | null, isComposing: boolean) {
-  await page.locator(terminalTextarea).evaluate((element, { fieldEdit, eventInputType, eventData, isComposingEvent }) => {
+const SOFT_KEYBOARD_KEYDOWN: KeydownStamp = { key: 'Unidentified', keyCode: 229 };
+
+async function editFieldAsSoftKeyboard(page: Page, edit: FieldEdit, inputType: string, data: string | null, isComposing: boolean, keydown: KeydownStamp | null = SOFT_KEYBOARD_KEYDOWN) {
+  await page.locator(terminalTextarea).evaluate((element, { fieldEdit, eventInputType, eventData, isComposingEvent, keydownStamp }) => {
     const textarea = element as HTMLTextAreaElement;
     const graphemes = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(textarea.value), (grapheme) => grapheme.segment);
     const nextValueByKind = {
+      set: () => (fieldEdit.kind === 'set' ? fieldEdit.value : textarea.value),
       append: () => textarea.value + (fieldEdit.kind === 'append' ? fieldEdit.text : ''),
       'replace-composition': () => {
         if (fieldEdit.kind !== 'replace-composition') return textarea.value;
@@ -72,13 +78,14 @@ async function editFieldAsSoftKeyboard(page: Page, edit: FieldEdit, inputType: s
       'replace-last-word': () => textarea.value.replace(/\S+(\s*)$/, (_word, trailingSpace: string) => (fieldEdit.kind === 'replace-last-word' ? fieldEdit.word : '') + trailingSpace),
       'delete-last-grapheme': () => graphemes.slice(0, -1).join(''),
     };
-    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 229, bubbles: true, cancelable: true }));
+    if (keydownStamp) textarea.dispatchEvent(new KeyboardEvent('keydown', { key: keydownStamp.key, keyCode: keydownStamp.keyCode, isComposing: isComposingEvent, bubbles: true, cancelable: true }));
     window.isSearchDriverWriting = true;
     textarea.value = nextValueByKind[fieldEdit.kind]();
     window.isSearchDriverWriting = false;
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    const caret = fieldEdit.kind === 'set' ? fieldEdit.caret : textarea.value.length;
+    textarea.setSelectionRange(caret, caret);
     textarea.dispatchEvent(new InputEvent('input', { inputType: eventInputType, data: eventData, isComposing: isComposingEvent, bubbles: true }));
-  }, { fieldEdit: edit, eventInputType: inputType, eventData: data, isComposingEvent: isComposing });
+  }, { fieldEdit: edit, eventInputType: inputType, eventData: data, isComposingEvent: isComposing, keydownStamp: keydown });
 }
 
 async function dispatchComposition(page: Page, type: 'compositionstart' | 'compositionend', data: string) {
@@ -142,7 +149,7 @@ async function pasteIntoField(page: Page, text: string) {
   }, text);
 }
 
-const KEYBOARD_ACTION_KINDS = new Set<SearchAction['kind']>(['type', 'compose', 'autocorrect', 'keyboard-delete', 'press', 'paste']);
+const KEYBOARD_ACTION_KINDS = new Set<SearchAction['kind']>(['keyboard-edit', 'composition', 'type', 'compose', 'autocorrect', 'keyboard-delete', 'press', 'paste']);
 
 async function isKeyboardOpen(page: Page) {
   return page.evaluate((selector) => document.activeElement === document.querySelector(selector), terminalTextarea);
@@ -151,6 +158,10 @@ async function isKeyboardOpen(page: Page) {
 async function performAction(page: Page, action: SearchAction) {
   if (KEYBOARD_ACTION_KINDS.has(action.kind) && !(await isKeyboardOpen(page))) return;
   switch (action.kind) {
+    case 'keyboard-edit':
+      return editFieldAsSoftKeyboard(page, { kind: 'set', value: action.value, caret: action.caret }, action.inputType, action.data, action.isComposing, action.keydown);
+    case 'composition':
+      return dispatchComposition(page, action.phase === 'start' ? 'compositionstart' : 'compositionend', action.data);
     case 'type':
       for (const letter of graphemesOf(action.text)) {
         await editFieldAsSoftKeyboard(page, { kind: 'append', text: letter }, 'insertText', letter, false);
@@ -244,18 +255,24 @@ function describeObservation(observation: StepObservation): string {
   return `sent ${JSON.stringify(observation.sentBytes)}, field ${JSON.stringify(observation.fieldBefore)} -> ${JSON.stringify(observation.fieldAfter)}, writes ${JSON.stringify(observation.fieldWrites)}`;
 }
 
-async function reportFailure(page: Page, options: TypingSearchOptions, actions: SearchAction[], found: ReplayFailure): Promise<never> {
-  const replayCommand = `node harness/browser/harness.ts --only touch-typing-search --seed ${options.seed}`;
-  console.log(`seed ${options.seed}: step ${found.stepIndex + 1} failed the ${found.failure.oracle} oracle: ${found.failure.message}; ${describeObservation(found.observation)}`);
+interface FailedRun {
+  label: string;
+  replayCommand: string;
+  shrinkBudgetSeconds: number;
+}
+
+async function reportFailure(page: Page, run: FailedRun, actions: SearchAction[], found: ReplayFailure): Promise<never> {
+  const { label, replayCommand } = run;
+  console.log(`${label}: step ${found.stepIndex + 1} failed the ${found.failure.oracle} oracle: ${found.failure.message}; ${describeObservation(found.observation)}`);
   const confirmed = await replayActions(page, actions.slice(0, found.stepIndex + 1));
   if (!confirmed) {
-    throw new Error(`seed ${options.seed}: step ${found.stepIndex + 1} failed the ${found.failure.oracle} oracle (${found.failure.message}) but did not reproduce on replay; flaky. Replay: ${replayCommand}`);
+    throw new Error(`${label}: step ${found.stepIndex + 1} failed the ${found.failure.oracle} oracle (${found.failure.message}) but did not reproduce on replay; flaky. Replay: ${replayCommand}`);
   }
-  const shrinkDeadlineMs = Date.now() + options.budgetSeconds * 1000;
+  const shrinkDeadlineMs = Date.now() + run.shrinkBudgetSeconds * 1000;
   const shortest = await shrinkActions(actions, confirmed.stepIndex, async (candidate) => (await replayActions(page, candidate)) !== null, () => Date.now() < shrinkDeadlineMs);
   const final = await replayActions(page, shortest) ?? confirmed;
   const report = [
-    `seed ${options.seed}: step ${found.stepIndex + 1} failed the ${final.failure.oracle} oracle: ${final.failure.message}`,
+    `${label}: step ${found.stepIndex + 1} failed the ${final.failure.oracle} oracle: ${final.failure.message}`,
     `confirmed on replay; shrunk ${found.stepIndex + 1} -> ${shortest.length} steps:`,
     ...shortest.map((action, index) => `  ${index + 1} ${describeAction(action)}`),
     `failing step: ${describeObservation(final.observation)}`,
@@ -265,7 +282,30 @@ async function reportFailure(page: Page, options: TypingSearchOptions, actions: 
   throw new Error(report);
 }
 
+async function replayDeviceLog(page: Page, deviceLogPath: string, shrinkBudgetSeconds: number): Promise<string> {
+  const replays = deviceReplaysFromLog(await fs.promises.readFile(deviceLogPath, 'utf8'));
+  const replayCommand = `node harness/browser/harness.ts --only touch-typing-search --replay-device-log ${deviceLogPath}`;
+  const inputsWithoutFieldValue = replays.reduce((total, replay) => total + replay.inputsWithoutFieldValue, 0);
+  const replayedDevices = replays.filter((replay) => replay.actions.length > 0);
+  if (replayedDevices.length === 0) {
+    throw new Error(`${deviceLogPath} holds no keyboard events on the terminal field${inputsWithoutFieldValue > 0 ? `; its ${inputsWithoutFieldValue} inputs carry no field value, so record a new pass` : ''}`);
+  }
+  await prepareSearch(page);
+  for (const replay of replayedDevices) {
+    console.log(`device log replay: ${replay.device}, ${replay.actions.length} keyboard actions`);
+    const found = await replayActions(page, replay.actions);
+    if (found) return reportFailure(page, { label: `device ${replay.device}`, replayCommand, shrinkBudgetSeconds }, replay.actions, found);
+  }
+  const droppedBatchCount = replays.reduce((total, replay) => total + replay.droppedBatchCount, 0);
+  const droppedNote = droppedBatchCount > 0 ? `; the log lost ${droppedBatchCount} batches, so the replay has gaps` : '';
+  const skippedNote = `${inputsWithoutFieldValue > 0 ? `; ${inputsWithoutFieldValue} inputs without a field value skipped` : ''}${droppedNote}`;
+  const summary = `device log ${deviceLogPath}: ${replayedDevices.length} devices replayed, no oracle failure${skippedNote}`;
+  console.log(summary);
+  return summary;
+}
+
 export async function searchTerminalTyping(page: Page, options: TypingSearchOptions): Promise<string> {
+  if (options.deviceLogPath !== null) return replayDeviceLog(page, options.deviceLogPath, options.budgetSeconds);
   console.log(`typing search seed ${options.seed}, budget ${options.budgetSeconds} s`);
   await prepareSearch(page);
   const random = seededRandom(options.seed);
@@ -278,7 +318,8 @@ export async function searchTerminalTyping(page: Page, options: TypingSearchOpti
     const observation = await performStep(page, action);
     line = rebuildLine(line, observation.sentBytes);
     const failure = checkStep(line, observation);
-    if (failure) return reportFailure(page, options, actions, { stepIndex: actions.length - 1, failure, observation });
+    const run = { label: `seed ${options.seed}`, replayCommand: `node harness/browser/harness.ts --only touch-typing-search --seed ${options.seed}`, shrinkBudgetSeconds: options.budgetSeconds };
+    if (failure) return reportFailure(page, run, actions, { stepIndex: actions.length - 1, failure, observation });
   }
   if (actions.length === 0) throw new Error(`seed ${options.seed}: the ${options.budgetSeconds} s budget ran no phone actions`);
   const summary = `seed ${options.seed}: ${actions.length} random phone actions in ${options.budgetSeconds} s, no oracle failure`;

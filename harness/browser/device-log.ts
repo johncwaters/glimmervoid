@@ -95,6 +95,11 @@ function installDeviceLogger(config: DeviceLoggerConfig) {
     };
   };
 
+  const describeField = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLInputElement)) return {};
+    return { value: target.value, caret: target.selectionStart };
+  };
+
   listen(document, 'touchstart', (event) => {
     const touchEvent = event as TouchEvent;
     const touch = touchEvent.touches[0];
@@ -128,16 +133,16 @@ function installDeviceLogger(config: DeviceLoggerConfig) {
   for (const type of ['beforeinput', 'input']) {
     listen(document, type, (event) => {
       const inputEvent = event as InputEvent;
-      record(type, { target: describe(event.target), inputType: inputEvent.inputType, data: inputEvent.data, isComposing: inputEvent.isComposing });
+      record(type, { target: describe(event.target), inputType: inputEvent.inputType, data: inputEvent.data, isComposing: inputEvent.isComposing, ...describeField(event.target) });
     });
   }
   for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) {
-    listen(document, type, (event) => record(type, { target: describe(event.target), data: (event as CompositionEvent).data }));
+    listen(document, type, (event) => record(type, { target: describe(event.target), data: (event as CompositionEvent).data, ...describeField(event.target) }));
   }
   for (const type of ['keydown', 'keyup']) {
     listen(document, type, (event) => {
       const keyboardEvent = event as KeyboardEvent;
-      record(type, { target: describe(event.target), key: keyboardEvent.key, code: keyboardEvent.code, isComposing: keyboardEvent.isComposing });
+      record(type, { target: describe(event.target), key: keyboardEvent.key, code: keyboardEvent.code, keyCode: keyboardEvent.keyCode, isComposing: keyboardEvent.isComposing, ...describeField(event.target) });
     });
   }
   listen(document, 'contextmenu', (event) => record('contextmenu', { target: describe(event.target), defaultPrevented: event.defaultPrevented }));

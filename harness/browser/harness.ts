@@ -48,6 +48,7 @@ interface HarnessOptions {
   lanAllowedPeers: string[];
   typingSearchSeed: number;
   typingSearchBudgetSeconds: number;
+  typingSearchDeviceLogPath: string | null;
   unknownArguments: string[];
   flagsMissingValues: string[];
   flagsWithInvalidValues: string[];
@@ -84,6 +85,7 @@ const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: str
     }
     options.typingSearchSeed = seed;
   }],
+  ['--replay-device-log', (options, value) => { options.typingSearchDeviceLogPath = path.resolve(value); }],
   ['--budget-seconds', (options, value) => {
     const budgetSeconds = Number(value);
     if (!Number.isFinite(budgetSeconds) || budgetSeconds <= 0) {
@@ -114,6 +116,7 @@ function parseArguments(argv: readonly string[]): HarnessOptions {
     lanAllowedPeers: [],
     typingSearchSeed: Date.now() % 2 ** 32,
     typingSearchBudgetSeconds: DEFAULT_TYPING_SEARCH_BUDGET_SECONDS,
+    typingSearchDeviceLogPath: null,
     unknownArguments: [],
     flagsMissingValues: [],
     flagsWithInvalidValues: [],
@@ -478,7 +481,7 @@ async function main(): Promise<number> {
       const deadlines = index === 0
         ? { ...DEFAULT_DEADLINES, pageReadyMs: COLD_START_PAGE_READY_MS }
         : DEFAULT_DEADLINES;
-      const record = await runCase({ browser, harnessCase, sessionId, projectDirectory: projectDirs[index] ?? '', baseUrl, artifacts, deadlines, typingSearch: { seed: options.typingSearchSeed, budgetSeconds: options.typingSearchBudgetSeconds } });
+      const record = await runCase({ browser, harnessCase, sessionId, projectDirectory: projectDirs[index] ?? '', baseUrl, artifacts, deadlines, typingSearch: { seed: options.typingSearchSeed, budgetSeconds: options.typingSearchBudgetSeconds, deviceLogPath: options.typingSearchDeviceLogPath } });
       records.push(record);
       console.log(`${record.outcome.padEnd(7)} ${record.viewport} / ${record.scenario} (${record.durationMs}ms)`);
     }
