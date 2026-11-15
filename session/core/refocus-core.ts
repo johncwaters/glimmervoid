@@ -1,5 +1,5 @@
 import { QuestionToolDenyResponse, RelayedHookContext, RESUME_NOTE_HOOK_EVENT, ResumeNoteHookResponse, SessionStartHookResponse } from '../../shared/contracts/refocus.ts';
-import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/question-tool-hold.ts';
 import type { ToolHookContextResponse, UserPromptSubmitHookResponse } from '../../shared/contracts/refocus.ts';
 import type { CommandHint } from './session-routes.ts';
 import type { PromptContextReply } from '../../shared/contracts/refocus.ts';

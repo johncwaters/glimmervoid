@@ -491,10 +491,19 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         takeResumeNote: () => getSession(req.params.glimmervoidId)?.takeResumeNote() ?? null,
       });
       const toolHint = output.status === 200 ? toolHookHintReply(req.params.glimmervoidId, req.params.event, payload) : null;
-      const reply: Record<string, unknown> = { ok: output.status === 200, reason: output.reason, ...refocusReply, ...toolHint };
+      const agentReply: Record<string, unknown> = { ...refocusReply, ...toolHint };
       const answer = (decision: Record<string, unknown> | null) => {
         if (res.headersSent || res.writableEnded || res.destroyed) return;
-        res.status(output.status).json(decision ? { ...reply, ...decision } : reply);
+        if (output.status !== 200) {
+          res.status(output.status).json({ ok: false, reason: output.reason });
+          return;
+        }
+        const replyForAgent = decision ? { ...agentReply, ...decision } : agentReply;
+        if (Object.keys(replyForAgent).length === 0) {
+          res.status(200).end();
+          return;
+        }
+        res.status(200).json(replyForAgent);
       };
       const abandonedByClaudeCode = new AbortController();
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;

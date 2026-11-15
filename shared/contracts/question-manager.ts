@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 const QUESTION_MANAGER_RULES_MAX = 100;
 export const QUESTION_ANSWERED_NOTIFY_CATEGORY = 'answered';
-export const QUESTION_TOOL_HOLD_HOOK_EVENT = 'pretooluse-question';
-export const QUESTION_TOOL_HOLD_TIMEOUT_MS = 90_000;
+export { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from '../question-tool-hold.ts';
 
 const RULE_SHAPE_ERROR = 'questionManager.rules entries must be a plain-language rule, an object with name, question and pick, or an object with name and pick "recommended"';
 export const RECOMMENDED_PICK = 'recommended';

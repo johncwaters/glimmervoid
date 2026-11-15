@@ -9,7 +9,8 @@ import type { Server } from 'node:http';
 
 import { createBackend } from '../server/backend/backend.ts';
 import type { Session } from '../session/sessions.ts';
-import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
+import { createAgentIngressApp } from '../server/backend/backend-http.ts';
+import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { agentIngressBase, settleBackendShutdown, usageLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
 
@@ -137,16 +138,12 @@ test('an unknown session is 404, exactly as for any other event', async () => {
   assert.equal(body.reason, 'unknown-session');
 });
 
-test('an accepted callback stores the plan limits and answers the plain ok JSON', async () => {
+test('an accepted callback stores the plan limits and answers an empty body', async () => {
   const { session } = ctx();
   const stateBefore = session.state;
   const res = await postStatusline(payload({ five: 21.5 }));
   assert.equal(res.status, 200);
-  const body = await res.json();
-
-  assert.deepEqual(Object.keys(body).sort(), ['ok', 'reason']);
-  assert.equal(body.ok, true);
-  assert.equal(body.reason, 'ignored-event', 'statusline is telemetry, so it maps to no detection signal');
+  assert.equal(await res.text(), '');
 
   const stored = storedLimits();
   assert.ok(stored, 'the lane stored the snapshot');
@@ -162,17 +159,29 @@ test('an accepted callback stores the plan limits and answers the plain ok JSON'
 });
 
 test('the request payload reaches the router, not an empty object', async () => {
-  const { base, token } = ctx();
-  const res = await fetch(`${base}/hook/${SESSION_ID}/notification?t=${encodeURIComponent(token)}`, {
-    method: 'POST',
-    body: JSON.stringify({ notification_type: 'permission_prompt' }),
-    headers: { 'content-type': 'application/json' },
+  const routedPayloads: unknown[] = [];
+  const app = createAgentIngressApp({
+    allowedHosts: [],
+    hookRouter: { handle: (input) => { routedPayloads.push(input.payload); return { status: 200, reason: 'ok' }; } },
+    getSession: () => null,
+    getUsage: () => ({ ingestStatusline: () => {} }),
+    logger: { warn: () => {} },
   });
-  assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.equal(body.ok, true);
-
-  assert.equal(body.reason, 'ok', 'the notification subtype was visible to the mapper');
+  const server = http.createServer(app);
+  await listenOnLoopback(server);
+  try {
+    const res = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/notification`, {
+      method: 'POST',
+      body: JSON.stringify({ notification_type: 'permission_prompt' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    assert.equal(res.status, 200);
+    await res.text();
+  } finally {
+    server.closeAllConnections();
+    await closeServer(server);
+  }
+  assert.deepEqual(routedPayloads, [{ notification_type: 'permission_prompt' }]);
 });
 
 test('the stored snapshot keeps nothing but the numbers', async () => {

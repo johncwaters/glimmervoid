@@ -345,7 +345,10 @@ test('createBackend defers boot auto-resume until the HTTP listener has a hook p
   const originalSpawn = pty.spawn;
   const calls: SpawnCall[] = [];
   const live: { backend: ReturnType<typeof createBackend> | null } = { backend: null };
-  const resumeNoteFrom = async (resumeNoteUrl: string) => (await (await fetch(resumeNoteUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json()).resumeNote;
+  const resumeNoteFrom = async (resumeNoteUrl: string) => {
+    const replyText = await (await fetch(resumeNoteUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).text();
+    return replyText ? JSON.parse(replyText).resumeNote : undefined;
+  };
   process.env.GLIMMERVOID_CONFIG = cfgPath;
   pty.spawn = (file: string, args: string[] | string) => {
     calls.push({ file, args: Array.isArray(args) ? args : [args] });

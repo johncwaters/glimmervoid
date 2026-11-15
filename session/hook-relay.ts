@@ -3,7 +3,6 @@ import type { StdinLike } from "./relay-stdin.ts";
 
 import { decideRelayPost } from "./core/hook-relay-core.ts";
 import { postToLoopback } from "./loopback-post.ts";
-import { relayedHookContextOutput } from "./core/refocus-core.ts";
 
 async function main(
   argv: string[] = process.argv.slice(2),
@@ -16,6 +15,8 @@ async function main(
   const verdict = decideRelayPost({ env, event, payloadBytes: body.length });
   if (!verdict.post || !verdict.url || !verdict.event) return { code: 0, reason: verdict.reason };
   const response = await postToLoopback(verdict.url, body, verdict.postTimeoutMs);
+  if (!response.responseBody) return { code: 0, reason: response.reason };
+  const { relayedHookContextOutput } = await import("./core/refocus-core.ts");
   const contextOutput = relayedHookContextOutput(verdict.event, response.responseBody);
   if (contextOutput !== null) stdout.write(contextOutput);
   return { code: 0, reason: response.reason };

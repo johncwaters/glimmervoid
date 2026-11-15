@@ -1,8 +1,6 @@
 import { readStdin } from './relay-stdin.ts';
 import type { StdinLike } from './relay-stdin.ts';
 import { postPayload } from './loopback-post.ts';
-import { resumeNoteOf, sessionStartContextOutput } from './core/refocus-core.ts';
-import { REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
 
 const REWAKE_EXIT_CODE = 2;
 
@@ -16,6 +14,11 @@ async function main(
   const body = await readStdin(stdin);
   if (!postUrl) return 0;
   const responseBody = await postPayload(postUrl, body);
+  if (!responseBody) return 0;
+  const [{ resumeNoteOf, sessionStartContextOutput }, { REWAKE_RELAY_MODE }] = await Promise.all([
+    import('./core/refocus-core.ts'),
+    import('../shared/contracts/refocus.ts'),
+  ]);
   if (mode === REWAKE_RELAY_MODE) return rewakeWith(resumeNoteOf(responseBody), stderr);
   const contextOutput = sessionStartContextOutput(responseBody);
   if (contextOutput !== null) stdout.write(contextOutput);

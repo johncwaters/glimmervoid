@@ -19,6 +19,11 @@ import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import type { UserPromptSubmitHookResponse } from '../shared/contracts/refocus.ts';
 
 const SESSION_ID = 'hook-route-session';
+
+async function agentReplyOf(response: Response): Promise<Record<string, unknown>> {
+  const replyText = await response.text();
+  return replyText ? JSON.parse(replyText) : {};
+}
 const KIMI_SESSION_ID = 'hook-route-kimi-session';
 
 interface HookRouteContext {
@@ -157,7 +162,7 @@ test('a hook call arriving off loopback is refused under its own outcome name', 
   assert.deepEqual(recorded, ['hookRejectedNonLoopback']);
 });
 
-test('successful hook callbacks answer only ok and reason', async () => {
+test('a successful hook callback with nothing for the agent answers an empty body', async () => {
   const { base, token } = ctx();
   const res = await fetch(`${base}/hook/${SESSION_ID}/NotARealHook?t=${encodeURIComponent(token)}`, {
     method: 'POST',
@@ -165,10 +170,7 @@ test('successful hook callbacks answer only ok and reason', async () => {
     headers: { 'content-type': 'application/json' },
   });
   assert.equal(res.status, 200);
-  const body = await res.json();
-  assert.deepEqual(Object.keys(body).sort(), ['ok', 'reason']);
-  assert.equal(body.ok, true);
-  assert.equal(body.reason, 'ignored-event');
+  assert.equal(await res.text(), '');
 });
 
 test('malformed JSON body is tolerated (route answers, does not throw)', async () => {
@@ -221,7 +223,7 @@ test('compact SessionStart uses the registered current task title', async () => 
         method: 'POST', body: JSON.stringify({ source }), headers: { 'content-type': 'application/json' },
       });
       assert.equal(response.status, 200);
-      const reply = await response.json();
+      const reply = await agentReplyOf(response);
       if (source !== 'compact') {
         assert.equal(reply.hookSpecificOutput, undefined);
         continue;
@@ -246,7 +248,7 @@ test('compact SessionStart never injects a refined task title into the agent con
       method: 'POST', body: JSON.stringify({ source: 'compact' }), headers: { 'content-type': 'application/json' },
     });
     assert.equal(response.status, 200);
-    const reply = await response.json();
+    const reply = await agentReplyOf(response);
     assert.doesNotMatch(JSON.stringify(reply), /Injected refined title/);
   } finally {
     session._taskTitleSources.refinedTitle = previousRefinedTitle;
@@ -279,7 +281,7 @@ test('refocus lookups run only for accepted compact SessionStart', async () => {
         method: 'POST', body: JSON.stringify({ source }), headers: { 'content-type': 'application/json' },
       });
       assert.equal(response.status, token === 'accepted' ? 200 : 403);
-      const reply = await response.json();
+      const reply = await agentReplyOf(response);
       if (!hasReminder) {
         assert.equal(reply.hookSpecificOutput, undefined);
         continue;
@@ -342,7 +344,7 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
       headers: { 'content-type': 'application/json' },
     });
     assert.equal(response.status, 200);
-    return await response.json() as Record<string, unknown>;
+    return await agentReplyOf(response) as Record<string, unknown>;
   }
   const recordedHooks = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'v2-claude-code-command-hint.jsonl'), 'utf8')
     .split('\n').filter(Boolean).map((line) => JSON.parse(line) as { event?: string; payload?: Record<string, unknown> });
@@ -391,7 +393,7 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
       headers: { 'content-type': 'application/json' },
     });
     assert.equal(response.status, 200);
-    return await response.json() as Record<string, unknown>;
+    return await agentReplyOf(response) as Record<string, unknown>;
   }
   function recordedKimiHooks(fixture: string): { event?: string; payload?: Record<string, unknown> }[] {
     return fs.readFileSync(path.join(import.meta.dirname, 'fixtures', fixture), 'utf8')
@@ -426,7 +428,7 @@ test('a Claude conversation gets the Glimmervoid start line with its first promp
       headers: { 'content-type': 'application/json' },
     });
     assert.equal(response.status, 200);
-    return await response.json() as { hookSpecificOutput?: { additionalContext?: string } };
+    return await agentReplyOf(response) as { hookSpecificOutput?: { additionalContext?: string } };
   }
   await postHook('SessionStart', { source: 'clear' });
   const firstPromptReply = await postHook('UserPromptSubmit', { prompt: 'first' });
