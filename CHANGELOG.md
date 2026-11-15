@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-11-15
+
 ### Fixed
 
 - **Sessions start again when you run the standalone binary through a symlink.** After upgrading to 0.61.0, a `glimmervoid` symlinked into another folder (such as `/usr/local/bin`) refused every new session because it looked for `glimmervoid-relay` beside the symlink. It now falls back to the relay installed beside the real binary.
