@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AttentionNote, UnseenOutcome } from "../../shared/contracts/session.ts";
+import type { AttentionNote, AttentionOwner, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 
 interface SessionCardSource {
@@ -19,6 +19,7 @@ interface SessionCardSource {
   resumeSessionId?: string | null;
   ephemeral?: boolean;
   ownerId?: string | null;
+  attentionOwner?: AttentionOwner;
   linkedPrs?: LinkedPr[];
 }
 
@@ -48,6 +49,7 @@ function projectSessionCard(
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
+    ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
     ...(source.accountId ? { accountId: source.accountId } : {}),
   };
@@ -69,6 +71,7 @@ interface SnapshotSource {
   saneYolo?: boolean;
   ephemeral: boolean;
   ownerId?: string | null;
+  attentionOwner?: AttentionOwner;
   isWorktree: boolean;
   isWorkspace: boolean;
   resumeSessionId: string | null;
@@ -107,6 +110,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     saneYolo: !!source.saneYolo,
     ephemeral: source.ephemeral,
     ownerId: source.ownerId ?? null,
+    attentionOwner: source.attentionOwner ?? 'operator',
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
     resumeSessionId: source.resumeSessionId,

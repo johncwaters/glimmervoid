@@ -110,6 +110,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
     const notifyGate = createNotifyGate();
+    const isOperatorAttended = session.attentionOwner === 'operator';
     let isAcknowledgeDeferredForCompaction = false;
     let isCompacting = false;
     let compactionConfirmTimer: NodeJS.Timeout | null = null;
@@ -282,7 +283,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         to,
         notifyGate,
         event,
-        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, isOwnedByParentSession: session.ownerId !== null, isMachineShell: session.agentId === SHELL_AGENT_ID },
+        { signal: detail?.signal ?? undefined, hookSeen: session.hookSeen, attentionOwner: session.attentionOwner, isMachineShell: session.agentId === SHELL_AGENT_ID },
       );
       session.recordNotifyDecision({
         ts: clock.nowMs(),
@@ -311,7 +312,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on(MANAGER_DECISION_EVENT, ({ decision }: { decision: ManagerDecision }) => {
       dependencies.broadcastControl({ type: 'session-manager-decision', id: session.id, decision });
-      if (decision.outcome !== 'answered') return;
+      if (decision.outcome !== 'answered' || !isOperatorAttended) return;
       const verdict = { kind: 'answer', answers: decision.answers, ruleName: decision.rule, by: decision.by } as const;
       dependencies.notificationManager.trigger(session.id, QUESTION_ANSWERED_NOTIFY_CATEGORY, `${session.name} answered ${answeredSummary(verdict)}`);
     });
@@ -321,7 +322,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     session.on('attention-notes', ({ notes }: { notes: AttentionNote[] }) => {
       noteStatus({ attentionNotes: notes });
       const newestNote = notes[0];
-      if (!newestNote) return;
+      if (!newestNote || !isOperatorAttended) return;
       dependencies.notificationManager.trigger(session.id, ATTENTION_NOTE_NOTIFY_CATEGORY, `${session.name}: ${newestNote.note}`);
     });
     session.on('user-prompt', ({ isSelfWake }: { isSelfWake: boolean }) => {

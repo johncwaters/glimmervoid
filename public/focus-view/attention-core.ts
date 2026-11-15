@@ -1,7 +1,7 @@
 import type { ManagerDecision } from '#shared/contracts/question-manager.ts';
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
-import { UnseenOutcome } from '#shared/contracts/session.ts';
+import { UnseenOutcome, type AttentionOwner } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from '../session-actions-core.ts';
 import { moveViewId } from '../view-registry-core.ts';
 
@@ -9,6 +9,7 @@ type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {
   state?: unknown;
   unseenOutcome?: unknown;
+  attentionOwner?: AttentionOwner;
 }
 
 const SESSION_ATTENTION_TIER_BY_STATE: Readonly<Record<SessionState, SessionAttentionTier>> = {
@@ -43,15 +44,16 @@ export interface SessionRow<Session, Name = string> extends RosterEntry {
   state: string;
   unseenOutcome: UnseenOutcome | null;
   ownerId: string | null;
+  attentionOwner: AttentionOwner;
 }
 
-export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null; unseenOutcome?: UnseenOutcome | null }, Name>(
+export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null; attentionOwner?: AttentionOwner; unseenOutcome?: UnseenOutcome | null }, Name>(
   sessions: Iterable<readonly [string, Session]>,
   nameOf: (session: Session) => Name,
 ): SessionRow<Session, Name>[] {
   return [...sessions].map(([id, ui]) => {
     const state = ui.currentState || STATES.DORMANT;
-    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ui.ownerId ?? null };
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ui.ownerId ?? null, attentionOwner: ui.attentionOwner ?? 'operator' };
   });
 }
 
@@ -127,14 +129,19 @@ export interface AttentionTile {
   name: string;
 }
 
-function attentionKindOf({ state, unseenOutcome }: SessionAttentionRow): AttentionKind | null {
+function outcomeKindOf({ state, unseenOutcome }: SessionAttentionRow): AttentionKind | null {
   if (state === STATES.WAITING) return 'waiting';
   const parsedUnseenOutcome = UnseenOutcome.safeParse(unseenOutcome);
   return parsedUnseenOutcome.success ? parsedUnseenOutcome.data : null;
 }
 
+function attentionKindOf(row: SessionAttentionRow): AttentionKind | null {
+  if (row.attentionOwner !== undefined && row.attentionOwner !== 'operator') return null;
+  return outcomeKindOf(row);
+}
+
 export function needsAttention(row: SessionAttentionRow = {}) {
-  return attentionKindOf(row) !== null;
+  return outcomeKindOf(row) !== null;
 }
 
 const JUMP_RANK_BY_KIND: ReadonlyMap<AttentionKind, number> = new Map<AttentionKind, number>([

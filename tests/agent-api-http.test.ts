@@ -549,9 +549,11 @@ test('a spawned child reaches the dashboard as one session-added card naming its
       worktree: fixture.parent.isWorktree,
       resumeSessionId: null,
       ownerId: 'parent',
+      attentionOwner: 'parent',
       ephemeral: true,
     });
     assert.equal(fixture.created[0].toSnapshot().ownerId, 'parent', 'a reconnecting dashboard learns the owner from the snapshot too');
+    assert.equal(fixture.created[0].toSnapshot().attentionOwner, 'parent', 'a reconnecting dashboard learns the parent attends the child');
   } finally {
     fixture.destroyAll();
   }

@@ -73,7 +73,7 @@ export function refreshTerminalFonts() {
 }
 
 function tallyRowOf(ui: SessionUi) {
-  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId };
+  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId, attentionOwner: ui.attentionOwner };
 }
 
 export function updateAttentionTitle() {
@@ -109,6 +109,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
 
     path: asText(options.path),
     ownerId: options.ownerId ?? null,
+    attentionOwner: options.attentionOwner ?? 'operator',
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : clock.nowMs(),
     sessionMenu: dom.sessionMenu,

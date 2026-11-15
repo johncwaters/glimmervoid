@@ -57,7 +57,7 @@ const TOPIC_PROJECTIONS: { [Topic in PackBridgeTopic]: (packName: string) => Pac
     }),
   }),
   attention: () => {
-    const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState, unseenOutcome: ui.unseenOutcome ?? null })));
+    const counts = countAttentionByKind([...sessionUIs.values()].map((ui) => ({ state: ui.currentState, unseenOutcome: ui.unseenOutcome ?? null, attentionOwner: ui.attentionOwner })));
     return { waiting: counts.waitingCount, finished: counts.finishedCount, failed: counts.failedCount };
   },
   reviews: () => reviewsSnapshot(),

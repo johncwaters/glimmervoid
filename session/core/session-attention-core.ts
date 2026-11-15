@@ -1,7 +1,7 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_MAX_CHARS, AttentionNoteOrigin } from "../../shared/contracts/session.ts";
-import type { AttentionNote, AttentionOrigin } from "../../shared/contracts/session.ts";
+import type { AttentionNote, AttentionOrigin, AttentionOwner } from "../../shared/contracts/session.ts";
 import { mapSignalToEvent } from "./status-mapper.ts";
 import { TRANSITIONS } from "./state-machine.ts";
 
@@ -146,9 +146,14 @@ function reduceAttention(lanes: AttentionLanes, event: AttentionEvent): { lanes:
   }
 }
 
+function attentionOwnerOf(ownerId: string | null, raceId: string | null): AttentionOwner {
+  if (ownerId !== null) return "parent";
+  return raceId === null ? "operator" : "race";
+}
+
 function attentionNotesOf(lanes: AttentionLanes): AttentionNote[] {
   return Object.values(lanes.notes).filter((note) => note !== undefined).sort((left, right) => right.at - left.at);
 }
 
-export { attentionNotesOf, createAttentionLanes, reduceAttention };
+export { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention };
 export type { AttentionEvent, AttentionLanes };

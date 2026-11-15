@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Child sessions and arena contestants no longer ping you.** A session another session spawned is its parent's to handle, and an arena contestant is the race's. Neither sends a notification any more, attention notes and answered questions included. Neither counts toward the attention banner, the next-attention shortcut (Alt+J), the phone's jump order and dot, the count in the tab title or the attention counts packs read. The rail still shows their status.
 - **A dashboard left open while your cloud machine sleeps wakes calmly.** Coming back to a Glimmervoid Cloud tab after the machine went to sleep now shows Waking your machine in the header instead of a red Reconnecting and an error telling you to check a terminal that does not exist. The dashboard asks the cloud once a second while the machine wakes and reconnects every terminal the moment it answers, instead of waiting out its reconnect backoff.
 
 ## [0.60.0] - 2026-11-15

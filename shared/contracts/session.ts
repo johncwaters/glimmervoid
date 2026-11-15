@@ -65,6 +65,9 @@ export type AttentionOrigin = z.infer<typeof AttentionOrigin>;
 export type AttentionNoteOrigin = z.infer<typeof AttentionNoteOrigin>;
 export type AttentionNote = z.infer<typeof AttentionNote>;
 
+export const AttentionOwner = z.enum(['operator', 'parent', 'race']);
+export type AttentionOwner = z.infer<typeof AttentionOwner>;
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -79,6 +82,7 @@ export const SessionSnapshot = z.object({
   saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),
   ownerId: z.string().nullable().optional(),
+  attentionOwner: AttentionOwner.default('operator'),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
   resumeSessionId: z.string().nullable(),

@@ -56,6 +56,7 @@ const SESSION = {
   dangerouslySkipPermissions: true,
   saneYolo: true,
   ephemeral: false,
+  attentionOwner: 'operator',
   isWorktree: true, isWorkspace: false,
   resumeSessionId: null,
   activeAgents: 0,

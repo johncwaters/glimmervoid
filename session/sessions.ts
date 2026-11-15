@@ -38,7 +38,7 @@ import { unrefTimer } from "../shared/timer-deps.ts";
 import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
-import { attentionNotesOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
+import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
@@ -48,7 +48,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
-import type { ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { AttentionOwner, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -231,6 +231,7 @@ interface SessionOptions {
   seedDependencies?: SeedDependencies | null;
   agentDepth?: number;
   ownerId?: string | null;
+  raceId?: string | null;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
@@ -334,6 +335,7 @@ class Session extends EventEmitter {
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
+  readonly attentionOwner: AttentionOwner;
   _agentToken: string | null;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
@@ -453,6 +455,7 @@ class Session extends EventEmitter {
 
     agentDepth = 0,
     ownerId = null,
+    raceId = null,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
@@ -460,6 +463,7 @@ class Session extends EventEmitter {
     super();
     this.id = id;
     this.ownerId = ownerId;
+    this.attentionOwner = attentionOwnerOf(ownerId, raceId);
     this.name = name;
     this.customTitle = customTitle || null;
     const seededTaskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt: initialPrompt ? maskSecrets(initialPrompt) : initialPrompt });
@@ -1498,6 +1502,7 @@ class Session extends EventEmitter {
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
       ownerId: this.ownerId,
+      attentionOwner: this.attentionOwner,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
       resumeSessionId: this._resumeSessionId,

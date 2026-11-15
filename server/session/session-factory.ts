@@ -95,6 +95,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       agentSetup: project.agentSetup ?? null,
       isCleanHome: project.agentHome === 'clean',
       startSha: project.startSha ?? null,
+      raceId: project.raceId ?? null,
       bypassHookTrust: project.codexBypassHookTrust === true,
       replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,

@@ -1443,6 +1443,10 @@
     {
       "name": "redo",
       "definition": "The board view control (Redo) that reapplies the last board edit Undo took back"
+    },
+    {
+      "name": "attention owner",
+      "definition": "Who attends a session: the operator, its parent session (a spawned child) or its race (an arena contestant). Only a session the operator attends notifies, counts in the attention banner and is a next-attention stop"
     }
   ],
   "retired": [
