@@ -83,6 +83,14 @@ function cloneEnvOf(source: ParsedRepositorySource, githubToken: string | null, 
   return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: githubAuthHeaderOf(githubToken) };
 }
 
+function githubPushAuthEnv(originUrl: string, githubToken: string | null, baseEnv: Readonly<Record<string, string | undefined>>): Record<string, string> | null {
+  const source = parseRepositorySource(originUrl);
+  if (!source.ok || !source.isGithubHttps || !githubToken) return null;
+  const inherited = Number(baseEnv.GIT_CONFIG_COUNT ?? '0');
+  const index = Number.isInteger(inherited) && inherited >= 0 ? inherited : 0;
+  return { GIT_CONFIG_COUNT: String(index + 1), [`GIT_CONFIG_KEY_${index}`]: 'http.https://github.com/.extraheader', [`GIT_CONFIG_VALUE_${index}`]: githubAuthHeaderOf(githubToken) };
+}
+
 function chooseGithubCredential({ ghLoginToken, readToken, userToken, appTokens }: { ghLoginToken: string | null; readToken: string | null; userToken: string | null; appTokens: readonly string[] }): GithubCredential {
   if (ghLoginToken) return { kind: 'gh', token: ghLoginToken };
   if (readToken) return { kind: 'token', token: readToken };
@@ -132,5 +140,5 @@ function mergedGithubRepos(repoLists: readonly (readonly GithubRepo[])[]): Githu
 }
 
 export { GITHUB_USER_INSTALLATIONS_PATH, GITHUB_USER_INSTALLATION_IDS_JQ_FILTER, chooseGithubCredential, githubInstallationIdsFromLines, githubOwnerOfSource, githubReposFromLines, githubReposJqFilter, githubReposPath, githubUserInstallationReposPath, mergedGithubRepos };
-export { CLONE_SAFETY_ARGS, cloneEnvOf, cloneRootOf, defaultRepoRootOf, parseRepositorySource };
+export { CLONE_SAFETY_ARGS, cloneEnvOf, cloneRootOf, defaultRepoRootOf, githubPushAuthEnv, parseRepositorySource };
 export type { GithubCredential, GithubRepo, ParsedRepositorySource, RootCheckouts };

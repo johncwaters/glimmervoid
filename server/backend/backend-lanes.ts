@@ -153,7 +153,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     ...allLiveSessions().map((session) => session.id),
   ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
   const provenanceNotesRef = async (projectPath: string): Promise<string | null> => (configStore.config.shareCommitProvenance === false ? null : repoNotesRefFor(projectPath, await provenanceWriterId()));
-  const gitWorkspace = createGitWorkspace({ rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs });
+  const gitWorkspace = createGitWorkspace({
+    rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
+    githubPushToken: async () => (await githubUserCredential())?.token ?? null,
+  });
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),

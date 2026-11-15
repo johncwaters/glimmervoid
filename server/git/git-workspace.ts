@@ -26,6 +26,7 @@ import { GLIMMERVOID_WORKTREE_LOCK_REASON, isWorktreeHiddenFromGuardedSessions, 
 import { UNPROBED_MARKER, directoryExists, errResult, errorExitCode, findWorktreeForBranch, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches } from './workspace/workspace-context.ts';
 import type { GitExtraOptions, GitResult, GitRunner, GitWorkspaceContext, OwnedPathsRecorder, OwnedWorktreeArgs, ProjectGitRunner, QueuedGitResult, RemovalAdmission, RemovalArgs, RemovalGuardOptions, RemovalTarget, ResetKeepArgs, ResolvedMarkerBase, RetiredShareLinks, SessionWorktree, StageDetachedWorktreeArgs, WorkspaceHandle, WorktreeArgs, WorktreeBranch, WorktreeDirtyProbe, WorktreeOwnership } from './workspace/workspace-context.ts';
 import { createOriginOps } from './workspace/origin-ops.ts';
+import { githubPushAuthEnv } from '../core/repository-source-core.ts';
 import { createRebaseOps } from './workspace/rebase-ops.ts';
 import { createProbeOps } from './workspace/probe-ops.ts';
 import { createIntegrationOps } from './workspace/integration-ops.ts';
@@ -146,6 +147,7 @@ function createGitWorkspace(opts: {
   ownedPaths?: OwnedPathsRecorder;
   removalGuard?: RemovalGuardOptions;
   provenanceNotesRef?: (projectPath: string) => Promise<string | null>;
+  githubPushToken?: () => Promise<string | null>;
   rebaseSigningArgs?: (worktreePath: string) => Promise<string[]>;
 } = {}) {
 
@@ -612,6 +614,13 @@ function createGitWorkspace(opts: {
   const context: GitWorkspaceContext = {
     git, run, runInProject, runUntrusted, log, rerereEnabled, rebaseSigningArgs, serialized, admitted,
     provenanceNotesRef: opts.provenanceNotesRef ?? (() => Promise.resolve(null)),
+    githubPushEnv: async (projectPath: string) => {
+      if (!opts.githubPushToken) return null;
+      const origin = await run(['remote', 'get-url', 'origin'], projectPath);
+      if (!origin.ok || !origin.out.trim()) return null;
+      const token = await opts.githubPushToken().catch(() => null);
+      return githubPushAuthEnv(origin.out.trim(), token, process.env);
+    },
     worktrees: { listWorktreePorcelain: (projectPath) => run(['worktree', 'list', '--porcelain'], projectPath), lockReusedHomeWorktrees, tearDownWorktree },
   };
   const origin = createOriginOps(context);

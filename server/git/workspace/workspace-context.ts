@@ -296,6 +296,7 @@ type GitWorkspaceContext = {
   rerereEnabled: boolean;
   rebaseSigningArgs(worktreePath: string): Promise<string[]>;
   provenanceNotesRef(projectPath: string): Promise<string | null>;
+  githubPushEnv(projectPath: string): Promise<Record<string, string> | null>;
   serialized<TArgs, TResult>(body: (args: TArgs) => Promise<TResult>): (args: TArgs) => Promise<TResult>;
   admitted<TArgs extends { admissionTimeoutMs?: number }, TResult>(body: (args: TArgs) => Promise<TResult>, refuse: (args: TArgs) => TResult): (args: TArgs) => Promise<TResult>;
   worktrees: WorktreePort;

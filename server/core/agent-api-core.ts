@@ -106,6 +106,7 @@ interface PushLanding {
   base?: string | null;
   pushed?: boolean;
   conflicts?: string[];
+  warning?: string | null;
 }
 
 const PUSH_REFUSAL_COPY: Readonly<Record<string, (landing: PushLanding) => string>> = Object.freeze({
@@ -285,7 +286,7 @@ function describePushLanding(landing: PushLanding): AgentReplyOf<'push'> {
   if (landing.pushed) return { status: 200, body: { ok: true, landedOn: landing.base ?? null, pushed: true } };
   return {
     status: 200,
-    body: { ok: true, landedOn: landing.base ?? null, pushed: false, note: 'landed locally and nothing was pushed, because the repository has no origin remote or origin did not take a fast-forward' },
+    body: { ok: true, landedOn: landing.base ?? null, pushed: false, note: landing.warning ? `landed locally and nothing was pushed: ${landing.warning}` : 'landed locally and nothing was pushed, because the repository has no origin remote or origin did not take a fast-forward' },
   };
 }
 

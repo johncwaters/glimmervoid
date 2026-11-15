@@ -110,16 +110,29 @@ function createOriginOps(context: GitWorkspaceContext) {
       upstream: classified.upstream, branch, remote: 'origin',
     });
     if (!command) return { pushed: false, warning: null };
-    const pushed = (await run(command.args, projectPath, {
+    const pushWith = (authEnv: Record<string, string>) => run(command.args, projectPath, {
       timeout: command.timeoutMs,
-      env: { GIT_TERMINAL_PROMPT: '0' },
-    })).ok;
-    if (!pushed) return { pushed, warning: `Merged into ${branch}, but origin refused the push, so origin/${branch} does not have it yet. Resync the base branch to push it.` };
-    await pushProvenanceNotes(projectPath);
-    return { pushed, warning: null };
+      env: { GIT_TERMINAL_PROMPT: '0', ...authEnv },
+    });
+    let authEnv: Record<string, string> = {};
+    let pushed = await pushWith(authEnv);
+    if (!pushed.ok) {
+      const githubEnv = await context.githubPushEnv(projectPath).catch(() => null);
+      if (githubEnv) {
+        authEnv = githubEnv;
+        pushed = await pushWith(authEnv);
+      }
+    }
+    if (!pushed.ok) {
+      const reason = firstGitErrorLine(pushed.err || pushed.out);
+      log.warn(`[git-workspace] push of ${branch} to origin failed: ${reason}`);
+      return { pushed: false, warning: `Merged into ${branch}, but origin refused the push (${reason}), so origin/${branch} does not have it yet. Resync the base branch to push it.` };
+    }
+    await pushProvenanceNotes(projectPath, authEnv);
+    return { pushed: true, warning: null };
   }
 
-  async function pushProvenanceNotes(projectPath: string): Promise<void> {
+  async function pushProvenanceNotes(projectPath: string, authEnv: Record<string, string> = {}): Promise<void> {
     const notesRef = await provenanceNotesRef(projectPath).catch(() => null);
     if (!notesRef) return;
     const hasNotes = await run(['rev-parse', '--verify', '--quiet', notesRef], projectPath);
@@ -127,12 +140,12 @@ function createOriginOps(context: GitWorkspaceContext) {
     const originCopyRef = `${FETCHED_NOTES_REF_PREFIX}${notesRef.slice(NOTES_REF_PREFIX.length)}`;
     const fetchedOriginCopy = await run(['fetch', '--quiet', '--no-tags', 'origin', `+${notesRef}:${originCopyRef}`], projectPath, {
       timeout: GIT_FETCH_TIMEOUT_MS,
-      env: { GIT_TERMINAL_PROMPT: '0' },
+      env: { GIT_TERMINAL_PROMPT: '0', ...authEnv },
     });
     if (fetchedOriginCopy.ok) await run(['notes', '--ref', notesRef, 'merge', '--quiet', '-s', 'theirs', originCopyRef], projectPath, { env: NOTES_COMMIT_IDENTITY });
     const pushedNotes = await run(['push', '--no-verify', 'origin', `${notesRef}:${notesRef}`], projectPath, {
       timeout: GIT_FETCH_TIMEOUT_MS,
-      env: { GIT_TERMINAL_PROMPT: '0' },
+      env: { GIT_TERMINAL_PROMPT: '0', ...authEnv },
     });
     if (!pushedNotes.ok) log.warn(`[git-workspace] could not push the shared commit notes to origin: ${firstGitErrorLine(pushedNotes.err || pushedNotes.out)}`);
   }

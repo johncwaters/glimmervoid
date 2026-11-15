@@ -8,6 +8,8 @@ import path from 'node:path';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import type { GitWorkspaceInstance, WorkspaceHandle } from '../server/git/git-workspace.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { githubPushAuthEnv } from '../server/core/repository-source-core.ts';
+import type { GitExtraOptions } from '../server/git/workspace/workspace-context.ts';
 
 const GIT = hasGit();
 
@@ -390,7 +392,7 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
       });
       assert.equal(merged.merged, true);
       assert.equal(merged.pushed, false);
-      assert.equal(merged.warning, 'Merged into main, but origin refused the push, so origin/main does not have it yet. Resync the base branch to push it.');
+      assert.match(merged.warning ?? '', /^Merged into main, but origin refused the push \(.+\), so origin\/main does not have it yet\. Resync the base branch to push it\.$/);
       assert.equal(git(['rev-list', '--count', 'origin/main..main'], fixture.repositoryPath).trim(), '1');
       if (method === 'mergeKeep') await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
     } finally {
@@ -398,3 +400,69 @@ for (const method of ['mergeBack', 'mergeKeep'] as const) {
     }
   });
 }
+
+test('the GitHub push credential rides on GIT_CONFIG env after any inherited entries, and only for a GitHub https origin', () => {
+  const header = `AUTHORIZATION: basic ${Buffer.from('x-access-token:tok').toString('base64')}`;
+  assert.deepEqual(githubPushAuthEnv('https://github.com/acme/app.git', 'tok', {}), { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header });
+  assert.deepEqual(githubPushAuthEnv('https://github.com/acme/app', 'tok', { GIT_CONFIG_COUNT: '2' }), { GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_2: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_2: header });
+  assert.equal(githubPushAuthEnv('git@github.com:acme/app.git', 'tok', {}), null, 'an ssh origin authenticates with its own keys');
+  assert.equal(githubPushAuthEnv('https://gitlab.com/acme/app.git', 'tok', {}), null);
+  assert.equal(githubPushAuthEnv('https://github.com/acme/app.git', null, {}), null);
+});
+
+test('a landing push origin refuses for want of credentials is retried once with the connected GitHub user token', { skip: !GIT }, async () => {
+  const fixture = createRemoteFixture();
+  try {
+    const pushAttempts: { authorized: boolean }[] = [];
+    let tokenReads = 0;
+    const workspaceGit = (args: string[], cwd: string, extra?: GitExtraOptions) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') return 'https://github.com/acme/app.git\n';
+      if (args[0] === 'push' && args.includes('main')) {
+        const authorized = Object.entries(extra?.env ?? {}).some(([key, value]) => key.startsWith('GIT_CONFIG_VALUE_') && value.startsWith('AUTHORIZATION: basic '));
+        pushAttempts.push({ authorized });
+        if (!authorized) throw Object.assign(new Error('push failed'), { stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" });
+      }
+      return git(args, cwd);
+    };
+    const gitWorkspace = createGitWorkspace({ git: workspaceGit, log: { warn() {} }, githubPushToken: async () => { tokenReads += 1; return 'user-token'; } });
+    const created = await createSessionWorkspace(gitWorkspace, fixture.repositoryPath, 'credential-retry');
+    commitFile(created.cwd, 'session.txt', 'session\n', 'session work');
+    const merged = await gitWorkspace.mergeKeep({ projectPath: fixture.repositoryPath, workspace: created, targetBranch: null });
+
+    assert.equal(merged.merged, true);
+    assert.equal(merged.pushed, true);
+    assert.equal(merged.warning, undefined);
+    assert.deepEqual(pushAttempts, [{ authorized: false }, { authorized: true }], 'the plain push goes first, so a host whose git already holds credentials never sends the token');
+    assert.equal(tokenReads, 1);
+    assert.equal(git(['ls-remote', fixture.remotePath, 'refs/heads/main']).split(/\s/)[0], git(['rev-parse', 'main'], fixture.repositoryPath).trim());
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a landing push that fails even with the token names git\'s reason, and a host with no connected GitHub user is not retried', { skip: !GIT }, async () => {
+  const fixture = createRemoteFixture();
+  try {
+    let pushes = 0;
+    const workspaceGit = (args: string[], cwd: string) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') return 'https://github.com/acme/app.git\n';
+      if (args[0] === 'push' && args.includes('main')) {
+        pushes += 1;
+        throw Object.assign(new Error('push failed'), { stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" });
+      }
+      return git(args, cwd);
+    };
+    const gitWorkspace = createGitWorkspace({ git: workspaceGit, log: { warn() {} }, githubPushToken: async () => null });
+    const created = await createSessionWorkspace(gitWorkspace, fixture.repositoryPath, 'credential-missing');
+    commitFile(created.cwd, 'session.txt', 'session\n', 'session work');
+    const merged = await gitWorkspace.mergeKeep({ projectPath: fixture.repositoryPath, workspace: created, targetBranch: null });
+
+    assert.equal(merged.pushed, false);
+    assert.equal(pushes, 1);
+    assert.equal(merged.warning, "Merged into main, but origin refused the push (fatal: could not read Username for 'https://github.com': terminal prompts disabled), so origin/main does not have it yet. Resync the base branch to push it.");
+    await gitWorkspace.discard({ projectPath: fixture.repositoryPath, workspace: created, cause: 'session' });
+  } finally {
+    fixture.cleanup();
+  }
+});

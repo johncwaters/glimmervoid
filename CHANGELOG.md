@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Landing a session now reaches GitHub on a machine whose git has no credentials of its own.** Merge and `glimmervoid push` merged into the integration branch but never pushed it when origin is a GitHub https remote and git on the server has no credential helper, as on a Linux host that signs in only through Glimmervoid's GitHub connection. The push now tries git's own credentials first and, when origin refuses it, retries once with the connected GitHub user's token. When a push still fails, `glimmervoid push` says why, with git's own error line, instead of claiming the repository has no origin remote.
 - **An open Arena diff no longer jumps back to the top every second.** The Arena tab rebuilt every race once a second, which also dropped keyboard focus and text selection and made buttons flicker under the pointer. It now changes only the clocks, states and task lines that moved.
 - **A new session's timer no longer restarts when it begins working.** A session started with a prompt keeps one clock from Starting through its first turn, so the time shown is how long it has been at the task, not how long since startup ended.
 

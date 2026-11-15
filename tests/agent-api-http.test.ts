@@ -446,6 +446,7 @@ test('push lands only an operator session or its spawned child, and a refusal te
     const fromLane = await fixture.wiring.handle(laneSession, 'push', {});
     assert.deepEqual([fromLane.status, fromLane.body.reason], [409, 'not-operator-session']);
     assert.deepEqual(describePushLanding({ merged: true, base: 'main', pushed: true }), { status: 200, body: { ok: true, landedOn: 'main', pushed: true } });
+    assert.deepEqual(describePushLanding({ merged: true, base: 'main', pushed: false, warning: 'Merged into main, but origin refused the push (fatal: could not read Username), so origin/main does not have it yet.' }).body, { ok: true, landedOn: 'main', pushed: false, note: 'landed locally and nothing was pushed: Merged into main, but origin refused the push (fatal: could not read Username), so origin/main does not have it yet.' });
   } finally {
     laneSession.destroy();
     fixture.destroyAll();
