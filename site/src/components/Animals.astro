@@ -4,12 +4,13 @@ import { deriveNyanGeometry } from '../../../public/nyan-geometry-core.ts';
 
 const geometry = deriveNyanGeometry({ viewportWidthPx: 1440, viewportHeightPx: 900, verticalProgress: 0 });
 const SHOWN_ANIMAL_COUNT = 6;
+const SHOWCASED_ANIMALS = ANIMALS.filter(({ sprite }) => sprite !== 'is-cat');
 const spriteSizeStyle = `--nyan-width: ${geometry.spriteWidthPx}px; --nyan-height: ${geometry.spriteHeightPx}px`;
 ---
 <div class="animals">
   <p class="animals-intro">{ANIMALS.length} pixel animals cross your dashboard while agents work.</p>
   <div class="animal-grid">
-    {ANIMALS.slice(0, SHOWN_ANIMAL_COUNT).map(({ name, sprite, trail }) => (
+    {SHOWCASED_ANIMALS.slice(0, SHOWN_ANIMAL_COUNT).map(({ name, sprite, trail }) => (
       <div class="animal-tile" data-animal={name} data-sprite={sprite} data-trail={trail}>
         <div class="flying-animal-preview" aria-hidden="true" style={spriteSizeStyle}>
           <div class="flying-animal-preview-stage">
