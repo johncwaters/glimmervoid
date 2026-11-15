@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **New worktrees on Linux clone node_modules instead of installing it, when the disk supports copy-on-write.** On btrfs or XFS with reflink, a session's worktree now gets a copy-on-write clone of the main checkout's dependencies in seconds, as macOS already did, rather than a full npm install. Glimmervoid now checks whether the disk can clone, on macOS too, rather than guessing from the disk type. On ext4, which cannot clone, worktrees still install, now with `--prefer-offline` so a warm npm or pnpm cache skips its freshness checks.
 - **The session row badge for missing Coherence hooks now reads Coherence off.** It used to read Hooks off, which looked like every agent hook was down; only the Coherence hooks are.
 
 ### Fixed

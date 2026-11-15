@@ -5,13 +5,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
+import { canCloneCopyOnWrite, seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
 import type { DependencySeedOutcome } from '../server/git/dependency-clone.ts';
 import { describeInstallNotice, describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
 import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
-const CAN_CLONE = process.platform === 'darwin' && hasGit();
+const CAN_CLONE = hasGit() && (await canCloneInTempDir());
+
+async function canCloneInTempDir(): Promise<boolean> {
+  const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gv-copy-on-write-'));
+  try {
+    fs.writeFileSync(path.join(probeDir, 'source'), 'probe\n');
+    return await canCloneCopyOnWrite(path.join(probeDir, 'source'), probeDir);
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  }
+}
 const CAN_INSTALL = process.platform !== 'win32' && hasGit();
 
 function hasPnpm(): boolean {
@@ -246,7 +256,7 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
   assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
   const [failureWarning, unsupportedWarning, ...otherWarnings] = describeInstallWarnings(install);
-  assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
+  assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
   const { notice, failureKind } = describeInstallNotice(install);
@@ -269,7 +279,7 @@ test('a pnpm lockfile the local pnpm cannot read is skipped quietly while anothe
 
   assert.equal(fs.existsSync(path.join(worktreeDir, 'legacy', 'node_modules')), false);
   assert.deepEqual(describeInstallWarnings(install), [
-    'Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --fetch-timeout=30000 --fetch-retries=1` in outdated.',
+    'Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --prefer-offline --fetch-timeout=30000 --fetch-retries=1` in outdated.',
   ]);
 });
 

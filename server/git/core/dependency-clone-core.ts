@@ -18,8 +18,7 @@ type DependencyCloneFacts = {
   worktreeHasNodeModules: boolean;
   mainHasNodeModules: boolean;
   lock: DependencyLock | null;
-  mainFilesystemType: number;
-  rootFilesystemType: number;
+  canCloneCopyOnWrite: boolean;
   mainDevice: number;
   worktreeParentDevice: number;
   nestedPackageDirs: NestedPackageDir[];
@@ -30,14 +29,14 @@ type DependencyCloneSkipReason =
   | 'platform'
   | 'no-main-install'
   | 'no-lockfile'
-  | 'not-apfs'
+  | 'no-copy-on-write'
   | 'other-volume'
   | 'install-stale'
   | 'outside-link'
   | 'torn'
   | 'failed';
 
-type DependencyClonePlan = { action: 'clone'; dirs: string[]; skippedDirs: string[] };
+export type DependencyClonePlan = { action: 'clone'; dirs: string[]; skippedDirs: string[] };
 export type DependencyCloneSkip = { action: 'skip'; reason: DependencyCloneSkipReason };
 
 export const LOCKFILE_BY_KIND: Readonly<Record<LockKind, { lockfile: string; installState: string }>> = {
@@ -57,9 +56,9 @@ export function planDependencyClone(facts: DependencyCloneFacts): DependencyClon
   if (facts.worktreeHasNodeModules) return skipDependencyClone('present');
   if (!facts.mainHasNodeModules) return skipDependencyClone('no-main-install');
   if (!facts.lock) return skipDependencyClone('no-lockfile');
-  if (facts.mainFilesystemType !== facts.rootFilesystemType) return skipDependencyClone('not-apfs');
   if (facts.mainDevice !== facts.worktreeParentDevice) return skipDependencyClone('other-volume');
   if (!isInstallCurrent(facts.lock)) return skipDependencyClone('install-stale');
+  if (!facts.canCloneCopyOnWrite) return skipDependencyClone('no-copy-on-write');
   const dirs = ['.'];
   const skippedDirs: string[] = [];
   for (const nestedDir of facts.nestedPackageDirs) {
@@ -76,6 +75,15 @@ export function planDependencyClone(facts: DependencyCloneFacts): DependencyClon
 function isNestedInstallCurrent({ ownLock, hasAnyLockfile }: NestedPackageDir): boolean {
   if (ownLock) return isInstallCurrent(ownLock);
   return !hasAnyLockfile;
+}
+
+const CLONE_FLAGS_BY_PLATFORM: Readonly<Record<string, readonly string[]>> = {
+  darwin: ['-Rc'],
+  linux: ['-R', '--no-dereference', '--preserve=mode,timestamps', '--reflink=always'],
+};
+
+export function cloneFlagsFor(platform: string): readonly string[] | null {
+  return CLONE_FLAGS_BY_PLATFORM[platform] ?? null;
 }
 
 export function isLinkInsideCheckout(linkPathInCheckout: string, linkTarget: string): boolean {
@@ -236,8 +244,8 @@ export const INSTALL_TIMEOUT_MS = 10 * 60_000;
 const REGISTRY_STALL_ARGS: readonly string[] = ['--fetch-timeout=30000', '--fetch-retries=1'];
 
 const INSTALL_COMMAND_BY_KIND: Readonly<Record<LockKind, { command: string; args: readonly string[] }>> = {
-  npm: { command: 'npm', args: ['ci', '--ignore-scripts', '--no-audit', '--no-fund', ...REGISTRY_STALL_ARGS] },
-  pnpm: { command: 'pnpm', args: ['install', '--frozen-lockfile', '--ignore-scripts', ...REGISTRY_STALL_ARGS] },
+  npm: { command: 'npm', args: ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', ...REGISTRY_STALL_ARGS] },
+  pnpm: { command: 'pnpm', args: ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', ...REGISTRY_STALL_ARGS] },
 };
 
 const INSTALL_ENV_NAMES: ReadonlySet<string> = new Set([
@@ -468,10 +476,10 @@ export function describeDependencyCloneSkip(reason: DependencyCloneSkipReason): 
 
 const SKIP_DESCRIPTIONS: Readonly<Record<DependencyCloneSkipReason, string>> = {
   present: 'node_modules is already in the worktree',
-  platform: 'dependency cloning runs on macOS only',
+  platform: 'dependency cloning runs on macOS and Linux only',
   'no-main-install': 'the main checkout has no node_modules',
   'no-lockfile': 'the worktree has no package-lock.json or pnpm-lock.yaml',
-  'not-apfs': 'the main checkout is not on APFS, so node_modules was not cloned',
+  'no-copy-on-write': "the main checkout's disk cannot make copy-on-write clones into the worktree folder (ext4 cannot; APFS, btrfs and XFS with reflink can), so node_modules was not cloned",
   'other-volume': 'the main checkout and the worktree are on different volumes, so node_modules was not cloned',
   'install-stale': "the main checkout's node_modules does not match the worktree's lockfile, so it was not cloned",
   'outside-link': "the main checkout's node_modules holds a link outside the repository (npm link or a file: dependency), so it was not cloned",

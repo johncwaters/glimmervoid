@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
@@ -7,6 +9,7 @@ import { createSerialQueue } from '../spawn-gate.ts';
 import { resolveInstallPath } from '../install-path.ts';
 import {
   CLONED_CACHE_DIRS,
+  cloneFlagsFor,
   coherenceSeedArgs,
   coherenceSeedVersion,
   INSTALL_TIMEOUT_MS,
@@ -28,6 +31,7 @@ import {
   stagingPathFor,
 } from './core/dependency-clone-core.ts';
 import type {
+  DependencyClonePlan,
   DependencyCloneSkip,
   DependencyInstallOutcome,
   DependencyLock,
@@ -59,9 +63,14 @@ export type SeedDependencies = (request: SeedRequest) => DependencySeedRun;
 const seedQueue = createSerialQueue();
 
 export function seedWorktreeDependencies({ mainCheckout, worktreeDir, signal, hookConfigRelPaths }: SeedRequest & { hookConfigRelPaths: readonly string[] }): DependencySeedRun {
-  const rootSeeding = seedCoherence(mainCheckout, worktreeDir, signal).catch(() => false);
-  const completion = rootSeeding
-    .then((isRootSeeded) => seedQueue.run(() => seedInQueue(mainCheckout, worktreeDir, signal, isRootSeeded), { signal }))
+  const copyOnWriteCheck = canCloneMainInstallCopyOnWrite(mainCheckout, worktreeDir);
+  const rootSeeding = copyOnWriteCheck
+    .then((hasCopyOnWrite) => planCloneFor(mainCheckout, worktreeDir, hasCopyOnWrite))
+    .catch(() => skipDependencyClone('failed'))
+    .then((clonePlan) => seedCoherence(worktreeDir, signal, clonePlan.action === 'clone'))
+    .catch(() => false);
+  const completion = Promise.all([rootSeeding, copyOnWriteCheck])
+    .then(([isRootSeeded, hasCopyOnWrite]) => seedQueue.run(() => seedInQueue(mainCheckout, worktreeDir, signal, isRootSeeded, hasCopyOnWrite), { signal }))
     .catch(() => null);
   const blocksSpawn = rootSeeding.then((isRootSeeded) =>
     isRootSeeded ? hookConfigsNeedUnseededPackages(worktreeDir, hookConfigRelPaths) : hookConfigsNeedNodeModules(worktreeDir, hookConfigRelPaths),
@@ -69,8 +78,28 @@ export function seedWorktreeDependencies({ mainCheckout, worktreeDir, signal, ho
   return { blocksSpawn, completion };
 }
 
-async function seedInQueue(mainCheckout: string, worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean): Promise<DependencySeedOutcome | null> {
-  const clone = await cloneDependencies(mainCheckout, worktreeDir).catch(() => skipDependencyClone('failed'));
+export async function canCloneCopyOnWrite(sourceFile: string, targetDir: string): Promise<boolean> {
+  const probePath = path.join(targetDir, `.glimmervoid-copy-on-write-probe-${process.pid}-${crypto.randomUUID()}`);
+  try {
+    await fsp.copyFile(sourceFile, probePath, fs.constants.COPYFILE_FICLONE_FORCE);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await fsp.rm(probePath, { force: true }).catch(() => {});
+  }
+}
+
+async function canCloneMainInstallCopyOnWrite(mainCheckout: string, worktreeDir: string): Promise<boolean> {
+  for (const kind of ['npm', 'pnpm'] as const satisfies readonly LockKind[]) {
+    const installStatePath = path.join(mainCheckout, LOCKFILE_BY_KIND[kind].installState);
+    if (await pathExists(installStatePath)) return canCloneCopyOnWrite(installStatePath, path.dirname(worktreeDir));
+  }
+  return false;
+}
+
+async function seedInQueue(mainCheckout: string, worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean, hasCopyOnWrite: boolean): Promise<DependencySeedOutcome | null> {
+  const clone = await cloneDependencies(mainCheckout, worktreeDir, hasCopyOnWrite).catch(() => skipDependencyClone('failed'));
   if (signal.aborted) return null;
   const install = await installDependencies(mainCheckout, worktreeDir, signal, isRootSeeded).catch((error: unknown) => unreadableInstallOutcome(error));
   if (signal.aborted) return null;
@@ -80,19 +109,18 @@ async function seedInQueue(mainCheckout: string, worktreeDir: string, signal: Ab
   return { clone, install: { ...install, unsupportedDirs: [...install.unsupportedDirs, ...emptyDirs] } };
 }
 
-async function seedCoherence(mainCheckout: string, worktreeDir: string, signal: AbortSignal): Promise<boolean> {
+async function seedCoherence(worktreeDir: string, signal: AbortSignal, willCloneRoot: boolean): Promise<boolean> {
   if (process.platform === 'win32' || signal.aborted) return false;
-  const [hasCoherenceConfig, hasRootNodeModules, isSeedLeftover, isMainCheckoutInstalled, npmLockText, rootPackageJsonText] = await Promise.all([
+  const [hasCoherenceConfig, hasRootNodeModules, isSeedLeftover, npmLockText, rootPackageJsonText] = await Promise.all([
     pathExists(path.join(worktreeDir, COHERENCE_CONFIG_FILE)),
     pathExists(path.join(worktreeDir, NODE_MODULES)),
     pathExists(path.join(worktreeDir, NODE_MODULES, COHERENCE_SEED_MARKER)),
-    pathExists(path.join(mainCheckout, NODE_MODULES)),
     readTextOrNull(path.join(worktreeDir, LOCKFILE_BY_KIND.npm.lockfile)),
     readTextOrNull(path.join(worktreeDir, 'package.json')),
   ]);
   if (!hasCoherenceConfig) return false;
   if (hasRootNodeModules) return isSeedLeftover;
-  if (process.platform === 'darwin' && isMainCheckoutInstalled) return false;
+  if (willCloneRoot) return false;
   const version = coherenceSeedVersion(npmLockText, rootPackageJsonText);
   if (!version) return false;
   const stagingDir = stagingPathFor(worktreeDir, COHERENCE_SEED_STAGING_KEY);
@@ -318,29 +346,32 @@ function unreadableInstallOutcome(error: unknown): DependencyInstallOutcome {
   };
 }
 
-async function cloneDependencies(mainCheckout: string, worktreeDir: string): Promise<DependencyCloneOutcome> {
-  const startedAt = performance.now();
-  if (process.platform !== 'darwin') return skipDependencyClone('platform');
-  const [lock, worktreeHasNodeModules, mainHasNodeModules, mainFilesystem, rootFilesystem, mainStat, worktreeParentStat, nestedPackageDirs] = await Promise.all([
+async function planCloneFor(mainCheckout: string, worktreeDir: string, hasCopyOnWrite: boolean): Promise<DependencyClonePlan | DependencyCloneSkip> {
+  if (!cloneFlagsFor(process.platform)) return skipDependencyClone('platform');
+  const [lock, worktreeHasNodeModules, mainHasNodeModules, mainStat, worktreeParentStat, nestedPackageDirs] = await Promise.all([
     readLock(mainCheckout, worktreeDir),
     pathExists(path.join(worktreeDir, NODE_MODULES)),
     pathExists(path.join(mainCheckout, NODE_MODULES)),
-    fsp.statfs(mainCheckout),
-    fsp.statfs('/'),
     fsp.stat(mainCheckout),
     fsp.stat(path.dirname(worktreeDir)),
     listNestedPackageDirs(mainCheckout, worktreeDir),
   ]);
-  const plan = planDependencyClone({
+  return planDependencyClone({
     worktreeHasNodeModules,
     mainHasNodeModules,
     lock,
-    mainFilesystemType: mainFilesystem.type,
-    rootFilesystemType: rootFilesystem.type,
+    canCloneCopyOnWrite: hasCopyOnWrite,
     mainDevice: mainStat.dev,
     worktreeParentDevice: worktreeParentStat.dev,
     nestedPackageDirs,
   });
+}
+
+async function cloneDependencies(mainCheckout: string, worktreeDir: string, hasCopyOnWrite: boolean): Promise<DependencyCloneOutcome> {
+  const startedAt = performance.now();
+  const cloneFlags = cloneFlagsFor(process.platform);
+  if (!cloneFlags) return skipDependencyClone('platform');
+  const plan = await planCloneFor(mainCheckout, worktreeDir, hasCopyOnWrite);
   if (plan.action === 'skip') return plan;
   const stagedDirs = plan.dirs.map((relativeDir) => ({
     relativeDir,
@@ -350,7 +381,7 @@ async function cloneDependencies(mainCheckout: string, worktreeDir: string): Pro
   const markerPath = `${stagingPathFor(worktreeDir, '')}.started`;
   await fsp.writeFile(markerPath, '');
   try {
-    const stagingFailure = await stageAll(stagedDirs, markerPath);
+    const stagingFailure = await stageAll(stagedDirs, cloneFlags, markerPath);
     if (stagingFailure) {
       await discardStaged(stagedDirs);
       return skipDependencyClone(stagingFailure);
@@ -373,10 +404,10 @@ async function cloneDependencies(mainCheckout: string, worktreeDir: string): Pro
 
 type StagedDir = { relativeDir: string; sourcePath: string; stagingPath: string };
 
-async function stageAll(stagedDirs: readonly StagedDir[], markerPath: string): Promise<'failed' | 'outside-link' | 'torn' | null> {
+async function stageAll(stagedDirs: readonly StagedDir[], cloneFlags: readonly string[], markerPath: string): Promise<'failed' | 'outside-link' | 'torn' | null> {
   for (const { relativeDir, sourcePath, stagingPath } of stagedDirs) {
     await removeTree(stagingPath);
-    const cloned = await runCommand('cp', ['-Rc', sourcePath, stagingPath], { timeoutMs: CLONE_TIMEOUT_MS });
+    const cloned = await runCommand('cp', [...cloneFlags, sourcePath, stagingPath], { timeoutMs: CLONE_TIMEOUT_MS });
     if (!cloned.ok) return 'failed';
     for (const cacheDir of CLONED_CACHE_DIRS) await removeTree(path.join(stagingPath, cacheDir));
     const linkCheck = await findLinkOutsideCheckout(relativeDir, stagingPath);
