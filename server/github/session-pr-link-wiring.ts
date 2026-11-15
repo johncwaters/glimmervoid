@@ -1,12 +1,13 @@
 import type { EventEmitter } from 'node:events';
 import type { LinkedPr, SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
+import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { runGit } from '../git/git-exec.ts';
 import { githubRepoSlugFromRemote } from './core/team-review-core.ts';
 import {
   candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
-  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs,
+  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs, shouldReleasePrLink,
 } from '../core/session-pr-link-core.ts';
 import type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate } from '../core/session-pr-link-core.ts';
 import { clock } from '../../shared/clock.ts';
@@ -17,6 +18,7 @@ interface PrLinkableSession extends PrLinkSession, Pick<EventEmitter, 'on' | 'of
   readonly isWorkspace: boolean;
   readonly linkedPrs: readonly LinkedPr[];
   linkPr(link: LinkedPr): void;
+  releasePr(pullRequestKey: string): void;
 }
 
 interface HookEventNotice {
@@ -84,13 +86,18 @@ function createSessionPrLinkWiring({ store, now = clock.nowMs, git, log = consol
     for (const key of addedKeys) store.requestRefresh(key);
   }
 
+  function linkUnlessSettled(session: PrLinkableSession, link: LinkedPr): void {
+    if (shouldReleasePrLink(link, store.getSnapshot().prs[comparablePrKey(link)])) return;
+    session.linkPr(link);
+  }
+
   function attachSession(session: PrLinkableSession): void {
     if (attachedSessions.has(session) || !shouldLinkSession(session)) return;
     attachedSessions.add(session);
     joinableSessions.add(session);
     function onHookEvent({ event, payload }: HookEventNotice): void {
       const link = hookPrLink(event, payload, now());
-      if (link) session.linkPr(link);
+      if (link) linkUnlessSettled(session, link);
       if (!shouldRefreshHookPrs(event, payload)) return;
       const keys = new Set(session.linkedPrs.map(comparablePrKey));
       if (link) keys.add(comparablePrKey(link));
@@ -126,7 +133,7 @@ function createSessionPrLinkWiring({ store, now = clock.nowMs, git, log = consol
   function linkBySha(session: PrLinkableSession, candidate: ShaJoinCandidate): void {
     if (!joinableSessions.has(session)) return;
     const link = shaPrLink(candidate, now());
-    if (link) session.linkPr(link);
+    if (link) linkUnlessSettled(session, link);
   }
 
   async function joinSession(session: PrLinkableSession, candidatesByRepo: Map<string, ShaJoinCandidate[]>, shaJoinGit: ShaJoinGit): Promise<void> {
@@ -170,8 +177,18 @@ function createSessionPrLinkWiring({ store, now = clock.nowMs, git, log = consol
     return run.settled;
   }
 
+  function releaseSettledLinks(prsByKey: Readonly<Record<string, GithubPr>>): void {
+    for (const session of joinableSessions) {
+      for (const link of session.linkedPrs) {
+        const key = comparablePrKey(link);
+        if (shouldReleasePrLink(link, prsByKey[key])) session.releasePr(key);
+      }
+    }
+  }
+
   async function onSnapshotChanged(): Promise<void> {
     const snapshot = store.getSnapshot();
+    releaseSettledLinks(snapshot.prs);
     const watch = snapshot.watches['my-prs-open'];
     if (!git || !watch?.isLoaded || snapshot.freshness.error !== null) return;
     const prs = watch.keys.flatMap((key) => snapshot.prs[key] ? [snapshot.prs[key]] : []);

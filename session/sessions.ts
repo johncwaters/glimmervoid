@@ -14,7 +14,7 @@ import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
-import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink } from "./core/session-pr-links-core.ts";
+import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink, withoutReleasedPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
 import { readTranscriptTaskTitle } from "./session-task-title.ts";
 import os from "node:os";
@@ -766,6 +766,10 @@ class Session extends EventEmitter {
 
   unlinkPr(pullRequestKey: string): void {
     this._replacePrLinks(withoutPrLink(this._prLinks, pullRequestKey));
+  }
+
+  releasePr(pullRequestKey: string): void {
+    this._replacePrLinks(withoutReleasedPrLink(this._prLinks, pullRequestKey));
   }
 
   _replacePrLinks(next: SessionPrLinks): void {

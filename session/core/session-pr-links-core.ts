@@ -26,16 +26,24 @@ function mergeSessionPrLink(current: SessionPrLinks, incoming: LinkedPr): Sessio
 
 function withManualPrLink(current: SessionPrLinks, link: LinkedPr): SessionPrLinks {
   const key = comparableLinkKey(link);
+  const existingLink = current.links.find((linked) => comparableLinkKey(linked) === key);
+  if (existingLink?.source === 'manual') return current;
+  if (existingLink) return { links: current.links.map((linked) => linked === existingLink ? { ...linked, source: 'manual' } : linked), unlinkedKeys: current.unlinkedKeys };
   if (!isUnlinked(current, key)) return mergeSessionPrLink(current, link);
   return mergeSessionPrLink({ links: current.links, unlinkedKeys: current.unlinkedKeys.filter((unlinkedKey) => unlinkedKey.toLowerCase() !== key) }, link);
 }
 
-function withoutPrLink(current: SessionPrLinks, pullRequestKey: string): SessionPrLinks {
+function withoutReleasedPrLink(current: SessionPrLinks, pullRequestKey: string): SessionPrLinks {
   const comparableKey = pullRequestKey.toLowerCase();
   const links = current.links.filter((link) => comparableLinkKey(link) !== comparableKey);
-  const isAlreadyUnlinked = isUnlinked(current, comparableKey);
-  if (isAlreadyUnlinked && links.length === current.links.length) return current;
-  return { links, unlinkedKeys: isAlreadyUnlinked ? current.unlinkedKeys : [...current.unlinkedKeys, pullRequestKey] };
+  if (links.length === current.links.length) return current;
+  return { links, unlinkedKeys: current.unlinkedKeys };
+}
+
+function withoutPrLink(current: SessionPrLinks, pullRequestKey: string): SessionPrLinks {
+  const released = withoutReleasedPrLink(current, pullRequestKey);
+  if (isUnlinked(current, pullRequestKey.toLowerCase())) return released;
+  return { links: released.links, unlinkedKeys: [...current.unlinkedKeys, pullRequestKey] };
 }
 
 type KnownPr = Pick<LinkedPr, 'repo' | 'number' | 'url'> & { key: string };
@@ -51,4 +59,4 @@ function manualPrLink(pullRequestKey: string, knownPrs: readonly KnownPr[], nowM
   return parsed.success ? parsed.data : null;
 }
 
-export { manualPrLink, mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink };
+export { manualPrLink, mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink, withoutReleasedPrLink };

@@ -75,6 +75,12 @@ function shouldRefreshHookPrs(event: string, payload: Record<string, unknown>): 
   return /(?:^|[\s;&|()])(?:git\s+push|gh\s+pr)(?=\s|[;&|)]|$)/.test(toolInput.command);
 }
 
+const SETTLED_PR_STATES: ReadonlySet<GithubPr['state']> = new Set(['MERGED', 'CLOSED']);
+
+function shouldReleasePrLink(link: Pick<LinkedPr, 'source'>, pr: Pick<GithubPr, 'state'> | undefined): boolean {
+  return link.source !== 'manual' && pr !== undefined && SETTLED_PR_STATES.has(pr.state);
+}
+
 const SAFE_BASE_REF_NAME_RE = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+(?<![./])$/;
 
 interface ShaJoinCandidate {
@@ -142,6 +148,6 @@ function shaPrLink(candidate: ShaJoinCandidate, nowMs: number): LinkedPr | null 
 
 export {
   candidatesForRepo, commitsAheadArgs, distinctBaseRefNames, hookPrLink, openPrCandidatesByRepo,
-  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs,
+  parseRevListShas, partitionByCommitsAhead, shaPrLink, shouldLinkSession, shouldRefreshHookPrs, shouldReleasePrLink,
 };
 export type { CommitsAheadOfBase, PrLinkSession, ShaJoinCandidate };

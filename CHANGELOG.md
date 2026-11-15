@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A pull request a session opened or pushed to now drops off its session card once it merges or closes, so only the live ones stack up. Pull requests you linked by hand stay until you unlink them.
+
 ## [0.60.0] - 2026-11-15
 
 ### Added

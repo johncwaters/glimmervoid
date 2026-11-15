@@ -146,3 +146,29 @@ test('a store snapshot links each session to the operator open PRs whose head it
     for (const repoDir of [pushing.repoDir, settled.repoDir, elsewhere.repoDir]) fs.rmSync(repoDir, { recursive: true, force: true });
   }
 });
+
+test('a snapshot showing a hook or SHA linked PR merged or closed releases it from the session without a tombstone, keeping manual and open links', async (context) => {
+  const settledPr = (number: number, state: 'MERGED' | 'CLOSED') => GithubPrDetailNode.parse({ ...openPr('acme/widgets', number, 'b'.repeat(40)), state });
+  const harness = storeHarness(context, [
+    settledPr(1, 'MERGED'), settledPr(2, 'CLOSED'), settledPr(3, 'MERGED'), openPr('acme/widgets', 4, 'c'.repeat(40)),
+  ]);
+  const { store } = harness;
+  let releasesSettled = Promise.resolve();
+  const wiring = createSessionPrLinkWiring({
+    store: { ...store, subscribe: (event, listener) => store.subscribe(event, () => { releasesSettled = Promise.resolve(listener()); }) },
+    now: () => LINKED_AT_MS,
+  });
+  const linkTo = (number: number, source: 'hook' | 'sha' | 'manual') => ({
+    repo: 'acme/widgets', number, url: `https://github.com/acme/widgets/pull/${number}`, source, linkedAt: LINKED_AT_MS,
+  });
+  const session = new Session({
+    id: 'releasing', name: 'releasing', path: os.tmpdir(),
+    prLinks: { links: [linkTo(1, 'hook'), linkTo(2, 'sha'), linkTo(3, 'manual'), linkTo(4, 'hook')], unlinkedKeys: [] },
+  });
+  wiring.attachSession(session);
+  await store.tick();
+  await harness.flushRefreshes();
+  await releasesSettled;
+  assert.deepEqual(session.linkedPrs.map((link) => link.number).sort(), [3, 4]);
+  assert.deepEqual(session._prLinks.unlinkedKeys, []);
+});
