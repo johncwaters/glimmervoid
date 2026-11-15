@@ -3,20 +3,8 @@ import { siteNavLinks } from '../../lib/site-nav.ts';
 import { BRAND_ACCENT, BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
 import DashboardRecording from '../DashboardRecording.astro';
 import Wordmark from '../Wordmark.astro';
-import StateIcon from './StateIcon.astro';
 import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-platform.ts';
-import type { StatusIcon } from '../../../../shared/state-icons.ts';
-
-
-const SHOWN_STATES: readonly { label: string; icon: StatusIcon; colorToken: string }[] = [
-  { label: 'Working', icon: 'working', colorToken: '--state-running' },
-  { label: 'Needs input', icon: 'needs-input', colorToken: '--state-waiting' },
-  { label: 'Failed', icon: 'failed', colorToken: '--state-failed' },
-  { label: 'Complete', icon: 'complete', colorToken: '--state-complete' },
-  { label: 'Monitoring', icon: 'monitoring', colorToken: '--state-monitoring' },
-  { label: 'Idle', icon: 'idle', colorToken: '--state-idle' },
-];
 
 const NAV_LINKS = siteNavLinks('');
 ---
@@ -37,7 +25,7 @@ const NAV_LINKS = siteNavLinks('');
   </nav>
 
   <div class="hero-grid" id="top">
-    <h1 class="hero-wordmark"><Wordmark isStacked /></h1>
+    <h1 class="hero-wordmark"><Wordmark isStacked isOutlined /></h1>
     <div class="hero-side">
       <p class="tagline">See it before it's built.</p>
       <p>Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
@@ -58,10 +46,6 @@ const NAV_LINKS = siteNavLinks('');
   </div>
 
   <DashboardRecording />
-
-  <ul class="spectrum" aria-label="Session states">
-    {SHOWN_STATES.map(({ label, icon, colorToken }) => <li style={`color: var(${colorToken})`}><StateIcon icon={icon} />{label}</li>)}
-  </ul>
 </header>
 
 <style>
@@ -92,7 +76,7 @@ const NAV_LINKS = siteNavLinks('');
 
   .hero-install { position: relative; margin-top: 56px; }
   .install-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .install-line { flex: 1 1 480px; display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 820px; height: 44px; padding: 0 4px 0 16px; border-radius: var(--radius); background: var(--bg-surface); border: 1px solid var(--border); }
+  .install-line { flex: 1 1 480px; display: flex; align-items: center; gap: 12px; min-width: 0; max-width: 560px; height: 44px; padding: 0 4px 0 16px; border-radius: var(--radius); background: var(--bg-surface); border: 1px solid var(--border); }
   .install-line code { font-family: var(--font-mono); display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--type-body); white-space: nowrap; cursor: copy; }
   .install-line code::before { content: "$"; color: var(--accent-dim); }
   .install-line [data-install-for] { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -101,24 +85,16 @@ const NAV_LINKS = siteNavLinks('');
   .copy-status { display: block; margin-top: 10px; min-height: 21px; }
 
   .next-hero :global(.recording) { width: min(1000px, 100%); margin: 72px auto 0; }
-  .next-hero :global(.recording-frame) { aspect-ratio: 1440 / 780; border-bottom: 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .next-hero :global(.recording-frame) { aspect-ratio: 1440 / 780; }
   .next-hero :global(.recording figcaption) { display: none; }
-  .spectrum { display: grid; grid-template-columns: repeat(6, 1fr); list-style: none; margin: 0; padding: 0; background: var(--bg-header); border-bottom: 1px solid var(--border-dim); }
-  .spectrum li { display: flex; align-items: center; gap: 8px; padding: 14px 16px; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; border-top: 2px solid currentColor; }
-  .spectrum li + li { border-left: 1px solid var(--border-dim); }
 
   @media (max-width: 820px) {
     .next-nav ul li:not(:last-child) { display: none; }
     .hero-grid { grid-template-columns: 1fr; gap: 16px; }
-    .spectrum { grid-template-columns: repeat(3, 1fr); }
-    .spectrum li:nth-child(4) { border-left: 0; }
   }
   @media (max-width: 640px) {
     .next-hero :global(.recording-frame) { aspect-ratio: auto; }
     .next-hero :global(.recording-video) { width: 100%; }
-    .spectrum { grid-template-columns: repeat(2, 1fr); }
-    .spectrum li:nth-child(odd) { border-left: 0; }
-    .spectrum li:nth-child(4) { border-left: 1px solid var(--border-dim); }
   }
 </style>
 

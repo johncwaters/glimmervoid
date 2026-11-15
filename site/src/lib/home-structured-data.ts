@@ -25,7 +25,7 @@ export function homeStructuredData(site: URL | undefined): Record<string, unknow
       },
       {
         '@type': 'FAQPage',
-        mainEntity: FAQ_ENTRIES.map(({ question, answer }) => ({ '@type': 'Question', name: question, acceptedAnswer: { '@type': 'Answer', text: answer } })),
+        mainEntity: FAQ_ENTRIES.map(({ question, answerParagraphs }) => ({ '@type': 'Question', name: question, acceptedAnswer: { '@type': 'Answer', text: answerParagraphs.join(' ') } })),
       },
     ],
   };

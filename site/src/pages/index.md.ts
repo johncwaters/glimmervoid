@@ -42,7 +42,7 @@ export const GET: APIRoute = ({ site }) => {
     '## Commands inside a session',
     Object.values(AGENT_COMMAND_HELP).map(({ usage, summary }) => `- \`glimmervoid ${usage}\`: ${summary}`).join('\n'),
     '## Questions',
-    FAQ_ENTRIES.map(({ question, answer }) => `### ${question}\n\n${answer}`).join('\n\n'),
+    FAQ_ENTRIES.map(({ question, answerParagraphs }) => `### ${question}\n\n${answerParagraphs.join('\n\n')}`).join('\n\n'),
     '## Links',
     [
       `- Source: ${REPOSITORY_URL}`,

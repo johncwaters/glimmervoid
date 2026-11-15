@@ -1,15 +1,17 @@
 ---
 interface Props {
   isStacked?: boolean;
+  isOutlined?: boolean;
 }
 
-const { isStacked = false } = Astro.props;
+const { isStacked = false, isOutlined = false } = Astro.props;
 ---
-<span class:list={['wordmark', { 'is-stacked': isStacked }]}><span>Glimmer</span><span class="void">void</span></span>
+<span class:list={['wordmark', { 'is-stacked': isStacked, 'is-outlined': isOutlined }]}><span>Glimmer</span><span class="void">void</span></span>
 
 <style>
   .wordmark { font-family: var(--font-mono); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-head); }
-  .void { color: transparent; -webkit-text-stroke: max(1px, 0.02em) var(--text-head); }
+  .void { color: var(--text-muted); }
+  .is-outlined .void { color: transparent; -webkit-text-stroke: max(1px, 0.02em) var(--text-head); }
   .wordmark.is-stacked { display: block; line-height: 0.9; }
   .is-stacked > span { display: block; width: fit-content; }
   .is-stacked .void { position: relative; }

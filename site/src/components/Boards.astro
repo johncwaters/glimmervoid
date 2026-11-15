@@ -106,6 +106,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     transform: rotateY(-10deg) rotateX(4deg) rotateZ(-3deg);
     box-shadow: 10px 12px 0 0 color-mix(in oklab, var(--accent) 30%, var(--bg-card));
   }
+  @media (min-width: 821px) { .phone-frame { transform: none; } }
   .phone-frame::before { content: ''; position: absolute; top: 6px; left: 50%; translate: -50% 0; width: 54px; height: 6px; border-radius: 2px; background: var(--border); }
   .prototype {
     --prototype-accent: var(--accent); --row-padding: 10px;

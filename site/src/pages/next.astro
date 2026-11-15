@@ -28,7 +28,7 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
     <Celebrations />
     <AsTheyAre />
     <Features />
-    <Install commandLine="One command." showsNextCommands={false} />
+    <Install commandLine="" showsNextCommands={false} />
     <Faq />
     <Footer />
   </div>
@@ -42,6 +42,7 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
   .next-page .celebration-demo { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .next-page .celebration-demo .queue-row { padding-top: 0; border-top: 0; }
   @media (min-width: 1180px) {
+    .next-page section { padding-block: 200px; }
     .next-page section:has(> .section-head) { display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }
     .next-page section > .section-head { grid-column: 1; grid-row: 1 / span 12; position: sticky; top: 48px; margin-bottom: 0; }
     .next-page section:has(> .section-head) > :not(.section-head) { grid-column: 2; }

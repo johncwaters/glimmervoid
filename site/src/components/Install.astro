@@ -25,7 +25,7 @@ const NEXT_COMMANDS = [
 <section id="install">
   <div class="section-head reveal">
     <h2>Shipping in a minute.</h2>
-    <p>{commandLine}</p>
+    {commandLine && <p>{commandLine}</p>}
     <p>No account needed. Bring your own subscription. <a href={REPOSITORY_URL}>Open source</a>, MIT.</p>
   </div>
   <div class="install-console reveal" id="install-console">

@@ -3,12 +3,7 @@
     <h2>Your agents. As they are.</h2>
     <p>The coding agents you already run, not a rebuild of them. Each session is the real CLI in a real terminal, talking straight to its model.</p>
   </div>
-  <div class="agents-route reveal" role="img" aria-label="Glimmervoid starts and watches each agent CLI from the side. The CLI is your coding agent, unmodified, with your own login, subscription, skills, hooks, MCP servers and settings, and it talks directly to your model provider. Glimmervoid is not on that line.">
-    <div class="route-node orchestrator">
-      <span class="route-label">Glimmervoid</span>
-      <span class="route-detail">Worktrees, status and the dashboard</span>
-    </div>
-    <div class="route-link watch-link" aria-hidden="true"><span class="route-link-label">starts and watches</span></div>
+  <div class="agents-route reveal" role="img" aria-label="Your agent CLI talks directly to your model provider, unmodified, with your own login, subscription, skills, hooks, MCP servers and settings. Glimmervoid sits off that line: it starts and watches the CLI from the side.">
     <div class="route-node agent-cli">
       <span class="route-label">Your agent CLI</span>
       <span class="route-detail">Unmodified, in a real terminal</span>
@@ -23,24 +18,34 @@
       <span class="route-label">Your model provider</span>
       <span class="route-detail">Nothing of ours in between</span>
     </div>
+    <div class="watch-link" aria-hidden="true"><span class="route-link-label">starts and watches</span></div>
+    <div class="route-node orchestrator">
+      <span class="route-label">Glimmervoid</span>
+      <span class="route-detail">Worktrees, status and the dashboard</span>
+    </div>
   </div>
 </section>
 
 <style>
   .agents-route {
-    display: grid; align-items: center;
-    grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr) minmax(0, 1.2fr);
-    grid-template-areas: "orchestrator watch cli" ". . direct" ". . provider";
+    display: grid; align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr);
+    grid-template-areas: "cli direct provider" "watch . ." "orchestrator . .";
   }
-  .orchestrator { grid-area: orchestrator; }
-  .watch-link { grid-area: watch; }
-  .agent-cli { grid-area: cli; border-color: var(--accent-dim); }
-  .direct-link { grid-area: direct; position: relative; display: flex; justify-content: center; align-items: center; min-height: 64px; }
-  .direct-link::before { content: ''; position: absolute; inset: 0 auto 0 50%; width: 1px; background: var(--accent); }
-  .provider { grid-area: provider; }
+  .agents-route .route-node { background: none; padding: 18px 20px; }
+  .agent-cli { grid-area: cli; border-color: var(--accent); }
+  .provider { grid-area: provider; align-self: center; }
+  .orchestrator { grid-area: orchestrator; border-style: dashed; }
+  .direct-link { grid-area: direct; position: relative; display: flex; justify-content: center; align-items: center; }
+  .direct-link::before { content: ''; position: absolute; inset: 50% 0 auto; height: 2px; translate: 0 -50%; background: var(--accent); }
+  .watch-link { grid-area: watch; position: relative; display: flex; align-items: center; min-height: 72px; padding-left: calc(50% + 12px); }
+  .watch-link::before { content: ''; position: absolute; inset: 0 auto 0 50%; width: 1px; background: repeating-linear-gradient(to bottom, var(--text-muted) 0 6px, transparent 6px 10px); }
+  .watch-link .route-link-label { padding: 0; }
   .agent-setup { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; color: var(--text); font-size: var(--type-body); }
-  .agent-setup li::before { content: "+ "; color: var(--accent-dim); }
+  .agent-setup li::before { content: "+ "; color: var(--accent); }
   @media (max-width: 820px) {
-    .agents-route { display: flex; flex-direction: column; align-items: stretch; }
+    .agents-route { grid-template-columns: minmax(0, 1fr); grid-template-areas: "orchestrator" "watch" "cli" "direct" "provider"; }
+    .direct-link { min-height: 64px; }
+    .direct-link::before { inset: 0 auto 0 50%; width: 2px; height: auto; translate: -50% 0; }
   }
 </style>

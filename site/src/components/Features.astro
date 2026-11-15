@@ -1,5 +1,10 @@
 ---
-const USAGE_SHARES_BY_SESSION = [0.92, 0.64, 0.41, 0.23];
+const USAGE_SESSIONS = [
+  { name: 'billing', share: 0.92, cost: '$4.12' },
+  { name: 'api', share: 0.64, cost: '$2.87' },
+  { name: 'web', share: 0.41, cost: '$1.83' },
+  { name: 'docs', share: 0.23, cost: '$1.02' },
+];
 const TRACE_STEP_LENGTHS = [0.7, 0.45, 0.85, 0.55, 0.3, 0.65];
 const MCP_TOOL_NAMES = ['session', 'whiteboard', 'show', 'push', 'wake', 'secrets'];
 const RADAR_BLIPS = [
@@ -28,14 +33,16 @@ const FEATURES = [
       <span class="feature-name">Usage</span>
       <span class="feature-line">What each session costs</span>
       <span class="tile-visual usage-bars" aria-hidden="true">
-        {USAGE_SHARES_BY_SESSION.map((share) => <span class="usage-bar" style={`--share: ${share}`}></span>)}
+        {USAGE_SESSIONS.map(({ name, share, cost }, sessionIndex) => (
+          <span class="usage-row" style={`--share: ${share}; --row-index: ${sessionIndex}`}><span class="usage-name">{name}</span><span class="usage-track"><span class="usage-bar"></span></span><span class="usage-cost">{cost}</span></span>
+        ))}
       </span>
     </li>
     <li class="tile is-feature" style="grid-area: trace">
       <span class="feature-name">Trace</span>
       <span class="feature-line">Every tool call, in order</span>
       <span class="tile-visual trace-steps" aria-hidden="true">
-        {TRACE_STEP_LENGTHS.map((length) => <span class="trace-step" style={`--length: ${length}`}></span>)}
+        {TRACE_STEP_LENGTHS.map((length, stepIndex) => <span class="trace-step" style={`--length: ${length}; --step-index: ${stepIndex}`}></span>)}
       </span>
     </li>
     {FEATURES.map(({ area, name, line, visual }) => (
@@ -92,22 +99,40 @@ const FEATURES = [
       "notify vault mcp radar"
       "upload resume accounts worktrees";
   }
+  .tile { transition: border-color 160ms var(--ease-out-expo); }
+  .tile:hover { border-color: var(--accent-dim); }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
   .is-feature .feature-name { font-size: var(--type-doc-h2); }
   .feature-line { color: var(--text-dim); font-size: var(--type-meta); }
   .tile-visual { margin-top: auto; padding-top: 18px; }
   .usage-bars { padding-top: 24px; display: flex; flex-direction: column; gap: 10px; }
-  .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 999px; background: var(--accent); opacity: calc(0.35 + var(--share) * 0.65); }
+  .usage-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) 48px; align-items: center; gap: 10px; font-size: var(--type-meta); }
+  .usage-name { color: var(--text-dim); }
+  .usage-cost { color: var(--text-head); text-align: right; font-variant-numeric: tabular-nums; }
+  .usage-track { display: block; height: 12px; border-radius: 999px; background: var(--bg-surface); }
+  .usage-bar { display: block; height: 100%; width: calc(var(--share) * 100%); border-radius: 999px; background: var(--accent); opacity: calc(0.35 + var(--share) * 0.65); transform-origin: left; }
+  .bento[data-on-screen="true"] .usage-bar { animation: usage-grow 6s var(--ease-out-expo) infinite; animation-delay: calc(var(--row-index) * 120ms); }
+  @keyframes usage-grow { 0% { scale: 0 1; } 30%, 100% { scale: 1 1; } }
   .trace-steps { padding-top: 24px; display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border); margin-left: 4px; padding-left: 14px; }
   .trace-step { position: relative; display: block; height: 8px; width: calc(var(--length) * 100%); border-radius: 4px; background: var(--border); }
   .trace-step::before { content: ''; position: absolute; left: -19px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--state-complete); }
+  .bento[data-on-screen="true"] .trace-step { animation: trace-step-in 6s steps(1) infinite; animation-delay: calc(var(--step-index) * 500ms); }
+  .bento[data-on-screen="true"] .trace-step::before { animation: trace-dot 6s steps(1) infinite; animation-delay: calc(var(--step-index) * 500ms); }
+  @keyframes trace-step-in { 0% { opacity: 0; } 2%, 100% { opacity: 1; } }
+  @keyframes trace-dot { 0% { background: var(--state-running); } 8%, 100% { background: var(--state-complete); } }
   .notify-toast { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); color: var(--text-head); font-size: var(--type-meta); }
   .toast-text { min-width: 0; }
   .toast-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--state-waiting); }
   .vault-secret { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--type-meta); }
   .vault-secret code { padding: 3px 8px; border-radius: 4px; background: var(--bg-surface); color: var(--text-head); }
   .vault-grant { color: var(--state-complete); font-weight: 700; }
+  .bento[data-on-screen="true"] .vault-grant { animation: vault-approve 5s steps(1) infinite; }
+  @keyframes vault-approve { 0% { opacity: 0; } 40%, 100% { opacity: 1; } }
+  .bento[data-on-screen="true"] .notify-toast { animation: toast-in 5s var(--ease-out-expo) infinite; }
+  @keyframes toast-in { 0% { opacity: 0; translate: 24px 0; } 16%, 84% { opacity: 1; translate: 0 0; } 100% { opacity: 0; translate: 0 0; } }
+  .bento[data-on-screen="true"] .upload-file { animation: file-drop 5s var(--ease-out-expo) infinite; }
+  @keyframes file-drop { 0% { opacity: 0; translate: 0 -18px; } 20%, 90% { opacity: 1; translate: 0 0; } 100% { opacity: 0; translate: 0 0; } }
   .upload-drop { display: flex; justify-content: center; padding: 14px 10px; margin-top: 18px; border: 1px dashed var(--border-hover); border-radius: 6px; }
   .upload-file { padding: 3px 8px; border-radius: 4px; background: color-mix(in oklab, var(--accent) 14%, var(--bg-surface)); color: var(--accent); font-size: var(--type-meta); }
   .mcp-tools { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -177,7 +202,8 @@ const FEATURES = [
   }
   @media (prefers-reduced-motion: reduce) {
     .radar-sweep, .radar-blip { animation: none; }
-    .bento[data-on-screen="true"] :is(.mcp-tool, .account-pill, .turn-fill, .branch-fork, .branch-commit, .branch-merge-dot) { animation: none; }
+    .bento[data-on-screen="true"] :is(.mcp-tool, .account-pill, .turn-fill, .branch-fork, .branch-commit, .branch-merge-dot, .usage-bar, .trace-step, .vault-grant, .notify-toast, .upload-file) { animation: none; }
+    .bento[data-on-screen="true"] .trace-step::before { animation: none; }
     .radar-blip { opacity: 1; }
   }
 </style>
