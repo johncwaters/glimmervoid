@@ -130,7 +130,7 @@ function nodeOutputFiles(directory, extension = '.js', found = []) {
 function assertImportMetaSurvived() {
   const resolvers = nodeOutputFiles(distDir)
     .map((filePath) => ({ filePath, source: fs.readFileSync(filePath, 'utf8') }))
-    .filter((file) => file.source.includes('computeRuntimePaths('));
+    .filter((file) => /(?<!function )computeRuntimePaths\(/.test(file.source));
   if (resolvers.length === 0) fail('no dist/ output calls computeRuntimePaths: the runtime path resolver was tree-shaken away');
   for (const resolver of resolvers) {
     if (resolver.source.includes('import.meta.url')) continue;
