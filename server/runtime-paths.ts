@@ -9,7 +9,7 @@ import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
 import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
-import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
+import { stableLauncherPathFor } from './stable-node-path.ts';
 import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
 
 function hasPackageManifest(directory: string): boolean {
@@ -38,11 +38,6 @@ const SCRIPT_ARGV_PREFIX_LENGTH = 1;
 
 function stableLauncherPath(): string {
   return stableLauncherPathFor(SELF_LAUNCHER_COMMAND);
-}
-
-async function findNodeLauncherPath(): Promise<string | null> {
-  if (mode === 'binary') return firstCommandOnPath('node');
-  return stableLauncherPath();
 }
 
 function hookLauncherPath(): string {
@@ -204,4 +199,4 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { extractNodePtyFromBinary, hookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

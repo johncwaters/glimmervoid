@@ -24,7 +24,6 @@ import { errorMessage } from '../../shared/text.ts';
 import type { SessionDocsPort } from '../session/session-docs-wiring.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { ReviewPort } from '../review/review-wiring.ts';
-import type { CoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import type { ChangeMapService } from '../change-map/change-map-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
@@ -116,7 +115,6 @@ interface BackendControlDependencies {
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
-  coherenceFeed: CoherenceSessionFeed;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
   logger: Pick<Console, 'warn'>;
@@ -204,7 +202,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
-    coherenceFeed: dependencies.coherenceFeed,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
   });
@@ -228,7 +225,6 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
   sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
-  sendLaneSnapshotOnConnect('coherence-feed', () => dependencies.coherenceFeed);
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
   return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher };

@@ -40,7 +40,7 @@ function dashboardSession() {
 }
 
 test('every server-saved toggle on the settings page survives a dashboard save', () => {
-  assert.ok(serverSavedToggles.some(({ setting }) => setting.path === 'coherence.enabled'));
+  assert.ok(serverSavedToggles.some(({ setting }) => setting.path === 'community.enabled'));
   for (const { section, setting } of serverSavedToggles) {
     const session = dashboardSession();
     const loaded = session.request({ type: 'get-settings' }, 'settings').settings ?? {};

@@ -2,7 +2,7 @@ import { createNotifyGate, decideAcknowledge, explainNotification } from '../../
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { LateFinish } from '../../session/core/agent-tracker.ts';
 import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
-import type { CoherenceHooksState, UnseenOutcome } from '../../shared/contracts/session.ts';
+import type { UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { InstallDetail, InstallFailureKind, SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
@@ -51,7 +51,6 @@ interface SessionEventDependencies {
   closeSessionDataClients: (id: string) => void;
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
-  coherenceFeed?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   starHint?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
@@ -107,7 +106,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
-    dependencies.coherenceFeed?.attachSession(session);
     dependencies.starHint?.attachSession(session);
     let pendingPromptKind: string | null = null;
     let pendingAgentNote: string | null = null;
@@ -252,9 +250,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     }) => {
       if (to === STATES.IDLE || to === STATES.COMPLETE) {
         dependencies.taskTitleRefiner?.onTurnEnd(session);
-        void session.refreshCoherenceHooks()
-          .catch((error: unknown) => dependencies.logger.warn(`[${session.name}] Coherence hooks refresh failed: ${errorMessage(error)}`))
-          .finally(() => dependencies.coherenceFeed?.onTurnEnd(session));
       }
       if (event === 'spawn_success') {
         spawnedAtMs = clock.nowMs();
@@ -373,9 +368,6 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
         timestamp: clock.nowMs(),
       });
       dependencies.broadcastControl({ type: 'session-git', id: session.id, worktree: !!session.isWorktree });
-    });
-    session.on('coherence-hooks-change', (coherenceHooks: CoherenceHooksState | null) => {
-      dependencies.broadcastControl({ type: 'session-coherence-hooks', id: session.id, coherenceHooks });
     });
     session.on('task-title-change', ({ taskTitle, isCustom }: { taskTitle: string | null; isCustom: boolean }) => {
       dependencies.broadcastControl({ type: 'session-title', id: session.id, taskTitle, isCustom });

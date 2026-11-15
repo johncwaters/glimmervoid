@@ -48,8 +48,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
-import type { CoherenceAttachment } from '../server/coherence/coherence-runtime.ts';
-import type { CoherenceHooksState, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -212,7 +211,6 @@ interface SessionOptions {
   scratchAgentHome?: ScratchAgentHome | null;
   isCleanHome?: boolean;
   requiresHooks?: boolean;
-  prepareCoherence?: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -331,11 +329,6 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
-  _prepareCoherence: ((cwd: string) => Promise<CoherenceAttachment | null>) | null;
-  coherenceHooks: CoherenceHooksState | null;
-  coherenceAttachment: CoherenceAttachment | null;
-  _coherenceHooksRefresh: Promise<void> | null;
-  _coherenceHooksGeneration: number;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
@@ -430,7 +423,6 @@ class Session extends EventEmitter {
     scratchAgentHome = null,
     isCleanHome,
     requiresHooks = false,
-    prepareCoherence = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -593,11 +585,6 @@ class Session extends EventEmitter {
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("planLimits");
-    this._prepareCoherence = prepareCoherence;
-    this.coherenceHooks = null;
-    this.coherenceAttachment = null;
-    this._coherenceHooksRefresh = null;
-    this._coherenceHooksGeneration = 0;
     this._hooks = createSessionHookLifecycle({
       id: this.id,
       name: this.name,
@@ -1523,7 +1510,6 @@ class Session extends EventEmitter {
       accountId: this.accountId,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
-      coherenceHooks: this.coherenceHooks,
       auditLog: this.auditLog,
       detection: {
         ...this.getDetectionStats(),
@@ -1620,21 +1606,6 @@ class Session extends EventEmitter {
     return this._startPending;
   }
 
-  refreshCoherenceHooks(): Promise<void> {
-    if (this._coherenceHooksRefresh) return this._coherenceHooksRefresh;
-    this._coherenceHooksRefresh = this._refreshCoherenceHooksBody().finally(() => { this._coherenceHooksRefresh = null; });
-    return this._coherenceHooksRefresh;
-  }
-
-  async _refreshCoherenceHooksBody(): Promise<void> {
-    if (!this.coherenceAttachment || this._destroyed) return;
-    const generationAtRefresh = this._coherenceHooksGeneration;
-    const refreshedHooks = await this.coherenceAttachment.refreshHooks();
-    if (this._destroyed || generationAtRefresh !== this._coherenceHooksGeneration || JSON.stringify(refreshedHooks) === JSON.stringify(this.coherenceHooks)) return;
-    this.coherenceHooks = refreshedHooks;
-    this.emit('coherence-hooks-change', this.coherenceHooks);
-  }
-
   async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._destroyed) return;
 
@@ -1666,14 +1637,6 @@ class Session extends EventEmitter {
       this.transition("provision_blocked");
       this.emit('error', new Error('This session requires its own git worktree'));
       return;
-    }
-
-    if (this._prepareCoherence) {
-      this._coherenceHooksGeneration += 1;
-      this.coherenceAttachment = await this._prepareCoherence(this.effectiveCwd());
-      this.coherenceHooks = this.coherenceAttachment?.hooks ?? null;
-      if (isStartSuperseded()) return;
-      this.emit('coherence-hooks-change', this.coherenceHooks);
     }
 
     if (this._resolveGitCredentialHelper) {

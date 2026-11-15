@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { COHERENCE_BOOKKEEPING_PATHSPEC, COHERENCE_JOURNAL_DIRECTORY, isCoherenceJournalPath } from '../../coherence/core/coherence-paths-core.ts';
+import { COHERENCE_BOOKKEEPING_PATHSPEC, COHERENCE_JOURNAL_DIRECTORY, isCoherenceJournalPath } from '../core/git-changed-paths-core.ts';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { WORKTREE_STATUS_ARGS } from './workspace-context.ts';

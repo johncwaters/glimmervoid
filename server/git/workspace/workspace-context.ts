@@ -1,4 +1,4 @@
-import { COHERENCE_BOOKKEEPING_PATHSPEC } from '../../coherence/core/coherence-paths-core.ts';
+import { COHERENCE_BOOKKEEPING_PATHSPEC } from '../core/git-changed-paths-core.ts';
 import fs from 'node:fs';
 import type { GitIsolationOptions } from '../core/git-invocation-core.ts';
 import type { MarkerProbes } from '../../core/integration-branch-core.ts';

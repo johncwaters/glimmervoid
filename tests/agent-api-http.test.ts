@@ -250,7 +250,6 @@ interface WiringFixtureOptions {
   clock?: ManualClock;
   childGitWorkspace?: SessionOptions['gitWorkspace'];
   teamReviewStatus?: TeamReviewStatus;
-  settleSessionCoherence?: (id: string) => Promise<void>;
   arena?: Pick<AgentApiWiringOptions, 'races' | 'startRace'>;
   reviewComments?: AgentApiWiringOptions['reviewComments'];
 }
@@ -308,7 +307,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, childGitWorkspace, teamReviewStatus, settleSessionCoherence, arena, reviewComments,
+  clock, childGitWorkspace, teamReviewStatus, arena, reviewComments,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -373,7 +372,6 @@ function wiringFixture({
       : createSpawnGate({ memoryAdmission }),
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
-    ...(settleSessionCoherence ? { settleSessionCoherence } : {}),
     ...(teamReviewStatus ? {
       operatorState: {
         requestReview: async () => ({ ok: false as const, error: 'not in this fixture' }),
@@ -868,9 +866,9 @@ async function glimmervoidNotes(fixture: ReturnType<typeof wiringFixture>): Prom
   return channels.flatMap(({ entries }) => entries.filter(({ from }) => from === 'glimmervoid').map(({ text }) => text));
 }
 
-test('closing a clean child discards its worktree and deletes its Sane YOLO temp folder only after the killed tree is reaped and its Coherence readings settle, and posts the closing parent no end note', async () => {
+test('closing a clean child discards its worktree and deletes its Sane YOLO temp folder only after the killed tree is reaped, and posts the closing parent no end note', async () => {
   let worktree: StubbedWorktree | null = null;
-  const fixture = wiringFixture({ settleSessionCoherence: async () => { worktree?.log.push('coherence-settled'); } });
+  const fixture = wiringFixture();
   const attentionNotes: string[] = [];
   fixture.parent.raiseAttention = (_origin, note) => { attentionNotes.push(note); return { ok: true, pending: false }; };
   try {
@@ -888,7 +886,7 @@ test('closing a clean child discards its worktree and deletes its Sane YOLO temp
     assert.equal(fs.existsSync(childTempFolder), true, 'the temp folder stays while the killed tree may still write to it');
     worktree.finishReap();
     await settleTurns();
-    assert.deepEqual(worktree.log, ['reaped', 'coherence-settled', 'discard-if-clean']);
+    assert.deepEqual(worktree.log, ['reaped', 'discard-if-clean']);
     await waitFor(() => !fs.existsSync(childTempFolder), 'the temp folder is gone once the tree is reaped');
     assert.deepEqual(await glimmervoidNotes(fixture), []);
     assert.deepEqual(attentionNotes, []);
@@ -1548,7 +1546,7 @@ test('a note raised while the session already waits folds into the next notifica
   }
 });
 
-test('a Coherence note raised after the turn ends leaves the finished session complete and records its origin', () => {
+test('an attention note raised after the turn ends leaves the finished session complete and records its origin', () => {
   const session = plainSession('attention-note-session', 'finished lane');
   const triggered: { category: string; message: string }[] = [];
   const wireSessionEvents = notificationWiring(triggered);
@@ -1558,12 +1556,12 @@ test('a Coherence note raised after the turn ends leaves the finished session co
     session.transition('spawn_success', { spawnCwdExists: true });
     session.transition('first_output');
     session.transition('task_complete');
-    assert.deepEqual(session.raiseAttention('coherence-verdict', 'invariant still fails after the turn'), { ok: true, pending: false });
+    assert.deepEqual(session.raiseAttention('child-kept', 'the child worktree was kept'), { ok: true, pending: false });
     assert.equal(session.state, STATES.COMPLETE);
-    assert.deepEqual(triggered.filter((entry) => entry.category !== 'complete'), [{ category: 'note', message: 'finished lane: invariant still fails after the turn' }]);
-    assert.deepEqual(session.attentionNotes.map(({ origin, note }) => ({ origin, note })), [{ origin: 'coherence-verdict', note: 'invariant still fails after the turn' }]);
+    assert.deepEqual(triggered.filter((entry) => entry.category !== 'complete'), [{ category: 'note', message: 'finished lane: the child worktree was kept' }]);
+    assert.deepEqual(session.attentionNotes.map(({ origin, note }) => ({ origin, note })), [{ origin: 'child-kept', note: 'the child worktree was kept' }]);
     const attentionRecords = session._observability.decisionTail(15).filter((entry) => entry.kind === 'attention');
-    assert.deepEqual(attentionRecords.map(({ origin, disposition, note }) => ({ origin, disposition, note })), [{ origin: 'coherence-verdict', disposition: 'flagged', note: 'invariant still fails after the turn' }]);
+    assert.deepEqual(attentionRecords.map(({ origin, disposition, note }) => ({ origin, disposition, note })), [{ origin: 'child-kept', disposition: 'flagged', note: 'the child worktree was kept' }]);
     session.dismiss();
     assert.deepEqual(session.attentionNotes, [], 'dismissing the card clears its notes');
   } finally {

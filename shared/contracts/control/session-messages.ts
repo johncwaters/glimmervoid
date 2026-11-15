@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CoherenceHooksState, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
+import { MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
@@ -67,7 +67,6 @@ export const sessionServerVariants = [
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
   loose('session-wakes', { id: sessionId, wakes: z.array(WakeView) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
-  loose('session-coherence-hooks', { id: sessionId, coherenceHooks: CoherenceHooksState.nullable() }),
   loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),
   loose('notify', {
     session: z.string(),

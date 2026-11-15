@@ -15,7 +15,7 @@ import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../shared/timer-
 import type { ProjectEntry, GlimmervoidConfig } from './config/config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config/config-defaults.ts';
 import type { DefaultConfig } from './config/config-defaults.ts';
-import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredHosts, dropRetiredCoderSessions, dropRetiredPlanReview, dropRetiredSecretReferences, dropRetiredVaultCompanion, migrateRemoteEnabled } from './config/config-migrations.ts';
+import { resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, dropRetiredUpdateChannel, dropRetiredBenchmarks, dropRetiredHintCards, dropRetiredIssues, dropRetiredHosts, dropRetiredCoderSessions, dropRetiredPlanReview, dropRetiredCoherence, dropRetiredSecretReferences, dropRetiredVaultCompanion, migrateRemoteEnabled } from './config/config-migrations.ts';
 import { ABORT_CONFIG_SAVE, CONFIG_FILE_MODE, glimmervoidHomeDir, resolveConfigPath, generateProjectId, validateConfig, normalizeConfigFile, writeBackupContent, removeRetiredBackups, readStoredSecrets, writeStoredSecrets, loadConfigFile, saveConfigFileOnce, isSuspectedExternalWipe, invalidConfigWarning, suspectedWipeWarning, warnSuspectedWipe, ensureProjectIds } from './config/config-file.ts';
 import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
 import { configBackupPath, configSecretsPath } from './secrets/core/secret-files-core.ts';
@@ -115,7 +115,7 @@ function createConfigStore({
   config.branchGc = resolveBranchGcAndWarn(config.branchGc);
   const retiredGuardrailKeys = retiredGuardrailKeysWarning(config);
   if (retiredGuardrailKeys !== null) console.warn(retiredGuardrailKeys);
-  const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), dropRetiredBenchmarks(config), dropRetiredHintCards(config), dropRetiredPlanReview(config), dropRetiredIssues(config), dropRetiredHosts(config), dropRetiredCoderSessions(config), dropRetiredSecretReferences(config), dropRetiredVaultCompanion(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
+  const configMigrations = [...loadedConfig.renamedKeyMessages, migrateGuardrailsUnreadablePaths(config), dropRetiredUpdateChannel(config), dropRetiredBenchmarks(config), dropRetiredHintCards(config), dropRetiredPlanReview(config), dropRetiredCoherence(config), dropRetiredIssues(config), dropRetiredHosts(config), dropRetiredCoderSessions(config), dropRetiredSecretReferences(config), dropRetiredVaultCompanion(config), migrateRemoteEnabled(config)].filter((migration) => migration !== null);
   if (configMigrations.length > 0) {
     try {
       writeConfigFileAtBoot(config);
@@ -278,7 +278,6 @@ function createConfigStore({
       branchGc: pickBlock('branchGc', config.branchGc),
       github: pickBlock('github', config.github),
       teamReview: pickBlock('teamReview', config.teamReview),
-      coherence: pickBlock('coherence', config.coherence),
       community: pickBlock('community', config.community),
       questionManager: pickBlock('questionManager', config.questionManager),
       workflows: config.workflows ?? null,
@@ -319,7 +318,6 @@ function createConfigStore({
     if (newConfig.lanes == null) delete config.lanes;
     if (newConfig.lanes != null) config.lanes = newConfig.lanes;
     if (newConfig.teamReview != null) config.teamReview = newConfig.teamReview;
-    if (newConfig.coherence != null) config.coherence = newConfig.coherence;
     if (newConfig.issues != null) config.issues = newConfig.issues;
     if (newConfig.community != null) config.community = newConfig.community;
     if (newConfig.questionManager == null) delete config.questionManager;

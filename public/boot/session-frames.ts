@@ -1,7 +1,6 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { STATES } from '#shared/states.ts';
 import { clearHeaderErrorsForSession } from '../action-status.ts';
-import { forgetSessionCoherence, setSessionCoherenceHooks } from '../coherence/journal-drawer.ts';
 import { refreshFavicon } from '../favicon.ts';
 import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-view.ts';
 import { refreshMyPrsSessionState } from '../github/my-prs-store.ts';
@@ -55,7 +54,6 @@ function noteServerBuild(serverBuild: unknown) {
 function forgetSession(sessionId: string) {
   clearHeaderErrorsForSession(sessionId);
   removeSessionCard(sessionId);
-  forgetSessionCoherence(sessionId);
   forgetReview(sessionId);
   forgetSessionLinkedPrs(sessionId);
   forgetSessionWakes(sessionId);
@@ -81,7 +79,6 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
   for (const s of rows) {
     if (hasSession(s.id)) catchUpExistingCard(s);
     if (!hasSession(s.id)) createSessionCard(s.id, s.name, s.state, buildSessionCardOptions(s));
-    setSessionCoherenceHooks(s.id, s.coherenceHooks);
     setSessionLinkedPrs(s.id, s.linkedPrs);
     setSessionWakes(s.id, []);
     setSessionFailureReason(s.id, s.failureReason);
@@ -135,7 +132,6 @@ function catchUpExistingCard(row: SnapshotSessionRow) {
 function rebuildSessionCard(sessionId: string, sessionName: string, state: string, cardFields: Parameters<typeof buildSessionCardOptions>[0], linkedPrs: unknown) {
   const previousUi = sessionUIs.get(sessionId);
   const wasSelected = getSelectedId() === sessionId;
-  setSessionCoherenceHooks(sessionId, null);
   removeSessionCard(sessionId);
   forgetReview(sessionId);
   forgetManagerDecisions(sessionId);

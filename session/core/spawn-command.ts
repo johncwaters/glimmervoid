@@ -84,20 +84,6 @@ function resolveArgvCommandMatches(
   });
 }
 
-type PathLookupExecFileAsync = (file: string, args: readonly string[], options: PathLookupOptions) => Promise<string>;
-
-async function resolveArgvCommandMatchesAsync(
-  name: string,
-  { platform, execFileAsync }: { platform: NodeJS.Platform; execFileAsync: PathLookupExecFileAsync },
-): Promise<string[]> {
-  for (const probe of pathProbesFor(name, platform)) {
-    const output = await execFileAsync(probe.file, probe.args, PATH_PROBE_OPTIONS).catch(() => "");
-    const matches = dedupePathMatches(output.split(/\r?\n/).filter((line) => line.trim()), platform);
-    if (matches.length > 0) return matches;
-  }
-  return [];
-}
-
 function isAbsoluteCommandPath(name: string, platform: NodeJS.Platform): boolean {
   return (platform === "win32" ? path.win32 : path.posix).isAbsolute(name);
 }
@@ -163,5 +149,5 @@ function buildAgentSpawnCommand(
   return { file: "cmd.exe", args: ["/c", name, ...childArgs] };
 }
 
-export { resolveArgvCommandMatches, resolveArgvCommandMatchesAsync, resolveAgentCommand, buildAgentSpawnCommand };
+export { resolveArgvCommandMatches, resolveAgentCommand, buildAgentSpawnCommand };
 export type { PathLookupExecFile, ResolvedCommand };

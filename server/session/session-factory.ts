@@ -1,4 +1,3 @@
-import { resolveCoherence } from '../coherence/coherence-runtime.ts';
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import path from 'node:path';
 
@@ -10,7 +9,7 @@ import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
 import type { SessionOptions } from '../../session/sessions.ts';
-import { DEFAULT_AGENT_ID, getAdapter, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
+import { DEFAULT_AGENT_ID, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
@@ -81,10 +80,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       const liveProject = liveConfig.projects.find((candidate) => candidate.id === project.id) ?? project;
       return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
     };
-    const prepareCoherence = overrides.ephemeral ? null : (cwd: string) => resolveCoherence({
-      worktree: cwd, host: getAdapter(overrides.agent ?? project.agent)?.usageVendor,
-      isSettingOn: (dependencies.getConfig?.() ?? config).coherence?.enabled !== false,
-    });
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
     const session = new Session({
@@ -119,7 +114,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,
-      prepareCoherence: isMachineShell ? null : prepareCoherence,
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       resolveGitCredentialHelper,
       resolveHostSigningEnv: dependencies.hostSigningKeys?.gitEnvFor ?? null,

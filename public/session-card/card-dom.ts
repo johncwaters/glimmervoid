@@ -21,16 +21,6 @@ export function setLinkedPrsPainter(painter: LinkedPrsPainter) {
   paintLinkedPrs = painter;
 }
 
-interface CardCoherenceJournal {
-  isReadable: (sessionId: string) => boolean;
-  open: (sessionId: string) => void;
-}
-let cardCoherenceJournal: CardCoherenceJournal | null = null;
-
-export function setCardCoherenceJournal(journal: CardCoherenceJournal) {
-  cardCoherenceJournal = journal;
-}
-
 export type { CardOptions };
 
 export function setSessionSaneYolo(sessionId: unknown, saneYolo: boolean) {
@@ -113,8 +103,6 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openLinkPullRequestDialog(sessionId);
   };
-  const btnCoherenceJournal = buildMenuItem('Coherence journal', 'overflow-coherence-journal');
-  btnCoherenceJournal.setAttribute('aria-haspopup', 'dialog');
   const btnWakes = buildMenuItem('Wakes', 'overflow-wakes');
   btnWakes.setAttribute('aria-haspopup', 'dialog');
   btnWakes.onclick = () => {
@@ -123,16 +111,10 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     openSessionWakes(sessionId);
   };
   const paintMenuItems = () => {
-    btnCoherenceJournal.classList.toggle('visible', cardCoherenceJournal?.isReadable(sessionId) === true);
     btnWakes.classList.toggle('visible', hasPendingWakes(sessionId));
   };
   btnSessionMenu.onclick = paintMenuItems;
   btnSessionMenu.onkeydown = paintMenuItems;
-  btnCoherenceJournal.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    cardCoherenceJournal?.open(sessionId);
-  };
   const btnQuestionManager = buildMenuItem('Question manager', 'overflow-question-manager');
   btnQuestionManager.setAttribute('role', 'menuitemcheckbox');
   paintQuestionManager(card, btnQuestionManager, options.isQuestionManagerOn ?? null);
@@ -150,7 +132,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnWorkspaceRepos, btnCoherenceJournal, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });

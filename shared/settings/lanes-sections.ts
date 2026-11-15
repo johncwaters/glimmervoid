@@ -195,20 +195,6 @@ export const LANES_MY_PRS: SettingsSection = {
   ],
 };
 
-export const LANES_COHERENCE: SettingsSection = {
-  id: 'lanes-coherence',
-  level: 'lanes',
-  title: 'Coherence',
-  description: 'Coherence hook status and decision journal per session.',
-  settings: [
-    {
-      id: 'coherence-enabled', path: 'coherence.enabled', title: 'Show session Coherence',
-      description: "Show the Coherence hook status and decisions of each session in a repository with a coherence.config.json (needs @posthog/coherence 1.8 or newer).",
-      control: 'toggle', keywords: ['experimental', 'coherence', 'journal', 'decisions'], defaultValue: true, ...MACHINE_NOW,
-    },
-  ],
-};
-
 export const LANES_COMMUNITY: SettingsSection = {
   id: 'lanes-community',
   level: 'lanes',

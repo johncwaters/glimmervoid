@@ -115,10 +115,6 @@ const CommunitySettings = optionalObject('community', {
   ).optional(),
 });
 
-const CoherenceSettings = optionalObject('coherence', {
-  enabled: optionalBoolean('coherence.enabled'),
-});
-
 const posthogNumberRanges = {
   intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
@@ -264,7 +260,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   github: GithubSettings,
   lanes: LanesSettings,
   teamReview: TeamReviewSettings,
-  coherence: CoherenceSettings,
   community: CommunitySettings,
   questionManager: QuestionManagerSettings.nullable().optional(),
   posthog: PosthogSettings,

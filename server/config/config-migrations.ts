@@ -91,6 +91,12 @@ function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
   return '[config] Removed planReview: the plan view is gone and plans go through boards.';
 }
 
+function dropRetiredCoherence(config: GlimmervoidConfig): string | null {
+  if (!Object.hasOwn(config, 'coherence')) return null;
+  delete config.coherence;
+  return '[config] Removed coherence: Glimmervoid no longer runs Coherence in sessions.';
+}
+
 function dropRetiredIssues(config: GlimmervoidConfig): string | null {
   if (!Object.hasOwn(config, 'issues')) return null;
   delete config.issues;
@@ -227,4 +233,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredVaultCompanion, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredVaultCompanion, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

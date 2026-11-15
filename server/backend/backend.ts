@@ -79,7 +79,6 @@ import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
-import { createCoherenceSessionFeed } from '../coherence/coherence-session-feed.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
@@ -306,7 +305,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     projectOf: (sessionId) => getSessionAny(sessionId)?.path ?? null,
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
   });
-  const coherenceFeed = createCoherenceSessionFeed({ broadcastControl: broadcastControlFromWebSockets });
   const reviews = createReviewWiring({
     reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -474,7 +472,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     lookupWhy: (request) => lookupWhy({ ...request, configPath: configStore.configPath }),
     reviewComments: reviews,
     repoClones: assembledGitWorkspace,
-    settleSessionCoherence: coherenceFeed.settle,
     secrets: secretsBroker,
     races: laneAssembly.races,
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
@@ -512,7 +509,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     pushProvenanceNotes: (repoDir: string) => assembledGitWorkspace.pushProvenanceNotes(repoDir),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
-    coherenceFeed,
     starHint: laneAssembly.starHint,
     closeSessionDataClients,
     removeExitedSession: (id: string) => removeExitedSession?.(id),
@@ -548,7 +544,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return adapter.id;
     },
     agentFingerprintOf: customAgentFingerprint,
-    settleSessionCoherence: coherenceFeed.settle,
     logger: console,
   });
   sessionRegistry.initialize();
@@ -860,7 +855,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     reviews,
     changeMaps,
-    coherenceFeed,
     serverBuild: () => serverBuild,
     telemetry,
     logger: console,

@@ -54,7 +54,6 @@ interface AgentApiWiringOptions {
   operatorState?: AgentOperatorStatePort | null;
   whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
-  settleSessionCoherence?: (id: string) => Promise<void>;
   secrets?: Pick<SecretsBroker, 'need' | 'envFor'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   startRace?: RaceLauncher['start'] | null;

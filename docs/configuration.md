@@ -165,14 +165,6 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 | `prFlows.rules` | PR flows rules | `[]` | Ordered rules for review items on your own pull requests; the first match acts with no click and lands in the Handled list, where Undo reopens it. Each matches on sources (source ids, <pack>/<id> for a pack source), authors (GitHub logins of review comment authors), priority, paths, text, scope and repos (owner/name; every repository when absent), and acts with ask, fix-local, dismiss or run:<action id>. **File-only.** Rules are written in config.json; Save as rule in My PRs is the one dashboard writer, and it only appends. |
 | `prFlows.repoRules` | PR flows repository rules | `{}` | Deprecated: put repos on each rule in prFlows.rules instead. Rules per repository (owner/name to a list of rules), still checked before prFlows.rules for that repository. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
-### Coherence
-
-Coherence hook status and decision journal per session.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `coherence.enabled` | Show session Coherence | `true` | Show the Coherence hook status and decisions of each session in a repository with a coherence.config.json (needs @posthog/coherence 1.8 or newer). |
-
 ### Community
 
 Research new posthog.com community questions and draft replies.

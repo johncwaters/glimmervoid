@@ -23,7 +23,6 @@ Backend runtime: the Express + WebSocket server factory and its control plane, p
 | `github/` | GitHub lanes: my PRs, team PR review and its reaper and thread judge, `gh` queries, the shared clock and rate limit (`github/AGENTS.md`) |
 | `radar/` | Radar lane: the PostHog API client, poller, wiring and report, with its cores (`radar/AGENTS.md`) |
 | `git/git-workspace.ts` | THE ONLY module allowed to run `git worktree` |
-| `coherence/` | Optional repository CLI boundary, pinned by the coherence-boundary gate |
 | `config-store.ts` | Runtime config load/save/defaults |
 | `child-process-safe.ts` | THE ONLY importer of `node:child_process` |
 | `update-check.ts` | Startup release-tag check, advisory only |

@@ -52,19 +52,10 @@ export const ConversationApproval = z.object({
 
 export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION_MAX_CHARS), z.string().max(CONVERSATION_ANSWER_MAX_CHARS));
 
-const COHERENCE_HOOKS_REASON_MAX_CHARS = 80;
-export const COHERENCE_HOOKS_INACTIVE = Object.freeze({
-  notInstalled: 'not installed',
-  unsupportedVersion: 'unsupported version',
-});
-export const CoherenceHooksState = z.discriminatedUnion('active', [
-  z.object({ active: z.literal(true) }).strict(),
-  z.object({ active: z.literal(false), reason: z.string().min(1).max(COHERENCE_HOOKS_REASON_MAX_CHARS), version: z.string().optional() }).strict(),
-]);
 
 export const ATTENTION_NOTE_MAX_CHARS = 500;
 const ATTENTION_QUESTION_ORIGINS = ['agent', 'secret'] as const;
-const ATTENTION_NOTE_ORIGINS = ['coherence-hooks', 'coherence-verdict', 'coherence-spec', 'coherence-error', 'child-wake-cap', 'self-wake-cap', 'wake-failed', 'child-kept'] as const;
+const ATTENTION_NOTE_ORIGINS = ['child-wake-cap', 'self-wake-cap', 'wake-failed', 'child-kept'] as const;
 export const AttentionOrigin = z.enum([...ATTENTION_QUESTION_ORIGINS, ...ATTENTION_NOTE_ORIGINS]);
 export const AttentionNoteOrigin = z.enum(ATTENTION_NOTE_ORIGINS);
 export const AttentionNote = z.object({ origin: AttentionNoteOrigin, note: z.string().max(ATTENTION_NOTE_MAX_CHARS), at: z.number() }).strict();
@@ -105,7 +96,6 @@ export const SessionSnapshot = z.object({
   accountId: AgentAccountId.nullable().default(null),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
-  coherenceHooks: CoherenceHooksState.nullable().default(null),
   attentionNotes: z.array(AttentionNote).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
@@ -114,7 +104,6 @@ export type RefinedTaskTitle = z.infer<typeof RefinedTaskTitle>;
 export type SessionState = z.infer<typeof SessionState>;
 export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
-export type CoherenceHooksState = z.infer<typeof CoherenceHooksState>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;
 export type ConversationAnswers = z.infer<typeof ConversationAnswers>;

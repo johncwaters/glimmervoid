@@ -31,7 +31,6 @@ import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
 import type { ReviewPort } from './review/review-wiring.ts';
-import type { CoherenceSessionFeed } from './coherence/coherence-session-feed.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
 import type { Telemetry } from './telemetry.ts';
@@ -166,7 +165,6 @@ interface ControlHandlerDeps {
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
-  coherenceFeed?: Pick<CoherenceSessionFeed, 'readJournal'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'setDefault' | 'setLaneAccount' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;
   remoteSetup?: { start: (agent: RemoteSetupAgent) => Promise<RemoteSetupOutcome> } | null;

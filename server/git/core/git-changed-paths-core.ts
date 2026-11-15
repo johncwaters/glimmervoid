@@ -25,3 +25,11 @@ export function isCredentialLikePath(filePath: string): boolean {
   const fileName = forwardSlashed(filePath).split('/').at(-1) ?? '';
   return CREDENTIAL_LIKE_FILE_NAMES.some((pattern) => pattern.test(fileName));
 }
+
+export const COHERENCE_JOURNAL_DIRECTORY = '.coherence';
+export const COHERENCE_BOOKKEEPING_PATHSPEC = ['--', '.', `:(exclude)${COHERENCE_JOURNAL_DIRECTORY}`];
+
+export function isCoherenceJournalPath(journalPath: string): boolean {
+  const segments = journalPath.split('/');
+  return segments.length >= 2 && segments[0] === COHERENCE_JOURNAL_DIRECTORY && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}

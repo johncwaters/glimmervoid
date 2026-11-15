@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Quick arrow presses on a board no longer drop moves.** A nudge started while the board was still drawing an earlier nudge could start from the old position, so the box moved less than you pressed.
 - **Unlocking your phone no longer shows a false "The server is not answering" error.** The 10 second wait before that error now counts only time the dashboard is on screen, so a normal reconnect after the phone was locked or the app backgrounded stays quiet. A server that is really down is still reported after 10 seconds of the visible page failing to reach it.
 
+### Removed
+
+- **Glimmervoid no longer runs Coherence in your sessions.** The experimental Show session Coherence setting, the Coherence journal on the session card and the Coherence notes are gone. Glimmervoid no longer reinstalls a repository's Coherence hooks or re-runs its invariants when a turn ends, and the `coherence` block is removed from `config.json` on the next start. A repository that uses Coherence itself still gets it installed in new worktrees, and its `.coherence` journals are still committed with your work.
+
 ### Changed
 
 - **New worktrees on Linux clone node_modules instead of installing it, when the disk supports copy-on-write.** On btrfs or XFS with reflink, a session's worktree now gets a copy-on-write clone of the main checkout's dependencies in seconds, as macOS already did, rather than a full npm install. Glimmervoid now checks whether the disk can clone, on macOS too, rather than guessing from the disk type. On ext4, which cannot clone, worktrees still install, now with `--prefer-offline` so a warm npm or pnpm cache skips its freshness checks.
@@ -35,7 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hook and statusline relays start faster.** The statusline relay no longer loads the schema library, and the hook relays load it only when Glimmervoid has something to tell the agent, which now answers a hook with an empty body otherwise. On a source checkout a statusline refresh drops from about 108 to 65 ms of CPU and a hook call from about 108 to 54 ms.
 - **The standalone binary runs hooks and the statusline through a small `glimmervoid-relay` beside it.** Every hook call, statusline refresh and Sane YOLO check used to start the whole `glimmervoid` executable; they now start `glimmervoid-relay`, which installs next to it. On a test host a statusline refresh drops from about 105 to 41 ms of CPU, a hook call from about 109 to 43 ms, and a Claude Code Sane YOLO check from about 97 to 71 ms. Sessions started before an update keep their hooks: `glimmervoid __run` hands the call to `glimmervoid-relay`.
 - **A standalone install without its `glimmervoid-relay` refuses to start sessions.** Spawning a session fails with an error naming where the relay should be, rather than running agents with no hooks, statusline or Sane YOLO. `glimmervoid doctor` shows the relay under Relay.
-- **The session row badge for missing Coherence hooks now reads Coherence off.** It used to read Hooks off, which looked like every agent hook was down; only the Coherence hooks are.
 
 ## [0.59.1] - 2026-11-14
 

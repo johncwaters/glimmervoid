@@ -71,8 +71,7 @@ const SESSION = {
   accountId: null,
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
-  coherenceHooks: { active: false, reason: 'not installed' },
-  attentionNotes: [{ origin: 'coherence-verdict', note: 'Coherence invariant server/lane/lane boundary still fails after the agent\'s turn', at: NOW }],
+  attentionNotes: [{ origin: 'child-kept', note: 'The child worktree was kept because it holds uncommitted work', at: NOW }],
   auditLog: [],
 };
 
@@ -96,7 +95,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-wakes', id: 'session-1', wakes: [{ id: 'w4', kind: 'cron', pattern: '0 9 * * 1-5', text: 'run nightly QA and report', nextFireAt: NOW, nextFire: '09:00 tomorrow (in 14h)' }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },
-  { type: 'session-coherence-hooks', id: 'session-1', coherenceHooks: { active: false, reason: 'check failed with exit code 1' } },
   { type: 'session-manager-decision', id: 'session-1', decision: { kind: 'question-manager', seq: 1, ts: 1, outcome: 'escalated', questions: ['Delete the old exporter?'], reason: 'the question names a risk word: delete' } },
   { type: 'session-status', id: 'session-1', session: 'glimmervoid', timestamp: NOW, unseenOutcome: null },
   { type: 'session-merge-status', id: 'session-1', session: 'glimmervoid', mergeStatus: 'pending-review', reason: null, parked: false, timestamp: NOW },
@@ -129,12 +127,6 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
   { type: 'session-doc-asset-response', requestId: 'session-doc-asset-read-1', id: 'session-1', path: '/repo/drafts/post.md', src: 'img/chart.png', ok: true, mime: 'image/png', base64: 'iVBORw0K' },
   { type: 'session-doc-save-result', requestId: 'session-doc-save-1', id: 'session-1', path: '/repo/drafts/post.md', ok: false, conflict: true, error: 'the file changed on disk since it was opened, so reload it before saving' },
-  {
-    type: 'session-coherence', id: 'session-1', updatedAt: NOW,
-    journal: { ok: true, latest: { id: 'd-f16808ad', at: '2026-10-17T10:00:00.000Z', kind: 'decision', text: 'use plain files', detail: 'simplest', supersedes: null } },
-  },
-  { type: 'session-coherence-snapshot', sessions: { 'session-1': { journal: { ok: false, reason: 'the Coherence journal is not a regular file' }, updatedAt: NOW } } },
-  { type: 'session-coherence-journal-response', requestId: 'r-journal', id: 'session-1', ok: true, entries: [{ id: 'def-0123456789ab', at: '2026-10-17T10:05:00.000Z', kind: 'defect', text: 'flaky socket test', detail: null, supersedes: null }] },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

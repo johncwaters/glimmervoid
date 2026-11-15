@@ -1,7 +1,6 @@
 import './tailwind.css';
 
 import { describeFailure } from './client-error-core.ts';
-import { isSessionJournalReadable, openCoherenceJournal, sessionRowCoherenceSignals } from './coherence/journal-drawer.ts';
 import { superviseConnection } from './connection-supervisor.ts';
 import { connectControl, reportToServerLog, sendControlMsg } from './control-ws.ts';
 import { queryTag } from './dom-helpers.ts';
@@ -12,7 +11,7 @@ import { paintSessionPrRows, sessionRowPrSignals } from './github/session-pr-chi
 import { mountHealthMonitor } from './health-monitor.ts';
 import { setHooksRequestSender } from './hooks-store.ts';
 import { whenBundledMonoFontLoads } from './mono-font.ts';
-import { setCardCoherenceJournal, setLinkedPrsPainter } from './session-card/card-dom.ts';
+import { setLinkedPrsPainter } from './session-card/card-dom.ts';
 import { setAccountSignIn } from './session-card/card-account.ts';
 import { openAgentAccountDialog } from './dialogs.ts';
 import { connectableAgentOf } from './agent-logins.ts';
@@ -63,11 +62,9 @@ void import('./your-day-tip.ts').then(
 setHooksRequestSender(sendControlMsg);
 setTraceRequestSender(sendControlMsg);
 setLinkedPrsPainter(paintSessionPrRows);
-addSessionRowSignalSource(sessionRowCoherenceSignals);
 addSessionRowSignalSource(sessionRowPrSignals, 'links');
 addSessionRowSignalSource(sessionRowBoardSignals, 'links');
 setBoardsViewOpener(openBoardsSurface);
-setCardCoherenceJournal({ isReadable: isSessionJournalReadable, open: openCoherenceJournal });
 setAccountSignIn((agentId, accountId) => {
   const agent = connectableAgentOf(agentId);
   if (!agent) return;

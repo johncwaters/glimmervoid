@@ -9,7 +9,7 @@ import { isPhoneArrowPad } from '../ui-prefs.ts';
 import { syncTelemetryBanner } from './banners.ts';
 import { applySurfaceSettings, applyTabOrder } from './view-tabs.ts';
 
-type DashboardSettings = FeatureSurfaceSettings & Pick<BrowserConfig, 'coherence' | 'viewTabOrder' | 'operatorTimezone'>;
+type DashboardSettings = FeatureSurfaceSettings & Pick<BrowserConfig, 'viewTabOrder' | 'operatorTimezone'>;
 
 function applyDashboardSettings(settings: DashboardSettings) {
   applyPhoneArrowPad(isPhoneArrowPad());

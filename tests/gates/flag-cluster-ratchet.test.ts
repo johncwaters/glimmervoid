@@ -34,7 +34,6 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['server/agent-api/child-channels.ts', 3],
   ['server/backend/backend-health.ts', 3],
   ['server/branch-gc-poller.ts', 3],
-  ['server/coherence/coherence-session-feed.ts', 4],
   ['server/core/transcript-tail-core.ts', 3],
   ['server/git/core/git-invocation-core.ts', 8],
   ['server/git/git-exec.ts', 3],

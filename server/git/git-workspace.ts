@@ -1,4 +1,4 @@
-import { COHERENCE_BOOKKEEPING_PATHSPEC } from '../coherence/core/coherence-paths-core.ts';
+import { COHERENCE_BOOKKEEPING_PATHSPEC } from './core/git-changed-paths-core.ts';
 import fs from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GIT_CONFIG_LISTING_ARGS, buildHardenedGitInvocation } from './core/git-invocation-core.ts';

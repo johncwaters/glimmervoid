@@ -660,7 +660,7 @@
     },
     {
       "name": "attention note",
-      "definition": "A report Glimmervoid itself raises on a session (Coherence hooks, verdict, spec or error, a kept child worktree, the child wake limit), one slot per origin, shown as a card chip and a quiet notification that never moves the session to waiting; cleared by the operator's next prompt or a dismiss"
+      "definition": "A report Glimmervoid itself raises on a session (a kept child worktree, the child or self wake limit, a failed wake), one slot per origin, shown as a card chip and a quiet notification that never moves the session to waiting; cleared by the operator's next prompt or a dismiss"
     },
     {
       "name": "session name",
@@ -971,7 +971,7 @@
     },
     {
       "name": "layer",
-      "definition": "A tier that sits on top of another, such as Coherence as an optional layer over every agent glimmervoid runs, a board's stacking order, or a mark layer in a design"
+      "definition": "A tier that sits on top of another, such as a board's stacking order, or a mark layer in a design"
     },
     {
       "name": "enter",
@@ -1242,7 +1242,7 @@
     },
     {
       "name": "boundary",
-      "definition": "A line that code or trust may not cross: the trust boundary of the dashboard listeners, a lane's write boundary, or the Coherence and watcher import boundaries"
+      "definition": "A line that code or trust may not cross: the trust boundary of the dashboard listeners, a lane's write boundary, or the watcher import boundary"
     },
     {
       "name": "commit",

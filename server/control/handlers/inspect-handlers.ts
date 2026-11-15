@@ -8,7 +8,7 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 
 function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const { findSession } = context;
-  const { readTracePage = null, sessionDocs = null, coherenceFeed = null } = deps;
+  const { readTracePage = null, sessionDocs = null } = deps;
 
   const handlers = {
     'debug-state': (msg: ClientMessageOf<'debug-state'>, ws: ControlSocket) => {
@@ -49,14 +49,6 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Read failed: ${errorMessage(error)}` }));
       }
     },
-    'session-coherence-journal': async (message: ClientMessageOf<'session-coherence-journal'>, ws: ControlSocket) => {
-      const reply = { type: 'session-coherence-journal-response', requestId: message.requestId ?? null, id: message.id };
-      const session = findSession(message);
-      if (!coherenceFeed || !session) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: 'Session not found' }));
-      const journal = await coherenceFeed.readJournal(session);
-      if (!journal.ok) return ws.send(JSON.stringify({ ...reply, ok: false, entries: [], error: journal.error }));
-      ws.send(JSON.stringify({ ...reply, ok: true, entries: journal.entries }));
-    },
     'session-doc-save': async (message: ClientMessageOf<'session-doc-save'>, ws: ControlSocket) => {
       const reply = { type: 'session-doc-save-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
       const session = findSession(message);
@@ -73,7 +65,6 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
     'session-doc-read': (msg, requestId, message) => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-asset-read': (msg, requestId, message) => ({ type: 'session-doc-asset-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', src: typeof msg?.src === 'string' ? msg.src : '', ok: false, error: message }),
     'session-doc-save': (msg, requestId, message) => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
-    'session-coherence-journal': (msg, requestId, message) => ({ type: 'session-coherence-journal-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, entries: [], error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: ['debug-state', 'session-trace'] };
