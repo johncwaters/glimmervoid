@@ -1,5 +1,6 @@
 ---
 import { BRAND_ACCENT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../shared/brand-mark.ts';
+import { siteNavLinks } from '../lib/site-nav.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 const home = sitePath('');
@@ -7,6 +8,7 @@ const home = sitePath('');
 <nav class="top" aria-label="Site">
   <a class="wordmark" href={home}><svg class="wordmark-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>GLIMMERVOID</a>
   <ul>
+    {siteNavLinks(home).map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
     <li><a class="nav-install" href={`${home}#install`}>Install</a></li>
   </ul>
 </nav>
@@ -20,4 +22,5 @@ const home = sitePath('');
   nav.top ul a:hover { color: var(--text-head); }
   nav.top ul a.nav-install { border: 1px solid var(--accent-dim); color: var(--accent); }
   nav.top ul a.nav-install:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  @media (max-width: 820px) { nav.top ul li:not(:last-child) { display: none; } }
 </style>

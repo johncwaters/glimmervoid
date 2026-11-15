@@ -13,8 +13,11 @@ import Install from '../components/Install.astro';
 import UsedBy from '../components/UsedBy.astro';
 import NextHero from '../components/next/NextHero.astro';
 import NextPacks from '../components/next/NextPacks.astro';
+import Reviews from '../components/Reviews.astro';
+import { HOME_TITLE, homeStructuredData } from '../lib/home-structured-data.ts';
+import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
 ---
-<Base title="Glimmervoid: one needs you" unlisted>
+<Base title={HOME_TITLE} description={HOME_DESCRIPTION} structuredData={homeStructuredData(Astro.site)} markdownPath="index.md" unlisted>
   <div class="next-page">
     <NextHero />
     <UsedBy />
@@ -23,9 +26,10 @@ import NextPacks from '../components/next/NextPacks.astro';
     <Status />
     <Arena />
     <SaneYolo />
+    <Reviews />
     <Celebrations />
     <AsTheyAre />
-    <Features extraFeatures={[{ name: 'Automated PR reviews', line: 'Team PRs arrive with a drafted review. Yours merge themselves.' }]} />
+    <Features />
     <Install commandLine="One command." />
     <Faq />
     <Footer />
@@ -36,10 +40,15 @@ import NextPacks from '../components/next/NextPacks.astro';
   .next-page section { padding-block: 128px; border-top: 0; }
   .next-page #status .all-clear-hint, .next-page #status .queue-row, .next-page #status .agent-row-label:has(+ .is-also), .next-page #status .agent-chips.is-also { display: none; }
   .next-page .section-head { margin-bottom: 64px; }
+  .next-page .attention-board { max-width: none; }
+  .next-page .celebration-demo { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .next-page .celebration-demo .queue-row { padding-top: 0; border-top: 0; }
   @media (min-width: 1180px) {
     .next-page section:has(> .section-head) { display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }
     .next-page section > .section-head { grid-column: 1; grid-row: 1 / span 12; position: sticky; top: 48px; margin-bottom: 0; }
     .next-page section:has(> .section-head) > :not(.section-head) { grid-column: 2; }
+    .next-page #sane-yolo .yolo { grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; }
+    .next-page #sane-yolo .ledger-details { margin-left: 404px; }
   }
   @media (max-width: 1179px) {
     .next-page section > .section-head { display: contents; }

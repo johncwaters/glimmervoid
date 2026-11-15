@@ -20,11 +20,11 @@ const themeRules = shownThemes.map(({ id, palette }) => {
 const BUILT_IN_TABS = ['Focus', 'Reviews', 'Arena', 'Packs'];
 const themeChoices = shownThemes.map(({ id, palette, fromPack }) => ({ id, label: shortLabelOf(palette.label), background: palette.chrome.bg, accent: palette.chrome.accent, fromPack }));
 const [firstTheme] = themeChoices;
-const PACK_TABS = ['PR table', 'PR radar'];
+const PACK_TABS = ['PR table', 'Review radar'];
 const LAUNCHED_SESSIONS = [
   { name: 'standup-12', stateToken: 'running', log: 'reading 14 merged PRs' },
-  { name: 'standup-11', stateToken: 'complete', log: 'posted to #standup' },
-  { name: 'standup-10', stateToken: 'complete', log: 'posted to #standup' },
+  { name: 'standup-11', stateToken: 'complete', log: 'notes ready' },
+  { name: 'standup-10', stateToken: 'complete', log: 'notes ready' },
 ];
 const REVIEW_ROWS = [
   { repo: 'web', number: '#412', title: 'Fix login redirect', stateToken: 'running', status: 'Approved' },
@@ -41,7 +41,7 @@ const MERGED_ROWS = [
 ---
 <section id="packs">
   <div class="section-head reveal">
-    <h2>Your agent changes Glimmervoid however you want with packs.</h2>
+    <h2>Your agent changes Glimmervoid with packs.</h2>
     <p>Ask for a new theme or a tab of your pull requests. Your agent builds it and shows you a preview on its board. Nothing changes until you approve it.</p>
   </div>
   <figure class="packs-demo reveal" id="packs-demo" data-theme={firstTheme.id} aria-label="A Glimmervoid dashboard with three pack panels: a pull request table playing Game of Life and rain behind its rows, a radar sweeping over the pull requests waiting on you, and a scheduled launch button counting down and starting sessions that stream their progress. The theme buttons below it restyle all of it.">
@@ -74,6 +74,7 @@ const MERGED_ROWS = [
           </div>
         </div>
         <div class="pack-panel is-radar">
+          <span class="panel-name">Review radar</span>
           <canvas class="radar-scope" data-ambient="radar"></canvas>
           <span class="radar-summary">8 reviews waiting on you</span>
         </div>
@@ -139,7 +140,7 @@ const MERGED_ROWS = [
     }
   }
   const LAUNCH_EVERY_SECONDS = 5;
-  const SESSION_LOG_LINES = ['starting claude', 'reading 14 merged PRs', 'summarizing #412 and #408', 'drafting the notes', 'posted to #standup'];
+  const SESSION_LOG_LINES = ['starting claude', 'reading 14 merged PRs', 'summarizing #412 and #408', 'drafting the notes', 'notes ready'];
   const launcher = document.getElementById('packs-launcher');
   const countdown = launcher?.querySelector<HTMLElement>('[data-countdown]');
   const launchedList = launcher?.querySelector<HTMLElement>('[data-launched]');

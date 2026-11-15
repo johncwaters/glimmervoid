@@ -1,6 +1,4 @@
 ---
-interface Props { extraFeatures?: { name: string; line: string }[]; }
-const { extraFeatures = [] } = Astro.props;
 const USAGE_SHARES_BY_SESSION = [0.92, 0.64, 0.41, 0.23];
 const TRACE_STEP_LENGTHS = [0.7, 0.45, 0.85, 0.55, 0.3, 0.65];
 const HELPER_SESSION_COUNT = 3;
@@ -11,11 +9,11 @@ const RADAR_BLIPS = [
   { angleDeg: 312, distance: 0.48 },
 ];
 const FEATURES = [
-  { area: 'notify', name: 'Notifications', line: 'Browser or Telegram' },
-  { area: 'vault', name: 'Vault', line: 'You approve every secret an agent reads' },
+  { area: 'notify', name: 'Notifications', line: 'Browser or Telegram', visual: 'toast' },
+  { area: 'vault', name: 'Vault', line: 'You approve every secret an agent reads', visual: 'secret' },
   { area: 'spawn', name: 'glimmervoid spawn', line: 'Agents start their own helpers', visual: 'helpers' },
   { area: 'radar', name: 'Radar', line: 'PostHog errors to PRs, opt-in', visual: 'radar' },
-  { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session' },
+  { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session', visual: 'file' },
   { area: 'resume', name: 'Auto-resume', line: 'Survives restarts mid-turn', visual: 'resume' },
   { area: 'worktrees', name: 'Worktrees', line: 'One worktree each. One-click merge.', visual: 'branch' },
 ];
@@ -43,6 +41,15 @@ const FEATURES = [
       <li class="tile" style={`grid-area: ${area}`}>
         <span class="feature-name">{name}</span>
         <span class="feature-line">{line}</span>
+        {visual === 'toast' && (
+          <span class="tile-visual notify-toast" aria-hidden="true"><span class="toast-dot"></span><span class="toast-text">billing needs you</span></span>
+        )}
+        {visual === 'secret' && (
+          <span class="tile-visual vault-secret" aria-hidden="true"><code>STRIPE_KEY</code><span class="vault-grant">approved</span></span>
+        )}
+        {visual === 'file' && (
+          <span class="tile-visual upload-drop" aria-hidden="true"><span class="upload-file">screenshot.png</span></span>
+        )}
         {visual === 'helpers' && (
           <span class="tile-visual helper-sessions" aria-hidden="true">
             <span class="helper-dot is-parent"></span>
@@ -61,19 +68,13 @@ const FEATURES = [
           <span class="tile-visual turn-resume" aria-hidden="true"><span class="turn-fill"></span><span class="turn-restart"></span></span>
         )}
         {visual === 'branch' && (
-          <svg class="tile-visual branch-merge" viewBox="0 0 120 44" aria-hidden="true">
-            <path class="branch-main" d="M4 34 H116" />
-            <path class="branch-fork" pathLength="1" d="M20 34 C 34 34, 34 10, 48 10 H72 C 86 10, 86 34, 100 34" />
-            <circle class="branch-commit" cx="60" cy="10" r="3.5" />
-            <circle class="branch-merge-dot" cx="100" cy="34" r="4.5" />
+          <svg class="tile-visual branch-merge" viewBox="0 0 360 44" aria-hidden="true">
+            <path class="branch-main" d="M4 34 H356" />
+            <path class="branch-fork" pathLength="1" d="M60 34 C 102 34, 102 10, 144 10 H216 C 258 10, 258 34, 300 34" />
+            <circle class="branch-commit" cx="180" cy="10" r="3.5" />
+            <circle class="branch-merge-dot" cx="300" cy="34" r="4.5" />
           </svg>
         )}
-      </li>
-    ))}
-    {extraFeatures.map(({ name, line }) => (
-      <li class="tile is-wide">
-        <span class="feature-name">{name}</span>
-        <span class="feature-line">{line}</span>
       </li>
     ))}
   </ul>
@@ -84,22 +85,28 @@ const FEATURES = [
     list-style: none; margin: 0; padding: 0; display: grid; gap: 10px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     grid-template-areas:
-      "usage usage trace notify"
-      "usage usage trace vault"
-      "spawn spawn upload radar"
-      "resume resume worktrees worktrees";
+      "usage usage trace trace"
+      "notify vault spawn radar"
+      "upload resume worktrees worktrees";
   }
-  .tile.is-wide { grid-column: 1 / -1; }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
   .is-feature .feature-name { font-size: var(--type-doc-h2); }
   .feature-line { color: var(--text-dim); font-size: var(--type-meta); }
   .tile-visual { margin-top: auto; padding-top: 18px; }
   .usage-bars { padding-top: 24px; display: flex; flex-direction: column; gap: 10px; }
-  .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 999px; background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 35%, transparent)); }
+  .usage-bar { display: block; height: 14px; width: calc(var(--share) * 100%); border-radius: 999px; background: var(--accent); opacity: calc(0.35 + var(--share) * 0.65); }
   .trace-steps { padding-top: 24px; display: flex; flex-direction: column; gap: 12px; border-left: 1px solid var(--border); margin-left: 4px; padding-left: 14px; }
   .trace-step { position: relative; display: block; height: 8px; width: calc(var(--length) * 100%); border-radius: 4px; background: var(--border); }
   .trace-step::before { content: ''; position: absolute; left: -19px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--state-complete); }
+  .notify-toast { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-surface); color: var(--text-head); font-size: var(--type-meta); }
+  .toast-text { min-width: 0; }
+  .toast-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--state-waiting); }
+  .vault-secret { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--type-meta); }
+  .vault-secret code { padding: 3px 8px; border-radius: 4px; background: var(--bg-surface); color: var(--text-head); }
+  .vault-grant { color: var(--state-complete); font-weight: 700; }
+  .upload-drop { display: flex; justify-content: center; padding: 14px 10px; margin-top: 18px; border: 1px dashed var(--border-hover); border-radius: 6px; }
+  .upload-file { padding: 3px 8px; border-radius: 4px; background: color-mix(in oklab, var(--accent) 14%, var(--bg-surface)); color: var(--accent); font-size: var(--type-meta); }
   .helper-sessions { display: flex; align-items: center; gap: 10px; }
   .helper-dot { display: block; width: 12px; height: 12px; border-radius: 50%; background: var(--state-running); opacity: 0.55; }
   .helper-dot.is-parent { width: 16px; height: 16px; opacity: 1; margin-right: 14px; box-shadow: 18px 0 0 -7px var(--border); }
@@ -123,7 +130,7 @@ const FEATURES = [
     12% { opacity: 1; scale: 1; }
     100% { opacity: 0.15; scale: 1; }
   }
-  .branch-merge { display: block; width: 100%; max-width: 180px; height: auto; overflow: visible; }
+  .branch-merge { display: block; width: 100%; height: auto; overflow: visible; }
   .branch-main { fill: none; stroke: var(--border-hover); stroke-width: 2; }
   .branch-fork { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 1; }
   .branch-commit { fill: var(--accent); }
