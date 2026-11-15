@@ -33,7 +33,7 @@ A violet-tinted graphite dark palette, one vivid violet accent, and a strict, co
 - **Card Graphite** (`--bg-card`): Card and panel fills, the terminal pane background, one step up from the canvas.
 - **Header Graphite** (`--bg-header`): The sticky header bar.
 - **Inset Graphite** (`--bg-surface`): Inset surfaces, inputs, the next tonal step up.
-- **Rule** (`--border`) / **Dim Rule** (`--border-dim`) / **Lifted Rule** (`--border-hover`): The three-step border ramp. Dim for quiet internal dividers, base for component edges, lifted for hover and elevated surfaces (menus, tooltips, dialogs).
+- **Rule** (`--border`) / **Dim Rule** (`--border-dim`) / **Lifted Rule** (`--border-hover`): The three-step border ramp. Dim for quiet internal dividers, base for component edges, lifted for hover and elevated surfaces (menus, dialogs).
 - **Paper** (`--text-head`): Headings and emphasized text.
 - **Pewter** (`--text`): Default body text.
 - **Ash** (`--text-dim`): Secondary text, descriptions (meets WCAG AA on bg, card, and surface).
@@ -93,12 +93,12 @@ Each role names a `--type-*` size token in `public/style.css`, and Tailwind expo
 
 Flat by default. Surfaces sit on the canvas and are separated by tonal layering (canvas to card to inset surface) plus 1px borders, not by resting shadows. Cards and panels carry no shadow at rest; hover shifts the border color, not the elevation.
 
-Shadows exist for one job: lifting true overlays (dialogs, menus, tooltips) off the plane. Their color is brand-tinted, never neutral grey: the shadow base is a violet-tinted near-black. State never glows; it reads through the surface itself, because a blurred halo spends emphasis on empty space around the thing that changed.
+Shadows exist for one job: lifting true overlays (dialogs, menus) off the plane. Their color is brand-tinted, never neutral grey: the shadow base is a violet-tinted near-black. State never glows; it reads through the surface itself, because a blurred halo spends emphasis on empty space around the thing that changed.
 
 ### Shadow Vocabulary
 - **shadow-sm** (`0 2px 8px` violet-tinted): subtle lift, small popovers.
 - **shadow-md** (`0 4px 12px` violet-tinted): raised controls.
-- **shadow-lg** (`0 8px 24px` violet-tinted): menus, tooltips, status popovers.
+- **shadow-lg** (`0 8px 24px` violet-tinted): menus, status popovers.
 - **shadow-xl** (`0 8px 24px` denser violet-tinted): modal dialogs.
 - **State emphasis** (no blur): a tonal fill mixed from the state color, a border stepped up in tint or weight (a solid inset ring adds weight without shifting layout), and one motion on entry that settles and stops. WAITING takes all three; FAILED and COMPLETE take only the border tint.
 

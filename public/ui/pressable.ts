@@ -5,3 +5,8 @@ export function createPressable(className: string, text?: string): HTMLButtonEle
   if (text !== undefined) pressable.textContent = text;
   return pressable;
 }
+
+export function labelIconPressable(pressable: HTMLButtonElement, name: string, shortcutKey?: string): void {
+  pressable.setAttribute('aria-label', name);
+  pressable.title = shortcutKey ? `${name} (${shortcutKey})` : name;
+}

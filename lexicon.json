@@ -1435,6 +1435,14 @@
     {
       "name": "task",
       "definition": "The work a session or an Arena race contestant is given, from its prompt; in Arena, New race's Task group holds the title, repository, review case and prompt; the task title is the separate short line naming what a session is currently doing"
+    },
+    {
+      "name": "fit",
+      "definition": "The board view control (Fit) that zooms and pans so every element on the board is in view, clear of the session island"
+    },
+    {
+      "name": "redo",
+      "definition": "The board view control (Redo) that reapplies the last board edit Undo took back"
     }
   ],
   "retired": [

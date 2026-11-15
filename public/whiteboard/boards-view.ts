@@ -12,7 +12,7 @@ import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { button, menuButton } from '../ui/button.ts';
-import { createPressable } from '../ui/pressable.ts';
+import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
@@ -1245,14 +1245,16 @@ function createBoardFromDialog(onCreated: (boardId: string) => void): void {
   });
 }
 
-function iconButton(label: string, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
-  return button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
+function iconButton(label: string, shortcutKey: string, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
+  const iconOnlyButton = button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
+  labelIconPressable(iconOnlyButton, label, shortcutKey);
+  return iconOnlyButton;
 }
 
 function toolButton(tool: BoardTool): HTMLButtonElement {
   const { label, key, iconPath } = TOOL_DETAILS[tool];
   const toolOption = createPressable('wb-tool');
-  toolOption.setAttribute('aria-label', label);
+  labelIconPressable(toolOption, label, key);
   const keyHint = el('span', 'wb-tool-key', key);
   keyHint.setAttribute('aria-hidden', 'true');
   toolOption.append(createLineIcon(iconPath, '1.5'), keyHint);
@@ -1267,7 +1269,7 @@ function toolButton(tool: BoardTool): HTMLButtonElement {
 
 function toolLockButton(): HTMLButtonElement {
   const lockToggle = createPressable('wb-tool wb-tool-lock');
-  lockToggle.setAttribute('aria-label', 'Keep tool selected');
+  labelIconPressable(lockToggle, 'Keep tool selected', 'Q');
   const keyHint = el('span', 'wb-tool-key', 'Q');
   keyHint.setAttribute('aria-hidden', 'true');
   lockToggle.append(createLineIcon(TOOL_LOCK_ICON_PATH, '1.5'), keyHint);
@@ -1417,9 +1419,9 @@ export function mountBoardHost(): HTMLElement {
   const lockButton = toolLockButton();
   toolGroup.append(lockButton, ...toolButtons.values());
   const buttons = {
-    fit: iconButton('Fit', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
-    undo: iconButton('Undo', UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
-    redo: iconButton('Redo', REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
+    fit: iconButton('Fit', 'Shift+1', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
+    undo: iconButton('Undo', commandChord('Z'), UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
+    redo: iconButton('Redo', commandChord('Shift+Z'), REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };
   buttons.fit.dataset.phoneVisible = '';
   const toolsIsland = island('wb-island-tools', 'Board tools', toolGroup);

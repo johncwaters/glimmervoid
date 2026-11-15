@@ -2043,7 +2043,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await renameOpenBoard(page, panel, renamedTitle, 'discarded title', 'Escape');
     await renameOpenBoard(page, panel, renamedTitle, boardTitle, 'Enter');
     const boxTool = drawingTool(panel, 'Box');
-    assert.equal(await boxTool.getAttribute('title'), null, 'a board tool has no native tooltip');
+    assert.equal(await boxTool.getAttribute('title'), 'Box (R)', 'a board tool names itself and its key on hover');
     await boxTool.click();
     assert.equal(await boxTool.getAttribute('aria-pressed'), 'true');
     const toolHint = panel.locator('.wb-tool-hint');
@@ -2539,6 +2539,9 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
   assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the board title bar carries no board tools');
   assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
+  const hoverNames = await boardPane.locator('.wb-top-left .wb-island-tools button, .wb-top-left .wb-island-view button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('title')));
+  assert.ok(hoverNames.length > 0 && hoverNames.every((name) => typeof name === 'string' && name.length > 0), `every board bar button carries a native hover name, got ${hoverNames.join(' | ')}`);
+  assert.equal(await boardPane.getByRole('button', { name: 'Ellipse', exact: true }).getAttribute('title'), 'Ellipse (O)', 'a tool names its key in its hover name');
 }
 
 const SCALE_BOARD_ELEMENTS = 20000;

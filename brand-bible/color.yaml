@@ -63,7 +63,7 @@ tokens:
     value: "#4b435a"
     role: border
     name: Lifted Rule
-    use: "Hover and elevated surfaces: menus, tooltips, dialogs."
+    use: "Hover and elevated surfaces: menus, dialogs."
   text:
     value: "#cfcbd9"
     role: text

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Board toolbar buttons name themselves on hover.** Resting the pointer on a tool, the lock, Fit, Undo or Redo shows its name and its key, such as Ellipse (O) or Undo (Ctrl+Z).
 - **Spreadsheets on the board.** An agent can put a CSV or TSV file on a board with `glimmervoid whiteboard attach`, or link it with the show tool so the card follows the file in its worktree. `whiteboard doc` reads the sheet back to the agent exactly as it is on disk. A sheet up to 256 KiB is taken; a linked file that grows past that shows why on its card. The card shows the opening rows as a table; clicking it opens the whole sheet in a grid where cells can be edited, sorted and filtered, and Save writes the edits back to the linked file, leaving every untouched row byte for byte as it was. A save is refused when the file changed underneath. Board files now export as version 3, which keeps a CSV and a Markdown card with the same bytes apart; this version still opens version 1 and 2 files.
 - **Excel workbooks on the board.** An XLSX file up to 2 MB goes on a board the same way, attached or linked to its file. The card shows the first sheet, and opening it gives a tab per sheet. A workbook is read-only on a board, and `whiteboard doc` reads each sheet to the agent as CSV under its name.
 
