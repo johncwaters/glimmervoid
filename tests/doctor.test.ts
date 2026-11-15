@@ -21,6 +21,7 @@ test('doctor reports every builtin agent and a loading node-pty', () => {
     assert.match(stdout, /grok \(Grok Build\)/);
     assert.match(stdout, /kimi \(Kimi Code\)/);
     assert.match(stdout, /kimi home\s+ready: .*agent-homes.kimi \(real /);
+    assert.match(stdout, /glimmervoid-relay\s+not used: relays run through node/);
     assert.match(stdout, /Sane YOLO/);
     const pinnedSafetyNetVersion = String(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).dependencies['cc-safety-net']);
     assert.match(stdout, new RegExp(`cc-safety-net version\\s+${pinnedSafetyNetVersion.replaceAll('.', '\\.')}\\s`));

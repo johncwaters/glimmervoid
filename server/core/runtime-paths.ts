@@ -59,6 +59,15 @@ function relayExecutableBeside(launcherPath: string): string {
   return path.join(path.dirname(launcherPath), `${SHIPPED_RELAY_NAME}${launcherExtension}`);
 }
 
+type RelayExecutableFacts = { relayPath: string; relayRealPath: string | null; executableRealPath: string };
+
+function relayExecutableProblemOf({ relayPath, relayRealPath, executableRealPath }: RelayExecutableFacts): string | null {
+  const executableDirectory = path.dirname(executableRealPath);
+  if (relayRealPath === null) return `${SHIPPED_RELAY_NAME} is missing at ${relayPath}; reinstall Glimmervoid so it sits beside glimmervoid`;
+  if (path.dirname(relayRealPath) === executableDirectory) return null;
+  return `${relayPath} resolves to ${relayRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this`;
+}
+
 const ENTRY_EXTENSION_BY_MODE: Record<RuntimeMode, string> = { source: '.ts', bundled: '.js', binary: '.mjs' };
 
 function decideRuntimeMode(isBundled: boolean, isBinary: boolean): RuntimeMode {
@@ -100,5 +109,5 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   };
 }
 
-export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside };
+export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf };
 export type { SelfEntry };

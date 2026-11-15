@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import test from 'node:test';
 
-import { computeRuntimePaths } from '../server/core/runtime-paths.ts';
+import { computeRuntimePaths, relayExecutableProblemOf } from '../server/core/runtime-paths.ts';
 
 const PACKAGE_ROOT = path.join(path.sep, 'opt', 'glimmervoid');
 
@@ -62,6 +62,16 @@ test('a binary runs relays through the glimmervoid-relay beside its launcher, wh
   const windowsInstallDir = path.join(path.sep, 'Program Files', 'Glimmervoid');
   assert.deepEqual(binaryPaths.selfLaunch('statusline-relay', path.join(windowsInstallDir, 'glimmervoid.EXE')), [path.join(windowsInstallDir, 'glimmervoid-relay.exe'), '__run', 'statusline-relay']);
   assert.deepEqual(bundledPaths.selfLaunch('hook-relay', '/usr/bin/node'), ['/usr/bin/node', path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js')]);
+});
+
+test('a binary accepts only a glimmervoid-relay that resolves beside the running executable', () => {
+  const installDir = path.join(path.sep, 'home', 'operator', '.glimmervoid', 'bin');
+  const relayPath = path.join(installDir, 'glimmervoid-relay');
+  const executableRealPath = path.join(installDir, 'glimmervoid');
+
+  assert.equal(relayExecutableProblemOf({ relayPath, relayRealPath: relayPath, executableRealPath }), null);
+  assert.match(relayExecutableProblemOf({ relayPath, relayRealPath: null, executableRealPath }) ?? '', /glimmervoid-relay is missing at .*glimmervoid-relay/);
+  assert.match(relayExecutableProblemOf({ relayPath, relayRealPath: path.join(path.sep, 'opt', 'old', 'glimmervoid-relay'), executableRealPath }) ?? '', /outside .*\.glimmervoid.bin where the running glimmervoid lives/);
 });
 
 test('a binary runs the glimmervoid-fnox shipped beside it, while a checkout runs the pinned fnox it fetched', () => {

@@ -344,6 +344,11 @@ async function runDoctor(): Promise<boolean> {
     line('agents', `probe failed: ${firstLine(errorText(err))}`);
   }
 
+  switchSection('Relay');
+  const { relayExecutablePath, relayExecutableProblem } = await import('../server/runtime-paths.ts');
+  const relayPath = relayExecutablePath();
+  line('glimmervoid-relay', relayPath === null ? 'not used: relays run through node' : relayExecutableProblem() ?? `ready: ${relayPath}`);
+
   switchSection('Sane YOLO');
   try {
     const { resolvePackageBin, scriptLaunch } = await import('../server/runtime-paths.ts');

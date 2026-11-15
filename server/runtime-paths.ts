@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside } from './core/runtime-paths.ts';
+import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
 import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
@@ -65,6 +65,29 @@ function selfRelaunch(runningArgv: readonly string[]): string[] {
 function scriptLaunch(scriptPath: string, runEntry: string, launcherPath = hookLauncherPath()): string[] {
   if (mode === 'binary') return [relayExecutableBeside(launcherPath), BINARY_RUN_SUBCOMMAND, runEntry];
   return [launcherPath, scriptPath];
+}
+
+function realPathOrNull(filePath: string): string | null {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function relayExecutablePath(): string | null {
+  return mode === 'binary' ? relayExecutableBeside(hookLauncherPath()) : null;
+}
+
+function relayExecutableProblem(): string | null {
+  const relayPath = relayExecutablePath();
+  if (relayPath === null) return null;
+  return relayExecutableProblemOf({ relayPath, relayRealPath: realPathOrNull(relayPath), executableRealPath: realPathOrNull(process.execPath) ?? process.execPath });
+}
+
+function requireRelayExecutable(): void {
+  const problem = relayExecutableProblem();
+  if (problem) throw new Error(problem);
 }
 
 function refuseUnstableSelfLaunches(): void {
@@ -181,4 +204,4 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

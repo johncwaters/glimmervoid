@@ -24,6 +24,7 @@ import { EventEmitter } from "node:events";
 import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
+import { requireRelayExecutable } from "../server/runtime-paths.ts";
 import { probeGraphicalSession } from "./graphical-session-probe.ts";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { prepareAccountHome } from "./agent-home.ts";
@@ -639,6 +640,7 @@ class Session extends EventEmitter {
     this._agentSpawnsInFlight = 0;
     this._ptySpawn = ptySpawn || ((file, args, opts) => {
       requireExecutableSpawnHelper();
+      requireRelayExecutable();
       assertLaunchable(file);
       return pty.spawn(file, args, opts);
     });
