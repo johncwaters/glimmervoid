@@ -4,6 +4,7 @@ export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const HEARTBEAT_DEADLINE_MS = 3_000;
 export const HANDSHAKE_DEADLINE_MS = 2_000;
 export const SUSPENSION_GAP_MS = 5_000;
+export const WAKE_CHECK_INTERVAL_MS = 1_000;
 
 export type ConnectionEvent =
   | { kind: 'shown'; hiddenForMs: number }
@@ -16,7 +17,11 @@ export type ConnectionEvent =
   | { kind: 'pong-missed' }
   | { kind: 'handshake-overdue' }
   | { kind: 'control-opened' }
-  | { kind: 'control-closed' };
+  | { kind: 'control-closed' }
+  | { kind: 'tenant-wake-status'; status: TenantWakeStatus }
+  | { kind: 'wake-check-due' };
+
+export type TenantWakeStatus = 'waking' | 'awake' | 'unknown';
 
 export type ConnectionAction =
   | { kind: 'probe-control'; deadlineMs: number; isAnnounced: boolean }
@@ -26,13 +31,18 @@ export type ConnectionAction =
   | { kind: 'hold-input' }
   | { kind: 'release-input' }
   | { kind: 'schedule-heartbeat'; inMs: number }
-  | { kind: 'cancel-heartbeat' };
+  | { kind: 'cancel-heartbeat' }
+  | { kind: 'check-tenant-wake' }
+  | { kind: 'schedule-wake-check'; inMs: number }
+  | { kind: 'show-tenant-waking'; isWaking: boolean };
 
 export interface SupervisorState {
   isVisible: boolean;
   isFrozen: boolean;
   isProbing: boolean;
   isReplacing: boolean;
+  isCheckingWake: boolean;
+  isTenantWaking: boolean;
 }
 
 interface Decision {
@@ -58,7 +68,50 @@ function heartbeatWhileVisible(state: SupervisorState): ConnectionAction[] {
   return state.isVisible ? [{ kind: 'schedule-heartbeat', inMs: HEARTBEAT_INTERVAL_MS }] : [];
 }
 
+function checkWake(state: SupervisorState, alsoDo: ConnectionAction[] = []): Decision {
+  if (state.isCheckingWake) return { state, actions: alsoDo };
+  return { state: { ...state, isCheckingWake: true }, actions: [...alsoDo, { kind: 'check-tenant-wake' }] };
+}
+
+const NEXT_WAKE_CHECK: ConnectionAction = { kind: 'schedule-wake-check', inMs: WAKE_CHECK_INTERVAL_MS };
+
+function decideTenantWakeStatus(state: SupervisorState, status: TenantWakeStatus): Decision {
+  const checkedState = { ...state, isCheckingWake: false };
+  if (status === 'waking' && state.isTenantWaking) return { state: checkedState, actions: [NEXT_WAKE_CHECK] };
+  if (status === 'waking') {
+    return {
+      state: { ...checkedState, isTenantWaking: true, isProbing: false, isReplacing: false },
+      actions: [{ kind: 'show-tenant-waking', isWaking: true }, { kind: 'cancel-heartbeat' }, { kind: 'close-sockets' }, NEXT_WAKE_CHECK],
+    };
+  }
+  const shownAwake: ConnectionAction = { kind: 'show-tenant-waking', isWaking: false };
+  if (!state.isTenantWaking) return { state: checkedState, actions: [shownAwake] };
+  const replaced = replaceEverything({ ...checkedState, isTenantWaking: false });
+  if (status === 'awake') return replaced;
+  return { state: replaced.state, actions: [shownAwake, ...replaced.actions] };
+}
+
+function decideWhileTenantWaking(state: SupervisorState, event: ConnectionEvent): Decision | null {
+  switch (event.kind) {
+    case 'shown':
+      return checkWake({ ...state, isVisible: true });
+    case 'resumed':
+      return checkWake({ ...state, isFrozen: false });
+    case 'network-changed':
+    case 'wake-check-due':
+      return checkWake(state);
+    case 'heartbeat-due':
+      return { state, actions: [] };
+    case 'pong-missed':
+      return { state: { ...state, isProbing: false }, actions: [{ kind: 'release-input' }] };
+    default:
+      return null;
+  }
+}
+
 export function decideConnectionActions(state: SupervisorState, event: ConnectionEvent): Decision {
+  const wakingDecision = state.isTenantWaking ? decideWhileTenantWaking(state, event) : null;
+  if (wakingDecision !== null) return wakingDecision;
   switch (event.kind) {
     case 'shown': {
       const shownState = { ...state, isVisible: true };
@@ -91,10 +144,14 @@ export function decideConnectionActions(state: SupervisorState, event: Connectio
       return { state: replaced.state, actions: [...replaced.actions, { kind: 'release-input' }] };
     }
     case 'handshake-overdue':
-      return { state: { ...state, isReplacing: true }, actions: [{ kind: 'replace-control' }] };
+      return checkWake({ ...state, isReplacing: true }, [{ kind: 'replace-control' }]);
     case 'control-opened':
       return { state: { ...state, isReplacing: false }, actions: heartbeatWhileVisible(state) };
     case 'control-closed':
-      return { state: { ...state, isReplacing: false }, actions: [{ kind: 'cancel-heartbeat' }] };
+      return checkWake({ ...state, isReplacing: false }, [{ kind: 'cancel-heartbeat' }]);
+    case 'tenant-wake-status':
+      return decideTenantWakeStatus(state, event.status);
+    case 'wake-check-due':
+      return { state, actions: [] };
   }
 }

@@ -1,16 +1,38 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
-import type { ConnectionAction, ConnectionEvent, SupervisorState } from './connection-supervisor-core.ts';
+import type { ConnectionAction, ConnectionEvent, SupervisorState, TenantWakeStatus } from './connection-supervisor-core.ts';
 import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
 import { reportTerminalColors } from './terminal-color-report.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
 import { closeEveryTerminalUntilShown, reconnectShownTerminals } from './session-card/terminal-data-socket.ts';
 import { clock } from '#shared/clock.ts';
+import { DOORMAN_WAKE_POLL_HEADER, DoormanWakeStatus } from '#shared/contracts/doorman.ts';
 
-let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false };
+let supervisorState: SupervisorState = { isVisible: document.visibilityState === 'visible', isFrozen: false, isProbing: false, isReplacing: false, isCheckingWake: false, isTenantWaking: false };
 let hiddenSinceMs = document.visibilityState === 'visible' ? null : clock.nowMs();
 let heartbeatTimer: number | null = null;
 let handshakeTimer: number | null = null;
+let wakeCheckTimer: number | null = null;
+let tenantWakingListener: (isWaking: boolean) => void = () => {};
+
+async function readTenantWakeStatus(): Promise<TenantWakeStatus> {
+  const response = await fetch('/', { headers: { accept: 'application/json', [DOORMAN_WAKE_POLL_HEADER]: '1' }, credentials: 'same-origin', cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(HANDSHAKE_DEADLINE_MS) });
+  if (response.status === 204) return 'awake';
+  if (response.status !== 202) return 'unknown';
+  return DoormanWakeStatus.safeParse(await response.json()).success ? 'waking' : 'unknown';
+}
+
+function checkTenantWake() {
+  void readTenantWakeStatus().catch((): TenantWakeStatus => 'unknown').then((status) => dispatchConnectionEvent({ kind: 'tenant-wake-status', status }));
+}
+
+function scheduleWakeCheck(inMs: number) {
+  if (wakeCheckTimer !== null) window.clearTimeout(wakeCheckTimer);
+  wakeCheckTimer = window.setTimeout(() => {
+    wakeCheckTimer = null;
+    dispatchConnectionEvent({ kind: 'wake-check-due' });
+  }, inMs);
+}
 
 function cancelHeartbeat() {
   if (heartbeatTimer !== null) window.clearTimeout(heartbeatTimer);
@@ -61,6 +83,15 @@ function runConnectionAction(action: ConnectionAction) {
     case 'cancel-heartbeat':
       cancelHeartbeat();
       return;
+    case 'check-tenant-wake':
+      checkTenantWake();
+      return;
+    case 'schedule-wake-check':
+      scheduleWakeCheck(action.inMs);
+      return;
+    case 'show-tenant-waking':
+      tenantWakingListener(action.isWaking);
+      return;
   }
 }
 
@@ -108,6 +139,10 @@ function watchNetworkChanges() {
     noteNetworkMark('link');
     dispatchConnectionEvent({ kind: 'network-changed' });
   });
+}
+
+export function onTenantWakingChange(listener: (isWaking: boolean) => void) {
+  tenantWakingListener = listener;
 }
 
 export function superviseConnection() {

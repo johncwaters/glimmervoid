@@ -343,6 +343,14 @@ body {
   background: var(--state-waiting);
 }
 
+.header-connection[data-state="waking"] .connection-dot {
+  background: var(--accent);
+}
+
+.header-connection[data-state="waking"] {
+  color: var(--text-muted);
+}
+
 .header-connection[data-state="shutdown"] .connection-dot {
   background: var(--text-muted);
 }

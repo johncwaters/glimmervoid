@@ -3,6 +3,7 @@ import { clearHeaderError, reportHeaderError } from '../action-status.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from '../app-reveal-core.ts';
 import { refreshOpenAddSessionDialog } from '../dialogs.ts';
 import { sendControlRequest, setConnectionStateCallback } from '../control-ws.ts';
+import { onTenantWakingChange } from '../connection-supervisor.ts';
 import { queryTag } from '../dom-helpers.ts';
 import { revealFlyingAnimals } from '../flying-animals.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding/first-run-loader.ts';
@@ -66,7 +67,7 @@ function showServerGoingDown(connectionText: string, overlayText: string) {
   shutdownScreen.classList.add('active');
 }
 
-const RECOVERING_CONNECTION_STATES = new Set(['disconnected', 'connecting']);
+const RECOVERING_CONNECTION_STATES = new Set(['disconnected', 'connecting', 'waking']);
 
 function renderConnectionHeader(state: string, label: string, isReconnect: boolean) {
   connectionEl.dataset.state = state;
@@ -80,7 +81,7 @@ function showConnectionState(state: string, label: string) {
 }
 
 function showLivenessProbeState(state: string, label: string) {
-  if (connectionEl.dataset.state === 'shutdown') return;
+  if (connectionEl.dataset.state === 'shutdown' || isTenantWakingShown()) return;
   const headerState = state === 'verified' ? 'connected' : state;
   renderConnectionHeader(headerState, label, false);
 }
@@ -92,6 +93,28 @@ const SERVER_UNREACHABLE_LOADING_DETAIL = 'Server not answering. Check the Glimm
 let serverUnreachableHintTimer: number | null = null;
 let isServerUnreachableHintShown = false;
 let controlSocketState = 'disconnected';
+const TENANT_WAKING_LABEL = 'Waking your machine';
+
+function showTenantWaking() {
+  clearServerUnreachableHint();
+  renderConnectionHeader('waking', TENANT_WAKING_LABEL, false);
+  if (!appRevealed) loadingStatus.textContent = TENANT_WAKING_LABEL;
+}
+
+function isTenantWakingShown() {
+  return connectionEl.dataset.state === 'waking';
+}
+
+function noteTenantWakingChange(isWaking: boolean) {
+  if (isWaking) {
+    showTenantWaking();
+    return;
+  }
+  if (!isTenantWakingShown()) return;
+  showConnectionState('disconnected', 'Reconnecting');
+  scheduleServerUnreachableHint();
+  if (!appRevealed) showReconnectingLoadingStatus();
+}
 
 function showReconnectingLoadingStatus() {
   loadingStatus.textContent = 'Reconnecting to server...';
@@ -110,7 +133,7 @@ function showServerUnreachableHint() {
 }
 
 function scheduleServerUnreachableHint() {
-  if (serverUnreachableHintTimer !== null || isServerUnreachableHintShown) return;
+  if (serverUnreachableHintTimer !== null || isServerUnreachableHintShown || isTenantWakingShown()) return;
   if (document.visibilityState !== 'visible') return;
   serverUnreachableHintTimer = window.setTimeout(showServerUnreachableHint, SERVER_UNREACHABLE_HINT_DELAY_MS);
 }
@@ -169,9 +192,10 @@ function onConnectionStateChanged(state: string, label: string) {
     showLivenessProbeState(state, label);
     return;
   }
-  showConnectionState(state, label);
   controlSocketState = state;
   for (const viewTab of VIEW_TABS) viewTab.onConnectionChange?.(state === 'connected');
+  if (isTenantWakingShown() && state !== 'connected') return;
+  showConnectionState(state, label);
 
   if (state === 'connected') {
     onControlConnected();
@@ -188,6 +212,7 @@ function onConnectionStateChanged(state: string, label: string) {
 function mountConnectionScreen() {
   onTerminalLinkChange(revealAppWhenTerminalsLive);
   setConnectionStateCallback(onConnectionStateChanged);
+  onTenantWakingChange(noteTenantWakingChange);
   document.addEventListener('visibilitychange', restartServerUnreachableCountdownOnVisibilityChange);
 }
 

@@ -151,10 +151,14 @@ function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
 const pendingRetryTimerBySessionUi = new WeakMap<SessionUi, ReturnType<typeof setTimeout>>();
 
-function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
-  detachDataWs(sessionId, ui, term);
+function cancelPendingRetry(ui: SessionUi) {
   clearTimeout(pendingRetryTimerBySessionUi.get(ui));
   pendingRetryTimerBySessionUi.delete(ui);
+}
+
+function detachThenReconnect(sessionId: string, ui: SessionUi, term: Terminal, delayMs: number) {
+  detachDataWs(sessionId, ui, term);
+  cancelPendingRetry(ui);
   if (delayMs === 0 && pageToken()) {
     connectDataWs(sessionId, ui, term);
     return;
@@ -181,6 +185,7 @@ function reconnectIfDeferredAndShown(ui: SessionUi, sessionId: string) {
 
 function detachUntilShown(sessionId: string, ui: SessionUi, term: Terminal) {
   detachDataWs(sessionId, ui, term);
+  cancelPendingRetry(ui);
   sessionUisReconnectingWhenShown.add(ui);
 }
 
@@ -403,9 +408,9 @@ function reconnectShownTerminals() {
 
 function closeUntilShown(sessionId: string, ui: SessionUi, term: Terminal) {
   const abandonedSocket = ui.dataWs;
-  if (!abandonedSocket) return;
+  if (!abandonedSocket && !pendingRetryTimerBySessionUi.has(ui)) return;
   detachUntilShown(sessionId, ui, term);
-  abandonedSocket.close();
+  abandonedSocket?.close();
 }
 
 function closeEveryTerminalUntilShown() {

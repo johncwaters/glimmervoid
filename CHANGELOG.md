@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pull request a session opened or pushed to now drops off its session card once it merges or closes, so only the live ones stack up. Pull requests you linked by hand stay until you unlink them.
 - The Pull requests dialog on a session card now closes with Done instead of Cancel, since unlinking takes effect right away.
 
+### Fixed
+
+- **A dashboard left open while your cloud machine sleeps wakes calmly.** Coming back to a Glimmervoid Cloud tab after the machine went to sleep now shows Waking your machine in the header instead of a red Reconnecting and an error telling you to check a terminal that does not exist. The dashboard asks the cloud once a second while the machine wakes and reconnects every terminal the moment it answers, instead of waiting out its reconnect backoff.
+
 ## [0.60.0] - 2026-11-15
 
 ### Added
