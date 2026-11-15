@@ -644,16 +644,20 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind !== 'box' || element.angle === 0) {
     outlineUnturned(part, element, color, width);
     return;
   }
+  pushTurned(part, centerOfRect(element), element.angle, (turned) => outlineUnturned(turned, element, color, width));
+}
+
+function pushTurned(part: PartBuilder, pivot: Point, degrees: number, draw: (turned: PartBuilder) => void): void {
   const turned = createPart();
-  outlineUnturned(turned, element, color, width);
-  rotatePart(turned, centerOfRect(element), element.angle);
+  draw(turned);
+  rotatePart(turned, pivot, degrees);
   part.rects.push(...turned.rects);
   part.segments.push(...turned.segments);
   part.triangles.push(...turned.triangles);
@@ -720,7 +724,9 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
       continue;
     }
     if (decoration.kind === 'resize-handles') {
-      for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(part, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      pushTurned(part, centerOfRect(decoration.area), decoration.angle, (turned) => {
+        for (const { rect } of resizeHandleRectsOf(decoration.area)) pushRect(turned, rect, 2, palette.board, palette.accent, OUTLINE_WIDTH, ALWAYS);
+      });
       continue;
     }
     if (decoration.kind === 'rotate-handle') {

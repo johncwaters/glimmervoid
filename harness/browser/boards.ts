@@ -12,7 +12,7 @@ import { Board, BoardMediaUploadReply, BoardReview, WHITEBOARD_ASSET_ROUTE, WHIT
 import type { Element, Op } from '../../shared/contracts/whiteboard.ts';
 import { benchmarkBoard } from '../board-layout-cost.ts';
 import { layoutBoard } from '../../shared/whiteboard-layout-core.ts';
-import { pointsOfPath, wireHandlesOf } from '../../shared/whiteboard-route-core.ts';
+import { pointsOfPath, rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '../../shared/whiteboard-route-core.ts';
 import type { WireHandle } from '../../shared/whiteboard-route-core.ts';
 import { BODY_LINE_HEIGHT, TITLE_BASELINE, TITLE_LINE_HEIGHT } from '../../shared/whiteboard-svg-core.ts';
 
@@ -744,8 +744,53 @@ async function verifyRotation(open: OpenBoard, anchorBoxId: string): Promise<voi
   await elementWhere(open, 'typing in the Angle field sets the rotation', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 30);
   const turned = await laidOutOf(open, 'turn-box');
   assert.ok(turned.kind === 'box' && turned.angle === 30, 'the laid out box carries the typed angle');
+  await verifyTurnedResize(open, 'turn-box');
+  await verifyResizeAroundTurnedBox(open, 'turn-box');
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'turn-box' }] });
   await boardWithout(open, 'the rotated box is gone', (element) => element.id === 'turn-box');
+}
+
+async function verifyTurnedResize(open: OpenBoard, boxId: string): Promise<void> {
+  const before = await laidOutOf(open, boxId);
+  assert.ok(before.kind === 'box' && before.angle !== 0, `${boxId} is turned`);
+  const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+  const eastHandle = rotatedAbout({ x: before.x + before.width, y: before.y + before.height / 2 }, centerOf(before), before.angle);
+  const westAnchor = rotatedAbout({ x: before.x, y: before.y + before.height / 2 }, centerOf(before), before.angle);
+  const pull = rotatedAbout({ x: 80, y: 0 }, { x: 0, y: 0 }, before.angle);
+  const from = await screenPointOf(open, eastHandle);
+  const to = await screenPointOf(open, { x: eastHandle.x + pull.x, y: eastHandle.y + pull.y });
+  await dragOnScreen(open, from, to);
+  const resized = await elementWhere(open, 'dragging the east handle of a turned box widens it along its own axis', (element) => element.id === boxId && element.kind === 'box' && typeof element.width === 'number' && element.width > before.width + 60);
+  assert.ok(resized.kind === 'box' && resized.angle === before.angle, 'a resize keeps the turn');
+  const after = await laidOutOf(open, boxId);
+  assert.ok(after.kind === 'box');
+  const westAfter = rotatedAbout({ x: after.x, y: after.y + after.height / 2 }, centerOf(after), after.angle);
+  assert.ok(Math.hypot(westAfter.x - westAnchor.x, westAfter.y - westAnchor.y) <= 2, `the opposite handle stays put, moved from ${JSON.stringify(westAnchor)} to ${JSON.stringify(westAfter)}`);
+}
+
+async function verifyResizeAroundTurnedBox(open: OpenBoard, turnedBoxId: string): Promise<void> {
+  const { page, boardId } = open;
+  const turned = await laidOutOf(open, turnedBoxId);
+  assert.ok(turned.kind === 'box');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'turn-mate', title: 'Mate', place: { at: { x: Math.round(turned.x + turned.width + 120), y: Math.round(turned.y) } } } }] });
+  await elementWhere(open, 'the second box is on the board', (element) => element.id === 'turn-mate');
+  await page.keyboard.press('Escape');
+  await open.panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('Shift+1');
+  await page.waitForTimeout(300);
+  await selectBoxes(open, [turnedBoxId, 'turn-mate']);
+  const mate = await laidOutOf(open, 'turn-mate');
+  assert.ok(mate.kind === 'box');
+  const footprints = [rotatedBoundsOf(turned), mate];
+  const right = Math.max(...footprints.map((rect) => rect.x + rect.width));
+  const bottom = Math.max(...footprints.map((rect) => rect.y + rect.height));
+  const corner = await screenPointOf(open, { x: right, y: bottom });
+  await dragOnScreen(open, corner, { x: corner.x + 90, y: corner.y + 60 });
+  await elementWhere(open, 'a selection holding a turned box shows handles around the turned footprints and resizes every box', (element) => element.id === 'turn-mate' && element.kind === 'box' && typeof element.width === 'number' && element.width > mate.width + 10);
+  const scaledTurned = (await boardOf(open)).elements.get(turnedBoxId);
+  assert.ok(scaledTurned?.kind === 'box' && typeof scaledTurned.width === 'number' && scaledTurned.width > turned.width && scaledTurned.angle === turned.angle, 'the turned box scales with the selection and keeps its turn');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'turn-mate' }] });
+  await boardWithout(open, 'the second box is gone', (element) => element.id === 'turn-mate');
 }
 
 async function wireHandleOnScreen(open: OpenBoard, wireId: string, kind: WireHandle['kind']): Promise<{ x: number; y: number }> {

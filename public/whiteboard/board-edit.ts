@@ -9,9 +9,9 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { menuButton } from '../ui/button.ts';
 import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
-import { createDragPreview, handleSidesOf, isInStepBand, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview, handleSidesOf, isInStepBand, laidOutBox, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
-import { elbowCornersAfterShift, pointsOfPath } from '#shared/whiteboard-route-core.ts';
+import { elbowCornersAfterShift, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
@@ -136,7 +136,7 @@ function rectBetween(first: ViewPoint, second: ViewPoint): Rect {
 
 
 type Gesture =
-  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean } | null }
+  | { kind: 'drag'; mode: 'move' | 'resize'; pointerId: number; boxId: string; origin: ViewPoint; start: Rect; movingBoxes: readonly MovingBox[]; pinnedOffsetY: number; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; pressedImage: PressedImage | null; preview: DragPreview | null; previewLayout: BoardLayout | null; laidOutOffset: ViewPoint; isDuplicating: boolean; snapTargets: SnapTargets | null; resize: { handle: ResizeHandle; keepsRatio: boolean; turnAngle: number; boxAngleById: ReadonlyMap<string, number> } | null }
   | { kind: 'wire'; pointerId: number; fromBoxId: string | null; start: ViewPoint; pressedAt: ViewPoint; latest: ViewPoint; draftLine: SVGPathElement; targetBoxId: string | null; tool: WireTool; rewiring: { wireId: string; end: WireEndName } | null }
   | { kind: 'pan'; pointerId: number; lastClient: ViewPoint; hasMoved: boolean; pressedButton: PanButton; tappedBoxId: string | null; pressedImage: PressedImage | null }
   | { kind: 'marquee'; pointerId: number; origin: ViewPoint; latest: ViewPoint; hasMoved: boolean; isAdditive: boolean; baseSelection: ReadonlySet<string>; outline: SVGRectElement; placementTool: PlacementTool | null }
@@ -268,11 +268,17 @@ interface UnconfirmedLines {
   lines: readonly BoxLine[];
 }
 
-const CURSOR_BY_RESIZE_HANDLE: Readonly<Record<ResizeHandle, string>> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+const RESIZE_CURSORS_BY_EIGHTH_TURN = ['ns-resize', 'nesw-resize', 'ew-resize', 'nwse-resize'] as const;
+const EIGHTH_TURNS_BY_RESIZE_HANDLE: Readonly<Record<ResizeHandle, number>> = { n: 0, s: 0, ne: 1, sw: 1, e: 2, w: 2, nw: 3, se: 3 };
 
-function hoverCursorOf(hit: BoardHit | null): string {
+function resizeCursorOf(handle: ResizeHandle, turnAngle: number): string {
+  const eighthTurns = EIGHTH_TURNS_BY_RESIZE_HANDLE[handle] + Math.round(turnAngle / 45);
+  return RESIZE_CURSORS_BY_EIGHTH_TURN[((eighthTurns % 4) + 4) % 4] ?? 'nwse-resize';
+}
+
+function hoverCursorOf(hit: BoardHit | null, turnAngle: number): string {
   if (!hit) return '';
-  if (hit.handle) return CURSOR_BY_RESIZE_HANDLE[hit.handle];
+  if (hit.handle) return resizeCursorOf(hit.handle, turnAngle);
   if (hit.kind === 'box' && MOVABLE_BOX_PARTS.has(hit.part)) return 'move';
   return CURSOR_BY_HIT_PART[hit.part];
 }
@@ -426,6 +432,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
     applyCamera();
   }
 
+  function selectionTurnAngle(): number {
+    const board = options.currentBoard();
+    const selectedBoxes = [...selectedIds].flatMap((elementId) => {
+      const element = board?.elements.get(elementId);
+      return element?.kind === 'box' ? [element] : [];
+    });
+    const [onlyBox] = selectedBoxes;
+    return onlyBox && selectedBoxes.length === 1 ? onlyBox.angle : 0;
+  }
+
   function setSelection(nextSelectedIds: Set<string>): void {
     selectedIds = nextSelectedIds;
     nudgeRun = null;
@@ -452,7 +468,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function resizeStretchOf(drag: Extract<Gesture, { kind: 'drag' }>, latest: ViewPoint): ResizeStretch | null {
     if (!drag.resize) return null;
-    const offset = { x: latest.x - drag.origin.x, y: latest.y - drag.origin.y };
+    const offset = rotatedAbout({ x: latest.x - drag.origin.x, y: latest.y - drag.origin.y }, { x: 0, y: 0 }, -drag.resize.turnAngle);
     const side = handleSidesOf(drag.resize.handle);
     const isPastVerticalThreshold = Math.abs(offset.y) >= VERTICAL_RESIZE_THRESHOLD_PX * viewUnitsPerPixel();
     const changesHeight = drag.resize.keepsRatio || (side.y !== 0 && (side.x === 0 || isPastVerticalThreshold));
@@ -460,14 +476,29 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function resizedBoxesOf(drag: Extract<Gesture, { kind: 'drag' }>): ResizedBox[] {
+    const { resize } = drag;
     const stretch = resizeStretchOf(drag, drag.latest);
-    if (!stretch) return [];
+    if (!resize || !stretch) return [];
     const target = resizedRectOf(drag.start, stretch);
     const side = handleSidesOf(stretch.handle);
+    const [onlyBox] = drag.movingBoxes;
+    if (onlyBox && drag.movingBoxes.length === 1) {
+      const clamped = clampedBoxRect(target, side);
+      const fitted = resize.turnAngle === 0 ? clamped : { ...clamped, height: fittedHeightOf(onlyBox.boxId, clamped, stretch.changesHeight) ?? clamped.height };
+      const rect = turnedRectKeepingAnchor(onlyBox.start, fitted, resize.turnAngle, side);
+      return [{ boxId: onlyBox.boxId, start: onlyBox.start, rect, changesHeight: stretch.changesHeight }];
+    }
     return drag.movingBoxes.map((movingBox) => {
-      const stretched = drag.movingBoxes.length === 1 ? target : scaledRectWithin(movingBox.start, drag.start, target);
+      const stretched = scaledRectWithin(movingBox.start, resize.boxAngleById.get(movingBox.boxId) ?? 0, drag.start, target);
       return { boxId: movingBox.boxId, start: movingBox.start, rect: clampedBoxRect(stretched, side), changesHeight: stretch.changesHeight };
     });
+  }
+
+  function fittedHeightOf(boxId: string, rect: Rect, changesHeight: boolean): number | null {
+    const box = options.currentBoard()?.elements.get(boxId);
+    if (box?.kind !== 'box') return null;
+    const resizedBox = { ...box, width: Math.round(rect.width), height: changesHeight ? Math.round(rect.height) : box.height };
+    return laidOutBox(new Map(), resizedBox, { x: 0, y: 0 }).height;
   }
 
   function resizedBoxFields(drag: Extract<Gesture, { kind: 'drag' }>): { boxId: string; fields: BoxFields }[] {
@@ -856,9 +887,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (hit && hitBoxRect && resizeHandle) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const movingBoxes = movingBoxesFor(hit.id, hitBoxRect, false);
-      const start = rectAround(movingBoxes.map((movingBox) => movingBox.start));
+      const board = options.currentBoard();
+      const boxAngleById = new Map(movingBoxes.map((movingBox) => {
+        const box = board?.elements.get(movingBox.boxId);
+        return [movingBox.boxId, box?.kind === 'box' ? box.angle : 0] as const;
+      }));
+      const [onlyBox] = movingBoxes;
+      const turnAngle = movingBoxes.length === 1 ? selectionTurnAngle() : 0;
+      const start = turnAngle !== 0 && onlyBox ? onlyBox.start : rectAround(movingBoxes.map((movingBox) => rotatedBoundsOf({ ...movingBox.start, angle: boxAngleById.get(movingBox.boxId) ?? 0 })));
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start, movingBoxes, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: { handle: resizeHandle, keepsRatio: event.shiftKey } };
+      gesture = { kind: 'drag', mode: 'resize', pointerId: event.pointerId, boxId: hit.id, origin, start, movingBoxes, pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: { handle: resizeHandle, keepsRatio: event.shiftKey, turnAngle, boxAngleById } };
       return;
     }
     if (hit?.kind === 'box' && hit.port && !isPhoneLayout()) {
@@ -1162,7 +1200,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function snappedLatestOf(drag: Extract<Gesture, { kind: 'drag' }>, event: PointerEvent): ViewPoint {
     const point = toViewPoint(event.clientX, event.clientY);
-    const isSnapOff = event.ctrlKey || event.metaKey || drag.movingBoxes.length === 0;
+    const isSnapOff = event.ctrlKey || event.metaKey || drag.movingBoxes.length === 0 || (drag.resize !== null && drag.resize.turnAngle !== 0);
     if (isSnapOff) {
       paintGuides([]);
       return point;
@@ -1301,7 +1339,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const hit = hitAt(event.clientX, event.clientY);
     renderer.setHover(hit?.kind === 'box' ? hit.id : null);
     viewport.dataset.hoverKind = hit?.kind ?? '';
-    viewport.style.cursor = (spaceHeldTool ?? activeTool) === 'select' ? hoverCursorOf(hit) : '';
+    viewport.style.cursor = (spaceHeldTool ?? activeTool) === 'select' ? hoverCursorOf(hit, selectionTurnAngle()) : '';
   }
 
   function onPointerMove(event: PointerEvent): void {

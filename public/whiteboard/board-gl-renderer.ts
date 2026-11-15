@@ -7,7 +7,7 @@ import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, Resiz
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
-import { rotatedAbout, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import { rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
@@ -826,14 +826,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return preview?.elementById.get(elementId) ?? current.elementById.get(elementId);
   }
 
-  function selectionHandleArea(current: GlScene): { area: Rect; boxId: string } | null {
+  function selectionHandleArea(current: GlScene): { area: Rect; angle: number; boxId: string } | null {
     const selectedBoxes = [...selectedIds].flatMap((elementId) => {
       const element = elementOf(current, elementId);
       return element?.kind === 'box' ? [element] : [];
     });
     const [firstBox] = selectedBoxes;
-    if (!firstBox || selectedBoxes.some((box) => box.angle !== 0)) return null;
-    return { area: rectAround(selectedBoxes), boxId: firstBox.id };
+    if (!firstBox) return null;
+    if (selectedBoxes.length === 1) return { area: { x: firstBox.x, y: firstBox.y, width: firstBox.width, height: firstBox.height }, angle: firstBox.angle, boxId: firstBox.id };
+    return { area: rectAround(selectedBoxes.map(rotatedBoundsOf)), angle: 0, boxId: firstBox.id };
   }
 
   function rotateHandleOf(current: GlScene): { boxId: string; at: Point } | null {
@@ -854,7 +855,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const handleArea = selectionHandleArea(current);
     if (!handleArea) return null;
     const handleSlop = (PORT_HIT_SLOP_PX / HIT_TOLERANCE_PX) * slop;
-    const pressed = resizeHandleRectsOf(handleArea.area).find(({ rect }) => isInside(point, rect, handleSlop));
+    const { area, angle } = handleArea;
+    const pointInAreaFrame = rotatedAbout(point, { x: area.x + area.width / 2, y: area.y + area.height / 2 }, -angle);
+    const pressed = resizeHandleRectsOf(area).find(({ rect }) => isInside(pointInAreaFrame, rect, handleSlop));
     return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null, bend: null } : null;
   }
 
@@ -900,7 +903,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const hoveredBox = !isPhone && hoveredBoxId && !selectedIds.has(hoveredBoxId) ? elementOf(current, hoveredBoxId) : undefined;
     if (hoveredBox?.kind === 'box') listed.push({ kind: 'hover-handles', box: hoveredBox });
     const handleArea = selectionHandleArea(current);
-    if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area });
+    if (handleArea) listed.push({ kind: 'resize-handles', area: handleArea.area, angle: handleArea.angle });
     const rotateHandle = rotateHandleOf(current);
     if (rotateHandle) listed.push({ kind: 'rotate-handle', at: rotateHandle.at });
     for (const wire of selectedWiresOf(current)) listed.push({ kind: 'wire-ends', wire });

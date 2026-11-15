@@ -6,7 +6,7 @@ import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, previewWires, rectsOverlap, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
@@ -867,15 +867,31 @@ function resizedRectOf(start: Rect, stretch: ResizeStretch): Rect {
   return { x: anchoredStart(start.x, start.width, width, side.x), y: anchoredStart(start.y, start.height, height, side.y), width, height };
 }
 
-function scaledRectWithin(child: Rect, from: Rect, to: Rect): Rect {
+function scaledRectWithin(child: Rect, childAngle: number, from: Rect, to: Rect): Rect {
   const scaleX = to.width / from.width;
   const scaleY = to.height / from.height;
-  return { x: to.x + (child.x - from.x) * scaleX, y: to.y + (child.y - from.y) * scaleY, width: child.width * scaleX, height: child.height * scaleY };
+  const radians = (childAngle * Math.PI) / 180;
+  const width = child.width * Math.hypot(scaleX * Math.cos(radians), scaleY * Math.sin(radians));
+  const height = child.height * Math.hypot(scaleX * Math.sin(radians), scaleY * Math.cos(radians));
+  const centerX = to.x + (child.x + child.width / 2 - from.x) * scaleX;
+  const centerY = to.y + (child.y + child.height / 2 - from.y) * scaleY;
+  return { x: centerX - width / 2, y: centerY - height / 2, width, height };
+}
+
+function anchorPointOf(rect: Rect, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Point {
+  return { x: rect.x + (rect.width * (1 - side.x)) / 2, y: rect.y + (rect.height * (1 - side.y)) / 2 };
+}
+
+function turnedRectKeepingAnchor(start: Rect, resized: Rect, angle: number, side: { x: -1 | 0 | 1; y: -1 | 0 | 1 }): Rect {
+  const centerOf = (rect: Rect): Point => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  const startAnchor = rotatedAbout(anchorPointOf(start, side), centerOf(start), angle);
+  const resizedAnchor = rotatedAbout(anchorPointOf(resized, side), centerOf(resized), angle);
+  return { ...resized, x: resized.x + startAnchor.x - resizedAnchor.x, y: resized.y + startAnchor.y - resizedAnchor.y };
 }
 
 export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
-  handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin,
+  handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
   customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
