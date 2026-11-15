@@ -17,7 +17,7 @@ import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
-import { CLOSE_ICON_PATH, createLineIcon, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
+import { CLOSE_ICON_PATH, createLineIcon, MORE_ICON_PATH, REDO_ICON_PATH, UNDO_ICON_PATH } from '../svg-dom.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, stacksByTopBoxIdOf } from './board-edit.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
@@ -95,7 +95,8 @@ const TOOL_DETAILS: Readonly<Record<BoardTool, ToolDetails>> = {
   icon: { label: 'Icon', key: 'I', iconPath: 'M8 2.5l1.6 3.3l3.6 0.5l-2.6 2.5l0.6 3.6L8 10.7l-3.2 1.7l0.6-3.6L2.8 6.3l3.6-0.5z', hint: 'Click or drag on the board to place an icon. Esc to cancel.' },
   device: { label: 'Device', key: 'M', iconPath: 'M5 1.5h6v13h-6z M7 12.5h2', hint: 'Click or drag on the board to place a device mockup. Esc to cancel.' },
 };
-const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'decision', 'ellipse', 'wire', 'line', 'pen', 'text', 'note', 'icon', 'device', 'eraser'];
+const TOOLBAR_TOOLS: readonly BoardTool[] = ['hand', 'select', 'box', 'decision', 'ellipse', 'wire', 'line', 'pen', 'text', 'note', 'eraser'];
+const MORE_TOOLS: readonly BoardTool[] = ['icon', 'device'];
 const TOOL_LOCK_ICON_PATH = 'M4.5 7.5h7v6h-7z M6 7.5V5.5a2 2 0 0 1 4 0v2';
 
 interface TextDialogOptions {
@@ -125,6 +126,7 @@ interface BoardsViewParts {
   buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
   toolButtons: ReadonlyMap<BoardTool, HTMLButtonElement>;
   toolLockButton: HTMLButtonElement;
+  moreTools: ReturnType<typeof buildMoreToolsMenu>;
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
   mediaLayer: BoardMediaLayer;
@@ -395,7 +397,7 @@ function selectedElementsOfKind<Kind extends Element['kind']>(kind: Kind): Extra
 function paintToolbar(): void {
   if (!parts) return;
   const board = selectedBoard();
-  for (const button of [...parts.toolButtons.values(), parts.toolLockButton]) button.disabled = !board;
+  for (const button of [...parts.toolButtons.values(), parts.toolLockButton, parts.moreTools.trigger]) button.disabled = !board;
   for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
   paintStylePopover();
@@ -450,33 +452,16 @@ function startTitleRename(): void {
   });
 }
 
-function buildBoardMenu(onBoardSettings: () => void) {
-  const menuRoot = el('div', 'session-overflow wb-board-menu');
-  const menu = el('div', 'popup-menu session-overflow-menu');
-  menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', 'Board menu');
+function attachPopupMenu(menuRoot: HTMLElement, trigger: HTMLButtonElement, menu: HTMLElement, beforeToggle: () => void = () => {}): void {
   const isOpen = () => menu.classList.contains('open');
   const setOpen = (shouldOpen: boolean) => {
-    boardSettingsItem.classList.toggle('visible', !isPhoneLayout());
+    beforeToggle();
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
-  const trigger = menuButton({ label: 'Board actions', action: 'open-board-menu', onClick: () => setOpen(!isOpen()) });
   trigger.setAttribute('aria-haspopup', 'menu');
   trigger.setAttribute('aria-expanded', 'false');
-  const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
-    const item = buildMenuItem(label, `visible ${extraClass}`.trim());
-    item.addEventListener('click', onChoose);
-    return item;
-  };
-  const boardSettingsItem = actionItem('Board settings', onBoardSettings);
-  const actionItems = [
-    actionItem('New board', newBoardFromDialog),
-    actionItem('Import board', pickBoardFileToImport),
-    actionItem('Export board', openExportBoardDialog),
-    boardSettingsItem,
-    actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
-  ];
+  trigger.addEventListener('click', () => setOpen(!isOpen()));
   menu.addEventListener('click', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('[role^="menuitem"]')) setOpen(false);
   });
@@ -492,6 +477,59 @@ function buildBoardMenu(onBoardSettings: () => void) {
   document.addEventListener('click', (event) => {
     if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
   });
+}
+
+function buildMoreToolsMenu() {
+  const menuRoot = el('div', 'session-overflow wb-more-tools');
+  const menu = el('div', 'popup-menu session-overflow-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'More tools');
+  const trigger = createPressable('wb-tool');
+  labelIconPressable(trigger, 'More tools');
+  trigger.append(createLineIcon(MORE_ICON_PATH, '2'));
+  const itemsByTool = new Map(MORE_TOOLS.map((tool) => [tool, moreToolItem(tool)]));
+  menu.append(...itemsByTool.values());
+  attachPopupMenu(menuRoot, trigger, menu);
+  return { menuRoot, trigger, itemsByTool };
+}
+
+function moreToolItem(tool: BoardTool): HTMLButtonElement {
+  const { label, key, iconPath } = TOOL_DETAILS[tool];
+  const item = buildMenuItem(label, 'visible wb-more-tool');
+  item.setAttribute('role', 'menuitemradio');
+  item.setAttribute('aria-checked', 'false');
+  item.setAttribute('aria-keyshortcuts', key);
+  const keyHint = el('span', 'wb-more-tool-key', key);
+  keyHint.setAttribute('aria-hidden', 'true');
+  item.prepend(createLineIcon(iconPath, '1.5'));
+  item.append(keyHint);
+  item.addEventListener('click', () => {
+    editor?.setTool(tool);
+    editor?.focusCanvas();
+  });
+  return item;
+}
+
+function buildBoardMenu(onBoardSettings: () => void) {
+  const menuRoot = el('div', 'session-overflow wb-board-menu');
+  const menu = el('div', 'popup-menu session-overflow-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Board menu');
+  const trigger = menuButton({ label: 'Board actions', action: 'open-board-menu' });
+  const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
+    const item = buildMenuItem(label, `visible ${extraClass}`.trim());
+    item.addEventListener('click', onChoose);
+    return item;
+  };
+  const boardSettingsItem = actionItem('Board settings', onBoardSettings);
+  const actionItems = [
+    actionItem('New board', newBoardFromDialog),
+    actionItem('Import board', pickBoardFileToImport),
+    actionItem('Export board', openExportBoardDialog),
+    boardSettingsItem,
+    actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
+  ];
+  attachPopupMenu(menuRoot, trigger, menu, () => boardSettingsItem.classList.toggle('visible', !isPhoneLayout()));
   menu.append(...actionItems);
   return { menuRoot, trigger };
 }
@@ -1297,6 +1335,8 @@ function island(className: string, label: string, ...children: HTMLElement[]): H
 function paintActiveTool(activeTool: BoardTool): void {
   if (!parts) return;
   for (const [tool, button] of parts.toolButtons) button.setAttribute('aria-pressed', String(tool === activeTool));
+  for (const [tool, item] of parts.moreTools.itemsByTool) item.setAttribute('aria-checked', String(tool === activeTool));
+  parts.moreTools.trigger.dataset.active = String(MORE_TOOLS.includes(activeTool));
   const { hint } = TOOL_DETAILS[activeTool];
   parts.toolHint.textContent = hint ?? '';
   parts.toolHint.hidden = hint === null;
@@ -1417,7 +1457,8 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.setAttribute('role', 'group');
   toolGroup.setAttribute('aria-label', 'Drawing tools');
   const lockButton = toolLockButton();
-  toolGroup.append(lockButton, ...toolButtons.values());
+  const moreTools = buildMoreToolsMenu();
+  toolGroup.append(lockButton, ...toolButtons.values(), moreTools.menuRoot);
   const buttons = {
     fit: iconButton('Fit', 'Shift+1', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
     undo: iconButton('Undo', commandChord('Z'), UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
@@ -1482,7 +1523,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,

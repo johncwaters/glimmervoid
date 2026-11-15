@@ -174,7 +174,8 @@
   margin-right: 4px;
 }
 
-.wb-tool[aria-pressed='true'] {
+.wb-tool[aria-pressed='true'],
+.wb-tool[data-active='true'] {
   border-color: transparent;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
@@ -282,6 +283,12 @@
 .wb-board-menu > .session-overflow-menu {
   right: auto;
   left: 0;
+}
+
+.wb-more-tool-key {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--text-muted);
 }
 
 .wb-board-menu-danger { color: var(--state-failed); }

@@ -160,6 +160,27 @@ function drawingTools(panel: Locator): Locator {
   return panel.getByRole('group', { name: 'Drawing tools', exact: true });
 }
 
+async function verifyMoreToolsMenu(page: Page, panel: Locator): Promise<void> {
+  const moreTools = drawingTool(panel, 'More tools');
+  await moreTools.click();
+  const menu = panel.getByRole('menu', { name: 'More tools', exact: true });
+  assert.deepEqual(await menu.getByRole('menuitemradio').evaluateAll((items) => items.map((item) => item.textContent)), ['IconI', 'DeviceM'], 'More tools lists Icon and Device with their keys');
+  await menu.getByRole('menuitemradio', { name: 'Icon', exact: true }).click();
+  await menu.waitFor({ state: 'hidden' });
+  assert.equal(await moreTools.getAttribute('data-active'), 'true', 'More tools looks pressed while Icon is the tool');
+  assert.equal(await moreTools.getAttribute('aria-label'), 'More tools', 'More tools keeps its label while Icon is the tool');
+  await moreTools.click();
+  assert.equal(await menu.getByRole('menuitemradio', { name: 'Icon', exact: true }).getAttribute('aria-checked'), 'true', 'the menu checks the active tool');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('v');
+  assert.equal(await moreTools.getAttribute('data-active'), 'false', 'More tools lets go once Select is the tool');
+  await page.keyboard.press('m');
+  assert.equal(await moreTools.getAttribute('data-active'), 'true', 'the M key picks Device with the menu closed');
+  await page.keyboard.press('v');
+}
+
 function drawingTool(panel: Locator, name: string): Locator {
   return drawingTools(panel).getByRole('button', { name, exact: true });
 }
@@ -2092,7 +2113,8 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('r');
     const targetBox = await placeBoxWithTool(open, { x: 60, y: 260 }, 'Index rows');
     await panel.locator('.wb-viewport').focus();
-    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Ellipse', 'Arrow', 'Line', 'Pen', 'Text', 'Note', 'Icon', 'Device', 'Eraser'], 'the toolbar shows the tool lock and every tool');
+    assert.deepEqual(await drawingTools(panel).getByRole('button').evaluateAll((tools) => tools.map((tool) => tool.getAttribute('aria-label'))), ['Keep tool selected', 'Hand', 'Select', 'Box', 'Decision', 'Ellipse', 'Arrow', 'Line', 'Pen', 'Text', 'Note', 'Eraser', 'More tools'], 'the toolbar shows the tool lock, the everyday tools and More tools');
+    await verifyMoreToolsMenu(page, panel);
     await page.keyboard.press('d');
     const priorArt = await placeBoxWithTool(open, { x: 40, y: 440 }, 'Prior art');
     assert.ok(priorArt.kind === 'box' && priorArt.shape === 'decision', 'the D key places a decision');
@@ -2539,7 +2561,7 @@ async function verifyBoardToolsInBoardPane(panel: Locator, boardTitle: string): 
   assert.equal(await boardPane.locator('.wb-top-left').isVisible(), true, 'the board tools sit inside the Board pane');
   assert.equal(await panel.locator('.pane-strip .wb-top-left').count(), 0, 'the board title bar carries no board tools');
   assert.equal(await boardPane.locator('.wb-presence .wb-presence-pill').count(), 0, 'the board names no pill for the only connected session, the one centered beside it');
-  const hoverNames = await boardPane.locator('.wb-top-left .wb-island-tools button, .wb-top-left .wb-island-view button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('title')));
+  const hoverNames = await boardPane.locator('.wb-top-left .wb-island-tools button:not([role^="menuitem"]), .wb-top-left .wb-island-view button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('title')));
   assert.ok(hoverNames.length > 0 && hoverNames.every((name) => typeof name === 'string' && name.length > 0), `every board bar button carries a native hover name, got ${hoverNames.join(' | ')}`);
   assert.equal(await boardPane.getByRole('button', { name: 'Ellipse', exact: true }).getAttribute('title'), 'Ellipse (O)', 'a tool names its key in its hover name');
 }
