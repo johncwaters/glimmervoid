@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Snooze a session.** Choose Snooze in a session card's menu to stop its agent and put the session to sleep as Dormant. It keeps its worktree, its changes and its conversation, stays asleep when Glimmervoid restarts, and picks the same conversation back up when you open it. Snoozing an agent in the middle of a turn asks first.
+
 ### Changed
 
 - A pull request a session opened or pushed to now drops off its session card once it merges or closes, so only the live ones stack up. Pull requests you linked by hand stay until you unlink them.

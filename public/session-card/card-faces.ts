@@ -14,6 +14,7 @@ function updateButtonVisibility(ui: SessionUi) {
   ui.btnWorkspaceRepos.classList.toggle('visible', ui.card.dataset.workspace !== undefined);
   ui.btnTrace.classList.toggle('visible', showsDebugItems(ui));
   ui.btnDebug.classList.toggle('visible', showsDebugItems(ui));
+  queryCardPart(ui.card, '.overflow-snooze')?.classList.toggle('visible', (isKillable(state) || state === STATES.DONE) && !ui.ownerId && ui.card.dataset.ephemeral === undefined && ui.agent !== SHELL_AGENT_ID);
   queryCardPart(ui.card, '.overflow-link-pr')?.classList.toggle('visible', ui.agent !== SHELL_AGENT_ID);
 }
 

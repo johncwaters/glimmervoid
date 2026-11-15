@@ -7,7 +7,7 @@ import { buildMenuItem } from '../menu.ts';
 import { CLOSE_ICON_PATH, SWITCH_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { openSwitchAccountDialog } from './card-account.ts';
 import type { CardOptions } from './card-options-core.ts';
-import { buildDialogShell } from './modal.ts';
+import { buildDialogShell, openConfirmDialog } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { paintTaskTitle } from './card-titles.ts';
@@ -34,6 +34,17 @@ export function sessionQuestionManagerOf(card: HTMLElement | null): boolean | nu
   const questionManagerState = card?.dataset.questionManager;
   if (questionManagerState === undefined) return null;
   return questionManagerState === 'on';
+}
+
+function snoozeSession(sessionId: string) {
+  const sendSnooze = () => sendControlMsg({ type: 'snooze-session', id: sessionId });
+  if (findSessionUi(sessionId)?.currentState !== STATES.RUNNING) { sendSnooze(); return; }
+  openConfirmDialog({
+    title: 'Snooze',
+    message: 'This agent is mid-turn. Snoozing stops it and keeps this conversation for later. Snooze anyway?',
+    confirmLabel: 'Snooze',
+    onConfirm: sendSnooze,
+  });
 }
 
 function paintQuestionManager(card: HTMLElement, menuItem: Element | null, isQuestionManagerOn: boolean | null) {
@@ -130,9 +141,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openSwitchAccountDialog(sessionId);
   };
+  const btnSnooze = buildMenuItem('Snooze', 'overflow-snooze');
+  btnSnooze.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    snoozeSession(sessionId);
+  };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnRestart);
+  sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnSnooze, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
