@@ -74,7 +74,7 @@ ${TEXT_SIZES.map((size) => `.wb-text-${size} .wb-box-title, .wb-text-${size} .wb
 .wb-step-landed { fill: #22c55e; }
 .wb-frame-outline { fill: ${BRAND_ACCENT}; fill-opacity: 0.04; stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
-.wb-wire-hit, .wb-port, .wb-resize-handle { display: none; }
+.wb-wire-hit, .wb-port { display: none; }
 .wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
 .wb-wire-line.wb-bold { stroke-width: 3.2; }
@@ -316,7 +316,6 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   parts.push(...bodyLinesMarkup(box.bodyLines, box.x, bodyTop));
   if (box.device) parts.push(...deviceMarkup(box, box.device, box.titleLines.join(' '), assetHref));
   if (box.media && !box.device) parts.push(...mediaMarkup(box.media, assetHref));
-  parts.push(tag('rect', { x: box.x + box.width - RESIZE_HANDLE_SIZE, y: box.y + box.height - RESIZE_HANDLE_SIZE, width: RESIZE_HANDLE_SIZE, height: RESIZE_HANDLE_SIZE, rx: 2, class: 'wb-resize-handle' }));
   const shapeClass = box.shape === 'note' ? ' wb-note' : '';
   const stepClass = box.step ? ' wb-step' : '';
   const changeClass = box.change === 'none' ? '' : ` wb-change-${box.change}`;

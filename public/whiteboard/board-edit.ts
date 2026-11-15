@@ -627,7 +627,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
       const laidOutBox = layout.elements.find((element) => element.kind === 'box' && element.id === drag.boxId);
       const laidOutStart = laidOutBox?.kind === 'box' ? laidOutBox : null;
       drag.laidOutOffset = laidOutStart ? { x: laidOutStart.x - drag.start.x, y: laidOutStart.y - drag.start.y } : { x: 0, y: 0 };
-      drag.preview = createDragPreview(board, layout, new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId)));
+      const movingBoxIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
+      const carriedWireIds = new Set(carriedWiresOf(board.elements.values(), selectedIds, movingBoxIds).map((wire) => wire.id));
+      drag.preview = createDragPreview(board, layout, movingBoxIds, carriedWireIds, drag.laidOutOffset);
       drag.previewLayout = layout;
     }
     renderer.paintElements(drag.preview(offset.x - drag.laidOutOffset.x, offset.y - drag.laidOutOffset.y));
@@ -651,7 +653,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
       if (element.kind === 'box' && rect) resizedById.set(element.id, movedBox(element, Math.round(rect.x) - element.x, Math.round(rect.y) - element.y));
     }
     const resizedLayout = { ...layout, elements: layout.elements.map((element) => resizedById.get(element.id) ?? element) };
-    return createDragPreview(board, resizedLayout, new Set(resizedById.keys()))(0, 0);
+    return createDragPreview(board, resizedLayout, new Set(resizedById.keys()), new Set(), { x: 0, y: 0 })(0, 0);
   }
 
   function paintResizePreview(drag: Extract<Gesture, { kind: 'drag' }>, board: Board): boolean {

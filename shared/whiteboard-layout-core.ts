@@ -657,13 +657,17 @@ function laidOutStrokeOf(stroke: Stroke, pinnedOffsetY: number): LaidOutStroke {
   return { kind: 'stroke', id: stroke.id, points, strokeWidth: stroke.width, tone: stroke.tone, x: left - halfWidth, y: top - halfWidth, width: right - left + stroke.width, height: bottom - top + stroke.width };
 }
 
-function endShiftedBy(end: WireEnd, offsetY: number): WireEnd {
-  return typeof end === 'string' ? end : { x: end.x, y: end.y + offsetY };
+function endShiftedBy(end: WireEnd, offsetX: number, offsetY: number): WireEnd {
+  return typeof end === 'string' ? end : { x: end.x + offsetX, y: end.y + offsetY };
+}
+
+function wirePointsShiftedBy(wire: Wire, offsetX: number, offsetY: number): Wire {
+  if ((offsetX === 0 && offsetY === 0) || (typeof wire.from === 'string' && typeof wire.to === 'string' && wire.via.length === 0)) return wire;
+  return { ...wire, from: endShiftedBy(wire.from, offsetX, offsetY), to: endShiftedBy(wire.to, offsetX, offsetY), via: wire.via.map((corner) => ({ x: corner.x + offsetX, y: corner.y + offsetY })) };
 }
 
 function wireShiftedBy(wire: Wire, offsetY: number): Wire {
-  if (offsetY === 0 || (typeof wire.from === 'string' && typeof wire.to === 'string' && wire.via.length === 0)) return wire;
-  return { ...wire, from: endShiftedBy(wire.from, offsetY), to: endShiftedBy(wire.to, offsetY), via: wire.via.map((corner) => ({ x: corner.x, y: corner.y + offsetY })) };
+  return wirePointsShiftedBy(wire, 0, offsetY);
 }
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
@@ -801,7 +805,7 @@ function movedBox<Moving extends PlacedBox>(box: Moving, offsetX: number, offset
 
 type DragPreview = (offsetX: number, offsetY: number) => LaidOutElement[];
 
-function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>): DragPreview {
+function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>, carriedWireIds: ReadonlySet<string>, storedToLaidOutOffset: { x: number; y: number }): DragPreview {
   const movingIds = draggedBoxIds;
   const boxesById = new Map<string, LaidOutBox>();
   const stillSoftObstacles: Rect[] = [];
@@ -810,12 +814,17 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     if (element.kind === 'frame') stillSoftObstacles.push(frameTitleStripOf(element));
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
-  const wires = [...storedBoard.elements.values()].flatMap((element) => (element.kind === 'wire' && boxIdsOfWire(element).some((boxId) => movingIds.has(boxId)) ? [wireShiftedBy(element, layout.pinnedOffsetY)] : []));
+  const wires = [...storedBoard.elements.values()].flatMap((element) => {
+    if (element.kind !== 'wire') return [];
+    const isTouchingDraggedBox = boxIdsOfWire(element).some((boxId) => movingIds.has(boxId));
+    return isTouchingDraggedBox || carriedWireIds.has(element.id) ? [wireShiftedBy(element, layout.pinnedOffsetY)] : [];
+  });
   const contentTop = wireCeilingOf(layout.pinnedOffsetY + MARGIN);
   return (offsetX, offsetY) => {
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
-    return [...moved, ...previewWires({ wires, boxesById, softObstacles: stillSoftObstacles, contentTop })];
+    const draggedWires = wires.map((wire) => (carriedWireIds.has(wire.id) ? wirePointsShiftedBy(wire, offsetX + storedToLaidOutOffset.x, offsetY + storedToLaidOutOffset.y) : wire));
+    return [...moved, ...previewWires({ wires: draggedWires, boxesById, softObstacles: stillSoftObstacles, contentTop })];
   };
 }
 

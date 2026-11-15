@@ -6,10 +6,10 @@ import { Board, Element, ElementInput, Op, dialValuesOfBox, pointOfBox } from '.
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
-import { layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
+import { createDragPreview, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { elbowCornersAfterShift, rotatedAbout, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
-import { applyBoardDiff, applyOps, stageOps } from '../shared/whiteboard-ops-core.ts';
+import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
 import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
@@ -222,6 +222,29 @@ test('a step status that disagrees with the code session changes warns, changed 
   const { uncoveredPaths } = reviewBoard(reviewedBoard, { fileFactByPath, changes: manyStrayChanges });
   assert.equal(uncoveredPaths.length, 20);
   assert.ok(uncoveredPaths.every((uncoveredPath) => uncoveredPath.startsWith('src/stray-')), uncoveredPaths.join(', '));
+});
+
+test('a drag preview carries the free end and bend points of a carried wire with the dragged boxes', () => {
+  const added = applyOps(createBoard({ id: 'carry', title: 'Carry', nowMs: 0 }), [
+    { op: 'add', element: ElementInput.parse({ kind: 'box', id: 'source', title: 'Source', place: { at: { x: 0, y: 0 } } }) },
+    { op: 'add', element: ElementInput.parse({ kind: 'wire', id: 'free', from: 'source', to: { x: 400, y: 300 }, via: [{ x: 400, y: 40 }] }) },
+  ], { id: 'operator', name: 'operator' }, 0);
+  assert.ok(added.ok, added.ok ? '' : added.error);
+  const layout = layoutBoard(added.board);
+  const previewedWireOf = (carriedWireIds: Set<string>) => createDragPreview(added.board, layout, new Set(['source']), carriedWireIds, { x: 0, y: 0 })(50, 70).find((element) => element.id === 'free');
+  const carried = previewedWireOf(new Set(['free']));
+  const left = previewedWireOf(new Set());
+  assert.ok(carried?.kind === 'wire' && left?.kind === 'wire');
+  assert.deepEqual(carried.end, { x: 450, y: 370 });
+  assert.ok(pointsOfLaidOutPath(carried.path).some((point) => point.x === 450), `the bend point moves with the drag, got ${carried.path}`);
+  assert.deepEqual(left.end, { x: 400, y: 300 });
+  const peerMoved = applyOps(added.board, [{ op: 'set', id: 'source', fields: { place: { at: { x: 100, y: 0 } } } }], { id: 'agent', name: 'agent' }, 0);
+  assert.ok(peerMoved.ok, peerMoved.ok ? '' : peerMoved.error);
+  const laidOutAfterPeerMove = { x: 100, y: 0 };
+  const rebuilt = createDragPreview(peerMoved.board, layoutBoard(peerMoved.board), new Set(['source']), new Set(['free']), laidOutAfterPeerMove)(50 - 100, 70);
+  const rebuiltWire = rebuilt.find((element) => element.id === 'free');
+  assert.ok(rebuiltWire?.kind === 'wire');
+  assert.deepEqual(rebuiltWire.end, { x: 450, y: 370 }, 'a preview rebuilt after a peer moves the dragged box still puts the free end where release stores it');
 });
 
 test('a stored near box is pinned beside its target and one whose target is missing is pinned at the board margin', () => {
