@@ -133,4 +133,14 @@ const EXIT_HOOKS: StateHookTable = {
   },
 };
 
-export { TRANSITIONS, GUARDS, ENTRY_HOOKS, EXIT_HOOKS, UNSEEN_OUTCOME_ON_ENTRY };
+type StateClock = { stateSince: number; firstTurnSince: number | null };
+
+function nextStateClock(from: SessionState, to: SessionState, enteredAt: number, previousStateSince: number, firstTurnSince: number | null): StateClock {
+  if (to === STATES.INITIALIZING) return { stateSince: enteredAt, firstTurnSince: enteredAt };
+  if (from === STATES.INITIALIZING && to === STATES.STARTING) return { stateSince: previousStateSince, firstTurnSince };
+  if (to === STATES.STARTING || to === STATES.IDLE) return { stateSince: enteredAt, firstTurnSince };
+  if (to === STATES.RUNNING) return { stateSince: firstTurnSince ?? enteredAt, firstTurnSince: null };
+  return { stateSince: enteredAt, firstTurnSince: null };
+}
+
+export { TRANSITIONS, GUARDS, ENTRY_HOOKS, EXIT_HOOKS, UNSEEN_OUTCOME_ON_ENTRY, nextStateClock };

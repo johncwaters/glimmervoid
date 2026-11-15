@@ -114,6 +114,7 @@ export type NotifyAlertGroup = z.infer<typeof NotifyAlertGroup>;
 
 export const SessionStatusFields = z.object({
   transition: z.object({ from: SessionState, to: SessionState, event: z.string() }).optional(),
+  stateSince: timestamp.optional(),
   skipPerms: z.boolean().optional(),
   saneYolo: z.boolean().optional(),
   failureReason: z.string().optional(),

@@ -187,7 +187,7 @@ function applySessionTransition(msg: SessionStatusMessage, transition: SessionTr
     refreshReview(msg.id);
     return;
   }
-  applyState(msg.id, transition.to, msg.timestamp);
+  applyState(msg.id, transition.to, msg.stateSince ?? msg.timestamp);
   setSessionFailureReason(msg.id, msg.failureReason);
   if (msg.saneYolo !== undefined) setSessionSaneYolo(msg.id, msg.saneYolo);
   refreshReview(msg.id);
@@ -197,7 +197,7 @@ function applySessionTransition(msg: SessionStatusMessage, transition: SessionTr
 function handleSessionStatus(msg: SessionStatusMessage) {
   if (!hasSession(msg.id)) {
     if (!msg.transition) return;
-    createSessionCard(msg.id, msg.session, msg.transition.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.timestamp }));
+    createSessionCard(msg.id, msg.session, msg.transition.to, buildSessionCardOptions({ skipPerms: msg.skipPerms, saneYolo: msg.saneYolo, stateSince: msg.stateSince ?? msg.timestamp }));
     refreshFavicon(attentionTally.counts);
     return;
   }

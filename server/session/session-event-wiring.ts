@@ -263,6 +263,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.telegramChannel.noteStateChange(session.id);
       noteStatus({
         transition: { from: pendingStatus?.transition?.from ?? from, to, event },
+        stateSince: session.stateSince,
         skipPerms: session.dangerouslySkipPermissions,
         saneYolo: session.saneYolo,
         ...(session.failureReason === null ? {} : { failureReason: session.failureReason }),

@@ -56,6 +56,7 @@ import {
   ENTRY_HOOKS,
   EXIT_HOOKS,
   UNSEEN_OUTCOME_ON_ENTRY,
+  nextStateClock,
 } from "./core/state-machine.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
 import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, LONE_ESCAPE } from "./core/waiting-input-core.ts";
@@ -296,6 +297,7 @@ class Session extends EventEmitter {
   _hooksReportPrompts: boolean;
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
+  _firstTurnSince: number | null;
   _pendingPromptSupervisionLine: string | null;
   _pendingPackContextLines: readonly string[];
   _getPackAgentLaunch: () => PackAgentLaunch | null;
@@ -559,6 +561,7 @@ class Session extends EventEmitter {
     this._spawnCommand = spawnCommand;
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = initialPrompt;
+    this._firstTurnSince = null;
     this._pendingPromptSupervisionLine = null;
     this._pendingPackContextLines = [];
     this._getPackAgentLaunch = getPackAgentLaunch ?? (() => null);
@@ -1580,7 +1583,9 @@ class Session extends EventEmitter {
     }
 
     const enteredAt = clock.nowMs();
-    this.stateSince = enteredAt;
+    const stateClock = nextStateClock(from, to, enteredAt, this.stateSince, this._firstTurnSince);
+    this.stateSince = stateClock.stateSince;
+    this._firstTurnSince = stateClock.firstTurnSince;
     this._pushAuditEntry({
       from,
       to,
@@ -1743,6 +1748,7 @@ class Session extends EventEmitter {
     this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
     this._resumeNoteAwaitingTurn = this._pendingResumeNote;
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
+    if (!launchPrompt && !this._pendingResumeNote) this._firstTurnSince = null;
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
