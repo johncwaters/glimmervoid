@@ -415,7 +415,10 @@
     },
     {
       "name": "notification",
-      "definition": "An alert Glimmervoid raises for a session that needs the operator, through browser notifications and Telegram, with its own lifecycle state machine"
+      "definition": "An alert Glimmervoid raises for a session that needs the operator, through browser notifications and Telegram, with its own lifecycle state machine",
+      "aliases": [
+        "notify"
+      ]
     },
     {
       "name": "factory",
@@ -617,7 +620,11 @@
     },
     {
       "name": "connection",
-      "definition": "A live WebSocket between two Glimmervoid parts, such as a dashboard's control or data WebSocket to the server; a dropped one is retried with backoff"
+      "definition": "A live WebSocket between two Glimmervoid parts, such as a dashboard's control or data WebSocket to the server; a dropped one is retried with backoff",
+      "aliases": [
+        "connecting",
+        "reconnecting"
+      ]
     },
     {
       "name": "pane",
@@ -877,6 +884,533 @@
     {
       "name": "rotate handle",
       "definition": "The round handle above a single selected whiteboard box that turns it about its center when dragged, snapping to 15 degree steps with Shift; the box stores the turn as its angle in whole degrees"
+    },
+    {
+      "name": "browser",
+      "definition": "The web browser the operator opens the dashboard in, on desktop or phone; it raises native notifications, holds the clipboard and keeps a tab's history"
+    },
+    {
+      "name": "choice",
+      "definition": "An option the operator picks among several in a dashboard control, such as an agent, model or effort in Add Session, or a setting value; a project that sets no choice falls back to the default"
+    },
+    {
+      "name": "fixed",
+      "definition": "The CHANGELOG section heading under a release that lists operator-visible bugs that release repairs"
+    },
+    {
+      "name": "port",
+      "definition": "The TCP port a Glimmervoid listener binds: the local dashboard port, the remote listener port, the local doorman's port named in its port file, or the vault companion's port"
+    },
+    {
+      "name": "clear",
+      "definition": "To empty or remove a shown thing: a cleared error message, selection or decision in the dashboard, or an agent conversation reset with /clear, which starts a new agent session id"
+    },
+    {
+      "name": "fire",
+      "definition": "To trigger once: a debounced watcher, timer, hook, rule or wake firing its callback, or a false fire when a signal triggers on noise"
+    },
+    {
+      "name": "socket",
+      "definition": "A network or IPC endpoint: the control and data WebSockets, a Unix domain socket such as an ssh agent socket, or the vault companion's listener"
+    },
+    {
+      "name": "access",
+      "definition": "Permission to read or act on something: a GitHub token's access, a lane's GitHub or PostHog access posture, remote access to the dashboard, or a secret's runtime access"
+    },
+    {
+      "name": "blocks",
+      "definition": "Stops an action from going ahead: Sane YOLO blocks a risky command, a failing check blocks a land or spawn; also a whiteboard or Markdown block of content"
+    },
+    {
+      "name": "badge",
+      "definition": "A small uppercase state or role label drawn on a card, row or header, such as a session's state badge or a review's owner badge"
+    },
+    {
+      "name": "tag",
+      "definition": "A small label chip on a card or header, a git release tag that triggers a build, or a section breadcrumb tag on a search hit"
+    },
+    {
+      "name": "budget",
+      "definition": "A cap on a spent resource: GitHub's hourly GraphQL and REST rate limit, a usage token or estimated-cost budget, or a time budget for a lane run"
+    },
+    {
+      "name": "binary",
+      "definition": "A standalone executable file, such as the Glimmervoid binary the release workflow builds, the updater beside it, or the Sane YOLO binary named for supervised sessions"
+    },
+    {
+      "name": "alt",
+      "definition": "The Alt modifier key; dashboard shortcuts match under Alt outside a Mac and under Cmd on a Mac, and Alt-drag on a board drops a copy"
+    },
+    {
+      "name": "merge",
+      "definition": "To land a branch or pull request onto its base, as the Merge, Merge when ready and Keep mergeable actions do; a conflicted merge parks for the agent to resolve"
+    },
+    {
+      "name": "hide",
+      "definition": "To take something out of view without deleting it, such as an agent left out of the Add Session picker, a closed panel or a notice"
+    },
+    {
+      "name": "update",
+      "definition": "A newer Glimmervoid version and the act of moving to it from Settings, Updates; also any change written to a config, board or pull request"
+    },
+    {
+      "name": "tick",
+      "definition": "One beat of a recurring timer, such as the idle-stop tick or a poll; also to check a checkbox, as in ticking repositories to clone"
+    },
+    {
+      "name": "author",
+      "definition": "Who wrote something: the GitHub login of a pull request or review comment author, a note's author on a board, or a Discord author shown as a generic member"
+    },
+    {
+      "name": "viewer",
+      "definition": "A carbon unit or client watching the dashboard, a board or a video; also the full-size viewer that opens a board picture, video or page"
+    },
+    {
+      "name": "ctrl",
+      "definition": "The Control modifier key; board and terminal shortcuts use it, with Cmd standing in on a Mac, and the phone key strip has a sticky Ctrl"
+    },
+    {
+      "name": "layer",
+      "definition": "A tier that sits on top of another, such as Coherence as an optional layer over every agent glimmervoid runs, a board's stacking order, or a mark layer in a design"
+    },
+    {
+      "name": "enter",
+      "definition": "The Enter key: it submits a prompt, confirms a dialog, starts a rename on a focused session name and picks a focused row"
+    },
+    {
+      "name": "open",
+      "definition": "To bring a thing into view or start it, such as Open a folder, Open in session, opening a board beside a session, or the dashboard opening in a browser on first start"
+    },
+    {
+      "name": "scan",
+      "definition": "A pass over a set of things to find what is there, such as the project scan that lists repositories and agents, or a quick read of a list; also the loading mark's scanning brackets"
+    },
+    {
+      "name": "change",
+      "definition": "An edit to files a session made, listed in the Changes view of a session's diff from its base; also any settings or board change"
+    },
+    {
+      "name": "cmd",
+      "definition": "The Command modifier key on a Mac, which dashboard shortcuts match in place of Alt or Ctrl elsewhere"
+    },
+    {
+      "name": "ui",
+      "definition": "The dashboard's user interface: its views, controls, fonts and layouts, as opposed to the server or the agent"
+    },
+    {
+      "name": "add",
+      "definition": "To bring a new thing in, such as Add Session, Add a repository, or adding a box to a board"
+    },
+    {
+      "name": "level",
+      "definition": "A rank in a hierarchy: a phone screen level with its own history entry, a top-level config key, a log level, or signal-level recording detail"
+    },
+    {
+      "name": "approve",
+      "definition": "The operator's GitHub review verdict that a pull request may merge, posted only from the Approve button; also allowing an agent's pack or secret request",
+      "aliases": [
+        "approved"
+      ]
+    },
+    {
+      "name": "check",
+      "definition": "A test, CI job or gate that passes or fails, such as a pull request's checks or an update check; also Check by hand, the review list of what to verify manually"
+    },
+    {
+      "name": "keep",
+      "definition": "To hold onto something instead of removing it, such as the Keep button for a worktree with unsaved work, or Keep mergeable, which repairs a pull request until it can merge"
+    },
+    {
+      "name": "show",
+      "definition": "To put something in front of the operator, such as the show tool that places a file as a board card, or a setting like Show the Community tab"
+    },
+    {
+      "name": "ai",
+      "definition": "Artificial intelligence: the coding agents Glimmervoid supervises, as in the For AI Agents section of an instruction file"
+    },
+    {
+      "name": "esc",
+      "definition": "The Escape key: it cancels a drag or dialog, clears a pick, and has a sticky key in the phone key strip that interrupts the agent"
+    },
+    {
+      "name": "generated",
+      "definition": "Made by a tool rather than written by hand, such as generated files set apart in Changes, or a Generated date header in an AGENTS.md"
+    },
+    {
+      "name": "dependency",
+      "definition": "A package the project or a worktree installs, such as a runtime npm dependency listed in AGENTS.md, or a dependency a ticket waits on"
+    },
+    {
+      "name": "markdown",
+      "definition": "The Markdown text format: a document the show tool puts on a board and the operator can edit, and the format of every spec and instruction file"
+    },
+    {
+      "name": "remove",
+      "definition": "To delete a thing for good, such as Remove for a worktree, a removed setting or feature, or a box taken off a board"
+    },
+    {
+      "name": "close",
+      "definition": "To end or dismiss a thing, such as closing a session, a dialog, a panel or a pull request"
+    },
+    {
+      "name": "edit",
+      "definition": "To change content in place, such as Edit on a board's Markdown document, the Edit tool of an agent, or editing a setting"
+    },
+    {
+      "name": "gh",
+      "definition": "The GitHub CLI, which lanes and setup use for GitHub queries and whose token the GitHub connection can read"
+    },
+    {
+      "name": "new",
+      "definition": "Starting a fresh thing, such as New session, New race or a new board"
+    },
+    {
+      "name": "needs",
+      "definition": "Requires the operator, as in the Needs you banner and a status such as Needs approval or Needs Input"
+    },
+    {
+      "name": "resolve",
+      "definition": "To settle something: resolve a review thread on GitHub, Resolve in session for a conflicted merge, or work out a path or version from config"
+    },
+    {
+      "name": "shift",
+      "definition": "The Shift modifier key, which snaps a rotate to 15 degree steps and reverses Tab focus"
+    },
+    {
+      "name": "appearance",
+      "definition": "The Settings section for how the dashboard looks: theme, flying animals and other visual choices"
+    },
+    {
+      "name": "set",
+      "definition": "To give a setting a value, as in glimmervoid settings set; also a group of things, such as a probe set"
+    },
+    {
+      "name": "discard",
+      "definition": "To throw away a session's uncommitted work or a draft; Discard is behind a confirm because it loses work"
+    },
+    {
+      "name": "refresh",
+      "definition": "To fetch a value again: a GitHub user token refresh from its refresh token, or reloading a list such as Reviews"
+    },
+    {
+      "name": "send",
+      "definition": "To deliver a message: Send on the phone compose bar hands text to the agent, and the server sends notifications and link messages"
+    },
+    {
+      "name": "tab",
+      "definition": "The Tab key, which moves focus and has a sticky key in the phone key strip; also a dashboard view tab or a browser tab"
+    },
+    {
+      "name": "back",
+      "definition": "To return to the previous screen or level, such as the phone's Back or the browser history entry it pops"
+    },
+    {
+      "name": "cancel",
+      "definition": "To stop an action before it completes, such as Cancel on a clone or dialog, or a gate decision that cancels a held ready"
+    },
+    {
+      "name": "save",
+      "definition": "To write the operator's edits so they stick, such as Save on a board's Markdown document or a settings change"
+    },
+    {
+      "name": "start",
+      "definition": "To begin a session, race or step, as in Start session; also the agent's SessionStart hook that opens a turn"
+    },
+    {
+      "name": "tailscale",
+      "definition": "The mesh VPN whose tailscale serve can put the remote listener behind HTTPS, with remote.ownerLogin naming the only Tailscale login it answers"
+    },
+    {
+      "name": "zod",
+      "definition": "The schema library that defines every wire and persisted shape in shared/contracts, parsed at each boundary"
+    },
+    {
+      "name": "delete",
+      "definition": "To remove something for good, such as Delete my data in Settings, Privacy, a deleted board or a removed line"
+    },
+    {
+      "name": "map",
+      "definition": "A JavaScript Map keyed by id, such as a tracker's session map; also the retired Map tab of the review panel or a lean architecture map in an instruction file"
+    },
+    {
+      "name": "privacy",
+      "definition": "The Settings section about telemetry and Delete my data, and the rule that no identity or secret leaves the host"
+    },
+    {
+      "name": "request",
+      "definition": "An ask from one party to another: an agent's secret or pack request awaiting approval, Request changes on a review, or an HTTP request"
+    },
+    {
+      "name": "stop",
+      "definition": "The agent hook event that ends a turn (Stop, SubagentStop), or stopping a session, server or host"
+    },
+    {
+      "name": "workflow",
+      "definition": "A sequence of steps run together: workflow rules on pull request events, a GitHub Actions workflow, or the development workflow in AGENTS.md"
+    },
+    {
+      "name": "advanced",
+      "definition": "Settings or options set apart for experienced operators, such as an Advanced group in a Settings section"
+    },
+    {
+      "name": "input",
+      "definition": "Text or keys sent into a session, as in a terminal's input; Needs Input is the session state that waits on the operator"
+    },
+    {
+      "name": "container",
+      "definition": "A Docker container used by the remote-mode test run, or a UI element that lays out its children"
+    },
+    {
+      "name": "diff",
+      "definition": "A view of changes between two versions, such as a session's Changes diff from its base or a pull request diff in a review"
+    },
+    {
+      "name": "general",
+      "definition": "Not specific to one part: a general shell a lane keeps, or the former General Settings section, now Sessions"
+    },
+    {
+      "name": "origin",
+      "definition": "The git remote that is the source of truth for every worktree base, or a browser Origin header the dashboard listeners check"
+    },
+    {
+      "name": "queue",
+      "definition": "An ordered list of things awaiting a turn, such as the review queue, the merge queue, the git queue or the clone queue"
+    },
+    {
+      "name": "shared",
+      "definition": "Used by more than one party: the shared GitHub store every lane reads, shared constants in shared/, or a board shared between sessions"
+    },
+    {
+      "name": "socat",
+      "definition": "A relay utility the retired sandbox runtime once needed on Linux; the install no longer pulls it in"
+    },
+    {
+      "name": "bwrap",
+      "definition": "Bubblewrap, the Linux sandbox tool the retired sandbox runtime ran lanes under; the install no longer needs it"
+    },
+    {
+      "name": "paste",
+      "definition": "To insert clipboard content, such as Paste on the phone key strip, or pasting text or a picture onto a board"
+    },
+    {
+      "name": "read",
+      "definition": "To fetch without changing: a GitHub read token or read-only grant, an agent's Read tool, or a Sane YOLO credential read it blocks"
+    },
+    {
+      "name": "release",
+      "definition": "A published Glimmervoid version built from a release tag, and the Release channel of Updates; also a gate decision that releases a held ready"
+    },
+    {
+      "name": "unattended",
+      "definition": "Running with no operator present, as in unattended actions now covered by Guardrails and unattended"
+    },
+    {
+      "name": "write",
+      "definition": "To change stored state: an agent's Write tool, a config write, or a lane's write boundary"
+    },
+    {
+      "name": "attach",
+      "definition": "To add an upload to a session or board, such as Attach on the phone key strip or whiteboard attach; also attaching a terminal to its session's data WebSocket"
+    },
+    {
+      "name": "git",
+      "definition": "The version control tool Glimmervoid runs for worktrees, commits, rebases and pushes, through async execFile and one git queue"
+    },
+    {
+      "name": "left",
+      "definition": "The Left arrow key, which moves the selection to the previous board column; also left out, as in an agent left out of the picker"
+    },
+    {
+      "name": "option",
+      "definition": "The Option modifier key on a Mac, as in Cmd+Option+0; also one of several choices in a design decision or setting"
+    },
+    {
+      "name": "rg",
+      "definition": "Ripgrep, the search tool the retired sandbox runtime once needed on Linux"
+    },
+    {
+      "name": "right",
+      "definition": "The Right arrow key, which moves the selection to the next board column"
+    },
+    {
+      "name": "ticket",
+      "definition": "A unit of work with an id, objective and criteria, as carried by a spec or a retired factory intent"
+    },
+    {
+      "name": "touch",
+      "definition": "A finger on a touchscreen, as in phone touch input; also Touch ID on a Mac password manager prompt"
+    },
+    {
+      "name": "boundary",
+      "definition": "A line that code or trust may not cross: the trust boundary of the dashboard listeners, a lane's write boundary, or the Coherence and watcher import boundaries"
+    },
+    {
+      "name": "commit",
+      "definition": "A git commit a session records on its branch, possibly signed; to make one"
+    },
+    {
+      "name": "common",
+      "definition": "Shared by many places, as in the Common Patterns section of an instruction file"
+    },
+    {
+      "name": "credential",
+      "definition": "A secret that proves identity, such as a GitHub token, ssh key or password; Sane YOLO blocks agent reads of credentials"
+    },
+    {
+      "name": "develop",
+      "definition": "A common git branch name, used as an example of an integration branch that tracks another remote branch"
+    },
+    {
+      "name": "dispatch",
+      "definition": "To route an event to its handler, such as the dashboard shortcut dispatch; also the retired glimmervoid dispatch factory command"
+    },
+    {
+      "name": "environment",
+      "definition": "The variables a process starts with, scrubbed for every spawned session; also a Coder template environment"
+    },
+    {
+      "name": "export",
+      "definition": "To write a thing out for use elsewhere, such as glimmervoid whiteboard export to a .glimmerboard file, or an ES module export"
+    },
+    {
+      "name": "express",
+      "definition": "The HTTP server framework the backend runs on, beside ws for WebSockets"
+    },
+    {
+      "name": "first",
+      "definition": "The earliest in order, as in the first-run checklist shown before setup is done"
+    },
+    {
+      "name": "global",
+      "definition": "Machine-wide rather than per project, such as a global npm install"
+    },
+    {
+      "name": "high",
+      "definition": "The top confidence or priority level, such as a High confidence community run that notifies"
+    },
+    {
+      "name": "image",
+      "definition": "A picture file, such as one shown on a board, pasted into a session, or labelled [Image #N] in a conversation"
+    },
+    {
+      "name": "ingest",
+      "definition": "The retired machine context ingest that fed Visions; an ingest block left in config.json is ignored"
+    },
+    {
+      "name": "install",
+      "definition": "To put software in place: a Glimmervoid install, a pack install, a worktree's dependency install, or Install the App for GitHub"
+    },
+    {
+      "name": "latest",
+      "definition": "The newest available release, listed as Latest in Settings, Updates"
+    },
+    {
+      "name": "load",
+      "definition": "To read and start something, such as a dashboard page load, a config load or a pack load"
+    },
+    {
+      "name": "named",
+      "definition": "Given a stable name, as in DESIGN.md's Named Rules"
+    },
+    {
+      "name": "path",
+      "definition": "A filesystem path, such as a project path or the path a setting names, or the course a request or wire takes"
+    },
+    {
+      "name": "pick",
+      "definition": "To choose an item, such as picking an agent or organization; also a decision picked in a review note"
+    },
+    {
+      "name": "playwright",
+      "definition": "The browser automation library that runs headless Chromium in the harness and inside a guarded session"
+    },
+    {
+      "name": "reopen",
+      "definition": "To bring back a closed thing, such as Undo reopening a handled review item or a reopened pull request"
+    },
+    {
+      "name": "resync",
+      "definition": "The retired Resync control that synced a session branch with its base; workspace sessions show none"
+    },
+    {
+      "name": "schema",
+      "definition": "A typed description of a shape, such as a Zod schema in shared/contracts, or glimmervoid settings schema listing every setting"
+    },
+    {
+      "name": "select",
+      "definition": "To choose items, such as Select all repositories to clone, or a board selection; also a select dropdown control"
+    },
+    {
+      "name": "shutdown",
+      "definition": "Stopping the server cleanly, freeing every port and parking sessions so they auto-resume on the next start"
+    },
+    {
+      "name": "space",
+      "definition": "The Space key, which toggles a focused checkbox or button; also room on screen"
+    },
+    {
+      "name": "store",
+      "definition": "A place data is kept, such as the shared GitHub store, the config store or the whiteboard store"
+    },
+    {
+      "name": "sudo",
+      "definition": "Running a command as root on a remote host, which always needs the operator's approval"
+    },
+    {
+      "name": "taskkill",
+      "definition": "The Windows command that ends a process tree, run without a visible window when a session parks"
+    },
+    {
+      "name": "unset",
+      "definition": "To remove a setting's value, as in glimmervoid settings unset, so it falls back to its default"
+    },
+    {
+      "name": "wait",
+      "definition": "To hold until something happens, such as a gate decision to wait, or Waits on you on a pull request row"
+    },
+    {
+      "name": "convention",
+      "definition": "A rule the project follows by agreement, such as the CSS convention or the Conventions section of CONTRIBUTING.md"
+    },
+    {
+      "name": "glob",
+      "definition": "An agent's Glob tool for finding files by pattern, which no lane may deny bare"
+    },
+    {
+      "name": "grep",
+      "definition": "An agent's Grep tool for searching file contents, which no lane may deny bare"
+    },
+    {
+      "name": "monitor",
+      "definition": "A long-lived background task a session runs, such as a Monitor loop, which never holds a finished turn in Working"
+    },
+    {
+      "name": "octicons",
+      "definition": "GitHub's icon set that the pull request status icons use, crisp only at 16px"
+    },
+    {
+      "name": "page",
+      "definition": "A screen of the dashboard or site, an HTML page on a board, or the Page Up and Page Down keys"
+    },
+    {
+      "name": "prerequisites",
+      "definition": "What must be in place before a step can run, such as tools a host needs before remote setup"
+    },
+    {
+      "name": "startup",
+      "definition": "The start of a process: the server's launch and its update check, or an agent's SessionStart with source startup"
+    },
+    {
+      "name": "tracking",
+      "definition": "Following a value over time, such as usage tracking, or the remote branch a local branch tracks"
+    },
+    {
+      "name": "transport",
+      "definition": "The channel messages travel on, such as WebSocket or HTTP between the dashboard and the server"
+    },
+    {
+      "name": "windows action center",
+      "definition": "The Windows notification area where the browser routes Glimmervoid's native notifications"
     }
   ],
   "retired": [
