@@ -31,11 +31,13 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     spawn_fail: STATES.FAILED,
     provision_blocked: STATES.DORMANT,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.STARTING]: {
     first_output: STATES.IDLE,
     process_exit: STATES.FAILED,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.RUNNING]: {
     [COMPACTION_RESTORE_EVENTS[STATES.IDLE]]: STATES.IDLE,
@@ -46,6 +48,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     process_exit_ok: STATES.DONE,
     process_exit_fail: STATES.FAILED,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.WAITING]: {
     new_output: STATES.RUNNING,
@@ -53,6 +56,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     user_dismiss: STATES.RUNNING,
     task_complete: STATES.COMPLETE,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
     process_exit_ok: STATES.DONE,
     process_exit_fail: STATES.FAILED,
   },
@@ -63,6 +67,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     process_exit_ok: STATES.DONE,
     process_exit_fail: STATES.FAILED,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.COMPLETE]: {
     new_output: STATES.RUNNING,
@@ -71,10 +76,12 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     process_exit_ok: STATES.DONE,
     process_exit_fail: STATES.FAILED,
     user_kill: STATES.DONE,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.DONE]: {
     user_restart: STATES.INITIALIZING,
     user_reset: STATES.DORMANT,
+    user_snooze: STATES.DORMANT,
   },
   [STATES.FAILED]: {
     user_restart: STATES.INITIALIZING,

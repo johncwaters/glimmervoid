@@ -55,7 +55,7 @@ export {
 export type { OnboardingStepReport, OperatorSurface, OperatorAction, OperatorActionOf } from './control/control-fields.ts';
 
 const idOnlyClientTypes = [
-  'kill', 'start-session',
+  'kill', 'start-session', 'snooze-session',
   'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
 

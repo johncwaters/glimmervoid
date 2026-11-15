@@ -16,7 +16,7 @@ import { claudeProjectsDir, listRepoConversations } from '../../../session/core/
 import { planQuickSession } from '../../session/core/quick-session-core.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
 import { listDroppedRepoPaths, planWorkspaceMembers } from '../../../session/core/workspace-core.ts';
-import type { Session } from '../../../session/sessions.ts';
+import type { Session, SnoozeRefusal } from '../../../session/sessions.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
 import type { ProjectEntry } from '../../config-store.ts';
@@ -313,6 +313,23 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function refuseAddSession(msg: AddSessionRequest, reply: AddSessionReply, refusal: AddSessionRefusal): void {
     console.warn(`[control] add-session refused: name=${sanitizeOneLine(msg.name, CLIENT_LOG_TEXT_MAX_CHARS)} path=${sanitizeOneLine(msg.path, CLIENT_LOG_TEXT_MAX_CHARS)}: ${refusal.error}`);
     reply({ ok: false, error: refusal.error });
+  }
+
+  const SNOOZE_REFUSAL_TEXT: Readonly<Record<SnoozeRefusal, string>> = {
+    'in-progress': 'This session is already restarting or finishing. Snooze it once that settles.',
+    'no-conversation': 'This session has no saved conversation to pick back up, so snoozing it would lose the conversation.',
+    'not-snoozable': 'Only a running or finished session can be snoozed.',
+  };
+
+  function handleSnoozeSession(msg: ClientMessageOf<'snooze-session'>, ws: ControlSocket): void {
+    const sess = findSession(msg);
+    if (!sess) return;
+    if (agentSessions.get(sess.id) === sess) {
+      sendError(ws, 'This session is run by the agent or lane that started it, so it cannot be snoozed.', { id: sess.id });
+      return;
+    }
+    const outcome = sess.snooze();
+    if (!outcome.ok) sendError(ws, SNOOZE_REFUSAL_TEXT[outcome.reason], { id: sess.id });
   }
 
   function handleStartSession(msg: ClientMessageOf<'start-session'>, ws: ControlSocket): void {
@@ -713,6 +730,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'cancel-wake': handleCancelWake,
     'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session': handleStartSession,
+    'snooze-session': handleSnoozeSession,
     'restart': (msg: ClientMessageOf<'restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.restart(options)),
     'force-restart': (msg: ClientMessageOf<'force-restart'>, ws: ControlSocket) => restartSession(msg, ws, (s, options) => s.forceRestart(options)),
     'dismiss': (msg: ClientMessageOf<'dismiss'>) => {

@@ -132,6 +132,8 @@ function nextPendingPromptToolName(
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 
 type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer";
+type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
+type SnoozeOutcome = { ok: true } | { ok: false; reason: SnoozeRefusal };
 
 interface SessionRecorderPort {
   writeHeader(config: { agent?: string | null; cols?: number; rows?: number } & Record<string, unknown>): void;
@@ -2238,6 +2240,14 @@ class Session extends EventEmitter {
     return did;
   }
 
+  snooze(): SnoozeOutcome {
+    if (this._destroyed || this._teardownPending()) return { ok: false, reason: "in-progress" };
+    if (!this._resumeSessionId) return { ok: false, reason: "no-conversation" };
+    if (!this.transition("user_snooze")) return { ok: false, reason: "not-snoozable" };
+    this.kill();
+    return { ok: true };
+  }
+
   finishAndMerge(): { ok: boolean; pending?: boolean; reason?: string } {
     if (this._destroyed || this._teardownPending()) {
       return { ok: false, reason: this._teardownPending() ? "in-progress" : "destroyed" };
@@ -2317,4 +2327,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, SessionOptions };
+export type { ClaudeSessionIdEvent, SessionOptions, SnoozeRefusal };

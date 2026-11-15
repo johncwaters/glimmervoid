@@ -47,6 +47,7 @@ function projectSkipsPermissions(project: RegistryProject, skipPermissionsByDefa
 }
 
 function decideWasActiveFlip(to: SessionState, event: string, pendingRestart: boolean): boolean | null {
+  if (event === 'user_snooze') return false;
   if (to === STATES.STARTING || to === STATES.RUNNING) return true;
   if (!pendingRestart && (event === 'user_kill' || to === STATES.DONE || to === STATES.FAILED)) return false;
   return null;

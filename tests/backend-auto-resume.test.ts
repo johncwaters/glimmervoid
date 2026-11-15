@@ -579,6 +579,34 @@ test('a genuine kill (not a restart) still persists wasActive:false', async () =
   });
 });
 
+test('a snoozed session stays dormant through its own exit, keeps its conversation, and persists wasActive:false', async () => {
+  await asWin32(async () => {
+    await withStoreAsync({ projects: [{ id: 'sz1', name: 'sz1', path: 'C:/sz1' }] }, async (store, p) => {
+      const sess = restartableSession('sz1', []);
+      const writes = wireWasActive(sess, store);
+      try {
+        await sess.start();
+        sess.state = STATES.RUNNING;
+        assert.deepEqual(sess.snooze(), { ok: false, reason: 'no-conversation' });
+        assert.equal(sess.state, STATES.RUNNING);
+
+        sess.setResumeConversation('conv-snooze-1234');
+        assert.deepEqual(sess.snooze(), { ok: true });
+        assert.equal(sess.state, STATES.DORMANT);
+        await sess._handlePtyExit(0, null);
+        assert.equal(sess.state, STATES.DORMANT);
+        assert.equal(sess.resumeSessionId, 'conv-snooze-1234');
+        assert.deepEqual(writes, [true, false]);
+        await store.idle();
+        assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).projects[0].wasActive, false);
+      } finally {
+        if (sess._killPollTimer) clearTimeout(sess._killPollTimer);
+        sess.destroy();
+      }
+    });
+  });
+});
+
 test('createBackend shutdown stops the race settle check, so a race is never judged on sessions the shutdown destroyed', async () => {
   const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-race-shutdown-cfg-'));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-race-shutdown-proj-'));
