@@ -17,6 +17,7 @@ export type Step =
   | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
   | { kind: 'assert-fullscreen-app-row'; viewer?: ViewerId }
   | { kind: 'assert-terminal-typing'; viewer?: ViewerId }
+  | { kind: 'search-terminal-typing'; viewer?: ViewerId }
   | { kind: 'assert-touch-select-copy'; viewer?: ViewerId }
   | { kind: 'assert-link-repaint'; viewer?: ViewerId }
   | { kind: 'open'; viewer?: ViewerId }
@@ -75,6 +76,7 @@ export interface Scenario {
   companionViewport?: string;
   viewports?: readonly string[];
   proveFailure?: boolean;
+  runsOnlyWhenNamed?: boolean;
   agent?: string;
 }
 
@@ -310,6 +312,13 @@ export const SCENARIOS: readonly Scenario[] = [
     phoneOnly: true,
     viewports: ['phone-393'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-terminal-typing' }, { kind: 'shot', name: 'terminal-typing' }],
+  },
+  {
+    name: 'touch-typing-search',
+    phoneOnly: true,
+    viewports: ['phone-393'],
+    runsOnlyWhenNamed: true,
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'search-terminal-typing' }],
   },
   {
     name: 'touch-select-copy',
@@ -756,7 +765,7 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
     : VIEWPORTS;
   const selectedScenarios = wantedScenarioNames
     ? SCENARIOS.filter((scenario) => wantedScenarioNames.includes(scenario.name))
-    : SCENARIOS;
+    : SCENARIOS.filter((scenario) => scenario.runsOnlyWhenNamed !== true);
   const proveFailure = options.proveFailure === true;
   const resolved: HarnessCase[] = [];
   for (const viewport of selectedViewports) {

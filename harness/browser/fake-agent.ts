@@ -13,6 +13,14 @@ const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
 const BRACKETED_PASTE_MARKER = /\x1b\[20[01]~/g;
+const OUT_OF_BAND_COMMAND = /\x1b\]7777;([^\x07]*)\x07/g;
+const MODE_SEQUENCE_BY_COMMAND = new Map([
+  ['mouse-on', `${ESC}[?1000h${ESC}[?1006h`],
+  ['mouse-off', `${ESC}[?1000l${ESC}[?1006l`],
+  ['focus-on', `${ESC}[?1004h`],
+  ['focus-off', `${ESC}[?1004l`],
+  ['da', `${ESC}[c`],
+]);
 const MOTION_BUTTON_FLAG = 32;
 const WHEEL_BUTTON_FLAG = 64;
 
@@ -129,6 +137,11 @@ function osc8Link(url: string, text: string): string {
 }
 
 function dispatch(command: string): void {
+  const modeSequence = MODE_SEQUENCE_BY_COMMAND.get(command);
+  if (modeSequence) {
+    process.stdout.write(modeSequence);
+    return;
+  }
   if (command === 'link-row') {
     process.stdout.write(ANY_MOTION_SGR_TRACKING);
     writeRow(LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT);
@@ -192,7 +205,10 @@ function dispatch(command: string): void {
 let pending = '';
 
 function onInput(chunk: string): void {
-  pending += chunk.replace(BRACKETED_PASTE_MARKER, '');
+  pending += chunk.replace(BRACKETED_PASTE_MARKER, '').replace(OUT_OF_BAND_COMMAND, (_sequence, command: string) => {
+    dispatch(command);
+    return '';
+  });
   pending = pending.replace(SGR_MOUSE_REPORT, (_report, buttonCode: string, pressOrRelease: string) => {
     const button = Number(buttonCode);
     if (button === WHEEL_BUTTON_FLAG || button === WHEEL_BUTTON_FLAG + 1) {

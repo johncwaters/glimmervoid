@@ -9,6 +9,8 @@ import type { HarnessCase, Layout, ResolvedStep, Step, ViewerId, Viewport } from
 import { DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, MOTION_REPORT_PREFIX, expectedRows, parseStatusRow } from './frame-core.ts';
 import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from './boards.ts';
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
+import { searchTerminalTyping } from './typing-search.ts';
+import type { TypingSearchOptions } from './typing-search.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -38,6 +40,7 @@ export interface RunCaseOptions {
   baseUrl: string;
   artifacts: ArtifactPaths;
   deadlines: Deadlines;
+  typingSearch: TypingSearchOptions;
 }
 
 export const DEFAULT_DEADLINES: Deadlines = {
@@ -1171,6 +1174,7 @@ export async function runCase({
   baseUrl,
   artifacts,
   deadlines,
+  typingSearch,
 }: RunCaseOptions): Promise<CaseRecord> {
   const key = caseKey({ viewport: harnessCase.viewport.name, scenario: harnessCase.scenario.name });
   const log: CaseLog = { lines: [], consoleErrors: [], pageErrors: [] };
@@ -1249,6 +1253,9 @@ export async function runCase({
     }
     if (step.kind === 'assert-terminal-typing') {
       return passedOutcome('terminal-typing', await verifyTerminalTyping(viewer.page, async (command) => { await runType(viewer, command); }));
+    }
+    if (step.kind === 'search-terminal-typing') {
+      return passedOutcome('terminal-typing-search', await searchTerminalTyping(viewer.page, typingSearch));
     }
     if (step.kind === 'assert-touch-select-copy') {
       return passedOutcome('touch-select-copy', await verifyTouchSelectCopy(viewer.page, async (command) => { await runType(viewer, command); }));

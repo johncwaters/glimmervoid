@@ -46,10 +46,14 @@ interface HarnessOptions {
   browserName: string;
   lanAddress: string | null;
   lanAllowedPeers: string[];
+  typingSearchSeed: number;
+  typingSearchBudgetSeconds: number;
   unknownArguments: string[];
   flagsMissingValues: string[];
+  flagsWithInvalidValues: string[];
 }
 
+const DEFAULT_TYPING_SEARCH_BUDGET_SECONDS = 60;
 const LAN_DEFAULT_VIEWPORT = 'phone-393';
 const LAN_DEFAULT_SCENARIO_PREFIX = 'touch-';
 const LAN_DEVICE_STEPS = [
@@ -72,6 +76,22 @@ const APPLY_VALUE_BY_FLAG = new Map<string, (options: HarnessOptions, value: str
   ['--browser', (options, value) => { options.browserName = value; }],
   ['--lan', (options, value) => { options.lanAddress = value; }],
   ['--lan-allow', (options, value) => { options.lanAllowedPeers.push(value); }],
+  ['--seed', (options, value) => {
+    const seed = Number(value);
+    if (!Number.isSafeInteger(seed) || seed < 0) {
+      options.flagsWithInvalidValues.push(`--seed ${value}`);
+      return;
+    }
+    options.typingSearchSeed = seed;
+  }],
+  ['--budget-seconds', (options, value) => {
+    const budgetSeconds = Number(value);
+    if (!Number.isFinite(budgetSeconds) || budgetSeconds <= 0) {
+      options.flagsWithInvalidValues.push(`--budget-seconds ${value}`);
+      return;
+    }
+    options.typingSearchBudgetSeconds = budgetSeconds;
+  }],
 ]);
 
 function valueFollowing(argv: readonly string[], flagIndex: number): string | null {
@@ -92,8 +112,11 @@ function parseArguments(argv: readonly string[]): HarnessOptions {
     browserName: 'chromium',
     lanAddress: null,
     lanAllowedPeers: [],
+    typingSearchSeed: Date.now() % 2 ** 32,
+    typingSearchBudgetSeconds: DEFAULT_TYPING_SEARCH_BUDGET_SECONDS,
     unknownArguments: [],
     flagsMissingValues: [],
+    flagsWithInvalidValues: [],
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? '';
@@ -308,6 +331,10 @@ async function main(): Promise<number> {
     console.error(`harness flag needs a value: ${options.flagsMissingValues.join(' ')}`);
     return EXIT_HARNESS_ERROR;
   }
+  if (options.flagsWithInvalidValues.length > 0) {
+    console.error(`harness flag value must be a positive number: ${options.flagsWithInvalidValues.join(', ')}`);
+    return EXIT_HARNESS_ERROR;
+  }
   const refusedLan = lanRefusal(options);
   if (refusedLan) {
     console.error(refusedLan);
@@ -451,7 +478,7 @@ async function main(): Promise<number> {
       const deadlines = index === 0
         ? { ...DEFAULT_DEADLINES, pageReadyMs: COLD_START_PAGE_READY_MS }
         : DEFAULT_DEADLINES;
-      const record = await runCase({ browser, harnessCase, sessionId, projectDirectory: projectDirs[index] ?? '', baseUrl, artifacts, deadlines });
+      const record = await runCase({ browser, harnessCase, sessionId, projectDirectory: projectDirs[index] ?? '', baseUrl, artifacts, deadlines, typingSearch: { seed: options.typingSearchSeed, budgetSeconds: options.typingSearchBudgetSeconds } });
       records.push(record);
       console.log(`${record.outcome.padEnd(7)} ${record.viewport} / ${record.scenario} (${record.durationMs}ms)`);
     }

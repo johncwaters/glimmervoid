@@ -15,9 +15,9 @@ declare global {
   interface Window { sentTerminalInputs?: string[]; terminalDataSocket?: WebSocket }
 }
 
-const terminalTextarea = '.phone-card-slot .xterm-helper-textarea';
+export const terminalTextarea = '.phone-card-slot .xterm-helper-textarea';
 
-async function recordTerminalInputs(page: Page) {
+export async function recordTerminalInputs(page: Page) {
   await page.evaluate(() => {
     const isAlreadyRecording = window.sentTerminalInputs !== undefined;
     window.sentTerminalInputs = [];
@@ -33,7 +33,7 @@ async function recordTerminalInputs(page: Page) {
   });
 }
 
-async function sentInputs(page: Page) {
+export async function sentInputs(page: Page) {
   return page.evaluate(() => window.sentTerminalInputs ?? []);
 }
 
@@ -56,7 +56,7 @@ async function assertRowFitsWithoutScroll(page: Page) {
   assert.equal(overflowPx, 0, 'the key strip fits its row without scrolling');
 }
 
-async function modifierState(page: Page, slotId: string) {
+export async function modifierState(page: Page, slotId: string) {
   const modifier = page.locator(`[data-key="${slotId}"]`).first();
   return { isPressed: await modifier.getAttribute('aria-pressed') === 'true', isLocked: await modifier.getAttribute('data-locked') !== null };
 }
@@ -127,7 +127,7 @@ export async function verifyKeyStripContexts(page: Page, typeCommand: (command: 
   return 'working and ready rows; an agent drawing its own alternate screen keeps the ready row; a swipe types no arrow; a held arrow repeats and stops after a rebuild; Ctrl once, locked and released; the More sheet keeps Alt and closes on a key';
 }
 
-async function focusTerminalTextarea(page: Page) {
+export async function focusTerminalTextarea(page: Page) {
   await page.locator('.phone-card-slot .terminal-wrap').click();
   await page.waitForFunction((selector) => document.activeElement === document.querySelector(selector), terminalTextarea);
 }
@@ -140,7 +140,7 @@ async function keyboardHintsOf(page: Page) {
   }));
 }
 
-async function keyboardTextOf(page: Page) {
+export async function keyboardTextOf(page: Page) {
   return page.locator(terminalTextarea).evaluate((textarea) => (textarea as HTMLTextAreaElement).value);
 }
 
