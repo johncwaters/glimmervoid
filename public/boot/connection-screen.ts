@@ -91,6 +91,7 @@ const SERVER_UNREACHABLE_TEXT = 'The server is not answering. Check the terminal
 const SERVER_UNREACHABLE_LOADING_DETAIL = 'Server not answering. Check the Glimmervoid terminal for errors, or run glimmervoid. This page retries on its own.';
 let serverUnreachableHintTimer: number | null = null;
 let isServerUnreachableHintShown = false;
+let controlSocketState = 'disconnected';
 
 function showReconnectingLoadingStatus() {
   loadingStatus.textContent = 'Reconnecting to server...';
@@ -110,12 +111,23 @@ function showServerUnreachableHint() {
 
 function scheduleServerUnreachableHint() {
   if (serverUnreachableHintTimer !== null || isServerUnreachableHintShown) return;
+  if (document.visibilityState !== 'visible') return;
   serverUnreachableHintTimer = window.setTimeout(showServerUnreachableHint, SERVER_UNREACHABLE_HINT_DELAY_MS);
 }
 
-function clearServerUnreachableHint() {
+function cancelServerUnreachableCountdown() {
   if (serverUnreachableHintTimer !== null) window.clearTimeout(serverUnreachableHintTimer);
   serverUnreachableHintTimer = null;
+}
+
+function restartServerUnreachableCountdownOnVisibilityChange() {
+  cancelServerUnreachableCountdown();
+  if (controlSocketState === 'connected') return;
+  scheduleServerUnreachableHint();
+}
+
+function clearServerUnreachableHint() {
+  cancelServerUnreachableCountdown();
   isServerUnreachableHintShown = false;
   loadingDetail.hidden = true;
   clearHeaderError(SERVER_ERROR_SOURCE);
@@ -158,6 +170,7 @@ function onConnectionStateChanged(state: string, label: string) {
     return;
   }
   showConnectionState(state, label);
+  controlSocketState = state;
   for (const viewTab of VIEW_TABS) viewTab.onConnectionChange?.(state === 'connected');
 
   if (state === 'connected') {
@@ -175,6 +188,7 @@ function onConnectionStateChanged(state: string, label: string) {
 function mountConnectionScreen() {
   onTerminalLinkChange(revealAppWhenTerminalsLive);
   setConnectionStateCallback(onConnectionStateChanged);
+  document.addEventListener('visibilitychange', restartServerUnreachableCountdownOnVisibilityChange);
 }
 
 export { SERVER_ERROR_SOURCE, mountConnectionScreen, noteSnapshotReceived, scheduleServerUnreachableHint, showServerGoingDown };
