@@ -9,7 +9,7 @@ import { sanitizeWorktreeName } from '../../shared/paths.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import { deleteRetiredBenchmarkRuns, deleteRetiredIssuesCache, deleteRetiredPlans, deleteRetiredRemoteSessionData } from './retired-feature-data.ts';
 import { createRaceWiring } from '../race/race-wiring.ts';
-import { contestantDiff } from '../race/race-diff.ts';
+import { contestantDiff, contestantDiffStats } from '../race/race-diff.ts';
 import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
@@ -347,6 +347,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     transitionsOf: (sessionId) => findLiveSession(sessionId)?.auditLog.flatMap((entry) => (typeof entry.to === 'string' && typeof entry.timestamp === 'number' ? [{ to: entry.to, at: entry.timestamp }] : [])) ?? null,
     usageLookup: () => usage.sessionUsageLookup(),
     diffOf: contestantDiff,
+    statsOf: contestantDiffStats,
     judgeRoot: path.join(glimmervoidHome, 'race-judges'),
     reviewCases: createReviewCaseLibrary({ minedRoot: path.join(glimmervoidHome, 'review-cases'), legacySuitesRoot: path.join(glimmervoidHome, 'benchmarks'), store: githubStore.laneStore, log: logger }),
     runCheck: async ({ worktreeDir, check }) => {

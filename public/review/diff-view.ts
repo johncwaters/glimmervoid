@@ -110,3 +110,23 @@ export async function mountFileDiff(host: HTMLElement, options: MountFileDiffOpt
     destroy: () => renderer.cleanUp(),
   };
 }
+
+export async function mountPatchDiff(host: HTMLElement, patch: string, layout: DiffLayout): Promise<MountedFileDiff> {
+  const diffs = await preloadDiffRenderer();
+  const fileDiff = diffs.processFile(patch, { isGitDiff: true });
+  if (!fileDiff) throw new Error('This file diff could not be read');
+  const renderer = new diffs.FileDiff<string>({
+    theme: DIFF_THEME_NAME,
+    diffStyle: layout,
+    lineDiffType: 'word-alt',
+    hunkSeparators: 'line-info',
+    disableFileHeader: true,
+    overflow: 'scroll',
+    lineHoverHighlight: 'line',
+  });
+  renderer.render({ fileDiff, containerWrapper: host });
+  return {
+    setAnnotations: () => {},
+    destroy: () => renderer.cleanUp(),
+  };
+}

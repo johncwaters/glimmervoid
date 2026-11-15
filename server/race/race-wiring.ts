@@ -12,7 +12,7 @@ import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import { buildJudgePrompt as buildMatcherPrompt, extractReviewFindings, scoreCell, validateJudgeOutput as parseMatcherOutput } from '../core/review-score-core.ts';
 import type { JudgeInput, SessionWatch } from './core/race-core.ts';
 import { RACE_JUDGE_RESULT_FILENAME, REVIEW_FINDINGS_FILENAME, REVIEW_MATCH_RESULT_FILENAME, contestantFinish, judgeCheckFileName, judgeCheckoutDirName, judgeDiffFileName, judgeIdAt, judgeLabel, judgePrompt, panelStanding, parseJudgeVerdict, raceDeadline, raceHistory, unblindVerdict } from './core/race-core.ts';
-import type { ContestantDiff } from './race-diff.ts';
+import type { ContestantDiff, ContestantDiffStats } from './race-diff.ts';
 import type { RaceStore } from './race-store.ts';
 import type { ReviewCaseLibrary } from './review-cases.ts';
 import { clock } from '../../shared/clock.ts';
@@ -66,6 +66,7 @@ interface RaceWiringDependencies {
   sessionWatchOf?: (sessionId: string) => Omit<SessionWatch, 'hasSettled'> | null;
   worktreeOf?: (sessionId: string) => string | null;
   diffOf?: (args: { worktreeDir: string; startSha: string; blindCheckoutDir?: string | null }) => Promise<ContestantDiff>;
+  statsOf?: (args: { worktreeDir: string; startSha: string }) => Promise<ContestantDiffStats>;
   spawnJudge?: ((request: JudgeSpawnRequest) => Promise<void>) | null;
   runCheck?: (args: { worktreeDir: string; check: RaceCheck }) => Promise<CheckOutcome>;
   transitionsOf?: (sessionId: string) => readonly StateTransition[] | null;
@@ -87,7 +88,7 @@ function shuffled<Item>(items: readonly Item[], random: () => number): Item[] {
 
 function createRaceWiring({
   store, git, integrationBranch, broadcast, log, sessionStateOf = () => REMOVED_CONTESTANT, sessionWatchOf, worktreeOf = () => null,
-  diffOf = async () => ({ ok: false, reason: 'diffs are unavailable' }), spawnJudge = null, runCheck = async () => ({ status: 'unavailable', exitCode: null, reason: 'checks are unavailable', durationMs: 0, outputTail: '' }),
+  diffOf = async () => ({ ok: false, reason: 'diffs are unavailable' }), statsOf = async () => ({ ok: false, reason: 'diff stats are unavailable' }), spawnJudge = null, runCheck = async () => ({ status: 'unavailable', exitCode: null, reason: 'checks are unavailable', durationMs: 0, outputTail: '' }),
   transitionsOf = () => null, usageLookup = () => () => null, judgeRoot = null, reviewCases = null, now = clock.nowMs, random = Math.random,
 }: RaceWiringDependencies) {
   const raceById = new Map<string, RaceRecord>();
@@ -96,6 +97,7 @@ function createRaceWiring({
   let history: RaceHistory = raceHistory([], new Set());
   let settleTimer: ReturnType<typeof setInterval> | null = null;
   let isWatchingStopped = false;
+  let liveStatsRun: Promise<void> | null = null;
 
   function status(): { type: 'race-status'; races: RaceRecord[] } {
     return { type: 'race-status', races: [...raceById.values()].sort((left, right) => right.createdAt - left.createdAt) };
@@ -473,9 +475,48 @@ function createRaceWiring({
     }
   }
 
+  function sameStats(left: RaceRecord['diffStatsByContestant'], right: RaceRecord['diffStatsByContestant']): boolean {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every((key) => left[key]?.filesChanged === right[key]?.filesChanged && left[key]?.linesAdded === right[key]?.linesAdded && left[key]?.linesRemoved === right[key]?.linesRemoved);
+  }
+
+  async function liveStatsOf(record: RaceRecord): Promise<RaceRecord['diffStatsByContestant']> {
+    const statsByContestant: RaceRecord['diffStatsByContestant'] = { ...record.diffStatsByContestant };
+    for (const [contestantId, sessionId] of Object.entries(record.sessionIdByContestant)) {
+      const worktreeDir = worktreeOf(sessionId);
+      if (!worktreeDir) continue;
+      const measured = await statsOf({ worktreeDir, startSha: record.startSha });
+      if (measured.ok) statsByContestant[contestantId] = measured.stats;
+    }
+    return statsByContestant;
+  }
+
+  async function measureLiveStats(): Promise<void> {
+    let hasChanged = false;
+    for (const record of [...raceById.values()]) {
+      if (record.phase !== 'running' || record.winnerContestantId !== null) continue;
+      const statsByContestant = await liveStatsOf(record);
+      const current = raceById.get(record.id);
+      if (current?.phase !== 'running' || sameStats(current.diffStatsByContestant, statsByContestant)) continue;
+      raceById.set(record.id, { ...current, diffStatsByContestant: statsByContestant });
+      hasChanged = true;
+    }
+    if (hasChanged) broadcast(status());
+  }
+
+  function refreshLiveStats(): Promise<void> {
+    liveStatsRun ??= measureLiveStats().finally(() => { liveStatsRun = null; });
+    return liveStatsRun;
+  }
+
+  function watchRaces(): void {
+    judgeSettledRaces();
+    void refreshLiveStats().catch((error: unknown) => log.warn(`[race] could not refresh live diff stats: ${errorMessage(error)}`));
+  }
+
   function startWatching(): void {
     if (settleTimer || isWatchingStopped) return;
-    settleTimer = setInterval(judgeSettledRaces, SETTLE_CHECK_INTERVAL_MS);
+    settleTimer = setInterval(watchRaces, SETTLE_CHECK_INTERVAL_MS);
     settleTimer.unref?.();
   }
 
@@ -505,7 +546,7 @@ function createRaceWiring({
     return reviewCases.mine(repo);
   }
 
-  return { status, historyFrame, loadRaces, start, judge, pickWinner, startWatching, stopWatching, contestantDiffText, listCases, mineCases };
+  return { status, historyFrame, loadRaces, start, judge, pickWinner, refreshLiveStats, startWatching, stopWatching, contestantDiffText, listCases, mineCases };
 }
 
 type RaceWiring = ReturnType<typeof createRaceWiring>;

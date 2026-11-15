@@ -47,5 +47,20 @@ async function diffOnScratchIndex({ worktreeDir, startSha, blindCheckoutDir, scr
   return { ok: true, diff: diff.out, stats: parseShortstat(shortstat.out), blindDiff: blindDiff.out, blindStats: parseShortstat(blindShortstat.out) };
 }
 
-export { contestantDiff };
-export type { ContestantDiff };
+type ContestantDiffStats = { ok: true; stats: DiffStats } | { ok: false; reason: string };
+
+async function contestantDiffStats({ worktreeDir, startSha }: { worktreeDir: string; startSha: string }): Promise<ContestantDiffStats> {
+  const scratchRun = await withScratchIndex(worktreeDir, DIFF_TIMEOUT_MS, async (scratchIndexEnv): Promise<ContestantDiffStats> => {
+    const gitOptions = { cwd: worktreeDir, env: scratchIndexEnv, timeoutMs: DIFF_TIMEOUT_MS, maxBuffer: DIFF_MAX_BUFFER_BYTES };
+    const staged = await runGit(['add', '-A'], gitOptions);
+    if (!staged.ok) return { ok: false, reason: `could not read the working tree: ${staged.err}` };
+    const shortstat = await runGit(['diff', '--cached', '--shortstat', startSha], gitOptions);
+    if (!shortstat.ok) return { ok: false, reason: `could not diff against ${startSha}: ${shortstat.err}` };
+    return { ok: true, stats: parseShortstat(shortstat.out) };
+  });
+  if (!scratchRun.ok) return { ok: false, reason: `not a git checkout: ${scratchRun.reason}` };
+  return scratchRun.value;
+}
+
+export { contestantDiff, contestantDiffStats };
+export type { ContestantDiff, ContestantDiffStats };
