@@ -31,6 +31,7 @@ import { startGithubConnectionAlerts } from '../server/github-connection-alerts.
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
+import { DoormanWakeStatus } from '../shared/contracts/doorman.ts';
 import { AWAKE_USAGE_PATH, AwakeUsageAnswer, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
@@ -1012,6 +1013,9 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   const polledPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } });
   assert.equal(polledPage.status, 202, 'the page\'s own poll gets no error status, so the browser console stays quiet while the host sleeps');
   assert.match(polledPage.body, /id="wake"/);
+  const dashboardPoll = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { accept: 'application/json', 'x-glimmervoid-wake-poll': '1' } });
+  assert.equal(dashboardPoll.status, 202, 'an open dashboard\'s poll is answered at once, never held until the host wakes');
+  assert.deepEqual(DoormanWakeStatus.parse(JSON.parse(dashboardPoll.body)), { state: 'waking' });
   const pageScript = /<script>([\s\S]*)<\/script>/.exec(wakingPage.body)?.[1] ?? '';
   const pagePolicy = await new Promise<string>((resolve, reject) => {
     http.request({ host: '127.0.0.1', port: doormanPort, path: '/', headers: { ...browserHeaders, host: tenantHost } }, (response) => {
@@ -1026,6 +1030,7 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
     return answer.status === 200 ? answer : undefined;
   }), { status: 200, body: 'awake' });
   assert.deepEqual(await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'the page\'s own poll never reaches the awake server, so a one-use link is spent only by the operator\'s navigation');
+  assert.deepEqual(await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { accept: 'application/json', 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'an open dashboard\'s poll learns the host answers without reaching it');
 
   const stopped = await requestHostStop(doormanPort, tenantHost, directionKey(linkSecret, 'server-to-watcher'));
   assert.equal(stopped.status, 202);

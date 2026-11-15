@@ -53,6 +53,10 @@ export const AwakeEvent = z.strictObject({
 });
 export type AwakeEvent = z.infer<typeof AwakeEvent>;
 
+export const DOORMAN_WAKE_POLL_HEADER = 'x-glimmervoid-wake-poll';
+export const DoormanWakeStatus = z.strictObject({ state: z.literal('waking') });
+export type DoormanWakeStatus = z.infer<typeof DoormanWakeStatus>;
+
 export const DOORMAN_LOCK_FILE_NAME = 'doorman.lock';
 export const DOORMAN_PORT_FILE_NAME = 'port';
 export type DoormanTenantTableInput = z.input<typeof DoormanTenantTable>;

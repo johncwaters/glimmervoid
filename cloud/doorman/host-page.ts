@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '../../shared/brand-mark.ts';
 import { clock } from '../../shared/clock.ts';
+import { DOORMAN_WAKE_POLL_HEADER } from '../../shared/contracts/doorman.ts';
 import type { WakePageState } from './doorman-core.ts';
 
 const TYPICAL_WAKE_SECONDS = 15;
 const WAKE_POLL_MS = 1000;
-const WAKE_POLL_HEADER = 'x-glimmervoid-wake-poll';
 
 const HOST_PAGE_STYLES = [
   ':root{--bg:#0f0d15;--border-dim:#2b2636;--text:#cfcbd9;--text-head:#efedf6;--text-muted:#9e97af;--accent:#b688fe;--state-failed:#f84d4c}',
@@ -56,7 +56,7 @@ const HOST_PAGE_SCRIPT = `(() => {
     }
   };
   const readRender = async () => {
-    const response = await fetch(location.href, { headers: { accept: 'text/html', '${WAKE_POLL_HEADER}': '1' }, cache: 'no-store', redirect: 'manual' });
+    const response = await fetch(location.href, { headers: { accept: 'text/html', '${DOORMAN_WAKE_POLL_HEADER}': '1' }, cache: 'no-store', redirect: 'manual' });
     if (response.status !== 202) return null;
     return new DOMParser().parseFromString(await response.text(), 'text/html').getElementById('wake');
   };
@@ -143,4 +143,4 @@ function overCapPage({ awakeHoursPerMonth, periodEndsAt }: { awakeHoursPerMonth:
   });
 }
 
-export { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, overCapPage, wakeLimitedPage, wakingPage };
+export { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, wakeLimitedPage, wakingPage };

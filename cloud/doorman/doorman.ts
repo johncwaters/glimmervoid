@@ -13,11 +13,11 @@ import { createWatcherHome } from '../watcher/watcher-home.ts';
 import type { WatcherFiles } from '../watcher/watcher-home.ts';
 import { createWatcherListener } from '../watcher/watcher-listener.ts';
 import type { GithubConnectionControl } from '../watcher/watcher-listener.ts';
-import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DOORMAN_WAKE_POLL_HEADER, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { stampProcessOutputLines } from '../../server/log-stamp.ts';
-import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput, WakeStartedBy } from '../../shared/contracts/doorman.ts';
+import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput, DoormanWakeStatus, WakeStartedBy } from '../../shared/contracts/doorman.ts';
 import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
@@ -32,7 +32,7 @@ import { createFileTenantRecordStore } from './tenant-record-store.ts';
 import type { TenantRecordStore } from './tenant-record-store.ts';
 import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import type { DoormanRoute, ForwardState, WakePageState } from './doorman-core.ts';
-import { HOST_PAGE_CONTENT_SECURITY_POLICY, WAKE_POLL_HEADER, overCapPage, wakeLimitedPage, wakingPage } from './host-page.ts';
+import { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, wakeLimitedPage, wakingPage } from './host-page.ts';
 import { createFileDoormanState, createFileTenantState, createGcsDoormanState, stateBucketOf } from './doorman-state.ts';
 import type { DoormanState, DoormanTenantState } from './doorman-state.ts';
 import { clock } from '../../shared/clock.ts';
@@ -93,10 +93,24 @@ function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMont
 }
 
 function isWakePoll(request: http.IncomingMessage): boolean {
-  return request.headers[WAKE_POLL_HEADER] !== undefined;
+  return request.headers[DOORMAN_WAKE_POLL_HEADER] !== undefined;
+}
+
+function answerWakeStatus(response: http.ServerResponse): void {
+  if (response.headersSent) {
+    response.destroy();
+    return;
+  }
+  const wakeStatus: DoormanWakeStatus = { state: 'waking' };
+  response.writeHead(202, { 'content-type': 'application/json', 'cache-control': 'no-store', 'retry-after': RETRY_AFTER_SECONDS });
+  response.end(JSON.stringify(wakeStatus));
 }
 
 function answerWakingPage(request: http.IncomingMessage, response: http.ServerResponse, state: WakePageState): void {
+  if (!wantsWakingPage(request.method, request.headers.accept)) {
+    answerWakeStatus(response);
+    return;
+  }
   answerHostPage(response, wakingPage(state, Number(RETRY_AFTER_SECONDS)), { status: isWakePoll(request) ? 202 : 503, retryAfterSeconds: Number(RETRY_AFTER_SECONDS) });
 }
 
@@ -307,7 +321,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function forwardAfterHold(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse, bodyless: Readable | undefined): Promise<void> {
-    if (wantsWakingPage(request.method, request.headers.accept)) return answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
+    if (wantsWakingPage(request.method, request.headers.accept) || isWakePoll(request)) return answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
     const outcome = await holdUntilAwake(entry);
     if (outcome !== 'answering') return answerNotAwake(entry, outcome, request, response);
     if (response.destroyed) return;
