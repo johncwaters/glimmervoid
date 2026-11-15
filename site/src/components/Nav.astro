@@ -1,12 +1,13 @@
 ---
 import { BRAND_ACCENT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../shared/brand-mark.ts';
+import Wordmark from './Wordmark.astro';
 import { siteNavLinks } from '../lib/site-nav.ts';
 import { sitePath } from '../lib/site-path.ts';
 
 const home = sitePath('');
 ---
 <nav class="top" aria-label="Site">
-  <a class="wordmark" href={home}><svg class="wordmark-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>GLIMMERVOID</a>
+  <a class="wordmark" href={home}><svg class="wordmark-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg><Wordmark /></a>
   <ul>
     {siteNavLinks(home).map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
     <li><a class="nav-install" href={`${home}#install`}>Install</a></li>

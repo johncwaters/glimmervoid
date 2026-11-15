@@ -1,6 +1,7 @@
 ---
 import { PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
+import Wordmark from './Wordmark.astro';
 
 const LINK_GROUPS = [
   {
@@ -23,7 +24,7 @@ const LINK_GROUPS = [
 ---
 <footer>
   <div class="footer-brand">
-    <p class="wordmark">Glimmervoid</p>
+    <p class="wordmark"><Wordmark isStacked /></p>
     <p>See it before it's built.</p>
     <p class="footer-meta">v{PRODUCT_VERSION}, open source under MIT. Shipped from inside Glimmervoid.</p>
     <a class="devhunt-badge" href="https://devhunt.org/tool/glimmervoid" target="_blank" rel="noopener" title="Glimmervoid on DevHunt"><img src="https://devhunt.org/badge/glimmervoid.svg" alt="Glimmervoid - Featured on DevHunt" width="220" height="54" loading="lazy" /></a>
@@ -40,7 +41,7 @@ const LINK_GROUPS = [
 <style>
   footer { border-top: 1px solid var(--border-dim); padding-block: 40px 0; display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 28px 24px; font-size: var(--type-meta); color: var(--text-dim); }
   .footer-brand { display: flex; flex-direction: column; gap: 6px; }
-  .wordmark { color: var(--text-head); font-weight: 700; font-size: var(--type-doc-h3); letter-spacing: 0.02em; }
+  .wordmark { margin-bottom: 6px; font-size: 28px; }
   .footer-meta { margin-top: 6px; }
   .devhunt-badge { margin-top: 10px; align-self: flex-start; }
   .group-title { margin-bottom: 8px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }

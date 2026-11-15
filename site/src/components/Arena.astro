@@ -108,12 +108,12 @@ const DIAGRAM_LABEL = `One prompt forks from main into five agent setups, each o
   .arena-race .note { font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.02em; }
   .arena-race .prompt-note { fill: var(--text-head); }
   .arena-race .kept-note { fill: var(--state-complete); }
-  .arena-race .prompt-dot { fill: var(--bg-card); stroke: var(--text-head); stroke-width: 2.5; }
+  .arena-race .prompt-dot { fill: var(--bg); stroke: var(--text-head); stroke-width: 2.5; }
   .arena-race .branch { fill: none; stroke-width: 2.5; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset var(--leave-ms) var(--ease-in-expo); }
   .arena-race .branch[data-on="false"] { opacity: 1; transform: none; }
   .arena-race .branch[data-on="true"] { stroke-dashoffset: 0; transition: stroke-dashoffset 900ms var(--ease-out-expo); }
   .arena-race .winner-merge { stroke: var(--accent); }
-  .arena-race .commit-dot { fill: var(--bg-card); stroke-width: 2.5; }
+  .arena-race .commit-dot { fill: var(--bg); stroke-width: 2.5; }
   .arena-race .tone-running { --lane: var(--state-running); }
   .arena-race .tone-starting { --lane: var(--state-starting); }
   .arena-race .tone-accent { --lane: var(--accent); }

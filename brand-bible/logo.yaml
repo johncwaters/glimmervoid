@@ -12,11 +12,14 @@ variants:
     file: shared/brand-mark.ts
     use: The mark alone in the dashboard header and the loading screen, and the glyph inside the horizontal lockup.
   - id: wordmark
-    file: site/src/components/Nav.astro
-    use: GLIMMERVOID set uppercase in CommitMono 700 with 0.1em tracking; never mixed case, never another face.
+    file: public/index.html
+    use: GLIMMERVOID set uppercase in CommitMono 700 with 0.1em tracking in solid ink; the dashboard header. Never mixed case, never another face.
+  - id: stacked
+    file: site/src/components/Wordmark.astro
+    use: GLIMMER over VOID with a violet diamond after VOID; the display lockup for the site hero, the site footer and the link image (marketing/social/templates/link-card.html).
   - id: horizontal
     file: site/src/components/Nav.astro
-    use: The mark left of the wordmark, mark height matching the cap height plus clear space; the site nav lockup.
+    use: The mark left of the website's wordmark (site/src/components/Wordmark.astro, 0.06em tracking, GLIMMER solid and VOID outlined in the same ink), mark height matching the cap height plus clear space; the site nav lockup.
   - id: favicon
     file: public/favicon.svg
     use: Browser tab; the light turns amber or red when a session needs the operator or failed.
@@ -35,3 +38,4 @@ misuse:
   - Never fill the brackets or round their joins; they are mitered strokes.
   - Never recolor the brackets with a state color; only the light carries state.
   - Never add a gradient, glow or drop shadow to the mark at rest.
+  - Never color the stacked wordmark's diamond with a state color; it is the accent, like the mark's light.

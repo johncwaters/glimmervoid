@@ -124,14 +124,14 @@ const FIGURE_LABEL = `A session in Sane YOLO mode runs commands without permissi
   .ledger-intro { margin: 8px 0 20px; max-width: 70ch; color: var(--text-dim); }
   .yolo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 0; }
   .yolo-copy { display: flex; flex-direction: column; gap: 14px; max-width: 60ch; }
-  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 0 0 8px; }
-  .yolo-session { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border-dim); }
+  .yolo-drop { container-type: inline-size; margin: 0; min-width: 0; padding: 0 0 8px; }
+  .yolo-session { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border-dim); }
   .yolo-badge { margin-left: auto; font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 18px; padding: 0 6px; border-radius: 2px; color: var(--perms-warn); border: 1px solid color-mix(in oklab, var(--perms-warn) 55%, transparent); background: color-mix(in oklab, var(--perms-warn) 14%, transparent); }
   .yolo-icon { flex: none; width: 13px; height: 13px; }
   .yolo-icon.is-working { color: var(--state-running); }
   .yolo-icon.is-ran { color: var(--state-complete); }
   .yolo-icon.is-caught { color: var(--state-waiting); }
-  .yolo-terminal { list-style: none; margin: 0; padding: 12px 16px 0; min-height: calc(4 * 26px + 12px); display: flex; flex-direction: column; font-family: var(--font-mono); font-size: var(--type-body); }
+  .yolo-terminal { list-style: none; margin: 0; padding: 12px 0 0; min-height: calc(4 * 26px + 12px); display: flex; flex-direction: column; font-family: var(--font-mono); font-size: var(--type-body); }
   .yolo-terminal li { display: flex; align-items: center; gap: 8px; height: 26px; white-space: nowrap; transition: height 320ms var(--ease-out-expo), opacity 200ms linear; }
   .yolo-terminal li[data-state="hidden"], .yolo-terminal li[data-state="gone"] { height: 0; opacity: 0; }
   .yolo-terminal li[data-state="clearing"] { opacity: 0; transition: opacity 320ms linear; }

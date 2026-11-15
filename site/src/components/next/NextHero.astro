@@ -2,6 +2,7 @@
 import { siteNavLinks } from '../../lib/site-nav.ts';
 import { BRAND_ACCENT, BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
 import DashboardRecording from '../DashboardRecording.astro';
+import Wordmark from '../Wordmark.astro';
 import StateIcon from './StateIcon.astro';
 import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-platform.ts';
@@ -28,7 +29,7 @@ const NAV_LINKS = siteNavLinks('');
     </svg>
   </div>
   <nav class="next-nav" aria-label="Main">
-    <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>Glimmervoid</a>
+    <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg><Wordmark /></a>
     <ul>
       {NAV_LINKS.map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
       <li><a class="nav-install" href="#install">Install</a></li>
@@ -36,7 +37,7 @@ const NAV_LINKS = siteNavLinks('');
   </nav>
 
   <div class="hero-grid" id="top">
-    <h1 class="wordmark"><span>Glimmer</span><span class="void">void</span></h1>
+    <h1 class="hero-wordmark"><Wordmark isStacked /></h1>
     <div class="hero-side">
       <p class="tagline">See it before it's built.</p>
       <p>Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
@@ -83,10 +84,7 @@ const NAV_LINKS = siteNavLinks('');
   .next-nav ul .nav-install:hover { color: var(--bg); background: color-mix(in oklab, var(--accent) 85%, var(--text-head)); }
 
   .hero-grid { position: relative; display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; padding-top: 56px; align-items: start; }
-  .wordmark { font-family: var(--font-mono); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-head); font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
-  .wordmark span { display: block; width: fit-content; }
-  .wordmark .void { position: relative; color: transparent; -webkit-text-stroke: 2px var(--text-head); }
-  .wordmark .void::after { content: ""; position: absolute; left: calc(100% + 18px); top: 36%; width: .24em; height: .24em; rotate: 45deg; background: var(--state-waiting); }
+  .hero-wordmark { margin: 0; font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
   .hero-side { padding-top: 20px; }
   .tagline { font-size: clamp(24px, 3vw, 32px); line-height: 1.2; color: var(--text-head); }
   .tagline em { font-style: normal; color: var(--state-waiting); }

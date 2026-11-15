@@ -29,12 +29,11 @@ p { margin: 0; }
 .reveal { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 60%; }
 @keyframes rise { from { opacity: 0.25; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 
-.diagram { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 18px; }
+.diagram { width: 100%; overflow-x: auto; }
 .diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
 .diagram text { font-family: var(--font-mono); }
 .diagram svg.diagram-compact { display: none; }
 @media (max-width: 640px) {
-  .diagram { padding: 10px; }
   .diagram svg.diagram-wide { display: none; }
   .diagram svg.diagram-compact { display: block; min-width: 0; max-width: 340px; margin-inline: auto; }
 }
