@@ -13,7 +13,6 @@ import Install from '../components/Install.astro';
 import UsedBy from '../components/UsedBy.astro';
 import NextHero from '../components/next/NextHero.astro';
 import NextPacks from '../components/next/NextPacks.astro';
-import Reviews from '../components/Reviews.astro';
 import { HOME_TITLE, homeStructuredData } from '../lib/home-structured-data.ts';
 import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
 ---
@@ -26,11 +25,10 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
     <Status />
     <Arena />
     <SaneYolo />
-    <Reviews />
     <Celebrations />
     <AsTheyAre />
     <Features />
-    <Install commandLine="One command." />
+    <Install commandLine="One command." showsNextCommands={false} />
     <Faq />
     <Footer />
   </div>

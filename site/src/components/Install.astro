@@ -7,9 +7,10 @@ import { DEFAULT_PORT, PRODUCT_VERSION, REPOSITORY_URL } from '../lib/product-fa
 
 interface Props {
   commandLine?: string;
+  showsNextCommands?: boolean;
 }
 
-const { commandLine = 'One command. No Node needed.' } = Astro.props;
+const { commandLine = 'One command. No Node needed.', showsNextCommands = true } = Astro.props;
 const BOOT_LINES = [
   { text: `GLIMMERVOID ${PRODUCT_VERSION}`, isBanner: true },
   { text: `Open http://localhost:${DEFAULT_PORT}`, isBanner: false },
@@ -40,6 +41,7 @@ const NEXT_COMMANDS = [
     </div>
     <pre class="console-screen"><code class="console-command" data-install-command title="Click to copy"><span data-install-for="default"><InstallCommand /></span><span data-install-for="windows"><InstallCommand command={WINDOWS_INSTALL_COMMAND} /></span></code><span class="boot-output">{BOOT_LINES.map(({ text, isBanner }, lineIndex) => <span class={`boot-line${isBanner ? ' is-banner' : ''}`} data-boot-step={lineIndex + 1}>{text}</span>)}</span></pre>
   </div>
+  {showsNextCommands && (
   <ul class="next-commands reveal" aria-label="After install">
     {NEXT_COMMANDS.map(({ command, line }) => (
       <li data-next-command>
@@ -52,6 +54,7 @@ const NEXT_COMMANDS = [
       </li>
     ))}
   </ul>
+  )}
   <PhoneNextStep location="install" />
 </section>
 

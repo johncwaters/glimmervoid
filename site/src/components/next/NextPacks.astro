@@ -20,7 +20,12 @@ const themeRules = shownThemes.map(({ id, palette }) => {
 const BUILT_IN_TABS = ['Focus', 'Reviews', 'Arena', 'Packs'];
 const themeChoices = shownThemes.map(({ id, palette, fromPack }) => ({ id, label: shortLabelOf(palette.label), background: palette.chrome.bg, accent: palette.chrome.accent, fromPack }));
 const [firstTheme] = themeChoices;
-const PACK_TABS = ['PR table', 'Review radar'];
+const PACK_TABS = ['PR table', 'Review radar', 'Review drafts'];
+const DRAFTED_REVIEWS = [
+  { number: '#482', title: 'Retry webhook deliveries', verdict: 'approve with nits', stateToken: 'complete', findings: 'HIGH, MEDIUM, LOW' },
+  { number: '#479', title: 'Split the billing worker', verdict: 'request changes', stateToken: 'failed', findings: 'CRITICAL, HIGH' },
+  { number: '#476', title: 'Pin the CI Node version', verdict: 'approve', stateToken: 'running', findings: 'nothing found' },
+];
 const LAUNCHED_SESSIONS = [
   { name: 'standup-12', stateToken: 'running', log: 'reading 14 merged PRs' },
   { name: 'standup-11', stateToken: 'complete', log: 'notes ready' },
@@ -44,7 +49,7 @@ const MERGED_ROWS = [
     <h2>Your agent changes Glimmervoid with packs.</h2>
     <p>Ask for a new theme or a tab of your pull requests. Your agent builds it and shows you a preview on its board. Nothing changes until you approve it.</p>
   </div>
-  <figure class="packs-demo reveal" id="packs-demo" data-theme={firstTheme.id} aria-label="A Glimmervoid dashboard with three pack panels: a pull request table playing Game of Life and rain behind its rows, a radar sweeping over the pull requests waiting on you, and a scheduled launch button counting down and starting sessions that stream their progress. The theme buttons below it restyle all of it.">
+  <figure class="packs-demo reveal" id="packs-demo" data-theme={firstTheme.id} aria-label="A Glimmervoid dashboard with four pack panels: a pull request table playing Game of Life and rain behind its rows, a radar sweeping over the pull requests waiting on you, a scheduled launch button counting down and starting sessions that stream their progress, and a list of drafted reviews of teammates' pull requests, each with a verdict and its findings. The theme buttons below it restyle all of it.">
     <style set:html={themeRules}></style>
     <div class="theme-stage" aria-hidden="true">
       <div class="mock-header">
@@ -77,6 +82,16 @@ const MERGED_ROWS = [
           <span class="panel-name">Review radar</span>
           <canvas class="radar-scope" data-ambient="radar"></canvas>
           <span class="radar-summary">8 reviews waiting on you</span>
+        </div>
+        <div class="pack-panel is-drafts">
+          <span class="panel-name">Review drafts</span>
+          <ul class="draft-list">
+            {DRAFTED_REVIEWS.map(({ number, title, verdict, stateToken, findings }) => (
+              <li class="draft-row" style={`--draft-state: var(--state-${stateToken})`}>
+                <span class="pr-number">{number}</span><span class="pr-title">{title}</span><span class="draft-verdict">{verdict}</span><span class="draft-findings">{findings}</span>
+              </li>
+            ))}
+          </ul>
         </div>
         <div class="pack-panel is-launcher" id="packs-launcher" data-running-label={BADGE_LABELS[STATES.RUNNING]} data-complete-label={BADGE_LABELS[STATES.COMPLETE]}>
           <span class="panel-name">New session</span>
@@ -204,11 +219,17 @@ const MERGED_ROWS = [
   .mock-tab { padding: 4px 10px; border-radius: 999px; font-size: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
   .mock-tab.is-pack { color: var(--accent); }
   .mock-tab.is-active { background: var(--bg-surface); color: var(--text-head); }
-  .pack-gallery { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-areas: "pr radar" "pr launcher"; gap: 10px; }
+  .pack-gallery { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-areas: "pr radar" "pr launcher" "drafts drafts"; gap: 10px; }
   .pack-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border-dim); border-radius: var(--radius-lg); background: var(--bg-card); }
   .pack-panel.is-pr-table { position: relative; grid-area: pr; overflow: hidden; }
   .pack-panel.is-radar { grid-area: radar; align-items: center; }
   .pack-panel.is-launcher { grid-area: launcher; }
+  .pack-panel.is-drafts { grid-area: drafts; }
+  .draft-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--type-meta); }
+  .draft-row { display: grid; grid-template-columns: 5ch minmax(0, 1fr) auto 18ch; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 6px; background: var(--bg-surface); }
+  .draft-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .draft-verdict { padding: 1px 8px; border: 1px solid var(--draft-state); border-radius: 999px; color: var(--draft-state); }
+  .draft-findings { color: var(--text-dim); text-align: right; }
   .panel-name { color: var(--text-head); font-size: var(--type-meta); font-weight: 700; }
   .pr-grid { position: relative; display: grid; gap: 4px; font-size: var(--type-meta); }
   .pr-section { justify-self: start; margin-top: 6px; padding: 1px 6px; border-radius: 4px; background: var(--bg-card); color: var(--text-muted); font-size: var(--type-meta); }
@@ -253,13 +274,15 @@ const MERGED_ROWS = [
   .theme-source { padding: 1px 6px; border-radius: 999px; background: var(--bg-surface); color: var(--accent); font-size: var(--type-micro, 11px); }
   @media (max-width: 820px) {
     .mock-brand { display: none; }
-    .pack-gallery { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pr" "radar" "launcher"; }
+    .pack-gallery { grid-template-columns: minmax(0, 1fr); grid-template-areas: "pr" "radar" "launcher" "drafts"; }
     .pr-row, .pr-row.is-merged { grid-template-columns: 5ch minmax(0, 1fr) 9ch 10px; }
     .pr-repo { display: none; }
     .pr-ambient.is-rain { width: 72px; }
   }
   @media (max-width: 480px) {
     .mock-tab:not(.is-active) { display: none; }
+    .draft-row { grid-template-columns: 5ch minmax(0, 1fr) auto; }
+    .draft-findings { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     .theme-stage { transition: none; }

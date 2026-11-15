@@ -15,6 +15,7 @@ const FEATURES = [
   { area: 'radar', name: 'Radar', line: 'PostHog errors to PRs, opt-in', visual: 'radar' },
   { area: 'upload', name: 'File upload', line: 'Paste or drop files into a session', visual: 'file' },
   { area: 'resume', name: 'Auto-resume', line: 'Survives restarts mid-turn', visual: 'resume' },
+  { area: 'accounts', name: 'Switch account', line: 'Move a running session to another account', visual: 'accounts' },
   { area: 'worktrees', name: 'Worktrees', line: 'One worktree each. One-click merge.', visual: 'branch' },
 ];
 ---
@@ -49,6 +50,9 @@ const FEATURES = [
         )}
         {visual === 'file' && (
           <span class="tile-visual upload-drop" aria-hidden="true"><span class="upload-file">screenshot.png</span></span>
+        )}
+        {visual === 'accounts' && (
+          <span class="tile-visual account-switch" aria-hidden="true"><span class="account-pill is-personal">Personal</span><span class="account-pill is-team">Team</span></span>
         )}
         {visual === 'helpers' && (
           <span class="tile-visual helper-sessions" aria-hidden="true">
@@ -87,7 +91,7 @@ const FEATURES = [
     grid-template-areas:
       "usage usage trace trace"
       "notify vault spawn radar"
-      "upload resume worktrees worktrees";
+      "upload resume accounts worktrees";
   }
   .tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px 18px; }
   .feature-name { color: var(--text-head); font-weight: 700; font-size: var(--type-body); }
@@ -142,6 +146,11 @@ const FEATURES = [
   .bento[data-on-screen="true"] .branch-fork { animation: fork-and-merge 5s var(--ease-out-expo) infinite; }
   .bento[data-on-screen="true"] .branch-commit { animation: land-commit 5s var(--ease-out-expo) infinite; }
   .bento[data-on-screen="true"] .branch-merge-dot { animation: show-merge 5s var(--ease-out-expo) infinite; }
+  .account-switch { display: flex; gap: 4px; }
+  .account-pill { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font-size: var(--type-meta); }
+  .bento[data-on-screen="true"] .account-pill.is-personal { animation: account-active 6s steps(1) infinite; }
+  .bento[data-on-screen="true"] .account-pill.is-team { animation: account-active 6s steps(1) -3s infinite; }
+  @keyframes account-active { 0% { border-color: var(--accent); color: var(--text-head); } 50% { border-color: var(--border); color: var(--text-dim); } }
   @keyframes resume-turn { 0% { width: 0%; } 30%, 50% { width: 55%; } 80%, 100% { width: 100%; } }
   @keyframes fork-and-merge { 0%, 8% { stroke-dashoffset: 1; } 60%, 100% { stroke-dashoffset: 0; } }
   @keyframes land-commit { 0%, 30% { opacity: 0; } 38%, 100% { opacity: 1; } }
@@ -157,6 +166,7 @@ const FEATURES = [
         "notify vault"
         "spawn radar"
         "upload resume"
+        "accounts accounts"
         "worktrees worktrees";
     }
     .tile { padding: 12px 14px; border-radius: var(--radius-lg); }
@@ -168,7 +178,7 @@ const FEATURES = [
   }
   @media (prefers-reduced-motion: reduce) {
     .radar-sweep, .radar-blip { animation: none; }
-    .bento[data-on-screen="true"] :is(.turn-fill, .branch-fork, .branch-commit, .branch-merge-dot) { animation: none; }
+    .bento[data-on-screen="true"] :is(.account-pill, .turn-fill, .branch-fork, .branch-commit, .branch-merge-dot) { animation: none; }
     .radar-blip { opacity: 1; }
   }
 </style>

@@ -2,7 +2,6 @@
 const ACCENT_CHOICES = [
   { value: 'violet', label: 'Violet' },
   { value: 'green', label: 'Green' },
-  { value: 'amber', label: 'Amber' },
 ];
 const LAYOUT_CHOICES = [
   { value: 'list', label: 'List' },
@@ -47,12 +46,12 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     </div>
     <fieldset class="dials" id="board-dials">
       <legend class="dials-legend">Dials</legend>
-      <label class="dial-pill dial-select" style={`--name-chars: ${'Accent'.length}`}><span class="dial-name">Accent</span>
-        <select name="accent">{ACCENT_CHOICES.map(({ value, label }) => <option value={value}>{label}</option>)}</select>
-      </label>
-      <label class="dial-pill dial-select" style={`--name-chars: ${'Layout'.length}`}><span class="dial-name">Layout</span>
-        <select name="layout">{LAYOUT_CHOICES.map(({ value, label }) => <option value={value}>{label}</option>)}</select>
-      </label>
+      <span class="dial-pill dial-switch" role="radiogroup" aria-label="Accent"><span class="dial-name">Accent</span>
+        {ACCENT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="accent" value={value} checked={index === 0} /><span>{label}</span></label>)}
+      </span>
+      <span class="dial-pill dial-switch" role="radiogroup" aria-label="Layout"><span class="dial-name">Layout</span>
+        {LAYOUT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="layout" value={value} checked={index === 0} /><span>{label}</span></label>)}
+      </span>
       <label class="dial-pill dial-toggle"><input type="checkbox" name="compact" /><span class="dial-name">Compact</span></label>
     </fieldset>
   </figure>
@@ -118,7 +117,6 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     transition: gap 240ms var(--ease-out-expo);
   }
   .prototype[data-accent="green"] { --prototype-accent: var(--state-running); }
-  .prototype[data-accent="amber"] { --prototype-accent: var(--state-waiting); }
   .prototype[data-compact="true"] { --row-padding: 5px; gap: 6px; }
   .prototype-title { color: var(--prototype-accent); font-weight: 700; font-size: var(--type-doc-body); transition: color 240ms var(--ease-out-expo); }
   .prototype-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -144,12 +142,13 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     background: color-mix(in oklab, var(--bg-card) 85%, var(--accent)); color: var(--text-dim); font-size: var(--type-meta); cursor: pointer;
   }
   .dial-pill:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
-  .dial-pill select { font: inherit; color: var(--text-head); background: transparent; border: 0; padding: 6px 4px; cursor: pointer; }
-  .dial-pill select:focus-visible, .dial-toggle input:focus-visible { outline: none; }
-  .dial-select { display: inline-grid; padding: 0; }
-  .dial-select > * { grid-area: 1 / 1; }
-  .dial-select .dial-name { align-self: center; padding-left: 14px; pointer-events: none; }
-  .dial-select select { min-height: 40px; padding: 6px 10px 6px calc(14px + var(--name-chars) * 1ch + 8px); border-radius: 999px; }
+  .dial-option input:focus-visible, .dial-toggle input:focus-visible { outline: none; }
+  .dial-switch { gap: 2px; padding-right: 4px; cursor: default; }
+  .dial-switch .dial-name { margin-right: 6px; }
+  .dial-option { position: relative; display: inline-flex; cursor: pointer; }
+  .dial-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .dial-option span { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: 999px; color: var(--text-dim); transition: background-color 160ms ease, color 160ms ease; }
+  .dial-option input:checked + span { background: var(--accent); color: var(--bg); }
   .dial-toggle { padding: 0 14px; }
   .dial-toggle input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
   .board-beats { list-style: none; margin: 28px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -157,8 +156,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .board-beat-name { color: var(--text-head); font-weight: 700; }
   .board-beat-line { color: var(--text-dim); font-size: var(--type-body); }
   .beat-scene {
-    position: relative; height: 156px; margin-bottom: 6px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg);
-    background: radial-gradient(circle, var(--border-dim) 1px, transparent 1.5px) 0 0 / 14px 14px, var(--bg-card);
+    position: relative; height: 156px; margin-bottom: 6px;
   }
   .scene-prototype { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
   .mini-laptop { display: flex; flex-direction: column; align-items: center; }
@@ -221,9 +219,9 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
 <script>
   import { markWhileOnScreen } from '../lib/dom.ts';
 
-  function applyDial(prototype: HTMLElement, control: HTMLInputElement | HTMLSelectElement): void {
-    if (control instanceof HTMLInputElement) {
-      prototype.dataset.compact = String(control.checked);
+  function applyDial(prototype: HTMLElement, control: HTMLInputElement): void {
+    if (control.type === 'checkbox') {
+      prototype.dataset[control.name] = String(control.checked);
       return;
     }
     prototype.dataset[control.name] = control.value;
@@ -239,7 +237,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     markWhileOnScreen(beats);
     dials.addEventListener('change', (event) => {
       const control = event.target;
-      if (!(control instanceof HTMLInputElement) && !(control instanceof HTMLSelectElement)) return;
+      if (!(control instanceof HTMLInputElement)) return;
       applyDial(prototype, control);
     });
   }

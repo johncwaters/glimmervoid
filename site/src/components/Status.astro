@@ -255,7 +255,14 @@ function terminalVariantsFor(task: string) {
   .agent-chips.is-full li { padding: 6px 14px 6px 6px; font-size: var(--type-body); font-weight: 700; color: var(--text-head); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
   .agent-chips.is-also li { padding: 3px 10px; font-size: var(--type-meta); color: var(--text-dim); }
   .agent-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; background: var(--bg); font-family: var(--font-mono); font-size: var(--type-meta); font-weight: 700; color: var(--accent); }
-  @media (max-width: 640px) { .agent-support { grid-template-columns: minmax(0, 1fr); gap: 8px; } .agent-chips.is-full { margin-bottom: 8px; } }
+  .agent-chips.is-full { flex-wrap: nowrap; }
+  @media (max-width: 640px) {
+    .agent-support { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .agent-chips.is-full { margin-bottom: 8px; gap: 4px; }
+    .agent-chips.is-full li { gap: 4px; padding: 3px 8px 3px 3px; font-size: clamp(10px, 3vw, 13px); white-space: nowrap; }
+    .agent-chips.is-full li { min-width: 0; }
+    .agent-chips.is-full .agent-monogram { width: 22px; height: 18px; font-size: 10px; }
+  }
   [data-state="RUNNING"] { color: var(--state-running); }
   [data-state="WAITING"] { color: var(--state-waiting); }
   [data-state="COMPLETE"] { color: var(--state-complete); }

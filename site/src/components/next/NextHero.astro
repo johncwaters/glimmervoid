@@ -1,6 +1,6 @@
 ---
 import { siteNavLinks } from '../../lib/site-nav.ts';
-import { BRAND_ACCENT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
+import { BRAND_ACCENT, BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
 import DashboardRecording from '../DashboardRecording.astro';
 import StateIcon from './StateIcon.astro';
 import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../../lib/install-command.ts';
@@ -20,7 +20,13 @@ const SHOWN_STATES: readonly { label: string; icon: StatusIcon; colorToken: stri
 const NAV_LINKS = siteNavLinks('');
 ---
 <header class="next-hero">
-  <div class="ghost-field"><svg class="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: 'currentColor' })}></svg></div>
+  <div class="ghost-field">
+    <svg class="ghost-mark" id="ghost-mark" viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true">
+      <path class="ghost-halo" d={BRAND_MARK_LIGHT} />
+      <g class="ghost-dial">{BRAND_MARK_BRACKETS.map(({ side, d }) => <path class="ghost-bracket" data-side={side} d={d} />)}</g>
+      <path class="ghost-light" d={BRAND_MARK_LIGHT} />
+    </svg>
+  </div>
   <nav class="next-nav" aria-label="Main">
     <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg>Glimmervoid</a>
     <ul>
@@ -61,10 +67,11 @@ const NAV_LINKS = siteNavLinks('');
   .next-hero { position: relative; }
   .ghost-field { position: absolute; top: 0; bottom: 0; left: calc(50% - 50vw); width: 100vw; overflow: hidden; pointer-events: none; }
   .ghost-mark { position: absolute; right: max(-140px, calc(50vw - 700px)); top: 60px; width: 620px; opacity: .03; color: var(--text-head); }
-  .ghost-field { perspective: 1600px; }
-  .ghost-mark { animation: ghost-turn 18s linear infinite; }
-  @keyframes ghost-turn { to { rotate: y 360deg; } }
-  @media (prefers-reduced-motion: reduce) { .ghost-mark { animation: none; } }
+  .ghost-mark { overflow: visible; }
+  .ghost-dial, .ghost-light, .ghost-halo { transform-origin: 50px 50px; }
+  .ghost-bracket { fill: none; stroke: currentColor; stroke-width: 11; stroke-linejoin: miter; stroke-linecap: butt; }
+  .ghost-light { fill: currentColor; }
+  .ghost-halo { fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0; }
 
   .next-nav { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 64px; }
   .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-weight: 700; color: var(--text-head); letter-spacing: .1em; text-transform: uppercase; font-size: var(--type-body); text-decoration: none; }
@@ -118,7 +125,20 @@ const NAV_LINKS = siteNavLinks('');
 </style>
 
 <script>
+  import { playMarkLock } from '../../../../public/boot/loading-unlock.ts';
+  import { runFramesWhileVisible } from '../../lib/dom.ts';
   import { wireInstallPicker } from '../../lib/install-picker.ts';
+
+  const GHOST_TURN_EVERY_MS = 5000;
+  const ghostMark = document.getElementById('ghost-mark');
+  const ghostDial = ghostMark?.querySelector('.ghost-dial');
+  const ghostLight = ghostMark?.querySelector('.ghost-light');
+  const ghostHalo = ghostMark?.querySelector('.ghost-halo');
+  if (ghostMark && ghostDial && ghostLight && ghostHalo) {
+    runFramesWhileVisible(ghostMark, [GHOST_TURN_EVERY_MS, GHOST_TURN_EVERY_MS], () => {
+      void playMarkLock({ mark: ghostMark, dial: ghostDial, light: ghostLight, halo: ghostHalo });
+    });
+  }
 
   const heroInstall = document.getElementById('hero-install');
   if (heroInstall) wireInstallPicker(heroInstall);
