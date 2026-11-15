@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.1] - 2026-11-14
+
 ### Added
 
 - **New session lists your GitHub repositories.** With GitHub connected or `gh` signed in, the project list in New session shows your GitHub repositories that are not on this host yet, under a GitHub label and filtered by Find a project. Pick one and start: it clones in the background, shows the clone's progress beside Start session, and the session opens in the new checkout once the clone finishes.
