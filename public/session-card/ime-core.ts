@@ -39,9 +39,15 @@ export function isPlainTypedKey(event: { key?: string; ctrlKey?: boolean; altKey
   return Array.from(event.key ?? '').length === 1;
 }
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+function graphemesOf(text: string | null | undefined) {
+  return Array.from(graphemeSegmenter.segment(text ?? ''), (grapheme) => grapheme.segment);
+}
+
 export function bytesForSoftKeyboardEdit(previousText: string | null | undefined, nextText: string | null | undefined) {
-  const previous = Array.from(previousText ?? '');
-  const next = Array.from(nextText ?? '');
+  const previous = graphemesOf(previousText);
+  const next = graphemesOf(nextText);
   const shortest = Math.min(previous.length, next.length);
   let sharedPrefixLength = 0;
   while (sharedPrefixLength < shortest && previous[sharedPrefixLength] === next[sharedPrefixLength]) {

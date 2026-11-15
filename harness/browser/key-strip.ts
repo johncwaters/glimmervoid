@@ -140,6 +140,10 @@ async function keyboardHintsOf(page: Page) {
   }));
 }
 
+async function keyboardTextOf(page: Page) {
+  return page.locator(terminalTextarea).evaluate((textarea) => (textarea as HTMLTextAreaElement).value);
+}
+
 async function replaceTypedTextAsAutocorrect(page: Page, correctedText: string) {
   await page.locator(terminalTextarea).evaluate((textarea, nextText) => {
     (textarea as HTMLTextAreaElement).value = nextText;
@@ -185,7 +189,21 @@ export async function verifyTerminalTyping(page: Page, typeCommand: (command: st
   await page.locator('.phone-key-more').click();
   await page.locator('.phone-key-more-sheet [data-key="paste"]').click();
   await page.waitForFunction(() => (window.sentTerminalInputs ?? []).join('').includes('pasted line'));
-  return 'no compose bar and no Raw key; the terminal asks for autocorrect, suggestions and sentence capitals; an accepted correction rewrites the word in the prompt; a held Ctrl sends its chord; Paste types into the terminal';
+
+  await typeCommand('');
+  await typeCommand('mouse-history');
+  await focusTerminalTextarea(page);
+  await recordTerminalInputs(page);
+  await page.keyboard.type('hello wor');
+  await page.keyboard.press('Backspace');
+  assert.equal(await keyboardTextOf(page), 'hello wo', 'a keyboard Backspace deletes inside the keyboard text field instead of emptying it');
+  await page.locator('.phone-card-slot .terminal-wrap').click();
+  await page.waitForFunction(() => (window.sentTerminalInputs ?? []).some((data) => data.startsWith('\x1b[<')));
+  assert.equal(await keyboardTextOf(page), 'hello wo', 'the mouse report a tap sends to a mouse-tracking agent leaves the keyboard text field as typed');
+  await page.keyboard.type('rld');
+  const typedBytes = (await sentInputs(page)).filter((data) => !data.startsWith('\x1b[<')).join('');
+  assert.equal(typedBytes, 'hello wor\x7frld', 'Backspace sends one DEL and typing after a tap continues the same word');
+  return 'no compose bar and no Raw key; the terminal asks for autocorrect, suggestions and sentence capitals; an accepted correction rewrites the word in the prompt; a held Ctrl sends its chord; Paste types into the terminal; Backspace and a tap keep the keyboard text field, so the keyboard does not start a new sentence';
 }
 
 export async function verifyFullScreenAppRow(page: Page, typeCommand: (command: string) => Promise<void>): Promise<string> {
@@ -195,6 +213,19 @@ export async function verifyFullScreenAppRow(page: Page, typeCommand: (command: 
   await typeCommand("printf '\\033[?1049h'");
   await waitForContext(page, 'fullscreen');
   assert.deepEqual(await rowKeyIds(page), ['esc', 'ctrl', 'tab', 'left', 'up', 'down', 'right', 'enter'], 'a full-screen app gets Tab');
+  await focusTerminalTextarea(page);
+  await page.keyboard.type('teh');
+  await recordTerminalInputs(page);
+  const scrollTouch = await page.context().newCDPSession(page);
+  const terminalCenter = await centerOf(page, '.phone-card-slot .terminal-wrap');
+  await scrollTouch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [terminalCenter] });
+  for (let step = 1; step <= 10; step += 1) {
+    await scrollTouch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: terminalCenter.x, y: terminalCenter.y + step * 15 }] });
+  }
+  await scrollTouch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForFunction(() => (window.sentTerminalInputs ?? []).some((data) => /^\x1b[[O][AB]$/.test(data)));
+  assert.equal(await keyboardTextOf(page), '', 'a scroll the full-screen app receives as arrow keys empties the keyboard text field');
+  await page.keyboard.press('Control+U');
   await assertRowFitsWithoutScroll(page);
   await typeCommand("printf '\\033[?1049l'");
   await waitForContext(page, 'ready');

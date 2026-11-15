@@ -35,7 +35,7 @@ function findTouch(touchList: TouchList, identifier: number) {
   return null;
 }
 
-export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onStillHold: () => void) {
+export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onStillHold: () => void, onScrollSentAsArrowKeys: () => void) {
   if (hasNativeTouchScroll(term)) return;
 
   const isPhoneLayout = () => document.documentElement.dataset.layout === 'phone';
@@ -98,6 +98,8 @@ export function wireTouchScroll(termWrap: HTMLElement, term: Terminal, onStillHo
 
   const dispatchWheelNotches = (scrollLines: number, clientX: number, clientY: number) => {
     const deltaY = scrollLines < 0 ? -1 : 1;
+    const isMouseTrackedByApplication = (term.modes?.mouseTrackingMode ?? 'none') !== 'none';
+    if (!isMouseTrackedByApplication) onScrollSentAsArrowKeys();
     for (let notch = 0; notch < Math.abs(scrollLines); notch++) {
       term.element?.dispatchEvent(new WheelEvent('wheel', {
         deltaY,

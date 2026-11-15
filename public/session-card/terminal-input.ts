@@ -25,9 +25,8 @@ function sendQueuedInput(ui: SessionUi) {
   clearTerminalNotice(ui, 'keys');
 }
 
-function sendTerminalInput(ui: SessionUi | null | undefined, data: string | null | undefined, options?: { fromSoftKeyboard?: boolean }) {
+function sendTerminalInput(ui: SessionUi | null | undefined, data: string | null | undefined) {
   if (!ui || data == null || data === '') return false;
-  if (!options?.fromSoftKeyboard) ui._resetSoftKeyboardBuffer?.();
   if (!isInputHeldForWakeCheck && !ui._inputQueue?.length && ui.dataWs?.readyState === WebSocket.OPEN) {
     ui.dataWs.send(JSON.stringify({ type: 'input', data }));
     return true;
@@ -89,7 +88,7 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
     const bytes = bytesForSoftKeyboardEdit(alreadySentText, textarea.value);
     alreadySentText = textarea.value;
     if (bytes === '') return false;
-    sendTerminalInput(ui, bytes, { fromSoftKeyboard: true });
+    sendTerminalInput(ui, bytes);
     term.scrollToBottom();
     return true;
   };
@@ -107,8 +106,13 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
     }, true);
   };
 
+  const isBackspaceWithinTypedText = (event: KeyboardEvent) => {
+    if (event.key !== 'Backspace' || event.ctrlKey || event.altKey || event.metaKey) return false;
+    return textarea.selectionEnd > 0;
+  };
+
   listenBeforeXterm('keydown', (event) => {
-    if (isImeProcessingKeydown(event) || isPlainTypedKey(event)) {
+    if (isImeProcessingKeydown(event) || isPlainTypedKey(event) || isBackspaceWithinTypedText(event)) {
       event.stopPropagation();
       return;
     }
@@ -145,7 +149,7 @@ function wireSoftKeyboardInput(termWrap: HTMLElement, term: Terminal, ui: Sessio
     if (sendTypedText()) return;
     const deletion = bytesForBackwardDeletion(event.inputType);
     if (deletion === '') return;
-    sendTerminalInput(ui, deletion, { fromSoftKeyboard: true });
+    sendTerminalInput(ui, deletion);
     term.scrollToBottom();
   });
 }

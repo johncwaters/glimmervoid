@@ -79,6 +79,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
   function sendToShownTerminal(data: string | null | undefined) {
     const ui = shownId ? sessionUIs.get(shownId) : null;
     if (!ui) return;
+    ui._resetSoftKeyboardBuffer?.();
     if (sendTerminalInput(ui, data)) { keyStatus.clear(); return; }
     keyStatus.show('error', NOT_CONNECTED_TEXT);
   }
@@ -107,6 +108,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
       keyStatus.show('error', NOT_CONNECTED_TEXT);
       return;
     }
+    ui._resetSoftKeyboardBuffer?.();
     ui.term.paste(text);
   }
 
