@@ -14,7 +14,7 @@ interface ShownFormat {
 
 const SHOWN_SNIFF_BYTES = 64 * 1024;
 const PAGE_TITLE_MAX_CHARS = 200;
-const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV or TSV';
+const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV, TSV or XLSX';
 
 const PNG: ShownFormat = { kind: 'image', mime: 'image/png', extension: '.png' };
 const JPEG: ShownFormat = { kind: 'image', mime: 'image/jpeg', extension: '.jpg' };
@@ -28,6 +28,9 @@ const DOC: ShownFormat = { kind: 'doc', mime: 'text/markdown; charset=utf-8', ex
 const CSV: ShownFormat = { kind: 'sheet', mime: 'text/csv; charset=utf-8', extension: '.csv' };
 const TSV: ShownFormat = { kind: 'sheet', mime: 'text/tab-separated-values; charset=utf-8', extension: '.tsv' };
 const MARKDOWN_NAME_EXTENSIONS = new Set(['.md', '.markdown']);
+const XLSX: ShownFormat = { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: '.xlsx' };
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
 const SHEET_FORMAT_BY_NAME_EXTENSION: Readonly<Record<string, ShownFormat>> = { '.csv': CSV, '.tsv': TSV, '.tab': TSV };
 const NUL_BYTE = 0x00;
 
@@ -86,7 +89,9 @@ function sniffDocFormat(chunk: Buffer, declaredName: string): ShownFormat | null
 }
 
 function sniffSheetFormat(chunk: Buffer, declaredName: string): ShownFormat | null {
-  const sheetFormat = SHEET_FORMAT_BY_NAME_EXTENSION[path.extname(declaredName).toLowerCase()];
+  const nameExtension = path.extname(declaredName).toLowerCase();
+  if (nameExtension === XLSX.extension) return chunk.subarray(0, ZIP_MAGIC.length).equals(ZIP_MAGIC) ? XLSX : null;
+  const sheetFormat = SHEET_FORMAT_BY_NAME_EXTENSION[nameExtension];
   if (!sheetFormat) return null;
   return chunk.includes(NUL_BYTE) ? null : sheetFormat;
 }

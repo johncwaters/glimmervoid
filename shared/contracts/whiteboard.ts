@@ -88,10 +88,14 @@ export const BoardPageContentWidth = z.object({ type: z.literal(BOARD_PAGE_CONTE
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
 const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc', 'sheet'] as const;
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/csv', 'text/tab-separated-values'] as const;
+export const BOARD_WORKBOOK_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/csv', 'text/tab-separated-values', BOARD_WORKBOOK_MIME] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 export const BOARD_DOC_CAP_BYTES = 256 * 1024;
 export const BOARD_SHEET_CAP_BYTES = 256 * 1024;
+export const BOARD_WORKBOOK_CAP_BYTES = 2 * 1024 * 1024;
+export const BOARD_WORKBOOK_UNPACKED_CAP_BYTES = 64 * 1024 * 1024;
+export const BOARD_WORKBOOK_SHEETS_MAX = 32;
 
 const DialId = z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, { error: 'a dial id is 1 to 40 letters, digits, dashes or underscores' });
 const DialLabel = z.string().min(1, { error: 'a dial needs a label' }).max(WHITEBOARD_LIMITS.title, { error: `a dial label is at most ${WHITEBOARD_LIMITS.title} characters` });
@@ -143,6 +147,7 @@ export const BoxMedia = z.object({
   alt: z.string().max(WHITEBOARD_LIMITS.line, { error: `a media alt is at most ${WHITEBOARD_LIMITS.line} characters` }).default(''),
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
   dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
+  sheets: z.array(z.string().max(WHITEBOARD_LIMITS.line)).max(BOARD_WORKBOOK_SHEETS_MAX).default([]).describe('the sheet names of an XLSX workbook, as attach returned them'),
   link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read, and an operator save of a doc writes it'),
   source: MediaSource.nullable().default(null).describe('the file this media came from, as attach returned it'),
 }).strict().meta({ id: 'BoxMedia' });
@@ -443,7 +448,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     sub: z.literal('show'),
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
-    link: z.boolean().optional().describe('link a Markdown, CSV, TSV or HTML card to the file, so the card follows it when the board is read and an operator save writes it'),
+    link: z.boolean().optional().describe('link a Markdown, CSV, TSV, XLSX or HTML card to the file, so the card follows it when the board is read and an operator save of a Markdown, CSV or TSV card writes it'),
   }).strict(),
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),
@@ -543,11 +548,19 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
 }
 
 export const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv', [BOARD_WORKBOOK_MIME]: '.xlsx',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {
   return `${media.asset}${BOARD_MEDIA_EXTENSION_BY_MIME[media.mime]}`;
+}
+
+export function boardWorkbookSheetFilename(assetId: string, sheetIndex: number): string {
+  return `${assetId}.sheet${sheetIndex}.csv`;
+}
+
+export function boardSheetTextFilename(media: Pick<BoxMedia, 'asset' | 'mime'>, sheetIndex: number): string {
+  return media.mime === BOARD_WORKBOOK_MIME ? boardWorkbookSheetFilename(media.asset, sheetIndex) : boardMediaOriginalFilename(media);
 }
 
 const UNSAVABLE_NAME_CHARACTERS = /[\\/"\u0000-\u001f\u007f]/g;
@@ -608,7 +621,7 @@ function filledSource(source: z.input<typeof MediaSource> | null | undefined): M
 
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
   if (!media) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], sheets: media.sheets ?? [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
 }
 
 export function filledBox(box: SparseBox): Box {

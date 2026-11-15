@@ -145,4 +145,4 @@ function serializeEditedSheet(original: ParsedSheet, editedRows: readonly (reado
 }
 
 export { parseSheetText, serializeEditedSheet, sheetDelimiterOfMime };
-export type { ParsedSheet, SheetDelimiter };
+export type { ParsedSheet };

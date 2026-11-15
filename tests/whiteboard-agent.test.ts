@@ -10,12 +10,13 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import zlib from 'node:zlib';
 import type { Server } from 'node:http';
+import { utils as workbookUtils, write as writeWorkbook } from '@stackline/xlsx';
 import { z } from 'zod';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, boardMediaOriginalFilename, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, boardMediaOriginalFilename, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -46,6 +47,36 @@ interface BootedBackend {
 const fixture: { tmpDir: string; configPath: string; prevEnv: string | undefined; booted: BootedBackend | null } = {
   tmpDir: '', configPath: '', prevEnv: undefined, booted: null,
 };
+
+function zipOfOneEntry(entryName: string, unpackedBytes: Buffer): Buffer {
+  const nameBytes = Buffer.from(entryName, 'utf8');
+  const deflatedBytes = zlib.deflateRawSync(unpackedBytes);
+  const sizes = Buffer.alloc(12);
+  sizes.writeUInt32LE(zlib.crc32(unpackedBytes), 0);
+  sizes.writeUInt32LE(deflatedBytes.length, 4);
+  sizes.writeUInt32LE(unpackedBytes.length, 8);
+  const localHeader = Buffer.alloc(30);
+  localHeader.writeUInt32LE(0x04034b50, 0);
+  localHeader.writeUInt16LE(20, 4);
+  localHeader.writeUInt16LE(8, 8);
+  sizes.copy(localHeader, 14);
+  localHeader.writeUInt16LE(nameBytes.length, 26);
+  const directoryEntry = Buffer.alloc(46);
+  directoryEntry.writeUInt32LE(0x02014b50, 0);
+  directoryEntry.writeUInt16LE(20, 4);
+  directoryEntry.writeUInt16LE(20, 6);
+  directoryEntry.writeUInt16LE(8, 10);
+  sizes.copy(directoryEntry, 16);
+  directoryEntry.writeUInt16LE(nameBytes.length, 28);
+  const directoryOffset = localHeader.length + nameBytes.length + deflatedBytes.length;
+  const endOfDirectory = Buffer.alloc(22);
+  endOfDirectory.writeUInt32LE(0x06054b50, 0);
+  endOfDirectory.writeUInt16LE(1, 8);
+  endOfDirectory.writeUInt16LE(1, 10);
+  endOfDirectory.writeUInt32LE(directoryEntry.length + nameBytes.length, 12);
+  endOfDirectory.writeUInt32LE(directoryOffset, 16);
+  return Buffer.concat([localHeader, nameBytes, deflatedBytes, directoryEntry, nameBytes, endOfDirectory]);
+}
 
 async function boot(): Promise<BootedBackend> {
   process.env.GLIMMERVOID_CONFIG = fixture.configPath;
@@ -502,7 +533,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   ] });
   assert.equal(put.status, 200, JSON.stringify(put.body));
   const { board } = await boardOf(PLANNER_ID, boardId);
-  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [], link: null, source: { from: 'file', path: path.join(plannerDir, 'shot.png'), sessionId: PLANNER_ID } });
+  assert.deepEqual(board.elements.login?.media, { kind: 'image', asset: media.asset, mime: 'image/png', width: 640, height: 320, alt: 'login screen', hasPreview: false, dials: [], sheets: [], link: null, source: { from: 'file', path: path.join(plannerDir, 'shot.png'), sessionId: PLANNER_ID } });
   const assetUrl = (filename: string) => `${running().base}/whiteboards/assets/${filename}`;
   const named = await fetch(assetUrl(`${media.asset}.png/${encodeURIComponent('login caf\u00e9.png')}`));
   assert.deepEqual([named.status, named.headers.get('content-type'), named.headers.get('content-disposition')], [200, 'image/png', `inline; filename="login caf_.png"; filename*=UTF-8''login%20caf%C3%A9.png`]);
@@ -1732,6 +1763,32 @@ test('an agent links a CSV or TSV sheet from its worktree and reads it back verb
   fs.writeFileSync(budgetPath, 'team,q1\ninfra,1300\n', 'utf8');
   const followed = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-1' });
   assert.equal((followed.body as { text: string }).text, 'team,q1\ninfra,1300\n');
+
+  const workbook = workbookUtils.book_new();
+  workbookUtils.book_append_sheet(workbook, workbookUtils.aoa_to_sheet([['team', 'q1'], ['Platform, core', 900]]), 'Budget');
+  workbookUtils.book_append_sheet(workbook, workbookUtils.aoa_to_sheet([['note'], ['ship it']]), 'Notes');
+  const workbookBytes: unknown = writeWorkbook(workbook, { type: 'buffer', bookType: 'xlsx' });
+  assert.ok(Buffer.isBuffer(workbookBytes));
+  fs.writeFileSync(path.join(worktree, 'book.xlsx'), workbookBytes);
+  const bookShown = await wiring.handleAgent(linker, { sub: 'show', path: 'book.xlsx', link: true });
+  assert.equal(bookShown.status, 200, JSON.stringify(bookShown.body));
+  const bookMedia = await cardMedia('shown-3');
+  assert.ok(bookMedia);
+  assert.deepEqual([bookMedia.kind, bookMedia.sheets, bookMedia.link?.path], ['sheet', ['Budget', 'Notes'], 'book.xlsx']);
+  const bookRead = await wiring.handleAgent(linker, { sub: 'doc', board: boardId, box: 'shown-3' });
+  assert.equal((bookRead.body as { text: string }).text, '## Budget\n\nteam,q1\n"Platform, core",900\n\n## Notes\n\nnote\nship it', 'an agent reads each sheet of a workbook as CSV under its name');
+  assert.deepEqual([0, 1, 2].map((sheetIndex) => wiring.assets.servableOf(`${bookMedia.asset}.sheet${sheetIndex}.csv`) !== null), [true, true, false]);
+  const bookSave = await wiring.handleOperator.saveLinkedDoc(boardId, 'shown-3', 'team,q1\n', bookMedia.asset);
+  assert.deepEqual([bookSave.ok, fs.readFileSync(path.join(worktree, 'book.xlsx')).equals(workbookBytes)], [false, true], 'a workbook is read-only: a save is refused and the file is untouched');
+  const restartedForBook = createWhiteboardWiring({ boardsRoot });
+  await restartedForBook.loaded;
+  assert.equal(restartedForBook.assets.mismatchOf(bookMedia), null, 'a workbook keeps its sheet names across a restart');
+  fs.writeFileSync(path.join(worktree, 'broken.xlsx'), Buffer.concat([workbookBytes.subarray(0, 4), Buffer.from('not a workbook')]));
+  const brokenBook = await wiring.assets.ingestFile(path.join(worktree, 'broken.xlsx'));
+  assert.deepEqual([brokenBook.ok, !brokenBook.ok && brokenBook.status], [false, 415]);
+  fs.writeFileSync(path.join(worktree, 'bomb.xlsx'), zipOfOneEntry('xl/worksheets/sheet1.xml', Buffer.alloc(BOARD_WORKBOOK_UNPACKED_CAP_BYTES + 1024 * 1024, 0x20)));
+  const bombBook = await wiring.assets.ingestFile(path.join(worktree, 'bomb.xlsx'));
+  assert.deepEqual([bombBook.ok, !bombBook.ok && bombBook.status], [false, 413], 'a workbook that unpacks past its budget is refused before it is parsed');
 
   const sameBytesPaths = ['same.md', 'same.csv', 'same.tsv'].map((name) => path.join(worktree, name));
   for (const sameBytesPath of sameBytesPaths) fs.writeFileSync(sameBytesPath, 'name,qty\nbolt,4\n', 'utf8');

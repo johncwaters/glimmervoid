@@ -13,6 +13,7 @@ const REQUIRED_OUTPUTS = [
   'server/index.js',
   'server/whiteboard/board-store-worker.js',
   'server/whiteboard/layout-worker.js',
+  'server/whiteboard/workbook-worker.js',
   'bin/glimmervoid.js',
   'session/hook-relay.js',
   'session/command-hook-relay.js',

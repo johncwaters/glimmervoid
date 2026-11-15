@@ -987,6 +987,17 @@
   max-height: none;
 }
 
+.wb-sheet-editor-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 8px;
+}
+
+.wb-sheet-editor-tabs[hidden] {
+  display: none;
+}
+
 .wb-sheet-editor-body {
   flex: 1;
   min-height: 0;

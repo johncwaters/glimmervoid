@@ -15,6 +15,7 @@ export interface RuntimePaths {
   relayPath: (relayName: string) => string;
   boardStoreWorkerPath: string;
   layoutWorkerPath: string;
+  workbookWorkerPath: string;
   selfLaunch: (entry: SelfEntry, launcherPath: string) => string[];
   fnoxPath: (fnoxLocation: FnoxLocation) => string;
 }
@@ -84,6 +85,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
     relayPath,
     boardStoreWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `board-store-worker${sourceExtension}`),
     layoutWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `layout-worker${sourceExtension}`),
+    workbookWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `workbook-worker${sourceExtension}`),
     selfLaunch,
     fnoxPath,
   };

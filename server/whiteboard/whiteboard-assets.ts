@@ -8,13 +8,14 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { decideShownKind, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { resolveFfmpegPath } from '../runtime-paths.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
-import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, BOARD_SHEET_CAP_BYTES } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, BOARD_SHEET_CAP_BYTES, BOARD_WORKBOOK_CAP_BYTES, BOARD_WORKBOOK_MIME, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, BOARD_WORKBOOK_SHEETS_MAX, WHITEBOARD_LIMITS, boardWorkbookSheetFilename } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia, Dial } from '../../shared/contracts/whiteboard.ts';
 import { DIAL_MANIFEST_SCAN_BYTES, dialManifestOf } from '../core/dial-manifest-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { clock } from '../../shared/clock.ts';
 import { packFileMime } from '../packs/core/pack-core.ts';
 import { bundleIdOf, collectPageBundle, manifestOf } from './page-bundle.ts';
+import { readWorkbookSheets } from './workbook-reader.ts';
 import type { StoredMember, UnloadedReference } from './page-bundle.ts';
 
 const ASSETS_FOLDER_NAME = 'assets';
@@ -33,7 +34,12 @@ const UNPOSTERED_VIDEO_HEIGHT_PX = 720;
 const VIDEO_POSTER_TIMEOUT_MS = 15_000;
 const ASSET_FILE_MODE = 0o600;
 const PREVIEW_SUFFIX = '.preview.webp';
-const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.csv|\.tsv)$/;
+const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.csv|\.tsv|\.xlsx)$/;
+const WORKBOOK_SHEET_FILENAME_RE = /^([0-9a-f]{64})\.sheet(\d{1,2})\.csv$/;
+const SHEET_NAMES_FILENAME_RE = /^([0-9a-f]{64})\.sheets\.json$/;
+const SHEET_NAMES_SUFFIX = '.sheets.json';
+const WORKBOOK_EXTENSION = '.xlsx';
+const WORKBOOK_SHEET_CONTENT_TYPE = 'text/csv; charset=utf-8';
 const PREVIEW_FILENAME_RE = /^([0-9a-f]{64})\.preview\.webp$/;
 const MANIFEST_SUFFIX = '.bundle.json';
 const MANIFEST_FILENAME_RE = /^([0-9a-f]{64})\.bundle\.json$/;
@@ -43,7 +49,7 @@ const INCOMING_PREFIX = '.incoming-';
 const ATTACH_HOLD_MS = 10 * 60_000;
 const STILL_IMAGE_FTYP_BRANDS = new Set(['mif1', 'msf1', 'mif2', 'avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'avci', 'avcs', 'jpeg', 'j2ki', 'j2is', 'crx ']);
 const FTYP_BRANDS_OFFSET = 16;
-const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV or TSV';
+const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV, TSV or XLSX';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
 interface MediaFormat {
@@ -65,12 +71,14 @@ const MEDIA_FORMAT_BY_EXTENSION: Record<string, MediaFormat> = {
   '.md': { kind: 'doc', mime: 'text/markdown', contentType: 'text/markdown; charset=utf-8', hasLargeRasterPreview: false },
   '.csv': { kind: 'sheet', mime: 'text/csv', contentType: 'text/csv; charset=utf-8', hasLargeRasterPreview: false },
   '.tsv': { kind: 'sheet', mime: 'text/tab-separated-values', contentType: 'text/tab-separated-values; charset=utf-8', hasLargeRasterPreview: false },
+  '.xlsx': { kind: 'sheet', mime: BOARD_WORKBOOK_MIME, contentType: BOARD_WORKBOOK_MIME, hasLargeRasterPreview: false },
 };
 
 interface StoredAsset {
   extension: string;
   hasPreview: boolean;
   dials: Dial[];
+  sheets: string[];
   media: BoxMedia | null;
 }
 
@@ -136,8 +144,19 @@ function isTextMediaKind(kind: BoxMedia['kind']): boolean {
   return TEXT_MEDIA_RULE_BY_KIND[kind] !== undefined;
 }
 
-async function textMediaRefusalOf(incomingPath: string, name: string, kind: BoxMedia['kind']): Promise<Refusal | null> {
-  const rule = TEXT_MEDIA_RULE_BY_KIND[kind];
+function sheetNamesOfText(namesText: string): string[] | null {
+  const parsed: unknown = JSON.parse(namesText);
+  return Array.isArray(parsed) && parsed.every((name) => typeof name === 'string') ? parsed : null;
+}
+
+async function workbookRefusalOf(incomingPath: string, name: string): Promise<Refusal | null> {
+  if ((await fsp.stat(incomingPath)).size <= BOARD_WORKBOOK_CAP_BYTES) return null;
+  return refusal(413, `${name} is larger than the ${BOARD_WORKBOOK_CAP_BYTES / (1024 * 1024)} MB a board workbook takes`);
+}
+
+async function textMediaRefusalOf(incomingPath: string, name: string, format: MediaFormat): Promise<Refusal | null> {
+  if (format.mime === BOARD_WORKBOOK_MIME) return workbookRefusalOf(incomingPath, name);
+  const rule = TEXT_MEDIA_RULE_BY_KIND[format.kind];
   if (!rule) return null;
   if ((await fsp.stat(incomingPath)).size > rule.capBytes) return refusal(413, `${name} is larger than the ${rule.capBytes / 1024} KiB a ${rule.noun} takes`);
   if (!isUtf8(await fsp.readFile(incomingPath))) return refusal(415, `${name} is not UTF-8 text; a ${rule.noun} is ${rule.textName}`);
@@ -344,6 +363,13 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       const memberHashByPath = await fsp.readFile(path.join(assetsRoot, filename), 'utf8').then(memberHashesOfManifest).catch(() => null);
       if (memberHashByPath) memberHashByPathByAssetId.set(manifestAssetId, memberHashByPath);
     }
+    const sheetNamesByAssetId = new Map<string, string[]>();
+    for (const filename of filenames) {
+      const namedAssetId = SHEET_NAMES_FILENAME_RE.exec(filename)?.[1];
+      if (!namedAssetId) continue;
+      const sheetNames = await fsp.readFile(path.join(assetsRoot, filename), 'utf8').then(sheetNamesOfText).catch(() => null);
+      if (sheetNames) sheetNamesByAssetId.set(namedAssetId, sheetNames);
+    }
     const previewAssetIds = new Set(filenames.flatMap((filename) => PREVIEW_FILENAME_RE.exec(filename)?.[1] ?? []));
     for (const filename of filenames) {
       const match = ORIGINAL_FILENAME_RE.exec(filename);
@@ -352,7 +378,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       if (!format) continue;
       const dials = format.kind === 'page' ? await storedDialsOf(path.join(assetsRoot, filename)) : [];
       const hasPreview = previewAssetIds.has(match[1]) && fixedViewportSizeOf(format) === null;
-      if (!storedOf(match[1], match[2])) keepStored(match[1], { extension: match[2], hasPreview, dials, media: null });
+      const sheets = match[2] === WORKBOOK_EXTENSION ? sheetNamesByAssetId.get(match[1]) ?? [] : [];
+      if (!storedOf(match[1], match[2])) keepStored(match[1], { extension: match[2], hasPreview, dials, sheets, media: null });
     }
     const abandonedIncomingNames = filenames.filter((filename) => filename.startsWith(INCOMING_PREFIX));
     await Promise.all(abandonedIncomingNames.map((filename) => fsp.rm(path.join(assetsRoot, filename), { force: true }).catch(() => {})));
@@ -382,6 +409,50 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
 
   function previewPathOf(assetId: string): string {
     return path.join(assetsRoot, `${assetId}${PREVIEW_SUFFIX}`);
+  }
+
+  function workbookSheetPathOf(assetId: string, sheetIndex: number): string {
+    return path.join(assetsRoot, boardWorkbookSheetFilename(assetId, sheetIndex));
+  }
+
+  function sheetNamesPathOf(assetId: string): string {
+    return path.join(assetsRoot, `${assetId}${SHEET_NAMES_SUFFIX}`);
+  }
+
+  async function writeDerivedFile(finalPath: string, text: string): Promise<void> {
+    const draftPath = await reserveIncomingPath();
+    try {
+      await fsp.writeFile(draftPath, text, { mode: ASSET_FILE_MODE, flag: 'wx' });
+      await fsp.rename(draftPath, finalPath);
+    } finally {
+      await fsp.rm(draftPath, { force: true }).catch(() => {});
+    }
+  }
+
+  async function deriveWorkbookSheets(workbookPath: string, assetId: string, name: string): Promise<string[] | Refusal> {
+    const reading = await readWorkbookSheets(workbookPath);
+    if (!reading.ok && reading.isUnpackedTooLarge) return refusal(413, `${name} unpacks to more than the ${BOARD_WORKBOOK_UNPACKED_CAP_BYTES / (1024 * 1024)} MB a board workbook may hold`);
+    if (!reading.ok) {
+      logger.warn(`[whiteboard] workbook ${name} could not be read: ${reading.error}`);
+      return refusal(415, `${name} could not be read as an XLSX workbook`);
+    }
+    const { sheets } = reading;
+    if (sheets.length === 0) return refusal(415, `${name} holds no sheet`);
+    if (sheets.length > BOARD_WORKBOOK_SHEETS_MAX) return refusal(413, `${name} holds ${sheets.length} sheets; a board workbook holds at most ${BOARD_WORKBOOK_SHEETS_MAX}`);
+    const longNamed = sheets.find((sheet) => sheet.name.length > WHITEBOARD_LIMITS.line);
+    if (longNamed) return refusal(413, `${name} names a sheet with more than ${WHITEBOARD_LIMITS.line} characters`);
+    const overCap = sheets.find((sheet) => Buffer.byteLength(sheet.csvText, 'utf8') > BOARD_SHEET_CAP_BYTES);
+    if (overCap) return refusal(413, `sheet ${overCap.name} of ${name} is larger than the ${BOARD_SHEET_CAP_BYTES / 1024} KiB a board sheet takes`);
+    for (const [sheetIndex, sheet] of sheets.entries()) await writeDerivedFile(workbookSheetPathOf(assetId, sheetIndex), sheet.csvText);
+    const sheetNames = sheets.map((sheet) => sheet.name);
+    await writeDerivedFile(sheetNamesPathOf(assetId), JSON.stringify(sheetNames));
+    return sheetNames;
+  }
+
+  function workbookSheetsOf(incomingPath: string, assetId: string, format: MediaFormat, stored: StoredAsset | undefined, name: string): Promise<string[] | Refusal> {
+    if (format.mime !== BOARD_WORKBOOK_MIME) return Promise.resolve([]);
+    if (stored && stored.sheets.length > 0) return Promise.resolve(stored.sheets);
+    return deriveWorkbookSheets(incomingPath, assetId, name);
   }
 
   function manifestPathOf(assetId: string): string {
@@ -473,11 +544,13 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       if (isRefusal(sized)) return sized;
       const dials = await dialsOf(incomingPath, format, name);
       if (isRefusal(dials)) return dials;
+      const sheets = await workbookSheetsOf(incomingPath, assetId, format, stored, name);
+      if (isRefusal(sheets)) return sheets;
       if (sized.hasPreview && !isOriginalStored) await fsp.rename(draftPreviewPath, previewPath);
       const { hasPreview } = sized;
       await fsp.rename(incomingPath, finalPath);
-      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, link: null, source: null };
-      keepStored(assetId, { extension, hasPreview, dials, media });
+      const media: BoxMedia = { kind: format.kind, asset: assetId, mime: format.mime, width: sized.width, height: sized.height, alt: '', hasPreview, dials, sheets, link: null, source: null };
+      keepStored(assetId, { extension, hasPreview, dials, sheets, media });
       hold(assetId, ATTACH_HOLD_MS);
       return { ok: true, media, unloaded: [] };
     } finally {
@@ -505,7 +578,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
       const verdict = decideShownKind(firstChunk, name);
       const format = verdict.ok ? MEDIA_FORMAT_BY_EXTENSION[verdict.extension] : undefined;
       if (!verdict.ok || !format || isStillImageInVideoContainer(firstChunk, verdict.extension)) return refusal(415, `${name} is not a file a board takes; a board takes ${ACCEPTED_TEXT}`);
-      const textRefusal = await textMediaRefusalOf(incomingPath, name, format.kind);
+      const textRefusal = await textMediaRefusalOf(incomingPath, name, format);
       if (textRefusal) return textRefusal;
       if (format.kind !== 'page' || pageSourcePath === null) return await storeIncomingInTurn(incomingPath, await hashFile(incomingPath), verdict.extension, name);
       const bundled = await bundledAssetIdOf(incomingPath, pageSourcePath);
@@ -552,7 +625,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
   }
 
   async function removeStoredFiles(assetId: string, storedFormats: readonly StoredAsset[]): Promise<void> {
-    const filePaths = [...storedFormats.map((stored) => originalPathOf(assetId, stored.extension)), previewPathOf(assetId), manifestPathOf(assetId)];
+    const workbookSheetPaths = storedFormats.flatMap((stored) => stored.sheets.map((_sheetName, sheetIndex) => workbookSheetPathOf(assetId, sheetIndex)));
+    const filePaths = [...storedFormats.map((stored) => originalPathOf(assetId, stored.extension)), ...workbookSheetPaths, sheetNamesPathOf(assetId), previewPathOf(assetId), manifestPathOf(assetId)];
     await Promise.all(filePaths.map((filePath) => fsp.rm(filePath, { force: true }).catch((error: unknown) => {
       logger.warn(`[whiteboard] unused board media ${assetId} could not be deleted: ${errorMessage(error)}`);
     })));
@@ -590,9 +664,17 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return [...(memberHashByPathByAssetId.get(assetId)?.keys() ?? [])];
   }
 
+  function servableWorkbookSheetOf(assetId: string, sheetIndex: number): ServableAsset | null {
+    const workbook = storedOf(assetId, WORKBOOK_EXTENSION);
+    if (!workbook || sheetIndex >= workbook.sheets.length) return null;
+    return { path: workbookSheetPathOf(assetId, sheetIndex), contentType: WORKBOOK_SHEET_CONTENT_TYPE };
+  }
+
   function servableOf(filename: string): ServableAsset | null {
     const previewAssetId = PREVIEW_FILENAME_RE.exec(filename)?.[1];
     if (previewAssetId) return storedFormatsOf(previewAssetId).some((stored) => stored.hasPreview) ? { path: previewPathOf(previewAssetId), contentType: 'image/webp' } : null;
+    const workbookSheet = WORKBOOK_SHEET_FILENAME_RE.exec(filename);
+    if (workbookSheet?.[1]) return servableWorkbookSheetOf(workbookSheet[1], Number(workbookSheet[2]));
     const match = ORIGINAL_FILENAME_RE.exec(filename);
     const assetId = match?.[1];
     const extension = match?.[2];
@@ -605,9 +687,9 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     const stored = storedAs(media) ?? storedFormatsOf(media.asset)[0];
     const format = stored ? MEDIA_FORMAT_BY_EXTENSION[stored.extension] : undefined;
     if (!stored || !format) return `media ${media.asset}, which no whiteboard attach stored`;
-    const storedFields = { kind: format.kind, mime: format.mime, hasPreview: stored.hasPreview, dials: stored.dials };
-    const isMatching = media.kind === storedFields.kind && media.mime === storedFields.mime && media.hasPreview === storedFields.hasPreview && JSON.stringify(media.dials) === JSON.stringify(stored.dials);
-    return isMatching ? null : `media ${media.asset} as ${JSON.stringify({ kind: media.kind, mime: media.mime, hasPreview: media.hasPreview, dials: media.dials })}, but attach stored it as ${JSON.stringify(storedFields)}`;
+    const storedFields = { kind: format.kind, mime: format.mime, hasPreview: stored.hasPreview, dials: stored.dials, sheets: stored.sheets };
+    const isMatching = media.kind === storedFields.kind && media.mime === storedFields.mime && media.hasPreview === storedFields.hasPreview && JSON.stringify(media.dials) === JSON.stringify(stored.dials) && JSON.stringify(media.sheets) === JSON.stringify(stored.sheets);
+    return isMatching ? null : `media ${media.asset} as ${JSON.stringify({ kind: media.kind, mime: media.mime, hasPreview: media.hasPreview, dials: media.dials, sheets: media.sheets })}, but attach stored it as ${JSON.stringify(storedFields)}`;
   }
 
   function pictureSourceOf(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>): string | null {
@@ -617,9 +699,16 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return media.kind === 'image' ? originalPathOf(media.asset, stored.extension) : null;
   }
 
+  async function workbookTextOf(assetId: string, sheetNames: readonly string[]): Promise<string | null> {
+    const sheetTexts = await Promise.all(sheetNames.map((_sheetName, sheetIndex) => fsp.readFile(workbookSheetPathOf(assetId, sheetIndex), 'utf8').catch(() => null)));
+    if (sheetTexts.some((sheetText) => sheetText === null)) return null;
+    return sheetNames.map((sheetName, sheetIndex) => `## ${sheetName}\n\n${sheetTexts[sheetIndex]}`).join('\n\n');
+  }
+
   async function readDocText(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>): Promise<string | null> {
     const stored = storedAs(media);
     if (!isTextMediaKind(media.kind) || !stored || MEDIA_FORMAT_BY_EXTENSION[stored.extension]?.kind !== media.kind) return null;
+    if (stored.extension === WORKBOOK_EXTENSION) return workbookTextOf(media.asset, stored.sheets);
     return fsp.readFile(originalPathOf(media.asset, stored.extension), 'utf8').catch(() => null);
   }
 

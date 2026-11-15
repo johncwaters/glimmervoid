@@ -897,7 +897,7 @@ function openBoardSheet(boardId: string, boxId: string): void {
   openSheetEditor({
     title: box.title,
     media: () => sheetMediaOf(boardId, boxId),
-    readText: (media) => fetchBoardSheetText(media),
+    readText: (media, sheetIndex) => fetchBoardSheetText(media, sheetIndex),
     unsaveableText: () => {
       const linkState = linkStateOf(boardId, boxId);
       return linkState?.state === 'broken' ? `${linkState.text}, so this sheet is read-only until it is linked again or unlinked.` : null;

@@ -1,4 +1,4 @@
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
@@ -88,8 +88,8 @@ export async function fetchBoardDocText(media: Pick<BoxMedia, 'asset' | 'mime'>)
   return response.text().catch(() => null);
 }
 
-export async function fetchBoardSheetText(media: Pick<BoxMedia, 'asset' | 'mime'>): Promise<string | null> {
-  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`).catch(() => null);
+export async function fetchBoardSheetText(media: Pick<BoxMedia, 'asset' | 'mime'>, sheetIndex: number): Promise<string | null> {
+  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardSheetTextFilename(media, sheetIndex)}`).catch(() => null);
   if (!response?.ok) return null;
   const bytes = await response.arrayBuffer().catch(() => null);
   return bytes ? new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) : null;
@@ -117,7 +117,7 @@ function docCardOf(media: PageMedia): HTMLElement {
 }
 
 async function fetchSheetHead(media: Pick<BoxMedia, 'asset' | 'mime'>): Promise<{ text: string; isWhole: boolean } | null> {
-  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`, { headers: { Range: `bytes=0-${SHEET_CARD_HEAD_BYTES - 1}` } }).catch(() => null);
+  const response = await fetch(`${WHITEBOARD_ASSET_ROUTE}/${boardSheetTextFilename(media, 0)}`, { headers: { Range: `bytes=0-${SHEET_CARD_HEAD_BYTES - 1}` } }).catch(() => null);
   if (response?.status === RANGE_NOT_SATISFIABLE_STATUS) return { text: '', isWhole: true };
   if (!response?.ok) return null;
   const bytes = await response.arrayBuffer().catch(() => null);

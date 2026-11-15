@@ -32,6 +32,7 @@ export default defineConfig({
         'bin/binary-main': path.join(repoRoot, 'bin', 'binary-main.ts'),
         'server/whiteboard/board-store-worker': path.join(repoRoot, 'server', 'whiteboard', 'board-store-worker.ts'),
         'server/whiteboard/layout-worker': path.join(repoRoot, 'server', 'whiteboard', 'layout-worker.ts'),
+        'server/whiteboard/workbook-worker': path.join(repoRoot, 'server', 'whiteboard', 'workbook-worker.ts'),
         'session/hook-relay': path.join(repoRoot, 'session', 'hook-relay.ts'),
         'session/command-hook-relay': path.join(repoRoot, 'session', 'command-hook-relay.ts'),
         'session/statusline-relay': path.join(repoRoot, 'session', 'statusline-relay.ts'),

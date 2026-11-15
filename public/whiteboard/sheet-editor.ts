@@ -1,17 +1,19 @@
 import type { ColumnRegular, DataType } from '@revolist/revogrid';
+import { BOARD_WORKBOOK_MIME } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia } from '#shared/contracts/whiteboard.ts';
 import { parseSheetText, serializeEditedSheet, sheetDelimiterOfMime } from '#shared/sheet-csv-core.ts';
 import type { ParsedSheet } from '#shared/sheet-csv-core.ts';
 import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 
 type SheetSaveOutcome = { ok: true; asset: string } | { ok: false; isConflict: boolean; error: string | null };
 
 interface SheetSource {
   title: string;
   media: () => BoxMedia | null;
-  readText: (media: BoxMedia) => Promise<string | null>;
+  readText: (media: BoxMedia, sheetIndex: number) => Promise<string | null>;
   unsaveableText: () => string | null;
   save: (sheetText: string, loadedAsset: string) => Promise<SheetSaveOutcome>;
 }
@@ -32,6 +34,7 @@ const SHEET_UNREAD_TEXT = 'This sheet could not be read.';
 const SHEET_GONE_TEXT = 'This sheet is no longer on the board.';
 const SHEET_CONFLICT_TEXT = 'The file changed since this sheet opened. Close and open the sheet again to load it; your edits here are not saved.';
 const SHEET_UNSAVED_FALLBACK_TEXT = 'The sheet could not be saved.';
+const WORKBOOK_READ_ONLY_TEXT = 'An XLSX workbook is read-only on a board.';
 const UNSAVED_TEXT = 'Unsaved changes';
 const UNSAVED_CLOSE_TEXT = 'Unsaved changes. Save them, or Close again to discard them.';
 const DARK_BACKGROUND_LUMINANCE = 0.5;
@@ -127,7 +130,11 @@ export function openSheetEditor(source: SheetSource): void {
   saveButton.disabled = true;
   actions.prepend(statusText);
   actions.append(saveButton);
-  dialog.append(body, actions);
+  const sheetTabs = el('div', 'wb-sheet-editor-tabs');
+  sheetTabs.setAttribute('role', 'tablist');
+  sheetTabs.hidden = true;
+  dialog.append(sheetTabs, body, actions);
+  let latestSheetIndex = 0;
   let unsavedEditCount = 0;
   let isClosePending = false;
   let isSaving = false;
@@ -178,30 +185,53 @@ export function openSheetEditor(source: SheetSource): void {
   };
   saveButton.addEventListener('click', () => { void save(); });
 
-  void (async () => {
-    const media = source.media();
-    if (!media) {
-      showStatus(SHEET_GONE_TEXT);
-      return;
-    }
-    const sheetText = await source.readText(media);
+  async function showSheet(media: BoxMedia, sheetIndex: number): Promise<void> {
+    latestSheetIndex = sheetIndex;
+    const sheetText = await source.readText(media, sheetIndex);
+    if (latestSheetIndex !== sheetIndex) return;
     if (sheetText === null) {
       showStatus(SHEET_UNREAD_TEXT);
       return;
     }
     const parsed = parseSheetText(sheetText, sheetDelimiterOfMime(media.mime));
-    const unsaveableText = source.unsaveableText();
-    const grid = await createSheetGrid(parsed, unsaveableText !== null, dialog);
+    const readOnlyText = media.mime === BOARD_WORKBOOK_MIME ? WORKBOOK_READ_ONLY_TEXT : source.unsaveableText();
+    const grid = await createSheetGrid(parsed, readOnlyText !== null, dialog);
+    if (latestSheetIndex !== sheetIndex) return;
     grid.addEventListener('afteredit', () => {
       unsavedEditCount += 1;
       isClosePending = false;
       showStatus(UNSAVED_TEXT);
       refreshSaveButton();
     });
-    body.append(grid);
+    body.replaceChildren(grid);
     loaded = { parsed, asset: media.asset, grid };
-    showStatus(unsaveableText ?? '');
-  })();
+    showStatus(readOnlyText ?? '');
+  }
+
+  function showWorkbookTabs(media: BoxMedia): void {
+    if (media.mime !== BOARD_WORKBOOK_MIME) return;
+    saveButton.hidden = true;
+    sheetTabs.hidden = false;
+    const tabs = media.sheets.map((sheetName, sheetIndex) => {
+      const tab = createPressable('header-tab', sheetName);
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', String(sheetIndex === 0));
+      tab.addEventListener('click', () => {
+        for (const [otherIndex, otherTab] of tabs.entries()) otherTab.setAttribute('aria-selected', String(otherIndex === sheetIndex));
+        void showSheet(media, sheetIndex);
+      });
+      return tab;
+    });
+    sheetTabs.replaceChildren(...tabs);
+  }
+
+  const media = source.media();
+  if (!media) {
+    showStatus(SHEET_GONE_TEXT);
+    return;
+  }
+  showWorkbookTabs(media);
+  void showSheet(media, 0);
 }
 
-export type { SheetSaveOutcome, SheetSource };
+export type { SheetSaveOutcome };

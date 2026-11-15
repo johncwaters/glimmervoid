@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright-core';
+import { utils as workbookUtils, write as writeWorkbook } from '@stackline/xlsx';
 import { z } from 'zod';
 import type { Layout } from './cases-core.ts';
 import { commitFile, findSessionWorktree, pollFor } from './review-changes.ts';
@@ -31,6 +32,7 @@ const BOARD_DOC_LINK_URL = 'https://example.com/spec';
 const LINKED_DOC_BOX_ID = 'linked-doc';
 const LINKED_DOC_PATH = 'docs/linked-card.md';
 const LINKED_SHEET_BOX_ID = 'linked-sheet';
+const WORKBOOK_BOX_ID = 'workbook';
 const LINKED_SHEET_PATH = 'docs/linked-sheet.csv';
 const LINKED_SHEET_REPO_TEXT = 'team,q1\r\n"Platform, core",900\r\ninfra,1200\r\n"said ""hi""",3\r\n';
 const SHEET_AT_CAP_HEADER = 'name,digits,letters\n';
@@ -1302,6 +1304,43 @@ async function verifyLinkedBoardSheet(open: OpenBoard, worktreePath: string): Pr
   await sheetCard.waitFor({ state: 'detached' });
 }
 
+async function uploadBoardWorkbook(page: Page, workbookBase64: string, uploadName: string) {
+  const uploadReply: unknown = await page.evaluate(async ({ assetRoute, base64, name }) => {
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const response = await fetch(assetRoute, { method: 'POST', body: bytes, headers: { 'content-type': 'application/octet-stream', 'x-glimmervoid-upload-name': name } });
+    const reply: unknown = await response.json();
+    return reply;
+  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, base64: workbookBase64, name: uploadName });
+  return BoardMediaUploadReply.parse(uploadReply).media;
+}
+
+async function verifyBoardWorkbook(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const workbook = workbookUtils.book_new();
+  workbookUtils.book_append_sheet(workbook, workbookUtils.aoa_to_sheet([['team', 'q1'], ['infra', 1200]]), 'Budget');
+  workbookUtils.book_append_sheet(workbook, workbookUtils.aoa_to_sheet([['note'], ['ship it']]), 'Notes');
+  const workbookBase64: unknown = writeWorkbook(workbook, { type: 'base64', bookType: 'xlsx' });
+  assert.ok(typeof workbookBase64 === 'string');
+  const workbookMedia = await uploadBoardWorkbook(page, workbookBase64, 'book.xlsx');
+  assert.deepEqual([workbookMedia.kind, workbookMedia.sheets], ['sheet', ['Budget', 'Notes']], 'the board keeps an XLSX upload as a sheet with its sheet names');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: WORKBOOK_BOX_ID, title: 'Workbook', place: { at: { x: 40, y: 700 } }, media: workbookMedia } }] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  await panel.locator(`.wb-media[data-box-id="${WORKBOOK_BOX_ID}"] .wb-media-sheet-table td`, { hasText: /^infra$/ }).waitFor();
+  await deselectAll(open);
+  await clickElement(open, WORKBOOK_BOX_ID);
+  const sheetEditor = page.locator('.wb-sheet-editor');
+  await sheetEditor.locator('revogr-data .rgCell', { hasText: /^1200$/ }).waitFor();
+  assert.deepEqual(await sheetEditor.getByRole('tab').allTextContents(), ['Budget', 'Notes'], 'a workbook opens with a tab per sheet');
+  await sheetEditor.getByRole('tab', { name: 'Notes', exact: true }).click();
+  await sheetEditor.locator('revogr-data .rgCell', { hasText: /^ship it$/ }).waitFor();
+  await sheetEditor.locator('revogr-data .rgCell', { hasText: /^ship it$/ }).dblclick();
+  assert.deepEqual([await sheetEditor.locator('revogr-edit').count(), await sheetEditor.getByRole('button', { name: 'Save', exact: true }).isVisible()], [0, false], 'a workbook is read-only and offers no save');
+  await page.keyboard.press('Escape');
+  await sheetEditor.waitFor({ state: 'detached' });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: WORKBOOK_BOX_ID }] });
+  await boardWithout(open, 'the workbook check cleans up', (element) => element.id === WORKBOOK_BOX_ID);
+}
+
 function drawnMediaUrlOf(element: BoardElement): string {
   assert.ok(element.kind === 'box' && element.media, `${element.id} carries media`);
   const drawnFilename = boardMediaDrawnFilename(element.media);
@@ -2343,6 +2382,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyLinkedBoardSheet(open, worktreePath);
+  await verifyBoardWorkbook(open);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId);
 }

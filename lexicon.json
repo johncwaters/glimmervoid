@@ -1411,6 +1411,14 @@
     {
       "name": "windows action center",
       "definition": "The Windows notification area where the browser routes Glimmervoid's native notifications"
+    },
+    {
+      "name": "sheet",
+      "definition": "A whiteboard card showing a CSV, TSV or XLSX file as a table, linked to its file in the worktree; zoom opens it in a grid"
+    },
+    {
+      "name": "workbook",
+      "definition": "An XLSX file on a board: a read-only sheet card with one CSV per sheet, derived on the server at ingest"
     }
   ],
   "retired": [
