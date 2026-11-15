@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The board's details panel no longer hides under its toolbar in a narrow pane.** When the tools wrap onto a second row, as they do in a board beside a terminal, the details and style panels now start below the last row instead of under it.
 - **Rotated boxes on a board can be resized.** A turned box now shows its eight resize handles turned with it, and dragging one stretches the box along its own sides while the opposite handle stays put. A selection holding a turned box shows handles around the turned shapes and resizes them all.
 - **Dragging boxes on a board now shows their arrows following along.** A selected arrow with a free end or bend points moved only when you let go; it now moves with the boxes while you drag.
 - **Quick arrow presses on a board no longer drop moves.** A nudge started while the board was still drawing an earlier nudge could start from the old position, so the box moved less than you pressed.

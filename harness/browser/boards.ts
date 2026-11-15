@@ -1188,6 +1188,8 @@ async function uploadBoardDoc(page: Page, docText: string, uploadName: string) {
 }
 
 async function selectBoxByTitle(open: OpenBoard, boxId: string): Promise<void> {
+  await deselectAll(open);
+  await open.panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
   const boxRect = await screenRectOf(open, boxId);
   await open.page.mouse.click(boxRect.x + boxRect.width / 2, boxRect.y + 8);
 }
@@ -2349,7 +2351,8 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   const agentBox = await agentIsland.boundingBox();
   assert.ok(agentBox);
   assert.ok(Math.abs(agentBox.y + agentBox.height - (canvasBox.y + canvasBox.height - 10)) < 2 && Math.abs(agentBox.x - (canvasBox.x + 10)) < 2, 'the session island sits bottom left on the board');
-  assert.equal(await agentIsland.getByRole('button').count(), 0, 'the session island holds no send control, since board changes reach the agent with its next prompt');
+  const islandButtonNames = await agentIsland.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? button.textContent ?? ''));
+  assert.ok(islandButtonNames.every((name) => name.startsWith('Disconnect ')), `the session island holds only Disconnect and no send control, since board changes reach the agent with its next prompt; it holds ${islandButtonNames.join(', ')}`);
   const inspect = panel.locator('.wb-inspect');
   await openMoreIn(inspect);
   await inspect.getByRole('button', { name: 'Add a ref to this box', exact: true }).click();
@@ -2368,8 +2371,10 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await page.locator(`.review-reader .review-reader-file[data-path="${UNCOVERED_FILE_NAME}"][aria-current="true"]`).waitFor({ timeout: REVIEW_TIMEOUT_MS });
   await page.keyboard.press('Escape');
   await page.locator('.review-reader').waitFor({ state: 'detached' });
-  const toolbarTops = await panel.locator('.wb-top-left > .wb-island:not([hidden])').evaluateAll((islands) => islands.map((island) => Math.round(island.getBoundingClientRect().top)));
-  assert.equal(new Set(toolbarTops).size, 1, `the board toolbars share one row, tops ${toolbarTops.join(', ')}`);
+  const toolbarBottoms = await panel.locator('.wb-top-left > .wb-island:not([hidden])').evaluateAll((islands) => islands.map((island) => Math.round(island.getBoundingClientRect().bottom)));
+  const detailsStackBox = await panel.locator('.wb-top-right').boundingBox();
+  assert.ok(detailsStackBox);
+  assert.ok(detailsStackBox.y >= Math.max(...toolbarBottoms), `the details stack starts below every toolbar row, at ${Math.round(detailsStackBox.y)} under toolbar bottoms ${toolbarBottoms.join(', ')}`);
   await inspect.getByRole('button', { name: 'Delete', exact: true }).click();
   await boardWithout(open, 'the deleted step', (element) => element.id === step.id);
   await inspect.waitFor({ state: 'hidden' });

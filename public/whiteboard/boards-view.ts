@@ -1463,6 +1463,8 @@ export function mountBoardHost(): HTMLElement {
   chrome.append(boardIsland, viewIsland, toolsIsland, toolHint);
   const topRightStack = el('div', 'wb-top-right');
   topRightStack.append(inspectPanel);
+  const topChrome = el('div', 'wb-top');
+  topChrome.append(chrome, topRightStack);
   stylePopover = createBoardStylePopover({ host: topRightStack, currentBoard: selectedBoard, sendOps });
   const emptyBoardHint = el('div', 'wb-empty-board');
   emptyBoardHint.hidden = true;
@@ -1472,7 +1474,7 @@ export function mountBoardHost(): HTMLElement {
     el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
   );
   emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
-  canvas.append(viewport, emptyBoardHint, topRightStack, chrome, bottomLeftStack, glNotice);
+  canvas.append(viewport, emptyBoardHint, topChrome, bottomLeftStack, glNotice);
   const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
   const empty = el('div', 'wb-empty');
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
