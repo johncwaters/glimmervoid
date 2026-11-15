@@ -8,6 +8,7 @@ import type { OwnedPathOwner } from '../../../shared/contracts/owned-paths.ts';
 import type { OwnedPathsLedgerHandle } from '../../owned-paths-ledger.ts';
 import type { RemovalCause, RemovalKind } from '../../../shared/contracts/removal-record.ts';
 import { isOwnWorktreeLockLine } from '../core/worktree-lock-core.ts';
+import type { OriginProbeTarget, OriginReachability } from '../core/origin-probe-core.ts';
 
 const fsp = fs.promises;
 
@@ -300,6 +301,7 @@ type GitWorkspaceContext = {
   serialized<TArgs, TResult>(body: (args: TArgs) => Promise<TResult>): (args: TArgs) => Promise<TResult>;
   admitted<TArgs extends { admissionTimeoutMs?: number }, TResult>(body: (args: TArgs) => Promise<TResult>, refuse: (args: TArgs) => TResult): (args: TArgs) => Promise<TResult>;
   worktrees: WorktreePort;
+  probeOrigin(target: OriginProbeTarget): Promise<OriginReachability>;
 };
 
 export { ISOLATED_CHECKOUT_BASE_REF, ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS, ISOLATED_CHECKOUT_REVIEW_REF, MERGE_PROBE_TIMEOUT_MS, REMOTE_BRANCH_LISTING_MAX_BUFFER, REMOTE_REF_PREFIX, UNPROBED_MARKER, WORKTREE_STATUS_ARGS, WORK_PRESENCE_STATUS_ARGS, directoryExists, errResult, errorExitCode, findWorktreeForBranch, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches };

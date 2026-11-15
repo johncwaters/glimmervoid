@@ -27,6 +27,8 @@ import { UNPROBED_MARKER, directoryExists, errResult, errorExitCode, findWorktre
 import type { GitExtraOptions, GitResult, GitRunner, GitWorkspaceContext, OwnedPathsRecorder, OwnedWorktreeArgs, ProjectGitRunner, QueuedGitResult, RemovalAdmission, RemovalArgs, RemovalGuardOptions, RemovalTarget, ResetKeepArgs, ResolvedMarkerBase, RetiredShareLinks, SessionWorktree, StageDetachedWorktreeArgs, WorkspaceHandle, WorktreeArgs, WorktreeBranch, WorktreeDirtyProbe, WorktreeOwnership } from './workspace/workspace-context.ts';
 import { createOriginOps } from './workspace/origin-ops.ts';
 import { githubPushAuthEnv } from '../core/repository-source-core.ts';
+import { probeOriginReachability } from './origin-probe.ts';
+import type { OriginProbe } from './origin-probe.ts';
 import { createRebaseOps } from './workspace/rebase-ops.ts';
 import { createProbeOps } from './workspace/probe-ops.ts';
 import { createIntegrationOps } from './workspace/integration-ops.ts';
@@ -149,6 +151,7 @@ function createGitWorkspace(opts: {
   provenanceNotesRef?: (projectPath: string) => Promise<string | null>;
   githubPushToken?: () => Promise<string | null>;
   rebaseSigningArgs?: (worktreePath: string) => Promise<string[]>;
+  probeOrigin?: OriginProbe;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -622,6 +625,7 @@ function createGitWorkspace(opts: {
       return githubPushAuthEnv(origin.out.trim(), token, process.env);
     },
     worktrees: { listWorktreePorcelain: (projectPath) => run(['worktree', 'list', '--porcelain'], projectPath), lockReusedHomeWorktrees, tearDownWorktree },
+    probeOrigin: opts.probeOrigin ?? probeOriginReachability,
   };
   const origin = createOriginOps(context);
   const rebase = createRebaseOps(context, origin);

@@ -13,6 +13,8 @@ import type { CheckoutDetachedArgs, GitResult, GitWorkspaceContext, IntegrationS
 import type { OriginOps } from './origin-ops.ts';
 import type { RebaseOps } from './rebase-ops.ts';
 import { clock } from '../../../shared/clock.ts';
+import { isProxyConfigured, originProbeEndpoint, proxyConfigQueries } from '../core/origin-probe-core.ts';
+import type { OriginReachability } from '../core/origin-probe-core.ts';
 
 const fsp = fs.promises;
 const INTEGRATION_SYNC_FETCH_BUDGET_MS = 15_000;
@@ -21,9 +23,9 @@ const MIN_INTEGRATION_SYNC_STEP_MS = 1_000;
 const LS_REMOTE_NO_MATCHING_REF_EXIT_CODE = 2;
 
 function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, rebase: RebaseOps) {
-  const { git, run, runUntrusted, serialized, admitted } = context;
+  const { git, run, runUntrusted, serialized, admitted, probeOrigin } = context;
   const { listWorktreePorcelain } = context.worktrees;
-  const { hasOriginRemote, isAncestor, fetchOriginBranch, isFetchableBranchName } = origin;
+  const { originUrl, isAncestor, fetchOriginBranch, isFetchableBranchName } = origin;
   const { fastForwardTarget } = rebase;
 
   async function checkoutDetachedBody({ worktreePath, sha, ...isolation }: CheckoutDetachedArgs): Promise<GitResult> {
@@ -238,9 +240,19 @@ function createIntegrationOps(context: GitWorkspaceContext, origin: OriginOps, r
     }
   }
 
+  async function reachabilityOfOrigin(projectPath: string, originUrlText: string): Promise<OriginReachability> {
+    const endpoint = originProbeEndpoint(originUrlText);
+    if (endpoint === null) return 'unknown';
+    const proxyConfigAnswers = await Promise.all(proxyConfigQueries(originUrlText).map((query) => run([...query], projectPath)));
+    if (isProxyConfigured(process.env, proxyConfigAnswers.map((answer) => answer.out).join(''))) return 'unknown';
+    return probeOrigin(endpoint);
+  }
+
   async function syncIntegrationBranchBody({ projectPath, branch }: WorktreeArgs): Promise<IntegrationSyncResult> {
     const fetchDeadline = clock.nowMs() + INTEGRATION_SYNC_FETCH_BUDGET_MS;
-    if (!(await hasOriginRemote(projectPath))) return { outcome: 'no-remote', from: null, to: null };
+    const originUrlText = await originUrl({ projectPath });
+    if (originUrlText === null) return { outcome: 'no-remote', from: null, to: null };
+    if (await reachabilityOfOrigin(projectPath, originUrlText) === 'unreachable') return { outcome: 'fetch-failed', from: null, to: null, error: 'origin is unreachable' };
     const localRef = `refs/heads/${branch}`;
     const remoteRef = `refs/remotes/origin/${branch}`;
 

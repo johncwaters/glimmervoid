@@ -104,6 +104,36 @@ test('syncIntegrationBranch fetches only the integration branch, bounded and non
   assert.ok((fetchOptions?.timeout ?? 0) > 10_000 && (fetchOptions?.timeout ?? Number.POSITIVE_INFINITY) <= 15_000);
 });
 
+test('an unreachable https origin fails the integration sync without waiting on git fetch, unless a proxy scoped to its URL decides the route', { skip: !GIT }, async () => {
+  const fixture = createFixture();
+  try {
+    git(['remote', 'set-url', 'origin', 'https://github.com:8443/owner/repo.git'], fixture.repo);
+    const probedTargets: unknown[] = [];
+    const fetchedCommands: string[][] = [];
+    const gitWorkspace = createGitWorkspace({
+      git: realGitRunner((args) => {
+        if (args[0] === 'fetch') fetchedCommands.push(args);
+      }),
+      probeOrigin: async (target) => {
+        probedTargets.push(target);
+        return 'unreachable';
+      },
+    });
+
+    const unreachableSync = await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'main' });
+    assert.deepEqual(unreachableSync, { outcome: 'fetch-failed', from: null, to: null, error: 'origin is unreachable' });
+    assert.deepEqual(probedTargets, [{ host: 'github.com', port: 8443 }]);
+    assert.deepEqual(fetchedCommands, []);
+
+    git(['config', 'http.https://github.com:8443/.proxy', 'http://127.0.0.1:1'], fixture.repo);
+    await gitWorkspace.syncIntegrationBranch({ projectPath: fixture.repo, branch: 'main' });
+    assert.equal(probedTargets.length, 1);
+    assert.equal(fetchedCommands.length, 1);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('an integration branch origin lacks reports no-remote and drops its stale tracking ref', { skip: !GIT }, async () => {
   const fixture = createFixture();
   try {
