@@ -9,7 +9,8 @@
   },
   "bin": {
     "glimmervoid": "dist/bin/glimmervoid.js",
-    "glimmervoid-fnox": "dist/bin/glimmervoid-fnox"
+    "glimmervoid-fnox": "dist/bin/glimmervoid-fnox",
+    "glimmervoid-relay": "dist/bin/glimmervoid-relay"
   },
   "files": [
     "dist/",

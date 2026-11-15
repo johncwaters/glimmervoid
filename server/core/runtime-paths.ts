@@ -50,6 +50,15 @@ function withExecutableSuffix(name: string, platform: NodeJS.Platform): string {
   return platform === 'win32' ? `${name}.exe` : name;
 }
 
+const SHIPPED_RELAY_NAME = 'glimmervoid-relay';
+const BINARY_RUN_SUBCOMMAND = '__run';
+const WINDOWS_EXECUTABLE_EXTENSION = '.exe';
+
+function relayExecutableBeside(launcherPath: string): string {
+  const launcherExtension = path.extname(launcherPath).toLowerCase() === WINDOWS_EXECUTABLE_EXTENSION ? WINDOWS_EXECUTABLE_EXTENSION : '';
+  return path.join(path.dirname(launcherPath), `${SHIPPED_RELAY_NAME}${launcherExtension}`);
+}
+
 const ENTRY_EXTENSION_BY_MODE: Record<RuntimeMode, string> = { source: '.ts', bundled: '.js', binary: '.mjs' };
 
 function decideRuntimeMode(isBundled: boolean, isBinary: boolean): RuntimeMode {
@@ -67,7 +76,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   const cliPath = path.join(assetRoot, 'bin', `glimmervoid${sourceExtension}`);
   const relayPath = (relayName: string) => path.join(assetRoot, 'session', `${relayName}${sourceExtension}`);
   const selfLaunch = (entry: SelfEntry, launcherPath: string): string[] => {
-    if (mode === 'binary') return entry === 'cli' ? [launcherPath] : [launcherPath, '__run', entry];
+    if (mode === 'binary') return entry === 'cli' ? [launcherPath] : [relayExecutableBeside(launcherPath), BINARY_RUN_SUBCOMMAND, entry];
     return [launcherPath, entry === 'cli' ? cliPath : relayPath(entry)];
   };
   const fnoxPath = ({ execPath, platform, fnoxVersion }: FnoxLocation): string => {
@@ -91,5 +100,5 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   };
 }
 
-export { computeRuntimePaths };
+export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside };
 export type { SelfEntry };

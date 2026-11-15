@@ -44,7 +44,7 @@ test('the dashboard build is always read from dist/client, bundled or not', () =
   assert.equal(fromBundle.bundled, true, 'a shared chunk under dist is still a bundled layout');
 });
 
-test('a binary relaunches itself through __run, while node installs launch the entry file', () => {
+test('a binary runs relays through the glimmervoid-relay beside its launcher, while node installs launch the entry file', () => {
   const binaryPaths = computeRuntimePaths({
     moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.mjs'),
     hasPackageJson: onlyRootHasPackageJson,
@@ -58,7 +58,9 @@ test('a binary relaunches itself through __run, while node installs launch the e
 
   assert.equal(binaryPaths.boardStoreWorkerPath, path.join(PACKAGE_ROOT, 'dist', 'server', 'whiteboard', 'board-store-worker.mjs'));
   assert.deepEqual(binaryPaths.selfLaunch('cli', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid']);
-  assert.deepEqual(binaryPaths.selfLaunch('hook-relay', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid', '__run', 'hook-relay']);
+  assert.deepEqual(binaryPaths.selfLaunch('hook-relay', '/usr/local/bin/glimmervoid'), ['/usr/local/bin/glimmervoid-relay', '__run', 'hook-relay']);
+  const windowsInstallDir = path.join(path.sep, 'Program Files', 'Glimmervoid');
+  assert.deepEqual(binaryPaths.selfLaunch('statusline-relay', path.join(windowsInstallDir, 'glimmervoid.EXE')), [path.join(windowsInstallDir, 'glimmervoid-relay.exe'), '__run', 'statusline-relay']);
   assert.deepEqual(bundledPaths.selfLaunch('hook-relay', '/usr/bin/node'), ['/usr/bin/node', path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js')]);
 });
 

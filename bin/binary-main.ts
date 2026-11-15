@@ -1,25 +1,4 @@
-const BINARY_RUN_SUBCOMMAND = '__run';
-const UNKNOWN_RUN_ENTRY_EXIT_CODE = 2;
-const RELAY_RUN_ENTRIES = new Set(['hook-relay', 'command-hook-relay', 'statusline-relay', 'hook-tool-relay', 'posthog-read-gate']);
-const PACKAGE_BIN_RUN_ENTRIES = new Set(['cc-safety-net']);
-
-async function entryFileOf(entryName: string): Promise<string | null> {
-  const { relayPath, resolvePackageBin } = await import('../server/runtime-paths.ts');
-  if (RELAY_RUN_ENTRIES.has(entryName)) return relayPath(entryName);
-  if (PACKAGE_BIN_RUN_ENTRIES.has(entryName)) return resolvePackageBin(entryName, entryName);
-  return null;
-}
-
-async function runEntry(entryName: string, entryArguments: readonly string[]): Promise<void> {
-  const entryFile = await entryFileOf(entryName);
-  if (!entryFile) {
-    process.stderr.write(`glimmervoid: no run entry named ${entryName}\n`);
-    process.exit(UNKNOWN_RUN_ENTRY_EXIT_CODE);
-  }
-  process.argv = [process.execPath, entryFile, ...entryArguments];
-  const { pathToFileURL } = await import('node:url');
-  await import(pathToFileURL(entryFile).href);
-}
+import { BINARY_RUN_SUBCOMMAND, relayExecutableBeside } from '../server/core/runtime-paths.ts';
 
 async function routeNodePtyToExtractedCopy(): Promise<void> {
   const { extractNodePtyFromBinary } = await import('../server/runtime-paths.ts');
@@ -49,6 +28,17 @@ async function runCli(): Promise<void> {
   await import('./glimmervoid.ts');
 }
 
-const [, , subcommand, entryName = '', ...entryArguments] = process.argv;
-if (subcommand === BINARY_RUN_SUBCOMMAND) await runEntry(entryName, entryArguments);
-if (subcommand !== BINARY_RUN_SUBCOMMAND) await runCli();
+async function forwardRunFromPreRelaySessionsToRelay(relayArguments: string[]): Promise<never> {
+  const { spawn } = await import('../server/child-process-safe.ts');
+  const relayProcess = spawn(relayExecutableBeside(process.execPath), relayArguments, { stdio: 'inherit' });
+  const relayExitCode = await new Promise<number>((resolve) => {
+    relayProcess.on('error', () => resolve(RELAY_UNREACHABLE_EXIT_CODE));
+    relayProcess.on('close', (exitCode: number | null) => resolve(exitCode ?? RELAY_UNREACHABLE_EXIT_CODE));
+  });
+  process.exit(relayExitCode);
+}
+
+const RELAY_UNREACHABLE_EXIT_CODE = 2;
+const relayArguments = process.argv.slice(2);
+if (relayArguments[0] === BINARY_RUN_SUBCOMMAND) await forwardRunFromPreRelaySessionsToRelay(relayArguments);
+await runCli();

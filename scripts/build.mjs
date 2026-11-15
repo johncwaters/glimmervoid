@@ -57,11 +57,12 @@ async function buildBinary() {
   const binaryPath = path.join(binaryOutputDirectory, binaryName);
   fs.rmSync(binaryPath, { force: true });
   const { exec: packageExecutable } = await import('@yao-pkg/pkg');
+  const pkgTarget = `node${BINARY_NODE_MAJOR}-${pkgPlatform}-${process.arch}`;
   await packageExecutable([
     path.join(distDir, 'bin', 'binary-main.mjs'),
     '--sea',
     '--config', path.join(repoRoot, 'package.json'),
-    '--targets', `node${BINARY_NODE_MAJOR}-${pkgPlatform}-${process.arch}`,
+    '--targets', pkgTarget,
     '--output', binaryPath,
   ]);
   if (!fs.existsSync(binaryPath)) fail(`pkg wrote no binary at ${binaryPath}`);
@@ -69,8 +70,48 @@ async function buildBinary() {
     if (!npmShapeModuleFiles.has(moduleFile)) fs.rmSync(moduleFile);
   }
   console.log(`build: standalone binary at ${path.relative(repoRoot, binaryPath)}`);
+  await buildRelayBinary(packageExecutable, pkgTarget, binaryOutputDirectory);
   const fnoxName = process.platform === 'win32' ? 'glimmervoid-fnox.exe' : 'glimmervoid-fnox';
   await fetchFnox({ target: hostTarget(), outputPath: path.join(binaryOutputDirectory, fnoxName) });
+}
+
+async function buildRelayBinary(packageExecutable, pkgTarget, binaryOutputDirectory) {
+  const relayBundleDirectory = path.join(distDir, 'relay-binary');
+  await build({
+    configFile: false,
+    root: repoRoot,
+    publicDir: false,
+    logLevel: 'warn',
+    ssr: { noExternal: true },
+    resolve: { alias: [{ find: /^cc-safety-net-cli$/, replacement: path.join(repoRoot, 'node_modules', 'cc-safety-net', 'dist', 'bin', 'cc-safety-net.js') }] },
+    build: {
+      ssr: path.join(repoRoot, 'bin', 'glimmervoid-relay.ts'),
+      outDir: relayBundleDirectory,
+      emptyOutDir: true,
+      target: 'node22',
+      minify: false,
+      sourcemap: false,
+      rolldownOptions: {
+        external: (id) => id.startsWith('node:'),
+        output: { format: 'es', entryFileNames: 'glimmervoid-relay.mjs', chunkFileNames: 'chunks/[name]-[hash].mjs' },
+      },
+    },
+  });
+  const relayPkgConfigPath = path.join(relayBundleDirectory, 'pkg.json');
+  fs.writeFileSync(relayPkgConfigPath, `${JSON.stringify({ name: 'glimmervoid-relay', pkg: { scripts: ['**/*.mjs'] } }, null, 2)}\n`);
+  const relayName = process.platform === 'win32' ? 'glimmervoid-relay.exe' : 'glimmervoid-relay';
+  const relayBinaryPath = path.join(binaryOutputDirectory, relayName);
+  fs.rmSync(relayBinaryPath, { force: true });
+  await packageExecutable([
+    path.join(relayBundleDirectory, 'glimmervoid-relay.mjs'),
+    '--sea',
+    '--config', relayPkgConfigPath,
+    '--targets', pkgTarget,
+    '--output', relayBinaryPath,
+  ]);
+  fs.rmSync(relayBundleDirectory, { recursive: true, force: true });
+  if (!fs.existsSync(relayBinaryPath)) fail(`pkg wrote no relay binary at ${relayBinaryPath}`);
+  console.log(`build: relay binary at ${path.relative(repoRoot, relayBinaryPath)}`);
 }
 
 function nodeOutputFiles(directory, extension = '.js', found = []) {

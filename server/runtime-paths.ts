@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { computeRuntimePaths } from './core/runtime-paths.ts';
+import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
 import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
@@ -32,7 +32,6 @@ const { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePac
 
 export { assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath, workbookWorkerPath };
 
-const BINARY_RUN_SUBCOMMAND = '__run';
 const SELF_LAUNCHER_COMMAND = mode === 'binary' ? 'glimmervoid' : 'node';
 const BINARY_ARGV_PREFIX_LENGTH = 2;
 const SCRIPT_ARGV_PREFIX_LENGTH = 1;
@@ -64,7 +63,7 @@ function selfRelaunch(runningArgv: readonly string[]): string[] {
 }
 
 function scriptLaunch(scriptPath: string, runEntry: string, launcherPath = hookLauncherPath()): string[] {
-  if (mode === 'binary') return [launcherPath, BINARY_RUN_SUBCOMMAND, runEntry];
+  if (mode === 'binary') return [relayExecutableBeside(launcherPath), BINARY_RUN_SUBCOMMAND, runEntry];
   return [launcherPath, scriptPath];
 }
 
