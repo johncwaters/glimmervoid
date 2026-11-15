@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A session starts promptly when origin cannot be reached.** Right after a hosted server wakes, its network can take up to a minute or more to come back, and the first new session used to wait 15 s on a git fetch that could not connect. Before the fetch, Glimmervoid now tries a quick connection to an https origin; when nothing answers within 2 s the session starts at once from the local base with the usual "could not fetch" warning. Origins over ssh, local paths, and machines with a proxy configured fetch exactly as before.
 - **The watcher link comes back within seconds of a hosted server's network returning after a wake.** For two minutes after the server wakes, it checks the watcher every 2 s and gives each check 3 s, instead of backing off to half-minute waits behind 10 s connect timeouts, which kept the link down for up to 80 s. Past those two minutes the usual pacing applies.
 - **A new session's timer no longer restarts when it begins working.** A session started with a prompt keeps one clock from Starting through its first turn, so the time shown is how long it has been at the task, not how long since startup ended.
+- **The board's details panel no longer hides under its toolbar in a narrow pane.** When the tools wrap onto a second row, as they do in a board beside a terminal, the details and style panels now start below the last row instead of under it.
+- **Rotated boxes on a board can be resized.** A turned box now shows its eight resize handles turned with it, and dragging one stretches the box along its own sides while the opposite handle stays put. A selection holding a turned box shows handles around the turned shapes and resizes them all.
+- **Dragging boxes on a board now shows their arrows following along.** A selected arrow with a free end or bend points moved only when you let go; it now moves with the boxes while you drag.
+- **Quick arrow presses on a board no longer drop moves.** A nudge started while the board was still drawing an earlier nudge could start from the old position, so the box moved less than you pressed.
+- **Unlocking your phone no longer shows a false "The server is not answering" error.** The 10 second wait before that error now counts only time the dashboard is on screen, so a normal reconnect after the phone was locked or the app backgrounded stays quiet. A server that is really down is still reported after 10 seconds of the visible page failing to reach it.
 
 ### Changed
 
@@ -28,14 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The standalone binary runs hooks and the statusline through a small `glimmervoid-relay` beside it.** Every hook call, statusline refresh and Sane YOLO check used to start the whole `glimmervoid` executable; they now start `glimmervoid-relay`, which installs next to it. On a test host a statusline refresh drops from about 105 to 41 ms of CPU, a hook call from about 109 to 43 ms, and a Claude Code Sane YOLO check from about 97 to 71 ms. Sessions started before an update keep their hooks: `glimmervoid __run` hands the call to `glimmervoid-relay`.
 - **A standalone install without its `glimmervoid-relay` refuses to start sessions.** Spawning a session fails with an error naming where the relay should be, rather than running agents with no hooks, statusline or Sane YOLO. `glimmervoid doctor` shows the relay under Relay.
 - **The session row badge for missing Coherence hooks now reads Coherence off.** It used to read Hooks off, which looked like every agent hook was down; only the Coherence hooks are.
-
-### Fixed
-
-- **The board's details panel no longer hides under its toolbar in a narrow pane.** When the tools wrap onto a second row, as they do in a board beside a terminal, the details and style panels now start below the last row instead of under it.
-- **Rotated boxes on a board can be resized.** A turned box now shows its eight resize handles turned with it, and dragging one stretches the box along its own sides while the opposite handle stays put. A selection holding a turned box shows handles around the turned shapes and resizes them all.
-- **Dragging boxes on a board now shows their arrows following along.** A selected arrow with a free end or bend points moved only when you let go; it now moves with the boxes while you drag.
-- **Quick arrow presses on a board no longer drop moves.** A nudge started while the board was still drawing an earlier nudge could start from the old position, so the box moved less than you pressed.
-- **Unlocking your phone no longer shows a false "The server is not answering" error.** The 10 second wait before that error now counts only time the dashboard is on screen, so a normal reconnect after the phone was locked or the app backgrounded stays quiet. A server that is really down is still reported after 10 seconds of the visible page failing to reach it.
 
 ## [0.59.1] - 2026-11-14
 
