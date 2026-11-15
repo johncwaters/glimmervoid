@@ -21,20 +21,11 @@ const BUILT_IN_TABS = ['Focus', 'Reviews', 'Arena', 'Packs'];
 const themeChoices = shownThemes.map(({ id, palette, fromPack }) => ({ id, label: shortLabelOf(palette.label), background: palette.chrome.bg, accent: palette.chrome.accent, fromPack }));
 const [firstTheme] = themeChoices;
 const PACK_TABS = ['PR table', 'PR radar'];
-const RADAR_SWEEP_MS = 4000;
-const RADAR_BLIPS = [
-  { label: '#412', angleDeg: 38, distance: 0.62 },
-  { label: '#408', angleDeg: 112, distance: 0.38 },
-  { label: '#415', angleDeg: 196, distance: 0.74 },
-  { label: '#409', angleDeg: 251, distance: 0.5 },
-  { label: '#417', angleDeg: 318, distance: 0.82 },
+const LAUNCHED_SESSIONS = [
+  { name: 'standup-12', stateToken: 'running', log: 'reading 14 merged PRs' },
+  { name: 'standup-11', stateToken: 'complete', log: 'posted to #standup' },
+  { name: 'standup-10', stateToken: 'complete', log: 'posted to #standup' },
 ];
-const blipStyleOf = ({ angleDeg, distance }: { angleDeg: number; distance: number }) => {
-  const radians = (angleDeg * Math.PI) / 180;
-  const left = 50 + Math.sin(radians) * distance * 50;
-  const top = 50 - Math.cos(radians) * distance * 50;
-  return `left: ${left.toFixed(1)}%; top: ${top.toFixed(1)}%`;
-};
 const REVIEW_ROWS = [
   { repo: 'web', number: '#412', title: 'Fix login redirect', stateToken: 'running', status: 'Approved' },
   { repo: 'api', number: '#408', title: 'Cache billing lookups', stateToken: 'waiting', status: 'Changes' },
@@ -53,7 +44,7 @@ const MERGED_ROWS = [
     <h2>Your agent changes Glimmervoid however you want with packs.</h2>
     <p>Ask for a new theme or a tab of your pull requests. Your agent builds it and shows you a preview on its board. Nothing changes until you approve it.</p>
   </div>
-  <figure class="packs-demo reveal" id="packs-demo" data-theme={firstTheme.id} style={`--radar-sweep-ms: ${RADAR_SWEEP_MS}ms`} aria-label="A Glimmervoid dashboard with three pack panels: a pull request table playing Game of Life and rain behind its rows, a radar sweeping over the pull requests waiting on you, and a launch button that also starts a session at 9 on weekdays. The theme buttons below it restyle all of it.">
+  <figure class="packs-demo reveal" id="packs-demo" data-theme={firstTheme.id} aria-label="A Glimmervoid dashboard with three pack panels: a pull request table playing Game of Life and rain behind its rows, a radar sweeping over the pull requests waiting on you, and a scheduled launch button counting down and starting sessions that stream their progress. The theme buttons below it restyle all of it.">
     <style set:html={themeRules}></style>
     <div class="theme-stage" aria-hidden="true">
       <div class="mock-header">
@@ -83,19 +74,24 @@ const MERGED_ROWS = [
           </div>
         </div>
         <div class="pack-panel is-radar">
-          <div class="radar-scope">
-            <span class="radar-ring is-outer"></span><span class="radar-ring is-inner"></span><span class="radar-sweep"></span>
-            {RADAR_BLIPS.map((blip) => <span class="radar-blip" style={blipStyleOf(blip)}>{blip.label}</span>)}
-          </div>
-          <span class="radar-summary">5 reviews waiting on you</span>
+          <canvas class="radar-scope" data-ambient="radar"></canvas>
+          <span class="radar-summary">8 reviews waiting on you</span>
         </div>
-        <div class="pack-panel is-launcher">
+        <div class="pack-panel is-launcher" id="packs-launcher" data-running-label={BADGE_LABELS[STATES.RUNNING]} data-complete-label={BADGE_LABELS[STATES.COMPLETE]}>
           <span class="panel-name">New session</span>
           <div class="launcher-row">
             <span class="launcher-button">Standup</span>
             <code class="launcher-cron">0 9 * * 1-5</code>
+            <span class="launcher-countdown">next run <span data-countdown>0:05</span></span>
           </div>
-          <div class="launched-session"><span class="launched-dot"></span><span class="board-task">standup-notes</span><span class="launched-badge">{BADGE_LABELS[STATES.RUNNING]}</span></div>
+          <ol class="launched-sessions" data-launched>
+            {LAUNCHED_SESSIONS.map(({ name, stateToken, log }) => (
+              <li class="launched-session" data-state={stateToken}>
+                <span class="launched-dot"></span><span class="launched-name">{name}</span><span class="launched-badge">{BADGE_LABELS[stateToken === 'running' ? STATES.RUNNING : STATES.COMPLETE]}</span>
+                <span class="launched-log">{log}</span>
+              </li>
+            ))}
+          </ol>
         </div>
       </div>
     </div>
@@ -110,10 +106,11 @@ const MERGED_ROWS = [
 </section>
 
 <script>
-  import { markWhileOnScreen } from '../../lib/dom.ts';
+  import { markWhileOnScreen, runFramesWhileVisible } from '../../lib/dom.ts';
   import { isAmbientKind, runAmbientWhileVisible } from '../../lib/pack-ambient.ts';
 
   const packsDemo = document.getElementById('packs-demo');
+  const redrawAmbientCanvases: Array<() => void> = [];
   if (packsDemo) markWhileOnScreen(packsDemo);
   interface ThemeChoice { id: string; label: string; background: string; accent: string; fromPack: boolean }
   const themeSwitch = packsDemo?.querySelector<HTMLElement>('.theme-switch');
@@ -128,6 +125,7 @@ const MERGED_ROWS = [
       if (!theme) return;
       shownThemeIndex = themeIndex;
       packsDemo.dataset.theme = theme.id;
+      for (const redraw of redrawAmbientCanvases) redraw();
       themeCurrent.style.setProperty('--swatch-bg', theme.background);
       themeCurrent.style.setProperty('--swatch-accent', theme.accent);
       if (themeName) themeName.textContent = theme.label;
@@ -140,14 +138,61 @@ const MERGED_ROWS = [
       });
     }
   }
+  const LAUNCH_EVERY_SECONDS = 5;
+  const SESSION_LOG_LINES = ['starting claude', 'reading 14 merged PRs', 'summarizing #412 and #408', 'drafting the notes', 'posted to #standup'];
+  const launcher = document.getElementById('packs-launcher');
+  const countdown = launcher?.querySelector<HTMLElement>('[data-countdown]');
+  const launchedList = launcher?.querySelector<HTMLElement>('[data-launched]');
+  const launchButton = launcher?.querySelector<HTMLElement>('.launcher-button');
+  if (launcher && countdown && launchedList && launchButton) {
+    const runningLabel = launcher.dataset.runningLabel ?? '';
+    const completeLabel = launcher.dataset.completeLabel ?? '';
+    let launchNumber = 12;
+    const advanceSession = (session: HTMLElement) => {
+      if (session.dataset.state !== 'running') return;
+      const logStep = Number(session.dataset.logStep ?? '1') + 1;
+      session.dataset.logStep = String(logStep);
+      const log = session.querySelector<HTMLElement>('.launched-log');
+      if (log) log.textContent = SESSION_LOG_LINES[Math.min(logStep, SESSION_LOG_LINES.length - 1)];
+      if (logStep < SESSION_LOG_LINES.length - 1) return;
+      session.dataset.state = 'complete';
+      const badge = session.querySelector<HTMLElement>('.launched-badge');
+      if (badge) badge.textContent = completeLabel;
+    };
+    const launchSession = () => {
+      launchNumber += 1;
+      const oldestSession = launchedList.lastElementChild;
+      if (!(oldestSession instanceof HTMLElement)) return;
+      oldestSession.dataset.state = 'running';
+      oldestSession.dataset.logStep = '0';
+      const textBySelector: Record<string, string> = { '.launched-name': `standup-${launchNumber}`, '.launched-badge': runningLabel, '.launched-log': SESSION_LOG_LINES[0] };
+      for (const [selector, text] of Object.entries(textBySelector)) {
+        const part = oldestSession.querySelector<HTMLElement>(selector);
+        if (part) part.textContent = text;
+      }
+      oldestSession.classList.remove('is-new');
+      launchedList.prepend(oldestSession);
+      void oldestSession.offsetWidth;
+      oldestSession.classList.add('is-new');
+      launchButton.classList.remove('is-pressed');
+      void launchButton.offsetWidth;
+      launchButton.classList.add('is-pressed');
+    };
+    runFramesWhileVisible(launcher, Array.from({ length: LAUNCH_EVERY_SECONDS }, () => 1000), (frameIndex) => {
+      const secondsLeft = LAUNCH_EVERY_SECONDS - frameIndex;
+      countdown.textContent = `0:0${secondsLeft === LAUNCH_EVERY_SECONDS ? 0 : secondsLeft}`;
+      for (const session of launchedList.querySelectorAll<HTMLElement>('.launched-session')) advanceSession(session);
+      if (frameIndex === 0) launchSession();
+    });
+  }
   for (const canvas of document.querySelectorAll<HTMLCanvasElement>('#packs-demo canvas[data-ambient]')) {
     const kind = canvas.dataset.ambient;
-    if (isAmbientKind(kind)) runAmbientWhileVisible(canvas, kind);
+    if (isAmbientKind(kind)) redrawAmbientCanvases.push(runAmbientWhileVisible(canvas, kind));
   }
 </script>
 
 <style>
-  .packs-demo { --launch-cycle-ms: 7000ms; margin: 0; display: grid; gap: 18px; }
+  .packs-demo { margin: 0; display: grid; gap: 18px; }
   .theme-stage {
     display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); color: var(--text);
     transition: background 320ms var(--ease-out-expo), color 320ms var(--ease-out-expo), border-color 320ms var(--ease-out-expo);
@@ -178,26 +223,25 @@ const MERGED_ROWS = [
   .pr-ambient { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; pointer-events: none; }
   .pr-ambient.is-life { inset: 0; opacity: 0.55; }
   .pr-ambient.is-rain { right: 0; width: 84px; z-index: 1; }
-  .radar-scope { position: relative; width: min(100%, 190px); aspect-ratio: 1; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border); overflow: hidden; }
-  .radar-ring { position: absolute; border: 1px solid var(--border-dim); border-radius: 50%; }
-  .radar-ring.is-outer { inset: 18%; }
-  .radar-ring.is-inner { inset: 36%; }
-  .radar-sweep { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg 290deg, color-mix(in oklab, var(--accent) 45%, transparent) 360deg); z-index: 1; pointer-events: none; }
-  .radar-blip { position: absolute; translate: -50% -50%; padding: 1px 4px; border-radius: 4px; background: var(--bg); color: var(--accent); font-size: 10px; font-weight: 700; }
-  .packs-demo[data-on-screen="true"] .radar-sweep { animation: radar-turn var(--radar-sweep-ms) linear infinite; }
-  @keyframes radar-turn { to { rotate: 360deg; } }
+  .radar-scope { display: block; width: min(100%, 210px); aspect-ratio: 1; border-radius: 50%; background: var(--bg-surface); border: 1px solid var(--border); color: var(--accent); }
   .radar-summary { color: var(--text-dim); font-size: var(--type-meta); }
   .board-task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-head); font-size: var(--type-meta); }
   .launcher-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .launcher-button { padding: 6px 14px; border-radius: 999px; background: var(--accent); color: var(--bg); font-size: var(--type-meta); font-weight: 700; }
-  .launcher-cron { color: var(--text-dim); font-size: var(--type-meta); }
-  .launched-session { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid color-mix(in oklab, var(--state-running) 45%, var(--border-dim)); border-radius: 6px; background: var(--state-running-bg); }
-  .launched-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--state-running); }
-  .launched-badge { margin-left: auto; color: var(--state-running); font-size: var(--type-meta); font-weight: 700; }
-  .packs-demo[data-on-screen="true"] .launcher-button { animation: launcher-press var(--launch-cycle-ms) linear infinite; }
-  .packs-demo[data-on-screen="true"] .launched-session { animation: session-arrive var(--launch-cycle-ms) var(--ease-out-expo) infinite; }
-  @keyframes launcher-press { 0%, 40% { scale: 1; } 43% { scale: 0.94; } 47%, 100% { scale: 1; } }
-  @keyframes session-arrive { 0%, 45% { opacity: 0; translate: 0 8px; } 55%, 92% { opacity: 1; translate: 0 0; } 100% { opacity: 0; translate: 0 0; } }
+  .launcher-button.is-pressed { animation: launcher-press 420ms var(--ease-out-expo); }
+  .launcher-cron, .launcher-countdown { color: var(--text-dim); font-size: var(--type-meta); }
+  .launcher-countdown [data-countdown] { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .launched-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; min-height: 0; }
+  .launched-session { --session-state: var(--state-running); display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; padding: 7px 10px; border: 1px solid color-mix(in oklab, var(--session-state) 45%, var(--border-dim)); border-radius: 6px; background: color-mix(in oklab, var(--session-state) 10%, var(--bg-surface)); transition: border-color 400ms var(--ease-out-expo), background 400ms var(--ease-out-expo); }
+  .launched-session[data-state="complete"] { --session-state: var(--state-complete); }
+  .launched-session.is-new { animation: session-arrive 520ms var(--ease-out-expo); }
+  .launched-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--session-state); }
+  .launched-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-head); font-size: var(--type-meta); }
+  .launched-badge { color: var(--session-state); font-size: var(--type-meta); font-weight: 700; }
+  .launched-log { grid-column: 2 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+  .launched-log::before { content: "> "; color: var(--session-state); }
+  @keyframes launcher-press { 0% { scale: 1; } 30% { scale: 0.9; } 100% { scale: 1; } }
+  @keyframes session-arrive { from { opacity: 0; translate: 0 -8px; } }
   .theme-switch { display: flex; align-items: center; gap: 10px; }
   .theme-step { display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-card); color: var(--text-head); cursor: pointer; transition: border-color 160ms var(--ease-out-expo); }
   .theme-step:hover { border-color: var(--accent); }
@@ -218,6 +262,7 @@ const MERGED_ROWS = [
   }
   @media (prefers-reduced-motion: reduce) {
     .theme-stage { transition: none; }
-    .packs-demo[data-on-screen="true"] :is(.launcher-button, .launched-session, .radar-sweep) { animation: none; }
+    :is(.launcher-button, .launched-session) { animation: none; }
+    .launched-session { transition: none; }
   }
 </style>

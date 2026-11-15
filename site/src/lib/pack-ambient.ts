@@ -8,6 +8,15 @@ const LIFE_STALE_GENERATIONS = 24;
 const LIFE_SEED_DENSITY = 0.22;
 const RAIN_STEP_MS = 33;
 const SPLASH_LIFETIME_STEPS = 18;
+const RADAR_STEP_MS = 16;
+const RADAR_TURN_MS = 3200;
+const RADAR_TRAIL_RADIANS = 1.4;
+const RADAR_TRAIL_SLICES = 36;
+const RADAR_BLIP_COUNT = 8;
+const RADAR_BLIP_SWEEPS = 4;
+const RADAR_GLOW_DECAY = 0.982;
+const RADAR_NOISE_DOTS = 14;
+const FULL_TURN = Math.PI * 2;
 
 interface Simulation {
   step: () => void;
@@ -134,16 +143,115 @@ function createRain(width: number, height: number): Simulation {
   return { step, draw, stepMs: RAIN_STEP_MS };
 }
 
-const SIMULATIONS_BY_KIND = { life: createLife, rain: createRain };
+function createRadar(width: number, height: number): Simulation {
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.max(1, Math.min(width, height) / 2 - 3);
+  const sweepStep = (FULL_TURN * RADAR_STEP_MS) / RADAR_TURN_MS;
+  let sweepAngle = Math.random() * FULL_TURN;
+  const newBlip = (slot: number) => ({ angle: ((slot + 0.15 + Math.random() * 0.7) / RADAR_BLIP_COUNT) * FULL_TURN, distance: 0.18 + Math.random() * 0.76, label: `#${380 + pickIndex(60)}`, glow: Math.random(), sweepsLeft: 1 + pickIndex(RADAR_BLIP_SWEEPS) });
+  const blips = Array.from({ length: RADAR_BLIP_COUNT }, (_, slot) => newBlip(slot));
+
+  function step() {
+    const previousAngle = sweepAngle;
+    sweepAngle = (sweepAngle + sweepStep) % FULL_TURN;
+    for (const [index, blip] of blips.entries()) {
+      blip.glow *= RADAR_GLOW_DECAY;
+      const isCrossedThisStep = previousAngle < sweepAngle ? blip.angle > previousAngle && blip.angle <= sweepAngle : blip.angle > previousAngle || blip.angle <= sweepAngle;
+      if (!isCrossedThisStep) continue;
+      blip.sweepsLeft -= 1;
+      blip.glow = 1;
+      if (blip.sweepsLeft < 0) blips[index] = { ...newBlip(index), glow: 0 };
+    }
+  }
+
+  function pointAt(angle: number, distance: number): [number, number] {
+    return [centerX + Math.sin(angle) * distance * radius, centerY - Math.cos(angle) * distance * radius];
+  }
+
+  function draw(context: CanvasRenderingContext2D) {
+    const color = getComputedStyle(context.canvas).color;
+    context.clearRect(0, 0, width, height);
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = 1;
+    context.globalAlpha = 0.22;
+    for (const ringFraction of [0.25, 0.5, 0.75, 1]) {
+      context.beginPath();
+      context.arc(centerX, centerY, radius * ringFraction, 0, FULL_TURN);
+      context.stroke();
+    }
+    context.beginPath();
+    context.moveTo(centerX - radius, centerY);
+    context.lineTo(centerX + radius, centerY);
+    context.moveTo(centerX, centerY - radius);
+    context.lineTo(centerX, centerY + radius);
+    context.stroke();
+    for (let tick = 0; tick < 72; tick++) {
+      const tickAngle = (tick / 72) * FULL_TURN;
+      const [outerX, outerY] = pointAt(tickAngle, 1);
+      const [innerX, innerY] = pointAt(tickAngle, tick % 6 === 0 ? 0.92 : 0.96);
+      context.beginPath();
+      context.moveTo(innerX, innerY);
+      context.lineTo(outerX, outerY);
+      context.stroke();
+    }
+    for (let slice = 0; slice < RADAR_TRAIL_SLICES; slice++) {
+      const sliceEnd = sweepAngle - (slice / RADAR_TRAIL_SLICES) * RADAR_TRAIL_RADIANS;
+      const sliceStart = sliceEnd - RADAR_TRAIL_RADIANS / RADAR_TRAIL_SLICES;
+      context.globalAlpha = 0.42 * (1 - slice / RADAR_TRAIL_SLICES) ** 2;
+      context.beginPath();
+      context.moveTo(centerX, centerY);
+      context.arc(centerX, centerY, radius, sliceStart - Math.PI / 2, sliceEnd - Math.PI / 2);
+      context.closePath();
+      context.fill();
+    }
+    context.globalAlpha = 0.95;
+    context.lineWidth = 1.5;
+    const [edgeX, edgeY] = pointAt(sweepAngle, 1);
+    context.beginPath();
+    context.moveTo(centerX, centerY);
+    context.lineTo(edgeX, edgeY);
+    context.stroke();
+    for (let dot = 0; dot < RADAR_NOISE_DOTS; dot++) {
+      const [noiseX, noiseY] = pointAt(Math.random() * FULL_TURN, Math.sqrt(Math.random()));
+      context.globalAlpha = Math.random() * 0.35;
+      context.fillRect(noiseX, noiseY, 1, 1);
+    }
+    context.font = '700 10px ui-monospace, monospace';
+    for (const blip of blips) {
+      const [blipX, blipY] = pointAt(blip.angle, blip.distance);
+      context.globalAlpha = 0.18 + 0.82 * blip.glow;
+      context.beginPath();
+      context.arc(blipX, blipY, 2 + blip.glow * 2.5, 0, FULL_TURN);
+      context.fill();
+      if (blip.glow > 0.12) {
+        context.globalAlpha = blip.glow * 0.6;
+        context.lineWidth = 1;
+        context.beginPath();
+        context.arc(blipX, blipY, 4 + (1 - blip.glow) * 14, 0, FULL_TURN);
+        context.stroke();
+      }
+      if (blip.glow < 0.25) continue;
+      context.globalAlpha = blip.glow;
+      context.fillText(blip.label, blipX + 6, blipY - 5);
+    }
+    context.globalAlpha = 1;
+  }
+
+  return { step, draw, stepMs: RADAR_STEP_MS };
+}
+
+const SIMULATIONS_BY_KIND = { life: createLife, rain: createRain, radar: createRadar };
 export type AmbientKind = keyof typeof SIMULATIONS_BY_KIND;
 
 export function isAmbientKind(kind: string | undefined): kind is AmbientKind {
   return kind !== undefined && Object.hasOwn(SIMULATIONS_BY_KIND, kind);
 }
 
-export function runAmbientWhileVisible(canvas: HTMLCanvasElement, kind: AmbientKind): void {
+export function runAmbientWhileVisible(canvas: HTMLCanvasElement, kind: AmbientKind): () => void {
   const context = canvas.getContext('2d');
-  if (!context) return;
+  if (!context) return () => {};
   let simulation: Simulation | null = null;
   let isOnScreen = false;
   let lastStepAt = 0;
@@ -186,4 +294,5 @@ export function runAmbientWhileVisible(canvas: HTMLCanvasElement, kind: AmbientK
     resume();
   }).observe(canvas);
   document.addEventListener('visibilitychange', resume);
+  return () => simulation?.draw(context);
 }
