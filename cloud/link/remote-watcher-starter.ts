@@ -14,15 +14,20 @@ const STATUS_CHECK_MS = 60_000;
 const STATUS_TIMEOUT_MS = 15_000;
 const UNLINKED_RETRY_BASE_MS = 1_000;
 const UNLINKED_WARNING_CHECK_COUNT = 5;
+const WAKE_SETTLE_MS = 2 * 60_000;
+const WAKE_RETRY_MS = 2_000;
+const WAKE_STATUS_TIMEOUT_MS = 3_000;
 
 function originOf(watcherUrl: string): string {
   return URL.parse(watcherUrl)?.origin ?? watcherUrl;
 }
 
-function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, fetchFn = fetch, now = clock.nowMs }: {
+function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async () => {}, statusCheckMs = STATUS_CHECK_MS, wakeRetryMs = WAKE_RETRY_MS, wakeStatusTimeoutMs = WAKE_STATUS_TIMEOUT_MS, fetchFn = fetch, now = clock.nowMs }: {
   resolveWatcherUrl: () => Promise<string | null>;
   prepareWatcher?: () => Promise<void>;
   statusCheckMs?: number;
+  wakeRetryMs?: number;
+  wakeStatusTimeoutMs?: number;
   fetchFn?: typeof fetch;
   now?: () => number;
 }): WatcherStarter {
@@ -34,13 +39,18 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
     let unansweredCheckCount = 0;
     let isCheckWantedNow = false;
     let lastPrepareProblem: string | null = null;
+    let wokeAtMs: number | null = null;
+
+    function isSettlingAfterWake(): boolean {
+      return wokeAtMs !== null && now() - wokeAtMs < WAKE_SETTLE_MS;
+    }
 
     async function isWatcherAnswering(watcherUrl: string): Promise<boolean> {
       try {
         const response = await fetchFn(new URL(STATUS_PATH, watcherUrl), {
           method: 'GET',
           headers: signedHeaders(commandKey, { method: 'GET', path: STATUS_PATH, body: '' }, now()),
-          signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+          signal: AbortSignal.timeout(isSettlingAfterWake() ? wakeStatusTimeoutMs : STATUS_TIMEOUT_MS),
         });
         if (!response.ok) {
           await response.body?.cancel();
@@ -70,6 +80,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
         if (answeringUrl === null) log.log(`[watcher] linked the watcher at ${originOf(watcherUrl)}`);
         answeringUrl = watcherUrl;
         unansweredCheckCount = 0;
+        wokeAtMs = null;
         onListening(watcherUrl);
         return;
       }
@@ -85,6 +96,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
 
     function nextCheckDelayMs(): number {
       if (unansweredCheckCount === 0) return statusCheckMs;
+      if (isSettlingAfterWake()) return wakeRetryMs;
       return nextBackoffMs({ attempt: unansweredCheckCount, baseMs: UNLINKED_RETRY_BASE_MS, maxMs: statusCheckMs, jitter: 'none' });
     }
 
@@ -106,6 +118,7 @@ function createRemoteWatcherStarter({ resolveWatcherUrl, prepareWatcher = async 
 
     function checkNow(): void {
       if (isStopped) return;
+      wokeAtMs = now();
       if (checkTimer === null) {
         isCheckWantedNow = true;
         return;

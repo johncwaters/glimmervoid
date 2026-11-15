@@ -486,6 +486,49 @@ test('a server that wakes from a sleep longer than 30 s rechecks its remote watc
   assert.deepEqual(sleptReports, [3 * 60 * 60_000]);
 });
 
+test('after a host wake whose network stays dark for a while, the watcher link comes back within one short retry of the network returning', async (t) => {
+  const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-wake-relink-'));
+  const linkSecret = crypto.randomBytes(32);
+  const home = createWatcherHome({ files: watcherFilesInFolder(watcherHome), credentialKey: credentialStoreKey(linkSecret), log: QUIET_LOG });
+  const sender = createNudgeSender({ serverUrl: 'http://127.0.0.1:9', signingKey: directionKey(linkSecret, 'watcher-to-server'), log: QUIET_LOG });
+  const githubFetch: typeof fetch = async () => new Response('{"data":{"viewer":{"login":"awake"}}}', { status: 200, headers: { 'content-type': 'application/json' } });
+  const runner = createProbeRunner({ home, nudges: sender, fetchFn: githubFetch, log: QUIET_LOG });
+  const watcherListener = createWatcherListener({ runner, signingKey: directionKey(linkSecret, 'server-to-watcher'), log: QUIET_LOG });
+  await runner.start();
+  const watcherPort = await watcherListener.listen(0);
+  const network = { isDark: false };
+  const blackHoledFetch: typeof fetch = (input, init) => {
+    if (!network.isDark) return fetch(input, init);
+    return new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
+  };
+  const coveredProbeCounts: number[] = [];
+  const link = createWatcherLink({
+    linkSecret,
+    log: QUIET_LOG,
+    credentials: () => ({ github: 'read-token', posthog: null }),
+    startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => `http://127.0.0.1:${watcherPort}`, wakeRetryMs: 100, wakeStatusTimeoutMs: 200, fetchFn: blackHoledFetch }),
+  });
+  link.registerProbeSource({ laneId: 'test-lane', credential: 'github', probes: () => [LIGHT_PROBE], onNudge: () => {}, onCoverageChange: (coveredProbes) => coveredProbeCounts.push(coveredProbes.length), onWatcherProblem: () => {} });
+  t.after(async () => {
+    link.stop();
+    runner.stop();
+    sender.stop();
+    await watcherListener.close();
+    await fsp.rm(watcherHome, { recursive: true, force: true });
+  });
+  await link.start();
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+
+  network.isDark = true;
+  link.hostWoke();
+  await eventually(() => coveredProbeCounts.at(-1) === 0 ? true : undefined, 2_000);
+  await new Promise((resolve) => setTimeout(resolve, 1_200));
+  network.isDark = false;
+  const networkReturnedAt = Date.now();
+  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined, 5_000);
+  assert.ok(Date.now() - networkReturnedAt < 1_000, `relinked ${Date.now() - networkReturnedAt} ms after the network returned`);
+});
+
 test('a remote watcher links by URL and nudges its lane, and a watcher that stops answering or cannot nudge the server hands lanes back to their timers until it recovers', async (t) => {
   const watcherHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-remote-watcher-'));
   const linkSecret = crypto.randomBytes(32);
