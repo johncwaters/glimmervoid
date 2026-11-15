@@ -70,6 +70,7 @@ export function wireInstallPicker(root: HTMLElement): void {
   showInstallPlatform(detected ?? 'macos');
   if (!platformSwitch) return;
   platformSwitch.hidden = false;
+  platformSwitch.dataset.wired = 'true';
   platformSwitch.addEventListener('click', (event) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-platform]') : null;
     if (!button || !isInstallPlatform(button.dataset.platform)) return;

@@ -65,6 +65,7 @@ p { margin: 0; }
 
 .platform-switch { display: inline-flex; margin: 0; padding: 0; min-inline-size: 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .platform-switch[hidden] { display: none; }
+.platform-switch:not([data-wired]) { visibility: hidden; }
 .platform-switch button { font: inherit; font-size: var(--type-body); cursor: pointer; background: transparent; color: var(--text-dim); border: 0; padding: 6px 14px; }
 .platform-switch button + button { border-left: 1px solid var(--border); }
 .platform-switch button:hover { color: var(--text-head); }
