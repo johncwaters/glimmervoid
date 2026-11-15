@@ -22,6 +22,7 @@ interface RegistryConfig extends Record<string, unknown> {
   projects: RegistryProject[];
   worktree?: WorktreeSettings;
   agentAccounts?: AgentAccount[];
+  skipPermissionsByDefault?: boolean;
 }
 
 interface RegistryGitWorkspace {

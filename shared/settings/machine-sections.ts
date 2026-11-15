@@ -1,4 +1,4 @@
-import { USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
+import { SKIP_PERMISSIONS_BY_DEFAULT, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
 import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, USD } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
@@ -103,7 +103,7 @@ export const MACHINE_SAFETY: SettingsSection = {
       description: 'Skip agent permission prompts for projects that set no choice.',
       control: 'toggle', keywords: ['permissions', 'yolo', 'dangerously'], danger: true,
       warning: 'Enabling this control lets agents edit files and run shell commands without asking, and restarts running sessions that inherit it.',
-      defaultValue: false, ...MACHINE_NOW,
+      defaultValue: SKIP_PERMISSIONS_BY_DEFAULT, ...MACHINE_NOW,
     },
     {
       id: 'sane-yolo', path: 'saneYolo', title: 'Sane YOLO',

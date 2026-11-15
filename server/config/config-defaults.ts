@@ -5,7 +5,7 @@ import type { WorkflowRule } from '../../shared/contracts/workflows.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from '../core/memory-admission-core.ts';
 import type { ProjectEntry, GlimmervoidConfig } from './config-types.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
-import { PACK_SCHEDULED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
+import { PACK_SCHEDULED_SESSIONS_DEFAULT, SKIP_PERMISSIONS_BY_DEFAULT } from '../../shared/settings-ranges.ts';
 
 const DEFAULT_CONFIG = {
   port: 3000,
@@ -49,7 +49,7 @@ const DEFAULT_CONFIG = {
 
   autoResume: true,
 
-  skipPermissionsByDefault: false,
+  skipPermissionsByDefault: SKIP_PERMISSIONS_BY_DEFAULT,
 
   saneYolo: true,
   saneYoloUnreadablePaths: [] as string[],

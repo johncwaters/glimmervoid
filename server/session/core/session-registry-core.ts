@@ -2,6 +2,7 @@ import type { ProjectConfig } from '../../../shared/contracts/config.ts';
 import type { SessionState } from '../../../shared/states.ts';
 import { STATES } from '../../../shared/states.ts';
 import { TOOL_RESULT_HOOK_EVENTS } from '../../../session/core/claude-approval-core.ts';
+import { SKIP_PERMISSIONS_BY_DEFAULT } from '../../../shared/settings-ranges.ts';
 
 export type AgentId = ProjectConfig['agent'];
 
@@ -36,8 +37,8 @@ interface RegistryDependencies {
   skipPermissionsByDefault?: boolean;
 }
 
-function machineSkipsPermissionsByDefault(config: object): boolean {
-  return 'skipPermissionsByDefault' in config && config.skipPermissionsByDefault === true;
+function machineSkipsPermissionsByDefault(config: { skipPermissionsByDefault?: boolean }): boolean {
+  return config.skipPermissionsByDefault ?? SKIP_PERMISSIONS_BY_DEFAULT;
 }
 
 function projectSkipsPermissions(project: RegistryProject, skipPermissionsByDefault: boolean): boolean {

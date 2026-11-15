@@ -124,6 +124,14 @@ test('config file compatibility keeps port zero and migrates replayBufferKB zero
   });
 });
 
+test('a hand-written skipPermissionsByDefault the schema refuses keeps permission prompts on', () => {
+  for (const refusedValue of ['false', 0, null]) {
+    withStore({ projects: [], skipPermissionsByDefault: refusedValue }, (store) => {
+      assert.equal(store.config.skipPermissionsByDefault, false);
+    });
+  }
+});
+
 test('a legacy packReadTelemetry config key is ignored', () => {
   withStore({ projects: [], packReadTelemetry: false }, (store) => {
     assert.equal('packReadTelemetry' in store.getSettings(), false);

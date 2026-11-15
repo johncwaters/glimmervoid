@@ -17,6 +17,8 @@ import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
 import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
 import { configBackupPath, configSecretsPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
 import { defaultRepoRootOf } from '../core/repository-source-core.ts';
+import { SETTINGS_REGISTRY } from '../../shared/settings/registry.ts';
+import { settingsOf } from '../../shared/settings/registry-core.ts';
 
 const ABORT_CONFIG_SAVE = 'abort-config-save';
 
@@ -98,6 +100,12 @@ function replaceInvalidWorktreeLeaves(draft: Record<string, unknown>): void {
   }
 }
 
+function invalidValueFallbackOf(key: string, fallback: unknown): unknown {
+  const setting = settingsOf(SETTINGS_REGISTRY.sections).find((candidate) => candidate.path === key);
+  if (setting?.danger === true && setting.control === 'toggle') return false;
+  return fallback;
+}
+
 function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = []): GlimmervoidConfig {
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
@@ -108,8 +116,9 @@ function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = 
     if (!Object.hasOwn(draft, key)) continue;
     const fieldSchema = Config.shape[key as keyof typeof Config.shape];
     if (!fieldSchema || fieldSchema.safeParse(draft[key]).success) continue;
-    console.warn(`[config] ${key} value ${JSON.stringify(draft[key])} is invalid; using ${JSON.stringify(fallback)}`);
-    draft[key] = fallback;
+    const replacement = invalidValueFallbackOf(key, fallback);
+    console.warn(`[config] ${key} value ${JSON.stringify(draft[key])} is invalid; using ${JSON.stringify(replacement)}`);
+    draft[key] = replacement;
   }
   const validation = validateConfig(draft);
   if (!validation.ok) throw new Error(`validation failed: ${validation.errors.join('; ')}`);

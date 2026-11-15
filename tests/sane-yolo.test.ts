@@ -45,6 +45,28 @@ test('a project marked saneYolo resolves the Sane YOLO hook while the machine se
   }
 });
 
+test('a project with no permission choice skips prompts unless the machine config says skipPermissionsByDefault false', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-project-skip-default-'));
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+    getGitWorkspace: () => null, getUserHooks: () => [], resolveHookTools: () => [],
+  });
+  const project = { id: 'skip-default-project', name: 'project', path: directory };
+  const { skipPermissionsByDefault: _defaultSkip, ...configWithoutSkipKey } = DEFAULT_CONFIG;
+  const configWithNoChoice: GlimmervoidConfig = { ...configWithoutSkipKey, recordSignals: false, projects: [project] };
+  const configSayingFalse: GlimmervoidConfig = { ...configWithNoChoice, skipPermissionsByDefault: false };
+  const sessionWithNoChoice = makeSession(project, configWithNoChoice);
+  const sessionSayingFalse = makeSession(project, configSayingFalse);
+  try {
+    assert.equal(sessionWithNoChoice.dangerouslySkipPermissions, true);
+    assert.equal(sessionSayingFalse.dangerouslySkipPermissions, false);
+  } finally {
+    sessionWithNoChoice.destroy();
+    sessionSayingFalse.destroy();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 interface ProductionHookFixture {
   cwd: string;
   env: NodeJS.ProcessEnv;

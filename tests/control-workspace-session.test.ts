@@ -31,7 +31,7 @@ test('add-session persists the workspace folder and chosen repositories', () => 
       name: 'Team Work',
       path: path.join(worktreeRoot, 'ws-Team-Work-12345678'),
       repos: [first, second],
-      dangerouslySkipPermissions: false,
+      dangerouslySkipPermissions: true,
     }]);
     assert.equal(fs.existsSync(config.projects[0].path), false);
     assert.equal(connection.sent.some((frame) => frame.type === 'error'), false);

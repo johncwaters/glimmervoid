@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **GitHub has its own Settings page.** Connecting GitHub and setting up commit signing moved out of Vault into a Settings page named GitHub under Sessions, and the Connect GitHub fix on the host-ready rows and the notices before a GitHub connection ends now point there.
+- **Sessions skip permission prompts by default.** "Skip permission prompts by default" (`skipPermissionsByDefault`) is now on for every install, so a project that set no choice starts its agent with its permission bypass (Claude Code's `--dangerously-skip-permissions`), guarded by Sane YOLO. A config.json that sets `skipPermissionsByDefault: false` keeps prompts on, and so does a hand-written value that is not `true` or `false`; turn the toggle off under Settings, Sane YOLO to get them back.
 
 ### Fixed
 
