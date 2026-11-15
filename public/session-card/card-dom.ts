@@ -169,7 +169,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 }
 
 function openLinkPullRequestDialog(sessionId: string) {
-  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Pull requests' });
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Pull requests', cancelLabel: 'Done' });
   const hint = el('p', 'dialog-message', 'Link one by pasting a GitHub pull request URL or owner/repo#number.');
   const input = markAsNotCredential(el('input', 'dialog-input'));
   input.type = 'text';
