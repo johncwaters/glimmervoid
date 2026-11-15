@@ -1423,6 +1423,18 @@
     {
       "name": "find",
       "definition": "The Find a project field in New session and onboarding: typing filters the project list (local projects and GitHub repositories not yet on this host), and Enter starts the session in the top match"
+    },
+    {
+      "name": "judge",
+      "definition": "An agent (Claude Code or Codex, up to 3 per Arena race, each with its own model and effort) that ranks a race's contestants blind, seeing each change under a shuffled letter and scoring correctness, completeness, scope and quality pass or fail before ordering them in tiers; also the verb, to run those judges on a race (Judge now, Judge again). Other lanes' judges (the team review thread judge, the community question judge) are judges in the same sense of an agent that rules on one question"
+    },
+    {
+      "name": "standings",
+      "definition": "The Arena Standings sub-tab and its table, which folds every judged race into one row per setup (agent, model, effort, home and instructions) with races, wins, win rate, criteria pass rates, mean recall, mean cost and mean time; a race's panel standing is the per-race ranking of its contestants by its judges"
+    },
+    {
+      "name": "task",
+      "definition": "The work a session or an Arena race contestant is given, from its prompt; in Arena, New race's Task group holds the title, repository, review case and prompt; the task title is the separate short line naming what a session is currently doing"
     }
   ],
   "retired": [
