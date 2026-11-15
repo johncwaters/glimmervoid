@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf } from './core/runtime-paths.ts';
+import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayLauncherOf } from './core/runtime-paths.ts';
 import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 import { stableLauncherPathFor } from './stable-node-path.ts';
 import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
@@ -45,7 +45,7 @@ function hookLauncherPath(): string {
 }
 
 function hookLaunch(entry: SelfEntry): string[] {
-  return runtimePaths.selfLaunch(entry, hookLauncherPath());
+  return runtimePaths.selfLaunch(entry, relayLauncherFor(hookLauncherPath()));
 }
 
 function selfLaunch(entry: SelfEntry): string[] {
@@ -58,7 +58,7 @@ function selfRelaunch(runningArgv: readonly string[]): string[] {
 }
 
 function scriptLaunch(scriptPath: string, runEntry: string, launcherPath = hookLauncherPath()): string[] {
-  if (mode === 'binary') return [relayExecutableBeside(launcherPath), BINARY_RUN_SUBCOMMAND, runEntry];
+  if (mode === 'binary') return [relayExecutableBeside(relayLauncherFor(launcherPath)), BINARY_RUN_SUBCOMMAND, runEntry];
   return [launcherPath, scriptPath];
 }
 
@@ -70,19 +70,39 @@ function realPathOrNull(filePath: string): string | null {
   }
 }
 
+function executableRealPath(): string {
+  return realPathOrNull(process.execPath) ?? process.execPath;
+}
+
+const relayLauncherByLauncherPath = new Map<string, string>();
+
+function relayLauncherFor(launcherPath: string): string {
+  if (mode !== 'binary') return launcherPath;
+  const decidedLauncherPath = relayLauncherByLauncherPath.get(launcherPath);
+  if (decidedLauncherPath !== undefined) return decidedLauncherPath;
+  const hasRelayBesideLauncher = realPathOrNull(relayExecutableBeside(launcherPath)) !== null;
+  const relayLauncherPath = relayLauncherOf({ launcherPath, hasRelayBesideLauncher, executableRealPath: executableRealPath() });
+  relayLauncherByLauncherPath.set(launcherPath, relayLauncherPath);
+  return relayLauncherPath;
+}
+
 function relayExecutablePath(): string | null {
-  return mode === 'binary' ? relayExecutableBeside(hookLauncherPath()) : null;
+  return mode === 'binary' ? relayExecutableBeside(relayLauncherFor(hookLauncherPath())) : null;
+}
+
+function findRelayExecutableProblem() {
+  const relayPath = relayExecutablePath();
+  if (relayPath === null) return null;
+  return relayExecutableProblemOf({ relayPath, relayRealPath: realPathOrNull(relayPath), executableRealPath: executableRealPath() });
 }
 
 function relayExecutableProblem(): string | null {
-  const relayPath = relayExecutablePath();
-  if (relayPath === null) return null;
-  return relayExecutableProblemOf({ relayPath, relayRealPath: realPathOrNull(relayPath), executableRealPath: realPathOrNull(process.execPath) ?? process.execPath });
+  return findRelayExecutableProblem()?.message ?? null;
 }
 
 function requireRelayExecutable(): void {
-  const problem = relayExecutableProblem();
-  if (problem) throw new Error(problem);
+  const problem = findRelayExecutableProblem();
+  if (problem) throw Object.assign(new Error(problem.message), { code: problem.code });
 }
 
 function refuseUnstableSelfLaunches(): void {

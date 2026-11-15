@@ -59,13 +59,20 @@ function relayExecutableBeside(launcherPath: string): string {
   return path.join(path.dirname(launcherPath), `${SHIPPED_RELAY_NAME}${launcherExtension}`);
 }
 
-type RelayExecutableFacts = { relayPath: string; relayRealPath: string | null; executableRealPath: string };
+type RelayLauncherFacts = { launcherPath: string; hasRelayBesideLauncher: boolean; executableRealPath: string };
 
-function relayExecutableProblemOf({ relayPath, relayRealPath, executableRealPath }: RelayExecutableFacts): string | null {
+function relayLauncherOf({ launcherPath, hasRelayBesideLauncher, executableRealPath }: RelayLauncherFacts): string {
+  return hasRelayBesideLauncher ? launcherPath : executableRealPath;
+}
+
+type RelayExecutableFacts = { relayPath: string; relayRealPath: string | null; executableRealPath: string };
+type RelayExecutableProblem = { code: 'RELAY_MISSING' | 'RELAY_ELSEWHERE'; message: string };
+
+function relayExecutableProblemOf({ relayPath, relayRealPath, executableRealPath }: RelayExecutableFacts): RelayExecutableProblem | null {
   const executableDirectory = path.dirname(executableRealPath);
-  if (relayRealPath === null) return `${SHIPPED_RELAY_NAME} is missing at ${relayPath}; reinstall Glimmervoid so it sits beside glimmervoid`;
+  if (relayRealPath === null) return { code: 'RELAY_MISSING', message: `${SHIPPED_RELAY_NAME} is missing at ${relayPath}; reinstall Glimmervoid so it sits beside glimmervoid` };
   if (path.dirname(relayRealPath) === executableDirectory) return null;
-  return `${relayPath} resolves to ${relayRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this`;
+  return { code: 'RELAY_ELSEWHERE', message: `${relayPath} resolves to ${relayRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this` };
 }
 
 const ENTRY_EXTENSION_BY_MODE: Record<RuntimeMode, string> = { source: '.ts', bundled: '.js', binary: '.mjs' };
@@ -109,5 +116,5 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   };
 }
 
-export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf };
+export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayLauncherOf };
 export type { SelfEntry };
