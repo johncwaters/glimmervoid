@@ -52,7 +52,7 @@ glimmervoid doctor
 - `__GLIMMERVOID__`: absolute path of the installed `glimmervoid` bin script (`command -v glimmervoid`).
 - `__PATH__`: a `PATH` that reaches `node`, `glimmervoid`, `git` and the agent CLIs, built from absolute directories, never `$PATH`.
 
-Write it to `~/.config/systemd/user/glimmervoid.service`, then:
+Write it to `~/.config/systemd/user/glimmervoid.service`, and copy `app-glimmervoid.slice` beside this file unchanged to `~/.config/systemd/user/app-glimmervoid.slice`: the memory and task caps live on that slice so they cover the server and every session scope under it. Then:
 
 ```bash
 systemctl --user daemon-reload

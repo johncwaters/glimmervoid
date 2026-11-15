@@ -21,12 +21,13 @@ interface SessionProcessReaperOptions {
   platform: NodeJS.Platform;
   killProc: KillProc;
   signalProc: SignalProc;
+  stopScope: (unitName: string) => Promise<void>;
   port: ReaperPort;
 }
 
 interface SessionProcessReaper {
   kill(pid: number): void;
-  reapTreeOnce(pid: number | null): Promise<void> | null;
+  reapTreeOnce(pid: number | null, scopeUnit?: string | null): Promise<void> | null;
   awaitPendingReaps(): Promise<void> | null;
   isProcessAlive(pid: number | null): boolean;
   clearKillPoll(): void;
@@ -43,7 +44,7 @@ function signalablePid(pid: unknown): number | null {
   return parsed;
 }
 
-function createSessionProcessReaper({ platform, killProc, signalProc, port }: SessionProcessReaperOptions): SessionProcessReaper {
+function createSessionProcessReaper({ platform, killProc, signalProc, stopScope, port }: SessionProcessReaperOptions): SessionProcessReaper {
   let killPollTimer: NodeJS.Timeout | null = null;
   let killReapTimer: NodeJS.Timeout | null = null;
   let resolveKillReap: (() => void) | null = null;
@@ -131,7 +132,13 @@ function createSessionProcessReaper({ platform, killProc, signalProc, port }: Se
     return awaitProcessGone(pid, maxWaitMs);
   }
 
-  function reapTreeOnce(pid: number | null): Promise<void> | null {
+  function reapTreeOnce(pid: number | null, scopeUnit: string | null = null): Promise<void> | null {
+    const groupReap = reapGroupOnce(pid);
+    if (scopeUnit === null) return groupReap;
+    return Promise.resolve(groupReap).then(() => stopScope(scopeUnit));
+  }
+
+  function reapGroupOnce(pid: number | null): Promise<void> | null {
     if (platform === "win32") {
       return taskkill(pid, { timeout: KILL_REAP_MAX_WAIT_MS })
         .catch(() => {});

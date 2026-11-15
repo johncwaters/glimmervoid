@@ -25,7 +25,9 @@ import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
 import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { requireRelayExecutable } from "../server/runtime-paths.ts";
-import { probeGraphicalSession } from "./graphical-session-probe.ts";
+import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from "./systemd-user.ts";
+import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts";
+import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { prepareAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
@@ -259,6 +261,8 @@ class Session extends EventEmitter {
   path: string;
   dangerouslySkipPermissions: boolean;
   ptyProcess: SessionPty | null;
+  _ptyScopeUnit: string | null;
+  _nodePtySpawn: PtySpawn;
   state: SessionState;
   stateSince: number;
   failureReason: string | null;
@@ -477,6 +481,7 @@ class Session extends EventEmitter {
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
     this.ptyProcess = null;
+    this._ptyScopeUnit = null;
     this.state = STATES.DORMANT;
     this.stateSince = clock.nowMs();
     this.failureReason = null;
@@ -638,12 +643,13 @@ class Session extends EventEmitter {
     this._agentLiveChildren = 0;
     this._agentLifetimeSpawns = 0;
     this._agentSpawnsInFlight = 0;
-    this._ptySpawn = ptySpawn || ((file, args, opts) => {
+    this._nodePtySpawn = (file, args, opts) => {
       requireExecutableSpawnHelper();
       requireRelayExecutable();
       assertLaunchable(file);
       return pty.spawn(file, args, opts);
-    });
+    };
+    this._ptySpawn = ptySpawn || this._nodePtySpawn;
     this._launch = createSessionLaunch({
       id: this.id,
       adapter: this._adapter,
@@ -666,6 +672,7 @@ class Session extends EventEmitter {
       platform,
       killProc: killProc || ((args, opts, cb) => execFile("taskkill", args, opts, cb)),
       signalProc: signalProc || ((pid, signal) => process.kill(pid, signal)),
+      stopScope: stopSessionScope,
       port: {
         isDestroyed: () => this._destroyed,
         emitError: (err) => this._emitError(err),
@@ -1635,8 +1642,9 @@ class Session extends EventEmitter {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);
       const oldPid = this.ptyProcess.pid;
 
-      this._reaper.killReap = this._reaper.reapTreeOnce(oldPid);
+      this._reaper.killReap = this._reaper.reapTreeOnce(oldPid, this._ptyScopeUnit);
       this.ptyProcess = null;
+      this._ptyScopeUnit = null;
     }
 
     const pendingReaps = this._reaper.awaitPendingReaps();
@@ -1763,16 +1771,25 @@ class Session extends EventEmitter {
       return;
     }
     const { file, args } = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
+    const isNodePtySpawn = this._ptySpawn === this._nodePtySpawn;
+    const scopeHost = isNodePtySpawn ? await resolveSessionScopeHost() : null;
+    if (isStartSuperseded()) {
+      this._hooks.cleanup();
+      return;
+    }
+    const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
+    const launch = scopeUnit === null ? { file, args, env } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env });
 
     const ptySize = this._output.ptySize();
     try {
-      this.ptyProcess = this._ptySpawn(file, args, {
+      this.ptyProcess = this._ptySpawn(launch.file, launch.args, {
         name: "xterm-256color",
         cols: ptySize.cols,
         rows: ptySize.rows,
         cwd: this.effectiveCwd(),
-        env,
+        env: launch.env,
       });
+      this._ptyScopeUnit = scopeUnit;
     } catch (err) {
       this._abandonSpawn(err);
       return;
@@ -1798,7 +1815,7 @@ class Session extends EventEmitter {
       ? args.map((a) => a.replace(initialPrompt, `<prompt:${initialPrompt.length}c>`)).join(" ")
       : args.join(" ");
     console.log(
-      `[session ${this.id}] spawn: ${file} ${argsForLog} (cwd=${this.effectiveCwd()})`,
+      `[session ${this.id}] spawn: ${file} ${argsForLog} (cwd=${this.effectiveCwd()}${scopeUnit === null ? "" : `, scope=${scopeUnit}`})`,
     );
 
     if (this._recorder) {
@@ -2041,16 +2058,18 @@ class Session extends EventEmitter {
 
   async _handlePtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
     const pid = this.ptyProcess ? this.ptyProcess.pid : null;
+    const scopeUnit = this._ptyScopeUnit;
     this._resetDetectionSources({ quiet: false, clearTracking: true });
     this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
     this._ptyAlive = false;
     this.ptyProcess = null;
+    this._ptyScopeUnit = null;
     this._dropResumeNote();
 
     if (pid) {
-      this._reaper.exitReap = this._reaper.reapTreeOnce(pid);
+      this._reaper.exitReap = this._reaper.reapTreeOnce(pid, scopeUnit);
     }
 
     const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._receivedFirstOutput);

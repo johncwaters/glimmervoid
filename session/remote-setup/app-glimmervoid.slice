@@ -1,0 +1,6 @@
+[Unit]
+Description=Glimmervoid server and its agent sessions
+
+[Slice]
+MemoryHigh=50%
+MemoryMax=60%

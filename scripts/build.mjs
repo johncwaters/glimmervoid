@@ -21,6 +21,7 @@ const REQUIRED_OUTPUTS = [
   'session/hook-tool-relay.js',
   'session/remote-setup/SKILL.md',
   'session/remote-setup/glimmervoid.service',
+  'session/remote-setup/app-glimmervoid.slice',
   'scripts/postinstall-path-check.js',
   'schema/pack.v1.json',
   'examples/packs/session-board/pack.json',

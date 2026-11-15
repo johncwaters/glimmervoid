@@ -31,7 +31,8 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Claude CLI produces zero output with piped stdio, so a real PTY is required.
 - Resolve-then-branch: a PE image spawns directly, a shim falls back to `cmd.exe /c`, avoiding cmd's double command-line parse and console-title write (`session/core/spawn-command.ts`).
 - The env scrub removes the Glimmervoid marker vars, or Claude believes it runs inside itself.
-- On Linux with `graphical-session.target` inactive and no `DISPLAY` or `WAYLAND_DISPLAY` in the server env, a spawn gets `DBUS_SESSION_BUS_ADDRESS=disabled:`: Codex reads the portal at startup, and a portal woken before login never loads the desktop backend, breaking screenshots for the whole session. Probed per spawn, since a pre-login server never sees the display vars (`session/graphical-session-probe.ts`).
+- On Linux with `graphical-session.target` inactive and no `DISPLAY` or `WAYLAND_DISPLAY` in the server env, a spawn gets `DBUS_SESSION_BUS_ADDRESS=disabled:`: Codex reads the portal at startup, and a portal woken before login never loads the desktop backend, breaking screenshots for the whole session. Probed per spawn, since a pre-login server never sees the display vars (`session/systemd-user.ts`).
+- On Linux each spawn runs under `systemd-run --user --scope` in `app-glimmervoid-sessions.slice` when the probe passes: node-pty has no pre-exec hook, and scope mode execs in place, so the PTY pid stays the agent's. The session bus moves to `-E` because systemd-run cannot connect through `disabled:`. A scope leaves the server's cgroup, so it binds to the server's user unit (or a crash orphans it), and scopes stay off while that unit caps memory on itself, which a scope would escape (`session/core/session-scope-core.ts`).
 
 ### Auto-Resume and Shutdown
 
