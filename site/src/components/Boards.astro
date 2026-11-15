@@ -47,10 +47,10 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
     <fieldset class="dials" id="board-dials">
       <legend class="dials-legend">Dials</legend>
       <span class="dial-pill dial-switch" role="radiogroup" aria-label="Accent"><span class="dial-name">Accent</span>
-        {ACCENT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="accent" value={value} checked={index === 0} /><span>{label}</span></label>)}
+        <span class="dial-track">{ACCENT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="accent" value={value} checked={index === 0} /><span>{label}</span></label>)}</span>
       </span>
       <span class="dial-pill dial-switch" role="radiogroup" aria-label="Layout"><span class="dial-name">Layout</span>
-        {LAYOUT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="layout" value={value} checked={index === 0} /><span>{label}</span></label>)}
+        <span class="dial-track">{LAYOUT_CHOICES.map(({ value, label }, index) => <label class="dial-option"><input type="radio" name="layout" value={value} checked={index === 0} /><span>{label}</span></label>)}</span>
       </span>
       <label class="dial-pill dial-toggle"><input type="checkbox" name="compact" /><span class="dial-name">Compact</span></label>
     </fieldset>
@@ -143,11 +143,12 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   }
   .dial-pill:focus-within { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
   .dial-option input:focus-visible, .dial-toggle input:focus-visible { outline: none; }
-  .dial-switch { gap: 2px; padding-right: 4px; cursor: default; }
-  .dial-switch .dial-name { margin-right: 6px; }
+  .dial-switch { gap: 10px; padding-right: 4px; cursor: default; }
+  .dial-switch .dial-name { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+  .dial-track { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); }
   .dial-option { position: relative; display: inline-flex; cursor: pointer; }
   .dial-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-  .dial-option span { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: 999px; color: var(--text-dim); transition: background-color 160ms ease, color 160ms ease; }
+  .dial-option span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 12px; border-radius: 999px; color: var(--text-dim); transition: background-color 160ms ease, color 160ms ease; }
   .dial-option input:checked + span { background: var(--accent); color: var(--bg); }
   .dial-toggle { padding: 0 14px; }
   .dial-toggle input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
@@ -165,8 +166,8 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .mini-line { height: 5px; border-radius: 2px; background: var(--border); }
   .mini-line.is-short { width: 55%; }
   .mini-base { width: 124px; height: 6px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--border-hover); }
-  .mini-slider { position: relative; width: 110px; height: 4px; border-radius: 2px; background: var(--border); }
-  .mini-knob { position: absolute; top: 50%; left: 100%; width: 14px; height: 14px; translate: -50% -50%; border-radius: 50%; background: var(--text-head); box-shadow: 0 0 0 2px var(--accent); }
+  .mini-slider { --slider-travel: 110px; position: relative; width: var(--slider-travel); height: 4px; border-radius: 2px; background: var(--border); }
+  .mini-knob { position: absolute; top: 50%; left: 0; width: 14px; height: 14px; translate: calc(var(--slider-travel) - 50%) -50%; border-radius: 50%; background: var(--text-head); box-shadow: 0 0 0 2px var(--accent); }
   .board-beats[data-on-screen="true"] .mini-knob { animation: sweep-knob 6s var(--ease-out-expo) infinite; }
   .board-beats[data-on-screen="true"] .mini-bar { animation: retheme-bar 6s steps(1) infinite; }
   .scene-architecture { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
@@ -188,7 +189,7 @@ const PLAN_STEPS = ['planned', 'building', 'landed'];
   .board-beats[data-on-screen="true"] .marks-note { animation: drop-mark-note 6s var(--ease-out-expo) infinite; }
   @keyframes draw-stroke { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
   @keyframes drop-note { from { opacity: 0; translate: 0 -24px; rotate: 14deg; } to { opacity: 1; translate: 0 0; rotate: 6deg; } }
-  @keyframes sweep-knob { 0%, 8% { left: 0%; } 30%, 40% { left: 50%; } 62%, 100% { left: 100%; } }
+  @keyframes sweep-knob { 0%, 8% { translate: -50% -50%; } 30%, 40% { translate: calc(var(--slider-travel) / 2 - 50%) -50%; } 62%, 100% { translate: calc(var(--slider-travel) - 50%) -50%; } }
   @keyframes retheme-bar { 0% { background: var(--accent); } 33% { background: var(--state-running); } 66% { background: var(--state-waiting); } }
   @keyframes draw-wire { 0%, 6% { stroke-dashoffset: 1; } 30%, 100% { stroke-dashoffset: 0; } }
   @keyframes land-step {
