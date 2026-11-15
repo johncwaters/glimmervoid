@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Spreadsheets on the board.** An agent can put a CSV or TSV file on a board with `glimmervoid whiteboard attach`, or link it with the show tool so the card follows the file in its worktree. `whiteboard doc` reads the sheet back to the agent exactly as it is on disk. A sheet up to 256 KiB is taken; a linked file that grows past that shows why on its card. The card shows the opening rows as a table; clicking it opens the whole sheet in a grid where cells can be edited, sorted and filtered, and Save writes the edits back to the linked file, leaving every untouched row byte for byte as it was. A save is refused when the file changed underneath. Board files now export as version 3, which keeps a CSV and a Markdown card with the same bytes apart; this version still opens version 1 and 2 files.
+- **Excel workbooks on the board.** An XLSX file up to 2 MB goes on a board the same way, attached or linked to its file. The card shows the first sheet, and opening it gives a tab per sheet. A workbook is read-only on a board, and `whiteboard doc` reads each sheet to the agent as CSV under its name.
+
 ### Fixed
 
 - **A new session's timer no longer restarts when it begins working.** A session started with a prompt keeps one clock from Starting through its first turn, so the time shown is how long it has been at the task, not how long since startup ended.
@@ -95,8 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **OpenCode sessions show live status like Claude Code.** An OpenCode 2 session now reports working, waiting for your permission or answer, and done from OpenCode's own events, rather than guessing from its window title. It also resumes the same conversation after a restart, takes its task title from OpenCode, and can reach Glimmervoid's tools. An idle `/compact` leaves the card as it was, and a subagent that is still running keeps the card working. Glimmervoid never writes your own OpenCode config. `glimmervoid doctor` shows the OpenCode version and how to install OpenCode 2 (`npm install -g @opencode/cli`) when it is missing or older.
-- **Excel workbooks on the board.** An XLSX file up to 2 MB goes on a board the same way, attached or linked to its file. The card shows the first sheet, and opening it gives a tab per sheet. A workbook is read-only on a board, and `whiteboard doc` reads each sheet to the agent as CSV under its name.
-- **Spreadsheets on the board.** An agent can put a CSV or TSV file on a board with `glimmervoid whiteboard attach`, or link it with the show tool so the card follows the file in its worktree. `whiteboard doc` reads the sheet back to the agent exactly as it is on disk. A sheet up to 256 KiB is taken; a linked file that grows past that shows why on its card. The card shows the opening rows as a table; clicking it opens the whole sheet in a grid where cells can be edited, sorted and filtered, and Save writes the edits back to the linked file, leaving every untouched row byte for byte as it was. A save is refused when the file changed underneath.
 - **Hand a board to someone on another machine.** `glimmervoid whiteboard export <board> --out flow.glimmerboard`, or the whiteboard tool's export action, writes the board with its pictures, documents and pages to one file; on the dashboard it's Export board file in the board menu. The other operator runs `glimmervoid whiteboard import flow.glimmerboard`, the import action, or Import board on the dashboard, and gets it as a new board they can keep editing. The file carries no file paths, linked files, sessions, project or change log from your machine. Code refs and note authors stay. An import never replaces a board, and a title you already have gets a number, as in Login flow (2). A damaged file, or one from a newer Glimmervoid, is refused with the reason and adds nothing.
 
 ### Changed

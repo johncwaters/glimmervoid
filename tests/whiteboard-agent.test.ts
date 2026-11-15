@@ -806,6 +806,16 @@ test('a board exported to a board file and imported comes back as a new board wi
   }
   assert.equal(fs.existsSync(path.join(fixture.tmpDir, PLANNER_ID, 'escaped.js')), false);
   assert.equal(((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as unknown[]).length, boardCountBefore, 'a refused import leaves no board behind');
+  const versionTwoFile = structuredClone(parsedFile) as { version: number; board: { elements: Record<string, unknown> }; assets: Record<string, unknown> };
+  delete versionTwoFile.board.elements['parts-sheet'];
+  versionTwoFile.version = 2;
+  versionTwoFile.assets = Object.fromEntries(Object.entries(versionTwoFile.assets).filter(([filename]) => !filename.endsWith('.csv')).map(([filename, asset]) => [filename.split('.')[0], asset]));
+  fs.writeFileSync(path.join(fixture.tmpDir, PLANNER_ID, 'released.glimmerboard'), zlib.gzipSync(JSON.stringify(versionTwoFile)));
+  const versionTwoImport = await whiteboard(PLANNER_ID, { sub: 'import', path: 'released.glimmerboard' });
+  assert.equal(versionTwoImport.status, 200, JSON.stringify(versionTwoImport.body));
+  const versionTwoCopy = await boardOf(PLANNER_ID, (versionTwoImport.body.board as { id: string }).id);
+  const { 'parts-sheet': _sheetBox, ...originalWithoutSheet } = original.board.elements;
+  assert.deepEqual(withoutSource(versionTwoCopy.board.elements), withoutSource(originalWithoutSheet), 'a version 2 file, its files keyed by asset id alone, still imports');
 
   const exportCopy = path.join(fixture.tmpDir, 'whiteboards', 'exports', `${boardId}.glimmerboard`);
   assert.equal(fs.existsSync(exportCopy), true);
