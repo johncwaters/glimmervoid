@@ -55,14 +55,24 @@ async function writePlannedFiles(plan: DesktopShortcutPlan): Promise<void> {
   }
 }
 
-async function runFollowUpCommands(plan: DesktopShortcutPlan): Promise<string> {
+async function runPlanCommands(commands: string[][], areFailuresFatal: boolean): Promise<string> {
   let lastOutput = '';
-  for (const [command, ...commandArguments] of plan.followUpCommands) {
+  for (const [command, ...commandArguments] of commands) {
     const run = await runCommandSafely(command, commandArguments, shortcutCommandOptions());
-    if (!run.ok && plan.shortcutPath === null) throw new Error(`Could not create the desktop shortcut: ${run.stderr.trim()}`);
+    if (!run.ok && areFailuresFatal) throw new Error(`Could not create the desktop shortcut: ${run.stderr.trim()}`);
     lastOutput = run.stdout.trim();
   }
   return lastOutput;
+}
+
+async function clearStagingFolder(stagedPath: string): Promise<void> {
+  await fsp.rm(stagedPath, { recursive: true, force: true });
+  await fsp.mkdir(path.dirname(stagedPath), { recursive: true });
+}
+
+async function moveIntoPlace(stagedPath: string, shortcutPath: string): Promise<void> {
+  await fsp.mkdir(path.dirname(shortcutPath), { recursive: true });
+  await fsp.rename(stagedPath, shortcutPath);
 }
 
 function desktopStateDir(): string {
@@ -79,8 +89,11 @@ async function createDesktopShortcut(desktopDir: string): Promise<string> {
   });
   if (!plan) throw new Error(`Desktop icons are not supported on ${process.platform}.`);
   if (plan.replacedPath !== null) await clearOwnPreviousShortcut(plan.replacedPath);
+  if (plan.stagedPath !== null) await clearStagingFolder(plan.stagedPath);
+  await runPlanCommands(plan.buildCommands, true);
   await writePlannedFiles(plan);
-  const followUpOutput = await runFollowUpCommands(plan);
+  const followUpOutput = await runPlanCommands(plan.followUpCommands, plan.areFollowUpsRequired);
+  if (plan.stagedPath !== null && plan.shortcutPath !== null) await moveIntoPlace(plan.stagedPath, plan.shortcutPath);
   return plan.shortcutPath ?? followUpOutput;
 }
 

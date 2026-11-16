@@ -6,13 +6,17 @@ const ICO_HEADER_BYTES = 6;
 const ICO_ENTRY_BYTES = 16;
 const ICNS_HEADER_BYTES = 8;
 const EXECUTABLE_FILE_MODE = 0o755;
+const MAC_APPLET_EXECUTABLE_NAME = 'applet';
 
 type ShortcutFile = { path: string; contents: string | Uint8Array; mode?: number };
 type DesktopShortcutPlan = {
   shortcutPath: string | null;
   replacedPath: string | null;
+  stagedPath: string | null;
+  buildCommands: string[][];
   files: ShortcutFile[];
   followUpCommands: string[][];
+  areFollowUpsRequired: boolean;
 };
 
 function buildIcns(png: Uint8Array): Uint8Array {
@@ -43,6 +47,14 @@ function shellQuoted(argument: string): string {
   return `'${argument.replaceAll("'", `'\\''`)}'`;
 }
 
+function appleScriptString(text: string): string {
+  return `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+function macLaunchScript(openArgv: readonly string[]): string {
+  return `do shell script ${appleScriptString(`${openArgv.map(shellQuoted).join(' ')} >/dev/null 2>&1 &`)}`;
+}
+
 function desktopEntryQuoted(argument: string): string {
   const quotedEscaped = argument.replace(/["`$\\]/g, (character) => `\\${character}`);
   return `"${quotedEscaped.replaceAll('\\', '\\\\').replaceAll('%', '%%')}"`;
@@ -65,7 +77,7 @@ function macInfoPlist(): string {
   <key>CFBundleName</key><string>${SHORTCUT_NAME}</string>
   <key>CFBundleDisplayName</key><string>${SHORTCUT_NAME}</string>
   <key>CFBundleIdentifier</key><string>dev.glimmervoid.launcher</string>
-  <key>CFBundleExecutable</key><string>${SHORTCUT_NAME}</string>
+  <key>CFBundleExecutable</key><string>${MAC_APPLET_EXECUTABLE_NAME}</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -75,18 +87,21 @@ function macInfoPlist(): string {
 `;
 }
 
-function macPlan(desktopDir: string, openArgv: readonly string[], png: Uint8Array): DesktopShortcutPlan {
+function macPlan(desktopDir: string, iconDir: string, openArgv: readonly string[], png: Uint8Array): DesktopShortcutPlan {
   const appPath = path.join(desktopDir, `${SHORTCUT_NAME}.app`);
-  const contentsPath = path.join(appPath, 'Contents');
+  const stagedPath = path.join(iconDir, 'staging', `${SHORTCUT_NAME}.app`);
+  const contentsPath = path.join(stagedPath, 'Contents');
   return {
     shortcutPath: appPath,
     replacedPath: appPath,
+    stagedPath,
+    buildCommands: [['osacompile', '-o', stagedPath, '-e', macLaunchScript(openArgv)]],
     files: [
       { path: path.join(contentsPath, 'Info.plist'), contents: macInfoPlist() },
-      { path: path.join(contentsPath, 'MacOS', SHORTCUT_NAME), contents: `#!/bin/sh\nexec ${openArgv.map(shellQuoted).join(' ')}\n`, mode: EXECUTABLE_FILE_MODE },
       { path: path.join(contentsPath, 'Resources', 'AppIcon.icns'), contents: buildIcns(png) },
     ],
-    followUpCommands: [['touch', appPath]],
+    followUpCommands: [['codesign', '--force', '--sign', '-', stagedPath]],
+    areFollowUpsRequired: true,
   };
 }
 
@@ -107,11 +122,14 @@ function linuxPlan(desktopDir: string, iconDir: string, openArgv: readonly strin
   return {
     shortcutPath,
     replacedPath: null,
+    stagedPath: null,
+    buildCommands: [],
     files: [
       { path: iconPath, contents: png },
       { path: shortcutPath, contents: desktopEntry, mode: EXECUTABLE_FILE_MODE },
     ],
     followUpCommands: [['gio', 'set', shortcutPath, 'metadata::trusted', 'true']],
+    areFollowUpsRequired: false,
   };
 }
 
@@ -138,14 +156,17 @@ function windowsPlan(iconDir: string, openArgv: readonly string[], png: Uint8Arr
   return {
     shortcutPath: null,
     replacedPath: null,
+    stagedPath: null,
+    buildCommands: [],
     files: [{ path: iconPath, contents: buildIco(png) }],
     followUpCommands: [['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encodedScript]],
+    areFollowUpsRequired: true,
   };
 }
 
 function planDesktopShortcut({ platform, desktopDir, iconDir, launchArgv, png }: { platform: string; desktopDir: string; iconDir: string; launchArgv: readonly string[]; png: Uint8Array }): DesktopShortcutPlan | null {
   const openArgv = [...launchArgv, 'open'];
-  if (platform === 'darwin') return macPlan(desktopDir, openArgv, png);
+  if (platform === 'darwin') return macPlan(desktopDir, iconDir, openArgv, png);
   if (platform === 'win32') return windowsPlan(iconDir, openArgv, png);
   if (platform === 'linux') return linuxPlan(desktopDir, iconDir, openArgv, png);
   return null;
