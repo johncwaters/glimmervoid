@@ -6,7 +6,7 @@ import { RACE_MAX_CONTESTANTS } from '#shared/contracts/race.ts';
 export const VARY_SETTINGS = ['agent', 'model', 'effort'] as const;
 export type VarySetting = typeof VARY_SETTINGS[number];
 
-const AGENT_LABELS: Readonly<Record<string, string>> = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code', opencode: 'OpenCode' };
+const AGENT_LABELS: Readonly<Record<string, string>> = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code', opencode: 'OpenCode', pi: 'pi' };
 const OPENROUTER_VENDOR_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': 'anthropic/', codex: 'openai/' };
 
 export const PROVIDER_CHOICES: readonly { value: ModelProvider; label: string }[] = [

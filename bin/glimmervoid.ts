@@ -169,6 +169,7 @@ const AGENT_INSTALL_COMMAND_BY_ID: Readonly<Record<string, string>> = {
   'claude-code': 'npm install -g @anthropic-ai/claude-code',
   codex: 'npm install -g @openai/codex',
   opencode: 'npm install -g @opencode/cli',
+  pi: 'npm install -g @earendil-works/pi-coding-agent',
 };
 
 const OPENCODE_MINIMUM_MAJOR_VERSION = 2;

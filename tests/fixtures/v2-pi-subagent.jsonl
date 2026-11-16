@@ -1,0 +1,6 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-pi-subagent","agent":"pi","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","prompt":"Use a subagent to run ls in the current directory and report the file names if you have a subagent tool, otherwise run ls yourself. Then reply with the single word done."}}
+{"type":"hook","ts":2,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2"}}
+{"type":"hook","ts":3,"event":"permissionrequest","payload":{"hook_event_name":"PermissionRequest","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","tool_name":"Bash","tool_input":{"command":"ls","timeout":5}}}
+{"type":"hook","ts":4,"event":"permissionresult","payload":{"hook_event_name":"PermissionResult","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","tool_name":"Bash","tool_input":{"command":"ls","timeout":5}}}
+{"type":"hook","ts":5,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2"}}

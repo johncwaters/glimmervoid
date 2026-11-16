@@ -1,0 +1,5 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-pi-model-setup-turn","agent":"pi","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"sessionstart","payload":{"hook_event_name":"SessionStart","session_id":"01a1e51a-6b86-771d-b537-5125188a2e41","source":"startup"}}
+{"type":"hook","ts":2,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"01a1e51a-6b86-771d-b537-5125188a2e41","prompt":"Reply with the single word copperheron and nothing else."}}
+{"type":"hook","ts":3,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"01a1e51a-6b86-771d-b537-5125188a2e41"}}
+{"type":"hook","ts":4,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"01a1e51a-6b86-771d-b537-5125188a2e41"}}

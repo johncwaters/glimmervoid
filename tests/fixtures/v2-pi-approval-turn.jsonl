@@ -1,0 +1,7 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-pi-approval-turn","agent":"pi","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"sessionstart","payload":{"hook_event_name":"SessionStart","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c","source":"startup"}}
+{"type":"hook","ts":2,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c","prompt":"Run the shell command: touch ./pi-probe-approval.txt"}}
+{"type":"hook","ts":3,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c"}}
+{"type":"hook","ts":4,"event":"permissionrequest","payload":{"hook_event_name":"PermissionRequest","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c","tool_name":"Bash","tool_input":{"command":"touch ./pi-probe-approval.txt","timeout":5}}}
+{"type":"hook","ts":5,"event":"permissionresult","payload":{"hook_event_name":"PermissionResult","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c","tool_name":"Bash","tool_input":{"command":"touch ./pi-probe-approval.txt","timeout":5}}}
+{"type":"hook","ts":6,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"01a1e51d-3b78-7520-9a31-33e500141d2c"}}

@@ -57,6 +57,7 @@ const ARGS_BY_AGENT: Readonly<Partial<Record<BuiltinAgentId, (url: string) => st
   codex: codexMcpArgs,
   kimi: credentialOnly,
   opencode: credentialOnly,
+  pi: credentialOnly,
 });
 
 type McpServers = Record<string, unknown>;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode'] as const;
+export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode', 'pi'] as const;
 export const CatalogAgentId = z.enum(CATALOG_AGENT_IDS);
 export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 
@@ -55,7 +55,7 @@ const ModelOptionValue = z.strictObject({ id: z.string().min(1), value: z.string
 const ModelProvider = z.enum(['native', 'openrouter']);
 export type ModelProvider = z.infer<typeof ModelProvider>;
 export const OPENROUTER_KEY_NAME = 'OPENROUTER_API_KEY';
-export const OPENROUTER_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'opencode'];
+export const OPENROUTER_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'opencode', 'pi'];
 
 export const ModelSelection = z.strictObject({
   agent: z.string().min(1),

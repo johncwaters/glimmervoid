@@ -1,0 +1,7 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-pi-ask-question","agent":"pi","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","prompt":"Use your ask_user_question tool to ask me whether I prefer red or blue, then reply with only my answer."}}
+{"type":"hook","ts":2,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2"}}
+{"type":"hook","ts":3,"event":"pretooluse-question","payload":{"hook_event_name":"pretooluse-question","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Do you prefer red or blue?","options":[{"label":"Red"},{"label":"Blue"}]}]}}}
+{"type":"hook","ts":4,"event":"elicitation","payload":{"hook_event_name":"Elicitation","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Do you prefer red or blue?","options":[{"label":"Red"},{"label":"Blue"}]}]}}}
+{"type":"hook","ts":5,"event":"elicitationresult","payload":{"hook_event_name":"ElicitationResult","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Do you prefer red or blue?","options":[{"label":"Red"},{"label":"Blue"}]}]}}}
+{"type":"hook","ts":6,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"01a1e517-8f4e-74c5-883c-7c03a611b8e2"}}

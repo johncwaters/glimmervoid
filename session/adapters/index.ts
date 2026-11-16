@@ -8,6 +8,7 @@ import copilot from "./copilot.ts";
 import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import opencode from "./opencode.ts";
+import pi from "./pi.ts";
 import shell from "./shell.ts";
 import { createCustomAdapter } from "./custom.ts";
 
@@ -195,6 +196,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: codex, tier: "first-class" },
   { adapter: kimi, tier: "first-class" },
   { adapter: opencode, tier: "first-class" },
+  { adapter: pi, tier: "first-class" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },

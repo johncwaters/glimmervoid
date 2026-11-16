@@ -68,7 +68,7 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 
 - **Node.js 24.15 or newer**, only for a source build; the standalone binary carries its own. Distro-packaged Node is usually older; use nvm, NodeSource or the official installer. Coherence, when a repository uses it, runs with the `node` on your PATH.
 - **Windows 11, Linux or macOS.** CI runs the suite on Linux and installs and starts the package on Windows; macOS is tested by hand.
-- **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, Grok or another terminal agent.
+- **An agent CLI** on PATH: Claude Code, Codex, Kimi Code, OpenCode, pi, Grok or another terminal agent.
 - **git** on PATH, for per-session worktrees.
 
 `glimmervoid doctor` checks all of these.
@@ -80,10 +80,12 @@ To update, run `git pull --ff-only && npm ci && npm run build` and restart. The 
 | Claude Code (default) | `claude` | Hooks |
 | Codex CLI | `codex` | Hooks, plus its session log for a plan awaiting approval |
 | Kimi Code | `kimi` | Hooks |
+| OpenCode | `opencode` | A plugin Glimmervoid generates for each session |
+| pi | `pi` | An extension Glimmervoid generates, which also asks before shell commands and file edits |
 | Grok Build (best effort) | `grok` | Hooks, after running `glimmervoid agent setup grok` once |
 | Any other terminal agent (best effort) | your own | Terminal title only |
 
-Claude Code, Codex and Kimi Code are first-class: every feature is checked against live recordings of all three, so a waiting prompt, a plan, a question, compaction, sub-agents and `/clear` look the same on each card.
+Claude Code, Codex, Kimi Code, OpenCode and pi are first-class: every feature is checked against live recordings of each, so a waiting prompt, a plan, a question, compaction, sub-agents and `/clear` look the same on each card.
 
 Declare another agent under `customAgents` in `config.json` with an `id`, `label` and `command`, plus optional `args`, `idleTitle` and `busyTitle`. The **+ Session** dialog offers only the agents it finds on PATH, and a project can default to one with `projects[].agent`.
 

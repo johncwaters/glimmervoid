@@ -7,6 +7,7 @@ import gooseIcon from '../agent-icons/goose.svg?raw';
 import grokIcon from '../agent-icons/grok.svg?raw';
 import kimiIcon from '../agent-icons/kimi.svg?raw';
 import opencodeIcon from '../agent-icons/opencode.svg?raw';
+import piIcon from '../agent-icons/pi.svg?raw';
 import qwenIcon from '../agent-icons/qwen.svg?raw';
 import { agentBrandColorReference } from '../agent-brand-colors.ts';
 import { monogramFor } from '../avatar-core.ts';
@@ -23,6 +24,7 @@ const AGENT_ICON_SVG_BY_ID: ReadonlyMap<string, string> = new Map([
   ['grok', grokIcon],
   ['kimi', kimiIcon],
   ['opencode', opencodeIcon],
+  ['pi', piIcon],
   ['qwen', qwenIcon],
 ]);
 

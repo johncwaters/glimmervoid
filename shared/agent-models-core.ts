@@ -134,6 +134,23 @@ function parseOpenCodeModels(modelsOutput: string): CatalogModel[] | null {
   return modelIds.map((id) => ({ id, label: id, aliases: [], isDefault: false, options: [] }));
 }
 
+const PI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const PI_MODEL_ROW = /^(\S+)\s+(\S+)\s+\S+\s+\S+\s+(yes|no)\b/;
+const PI_NO_MODELS_NOTICE = /^No models available\b/;
+
+function parsePiModels(listOutput: string): CatalogModel[] | null {
+  const rows = listOutput.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+  if (rows.length === 0 || PI_NO_MODELS_NOTICE.test(rows[0] ?? '')) return [];
+  if (!/^provider\s+model\b/.test(rows[0] ?? '')) return null;
+  return rows.slice(1).flatMap((row) => {
+    const match = PI_MODEL_ROW.exec(row);
+    if (!match) return [];
+    const id = `${match[1]}/${match[2]}`;
+    if (!SAFE_LAUNCH_ARGUMENT_PATTERN.test(id)) return [];
+    return [{ id, label: id, aliases: [], isDefault: false, options: effortOption(match[3] === 'yes' ? PI_THINKING_LEVELS : [], null) }];
+  });
+}
+
 const OPENROUTER_AGENT_ENDPOINTS = ['/api/v1/messages', '/api/v1/responses', '/api/v1/chat/completions'];
 
 function isAgentReadyOpenRouterModel(entry: Record<string, unknown>): boolean {
@@ -163,6 +180,7 @@ const FLAGS_BY_AGENT: Readonly<Record<string, FlagBuilder>> = Object.freeze({
   codex: (model, effort) => [...(model ? ['-m', model] : []), ...(effort ? ['-c', `model_reasoning_effort=${effort}`] : [])],
   kimi: (model) => (model ? ['-m', model] : []),
   grok: (model) => (model ? ['--model', model] : []),
+  pi: (model, effort) => [...(model ? ['--model', model] : []), ...(effort ? ['--thinking', effort] : [])],
 });
 
 function selectionArgs(selection: ModelSelection | null): string[] {
@@ -213,6 +231,7 @@ const OPENROUTER_PLAN_BY_AGENT: Readonly<Record<string, OpenRouterPlanBuilder>> 
     secretEnv: { [OPENROUTER_KEY_NAME]: OPENROUTER_KEY_NAME },
   }),
   opencode: () => ({ args: [], env: {}, secretEnv: { [OPENROUTER_KEY_NAME]: OPENROUTER_KEY_NAME } }),
+  pi: (model, effort) => ({ args: ['--provider', 'openrouter', ...FLAGS_BY_AGENT.pi(model, effort)], env: {}, secretEnv: { [OPENROUTER_KEY_NAME]: OPENROUTER_KEY_NAME } }),
 });
 
 function launchPlanFor(agent: string, setup: ModelSelection | null, platform: string): LaunchPlan {
@@ -252,5 +271,5 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels, selectionArgs, unsafeLaunchValueOf };
 export type { LaunchPlan };
