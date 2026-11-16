@@ -7,7 +7,8 @@ import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { GithubRateLimitResources, REFUSAL_RETRY_ATTEMPTS, githubRateLimitWaitMs, githubRefusalOf, isGraphqlMutation, refusalRetryDelayMs } from './core/github-rate-limit-core.ts';
+import { GithubRateLimitResources, REFUSAL_RETRY_ATTEMPTS, githubRateLimitWaitMs, githubRefusalOf, isGraphqlMutation, mergeRateLimitResources, observedRateLimitResource, refusalRetryDelayMs, withObservedResources } from './core/github-rate-limit-core.ts';
+import { clock } from '../../shared/clock.ts';
 import { setTimeout as waitFor } from 'node:timers/promises';
 import { UNATTRIBUTED_OPERATION, githubCallPoints, githubCallResources, isNotModifiedResponse, withRateLimitCost } from './core/github-usage-core.ts';
 import type { GithubUsageRecorder } from './core/github-usage-core.ts';
@@ -134,6 +135,12 @@ function ghFailure(error: unknown): CommandResult {
 const NEVER_SENT_WITHOUT_SOURCE: CommandResult = Object.freeze({ ok: false, out: '', err: NO_GITHUB_SOURCE_TEXT });
 
 function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubUsageRecorder | null = null, waitMs: (delayMs: number) => Promise<unknown> = waitFor, source: GithubSourceReader = GH_LOGIN_SOURCE): PrGh {
+  const observedResourcesBySource = new Map<string, GithubRateLimitResources>();
+
+  function sourceIdentityOf(githubSource: GithubSource): string {
+    return githubSource.kind === 'connection' ? `connection:${githubSource.token}` : githubSource.kind;
+  }
+
   function recordUsage(args: readonly string[], response: CommandResult): void {
     if (usage === null) return;
     const isOk = response.ok || isNotModifiedResponse(response.out);
@@ -161,10 +168,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
 
   async function runGraphql(query: string, fieldArgs: readonly string[], timeoutMs = GH_READ_TIMEOUT_MS, attempt = 1): Promise<CommandResult> {
     const args = ['api', 'graphql', '-i', '-f', `query=${withRateLimitCost(query)}`, ...fieldArgs];
-    const response = await spawnGh(args, undefined, false, timeoutMs);
+    const githubSource = await source.current();
+    const response = await spawnGh(args, undefined, false, timeoutMs, githubSource);
     if (response === null) return NEVER_SENT_WITHOUT_SOURCE;
     const httpResponse = ghHttpResponseOf(response.out);
     const bodyResponse = httpResponse === null ? response : { ...response, out: (httpResponse.body ?? '').trim() };
+    const observedResource = httpResponse === null ? null : observedRateLimitResource(httpResponse.headers);
+    const sourceIdentity = sourceIdentityOf(githubSource);
+    if (observedResource !== null) observedResourcesBySource.set(sourceIdentity, mergeRateLimitResources(observedResourcesBySource.get(sourceIdentity) ?? null, observedResource));
     recordUsage(args, bodyResponse);
     const refusal = httpResponse === null ? null : githubRefusalOf(httpResponse.status, httpResponse.headers, httpResponse.body ?? '');
     if (refusal === null) return bodyResponse;
@@ -176,10 +187,10 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
   }
 
   async function rateLimitResources(): Promise<GithubRateLimitResources | null> {
-    const response = await runGh(['api', 'rate_limit', '--jq', '.resources']);
-    if (!response.ok) return null;
-    const parsed = GithubRateLimitResources.safeParse(parseJsonOrNull(response.out));
-    return parsed.success ? parsed.data : null;
+    const githubSource = await source.current();
+    const response = await runGh(['api', 'rate_limit', '--jq', '.resources'], undefined, false, GH_READ_TIMEOUT_MS, githubSource);
+    const parsed = response.ok ? GithubRateLimitResources.safeParse(parseJsonOrNull(response.out)) : null;
+    return withObservedResources(parsed?.success ? parsed.data : null, observedResourcesBySource.get(sourceIdentityOf(githubSource)) ?? {}, clock.nowMs());
   }
 
   async function conditionalGet(path: string, validators: RestValidators = {}, sourceAlreadyRead?: GithubSource): Promise<ConditionalGetResult> {
