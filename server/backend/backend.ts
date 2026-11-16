@@ -705,7 +705,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     requestHostStop: watcherLink.requestHostStop,
     reportStopRequested: (properties) => telemetry.capture('idle_stop_requested', properties),
     onHostWoke: watcherLink.hostWoke,
-    nextWakeAt: () => agentApi?.sessionWakes.nextWakeAt() ?? null,
+    nextWakeAt: watcherLink.nextAlarmDueAt,
   });
   const awakeUsageAlerts = startAwakeUsageAlerts({
     readAwakeUsage: watcherLink.readAwakeUsage,
@@ -790,6 +790,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watcherLink.registerAlarmSource(agentApi.sessionWakes);
     agentApi.sessionWakes.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
   }
+  watcherLink.registerAlarmSource(laneAssembly.packLaunchers);
+  laneAssembly.packLaunchers.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
   for (const posthogLane of [laneAssembly.posthog, laneAssembly.community]) {
     watcherLink.registerProbeSource(posthogLane.probeSource);
     posthogLane.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);

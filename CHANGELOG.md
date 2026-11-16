@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scheduled pack sessions and session wakes run on time on a Glimmervoid Cloud server that went to sleep.** A pack launcher schedule never woke a sleeping hosted server, so a 09:00 run was missed when the server had gone idle hours before. The doorman now wakes the server for scheduled pack runs as it does for session wakes, two minutes early so the server is up when the run is due. The server also hands the doorman its latest schedule before it asks to sleep, and stays awake when that handoff fails, so a wake set just before it went idle is not lost. After waking, it checks every schedule at once rather than waiting on a timer that stopped during the sleep.
+
 ## [0.62.0] - 2026-11-16
 
 ### Added

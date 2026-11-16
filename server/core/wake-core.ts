@@ -216,10 +216,5 @@ function alarmsOf(wakes: readonly Wake[], maxAlarms: number): Alarm[] {
     .map((wake) => ({ id: `wake:${wake.id}`, at: new Date(wake.nextFireAt).toISOString() }));
 }
 
-function soonestFireAt(wakes: readonly Wake[]): number | null {
-  const fireTimes = wakes.filter((wake) => wake.status === 'pending').map((wake) => wake.nextFireAt);
-  return fireTimes.length === 0 ? null : Math.min(...fireTimes);
-}
-
-export { admitWake, afterFire, alarmsOf, nextCronFireAt, soonestFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
+export { admitWake, afterFire, alarmsOf, nextCronFireAt, afterSkipped, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS };
 export type { OperatorWakeFacts, WakeFailureCause, WakeLimits };

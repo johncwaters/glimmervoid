@@ -28,7 +28,7 @@ interface AgentApiPort {
   refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
   watchSessionWakes(session: Session): void;
-  sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged' | 'nextWakeAt'>;
+  sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged'>;
 }
 
 function createAgentApiWiring({

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, DEVICE_PAIRING_PATH, DevicePairingRequest, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, DEVICE_PAIRING_PATH, DevicePairingRequest, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_ALARMS, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, DevicePairingAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
@@ -22,7 +22,7 @@ interface ProbeSource {
 
 interface AlarmSource {
   alarms: () => Alarm[];
-  onAlarm: (alarmId: string) => void;
+  onAlarm: () => void;
 }
 
 type FetchFn = typeof fetch;
@@ -36,6 +36,7 @@ function laneTimerSentence(laneIds: readonly string[]): string {
 }
 
 const RECOMPILE_DEBOUNCE_MS = 2_000;
+const ALARM_LEAD_MS = 2 * 60_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
 const GITHUB_CONNECTION_CALLS: Record<GithubConnectionAction, { method: 'GET' | 'POST'; path: string }> = {
   read: { method: 'GET', path: GITHUB_CONNECTION_PATH },
@@ -59,6 +60,14 @@ const CREDENTIAL_LABELS: Record<Probe['credential'], string> = { github: 'GitHub
 
 function watcherProblemOf(probe: Probe, failure: ProbeFailure): string {
   return `Watcher cannot read ${CREDENTIAL_LABELS[probe.credential]}: ${failure.status ?? failure.reason}`;
+}
+
+function soonestAlarmsOf(alarmLists: readonly (readonly Alarm[])[]): Alarm[] {
+  return alarmLists.flat().toSorted((left, right) => Date.parse(left.at) - Date.parse(right.at)).slice(0, MAX_ALARMS);
+}
+
+function leadAlarm(alarm: Alarm): Alarm {
+  return { id: alarm.id, at: new Date(Date.parse(alarm.at) - ALARM_LEAD_MS).toISOString() };
 }
 
 function revisionOf(probes: readonly Probe[], alarms: readonly Alarm[]): string {
@@ -105,7 +114,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   const commandKey = directionKey(linkSecret, 'server-to-watcher');
   const seenRequestIds = createRecentRequestIds();
   const sourcesByLaneId = new Map<string, ProbeSource>();
-  let alarmSource: AlarmSource | null = null;
+  const alarmSources = new Set<AlarmSource>();
   let doesWatcherTakeAlarms = false;
   const failureByProbeId = new Map<string, ProbeFailure>();
   const coverageByLaneId = new Map<string, string>();
@@ -120,7 +129,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let deliveryAttempts = 0;
   let deliveryTimer: NodeJS.Timeout | null = null;
   let recompileTimer: NodeJS.Timeout | null = null;
-  let isDelivering = false;
+  let delivery: Promise<void> | null = null;
   let watcherStartCount = 0;
   let statusReadCount = 0;
   let supervisor: ReturnType<WatcherStarter> | null = null;
@@ -260,7 +269,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     const credentialedProbes = [...sourcesByLaneId.values()].filter((source) => hasCredentialFor(source.credential, heldCredentials)).flatMap((source) => source.probes());
     const probes = credentialedProbes.filter((probe) => isReadableWith(probe, heldCredentials));
     logUnwatchedProbesOnce(credentialedProbes.filter((probe) => !probes.includes(probe)));
-    const alarms = doesWatcherTakeAlarms ? alarmSource?.alarms() ?? [] : [];
+    const alarms = doesWatcherTakeAlarms ? dueAlarms().map(leadAlarm) : [];
     const revision = revisionOf(probes, alarms);
     return alarms.length === 0 ? { revision, probes } : { revision, probes, alarms };
   }
@@ -290,8 +299,32 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     }
   }
 
+  function dueAlarms(): Alarm[] {
+    return soonestAlarmsOf([...alarmSources].map((source) => source.alarms()));
+  }
+
+  function nextAlarmDueAt(): number | null {
+    const soonestAlarm = dueAlarms()[0];
+    return soonestAlarm === undefined ? null : Date.parse(soonestAlarm.at);
+  }
+
+  function recheckAlarmSources(): void {
+    for (const source of alarmSources) source.onAlarm();
+  }
+
+  async function isCurrentProbeSetDelivered(): Promise<boolean> {
+    await deliver();
+    if (compileProbeSet(credentials()).revision === deliveredProbeSet?.revision) return true;
+    await deliver();
+    return compileProbeSet(credentials()).revision === deliveredProbeSet?.revision;
+  }
+
   async function requestHostStop(): Promise<HostStopRequestOutcome> {
     if (watcherUrl === null) return 'failed';
+    if (!await isCurrentProbeSetDelivered()) {
+      log.warn('[watcher] the watcher does not hold this server\'s current probe set and alarms yet, so this host stays up');
+      return 'failed';
+    }
     try {
       const response = await fetchFn(new URL(HOST_STOP_PATH, watcherUrl), {
         method: 'POST',
@@ -472,34 +505,37 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     deliveryTimer.unref();
   }
 
-  async function deliver(): Promise<void> {
+  function deliver(): Promise<void> {
+    if (deliveryTimer !== null) clearTimeout(deliveryTimer);
     deliveryTimer = null;
-    if (isDelivering || watcherUrl === null) return;
-    isDelivering = true;
-    try {
-      const currentCredentials = credentials();
-      const credentialsDigest = crypto.createHash('sha256').update(JSON.stringify(currentCredentials)).digest('hex');
-      if (credentialsDigest !== deliveredCredentialsDigest) {
-        if (!await postToWatcher(CREDENTIALS_PATH, currentCredentials)) return scheduleDeliveryRetry();
-        deliveredCredentialsDigest = credentialsDigest;
-        log.log(`[watcher] delivered credentials: github ${currentCredentials.github === null ? 'no' : 'yes'}, posthog ${currentCredentials.posthog === null ? 'no' : 'yes'}`);
-      }
-      const probeSet = compileProbeSet(currentCredentials);
-      if (probeSet.revision !== deliveredProbeSet?.revision) {
-        if (!await postToWatcher(PROBE_SET_PATH, probeSet)) return scheduleDeliveryRetry();
-        log.log(`[watcher] delivered probe set ${probeSet.revision.slice(0, 8)} with ${probeSet.probes.length} probes and ${probeSet.alarms?.length ?? 0} alarms`);
-        forgetFailuresOfChangedRequests(deliveredProbeSet, probeSet);
-        deliveredProbeSet = probeSet;
-      }
-      deliveryAttempts = 0;
-      updateCoverage();
-      const startCountAtRead = watcherStartCount;
-      if (statusReadCount < startCountAtRead) {
-        if (!await adoptWatcherStatus()) return scheduleDeliveryRetry();
-        statusReadCount = startCountAtRead;
-      }
-    } finally {
-      isDelivering = false;
+    delivery ??= deliverOnce().finally(() => {
+      delivery = null;
+    });
+    return delivery;
+  }
+
+  async function deliverOnce(): Promise<void> {
+    if (watcherUrl === null) return;
+    const currentCredentials = credentials();
+    const credentialsDigest = crypto.createHash('sha256').update(JSON.stringify(currentCredentials)).digest('hex');
+    if (credentialsDigest !== deliveredCredentialsDigest) {
+      if (!await postToWatcher(CREDENTIALS_PATH, currentCredentials)) return scheduleDeliveryRetry();
+      deliveredCredentialsDigest = credentialsDigest;
+      log.log(`[watcher] delivered credentials: github ${currentCredentials.github === null ? 'no' : 'yes'}, posthog ${currentCredentials.posthog === null ? 'no' : 'yes'}`);
+    }
+    const probeSet = compileProbeSet(currentCredentials);
+    if (probeSet.revision !== deliveredProbeSet?.revision) {
+      if (!await postToWatcher(PROBE_SET_PATH, probeSet)) return scheduleDeliveryRetry();
+      log.log(`[watcher] delivered probe set ${probeSet.revision.slice(0, 8)} with ${probeSet.probes.length} probes and ${probeSet.alarms?.length ?? 0} alarms`);
+      forgetFailuresOfChangedRequests(deliveredProbeSet, probeSet);
+      deliveredProbeSet = probeSet;
+    }
+    deliveryAttempts = 0;
+    updateCoverage();
+    const startCountAtRead = watcherStartCount;
+    if (statusReadCount < startCountAtRead) {
+      if (!await adoptWatcherStatus()) return scheduleDeliveryRetry();
+      statusReadCount = startCountAtRead;
     }
   }
 
@@ -549,7 +585,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
       return;
     }
     if (nudge.kind === 'alarm') {
-      alarmSource?.onAlarm(nudge.probeId);
+      recheckAlarmSources();
       return;
     }
     const probe = deliveredProbeSet?.probes.find((candidate) => candidate.id === nudge.probeId);
@@ -661,14 +697,15 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
 
   function hostWoke(): void {
     supervisor?.checkNow();
+    recheckAlarmSources();
   }
 
   function registerAlarmSource(source: AlarmSource): void {
-    alarmSource = source;
+    alarmSources.add(source);
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, requestHostStop, nextAlarmDueAt, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

@@ -8,7 +8,7 @@ import { STATES } from '../../shared/states.ts';
 import { unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { admitWake, afterFire, afterSkipped, alarmsOf, soonestFireAt, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
+import { admitWake, afterFire, afterSkipped, alarmsOf, decideDueWake, describeWakeFailedNote, describeWakeLine, parseWakeWhen, viewOfWake, DEFAULT_WAKE_LIMITS, SELF_WAKE_CAP_NOTE, WAKE_RECHECK_MS } from '../core/wake-core.ts';
 import type { WakeFailureCause, WakeLimits } from '../core/wake-core.ts';
 import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts';
 import type { ChildChannels } from '../agent-api/child-channels.ts';
@@ -123,10 +123,6 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function onAlarmsMayHaveChanged(listener: () => void): void {
     alarmListeners.add(listener);
-  }
-
-  function nextWakeAt(): number | null {
-    return soonestFireAt(wakes);
   }
 
   function armTimer(): void {
@@ -327,7 +323,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { alarms, cancelForOperator, handleAgent, nextWakeAt, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
+  return { alarms, cancelForOperator, handleAgent, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

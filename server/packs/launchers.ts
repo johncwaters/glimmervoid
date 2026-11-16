@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { clock } from '../../shared/clock.ts';
 import { PackLauncherRuns } from '../../shared/contracts/pack.ts';
+import type { Alarm } from '../../shared/contracts/watcher-link.ts';
 import type { PackSessionStart } from '../../shared/contracts/pack-launch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
@@ -23,6 +25,10 @@ const LONGEST_SCHEDULE_TIMER_MS = 24 * 60 * 60 * 1000;
 
 function runKeyOf(scheduled: ScheduledPackLauncher): string {
   return JSON.stringify([scheduled.pack, scheduled.launcher.id]);
+}
+
+function alarmIdOf(fireKey: string): string {
+  return `pack:${crypto.createHash('sha256').update(fireKey).digest('hex').slice(0, 24)}`;
 }
 
 function fireKeyOf(scheduled: ScheduledPackLauncher, timezone: string): string {
@@ -57,6 +63,8 @@ export function createPackLaunchers({
   const sessionIdByRunKey = new Map<string, string>();
   let runsLoad: Promise<boolean> | null = null;
   let runWrites: Promise<void> = Promise.resolve();
+  const alarmListeners = new Set<() => void>();
+  let announcedAlarmsDigest = '[]';
 
   const resolve = (project: string) => resolveLauncherProject(project, projectOrigins, existingFolders);
 
@@ -230,9 +238,25 @@ export function createPackLaunchers({
       const fireAt = nextCronFireAt(entry.schedule, zone, armedAt);
       if (fireAt !== null) nextFireAtByKey.set(key, fireAt);
     }
+    noteAlarmsMayHaveChanged();
     if (nextFireAtByKey.size === 0) return;
     const delayMs = Math.min(Math.max(0, Math.min(...nextFireAtByKey.values()) - armedAt), LONGEST_SCHEDULE_TIMER_MS);
     scheduleTimer = unrefTimer(setTimeoutFn(() => void fireDueLaunchers(), delayMs));
+  }
+
+  function alarms(): Alarm[] {
+    return [...nextFireAtByKey].map(([fireKey, fireAt]) => ({ id: alarmIdOf(fireKey), at: new Date(fireAt).toISOString() }));
+  }
+
+  function noteAlarmsMayHaveChanged(): void {
+    const alarmsDigest = JSON.stringify(alarms());
+    if (alarmsDigest === announcedAlarmsDigest) return;
+    announcedAlarmsDigest = alarmsDigest;
+    for (const listener of alarmListeners) listener();
+  }
+
+  function onAlarmsMayHaveChanged(listener: () => void): void {
+    alarmListeners.add(listener);
   }
 
   function attachSessionStarter(starter: SessionStarter): void {
@@ -240,7 +264,7 @@ export function createPackLaunchers({
     armSchedule();
   }
 
-  return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter };
+  return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter, alarms, onAlarm: armSchedule, onAlarmsMayHaveChanged };
 }
 
 export type PackLaunchers = ReturnType<typeof createPackLaunchers>;

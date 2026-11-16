@@ -132,24 +132,35 @@ test('a probe whose GitHub answer changes nudges its lane, and the lane hears th
   assert.equal(nudge.kind, 'changed');
 });
 
-test('a pending wake reaches the watcher as an alarm and comes back once at its time as an alarm nudge, sent again while the server refuses it', async (t) => {
+test('alarms from every source reach the watcher soonest first within the alarm cap and come back once each, two minutes before they are due, as an alarm nudge that rechecks every source, sent again while the server refuses it', async (t) => {
   const { clock, link, watcher, refusedNudges } = await startLinkedWatcher(t);
-  const alarmNudges: string[] = [];
-  const alarm = { id: 'wake:w1', at: new Date(clock.nowMs + 10 * 60_000).toISOString() };
-  link.registerAlarmSource({ alarms: () => [alarm], onAlarm: (alarmId) => alarmNudges.push(alarmId) });
+  const rechecks: string[] = [];
+  const wakeAlarm = { id: 'wake:w1', at: new Date(clock.nowMs + 10 * 60_000).toISOString() };
+  const packAlarm = { id: 'pack:p1', at: new Date(clock.nowMs + 5 * 60_000).toISOString() };
+  const distantAlarms = Array.from({ length: 250 }, (_unused, index) => ({ id: `pack:far${index}`, at: new Date(clock.nowMs + 24 * 60 * 60_000 + index).toISOString() }));
+  link.registerAlarmSource({ alarms: () => [wakeAlarm], onAlarm: () => rechecks.push('wakes') });
+  link.registerAlarmSource({ alarms: () => [...distantAlarms, packAlarm], onAlarm: () => rechecks.push('packs') });
+  assert.equal(link.nextAlarmDueAt(), Date.parse(packAlarm.at));
+  const runAlarmsAt = async (minutesFromStart: number) => {
+    clock.nowMs = Date.parse(packAlarm.at) - 5 * 60_000 + minutesFromStart * 60_000;
+    await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  };
   await eventually(() => watcher.runner?.status().probeSetRevision?.length ? true : undefined);
-  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.deepEqual(alarmNudges, []);
+  await runAlarmsAt(2);
+  assert.deepEqual(rechecks, []);
 
   refusedNudges.remaining = 1;
-  clock.nowMs += 10 * 60_000;
-  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
-  await eventually(() => alarmNudges.length > 0 ? true : undefined);
-  await watcher.runner?.applyCredentials({ github: 'read-token', posthog: null });
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await runAlarmsAt(3);
+  await eventually(() => rechecks.length > 0 ? true : undefined);
+  await runAlarmsAt(3);
   assert.equal(refusedNudges.remaining, 0);
-  assert.deepEqual(alarmNudges, [alarm.id]);
+  assert.deepEqual(rechecks, ['wakes', 'packs']);
+
+  await runAlarmsAt(8);
+  await eventually(() => rechecks.length > 2 ? true : undefined);
+  await runAlarmsAt(9);
+  assert.deepEqual(rechecks, ['wakes', 'packs', 'wakes', 'packs']);
 });
 
 test('a probe GitHub refuses by status or by a GraphQL error shows on its lane as a watcher problem, leaves watcher coverage until it recovers, and runs again at once on a new token', async (t) => {
