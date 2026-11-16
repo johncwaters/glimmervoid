@@ -7,20 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-11-16
+
 ### Added
 
 - **Run Google's Antigravity CLI (`agy`) as a session agent.** Antigravity CLI shows up in the Add Session picker when `agy` is on your PATH. Its card goes working on a prompt, waiting on a "Run this command?" permission dialog, and complete with one notification when the turn ends, and auto-resume continues the same conversation. Skip permissions starts it with `--dangerously-skip-permissions`; with it off, agy runs in its own default mode. Glimmervoid trusts the session folder for that launch only, so agy's trust dialog does not swallow the first prompt. Hooks reach agy through a `glimmervoid` plugin under `~/.gemini/config/plugins/`, rewritten at every agy start and inert in an agy you start yourself; your own `~/.gemini` hooks, MCP and settings files are never written. An agy session gets Glimmervoid's tools (whiteboard, session, and the rest) through a small bridge the plugin starts; in an agy you start yourself the bridge offers no tools. Board notices and pack context reach an agy turn as a message added before the model runs, and pack skills reach agy through `--add-dir`. The model picker and the Arena list the models `agy models` reports, and a picked model starts agy with `--model`. Antigravity CLI is first-class: a subagent keeps the card working until the whole turn ends, `/clear` starts a fresh card title, the question manager answers agy's multiple-choice questions, a question shows as a question rather than a permission, and every scenario is checked against live agy recordings, except compaction, which agy does not have. agy reads your own sign-in, so it cannot run in a clean home, under an added account, or in a sandboxed session.
 
 ### Fixed
 
-- **A board linked to a folder stops following that folder when its server stops.** A server that restarted inside the same process, as `npm run dev` does when Vite restarts, left the old server watching the folder. Both servers then synced the next change to `board.jsonl`, and the old one could record the change as already seen, so the running board skipped it and wrote its older copy back over the file.
-
-## [0.62.2] - 2026-11-16
-
-### Fixed
-
 - **Team review re-reviews an updated pull request on time on a Glimmervoid Cloud server that went to sleep.** When a teammate pushed new work before the re-review-after hours had passed, the review waited until something else woke the server, which could be days. The doorman now wakes the server when those hours are up, and the review starts then.
 - **A Glimmervoid Cloud server that wakes from sleep refreshes sandboxed agent logins and checks the GitHub connection at once.** Their timers stopped while the server slept, so after a wake a sandboxed session could start on an expired Claude Code, Codex or Kimi Code login, and a GitHub connection warning could arrive up to an hour late. Neither wakes a sleeping server: both catch up within seconds of any wake.
+- **A board linked to a folder stops following that folder when its server stops.** A server that restarted inside the same process, as `npm run dev` does when Vite restarts, left the old server watching the folder. Both servers then synced the next change to `board.jsonl`, and the old one could record the change as already seen, so the running board skipped it and wrote its older copy back over the file.
 
 ## [0.62.1] - 2026-11-16
 
