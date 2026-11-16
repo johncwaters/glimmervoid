@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -7,13 +8,17 @@ import { clock } from '../shared/clock.ts';
 import { spawn } from './child-process-safe.ts';
 import { DEFAULT_CONFIG, resolveConfigPath } from './config-store.ts';
 import { mergePathEntries, splitPathEntries } from './git/core/dependency-clone-core.ts';
-import { createHostUrlOpener } from './host-url-opener.ts';
+import { createHostUrlOpener, launchDetachedOpener } from './host-url-opener.ts';
 import { resolveInstallPath } from './install-path.ts';
 import { selfLaunch } from './runtime-paths.ts';
 import { serverLogPath } from './server-log-file.ts';
 import {
   LAUNCH_DIALOG_TITLE,
   LAUNCH_OPENER_HOLD_MS,
+  LAUNCH_STARTING_TEXT,
+  appWindowArgv,
+  appWindowCandidatesFor,
+  notificationCommandsFor,
   LAUNCH_PROBE_INTERVAL_MS,
   LAUNCH_PROBE_TIMEOUT_MS,
   classifyProbe,
@@ -23,7 +28,7 @@ import {
   dialogCommandsFor,
   launchFailureText,
 } from './core/open-launch-core.ts';
-import type { LaunchFailure, LaunchPhase, ProbeOutcome, ProbeReply } from './core/open-launch-core.ts';
+import type { AppWindowCandidate, LaunchFailure, LaunchPhase, ProbeOutcome, ProbeReply } from './core/open-launch-core.ts';
 import { resolveLocalPort } from './core/remote-config.ts';
 
 function configuredPort(): unknown {
@@ -91,9 +96,25 @@ async function reportFailure(failure: LaunchFailure, port: number): Promise<numb
   return 1;
 }
 
+async function installedAppWindowCandidate(): Promise<AppWindowCandidate | null> {
+  for (const candidate of appWindowCandidatesFor({ platform: process.platform, env: process.env, homeDir: os.homedir() })) {
+    const isInstalled = await fs.promises.access(candidate.installedPath).then(() => true, () => false);
+    if (isInstalled) return candidate;
+  }
+  return null;
+}
+
+async function openAppWindow(dashboardUrl: string): Promise<boolean> {
+  const candidate = await installedAppWindowCandidate();
+  if (!candidate) return false;
+  const [command, ...commandArguments] = appWindowArgv(candidate, dashboardUrl);
+  return (await launchDetachedOpener(command, commandArguments)) === 'opened';
+}
+
 async function openDashboard(dashboardUrl: string): Promise<number> {
   const keepProcessAliveTimer = setTimeout(() => {}, LAUNCH_OPENER_HOLD_MS);
-  const outcome = await createHostUrlOpener()(dashboardUrl);
+  const hasOpenedAppWindow = await openAppWindow(dashboardUrl);
+  const outcome = hasOpenedAppWindow ? 'opened' : await createHostUrlOpener()(dashboardUrl);
   clearTimeout(keepProcessAliveTimer);
   console.log(`Glimmervoid is running at ${dashboardUrl}`);
   return outcome === 'opened' ? 0 : 1;
@@ -110,6 +131,7 @@ async function runOpenCli(): Promise<number> {
     const step = decideLaunchStep({ phase, outcome, hasChildExited: server?.hasExited() ?? false, elapsedMs: clock.nowMs() - phaseStartedAtMs });
     if (step.kind === 'start-server') {
       server = await startDetachedServer();
+      void runFirstAvailableCommand(notificationCommandsFor(process.platform, LAUNCH_DIALOG_TITLE, LAUNCH_STARTING_TEXT));
       phase = 'starting';
       phaseStartedAtMs = clock.nowMs();
     }
