@@ -48,7 +48,7 @@ import { createCommitSigning, createUnsignedCommitNotices, followingGithubConnec
 import { createHostReady } from '../ready-host.ts';
 import { ensureDoorman, localDoormanUrl, retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
 import { clock, setOperatorTimezoneSource } from '../../shared/clock.ts';
-import { NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
+import { DEVICE_PAIRING_PATH, NUDGES_PATH } from '../../shared/contracts/watcher-link.ts';
 import { loadOrCreateLinkSecret } from '../../cloud/link/link-secret.ts';
 import { laneAccessConfigOf, NO_GITHUB_APP_GRANTS } from '../lanes/core/lane-permissions-core.ts';
 import type { GithubAppGrants } from '../lanes/core/lane-permissions-core.ts';
@@ -901,6 +901,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
         remoteHttpServer.on('request', (request, response) => {
           if (request.url?.split('?')[0] === NUDGES_PATH) {
             watcherLink.answerNudgeRequest(request, response);
+            return;
+          }
+          if (request.url?.split('?')[0] === DEVICE_PAIRING_PATH) {
+            watcherLink.answerDevicePairingRequest(request, response, remoteAuth.devicePairingFor);
             return;
           }
           app(request, response);

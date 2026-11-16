@@ -32,7 +32,7 @@ import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { DoormanWakeStatus } from '../shared/contracts/doorman.ts';
-import { AWAKE_USAGE_PATH, AwakeUsageAnswer, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, DEVICE_PAIRING_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -824,6 +824,7 @@ test('a self-host doorman forwards pages and WebSockets with its own forwarding 
   assert.equal(echoed, 'echo hello');
 
   assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: NUDGES_PATH })).status, 404);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, method: 'POST', path: DEVICE_PAIRING_PATH })).status, 404);
   assert.equal((await requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: HEALTH_PATH })).status, 200);
   const signedStatus = (key: Buffer) => requestThroughDoorman(doormanPort, { host: `127.0.0.1:${doormanPort}`, path: STATUS_PATH, headers: signedHeaders(key, { method: 'GET', path: STATUS_PATH, body: '' }, Date.now()) });
   assert.equal((await signedStatus(directionKey(linkSecret, 'server-to-watcher'))).status, 200);

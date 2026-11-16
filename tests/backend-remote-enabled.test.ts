@@ -12,6 +12,10 @@ import WebSocket from 'ws';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { createPairingsStore } from '../server/pairings-store.ts';
+import { glimmervoidHomeDir } from '../server/config-store.ts';
+import { watcherLinkKeyPath } from '../server/secrets/core/secret-files-core.ts';
+import { directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
+import { DEVICE_PAIRING_PATH } from '../shared/contracts/watcher-link.ts';
 import { boundPort, closeServer, listenOnLoopback, reserveFreePort } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
@@ -227,6 +231,31 @@ test('a paired device may reconnect with a replay cursor on the remote listener'
   });
   assert.equal(first.type, 'snapshot', 'the cursor-carrying reconnect reached the control route');
   await new Promise<void>((resolve) => { ws.once('close', () => resolve()); ws.close(); });
+});
+
+test('a doorman-signed device pairing request mints a single-use pairing link for a new device and answers paired for a paired one, and refuses an unsigned, replayed or wrongly keyed request', async () => {
+  const { remotePort } = ctx();
+  const linkSecret = Buffer.from(fs.readFileSync(watcherLinkKeyPath(glimmervoidHomeDir()), 'utf8').trim(), 'hex');
+  const askForPairing = (presentedCookieHeader: string | null, key = directionKey(linkSecret, 'watcher-to-server'), headers?: Record<string, string>) => {
+    const body = JSON.stringify({ presentedCookieHeader });
+    return fetch(`http://127.0.0.1:${remotePort}${DEVICE_PAIRING_PATH}`, { method: 'POST', headers: headers ?? signedHeaders(key, { method: 'POST', path: DEVICE_PAIRING_PATH, body }, Date.now()), body });
+  };
+
+  assert.equal((await askForPairing(null, undefined, {})).status, 401);
+  assert.equal((await askForPairing(null, directionKey(linkSecret, 'server-to-watcher'))).status, 401);
+  const replayedHeaders = signedHeaders(directionKey(linkSecret, 'watcher-to-server'), { method: 'POST', path: DEVICE_PAIRING_PATH, body: '{"presentedCookieHeader":null}' }, Date.now());
+  const minted = await askForPairing(null, undefined, replayedHeaders);
+  assert.equal(minted.status, 200);
+  assert.equal((await askForPairing(null, undefined, replayedHeaders)).status, 401);
+  const mintedAnswer = await minted.json() as { state: string; path: string };
+  assert.equal(mintedAnswer.state, 'minted');
+
+  const redeemed = await fetch(`http://127.0.0.1:${remotePort}${mintedAnswer.path}`, { redirect: 'manual' });
+  assert.equal(redeemed.status, 303);
+  const deviceCookie = (redeemed.headers.get('set-cookie') ?? '').split(';')[0];
+  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${mintedAnswer.path}`, { redirect: 'manual' })).status, 403);
+  assert.deepEqual(await (await askForPairing(`theme=dark; ${deviceCookie}`)).json(), { state: 'paired' });
+  assert.equal(((await (await askForPairing('glimmervoid_device=forged.secret')).json()) as { state: string }).state, 'minted');
 });
 
 test('a traversal dressed as a pair path does not escape the pairing gate', async () => {

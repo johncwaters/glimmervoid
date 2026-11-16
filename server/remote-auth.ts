@@ -13,11 +13,13 @@ import type { RemoteConfig } from './core/remote-config.ts';
 import { classifyRequestOrigin, decideOwnerAccess, decideRequestAccess, normalizePathname } from './core/request-trust.ts';
 import type { RequestTrust } from './core/request-trust.ts';
 import type { PairedDevice, PairingsStore, SeenStore } from './pairings-store.ts';
+import type { DevicePairingAnswer } from '../shared/contracts/watcher-link.ts';
 import { escapeMarkup } from '../shared/escape-markup.ts';
 import { clock } from '../shared/clock.ts';
 
 const DEVICE_COOKIE_MAX_AGE_SECONDS = Math.floor(DEFAULT_DEVICE_MAX_AGE_MS / 1000);
 const TAILSCALE_USER_LOGIN_HEADER = 'tailscale-user-login';
+const SIGNED_IN_PAIRING_TTL_MS = 2 * 60 * 1000;
 
 interface AuthOutcome {
   ok: boolean;
@@ -40,6 +42,7 @@ interface RemoteAuth {
   isUpgradeAuthorized(req: IncomingMessage): boolean;
   mountPairRoutes(app: Express): void;
   authenticate(req: IncomingMessage): AuthOutcome;
+  devicePairingFor(presentedCookieHeader: string | null): DevicePairingAnswer | null;
   trustOf(req: IncomingMessage): RequestTrust;
   stop(): Promise<void> | null;
 }
@@ -90,7 +93,11 @@ function createRemoteAuth({
   });
 
   function authenticate(req: IncomingMessage): AuthOutcome {
-    const parsed = readDeviceCookie(req.headers?.cookie, COOKIE_NAME);
+    return authenticateCookieHeader(req.headers?.cookie);
+  }
+
+  function authenticateCookieHeader(cookieHeader: string | undefined): AuthOutcome {
+    const parsed = readDeviceCookie(cookieHeader, COOKIE_NAME);
     if (!parsed) return { ok: false, reason: 'no-cookie', device: null };
     const device = pairingsStore.findDevice(parsed.id);
     if (!device) return { ok: false, reason: 'no-device', device: null };
@@ -99,6 +106,14 @@ function createRemoteAuth({
     if (!verdict.ok) return { ok: false, reason: verdict.reason, device: null };
     if (seenStore && !isStopped) seenStore.touch(device.id);
     return { ok: true, reason: null, device };
+  }
+
+  function devicePairingFor(presentedCookieHeader: string | null): DevicePairingAnswer | null {
+    if (presentedCookieHeader !== null && authenticateCookieHeader(presentedCookieHeader).ok) return { state: 'paired' };
+    const minted = pairingsStore.mintPending({ ttlMs: SIGNED_IN_PAIRING_TTL_MS });
+    if (minted === null) return null;
+    log('[remote] minted a pairing link for a device signed in through Glimmervoid Cloud');
+    return { state: 'minted', path: `/pair/${minted.token}` };
   }
 
   function isOwner(req: IncomingMessage): boolean {
@@ -182,7 +197,7 @@ function createRemoteAuth({
     return seenStore?.pending ?? null;
   }
 
-  return { httpMiddleware, isUpgradeAuthorized, mountPairRoutes, authenticate, trustOf, stop };
+  return { httpMiddleware, isUpgradeAuthorized, mountPairRoutes, authenticate, devicePairingFor, trustOf, stop };
 }
 
 export { createRemoteAuth };

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
+import { DEVICE_PAIRING_PATH, NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
 import type { AwakeEvent, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
@@ -50,7 +50,7 @@ function tenantFor(table: DoormanTenantTable, hostHeader: string | undefined): D
 function routeRequest(table: DoormanTenantTable, hostHeader: string | undefined, pathname: string): DoormanRoute {
   const tenant = tenantFor(table, hostHeader);
   if (tenant === null) return { kind: 'refuse', status: 421 };
-  if (pathname === NUDGES_PATH) return { kind: 'refuse', status: 404 };
+  if (pathname === NUDGES_PATH || pathname === DEVICE_PAIRING_PATH) return { kind: 'refuse', status: 404 };
   if (pathname.startsWith(WATCHER_PATH_PREFIX)) return { kind: 'watcher', tenant };
   return { kind: 'forward', tenant };
 }

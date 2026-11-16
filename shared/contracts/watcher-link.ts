@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isLoopbackHostname, loopbackOverrideOrigin } from '../loopback-hosts.ts';
 
 export const NUDGES_PATH = '/link/nudges';
+export const DEVICE_PAIRING_PATH = '/link/device-pairing';
 export const WATCHER_PATH_PREFIX = '/link/watcher/';
 export const WATCHER_FEATURES_HEADER = 'x-glimmervoid-watcher-features';
 export const ALARMS_FEATURE = 'alarms';
@@ -16,6 +17,16 @@ export const GITHUB_CONNECT_PATH = `${WATCHER_PATH_PREFIX}github-connect`;
 export const GITHUB_CONNECTION_PATH = `${WATCHER_PATH_PREFIX}github-connection`;
 export const GITHUB_DISCONNECT_PATH = `${WATCHER_PATH_PREFIX}github-disconnect`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
+const MAX_COOKIE_HEADER_CHARS = 16 * 1024;
+
+export const DevicePairingRequest = z.strictObject({ presentedCookieHeader: z.string().max(MAX_COOKIE_HEADER_CHARS).nullable() });
+export type DevicePairingRequest = z.infer<typeof DevicePairingRequest>;
+
+export const DevicePairingAnswer = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('paired') }),
+  z.strictObject({ state: z.literal('minted'), path: z.string().regex(/^\/pair\/[A-Za-z0-9_-]{16,128}$/) }),
+]);
+export type DevicePairingAnswer = z.infer<typeof DevicePairingAnswer>;
 export const MAX_LINK_BODY_BYTES = 1024 * 1024;
 
 export function isLinkUrlSafe(rawUrl: string): boolean {

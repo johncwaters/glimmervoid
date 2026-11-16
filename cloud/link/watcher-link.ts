@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
-import type { Alarm, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, DEVICE_PAIRING_PATH, DevicePairingRequest, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import type { Alarm, DevicePairingAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
 import type { AwakeUsage, GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
@@ -561,31 +561,54 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     if (nudge.kind !== 'failing') sourcesByLaneId.get(probe.laneId)?.onNudge(nudge);
   }
 
-  async function replyToNudge(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+  async function signedBodyOf(request: http.IncomingMessage, linkPath: string): Promise<{ body: string } | { refusedWith: number }> {
     const path = new URL(request.url ?? '/', 'http://server').pathname;
-    const reply = (status: number) => {
-      response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end('{}');
-    };
-    if (request.method !== 'POST' || path !== NUDGES_PATH) return reply(404);
+    if (request.method !== 'POST' || path !== linkPath) return { refusedWith: 404 };
     const body = await readLimitedBody(request);
-    if (body === null) return reply(413);
+    if (body === null) return { refusedWith: 413 };
     const verdict = verifyRequest(nudgeKey, signedRequestFromHeaders(request.headers, 'POST', path, body), now(), seenRequestIds);
-    if (!verdict.ok) {
-      log.warn(`[watcher] refused a nudge: ${verdict.reason}`);
-      return reply(401);
-    }
-    const nudge = Nudge.safeParse(jsonOrNull(body));
-    if (!nudge.success) return reply(400);
+    if (verdict.ok) return { body };
+    log.warn(`[watcher] refused a signed ${linkPath} request: ${verdict.reason}`);
+    return { refusedWith: 401 };
+  }
+
+  function replyJson(response: http.ServerResponse, status: number, answer: object = {}): void {
+    response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.end(JSON.stringify(answer));
+  }
+
+  async function replyToNudge(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    const signed = await signedBodyOf(request, NUDGES_PATH);
+    if ('refusedWith' in signed) return replyJson(response, signed.refusedWith);
+    const nudge = Nudge.safeParse(jsonOrNull(signed.body));
+    if (!nudge.success) return replyJson(response, 400);
     handleNudge(nudge.data);
-    return reply(200);
+    return replyJson(response, 200);
+  }
+
+  async function replyToDevicePairing(request: http.IncomingMessage, response: http.ServerResponse, devicePairingFor: (presentedCookieHeader: string | null) => DevicePairingAnswer | null): Promise<void> {
+    const signed = await signedBodyOf(request, DEVICE_PAIRING_PATH);
+    if ('refusedWith' in signed) return replyJson(response, signed.refusedWith);
+    const pairingRequest = DevicePairingRequest.safeParse(jsonOrNull(signed.body));
+    if (!pairingRequest.success) return replyJson(response, 400);
+    const answer = devicePairingFor(pairingRequest.data.presentedCookieHeader);
+    if (answer === null) return replyJson(response, 503);
+    return replyJson(response, 200, answer);
+  }
+
+  function answerSignedRequest(reply: Promise<void>, response: http.ServerResponse): void {
+    reply.catch((answerError: unknown) => {
+      log.warn(`[watcher] signed link request failed: ${(answerError as Error).message}`);
+      if (!response.headersSent) response.writeHead(500).end();
+    });
   }
 
   function answerNudgeRequest(request: http.IncomingMessage, response: http.ServerResponse): void {
-    replyToNudge(request, response).catch((answerError: unknown) => {
-      log.warn(`[watcher] nudge request failed: ${(answerError as Error).message}`);
-      if (!response.headersSent) response.writeHead(500).end();
-    });
+    answerSignedRequest(replyToNudge(request, response), response);
+  }
+
+  function answerDevicePairingRequest(request: http.IncomingMessage, response: http.ServerResponse, devicePairingFor: (presentedCookieHeader: string | null) => DevicePairingAnswer | null): void {
+    answerSignedRequest(replyToDevicePairing(request, response, devicePairingFor), response);
   }
 
   function watcherEnded(): void {
@@ -645,7 +668,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, requestHostStop, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;
