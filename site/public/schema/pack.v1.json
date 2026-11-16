@@ -624,7 +624,9 @@
             "enum": [
               "claude-code",
               "codex",
-              "kimi"
+              "kimi",
+              "opencode",
+              "pi"
             ],
             "description": "The agent the session runs"
           },

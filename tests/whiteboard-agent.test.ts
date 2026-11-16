@@ -675,7 +675,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   fs.copyFileSync(path.join(plannerDir, 'mark.svg'), path.join(plannerDir, 'mark-as-page.html'));
   const svgAsPage = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'mark-as-page.html' });
   assert.deepEqual({ ...(svgAsPage.body.media as object), source: null }, { ...(svg.body.media as object), source: null });
-  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${longPreludeAsset}.html`, `${dialedMedia.asset}.html`, `${docMedia.asset}.md`, `${editedDocMedia.asset}.md`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
+  assert.deepEqual(fs.readdirSync(path.join(fixture.tmpDir, 'whiteboards', 'assets')).sort(), [`${media.asset}.png`, `${svgMedia.asset}.svg`, `${pageMedia.asset}.html`, `${longPreludeAsset}.html`, `${dialedMedia.asset}.html`, `${docMedia.asset}.md`, `${editedDocMedia.asset}.md`, `${screenplayMedia.asset}.fountain`, `${videoMedia.asset}.webm`, `${videoMedia.asset}.preview.webp`].sort());
 
   const unstored = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'login', fields: { media: { ...media, asset: 'f'.repeat(64) } } }] });
   assert.equal(unstored.status, 400);
