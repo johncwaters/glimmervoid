@@ -8,7 +8,7 @@ import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { createDragPreview, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { elbowCornersAfterShift, rotatedAbout, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
+import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
@@ -307,6 +307,11 @@ test('wires keep their named sides, and overlaps and crowding warn by name', () 
       walled: { kind: 'box', id: 'walled', title: 'Walled', at: { x: 1800, y: 2000 } },
       wall: { kind: 'box', id: 'wall', title: 'Wall', lines: [{ text: 'one' }, { text: 'two' }, { text: 'three' }, { text: 'four' }, { text: 'five' }, { text: 'six' }], at: { x: 2040, y: 1900 } },
       over: { kind: 'box', id: 'over', title: 'Over', at: { x: 2300, y: 1600 } }, w8: { ...wire('w8', 'walled', 'over'), toSide: 'bottom' },
+      ask: { kind: 'box', id: 'ask', title: 'Ask', lines: [{ text: 'problem + source' }], width: 180, at: { x: 2080, y: 2400 } },
+      spec: { kind: 'box', id: 'spec', title: '/specifying', lines: [{ text: 'decisions + units of work' }], width: 200, at: { x: 1800, y: 2400 } },
+      w9: wire('w9', 'spec', 'ask'),
+      upper: { kind: 'box', id: 'upper', title: 'Upper', at: { x: 2600, y: 2400 } }, lower: { kind: 'box', id: 'lower', title: 'Lower', at: { x: 2600, y: 2600 } },
+      w10: wire('w10', 'upper', 'lower', { label: 'findings' }),
     },
   });
   const layout = layoutBoard(loopBoard);
@@ -321,6 +326,13 @@ test('wires keep their named sides, and overlaps and crowding warn by name', () 
   const level = wireById.get('w7');
   assert.ok(level);
   assert.equal(segmentsOfPath(level.path).length, 1, `a wire between boxes that share a height runs straight: ${level.path}`);
+  const [ask, spec, row] = [boxById.get('ask'), boxById.get('spec'), wireById.get('w9')];
+  assert.ok(ask && spec && row && ask.height !== spec.height);
+  assert.equal(segmentsOfPath(row.path).length, 1, `a wire between top-aligned boxes of different heights runs straight: ${row.path}`);
+  assert.deepEqual([row.start.y - spec.y, row.end.y - ask.y], [ask.height / 2, ask.height / 2], 'a straight row wire from a taller box meets both boxes level with the middle of the shorter one');
+  const sideLabelled = wireById.get('w10');
+  assert.ok(sideLabelled?.label);
+  assert.ok(Math.abs(sideLabelled.labelAt.x - sideLabelled.start.x) - labelWidthOf(sideLabelled.label) / 2 >= 10, `a label beside a vertical wire keeps its gap: ${JSON.stringify(sideLabelled.labelAt)}`);
   const walled = wireById.get('w8');
   assert.ok(walled);
   assert.ok(segmentsOfPath(walled.path).length <= 3, `a wire whose facing side is walled off leaves from the side that turns least: ${walled.path}`);

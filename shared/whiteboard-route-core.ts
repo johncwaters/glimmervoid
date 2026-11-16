@@ -40,8 +40,10 @@ const AREA_CELL_SIZE = 512;
 const MAX_RECTS_FOR_DIRECT_SCAN = 64;
 const PORT_SPACING = 14;
 const PORT_INSET = 8;
+const SIDE_PORT_MAX_DROP = 31;
 const LABEL_CHAR_WIDTH = 6.6;
 const LABEL_GAP = 5;
+const SIDE_LABEL_GAP = 10;
 const LABEL_ASCENT = 10;
 const LABEL_DESCENT = 3;
 const LABEL_CLEARANCE = 2;
@@ -596,7 +598,7 @@ function portPositions(box: PlacedBox, side: Side, count: number): Point[] {
   if (isSideways(side)) {
     const x = Math.round(side === 'left' ? box.x : box.x + box.width);
     const spacing = Math.min(PORT_SPACING, (box.height - PORT_INSET * 2) / Math.max(count - 1, 1));
-    const centeredFirstY = box.y + Math.min(box.height / 2, 40) - ((count - 1) * spacing) / 2;
+    const centeredFirstY = box.y + Math.min(box.height / 2, SIDE_PORT_MAX_DROP) - ((count - 1) * spacing) / 2;
     const firstY = Math.max(box.y + PORT_INSET, Math.min(centeredFirstY, box.y + box.height - PORT_INSET - (count - 1) * spacing));
     return indexes.map((index) => ({ x, y: Math.round(firstY + index * spacing) }));
   }
@@ -1147,7 +1149,7 @@ function labelCandidates(segments: readonly Segment[], width: number): Point[] {
     const x = segment.from.x + (segment.to.x - segment.from.x) * fraction;
     const y = segment.from.y + (segment.to.y - segment.from.y) * fraction;
     if (isHorizontal(segment)) return [{ x, y: y - LABEL_GAP }, { x, y: y + LABEL_GAP + LABEL_ASCENT }];
-    return [{ x: x + LABEL_GAP + width / 2, y: y + LABEL_ASCENT / 2 }, { x: x - LABEL_GAP - width / 2, y: y + LABEL_ASCENT / 2 }];
+    return [{ x: x + SIDE_LABEL_GAP + width / 2, y: y + LABEL_ASCENT / 2 }, { x: x - SIDE_LABEL_GAP - width / 2, y: y + LABEL_ASCENT / 2 }];
   }), ...flushLabelCandidates(segment, width)]);
 }
 
