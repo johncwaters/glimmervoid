@@ -3,13 +3,13 @@ import type { Board, Element } from './contracts/whiteboard.ts';
 import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy,
-  placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, wireCeilingOf,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy,
+  placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, titleObstacleOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
 import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routeWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
-import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList } from './whiteboard-route-core.ts';
+import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { CLEARANCE } from './whiteboard-visibility-core.ts';
@@ -234,7 +234,7 @@ function warningsOf(world: LayoutWorld): string[] {
 
 function obstacleRectOf(element: PlacedElement): Rect | null {
   if (element.kind === 'wire') return null;
-  if (element.kind === 'frame') return frameTitleStripOf(element);
+  if (element.kind === 'frame') return element.titleObstacle;
   return rotatedBoundsOf(element);
 }
 
@@ -251,7 +251,7 @@ function storeLaidOut(world: LayoutWorld, element: PlacedElement): void {
   if (element.kind === 'box') placeId(world.boxGrid, element.id, rotatedBoundsOf(element));
   if (element.kind === 'stroke') placeId(world.inkGrid, element.id, element);
   if (element.kind === 'frame') {
-    placeId(world.softGrid, element.id, frameTitleStripOf(element));
+    placeId(world.softGrid, element.id, element.titleObstacle);
     placeId(world.frameGrid, element.id, element);
   }
   const wireExtent = element.kind === 'wire' ? wireExtentOf(element) : null;
@@ -474,7 +474,7 @@ function laidOutSolids(world: LayoutWorld, board: Board, changes: ReadonlyMap<st
       const box = boxNow(id);
       return box ? [[id, box] as const] : [];
     }));
-    nextById.set(frameId, laidOutFrameOf(frame, containedById));
+    nextById.set(frameId, laidOutFrameOf(frame, containedById, []));
   }
   return { nextById, dirtyBoxIds, dirtyFrameIds };
 }
@@ -500,7 +500,7 @@ function commitElement(world: LayoutWorld, commit: Commit, id: string, next: Pla
   if (!previous && !next) return;
   if (previous && next && elementSignature(previous) === elementSignature(next)) return;
   if (previous) {
-    commit.previousById.set(id, previous);
+    if (!commit.previousById.has(id)) commit.previousById.set(id, previous);
     forgetLaidOut(world, id);
     const previousExtent = extentOf(previous);
     if (previousExtent && world.around && isOnEdge(previousExtent, world.around)) commit.isAroundStale = true;
@@ -603,7 +603,7 @@ interface SubRoute {
 
 function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySet<string>, contextIds: ReadonlySet<string>): RouteInput {
   const boxesById = new Map<string, PlacedBox>();
-  const softById = new Map<string, Rect>();
+  const softById = new Map<string, SoftObstacle>();
   const addBox = (id: string) => {
     const box = world.laidOutById.get(id);
     if (box?.kind === 'box') boxesById.set(id, box);
@@ -618,8 +618,7 @@ function routeInputOver(world: LayoutWorld, board: Board, rerouteIds: ReadonlySe
     for (const box of boxesTouching(world, area)) boxesById.set(box.id, box);
     forEachIdTouching(world.softGrid, area, (id) => {
       const soft = world.laidOutById.get(id);
-      const obstacle = soft ? obstacleRectOf(soft) : null;
-      if (obstacle) softById.set(id, obstacle);
+      if (soft?.kind === 'frame') softById.set(id, titleObstacleOf(soft, board.elements.get(id)));
     });
   }
   const wiresOf = (ids: ReadonlySet<string>) => [...ids].flatMap((id) => {
@@ -638,8 +637,8 @@ function rectKeyOf(rect: Rect): string {
   return `${rect.x},${rect.y},${rect.width},${rect.height}`;
 }
 
-function softRectsOf(elements: readonly PlacedElement[]): Rect[] {
-  return elements.flatMap((element) => (element.kind === 'frame' ? obstacleRectOf(element) ?? [] : []));
+function softRectsOf(elements: readonly PlacedElement[]): SoftObstacle[] {
+  return elements.flatMap((element) => (element.kind === 'frame' ? [titleObstacleOf(element, undefined)] : []));
 }
 
 function previousInputOf(input: RouteInput, commit: Commit): RouteInput {
@@ -776,6 +775,44 @@ function rerouteWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
   addWarningLists(world.routeWarnings, routed.result.collectWarnings());
 }
 
+function framesToRefit(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>, solids: SolidOutcome): Extract<Element, { kind: 'frame' }>[] {
+  const frameIds = new Set(solids.dirtyFrameIds);
+  for (const wireId of world.changedRouteIds) {
+    for (const wire of [board.elements.get(wireId), changes.get(wireId)?.before]) {
+      if (wire?.kind !== 'wire') continue;
+      for (const boxId of boxIdsOfWire(wire)) {
+        for (const frame of dependentsOfKind(board, boxId, 'frame')) frameIds.add(frame.id);
+      }
+    }
+  }
+  return [...frameIds].flatMap((frameId) => {
+    const frame = board.elements.get(frameId);
+    return frame?.kind === 'frame' && !frame.collapsed ? [frame] : [];
+  });
+}
+
+function refitFramesAroundInnerWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>, solids: SolidOutcome, commit: Commit): void {
+  const frames = framesToRefit(world, board, changes, solids);
+  const wiresOnFrameBoxes = new Map<string, LaidOutWire>();
+  for (const frame of frames) {
+    for (const boxId of frame.contains) {
+      for (const wireId of wireIdsOn(board, boxId)) {
+        const laidOut = world.laidOutById.get(wireId);
+        if (laidOut?.kind === 'wire') wiresOnFrameBoxes.set(wireId, laidOut);
+      }
+    }
+  }
+  const extentsByFrameId = innerWireExtentsOf(frames, board, [...wiresOnFrameBoxes.values()]);
+  for (const frame of frames) {
+    const containedById = new Map(frame.contains.flatMap((boxId) => {
+      const box = world.laidOutById.get(boxId);
+      return box?.kind === 'box' ? [[boxId, box] as const] : [];
+    }));
+    commitElement(world, commit, frame.id, laidOutFrameOf(frame, containedById, extentsByFrameId.get(frame.id) ?? []));
+    solids.dirtyFrameIds.add(frame.id);
+  }
+}
+
 function worldChangesOf(world: LayoutWorld): WorldChanges {
   const changesIn = (book: WarningBook, name: WarningChange['book']) => [...book.presenceByChangedText].map(([text, isPresent]) => ({ book: name, text, isPresent }));
   return { routeIds: [...world.changedRouteIds], warnings: [...changesIn(world.routeWarnings, 'route'), ...changesIn(world.placementWarnings, 'placement')] };
@@ -793,8 +830,9 @@ function applyIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyM
   forgetWorldChanges(world);
   const commit: Commit = { previousById: new Map(), changed: [], removedIds: [], oldObstacles: [], newObstacles: [], isAroundStale: false };
   for (const [id, next] of solids.nextById) commitElement(world, commit, id, next);
-  updatePlacementWarnings(world, board, solids);
   rerouteWires(world, board, changes, solids, commit);
+  refitFramesAroundInnerWires(world, board, changes, solids, commit);
+  updatePlacementWarnings(world, board, solids);
   rememberObstacles(world, commit);
   if (commit.isAroundStale) world.around = recomputedAround(world);
   const previousChrome = JSON.stringify(world.chrome);

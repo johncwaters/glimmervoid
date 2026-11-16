@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Choose how many sessions one session may spawn at once.** Settings, Sessions now has Spawned sessions per session, from 1 to 10. It was fixed at 3, which stays the default. A change applies to the next `glimmervoid spawn` without a restart.
 - **Glimmervoid Cloud owners open their Glimmervoid from the account page, with no pairing.** Open Glimmervoid signs you in at the doorman with your Glimmervoid Cloud session, and a new device is paired on the spot. Anyone else who reaches a Cloud Glimmervoid gets a sign-in page and never wakes it. Self-hosted doormen and tenants without an owner work as before, except that paths under `/doorman/` now stay at the doorman.
 
+### Fixed
+
+- **Whiteboard arrows read cleanly in loop diagrams.** An arrow between boxes of different heights in a row now meets both at the same spot, level with the middle of a one-line box, instead of landing off-center on one of them. A frame now grows to wrap the return arrows and labels inside it, so a loop's return arrow no longer runs along the frame's dashed edge and its label no longer gets pushed into a corner by the frame title. Labels beside an up-and-down arrow sit a little farther from the line.
+
 ## [0.61.1] - 2026-11-15
 
 ### Fixed

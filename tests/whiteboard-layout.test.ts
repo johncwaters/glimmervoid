@@ -6,9 +6,9 @@ import { Board, Element, ElementInput, Op, dialValuesOfBox, pointOfBox } from '.
 import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
-import { createDragPreview, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
+import { createDragPreview, FRAME_TITLE_HEIGHT, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
-import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
+import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireExtentOf, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
@@ -309,7 +309,8 @@ test('wires keep their named sides, and overlaps and crowding warn by name', () 
       over: { kind: 'box', id: 'over', title: 'Over', at: { x: 2300, y: 1600 } }, w8: { ...wire('w8', 'walled', 'over'), toSide: 'bottom' },
       ask: { kind: 'box', id: 'ask', title: 'Ask', lines: [{ text: 'problem + source' }], width: 180, at: { x: 2080, y: 2400 } },
       spec: { kind: 'box', id: 'spec', title: '/specifying', lines: [{ text: 'decisions + units of work' }], width: 200, at: { x: 1800, y: 2400 } },
-      w9: wire('w9', 'spec', 'ask'),
+      w9: wire('w9', 'spec', 'ask'), w11: wire('w11', 'ask', 'spec', { dashed: true, label: 'proven bug: fix', fromSide: 'top', toSide: 'top' }),
+      f2: { kind: 'frame', id: 'f2', title: 'ship loop', contains: ['spec', 'ask'] },
       upper: { kind: 'box', id: 'upper', title: 'Upper', at: { x: 2600, y: 2400 } }, lower: { kind: 'box', id: 'lower', title: 'Lower', at: { x: 2600, y: 2600 } },
       w10: wire('w10', 'upper', 'lower', { label: 'findings' }),
     },
@@ -333,6 +334,14 @@ test('wires keep their named sides, and overlaps and crowding warn by name', () 
   const sideLabelled = wireById.get('w10');
   assert.ok(sideLabelled?.label);
   assert.ok(Math.abs(sideLabelled.labelAt.x - sideLabelled.start.x) - labelWidthOf(sideLabelled.label) / 2 >= 10, `a label beside a vertical wire keeps its gap: ${JSON.stringify(sideLabelled.labelAt)}`);
+  for (const [frameId, innerWireId] of [['f1', 'w3'], ['f2', 'w11']] as const) {
+    const frame = layout.elements.find((element) => element.id === frameId);
+    const innerWire = wireById.get(innerWireId);
+    const innerExtent = innerWire ? wireExtentOf(innerWire) : null;
+    assert.ok(frame?.kind === 'frame' && innerExtent);
+    const gaps = [innerExtent.x - frame.x, innerExtent.y - (frame.y + FRAME_TITLE_HEIGHT), frame.x + frame.width - (innerExtent.x + innerExtent.width), frame.y + frame.height - (innerExtent.y + innerExtent.height)];
+    assert.ok(gaps.every((gap) => gap >= 18), `frame ${frameId} wraps its inner wire ${innerWireId} and label with padding to spare: ${gaps.join(', ')}`);
+  }
   const walled = wireById.get('w8');
   assert.ok(walled);
   assert.ok(segmentsOfPath(walled.path).length <= 3, `a wire whose facing side is walled off leaves from the side that turns least: ${walled.path}`);
@@ -735,7 +744,7 @@ test('restacking on a kept layout world rebuilds it, so the tile index paints th
   assert.equal(boxesInPaintOrder.at(-1)?.element.id, bottomBox.id);
 });
 
-test('a layout world kept across a box rotation routes its wires as a fresh layout does, around the turned box and from a turned end box', () => {
+test('a layout world kept across a box rotation and a wire retarget routes its wires and fits its frames as a fresh layout does', () => {
   const author = { id: 'operator', name: 'operator' };
   let board = Board.parse({ id: 'turning', title: 'turning', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
     a: { kind: 'box', id: 'a', title: 'A', place: { at: { x: 0, y: 0 } } },
@@ -746,9 +755,13 @@ test('a layout world kept across a box rotation routes its wires as a fresh layo
     e: { kind: 'box', id: 'e', title: 'E', place: { at: { x: 1200, y: 900 } } },
     v: { kind: 'wire', id: 'v', from: 'a', to: 'd' },
     u: { kind: 'wire', id: 'u', from: 'e', to: 'd' },
+    f: { kind: 'box', id: 'f', title: 'F', place: { at: { x: 0, y: 1400 } } },
+    g: { kind: 'box', id: 'g', title: 'G', place: { at: { x: 400, y: 1400 } } },
+    loop: { kind: 'wire', id: 'loop', from: 'g', to: 'f', fromSide: 'top', toSide: 'top', label: 'go around again' },
+    framed: { kind: 'frame', id: 'framed', title: 'Loop', contains: ['f', 'g'] },
   } });
   let world = createLayoutWorld(board, null, 0);
-  for (const op of [{ op: 'set', id: 'c', fields: { angle: 90 } }, { op: 'set', id: 'e', fields: { title: 'E2' } }]) {
+  for (const op of [{ op: 'set', id: 'c', fields: { angle: 90 } }, { op: 'set', id: 'e', fields: { title: 'E2' } }, { op: 'set', id: 'loop', fields: { from: 'a', to: 'b' } }]) {
     const staged = stageOps(board, [Op.parse(op)], author, 0, null);
     assert.ok(staged.ok, staged.ok ? '' : staged.error);
     const changes = new Map(Object.entries(staged.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: staged.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
@@ -759,6 +772,8 @@ test('a layout world kept across a box rotation routes its wires as a fresh layo
     world = applied.world;
     const pathById = (elements: readonly (LaidOutElement | PlacedElement)[]) => new Map(elements.flatMap((element) => (element.kind === 'wire' ? [[element.id, element.path] as const] : [])));
     assert.deepEqual(pathById(layoutOf(world).elements), pathById(layoutBoard(board).elements), `after ${JSON.stringify(op)}`);
+    const framesOf = (elements: readonly (LaidOutElement | PlacedElement)[]) => elements.filter((element) => element.kind === 'frame');
+    assert.deepEqual(framesOf(layoutOf(world).elements), framesOf(layoutBoard(board).elements), `after ${JSON.stringify(op)}`);
   }
 });
 

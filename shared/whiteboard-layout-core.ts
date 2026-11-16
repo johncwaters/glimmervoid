@@ -1,4 +1,4 @@
-import { BOX_CHANGES, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire, WireEnd } from './contracts/whiteboard.ts';
 import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
@@ -6,9 +6,9 @@ import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routeWires, unionOf, warningListOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routeWires, unionOf, warningListOf, wireExtentOf } from './whiteboard-route-core.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
-import type { Point, RouteMemory, WarningList } from './whiteboard-route-core.ts';
+import type { Point, RouteMemory, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
@@ -443,26 +443,57 @@ function layoutBoxes(board: IndexedBoard, boxesTop: number, stepBandPositions: R
   return boxesById;
 }
 
-function laidOutFrameOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame | null {
-  if (frame.collapsed) return laidOutStackOf(frame, boxesById);
-  const around = unionOf(frame.contains.flatMap((id) => boxesById.get(id) ?? []));
-  if (!around) return null;
+function framedAround(around: Rect): Rect {
   return {
-    kind: 'frame', id: frame.id, title: frame.title, stackedBoxCount: null,
     x: around.x - FRAME_PADDING, y: around.y - FRAME_PADDING - FRAME_TITLE_HEIGHT,
     width: around.width + FRAME_PADDING * 2, height: around.height + FRAME_PADDING * 2 + FRAME_TITLE_HEIGHT,
   };
+}
+
+function laidOutFrameOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>, innerWireExtents: readonly Rect[]): LaidOutFrame | null {
+  if (frame.collapsed) return laidOutStackOf(frame, boxesById);
+  const aroundBoxes = unionOf(frame.contains.flatMap((id) => boxesById.get(id) ?? []));
+  if (!aroundBoxes) return null;
+  const aroundBoxesAndWires = unionOf([aroundBoxes, ...innerWireExtents]) ?? aroundBoxes;
+  return {
+    kind: 'frame', id: frame.id, title: frame.title, stackedBoxCount: null,
+    ...framedAround(aroundBoxesAndWires),
+    titleObstacle: frameTitleStripOf(framedAround(aroundBoxes)),
+  };
+}
+
+function innerWireExtentsOf(frames: readonly Frame[], board: Board, wires: readonly LaidOutWire[]): Map<string, Rect[]> {
+  const openFrames = frames.filter((frame) => !frame.collapsed);
+  const containedIdsByFrameId = new Map(openFrames.map((frame) => [frame.id, new Set(frame.contains)]));
+  const framesByBoxId = new Map<string, Frame[]>();
+  for (const frame of openFrames) {
+    for (const boxId of frame.contains) framesByBoxId.set(boxId, [...(framesByBoxId.get(boxId) ?? []), frame]);
+  }
+  const extentsByFrameId = new Map<string, Rect[]>();
+  for (const laidOut of wires) {
+    const stored = board.elements.get(laidOut.id);
+    if (stored?.kind !== 'wire') continue;
+    const fromId = boxIdOfEnd(stored.from);
+    const toId = boxIdOfEnd(stored.to);
+    const extent = wireExtentOf(laidOut);
+    if (fromId === null || toId === null || !extent) continue;
+    for (const frame of framesByBoxId.get(fromId) ?? []) {
+      if (containedIdsByFrameId.get(frame.id)?.has(toId)) extentsByFrameId.set(frame.id, [...(extentsByFrameId.get(frame.id) ?? []), extent]);
+    }
+  }
+  return extentsByFrameId;
+}
+
+function titleObstacleOf(frame: LaidOutFrame, stored: Element | undefined): SoftObstacle {
+  return { ...frame.titleObstacle, innerBoxIds: new Set(stored?.kind === 'frame' ? stored.contains : []) };
 }
 
 function laidOutStackOf(frame: Frame, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame | null {
   const topCardId = frame.contains[0];
   const topCard = topCardId === undefined ? undefined : boxesById.get(topCardId);
   if (!topCard) return null;
-  return {
-    kind: 'frame', id: frame.id, title: frame.title, stackedBoxCount: frame.contains.length,
-    x: topCard.x, y: topCard.y - FRAME_TITLE_HEIGHT,
-    width: topCard.width + STACK_SPREAD * 2, height: topCard.height + FRAME_TITLE_HEIGHT + STACK_SPREAD * 2,
-  };
+  const stack = { x: topCard.x, y: topCard.y - FRAME_TITLE_HEIGHT, width: topCard.width + STACK_SPREAD * 2, height: topCard.height + FRAME_TITLE_HEIGHT + STACK_SPREAD * 2 };
+  return { kind: 'frame', id: frame.id, title: frame.title, stackedBoxCount: frame.contains.length, ...stack, titleObstacle: frameTitleStripOf(stack) };
 }
 
 interface StackedView {
@@ -497,8 +528,8 @@ function wiresEndingAtCards(wires: readonly Wire[], topCardIdByHiddenId: Readonl
   return wires.flatMap((wire) => wireEndingAtCard(wire, cardIdOf) ?? []);
 }
 
-function layoutFrames(board: IndexedBoard, boxesById: ReadonlyMap<string, PlacedBox>): LaidOutFrame[] {
-  return elementsOfKind(board, 'frame').flatMap((frame) => laidOutFrameOf(frame, boxesById) ?? []);
+function layoutFrames(board: IndexedBoard, boxesById: ReadonlyMap<string, PlacedBox>, innerWireExtentsByFrameId: ReadonlyMap<string, readonly Rect[]>): LaidOutFrame[] {
+  return elementsOfKind(board, 'frame').flatMap((frame) => laidOutFrameOf(frame, boxesById, innerWireExtentsByFrameId.get(frame.id) ?? []) ?? []);
 }
 
 function frameTitleStripOf(frame: Rect): Rect {
@@ -568,13 +599,14 @@ function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: read
 function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
   const placedBoxesById = layoutBoxes(board, placement.boxesTop, placement.stepBandPositions);
   const { visibleBoxesById: boxesById, topCardIdByHiddenId } = stackedViewOf(board, placedBoxesById);
-  const frames = layoutFrames(board, boxesById);
+  const framesAroundBoxes = layoutFrames(board, boxesById, new Map());
   const routing = routeWires({
     wires: wiresEndingAtCards(elementsOfKind(board, 'wire'), topCardIdByHiddenId), boxesById,
-    softObstacles: frames.map(frameTitleStripOf),
+    softObstacles: framesAroundBoxes.map((frame) => titleObstacleOf(frame, board.elements.get(frame.id))),
     contentTop: placement.contentTop,
     storedWireKeyOf: (wire) => board.elements.bodyOf(wire.id),
   }, previousRoute);
+  const frames = layoutFrames(board, boxesById, innerWireExtentsOf(elementsOfKind(board, 'frame'), board, routing.wires));
   return {
     boxesById, frames, routing,
     collectPlacementWarnings: () => [...overlapWarnings(boxesById, frames, board), ...elementsOfKind(board, 'box').flatMap((box) => (boxesById.has(box.id) ? titleCutWarningOf(box) ?? [] : []))],
@@ -808,10 +840,10 @@ type DragPreview = (offsetX: number, offsetY: number) => LaidOutElement[];
 function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxIds: ReadonlySet<string>, carriedWireIds: ReadonlySet<string>, storedToLaidOutOffset: { x: number; y: number }): DragPreview {
   const movingIds = draggedBoxIds;
   const boxesById = new Map<string, LaidOutBox>();
-  const stillSoftObstacles: Rect[] = [];
+  const stillSoftObstacles: SoftObstacle[] = [];
   for (const element of layout.elements) {
     if (element.kind === 'box') boxesById.set(element.id, element);
-    if (element.kind === 'frame') stillSoftObstacles.push(frameTitleStripOf(element));
+    if (element.kind === 'frame') stillSoftObstacles.push(titleObstacleOf(element, storedBoard.elements.get(element.id)));
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
   const wires = [...storedBoard.elements.values()].flatMap((element) => {
@@ -892,7 +924,7 @@ function turnedRectKeepingAnchor(start: Rect, resized: Rect, angle: number, side
 export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
-  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
+  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };

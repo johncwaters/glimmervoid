@@ -67,10 +67,14 @@ interface AreaObstacles {
   softRects: readonly Rect[];
 }
 
+interface SoftObstacle extends Rect {
+  innerBoxIds: ReadonlySet<string>;
+}
+
 interface RouteInput {
   wires: readonly Wire[];
   boxesById: ReadonlyMap<string, PlacedBox>;
-  softObstacles: readonly Rect[];
+  softObstacles: readonly SoftObstacle[];
   contentTop: number;
   contextWires?: readonly Wire[];
   obstaclesIn?: (area: Rect) => AreaObstacles;
@@ -1157,8 +1161,13 @@ function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: s
   const placedById = new Map<string, { at: Point; bounds: Rect }>();
   const allSegments = drawn.flatMap((wire) => wire.segments);
   const segmentGrid = gridOfRects(allSegments.map((segment) => pointBoundsOf(segment.from, segment.to)), LABEL_CELL_SIZE);
-  const solids = [...input.boxesById.values(), ...input.softObstacles];
+  const boxes = [...input.boxesById.values()];
+  const solids: Rect[] = [...boxes, ...input.softObstacles];
   const solidGrid = gridOfRects(solids, LABEL_CELL_SIZE);
+  const isSolidFor = (wire: DrawnWire, slot: number) => {
+    const innerBoxIds = input.softObstacles[slot - boxes.length]?.innerBoxIds;
+    return !innerBoxIds?.has(wire.plan.from.id) || !innerBoxIds.has(wire.plan.to.id);
+  };
   const placedBounds: Rect[] = [];
   const placedGrid = createSpatialGrid(LABEL_CELL_SIZE);
   for (const wire of drawn) {
@@ -1172,7 +1181,7 @@ function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: s
       if (bounds.y < input.contentTop) return false;
       const padded = inflated(bounds, LABEL_CLEARANCE);
       if (hasSlotTouching(segmentGrid, padded, (slot) => { const segment = allSegments[slot]; return segment !== undefined && segmentHitsRect(segment, padded); })) return false;
-      if (hasSlotTouching(solidGrid, offBoxes, (slot) => { const solid = solids[slot]; return solid !== undefined && rectsOverlap(offBoxes, solid); })) return false;
+      if (hasSlotTouching(solidGrid, offBoxes, (slot) => { const solid = solids[slot]; return solid !== undefined && isSolidFor(wire, slot) && rectsOverlap(offBoxes, solid); })) return false;
       return !hasSlotTouching(placedGrid, bounds, (slot) => { const placed = placedBounds[slot]; return placed !== undefined && rectsOverlap(bounds, placed); });
     };
     const clearSpot = candidates.find(isClearBy(LABEL_BOX_CLEARANCE)) ?? candidates.find(isClearBy(0));
@@ -1835,4 +1844,4 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
 
 export { cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
 export type { WireHandle };
-export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, WarningList };
+export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, SoftObstacle, WarningList };
