@@ -4,13 +4,14 @@ import path from 'node:path';
 
 import { runCommandSafely } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
-import { appIconPath, selfLaunch } from './runtime-paths.ts';
+import { appIconPath, runtimeMode, selfLaunch } from './runtime-paths.ts';
 import { planDesktopShortcut } from './core/desktop-shortcut-core.ts';
 import type { DesktopShortcutPlan } from './core/desktop-shortcut-core.ts';
 
 const SHORTCUT_COMMAND_TIMEOUT_MS = 30_000;
 const SHORTCUT_COMMAND_OUTPUT_MAX_BYTES = 64 * 1024;
 const OWN_BUNDLE_IDENTIFIER = '<string>dev.glimmervoid.launcher</string>';
+const ICON_PLACED_MARKER_NAME = 'icon-placed';
 
 function shortcutCommandOptions() {
   return { cwd: os.homedir(), env: process.env, timeoutMs: SHORTCUT_COMMAND_TIMEOUT_MS, maxBufferBytes: SHORTCUT_COMMAND_OUTPUT_MAX_BYTES };
@@ -35,9 +36,12 @@ async function readAppIcon(): Promise<Uint8Array> {
   }
 }
 
+async function pathExists(target: string): Promise<boolean> {
+  return fsp.access(target).then(() => true, () => false);
+}
+
 async function clearOwnPreviousShortcut(replacedPath: string): Promise<void> {
-  const isPresent = await fsp.access(replacedPath).then(() => true, () => false);
-  if (!isPresent) return;
+  if (!(await pathExists(replacedPath))) return;
   const infoPlist = await fsp.readFile(path.join(replacedPath, 'Contents', 'Info.plist'), 'utf8').catch(() => null);
   if (!infoPlist?.includes(OWN_BUNDLE_IDENTIFIER)) throw new Error(`${replacedPath} already exists and is not a Glimmervoid icon, so it was left alone. Move it, then run glimmervoid shortcut again.`);
   await fsp.rm(replacedPath, { recursive: true, force: true });
@@ -61,11 +65,15 @@ async function runFollowUpCommands(plan: DesktopShortcutPlan): Promise<string> {
   return lastOutput;
 }
 
-async function createDesktopShortcut(): Promise<string> {
+function desktopStateDir(): string {
+  return path.join(glimmervoidHomeDir(), 'desktop');
+}
+
+async function createDesktopShortcut(desktopDir: string): Promise<string> {
   const plan = planDesktopShortcut({
     platform: process.platform,
-    desktopDir: await desktopDirFor(process.platform),
-    iconDir: path.join(glimmervoidHomeDir(), 'desktop'),
+    desktopDir,
+    iconDir: desktopStateDir(),
     launchArgv: selfLaunch('cli'),
     png: await readAppIcon(),
   });
@@ -78,7 +86,8 @@ async function createDesktopShortcut(): Promise<string> {
 
 async function runShortcutCli(): Promise<number> {
   try {
-    console.log(`Placed the Glimmervoid icon at ${await createDesktopShortcut()}. Double-click it to open Glimmervoid.`);
+    const shortcutPath = await createDesktopShortcut(await desktopDirFor(process.platform));
+    console.log(`Placed the Glimmervoid icon at ${shortcutPath}. Double-click it to open Glimmervoid.`);
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -86,4 +95,26 @@ async function runShortcutCli(): Promise<number> {
   }
 }
 
-export { runShortcutCli };
+async function hasLinuxDesktop(desktopDir: string): Promise<boolean> {
+  if (path.resolve(desktopDir) === path.resolve(os.homedir())) return false;
+  return pathExists(desktopDir);
+}
+
+async function placeDesktopIconOnFirstStart(): Promise<void> {
+  if (runtimeMode !== 'binary') return;
+  const markerDir = path.join(os.homedir(), '.glimmervoid', 'desktop');
+  const markerPath = path.join(markerDir, ICON_PLACED_MARKER_NAME);
+  if (await pathExists(markerPath)) return;
+  const desktopDir = await desktopDirFor(process.platform);
+  if (process.platform === 'linux' && !(await hasLinuxDesktop(desktopDir))) return;
+  try {
+    const shortcutPath = await createDesktopShortcut(desktopDir);
+    console.log(`  Placed a Glimmervoid icon on your desktop: ${shortcutPath}`);
+  } catch (error) {
+    console.warn(`Could not place the Glimmervoid desktop icon: ${error instanceof Error ? error.message : String(error)} Run glimmervoid shortcut to try again.`);
+  }
+  await fsp.mkdir(markerDir, { recursive: true });
+  await fsp.writeFile(markerPath, '');
+}
+
+export { placeDesktopIconOnFirstStart, runShortcutCli };

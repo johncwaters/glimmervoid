@@ -30,7 +30,7 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
 
 const { appIconPath, assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, mode, packageRoot, relayPath, workbookWorkerPath } = runtimePaths;
 
-export { appIconPath, assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath, workbookWorkerPath };
+export { appIconPath, mode as runtimeMode, assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath, workbookWorkerPath };
 
 const SELF_LAUNCHER_COMMAND = mode === 'binary' ? 'glimmervoid' : 'node';
 const BINARY_ARGV_PREFIX_LENGTH = 2;

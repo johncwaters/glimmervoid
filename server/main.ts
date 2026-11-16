@@ -10,6 +10,7 @@ import { decideConfigPath } from './core/config-path-core.ts';
 import { decideBindHost } from './core/remote-config.ts';
 import { FIRST_RUN_NOTICE } from './core/telemetry-core.ts';
 import { buildTitleClearSequence, buildTitleSequence } from './core/terminal-title.ts';
+import { placeDesktopIconOnFirstStart } from './desktop-shortcut.ts';
 import { sweepOrphanedHostScratch } from './host-scratch.ts';
 import { createHostUrlOpener } from './host-url-opener.ts';
 
@@ -104,7 +105,9 @@ server.on('error', (err) => {
 
 server.listen(port, bind.host, () => {
   const boundPort = listeningPort(server, port);
-  void printStartupBanner(boundPort);
+  void printStartupBanner(boundPort).then(placeDesktopIconOnFirstStart).catch((error: unknown) => {
+    console.warn(`Desktop icon placement failed: ${error instanceof Error ? error.message : String(error)}`);
+  });
   sweepOrphanedHostScratch().catch((error: unknown) => {
     console.warn(`Leftover scratch sweep failed: ${error instanceof Error ? error.message : String(error)}`);
   });
