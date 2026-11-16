@@ -5,6 +5,7 @@ import type { MyPrsChange } from './my-prs-store.ts';
 import { hasGithubPollingCountdown, githubPollingAgeText, githubPollingErrorNotice, githubPollingRefreshText } from './github-polling-retry-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import type { GithubPollingRefreshRequest } from '#shared/contracts/github-polling.ts';
+import { MY_PRS_POLL_INTERVAL_MINUTES } from '#shared/contracts/my-prs.ts';
 import type { MyPr, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import type { PrActionRunState, PrActionRunView, PrFlowPendingApproval } from '#shared/contracts/pr-flows.ts';
 import { STATES } from '#shared/states.ts';
@@ -83,7 +84,7 @@ export function createGithubPollingControls(lane: GithubPollingRefreshRequest['l
   function updateCountdown(): void {
     const nowMs = clock.nowMs();
     const errorNotice = githubPollingErrorNotice(currentStatus, nowMs);
-    const ageText = githubPollingAgeText(currentStatus, nowMs);
+    const ageText = githubPollingAgeText(currentStatus, nowMs, MY_PRS_POLL_INTERVAL_MINUTES * 60_000);
     notice.textContent = errorNotice ? [errorNotice, ageText].filter(Boolean).join(' ') : '';
     if (notice.hidden !== !currentStatus?.error) notice.hidden = !currentStatus?.error;
     progress.textContent = githubPollingRefreshText(currentStatus, isPending, outcomeText) || (!currentStatus?.error ? ageText : '') || '';

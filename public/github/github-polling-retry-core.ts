@@ -27,11 +27,11 @@ export function githubPollingRefreshText(status: GithubPollingStatus | null, isP
   return outcomeText || status?.refreshNotice || '';
 }
 
-export function githubPollingAgeText(status: GithubPollingStatus | null, nowMs: number): string | null {
+export function githubPollingAgeText(status: GithubPollingStatus | null, nowMs: number, pollIntervalMs: number): string | null {
   const dataTime = status?.lastRefreshedAt ?? status?.lastSyncAt ?? null;
   if (dataTime === null) return null;
   const ageMs = Math.max(0, nowMs - dataTime);
-  if (!status?.error && ageMs <= 5 * 60_000) return null;
+  if (!status?.error && ageMs <= pollIntervalMs) return null;
   if (ageMs < 60_000) return 'Last updated less than a minute ago.';
   if (ageMs < 60 * 60_000) return `Last updated ${Math.floor(ageMs / 60_000)} min ago.`;
   return `Last updated ${Math.floor(ageMs / (60 * 60_000))} h ago.`;

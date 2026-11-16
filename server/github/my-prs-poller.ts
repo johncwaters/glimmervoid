@@ -8,6 +8,7 @@ import type { SharedClock } from '../lanes/lane-runner.ts';
 import type { GithubLaneStore } from './github-store-wiring.ts';
 import { storeReadingLaneClock } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
+import { MY_PRS_POLL_INTERVAL_MINUTES } from '../../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult } from '../../shared/contracts/my-prs.ts';
 import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -41,7 +42,7 @@ interface MyPrsPollerDependencies {
 }
 
 export function createMyPrsPoller(dependencies: MyPrsPollerDependencies) {
-  const { shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, org, github, store, onTickComplete, now = timeClock.nowMs, intervalMinutes = core.POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
+  const { shouldAutoRebase = false, isKeepMergeableEnabled = true, isMergeQueueEnabled = true, org, github, store, onTickComplete, now = timeClock.nowMs, intervalMinutes = MY_PRS_POLL_INTERVAL_MINUTES, setIntervalFn, clearIntervalFn, setTimeoutFn, clearTimeoutFn, clock, firstTickDelayMs, log } = dependencies;
   let viewer: string | null = null;
   let previousPrs: MyPr[] = [];
   let previousTruncatedNote: string | null = null;

@@ -4,6 +4,8 @@ import { CommitSha } from './team-review.ts';
 import { NODE_ID_RE, REPO_SLUG_RE } from './github-ids.ts';
 import { PrFlowItem } from './pr-flows.ts';
 
+export const MY_PRS_POLL_INTERVAL_MINUTES = 10;
+
 export const MyPrStage = z.enum(['merged', 'draft', 'conflicts', 'behind', 'checks-failing', 'changes-requested', 'unresolved-threads', 'checks-pending', 'needs-approval', 'ready', 'unknown']);
 export type MyPrStage = z.infer<typeof MyPrStage>;
 

@@ -41,7 +41,6 @@ export function prunedFailedAutoRebaseAttempts(attemptKeys: ReadonlySet<string>,
 }
 
 export const MY_PRS_LANE_ID = 'my-prs';
-export const POLL_INTERVAL_MINUTES = 5;
 export const MERGED_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const MY_PRS_STATE_FILENAME = 'my-prs-state.json';
 export const MY_PRS_FIX_PROMPT_FILENAME = 'keep-mergeable-prompt.md';

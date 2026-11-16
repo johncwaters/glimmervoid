@@ -88,7 +88,7 @@ export function notificationSubjectPrKey(subjectUrl: string): string | null {
 
 const GITHUB_STORE_CACHE_CAP = 128;
 
-export const GITHUB_STORE_BEHIND_INTERVAL_MS = 300_000;
+export const GITHUB_STORE_BEHIND_INTERVAL_MS = 900_000;
 
 export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behindCountsByKey: ReadonlyMap<string, number | null>): GithubPr[] {
   return prs.flatMap((pr) => {
@@ -99,11 +99,11 @@ export function githubPrsWithChangedBehindCounts(prs: readonly GithubPr[], behin
 }
 
 export function githubStoreLightIntervalMs(isDashboardConnected: boolean): number {
-  return isDashboardConnected ? 60_000 : 300_000;
+  return isDashboardConnected ? 300_000 : 900_000;
 }
 
 export function isGithubStoreMembershipDue(lastPolledAt: number | null, nowMs: number, isDashboardConnected: boolean, intervalMs?: number): boolean {
-  return isGithubStorePollDue(lastPolledAt, nowMs, intervalMs ?? (isDashboardConnected ? 300_000 : 900_000));
+  return isGithubStorePollDue(lastPolledAt, nowMs, intervalMs ?? (isDashboardConnected ? 900_000 : 1_800_000));
 }
 
 export function isGithubStorePollDue(lastPolledAt: number | null, nowMs: number, intervalMs: number): boolean {

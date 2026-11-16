@@ -10,10 +10,10 @@ import { isRecord } from '../../shared/coerce.ts';
 
 export const WORKFLOWS_LANE_ID = 'workflows';
 export const WORKFLOWS_STATE_FILENAME = 'workflows-state.json';
-export const WORKFLOWS_POLL_INTERVAL_MINUTES = 5;
+export const WORKFLOWS_POLL_INTERVAL_MINUTES = 10;
 export { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS };
 export const MAX_DEFERRED_WORKFLOW_SPAWNS = 20;
-const WORKFLOW_SEARCH_LAG_GRACE_MS = 10 * 60 * 1000;
+const WORKFLOW_SEARCH_LAG_GRACE_MS = 2 * WORKFLOWS_POLL_INTERVAL_MINUTES * 60_000;
 export const WORKFLOW_NOTIFY_CATEGORY = 'workflow';
 export const WORKFLOW_PROMPT_FILENAME = 'workflow-prompt.md';
 export const WORKFLOW_BOOTSTRAP_PROMPT = `Read ${WORKFLOW_PROMPT_FILENAME} and follow all instructions in that file`;

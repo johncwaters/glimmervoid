@@ -19,6 +19,9 @@ import { myPrsStatus, toMyPr } from '../server/github/core/my-prs-core.ts';
 import { MyPrsStatus } from '../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrSearchNode, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
+import { githubStoreLightIntervalMs } from '../server/github/core/github-store-core.ts';
+
+const STORE_LIGHT_INTERVAL_MS = githubStoreLightIntervalMs(true);
 
 const SEEN_HEAD = 'a'.repeat(40);
 const NEWER_HEAD = 'b'.repeat(40);
@@ -198,7 +201,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.checks.state, 'PENDING');
     const updatedAt = wiring.getStatus().prs[0]?.updatedAt;
     checksState = 'SUCCESS';
-    nowMs += 60_000;
+    nowMs += STORE_LIGHT_INTERVAL_MS;
     const broadcastCount = statuses.length;
     await storeTick();
     assert.equal(laneTicks, 0);
@@ -216,7 +219,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     assert.equal(wiring.getStatus().prs[0]?.updatedAt, updatedAt);
     for (const mergeabilityWhileGithubComputes of ['UNKNOWN', 'MERGEABLE'] as const) {
       mergeable = mergeabilityWhileGithubComputes;
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
     }
     assert.equal(wiring.getStatus().prs[0]?.stage, 'ready');
@@ -234,7 +237,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     assert.equal(connection.sent.at(-1)?.ok, true);
     assert.deepEqual(connection.sent.at(-1)?.freshness, store.getSnapshot().freshness);
     await wiring.stopPoller();
-    nowMs += 60_000;
+    nowMs += STORE_LIGHT_INTERVAL_MS;
     let markRestartedStatus = () => {};
     const restartedStatus = new Promise<void>((resolve) => { markRestartedStatus = resolve; });
     const restarted = createMyPrsWiring({
@@ -250,7 +253,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
       mergeStateStatus = 'BEHIND';
       reviewDecision = 'REVIEW_REQUIRED';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
       const behindSinceMs = nowMs;
@@ -258,7 +261,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       for (const [mergeabilityWhileGithubComputes, mergeStateWhileGithubComputes] of [['UNKNOWN', 'UNKNOWN'], ['MERGEABLE', 'BEHIND']] as const) {
         mergeable = mergeabilityWhileGithubComputes;
         mergeStateStatus = mergeStateWhileGithubComputes;
-        nowMs += 60_000;
+        nowMs += STORE_LIGHT_INTERVAL_MS;
         await storeTick();
       }
       assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
@@ -266,41 +269,41 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       mergeStateStatus = 'CLEAN';
       reviewDecision = 'APPROVED';
       checksState = 'PENDING';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-pending');
       checksState = 'FAILURE';
       mergeStateStatus = 'UNKNOWN';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
       detailReadAnswer = 'one-field-forbidden';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.equal(store.getSnapshot().freshness.error, null);
       detailReadAnswer = 'bad-gateway';
       checksState = 'SUCCESS';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.match(store.getSnapshot().freshness.error ?? '', /502/);
       detailReadAnswer = 'unparseable';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.equal(store.getSnapshot().freshness.error, null);
       storeWarnings.length = 0;
       detailReadAnswer = 'refused-rollup';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'checks-failing');
       assert.equal(store.getSnapshot().freshness.error, null);
       assert.ok(storeWarnings.some((warning) => warning.includes(KEY.toLowerCase())));
       storeWarnings.length = 0;
       lightReadAnswer = 'refused';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.key, KEY);
       assert.equal(store.getSnapshot().freshness.error, null);
@@ -308,7 +311,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       lightReadAnswer = 'live';
       detailReadAnswer = 'live';
       mergeStateStatus = 'BEHIND';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'behind');
       assert.equal(restarted.getStatus().prs[0]?.stageSinceMs, nowMs);
@@ -316,7 +319,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       isWorkflowCheckListed = true;
       mergeStateStatus = 'CLEAN';
       lastUpdatedAt = '2026-09-28T12:00:00Z';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(restarted.getStatus().prs[0]?.stage, 'ready');
       assert.deepEqual(store.getSnapshot().prs[KEY.toLowerCase()]?.checks, { state: 'SUCCESS', failing: [], pendingCount: 0 });
@@ -327,13 +330,13 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
         lastComment: { nodes: [{ author: { login: 'reviewer' }, createdAt: '2026-09-28T12:30:00Z' }] },
       }];
       lastUpdatedAt = '2026-09-28T13:00:00Z';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.reviewItems.length, 1);
       threadsReadAnswer = 'bad-gateway';
       lastUpdatedAt = '2026-09-28T14:00:00Z';
       storeWarnings.length = 0;
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(store.getSnapshot().prs[KEY.toLowerCase()]?.reviewItems.length, 1);
       assert.equal(store.getSnapshot().freshness.error, null);
@@ -341,7 +344,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
       threadsReadAnswer = 'live';
       detailReadAnswer = 'not-found';
       lastUpdatedAt = '2026-09-28T15:00:00Z';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       await storeTick();
       assert.equal(store.getSnapshot().prs[KEY.toLowerCase()], undefined);
       assert.equal(restarted.getStatus().prs.some((pr) => pr.key === KEY), false);
@@ -370,7 +373,7 @@ test('a stage the store shows while a rebase is in flight keeps its clock when t
     rebasePr: async () => {
       if (!isChecksFlipArmed || checksPassedAtMs !== null) return { ok: true, err: '' };
       checksState = 'SUCCESS';
-      nowMs += 60_000;
+      nowMs += STORE_LIGHT_INTERVAL_MS;
       checksPassedAtMs = nowMs;
       await storeTick();
       return { ok: true, err: '' };
