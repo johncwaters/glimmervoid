@@ -10,6 +10,7 @@ export interface RuntimePaths {
   bundled: boolean;
   assetRoot: string;
   clientDir: string;
+  appIconPath: string;
   cliPath: string;
   examplePacksDir: string;
   relayPath: (relayName: string) => string;
@@ -105,6 +106,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
     bundled,
     assetRoot,
     clientDir: path.join(distDir, 'client'),
+    appIconPath: path.join(distDir, 'client', 'app-icons', 'icon-512.png'),
     cliPath,
     examplePacksDir: path.join(assetRoot, 'examples', 'packs'),
     relayPath,

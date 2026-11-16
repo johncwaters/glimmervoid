@@ -31,6 +31,7 @@ With no command, starts the server.
 
 Commands:
   open                Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running
+  shortcut            Put a Glimmervoid icon on the desktop that runs glimmervoid open; running it again replaces the icon
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
   packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
@@ -92,6 +93,10 @@ const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
   open: async () => {
     const { runOpenCli } = await import('../server/open-cli.ts');
     return runOpenCli();
+  },
+  shortcut: async () => {
+    const { runShortcutCli } = await import('../server/desktop-shortcut.ts');
+    return runShortcutCli();
   },
   doctor: async () => {
     const isEveryNativeModuleLoading = await runDoctor();

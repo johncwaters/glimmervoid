@@ -161,6 +161,7 @@ change it in the dashboard settings or through its environment variable.`;
 
 const OWNED_COMMAND_SPECS = {
   open: { name: 'open', summary: 'Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running', options: [CONFIG_OPTION, PORT_OPTION] },
+  shortcut: { name: 'shortcut', summary: 'Put a Glimmervoid icon on the desktop that runs glimmervoid open; running it again replaces the icon' },
   doctor: { name: 'doctor', summary: 'Check the install, PATH, agent CLIs and native module, then exit', options: [CONFIG_OPTION, PORT_OPTION] },
   pair: {
     name: 'pair',

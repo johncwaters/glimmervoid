@@ -44,6 +44,8 @@ Glimmervoid is no longer published to npm; 0.54.0 was the last npm release. An n
 
 **2. Open http://localhost:3000.** The first start from a terminal opens it in your browser for you; pass `--no-open` to skip that.
 
+To open Glimmervoid without a terminal, run `glimmervoid shortcut` once. It puts a Glimmervoid icon on your desktop; double-clicking it opens the dashboard, starting Glimmervoid in the background first when it is not running. Shut it down from Settings when you are done.
+
 **3. Follow the checklist.** The empty dashboard walks you through three steps: an agent CLI it can find, the folder that holds your git checkouts, and your first session. It suggests folders such as `~/Projects` that already hold git repos, or you can type a path. Each subfolder becomes a project. For a folder outside your repository roots, open **Run in a folder outside your repository roots** in the **+ Session** dialog.
 
 That is the whole setup. Allow notifications when the dashboard asks, and keep a dashboard tab open: a notification appears whenever that tab is in the background.
