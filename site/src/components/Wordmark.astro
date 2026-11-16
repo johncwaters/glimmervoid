@@ -1,16 +1,21 @@
 ---
 interface Props {
   isStacked?: boolean;
+  productName?: string;
 }
 
-const { isStacked = false } = Astro.props;
+const { isStacked = false, productName } = Astro.props;
+const hasProductName = isStacked && productName !== undefined;
 ---
-<span class:list={['wordmark', { 'is-stacked': isStacked }]}><span>Glimmer</span><span class="void">void</span></span>
+<span class:list={['wordmark', { 'is-stacked': isStacked, 'has-product': hasProductName }]}><span>Glimmer</span><span class="void">void{hasProductName && <><span class="diamond" aria-hidden="true"></span><span class="product">{productName}</span></>}</span></span>
 
 <style>
   .wordmark { font-family: var(--font-mono); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-head); }
   .wordmark.is-stacked { display: block; line-height: 0.9; letter-spacing: 0.06em; }
   .is-stacked > span { display: block; width: fit-content; }
   .is-stacked .void { position: relative; }
-  .is-stacked .void::after { content: ""; position: absolute; left: calc(100% + 0.15em); top: 36%; width: 0.24em; height: 0.24em; rotate: 45deg; background: var(--accent); }
+  .is-stacked:not(.has-product) .void::after { content: ""; position: absolute; left: calc(100% + 0.15em); top: 36%; width: 0.24em; height: 0.24em; rotate: 45deg; background: var(--accent); }
+  .has-product .void { display: flex; align-items: center; }
+  .diamond { flex: none; width: 0.24em; height: 0.24em; margin-inline: 0.2em 0.3em; rotate: 45deg; background: var(--accent); }
+  .product { font-size: 0.5em; font-weight: 400; letter-spacing: 0.1em; }
 </style>
