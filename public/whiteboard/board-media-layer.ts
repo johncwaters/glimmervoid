@@ -11,7 +11,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { parseSheetText, sheetDelimiterOfMime } from '#shared/sheet-csv-core.ts';
-import { emphasisSegmentsOf, isHiddenOnPage, screenplayLinesOf } from '../doc-editor/fountain-style-core.ts';
+import { emphasisSegmentsOf, screenplayLinesOf, screenplayPagesOf } from '../doc-editor/fountain-style-core.ts';
 
 const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800, sheet: 960 } as const;
 const SHEET_CARD_HEAD_BYTES = 32 * 1024;
@@ -126,14 +126,20 @@ function emphasizedLineOf(text: string): HTMLElement {
 }
 
 function renderedScreenplayOpening(docText: string): HTMLElement {
-  const page = el('div', 'wb-screenplay');
-  for (const { element, pageText } of screenplayLinesOf(openingOf(docText))) {
-    if (isHiddenOnPage(element)) continue;
-    const pageLine = emphasizedLineOf(pageText);
-    pageLine.dataset.element = element;
-    page.append(pageLine);
+  const script = el('div', 'wb-screenplay');
+  for (const page of screenplayPagesOf(screenplayLinesOf(openingOf(docText)))) {
+    const pageElement = el('div', 'wb-screenplay-page');
+    pageElement.dataset.page = String(page.number);
+    if (page.number >= 2) pageElement.append(el('div', 'wb-screenplay-page-number', `${page.number}.`));
+    for (const row of page.rows) {
+      const pageLine = emphasizedLineOf(row.text);
+      pageLine.dataset.element = row.element;
+      if (row.sceneNumber) pageLine.dataset.sceneNumber = row.sceneNumber;
+      pageElement.append(pageLine);
+    }
+    script.append(pageElement);
   }
-  return page;
+  return script;
 }
 
 function docCardOf(media: PageMedia): HTMLElement {
