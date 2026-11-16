@@ -3,12 +3,14 @@ import fs from 'node:fs/promises';
 import { execFileAsync } from '../child-process-safe.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import kimi from '../../session/adapters/kimi.ts';
-import { parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels } from '../../shared/agent-models-core.ts';
-import { CATALOG_AGENT_IDS } from '../../shared/contracts/agent-models.ts';
-import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel } from '../../shared/contracts/agent-models.ts';
+import { parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels } from '../../shared/agent-models-core.ts';
+import { CATALOG_AGENT_IDS, NO_PROVIDER_MODELS } from '../../shared/contracts/agent-models.ts';
+import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel, ProviderModels } from '../../shared/contracts/agent-models.ts';
 import { clock } from '../../shared/clock.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
+const OPENROUTER_FRESH_FOR_MS = 60 * 60_000;
+const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 const PROBE_TIMEOUT_MS = 20_000;
 const PROBE_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const CLAUDE_INITIALIZE_REQUEST = `${JSON.stringify({ type: 'control_request', request_id: 'glimmervoid-models', request: { subtype: 'initialize' } })}\n`;
@@ -55,14 +57,31 @@ async function probeAgent(agent: CatalogAgentId, nowMs: number): Promise<AgentMo
   return { agent, models: models ?? lastGoodModels, error, checkedAt: nowMs };
 }
 
-let lastCatalog: AgentModelCatalog = { agents: CATALOG_AGENT_IDS.map((agent) => ({ agent, models: [], error: null, checkedAt: null })) };
+async function fetchOpenRouterModels(): Promise<CatalogModel[] | null> {
+  const response = await fetch(OPENROUTER_MODELS_URL, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`OpenRouter answered ${response.status} ${response.statusText}`);
+  return parseOpenRouterModels(await response.text());
+}
+
+async function openRouterModels(previous: ProviderModels, nowMs: number): Promise<ProviderModels> {
+  if (previous.checkedAt !== null && previous.error === null && nowMs - previous.checkedAt < OPENROUTER_FRESH_FOR_MS) return previous;
+  try {
+    const models = await fetchOpenRouterModels();
+    if (models === null) return { models: previous.models, error: 'OpenRouter sent a model list Glimmervoid cannot read', checkedAt: nowMs };
+    return { models, error: null, checkedAt: nowMs };
+  } catch (error) {
+    return { models: previous.models, error: firstLine(error), checkedAt: nowMs };
+  }
+}
+
+let lastCatalog: AgentModelCatalog = { agents: CATALOG_AGENT_IDS.map((agent) => ({ agent, models: [], error: null, checkedAt: null })), openrouter: NO_PROVIDER_MODELS };
 let lastScanStartedAtMs = Number.NEGATIVE_INFINITY;
 let scanInFlight: Promise<void> | null = null;
 
 async function scanAgentModels(nowMs: number): Promise<void> {
   const agents: AgentModels[] = [];
   for (const agent of CATALOG_AGENT_IDS) agents.push(await probeAgent(agent, nowMs));
-  lastCatalog = { agents };
+  lastCatalog = { agents, openrouter: await openRouterModels(lastCatalog.openrouter, nowMs) };
 }
 
 function refreshAgentModelsWhenStale(nowMs = clock.nowMs()): Promise<void> {

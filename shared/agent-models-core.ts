@@ -134,6 +134,24 @@ function parseOpenCodeModels(modelsOutput: string): CatalogModel[] | null {
   return modelIds.map((id) => ({ id, label: id, aliases: [], isDefault: false, options: [] }));
 }
 
+const OPENROUTER_AGENT_ENDPOINTS = ['/api/v1/messages', '/api/v1/responses', '/api/v1/chat/completions'];
+
+function isAgentReadyOpenRouterModel(entry: Record<string, unknown>): boolean {
+  const supportedParameters = textList(entry.supported_parameters);
+  const endpoints = textList(entry.endpoints);
+  return supportedParameters.includes('tools') && OPENROUTER_AGENT_ENDPOINTS.every((endpoint) => endpoints.includes(endpoint));
+}
+
+function parseOpenRouterModels(modelsBody: string): CatalogModel[] | null {
+  const body = parseJsonLine(modelsBody);
+  if (!isRecord(body) || !Array.isArray(body.data)) return null;
+  return body.data.filter(isRecord).filter(isAgentReadyOpenRouterModel).flatMap((entry) => {
+    const id = trimmedText(entry.id);
+    if (id === null || !SAFE_LAUNCH_ARGUMENT_PATTERN.test(id)) return [];
+    return [{ id, label: trimmedText(entry.name) ?? id, aliases: [], isDefault: false, options: [] }];
+  });
+}
+
 function optionValue(selection: ModelSelection, optionId: string): string | null {
   return selection.options.find((option) => option.id === optionId)?.value ?? null;
 }
@@ -234,5 +252,5 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, selectionArgs, unsafeLaunchValueOf };
 export type { LaunchPlan };

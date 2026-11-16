@@ -7,7 +7,8 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { button } from '../ui/button.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
-import { agentLabel, agentsWithModels, contestantsFor, defaultSetup, effortOf, effortsOf, modelsOf, VARY_SETTINGS, varyChoices, varyLineup, withEffortChoice, withModel } from './lineup-core.ts';
+import { agentsWithModels, contestantsFor, defaultSetup, VARY_SETTINGS, varyChoices, varyLineup } from './lineup-core.ts';
+import { buildSelect, setupControls } from './setup-controls.ts';
 import type { VarySetting } from './lineup-core.ts';
 
 const START_TIMEOUT_MS = 120_000;
@@ -30,34 +31,10 @@ interface RaceDraft {
   reviewCase: RaceReviewCase | null;
 }
 
-let catalog: AgentModelCatalog = { agents: [] };
+let catalog: AgentModelCatalog = AgentModelCatalog.parse({ agents: [] });
 let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1, reviewCase: null };
 let judgeSeed: 'pending' | 'settled' = 'pending';
 let isEditingAsFile = false;
-
-function buildSelect(choices: readonly { value: string; label: string }[], selected: string | null, onChange: (value: string) => void, ariaLabel: string): HTMLSelectElement {
-  const select = el('select', 'settings-view-input arena-select');
-  select.setAttribute('aria-label', ariaLabel);
-  for (const choice of choices) {
-    const option = el('option', null, choice.label);
-    option.value = choice.value;
-    option.selected = choice.value === selected;
-    select.append(option);
-  }
-  select.addEventListener('change', () => onChange(select.value));
-  return select;
-}
-
-function setupControls(setup: AgentSetup, onChange: (next: AgentSetup) => void, allowedAgents: readonly string[] | null = null): HTMLElement {
-  const controls = el('div', 'arena-setup');
-  const agentChoices = agentsWithModels(catalog).filter((agent) => !allowedAgents || allowedAgents.includes(agent)).map((agent) => ({ value: agent, label: agentLabel(agent) }));
-  controls.append(buildSelect(agentChoices, setup.agent, (agent) => onChange({ ...defaultSetup(catalog, agent), instructions: setup.instructions }), 'Agent'));
-  const modelChoices = modelsOf(catalog, setup.agent).map((model) => ({ value: model.id, label: model.label }));
-  controls.append(buildSelect(modelChoices, setup.model, (modelId) => onChange(withModel(catalog, setup, modelId)), 'Model'));
-  const efforts = effortsOf(catalog, setup.agent, setup.model);
-  if (efforts.length > 0) controls.append(buildSelect(efforts.map((effort) => ({ value: effort, label: effort })), effortOf(setup), (effort) => onChange(withEffortChoice(setup, effort)), 'Effort'));
-  return controls;
-}
 
 function draftSpec(): Record<string, unknown> {
   return {
@@ -158,7 +135,7 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
   draft.contestants.forEach((contestant, index) => {
     const column = el('div', 'arena-column');
     column.append(el('span', 'arena-column-label', contestant.label));
-    column.append(setupControls(contestant.setup, (next) => {
+    column.append(setupControls(catalog, contestant.setup, (next) => {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: next, home: CLEAN_HOME_AGENT_IDS.includes(next.agent) ? existing.home : 'operator' } : existing)));
       onChanged();
     }));
@@ -188,10 +165,10 @@ function buildJudgesEditor(onChanged: () => void): HTMLElement {
   judges.append(el('span', 'arena-field-label', draft.judges.length === 0 ? 'Judges: none, the race is not judged' : `Judges: ${draft.judges.length} of ${RACE_MAX_JUDGES}`));
   draft.judges.forEach((judge, index) => {
     const row = el('div', 'arena-judge');
-    row.append(setupControls(judge, (next) => {
+    row.append(setupControls(catalog, judge, (next) => {
       draft.judges = draft.judges.map((existing, position) => (position === index ? next : existing));
       onChanged();
-    }, RACE_JUDGE_AGENTS));
+    }, { allowedAgents: RACE_JUDGE_AGENTS, allowsOpenRouter: false }));
     row.append(button({ variant: 'quiet', size: 'small', label: 'Remove', onClick: () => {
       draft.judges = draft.judges.filter((_existing, position) => position !== index);
       onChanged();
@@ -223,7 +200,7 @@ function buildVaryBuilder(onChanged: () => void): HTMLElement {
   };
   const baseEl = el('div', 'arena-vary-base');
   const paintBase = () => {
-    baseEl.replaceChildren(setupControls(base, (next) => { base = next; paintBase(); paintChoices(); }));
+    baseEl.replaceChildren(setupControls(catalog, base, (next) => { base = next; paintBase(); paintChoices(); }));
   };
   builder.append(el('span', 'arena-field-label', 'Start from'), baseEl);
   builder.append(el('span', 'arena-field-label', 'Vary'), buildSelect(VARY_SETTINGS.map((value) => ({ value, label: value })), setting, (value) => {

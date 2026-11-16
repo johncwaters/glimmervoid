@@ -24,6 +24,10 @@ import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
 import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
+import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
+import type { AgentSetup, ModelSelection } from '#shared/contracts/agent-models.ts';
+import { canRunOnOpenRouter, defaultSetup, modelsOf } from '../arena/lineup-core.ts';
+import { setupControls } from '../arena/setup-controls.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
   const elapsedMs = now - receivedAt;
@@ -118,6 +122,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
   const accountEl = query(dialog, '#add-session-account');
   const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
+  const modelEl = query(dialog, '#add-session-model');
+  const modelControlsEl = query(dialog, '#add-session-model-controls');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const signInHintEl = query(dialog, '#add-session-sign-in');
   const errorEl = query(dialog, '#add-session-error');
@@ -164,6 +170,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let openSlot: AddSessionSlot | null = null;
   let operatorTouch: 'untouched' | 'acted' | 'reopened' = 'untouched';
   let operatorAccountChoice: { agentId: string; accountId: string } | null = null;
+  let agentModelCatalog = AgentModelCatalog.parse({ agents: [] });
+  let operatorSetup: AgentSetup | null = null;
 
   function requestControl(type: string, payload: Record<string, unknown>) {
     return sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
@@ -434,6 +442,37 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (isShell && target.kind === 'workspace') returnToProjects();
     renderPermissionHint();
     showAccountPick();
+    showModelPick();
+  }
+
+  function isModelPickable(agentId: string) {
+    if (agentId === NO_AGENT_ID || agentId === SHELL_AGENT_ID) return false;
+    return modelsOf(agentModelCatalog, agentId).length > 0 || canRunOnOpenRouter(agentId);
+  }
+
+  function shownSetup() {
+    if (operatorSetup?.agent === selectedAgentId) return operatorSetup;
+    return defaultSetup(agentModelCatalog, selectedAgentId);
+  }
+
+  function showModelPick() {
+    modelEl.hidden = !isModelPickable(selectedAgentId);
+    if (modelEl.hidden) {
+      modelControlsEl.replaceChildren();
+      return;
+    }
+    modelControlsEl.replaceChildren(setupControls(agentModelCatalog, shownSetup(), (next) => {
+      markOperatorActed();
+      errorEl.textContent = '';
+      operatorSetup = next;
+      showModelPick();
+    }, { showsAgent: false }));
+  }
+
+  function setupForTheStart(): ModelSelection | null {
+    if (modelEl.hidden || operatorSetup?.agent !== selectedAgentId) return null;
+    const { instructions: _instructions, ...selection } = operatorSetup;
+    return selection;
   }
 
   function pickableAccounts() {
@@ -656,6 +695,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
         isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
         skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
+        const catalog = AgentModelCatalog.safeParse(typeof message.settings === 'object' && message.settings !== null ? Reflect.get(message.settings, 'agentModels') : undefined);
+        if (catalog.success) agentModelCatalog = catalog.data;
+        showModelPick();
         hasSettingsLoaded = true;
         clearSettingsWarning();
         renderPermissionHint();
@@ -682,6 +724,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
     if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
+    const setup = setupForTheStart();
+    if (setup !== null) shared.setup = setup;
     if (target.kind === 'project') {
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
     }

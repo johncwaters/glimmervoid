@@ -1,12 +1,18 @@
-import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID } from '#shared/contracts/agent-models.ts';
-import type { AgentHomeKind, AgentModelCatalog, AgentSetup, CatalogModel } from '#shared/contracts/agent-models.ts';
+import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS } from '#shared/contracts/agent-models.ts';
+import type { AgentHomeKind, AgentModelCatalog, AgentSetup, CatalogModel, ModelProvider } from '#shared/contracts/agent-models.ts';
 import type { RaceContestant } from '#shared/contracts/race.ts';
 import { RACE_MAX_CONTESTANTS } from '#shared/contracts/race.ts';
 
 export const VARY_SETTINGS = ['agent', 'model', 'effort'] as const;
 export type VarySetting = typeof VARY_SETTINGS[number];
 
-const AGENT_LABELS: Readonly<Record<string, string>> = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code' };
+const AGENT_LABELS: Readonly<Record<string, string>> = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code', opencode: 'OpenCode' };
+const OPENROUTER_VENDOR_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': 'anthropic/', codex: 'openai/' };
+
+export const PROVIDER_CHOICES: readonly { value: ModelProvider; label: string }[] = [
+  { value: 'native', label: 'Agent\'s own' },
+  { value: 'openrouter', label: 'OpenRouter' },
+];
 
 export function agentLabel(agent: string): string {
   return AGENT_LABELS[agent] ?? agent;
@@ -16,12 +22,41 @@ export function modelsOf(catalog: AgentModelCatalog, agent: string): CatalogMode
   return catalog.agents.find((agentModels) => agentModels.agent === agent)?.models ?? [];
 }
 
+export function providerOf(setup: AgentSetup): ModelProvider {
+  return setup.provider ?? 'native';
+}
+
+export function canRunOnOpenRouter(agent: string): boolean {
+  return OPENROUTER_AGENT_IDS.includes(agent);
+}
+
+export function setupModelsOf(catalog: AgentModelCatalog, setup: AgentSetup): CatalogModel[] {
+  return providerOf(setup) === 'openrouter' ? catalog.openrouter.models : modelsOf(catalog, setup.agent);
+}
+
+function preferredOpenRouterModel(catalog: AgentModelCatalog, agent: string): string | null {
+  const vendor = OPENROUTER_VENDOR_BY_AGENT[agent];
+  const models = catalog.openrouter.models;
+  const vendorModel = vendor === undefined ? undefined : models.find((model) => model.id.startsWith(vendor));
+  return (vendorModel ?? models[0])?.id ?? null;
+}
+
+export function withProvider(catalog: AgentModelCatalog, setup: AgentSetup, provider: ModelProvider): AgentSetup {
+  if (provider === 'native') return { ...defaultSetup(catalog, setup.agent), instructions: setup.instructions };
+  return { agent: setup.agent, provider, model: preferredOpenRouterModel(catalog, setup.agent), options: [], instructions: setup.instructions };
+}
+
+export function withTypedModel(setup: AgentSetup, typedModel: string): AgentSetup {
+  const model = typedModel.trim();
+  return { ...setup, model: model === '' ? null : model };
+}
+
 export function agentsWithModels(catalog: AgentModelCatalog): string[] {
   return CATALOG_AGENT_IDS.filter((agent) => modelsOf(catalog, agent).length > 0);
 }
 
-export function effortsOf(catalog: AgentModelCatalog, agent: string, modelId: string | null): string[] {
-  const model = modelsOf(catalog, agent).find((candidate) => candidate.id === modelId);
+export function effortsOf(catalog: AgentModelCatalog, setup: AgentSetup): string[] {
+  const model = setupModelsOf(catalog, setup).find((candidate) => candidate.id === setup.model);
   return model?.options.find((option) => option.id === EFFORT_OPTION_ID)?.choices ?? [];
 }
 
@@ -42,9 +77,9 @@ export function defaultSetup(catalog: AgentModelCatalog, agent: string): AgentSe
 }
 
 export function withModel(catalog: AgentModelCatalog, setup: AgentSetup, modelId: string): AgentSetup {
-  const efforts = effortsOf(catalog, setup.agent, modelId);
+  const efforts = effortsOf(catalog, { ...setup, model: modelId });
   const currentEffort = effortOf(setup);
-  const model = modelsOf(catalog, setup.agent).find((candidate) => candidate.id === modelId);
+  const model = setupModelsOf(catalog, setup).find((candidate) => candidate.id === modelId);
   const keptEffort = currentEffort !== null && efforts.includes(currentEffort) ? currentEffort : model?.options.find((option) => option.id === EFFORT_OPTION_ID)?.defaultChoice ?? null;
   return withEffort({ ...setup, model: modelId }, keptEffort);
 }
@@ -54,7 +89,7 @@ export function withEffortChoice(setup: AgentSetup, effort: string | null): Agen
 }
 
 function autoLabel(setup: AgentSetup, catalog: AgentModelCatalog): string {
-  const model = modelsOf(catalog, setup.agent).find((candidate) => candidate.id === setup.model);
+  const model = setupModelsOf(catalog, setup).find((candidate) => candidate.id === setup.model);
   const modelText = model?.label ?? setup.model ?? agentLabel(setup.agent);
   const effort = effortOf(setup);
   return (effort === null ? modelText : `${modelText} ${effort}`).slice(0, 60);
@@ -62,8 +97,8 @@ function autoLabel(setup: AgentSetup, catalog: AgentModelCatalog): string {
 
 export function varyChoices(catalog: AgentModelCatalog, base: AgentSetup, setting: VarySetting): { value: string; label: string }[] {
   if (setting === 'agent') return agentsWithModels(catalog).map((agent) => ({ value: agent, label: agentLabel(agent) }));
-  if (setting === 'model') return modelsOf(catalog, base.agent).map((model) => ({ value: model.id, label: model.label }));
-  return effortsOf(catalog, base.agent, base.model).map((effort) => ({ value: effort, label: effort }));
+  if (setting === 'model') return setupModelsOf(catalog, base).map((model) => ({ value: model.id, label: model.label }));
+  return effortsOf(catalog, base).map((effort) => ({ value: effort, label: effort }));
 }
 
 function variedSetup(catalog: AgentModelCatalog, base: AgentSetup, setting: VarySetting, value: string): AgentSetup {
