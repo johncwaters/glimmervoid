@@ -7,7 +7,7 @@ import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
 import type { BlockStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
-import { screenplayElementsOf } from './fountain-style-core.ts';
+import { screenplayElementsOf, screenplayLinesOf, screenplayPagesOf } from './fountain-style-core.ts';
 import type { ScreenplayElement } from './fountain-style-core.ts';
 import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
@@ -382,6 +382,42 @@ function lineStyleByLineStart(format: DocFormat, source: string) {
   return styleByLineStart;
 }
 
+interface ScreenplayMargins {
+  pageNumber: number | null;
+  sceneNumber: string | null;
+}
+
+function screenplayMarginsByLineStart(format: DocFormat, source: string): Map<number, ScreenplayMargins> {
+  const marginsByLineStart = new Map<number, ScreenplayMargins>();
+  if (format !== 'fountain') return marginsByLineStart;
+  const screenplayLines = screenplayLinesOf(originalTextLineAlignedOf(source));
+  const pageNumberByLineIndex = new Map<number, number>();
+  let previousPageLastLineIndex: number | null = null;
+  for (const page of screenplayPagesOf(screenplayLines)) {
+    const firstRow = page.rows[0];
+    const startsOnNewSourceLine = firstRow !== undefined && firstRow.sourceLineIndex !== previousPageLastLineIndex;
+    if (page.number >= 2 && firstRow && startsOnNewSourceLine) pageNumberByLineIndex.set(firstRow.sourceLineIndex, page.number);
+    previousPageLastLineIndex = page.rows.findLast((row) => row.element !== 'more')?.sourceLineIndex ?? previousPageLastLineIndex;
+  }
+  let lineStart = 0;
+  for (const [lineIndex, lineText] of source.split('\n').entries()) {
+    const pageNumber = pageNumberByLineIndex.get(lineIndex) ?? null;
+    const sceneNumber = screenplayLines[lineIndex]?.sceneNumber ?? null;
+    if (pageNumber !== null || sceneNumber !== null) marginsByLineStart.set(lineStart, { pageNumber, sceneNumber });
+    lineStart += lineText.length + 1;
+  }
+  return marginsByLineStart;
+}
+
+function markScreenplayMargins(rows: readonly PaperRow[], marginsByLineStart: Map<number, ScreenplayMargins>) {
+  for (const { row, line } of rows) {
+    const margins = marginsByLineStart.get(Number(line.dataset.start));
+    if (!margins) continue;
+    if (margins.pageNumber !== null) row.dataset.page = `${margins.pageNumber}.`;
+    if (margins.sceneNumber !== null) line.dataset.sceneNumber = margins.sceneNumber;
+  }
+}
+
 function buildRow(lineStart: number, block: LineStyle): MarkupRow & { row: HTMLElement; block: LineStyle } {
   const line = el('div', 'doc-markup-line');
   line.dataset.start = String(lineStart);
@@ -620,6 +656,7 @@ function paintPaper(editor: MarkupHost) {
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
   giveMarkLedLinesACaretStop(rows);
+  markScreenplayMargins(rows, screenplayMarginsByLineStart(editor.format, source));
   pane.previewBlocks = blocksClearOfMarks(docPreviewBlocksOf(editor.format, source), pane.marks);
   const shownRows = previewedRows(editor, source, rows);
   carryNotePlacement(pane.paintedRows, rows);

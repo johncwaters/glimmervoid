@@ -71,6 +71,13 @@
 .doc-markup-paper[data-format="fountain"] .doc-markup-row > :is(.doc-markup-line, .doc-markup-row-margin) { max-width: calc(60ch + 64px); }
 .doc-markup-paper[data-format="fountain"] .doc-markup-line { font-family: var(--font-screenplay); }
 .doc-markup-line[data-block="scene"] { font-weight: 700; }
+.doc-markup-paper[data-format="fountain"] :is(.doc-markup-row, .doc-markup-line) { position: relative; }
+.doc-markup-row[data-page] { margin-block-start: 1.5lh; border-block-start: 1px dashed var(--border); }
+.doc-markup-row[data-page]::before { content: attr(data-page); position: absolute; inset-block-end: calc(100% + 2px); inset-inline-end: max(32px, calc((100% - 60ch - 64px) / 2 + 32px)); color: var(--text-muted); font-family: var(--font-screenplay); user-select: none; }
+.doc-markup-line[data-scene-number]::before, .doc-markup-line[data-scene-number]::after { content: attr(data-scene-number); position: absolute; inset-block-start: 0; width: 28px; color: var(--text-muted); font-weight: 400; user-select: none; pointer-events: none; }
+.doc-markup-line[data-scene-number]::before { inset-inline-end: calc(100% + 2ch); text-align: end; }
+.doc-markup-line[data-scene-number]::after { inset-inline-end: 0; }
+html[data-layout="phone"] .doc-markup-line[data-scene-number]::before, html[data-layout="phone"] .doc-markup-line[data-scene-number]::after { content: none; }
 .doc-markup-line[data-block="character"] { padding-inline-start: calc(32px + 22ch); }
 .doc-markup-line[data-block="parenthetical"] { padding-inline: calc(32px + 16ch) calc(32px + 9ch); }
 .doc-markup-line:is([data-block="dialogue"], [data-block="lyric"]) { padding-inline: calc(32px + 10ch) calc(32px + 15ch); }

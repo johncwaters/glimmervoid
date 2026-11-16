@@ -1222,6 +1222,8 @@ async function verifyScreenplayDoc(open: OpenBoard): Promise<void> {
   const dialogueLine = paper.locator('.doc-markup-line[data-block="dialogue"]', { hasText: 'To retirement.' });
   await dialogueLine.waitFor();
   await paper.locator('.doc-markup-line[data-block="note"]', { hasText: 'cut the beer?' }).waitFor();
+  assert.equal(await paper.locator('.doc-markup-line[data-block="scene"][data-scene-number="1"]').count(), 1, 'the editor puts a #1# scene number in the margins');
+  await paper.locator('.doc-markup-row[data-page="2."]').waitFor({ state: 'attached' });
   await dialogueLine.locator('.doc-markup-text').last().click();
   await page.keyboard.press(LINE_END_KEY);
   await page.keyboard.type(' Cheers.');
