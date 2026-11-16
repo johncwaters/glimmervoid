@@ -7,6 +7,8 @@ import { button } from '../ui/button.ts';
 import { acceptEveryMark, canRevisePart, isEndNote, isParagraphMark, parseCriticMarkup, resolveMark, revisableTextIn, suggestEdit } from './markup-core.ts';
 import { blockStylesOf, inlineRunsOf, markdownImageOf, previewBlocksOf } from './markdown-style-core.ts';
 import type { BlockStyle, PreviewBlock, PreviewBlockKind } from './markdown-style-core.ts';
+import { screenplayElementsOf } from './fountain-style-core.ts';
+import type { ScreenplayElement } from './fountain-style-core.ts';
 import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
@@ -27,7 +29,17 @@ function commonSuffixLength(before: readonly string[], after: readonly string[],
   return matched;
 }
 
+export type DocFormat = 'markdown' | 'fountain';
+type LineStyle = BlockStyle | ScreenplayElement;
+
+const MARKDOWN_BLOCK_STYLES: ReadonlySet<LineStyle> = new Set<BlockStyle>(['h1', 'h2', 'h3', 'quote', 'list', 'fence', 'table', 'plain']);
+
+function isMarkdownBlockStyle(lineStyle: LineStyle): lineStyle is BlockStyle {
+  return MARKDOWN_BLOCK_STYLES.has(lineStyle);
+}
+
 export interface MarkupHost {
+  format: DocFormat;
   baseHash: string | null;
   isBusy: boolean;
   textarea: HTMLTextAreaElement;
@@ -133,8 +145,8 @@ function buildCheckMark() {
 const FORMAT_CONTROLS = [
   { label: 'Bold', action: 'format-bold', delimiter: '**', inlineStyle: 'strong', inputType: 'formatBold', iconPath: 'M4.5 3h4a2.5 2.5 0 0 1 0 5h-4z M4.5 8h4.75a2.5 2.5 0 0 1 0 5H4.5z' },
   { label: 'Italic', action: 'format-italic', delimiter: '*', inlineStyle: 'emphasis', inputType: 'formatItalic', iconPath: 'M7 3h5 M4 13h5 M9.5 3l-3 10' },
-  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', inlineStyle: null, inputType: null, iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
-  { label: 'Code', action: 'format-code', delimiter: '`', inlineStyle: null, inputType: null, iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
+  { label: 'Strikethrough', action: 'format-strikethrough', delimiter: '~~', inlineStyle: null, inputType: null, isMarkdownOnly: true, iconPath: 'M2.5 8h11 M11 5.2c0-1.3-1.3-2.2-3-2.2s-3 0.9-3 2.2 M5 10.8c0 1.3 1.3 2.2 3 2.2s3-0.9 3-2.2' },
+  { label: 'Code', action: 'format-code', delimiter: '`', inlineStyle: null, inputType: null, isMarkdownOnly: true, iconPath: 'M5.5 4.5L2 8l3.5 3.5 M10.5 4.5L14 8l-3.5 3.5' },
 ];
 
 const BLOCK_CONTROLS = [
@@ -321,10 +333,14 @@ function buildTextElement(text: string, sourceStart: number, segmentStart: numbe
   return textElement;
 }
 
-function buildStyledTextElements(text: string, sourceStart: number, segmentStart: number, block: BlockStyle, startsLine: boolean) {
+function inlineBlockOf(lineStyle: LineStyle): BlockStyle {
+  return isMarkdownBlockStyle(lineStyle) ? lineStyle : 'plain';
+}
+
+function buildStyledTextElements(text: string, sourceStart: number, segmentStart: number, block: LineStyle, startsLine: boolean) {
   const textElements: HTMLElement[] = [];
   let styledUpTo = 0;
-  for (const run of inlineRunsOf(text, block, startsLine)) {
+  for (const run of inlineRunsOf(text, inlineBlockOf(block), startsLine)) {
     if (run.start > styledUpTo) textElements.push(buildTextElement(text.slice(styledUpTo, run.start), sourceStart + styledUpTo, segmentStart));
     textElements.push(buildTextElement(text.slice(run.start, run.end), sourceStart + run.start, segmentStart, run));
     styledUpTo = run.end;
@@ -333,9 +349,31 @@ function buildStyledTextElements(text: string, sourceStart: number, segmentStart
   return textElements;
 }
 
-function blockStyleByLineStart(source: string) {
-  const blockStyles = blockStylesOf(source);
-  const styleByLineStart = new Map<number, BlockStyle>();
+function newlineCountOf(text: string): number {
+  return text.split('\n').length - 1;
+}
+
+function originalTextLineAlignedOf(source: string): string {
+  return parseCriticMarkup(source)
+    .map((segment) => {
+      if (segment.kind === 'text') return segment.text;
+      const spannedNewlines = newlineCountOf(source.slice(segment.start, segment.end));
+      return segment.oldText + '\n'.repeat(Math.max(0, spannedNewlines - newlineCountOf(segment.oldText)));
+    })
+    .join('');
+}
+
+function lineStylesOf(format: DocFormat, source: string): LineStyle[] {
+  return format === 'fountain' ? screenplayElementsOf(originalTextLineAlignedOf(source)) : blockStylesOf(source);
+}
+
+function docPreviewBlocksOf(format: DocFormat, source: string): PreviewBlock[] {
+  return format === 'fountain' ? [] : previewBlocksOf(source);
+}
+
+function lineStyleByLineStart(format: DocFormat, source: string) {
+  const blockStyles = lineStylesOf(format, source);
+  const styleByLineStart = new Map<number, LineStyle>();
   let lineStart = 0;
   for (const [lineIndex, lineText] of source.split('\n').entries()) {
     styleByLineStart.set(lineStart, blockStyles[lineIndex] ?? 'plain');
@@ -344,7 +382,7 @@ function blockStyleByLineStart(source: string) {
   return styleByLineStart;
 }
 
-function buildRow(lineStart: number, block: BlockStyle): MarkupRow & { row: HTMLElement; block: BlockStyle } {
+function buildRow(lineStart: number, block: LineStyle): MarkupRow & { row: HTMLElement; block: LineStyle } {
   const line = el('div', 'doc-markup-line');
   line.dataset.start = String(lineStart);
   line.dataset.block = block;
@@ -367,7 +405,7 @@ function giveMarkLedLinesACaretStop(rows: readonly PaperRow[]) {
   }
 }
 
-function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStart: Map<number, BlockStyle>) {
+function appendTextLines(rows: PaperRow[], segment: TextSegment, styleByLineStart: Map<number, LineStyle>) {
   let sourceOffset = segment.start;
   segment.text.split('\n').forEach((lineText, lineIndex) => {
     if (lineIndex > 0) rows.push(buildRow(sourceOffset, styleByLineStart.get(sourceOffset) ?? 'plain'));
@@ -545,7 +583,8 @@ function paintPaper(editor: MarkupHost) {
   const rowObserver = rowObserverFor(pane);
   rowObserver.disconnect();
   const source = editor.textarea.value;
-  const styleByLineStart = blockStyleByLineStart(source);
+  const styleByLineStart = lineStyleByLineStart(editor.format, source);
+  pane.paper.dataset.format = editor.format;
   const rows = [buildRow(0, styleByLineStart.get(0) ?? 'plain')];
   const endNoteElements: HTMLElement[] = [];
   pane.marks = [];
@@ -581,7 +620,7 @@ function paintPaper(editor: MarkupHost) {
     currentRow.notesWithAnchors.push({ note: marginNote, anchor: markElement });
   }
   giveMarkLedLinesACaretStop(rows);
-  pane.previewBlocks = blocksClearOfMarks(previewBlocksOf(source), pane.marks);
+  pane.previewBlocks = blocksClearOfMarks(docPreviewBlocksOf(editor.format, source), pane.marks);
   const shownRows = previewedRows(editor, source, rows);
   carryNotePlacement(pane.paintedRows, rows);
   pane.paintedRows = rows;
@@ -692,15 +731,16 @@ function paintFloats(editor: MarkupHost) {
   const inlineStyleAtStart = selectionStartElement?.closest<HTMLElement>('[data-inline]')?.dataset.inline ?? tableRunAtStart?.style ?? null;
   const opensBeforeSelection = (delimiter: string) => (lineBeforeSelection.split(delimiter).length - 1) % 2 === 1;
   const isSelectionInCode = opensBeforeSelection('`') || blockAtStart === 'fence';
+  const isScreenplay = editor.format === 'fountain';
   const canFormatSelection = markAnchor === null && !isSelectionInCode && !selectedSource.trimEnd().includes('\n');
   for (const [controlIndex, formatButton] of pane.formatButtons.entries()) {
     const control = FORMAT_CONTROLS[controlIndex];
     const isAlreadyStyled = (inlineStyleAtStart !== null && control.inlineStyle === inlineStyleAtStart) || (control.delimiter === '~~' && opensBeforeSelection('~~'));
-    formatButton.hidden = !canFormatSelection || isAlreadyStyled || selectedSource.includes(control.delimiter[0]);
+    formatButton.hidden = !canFormatSelection || isAlreadyStyled || selectedSource.includes(control.delimiter[0]) || (isScreenplay && control.isMarkdownOnly === true);
   }
   pane.formatDivider.hidden = pane.formatButtons.every((formatButton) => formatButton.hidden);
-  pane.blockDivider.hidden = markAnchor !== null;
-  for (const blockButton of pane.blockButtons) blockButton.hidden = markAnchor !== null;
+  pane.blockDivider.hidden = markAnchor !== null || isScreenplay;
+  for (const blockButton of pane.blockButtons) blockButton.hidden = markAnchor !== null || isScreenplay;
   const noteAnchorRect = showsPin ? selectionRect() : null;
   placeFloatAbove(pane, pane.markCard, markAnchor?.getBoundingClientRect() ?? noteAnchorRect);
   if (!isComposing) placeFloat(pane, pane.noteComposer, null);
@@ -715,7 +755,7 @@ export function forgetBlockPreviews(editor: MarkupHost) {
 }
 
 export function previewEveryBlockOf(editor: MarkupHost, source: string) {
-  for (const block of previewBlocksOf(source)) editor.markup.previewedBlockKeys.add(block.key);
+  for (const block of docPreviewBlocksOf(editor.format, source)) editor.markup.previewedBlockKeys.add(block.key);
 }
 
 export function forgetPreviewImages(editor: MarkupHost) {

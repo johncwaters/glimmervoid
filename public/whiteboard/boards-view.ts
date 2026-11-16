@@ -909,7 +909,7 @@ function boardDocSource(boardId: string, boxId: string, title: string): DocSourc
       if (!media) return { ok: false, error: BOARD_DOC_GONE_TEXT };
       const docText = await fetchBoardDocText(media);
       if (docText === null) return { ok: false, error: BOARD_DOC_UNREAD_TEXT };
-      return { ok: true, text: docText, hash: media.asset };
+      return { ok: true, text: docText, hash: media.asset, format: media.mime === 'text/x-fountain' ? 'fountain' : 'markdown' };
     },
     save: (_docPath, docText, loadedAsset) => saveBoardDoc(boardId, boxId, docText, loadedAsset),
   };

@@ -8,9 +8,10 @@ import { button } from '../ui/button.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { buildMarkupPane, disposeMarkupPane, forgetBlockPreviews, forgetDocHistory, forgetPreviewImages, isMarkupTextField, paintMarkupTools, previewEveryBlockOf, retryMissingImages, renderMarkup, stepDocEdit, wireMarkupPane } from './markup-pane.ts';
-import type { MarkupHost } from './markup-pane.ts';
+import type { DocFormat, MarkupHost } from './markup-pane.ts';
+import { isFountainPath } from './fountain-style-core.ts';
 
-type DocReadOutcome = { ok: true; text: string; hash: string } | { ok: false; error: string | null };
+type DocReadOutcome = { ok: true; text: string; hash: string; format: DocFormat } | { ok: false; error: string | null };
 type DocSaveOutcome = { ok: true; hash: string } | { ok: false; isConflict: boolean; error: string | null };
 
 export interface DocSource {
@@ -127,7 +128,7 @@ async function readSessionDoc(sessionId: string, docPath: string): Promise<DocRe
   const { reply, failureText } = await requestDoc('session-doc-read', { id: sessionId, path: docPath });
   const response = reply?.type === 'session-doc-response' ? reply : null;
   if (!response?.ok || response.text === undefined || response.hash === undefined) return { ok: false, error: response?.error || failureText };
-  return { ok: true, text: response.text, hash: response.hash };
+  return { ok: true, text: response.text, hash: response.hash, format: isFountainPath(docPath) ? 'fountain' : 'markdown' };
 }
 
 async function saveSessionDoc(sessionId: string, docPath: string, text: string, baseHash: string): Promise<DocSaveOutcome> {
@@ -195,6 +196,7 @@ async function loadDoc(editor: OpenEditor, docPath: string) {
     return;
   }
   editor.textarea.value = read.text;
+  editor.format = read.format;
   editor.baseHash = read.hash;
   if (editor.openedDocPath !== docPath) previewEveryBlockOf(editor, editor.textarea.value);
   editor.openedDocPath = docPath;
@@ -289,7 +291,7 @@ export function openDocEditorOn(source: DocSource) {
   });
 
   const currentEditor: OpenEditor = {
-    source, docPath: firstDoc.path, openedDocPath: null, baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
+    source, docPath: firstDoc.path, openedDocPath: null, format: 'markdown', baseHash: null, hasUnsavedChanges: false, isBusy: false, needsReload: false,
     title, select, textarea, markup, status, btnReload, autosaveTimer: null, pendingSave: null,
     readImage: (imageSource) => source.readImage?.(currentEditor.docPath, imageSource) ?? Promise.resolve(null),
     close: () => {

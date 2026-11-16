@@ -1,6 +1,6 @@
 export type ScreenplayElement = 'title' | 'scene' | 'action' | 'character' | 'parenthetical' | 'dialogue' | 'lyric' | 'transition' | 'centered' | 'page-break' | 'section' | 'synopsis' | 'note' | 'boneyard' | 'blank';
 
-export const FOUNTAIN_EXTENSION = '.fountain';
+const FOUNTAIN_EXTENSION = '.fountain';
 
 const TITLE_KEY_LINE = /^[A-Za-z][A-Za-z ]*:/;
 const SCENE_HEADING = /^(?:INT|EXT|EST|INT\.?\/EXT|I\/E)[. ]/i;

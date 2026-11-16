@@ -25,6 +25,8 @@ const BOARD_TIMEOUT_MS = 5000;
 const BOARD_DOC_BOX_ID = 'abstract';
 const BOARD_DOC_BOX_TITLE = 'docs/';
 const WIDE_TABLE_DOC_BOX_ID = 'wide-table';
+const SCREENPLAY_BOX_ID = 'pilot';
+const SCREENPLAY_DOC = "Title: Pilot\n\nEXT. PATIO - DAY\n\nA gorgeous day.\n\nSTEEL\n(beer raised)\nTo retirement.\n\n[[cut the beer?]]\n\nCUT TO:\n";
 const WIDE_TABLE_CELL = 'Open docs-PR list up to 20x100, comments read per writer PR, `posthog/egress/github/README.md:44` and `VIDEO_EXPORT_TASK_QUEUE` stay readable';
 const WIDE_TABLE_DOC = `# Findings\n\nProse keeps its reading width.\n\n| ${Array.from({ length: 8 }, (_, column) => `Column ${column}`).join(' | ')} |\n|${' --- |'.repeat(8)}\n| ${Array.from({ length: 8 }, () => WIDE_TABLE_CELL).join(' | ')} |\n`;
 const BOARD_DOC_FIRST_DRAFT = '# Abstract\n\n<b>First draft.</b> **Bold**\n\nSee [the spec](https://example.com/spec) here.\n';
@@ -1200,6 +1202,36 @@ async function verifyWideTableDoc(open: OpenBoard): Promise<void> {
   await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
 }
 
+async function verifyScreenplayDoc(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const screenplayMedia = await uploadBoardDoc(page, SCREENPLAY_DOC, 'pilot.fountain');
+  assert.deepEqual([screenplayMedia.kind, screenplayMedia.mime], ['doc', 'text/x-fountain'], 'the board keeps a Fountain upload as a screenplay document');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: SCREENPLAY_BOX_ID, title: 'Pilot', place: { at: { x: 40, y: 160 } }, media: screenplayMedia } }] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  const card = panel.locator('.wb-media-screenplay');
+  await card.locator('.wb-screenplay-line[data-element="character"]', { hasText: 'STEEL' }).waitFor();
+  const cardIndents = await card.evaluate((cardElement) => Object.fromEntries(['action', 'character', 'parenthetical', 'dialogue'].map((element) => [element, cardElement.querySelector(`[data-element="${element}"]`)?.getBoundingClientRect().left ?? 0])));
+  assert.ok(cardIndents.action < cardIndents.dialogue && cardIndents.dialogue < cardIndents.parenthetical && cardIndents.parenthetical < cardIndents.character, `the card sets dialogue, parenthetical and character in from action, got ${JSON.stringify(cardIndents)}`);
+  assert.equal(await card.getByText('cut the beer?').count(), 0, 'a note stays off the card');
+  await clickElement(open, SCREENPLAY_BOX_ID);
+  const editor = page.locator('.doc-editor');
+  const paper = editor.locator('.doc-markup-paper[data-format="fountain"]');
+  const dialogueLine = paper.locator('.doc-markup-line[data-block="dialogue"]', { hasText: 'To retirement.' });
+  await dialogueLine.waitFor();
+  await paper.locator('.doc-markup-line[data-block="note"]', { hasText: 'cut the beer?' }).waitFor();
+  await dialogueLine.locator('.doc-markup-text').last().click();
+  await page.keyboard.press(LINE_END_KEY);
+  await page.keyboard.type(' Cheers.');
+  await paper.locator('.doc-markup-insertion').waitFor();
+  await editor.locator('.doc-editor-status-text', { hasText: /^Saved$/ }).waitFor();
+  await page.keyboard.press('Escape');
+  await editor.waitFor({ state: 'detached' });
+  const savedBox = (await boardOf(open)).elements.get(SCREENPLAY_BOX_ID);
+  assert.ok(savedBox?.kind === 'box' && savedBox.media?.mime === 'text/x-fountain' && savedBox.media.asset !== screenplayMedia.asset, 'a saved screenplay stays a Fountain document');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: SCREENPLAY_BOX_ID }] });
+  await panel.locator('.wb-media[data-media-kind="doc"]').waitFor({ state: 'detached' });
+}
+
 async function uploadBoardDoc(page: Page, docText: string, uploadName: string) {
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, text, name }) => {
     const response = await fetch(assetRoute, { method: 'POST', body: text, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': name } });
@@ -2121,6 +2153,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyLiveMedia(open);
     if (desktopBoard) await verifyBoardDoc(open);
     if (desktopBoard) await verifyWideTableDoc(open);
+    if (desktopBoard) await verifyScreenplayDoc(open);
     const isComicMonoLoaded = await page.evaluate(async () => {
       await document.fonts.ready;
       return document.fonts.check('700 16px ComicMono');

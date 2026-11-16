@@ -67,6 +67,17 @@
 .doc-markup-text[data-inline="link"] { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .doc-markup-text[data-inline="link-syntax"] { color: var(--text-muted); font-weight: 400; }
 .doc-markup-paper:not(.doc-markup-copying) .doc-markup-text[data-inline="link-syntax"]:not([data-revealed]) { display: none; }
+.doc-markup-paper[data-format="fountain"] { font-family: var(--font-screenplay); font-size: var(--type-doc-body); }
+.doc-markup-paper[data-format="fountain"] .doc-markup-row > :is(.doc-markup-line, .doc-markup-row-margin) { max-width: calc(60ch + 64px); }
+.doc-markup-paper[data-format="fountain"] .doc-markup-line { font-family: var(--font-screenplay); }
+.doc-markup-line[data-block="scene"] { font-weight: 700; }
+.doc-markup-line[data-block="character"] { padding-inline-start: calc(32px + 22ch); }
+.doc-markup-line[data-block="parenthetical"] { padding-inline: calc(32px + 16ch) calc(32px + 9ch); }
+.doc-markup-line:is([data-block="dialogue"], [data-block="lyric"]) { padding-inline: calc(32px + 10ch) calc(32px + 15ch); }
+.doc-markup-line[data-block="lyric"] { font-style: italic; }
+.doc-markup-line[data-block="transition"] { text-align: end; }
+.doc-markup-line:is([data-block="centered"], [data-block="title"]) { text-align: center; }
+.doc-markup-line:is([data-block="note"], [data-block="boneyard"], [data-block="section"], [data-block="synopsis"], [data-block="page-break"]) { color: var(--text-muted); }
 .doc-markup-mark { cursor: pointer; border-radius: 2px; }
 [contenteditable="true"] [data-revise], .doc-markup-end [data-revise] { cursor: text; }
 .doc-markup-editing { outline: 2px solid var(--pen-ink); outline-offset: 2px; filter: none; }
