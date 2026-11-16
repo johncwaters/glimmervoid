@@ -1795,16 +1795,16 @@ class Session extends EventEmitter {
       this._hooks.cleanup();
       return;
     }
-    const agentCommand = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
-    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, isStartSuperseded);
-    if (sandboxedCommand === null) return;
-    const { file, args } = sandboxedCommand;
     const isNodePtySpawn = this._ptySpawn === this._nodePtySpawn;
     const scopeHost = isNodePtySpawn ? await resolveSessionScopeHost() : null;
     if (isStartSuperseded()) {
       this._hooks.cleanup();
       return;
     }
+    const agentCommand = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
+    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, isStartSuperseded);
+    if (sandboxedCommand === null) return;
+    const { file, args } = sandboxedCommand;
     const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
     const sandboxedEnv = sandboxedCommand.env;
     const launch = scopeUnit === null ? { file, args, env: sandboxedEnv } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env: sandboxedEnv });
@@ -2015,6 +2015,7 @@ class Session extends EventEmitter {
   _abandonSpawn(cause: unknown): void {
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
+    this._disposeSandboxLaunch();
     this._approvals.releaseAll();
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);

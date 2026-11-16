@@ -7,6 +7,7 @@ const SHORT_SOCKET_FOLDER_PREFIX = '/tmp/glimmervoid-sandbox-';
 const DEFAULT_ALLOWED_HOSTS: readonly string[] = Object.freeze([
   'anthropic.com', '*.anthropic.com', 'claude.com', '*.claude.com', 'claude.ai', '*.claude.ai',
   'openai.com', '*.openai.com', 'chatgpt.com', '*.chatgpt.com',
+  'openrouter.ai', '*.openrouter.ai', 'opencode.ai', '*.opencode.ai', 'models.dev',
   'kimi.com', '*.kimi.com', 'kimi.ai', '*.kimi.ai', 'moonshot.cn', '*.moonshot.cn',
   'github.com', '*.github.com', 'githubusercontent.com', '*.githubusercontent.com',
   'registry.npmjs.org', 'registry.yarnpkg.com', 'pypi.org', 'files.pythonhosted.org',
@@ -23,6 +24,7 @@ const HOME_UNREADABLE_PATHS: readonly string[] = Object.freeze(['.ssh', path.joi
 
 const HOME_WRITABLE_PATHS: readonly string[] = Object.freeze([
   '.claude', '.claude.json', '.codex', '.kimi', '.kimi-code', '.cache', '.npm', path.join('.local', 'state'),
+  path.join('.local', 'share', 'opencode'),
 ]);
 
 const PLATFORM_SOCKET_PATHS: readonly string[] = Object.freeze(['/var/run/docker.sock', '/run/docker.sock']);
