@@ -42,6 +42,7 @@ interface BackendShutdownDependencies {
   starHint?: Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
+  whiteboards?: { stopFollowingLinkedFolders: () => void } | null;
   traceChangeBroadcast?: Stoppable | null;
   telegramOutbox: { idle: () => unknown };
   configStore?: { idle: () => unknown };
@@ -131,6 +132,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     }
     const uploadsWiring = dependencies.uploadsWiring;
     if (uploadsWiring) stoppers.add('uploads', () => uploadsWiring.stop());
+    dependencies.whiteboards?.stopFollowingLinkedFolders();
 
 
     stoppers.add('telegram-outbox', () => dependencies.telegramOutbox.idle());

@@ -758,6 +758,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
     traceWiring,
     uploadsWiring,
+    whiteboards,
     traceChangeBroadcast,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
     telegramOutbox,

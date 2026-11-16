@@ -111,7 +111,8 @@ const MERGED_STATE = mergeStateResponse('MERGED', false);
 
 test('a store rollup change broadcasts my-prs status and its stage clock without a lane tick, the clock survives a restart and GitHub recomputing mergeability, a merge state GitHub settles later is read again, a pull request and its review items survive GitHub failing, refusing or garbling its reads and leave only once GitHub reports it gone, and Refresh polls its watches', async () => {
   const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'control-my-pr-store-'));
-  let nowMs = Date.now();
+  const startedAtMs = Date.parse('2026-11-05T10:10:00Z');
+  let nowMs = startedAtMs;
   let checksState: 'PENDING' | 'SUCCESS' | 'FAILURE' = 'PENDING';
   let mergeable: 'MERGEABLE' | 'UNKNOWN' = 'MERGEABLE';
   let mergeStateStatus = 'CLEAN';
@@ -226,7 +227,7 @@ test('a store rollup change broadcasts my-prs status and its stage clock without
     assert.equal(wiring.getStatus().prs[0]?.stageSinceMs, stageChangedAtMs);
     assert.deepEqual(searches.slice(0, 2), [
       'is:open author:@me org:Acme sort:updated-desc',
-      `is:merged author:@me org:Acme merged:>=${new Date(Date.now() - 86400000).toISOString().slice(0, 10)} sort:updated-desc`,
+      `is:merged author:@me org:Acme merged:>=${new Date(startedAtMs - 86400000).toISOString().slice(0, 10)} sort:updated-desc`,
     ]);
     const connection = connectControl<MergeFrame & { freshness?: { lastRefreshedAt: number | null; error: string | null } }>(createControlServer(controlDeps({ projects: [] }, {
       myPrs: wiring, githubStore,

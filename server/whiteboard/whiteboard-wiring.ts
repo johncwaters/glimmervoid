@@ -182,6 +182,7 @@ interface WhiteboardPort {
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
   fileUnfiledBoards(): Promise<void>;
   followLinkedFolders(): Promise<void>;
+  stopFollowingLinkedFolders(): void;
   takeBoardNotice(sessionId: string, sessionProject: string | null): string | null;
   isConnected(sessionId: string): boolean;
   snapshotMessage(): ServerMessageOf<'whiteboards-snapshot'>;
@@ -305,6 +306,7 @@ function createWhiteboardWiring({
   const linkStateByBoardId = new Map<string, Pick<LinkSync, 'state' | 'text'>>();
   const linkAutosaveByBoardId = new Map<string, ReturnType<typeof createCoalescedTimer>>();
   const linkWatchByBoardId = new Map<string, WatchedFolder & { watcher: WatchDebounce }>();
+  const linkFollowingStop = new AbortController();
   const tiles = createBoardTileService({
     boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null),
     unloadedBoardOf: (boardId) => (unloadedBoardIds.has(boardId) ? recordsByBoardId.get(boardId)?.board ?? null : null),
@@ -459,6 +461,7 @@ function createWhiteboardWiring({
   }
 
   function scheduleLinkSync(boardId: string): void {
+    if (linkFollowingStop.signal.aborted) return;
     const existing = linkAutosaveByBoardId.get(boardId);
     if (existing) {
       existing.schedule();
@@ -471,6 +474,7 @@ function createWhiteboardWiring({
 
   async function watchLinkedFolder(board: Board): Promise<void> {
     const target = await linkedBoards.watchedFolderOf(board, linkRootOf(board));
+    if (linkFollowingStop.signal.aborted) return;
     const current = linkWatchByBoardId.get(board.id);
     if (current?.watcher.active && current.folder === target?.folder && current.inode === target.inode) return;
     current?.watcher.stop();
@@ -486,7 +490,16 @@ function createWhiteboardWiring({
     await Promise.all(linkedBoardIds.map((boardId) => syncLinkedFolder(boardId)));
   }
 
+  function stopFollowingLinkedFolders(): void {
+    linkFollowingStop.abort();
+    for (const timer of linkAutosaveByBoardId.values()) timer.cancel();
+    linkAutosaveByBoardId.clear();
+    for (const { watcher } of linkWatchByBoardId.values()) watcher.stop();
+    linkWatchByBoardId.clear();
+  }
+
   async function syncLinkedFolder(boardId: string): Promise<void> {
+    if (linkFollowingStop.signal.aborted) return;
     const record = recordsByBoardId.get(boardId);
     if (!record || record.board.link === null) return;
     let syncedBoard: Board | null = null;
@@ -1388,7 +1401,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
