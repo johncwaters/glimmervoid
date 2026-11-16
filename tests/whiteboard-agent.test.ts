@@ -783,6 +783,9 @@ test('a board file carries its board id, so importing it overwrites that board i
   const friendFrame = friendEdit.board.elements.flow;
   assert.ok(friendFrame);
   friendFrame.contains = ['shot', 'demo'];
+  const { shot: friendShot, ...elementsBelowShot } = friendEdit.board.elements;
+  assert.ok(friendShot);
+  friendEdit.board.elements = { ...elementsBelowShot, shot: friendShot };
   const friendPath = path.join(fixture.tmpDir, PLANNER_ID, 'friend.glimmerboard');
   fs.writeFileSync(friendPath, gzippedFile(friendEdit));
   const imported = await runPlannerCli(context, ['whiteboard', 'import', friendPath]);
@@ -792,6 +795,8 @@ test('a board file carries its board id, so importing it overwrites that board i
   const afterFriend = await boardOf(PLANNER_ID, boardId);
   assert.deepEqual(Object.keys(afterFriend.board.elements).sort(), ['demo', 'flow', 'parts-doc', 'parts-sheet', 'shot', 'shot-demo', 'why']);
   assert.equal(afterFriend.board.elements.why?.title, 'Refusal checked');
+  const boxIdsBottomUp = (elements: Record<string, Record<string, unknown>>) => Object.values(elements).filter((element) => element.kind === 'box').map((element) => element.id);
+  assert.deepEqual(boxIdsBottomUp(afterFriend.board.elements), boxIdsBottomUp(friendEdit.board.elements), 'the board comes back stacked as the file has it, with the friend\'s Login card brought to the front');
   assert.deepEqual(afterFriend.board.elements.shot, original.board.elements.shot, 'an element the file did not change stays as it was');
   assert.ok(Number(afterFriend.board.version) > Number(original.board.version), 'the overwrite is a put, so sessions reading the board see it');
   assert.equal(await boardCount(), boardsBeforeImports, 'importing a board already here adds no board');
@@ -948,6 +953,18 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   await boardOf(PLANNER_ID, boardId);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   assert.equal(fs.statSync(documentPath).mtimeMs, settledStat.mtimeMs, 'a board that did not change leaves the file alone, so git sees nothing');
+
+  const linesById = () => new Map(documentText().split('\n').slice(1).filter(Boolean).map((line) => [(JSON.parse(line) as { id: string }).id, line]));
+  const boxIdsBottomUp = async () => Object.values((await boardOf(PLANNER_ID, boardId)).board.elements).filter((element) => element.kind === 'box').map((element) => element.id);
+  const linesBeforeRestack = linesById();
+  await put([{ op: 'order', ids: ['b'], to: 'front' }]);
+  const restackedIds = () => [...linesById()].filter(([id, line]) => linesBeforeRestack.get(id) !== line).map(([id]) => id);
+  await eventually(() => restackedIds().length > 0, 'a restack reaches board.jsonl');
+  assert.equal(restackedIds().length, 1, 'a restack rewrites one line, so git merges it like any edit');
+  assert.deepEqual([...linesById().keys()], ['a', 'a-b', 'b'], 'lines stay sorted by id');
+  const stackKeyOf = (id: string) => (JSON.parse(linesById().get(id) ?? '{}') as { stack?: string }).stack ?? '';
+  fs.writeFileSync(documentPath, documentText().replace(linesById().get('b') ?? '', (linesById().get('b') ?? '').replace(`"stack":"${stackKeyOf('b')}"`, `"stack":"${stackKeyOf('a').slice(0, -1)}0${stackKeyOf('a').slice(-1)}"`)));
+  await eventually(async () => (await boxIdsBottomUp()).join() === 'b,a', 'a pulled restack stacks the board as the folder has it');
 
   const pulledText = documentText().replace('"title":"Second, saved"', '"title":"Second, pulled"');
   await put([{ op: 'set', id: 'a', fields: { title: 'First, local' } }]);

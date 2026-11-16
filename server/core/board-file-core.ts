@@ -1,5 +1,6 @@
 import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaOriginalFilename, boardMediaSavedName, boxIdsOfWire, sparseElement } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardFile, BoxMedia, Element, Op } from '../../shared/contracts/whiteboard.ts';
+import { isArrayIndexKey } from '../../shared/whiteboard-element-table.ts';
 
 type ExportedBoard = Omit<BoardFile, 'assets' | 'board'> & { board: Pick<Board, 'id' | 'title' | 'caption' | 'legend'> & { elements: Record<string, unknown> } };
 type BoardContent = Pick<Board, 'title' | 'caption' | 'legend'> & { elements: readonly Element[] };
@@ -110,7 +111,40 @@ function boardDiffOps(current: Board, target: BoardContent): Op[] {
   const removeOps: Op[] = [...removedIds.filter((id) => !isBoxRemoval(id)), ...removedIds.filter(isBoxRemoval)].map((id) => ({ op: 'remove', id }));
   const isHeaderChanged = current.title !== target.title || current.caption !== target.caption || JSON.stringify(current.legend) !== JSON.stringify(target.legend);
   const headerOps: Op[] = isHeaderChanged ? [{ op: 'board', title: target.title, caption: target.caption, legend: target.legend }] : [];
-  return [...headerOps, ...removeOps, ...changedOps];
+  return [...headerOps, ...removeOps, ...changedOps, ...orderOpsOf(current, targetElements, new Set(removedIds), changedOps)];
+}
+
+function orderOpsOf(current: Board, targetElements: readonly Element[], removedIds: ReadonlySet<string>, changedOps: readonly Op[]): Op[] {
+  const addedElements = changedOps.flatMap((op) => (op.op === 'add' ? [op.element] : []));
+  const kinds = new Set(targetElements.map((element) => element.kind));
+  let restackedSpan = 0;
+  const orderOps = [...kinds].flatMap((kind): Op[] => {
+    const isRestackable = (element: Pick<Element, 'kind' | 'id'>) => element.kind === kind && !isArrayIndexKey(element.id);
+    const keptIds = [...current.elements.values()].filter((element) => isRestackable(element) && !removedIds.has(element.id)).map((element) => element.id);
+    const stackedIdsAfterDiff = [...keptIds, ...addedElements.filter(isRestackable).map((element) => element.id)];
+    const targetIds = targetElements.filter(isRestackable).map((element) => element.id);
+    const { start, end } = longestRunAlreadyInOrder(targetIds, stackedIdsAfterDiff);
+    const idsToBack = targetIds.slice(0, start);
+    const idsToFront = targetIds.slice(end);
+    restackedSpan += (idsToBack.length > 0 ? stackedIdsAfterDiff.length : 0) + (idsToFront.length > 0 ? stackedIdsAfterDiff.length : 0);
+    return [
+      ...(idsToBack.length > 0 ? [{ op: 'order' as const, ids: idsToBack, to: 'back' as const }] : []),
+      ...(idsToFront.length > 0 ? [{ op: 'order' as const, ids: idsToFront, to: 'front' as const }] : []),
+    ];
+  });
+  return restackedSpan + changedOps.length + removedIds.size <= WHITEBOARD_LIMITS.opsPerPut ? orderOps : [];
+}
+
+function longestRunAlreadyInOrder(targetIds: readonly string[], stackedIds: readonly string[]): { start: number; end: number } {
+  const stackPlaceById = new Map(stackedIds.map((id, place) => [id, place]));
+  let longest = { start: 0, end: 0 };
+  let runStart = 0;
+  for (let index = 0; index < targetIds.length; index += 1) {
+    const isRising = index > runStart && (stackPlaceById.get(targetIds[index] ?? '') ?? -1) > (stackPlaceById.get(targetIds[index - 1] ?? '') ?? -1);
+    if (index > runStart && !isRising) runStart = index;
+    if (index + 1 - runStart > longest.end - longest.start) longest = { start: runStart, end: index + 1 };
+  }
+  return longest;
 }
 
 const COPY_NUMBER_SUFFIX_RE = / \((\d+)\)$/;

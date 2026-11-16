@@ -33,7 +33,7 @@ const IN_SYNC_TEXT = 'In sync with the folder';
 const NO_CODE_SESSION_TEXT = 'The board code session is not running, so the linked folder cannot be read';
 const MemberHashByPath = z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/))
   .refine((memberHashByPath) => Object.keys(memberHashByPath).length <= BOARD_PAGE_MEMBERS_MAX);
-const EMPTY_DOCUMENT: BoardDocument = { headerLine: '', lineById: new Map() };
+const EMPTY_DOCUMENT: BoardDocument = { headerLine: '', lineById: new Map(), stackKeyById: new Map() };
 
 function problem(text: string): Problem {
   return { ok: false, problem: text };
@@ -249,12 +249,14 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
   }
 
   async function syncFolder(board: Board, linkPath: string, root: string, folder: string): Promise<LinkSync> {
-    const ours = boardDocumentOf(contentOfBoard(board));
-    const oursText = encodeBoardDocument(ours);
     const folderRead = await readFolderDocument(root, folder);
     if (!folderRead.ok) return brokenSync(folderRead.problem);
     const { text: theirsText, bytes: theirsBytes } = folderRead;
     const baseText = await readBase(board, folder);
+    const base = baseText === null ? null : decodeBoardDocument(baseText);
+    const baseDocument = base?.ok ? base.document : EMPTY_DOCUMENT;
+    const ours = boardDocumentOf(contentOfBoard(board), baseDocument.stackKeyById);
+    const oursText = encodeBoardDocument(ours);
     if (theirsText === null && baseText !== null) return brokenSync(`${linkPath}/${DOCUMENT_FILENAME} is gone, as after a branch switch, so the board stopped writing to it; it syncs again once the file is back, or unlink the board and link it again to write it there`);
     if (theirsText === null) return finishSync(board, root, folder, oursText, null, null);
     if (theirsText === oursText || theirsText === baseText) return finishSync(board, root, folder, oursText, theirsBytes, null);
@@ -262,15 +264,13 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
     if (!theirs.ok) return brokenSync(`${linkPath}/${DOCUMENT_FILENAME} cannot be read, so the board stopped writing to it: ${theirs.error}`);
     if (oursText === baseText) {
       const theirsContent = withDanglingReferencesDropped(theirs.content);
-      return finishSync(board, root, folder, encodeBoardDocument(boardDocumentOf(theirsContent)), theirsBytes, theirsContent);
+      return finishSync(board, root, folder, encodeBoardDocument(boardDocumentOf(theirsContent, theirs.document.stackKeyById)), theirsBytes, theirsContent);
     }
-    const base = baseText === null ? null : decodeBoardDocument(baseText);
-    const baseDocument = base?.ok ? base.document : EMPTY_DOCUMENT;
     const mergedText = encodeBoardDocument(mergeBoardDocuments(baseDocument, ours, theirs.document));
     const merged = decodeBoardDocument(mergedText);
     if (!merged.ok) return brokenSync(`The board and its folder could not be merged: ${merged.error}`);
     const mergedContent = withDanglingReferencesDropped(merged.content);
-    const cleanText = encodeBoardDocument(boardDocumentOf(mergedContent));
+    const cleanText = encodeBoardDocument(boardDocumentOf(mergedContent, merged.document.stackKeyById));
     return finishSync(board, root, folder, cleanText, theirsBytes, mergedContent);
   }
 
