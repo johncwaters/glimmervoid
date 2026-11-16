@@ -35,6 +35,7 @@ function linkStateText(state: LinkState, file: FileReading): string {
 function linkPathProblem(linkPath: string): string | null {
   if (linkPath.startsWith('/') || linkPath.startsWith('\\') || /^[A-Za-z]:/.test(linkPath)) return `the linked path ${linkPath} is absolute; give it relative to the board code session worktree`;
   if (linkPath.split(/[\\/]/).some((segment) => segment === '..')) return `the linked path ${linkPath} climbs out with ..; give it relative to the board code session worktree`;
+  if (linkPath.split(/[\\/]/).some((segment) => segment.toLowerCase() === '.git')) return `the linked path ${linkPath} leads into .git, where git keeps its own files; give a folder of the worktree instead`;
   if (linkPath.includes('\0')) return 'a linked path holds no NUL character';
   return null;
 }

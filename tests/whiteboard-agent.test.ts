@@ -916,7 +916,15 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   await put([box('b', 'Second', 400), { op: 'add', element: { kind: 'box', id: 'a', title: 'First', place: { at: { x: 40, y: 40 } }, media: picture } }, { op: 'add', element: { kind: 'wire', id: 'a-b', from: 'a', to: 'b' } }]);
   const refused = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'board', link: '../outside' }] });
   assert.match(String(refused.body.error), /climbs out/);
+  const intoGit = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'board', link: 'sub/.GIT/boards' }] });
+  assert.match(String(intoGit.body.error), /leads into \.git/);
   await put([{ op: 'board', link: 'boards/plan' }]);
+  const otherBoardId = await newBoard('Second board on the folder');
+  for (const sameFolder of ['boards/./plan/', 'Boards/Plan']) {
+    const sharedFolder = await whiteboard(PLANNER_ID, { sub: 'put', board: otherBoardId, ops: [{ op: 'board', link: sameFolder }] });
+    assert.equal(sharedFolder.status, 409, sameFolder);
+    assert.match(String(sharedFolder.body.error), /Linked plan already links/);
+  }
 
   const documentPath = path.join(worktree, 'boards', 'plan', 'board.jsonl');
   const eventually = async (check: () => Promise<boolean> | boolean, label: string) => {

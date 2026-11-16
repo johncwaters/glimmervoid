@@ -279,6 +279,7 @@ function createWhiteboardWiring({
   boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {},
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
+  const linkedFolderKeeperIdByKey = new Map<string, string>();
   const announcedVersionByBoardIdBySessionId = new Map<string, Map<string, number>>();
   const attachedBoardIdBySessionId = new Map<string, string>();
   const latestAttachmentTicketBySessionId = new Map<string, number>();
@@ -493,6 +494,11 @@ function createWhiteboardWiring({
     let settleFolder: LinkSync['settle'] = null;
     const reply = await changeRecord(boardId, async (current) => {
       syncedBoard = current.board;
+      const keeper = boardKeepingLinkedFolderOf(current.board);
+      if (keeper) {
+        syncedState = { state: 'broken', text: `The board ${keeper.title} already keeps this folder, so this board does not write to it; link this board to another folder` };
+        return { ok: false, reply: refusal(409, syncedState.text) };
+      }
       const synced = await linkedBoards.syncBoard(current.board, linkRootOf(current.board));
       if (synced === null) return { ok: false, reply: refusal(409, 'the board is not linked to a folder') };
       if (synced.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
@@ -632,6 +638,8 @@ function createWhiteboardWiring({
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
       const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      const boardSharingFolder = boardSharingLinkedFolderOf(record.board, applied.record.board);
+      if (boardSharingFolder) return { ok: false, reply: refusal(409, `the board ${boardSharingFolder.title} already links ${applied.record.board.link}, and two boards on one folder would write over each other, so nothing changed`) };
       const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
         const warnings = layout?.warnings ?? [UNREADABLE_LAYOUT_WARNING];
         const body = { ok: true as const, version: saved.board.version, ...(warnings.length > 0 ? { warnings } : {}) };
@@ -667,6 +675,29 @@ function createWhiteboardWiring({
 
   function linkRootOf(board: Board): string | null {
     return board.codeSessionId ? codeContextOf(board.codeSessionId)?.root ?? null : null;
+  }
+
+  function linkedFolderKeyOf(board: Board): string | null {
+    const root = linkRootOf(board);
+    return root === null || board.link === null ? null : path.resolve(root, board.link).toLowerCase();
+  }
+
+  function boardSharingLinkedFolderOf(boardBefore: Board, boardAfter: Board): Board | null {
+    const isLinkMoved = boardAfter.link !== boardBefore.link || boardAfter.codeSessionId !== boardBefore.codeSessionId;
+    const folderKey = linkedFolderKeyOf(boardAfter);
+    if (!isLinkMoved || folderKey === null) return null;
+    const sharingRecord = [...recordsByBoardId.values()].find((other) => other.board.id !== boardAfter.id && linkedFolderKeyOf(other.board) === folderKey);
+    return sharingRecord?.board ?? null;
+  }
+
+  function boardKeepingLinkedFolderOf(board: Board): Board | null {
+    const folderKey = linkedFolderKeyOf(board);
+    if (folderKey === null) return null;
+    const keeperId = linkedFolderKeeperIdByKey.get(folderKey);
+    const keeper = keeperId === undefined || keeperId === board.id ? undefined : recordsByBoardId.get(keeperId)?.board;
+    if (keeper && linkedFolderKeyOf(keeper) === folderKey) return keeper;
+    linkedFolderKeeperIdByKey.set(folderKey, board.id);
+    return null;
   }
 
   function mediaJsonOf(board: Board, boxId: string): string {
