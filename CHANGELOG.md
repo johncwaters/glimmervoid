@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-11-16
+
 ### Fixed
 
 - **Team review re-reviews an updated pull request on time on a Glimmervoid Cloud server that went to sleep.** When a teammate pushed new work before the re-review-after hours had passed, the review waited until something else woke the server, which could be days. The doorman now wakes the server when those hours are up, and the review starts then.
