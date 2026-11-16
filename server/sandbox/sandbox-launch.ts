@@ -8,12 +8,13 @@ import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { glimmervoidSecretPaths } from '../secrets/core/secret-files-core.ts';
+import { isPathInside } from '../../shared/paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { PrepareSandbox, SandboxLaunchFacts } from '../../session/sessions.ts';
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
-import type { CredentialProxyRoute, GitRepositoryLayout } from './core/sandbox-policy-core.ts';
+import type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink } from './core/sandbox-policy-core.ts';
 import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
-import { CREDENTIALED_HOSTS, everyModelLoginEntry, modelLoginFileFor } from './core/credential-decider-core.ts';
+import { CREDENTIALED_HOSTS, everyModelLoginEntry, withoutInheritedCredentials, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
 import { placeholderEnv } from '../../session/core/agent-home-core.ts';
 import type { CredentialProxies } from './credential-proxy.ts';
 
@@ -59,10 +60,80 @@ async function existingRealPaths(filePaths: readonly string[]): Promise<string[]
   return [...new Set(realPaths.filter((realPath) => realPath !== null))];
 }
 
-async function modelLoginEntriesToHide(dependencies: SessionSandboxDependencies, sessionAccountFolder: string | null): Promise<string[]> {
+async function modelLoginEntriesOf(dependencies: SessionSandboxDependencies, sessionAccountFolder: string | null): Promise<string[]> {
   const ownedAccountFolders = await childFoldersOf(configSiblingPath(dependencies.configPath, 'agent-accounts'));
   const accountFolders = [...new Set([...ownedAccountFolders, ...dependencies.getAgentAccountFolders(), ...(sessionAccountFolder === null ? [] : [sessionAccountFolder])])];
-  return existingRealPaths(everyModelLoginEntry(process.env, os.homedir(), accountFolders));
+  return everyModelLoginEntry(process.env, os.homedir(), accountFolders);
+}
+
+async function canonicalPathOf(entryPath: string): Promise<string> {
+  const folder = await fsp.realpath(path.dirname(entryPath)).catch(() => path.dirname(entryPath));
+  return path.join(folder, path.basename(entryPath));
+}
+
+async function symlinksIn(folder: string): Promise<string[]> {
+  const entries = await fsp.readdir(folder, { withFileTypes: true }).catch(() => []);
+  return entries.filter((entry) => entry.isSymbolicLink()).map((entry) => path.join(folder, entry.name));
+}
+
+async function linkedPathsIn(generatedHome: string): Promise<string[]> {
+  const entries = await fsp.readdir(generatedHome, { withFileTypes: true }).catch(() => []);
+  const childFolders = entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(generatedHome, entry.name));
+  const linkPaths = [...await symlinksIn(generatedHome), ...(await Promise.all(childFolders.map(symlinksIn))).flat()];
+  const linkTexts = await Promise.all(linkPaths.map(async (linkPath) => {
+    const linkText = await fsp.readlink(linkPath).catch(() => null);
+    return linkText === null ? null : canonicalPathOf(path.resolve(path.dirname(linkPath), linkText));
+  }));
+  return linkTexts.filter((linkedPath) => linkedPath !== null);
+}
+
+function topEntryWithin(loginHome: string, linkedPath: string): string | null {
+  if (!isPathInside(loginHome, linkedPath, { allowEqual: false })) return null;
+  return path.join(loginHome, path.relative(loginHome, linkedPath).split(path.sep)[0]);
+}
+
+async function carveOutsFor(loginHomes: readonly string[], linkedPaths: readonly string[], loginEntries: readonly string[]): Promise<string[]> {
+  const topEntries = [...new Set(linkedPaths.flatMap((linkedPath) => loginHomes.map((loginHome) => topEntryWithin(loginHome, linkedPath))).filter((entry) => entry !== null))];
+  const holdsLogin = (entry: string) => loginEntries.some((loginEntry) => isPathInside(entry, loginEntry) || isPathInside(loginEntry, entry));
+  const carvable = await Promise.all(topEntries.filter((entry) => !holdsLogin(entry)).map(async (entry) => {
+    const entryStat = await fsp.lstat(entry).catch(() => null);
+    return entryStat === null || entryStat.isSymbolicLink() ? null : entry;
+  }));
+  return carvable.filter((entry) => entry !== null);
+}
+
+async function restorableLinkOf(folder: string, linkPath: string, hiddenEntries: ReadonlySet<string>): Promise<SealedHomeLink[]> {
+  const linkRealPath = await fsp.realpath(linkPath).catch(() => null);
+  if (hiddenEntries.has(linkPath) || (linkRealPath !== null && hiddenEntries.has(linkRealPath))) return [];
+  const linkText = await fsp.readlink(linkPath).catch(() => null);
+  return linkText === null ? [] : [{ linkPath, target: path.resolve(folder, linkText) }];
+}
+
+async function linksIn(folder: string, hiddenEntries: ReadonlySet<string>): Promise<SealedHomeLink[]> {
+  const linkPaths = await symlinksIn(folder);
+  return (await Promise.all(linkPaths.map((linkPath) => restorableLinkOf(folder, linkPath, hiddenEntries)))).flat();
+}
+
+interface SealedLoginHomes {
+  sealedLoginHomes: string[];
+  sealedLoginHomeCarveOuts: string[];
+  restoredLinks: SealedHomeLink[];
+}
+
+async function sealedLoginHomesFor(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts, loginEntries: readonly string[], hiddenEntries: readonly string[]): Promise<SealedLoginHomes> {
+  const unsealed = { sealedLoginHomes: [], sealedLoginHomeCarveOuts: [], restoredLinks: [] };
+  const sessionHome = sessionAgentHomeOf(facts.agent, facts.env);
+  const realSessionHome = sessionHome === null ? null : await fsp.realpath(sessionHome).catch(() => null);
+  const generatedHomesRoot = await fsp.realpath(path.join(dependencies.glimmervoidHome, 'agent-homes')).catch(() => null);
+  if (realSessionHome === null || generatedHomesRoot === null || !isPathInside(generatedHomesRoot, realSessionHome, { allowEqual: false })) return unsealed;
+  const loginHomePaths = [modelLoginHomeOf(facts.agent, process.env, os.homedir()), facts.accountFolder].filter((folder) => folder !== null);
+  const loginHomes = await existingRealPaths(loginHomePaths);
+  const canonicalLoginEntries = await Promise.all(loginEntries.map(canonicalPathOf));
+  const sealedLoginHomeCarveOuts = await carveOutsFor(loginHomes, await linkedPathsIn(realSessionHome), [...canonicalLoginEntries, ...hiddenEntries]);
+  const hiddenEntrySet = new Set(hiddenEntries);
+  const restoredLinks = (await Promise.all(loginHomes.map((loginHome) => linksIn(loginHome, hiddenEntrySet)))).flat();
+  const spelledLoginHomes = (await Promise.all(loginHomePaths.map(async (loginHomePath) => (await fsp.stat(loginHomePath).catch(() => null)) === null || loginHomes.includes(path.resolve(loginHomePath)) ? null : path.resolve(loginHomePath)))).filter((loginHomePath) => loginHomePath !== null);
+  return { sealedLoginHomes: [...loginHomes, ...spelledLoginHomes], sealedLoginHomeCarveOuts, restoredLinks };
 }
 
 const PEM_CERTIFICATE_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
@@ -128,13 +199,17 @@ function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTemp
 async function launchWithin(dependencies: SessionSandboxDependencies, sessionTempFolder: string, facts: SandboxLaunchFacts, tools: SandboxTools, ingressPort: number, credentialProxy: HeldCredentialProxy): ReturnType<PrepareSandbox> {
   const trustEnv = await writeProxyTrustFiles(sessionTempFolder, await dependencies.proxyCertificatePem(), facts.env);
   const settingsPath = srtSettingsPathIn(sessionTempFolder);
+  const loginEntries = await modelLoginEntriesOf(dependencies, facts.accountFolder);
+  const hiddenLoginEntries = await existingRealPaths(loginEntries);
+  const { restoredLinks, ...sealedLoginHomes } = await sealedLoginHomesFor(dependencies, facts, loginEntries, hiddenLoginEntries);
   const settings = buildSrtSettings({
     homeDir: os.homedir(),
     glimmervoidHome: dependencies.glimmervoidHome,
     configFolder: path.dirname(dependencies.configPath),
-    secretPaths: [...glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }), ...await modelLoginEntriesToHide(dependencies, facts.accountFolder)],
+    secretPaths: [...glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }), ...hiddenLoginEntries],
     agent: facts.agent,
     accountFolder: facts.accountFolder,
+    ...sealedLoginHomes,
     userId: os.userInfo().uid,
     worktree: facts.cwd,
     gitRepositories: await gitRepositoriesUnder(facts.cwd),
@@ -153,12 +228,12 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     await removeSocketFolder();
     return { ok: false, reason: ingressSocket.refusal };
   }
-  const command = sandboxedCommand({ ...tools, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, file: facts.file, args: facts.args });
+  const command = sandboxedCommand({ ...tools, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
   return {
     ok: true,
     launch: {
       ...command,
-      env: { ...facts.env, ...trustEnv, ...placeholderEnv(facts.agent), TMPDIR: socketFolder },
+      env: { ...withoutInheritedCredentials(facts.env, facts.launchSetEnvNames), ...trustEnv, ...placeholderEnv(facts.agent), TMPDIR: socketFolder },
       dispose: async () => {
         credentialProxy.release();
         await ingressSocket.close();

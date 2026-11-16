@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
+import { isSecretEnvName } from '../../../shared/secret-patterns.ts';
 
 const FRAME_LENGTH_BYTES = 4;
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -23,6 +24,11 @@ const MODEL_LOGIN_LAYOUTS: Readonly<Record<CredentialedAgentId, ModelLoginLayout
 });
 
 const GITHUB_CREDENTIAL_CLASS_BY_HOST: Readonly<Record<string, string>> = Object.freeze({ 'github.com': 'github', 'api.github.com': 'api' });
+
+function withoutInheritedCredentials(sessionEnv: Readonly<Record<string, string | undefined>>, launchSetEnvNames: readonly string[]): Record<string, string | undefined> {
+  const isInheritedCredential = (name: string) => isSecretEnvName(name) && !launchSetEnvNames.includes(name);
+  return Object.fromEntries(Object.entries(sessionEnv).filter(([name]) => !isInheritedCredential(name)));
+}
 
 const CREDENTIALED_HOSTS: readonly string[] = Object.freeze([...Object.values(MODEL_LOGIN_LAYOUTS).map((layout) => layout.modelHost), ...Object.keys(GITHUB_CREDENTIAL_CLASS_BY_HOST)]);
 
@@ -64,6 +70,17 @@ function modelLoginFileFor(agent: string, env: Readonly<Record<string, string | 
   const layout = modelLoginLayoutFor(agent);
   if (layout === null) return null;
   return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), ...layout.loginFileSegments);
+}
+
+function modelLoginHomeOf(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
+  const layout = modelLoginLayoutFor(agent);
+  return layout === null ? null : modelLoginHomeFor(layout, env, homeDir, accountFolder);
+}
+
+function sessionAgentHomeOf(agent: string, sessionEnv: Readonly<Record<string, string | undefined>>): string | null {
+  const layout = modelLoginLayoutFor(agent);
+  const sessionHome = layout === null ? undefined : sessionEnv[layout.homeEnvName]?.trim();
+  return sessionHome ? sessionHome : null;
 }
 
 function modelLoginEntryFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
@@ -170,5 +187,5 @@ function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   return { ...allow, cred: credential.credentialClass, credential: credential.token };
 }
 
-export { CREDENTIALED_HOSTS, createFrameReader, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginFileFor, modelTokenFrom, verdictFor };
+export { CREDENTIALED_HOSTS, createFrameReader, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginFileFor, modelTokenFrom, verdictFor };
 export type { ProxyFrame, ProxyRequest };

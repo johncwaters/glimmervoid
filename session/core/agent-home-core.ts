@@ -199,7 +199,7 @@ interface AgentHomeProfile {
   renderLauncherConfig: ((operatorLauncherText: string) => string) | null;
   config: TomlConfigFormat | JsonConfigFormat | null;
   generatedFileNames: readonly string[];
-  isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
+  isPrivateEntryName(name: string, platform: NodeJS.Platform, isSandboxed: boolean): boolean;
   cleanOmits: CleanHomeOmits | null;
   account: AgentAccountSeam | null;
   sandboxLogin?: SandboxLogin;
@@ -225,6 +225,7 @@ interface RealAgentHomeEntry {
   kind: "folder" | "file";
   fileStamp: string | null;
   childNames: readonly string[];
+  resolvedLinkTarget?: string;
 }
 
 interface GeneratedAgentHomeEntry {
@@ -607,7 +608,7 @@ function planPrivateFolder(real: RealAgentHomeEntry, generated: GeneratedAgentHo
 }
 
 function planEntryLink(real: RealAgentHomeEntry, generated: GeneratedAgentHomeEntry | undefined, inputs: AgentHomeInputs): AgentHomeStep[] | "private" {
-  const target = path.join(inputs.realHome, real.name);
+  const target = real.resolvedLinkTarget ?? path.join(inputs.realHome, real.name);
   const link: AgentHomeStep = { kind: "link", name: real.name, target, linkKind: linkKindFor(real.kind, inputs.platform) };
   if (!generated) return [link];
   if (generated.kind === "link") return generated.linkTarget === target ? [] : [{ kind: "unlink", name: real.name }, link];
@@ -628,7 +629,7 @@ function isAccountEntryName(name: string, inputs: AgentHomeInputs): boolean {
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
   if (inputs.isClean && inputs.profile.cleanOmits?.entryNames.includes(name)) return true;
   if (inputs.isSandboxed && inputs.profile.sandboxLogin?.entryName === name) return true;
-  return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform) || isAccountEntryName(name, inputs);
+  return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform, inputs.isSandboxed === true) || isAccountEntryName(name, inputs);
 }
 
 function isPackSkillsFolder(entry: GeneratedAgentHomeEntry | undefined): boolean {
@@ -759,7 +760,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
     sessionOnlyTablePrefixes: Object.freeze(["[[hooks.", "[hooks.state."]),
   }),
   generatedFileNames: Object.freeze([]),
-  isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
+  isPrivateEntryName: (name: string, platform: NodeJS.Platform, isSandboxed: boolean) => (platform === "win32" || isSandboxed) && CODEX_SQLITE_NAME_PATTERN.test(name),
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
   account: accountSeamOf(/^auth\.(?:json|lock)$/),
   sandboxLogin: Object.freeze({ entryName: "auth.json", fileSegments: Object.freeze(["auth.json"]), placeholderOf: codexPlaceholderAuth }),

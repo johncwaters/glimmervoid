@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInside } from '../../../shared/paths.ts';
 
 const INGRESS_SOCKET_NAME = 'ingress.sock';
 const SRT_SETTINGS_NAME = 'srt.json';
@@ -54,6 +55,8 @@ interface SandboxPolicyInput {
   secretPaths: readonly string[];
   agent: string;
   accountFolder: string | null;
+  sealedLoginHomes: readonly string[];
+  sealedLoginHomeCarveOuts: readonly string[];
   userId: number;
   worktree: string;
   gitRepositories: readonly GitRepositoryLayout[];
@@ -61,6 +64,11 @@ interface SandboxPolicyInput {
   readableFiles: readonly string[];
   extraAllowedHosts: readonly string[];
   credentialProxy: CredentialProxyRoute | null;
+}
+
+interface SealedHomeLink {
+  linkPath: string;
+  target: string;
 }
 
 interface CredentialProxyRoute {
@@ -82,11 +90,12 @@ interface SandboxedCommandInput {
   ingressPort: number;
   ingressSocketPath: string;
   agentTempFolder: string;
+  restoredLinks: readonly SealedHomeLink[];
   file: string;
   args: readonly string[];
 }
 
-const FORWARD_INGRESS_THEN_EXEC = '"$1" "TCP-LISTEN:$2,bind=127.0.0.1,fork,reuseaddr" "UNIX-CONNECT:$3" & export TMPDIR="$4"; shift 4; exec "$@"';
+const FORWARD_INGRESS_RESTORE_LINKS_THEN_EXEC = '"$1" "TCP-LISTEN:$2,bind=127.0.0.1,fork,reuseaddr" "UNIX-CONNECT:$3" & export TMPDIR="$4"; links="$5"; shift 5; while [ "$links" -gt 0 ]; do ln -s "$2" "$1" 2>/dev/null; shift 2; links=$((links - 1)); done; exec "$@"';
 
 const LINKED_WORKTREE_POINTER_FILES: readonly string[] = Object.freeze(['commondir', 'gitdir', 'config.worktree']);
 
@@ -102,7 +111,9 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
   const underGlimmervoidFolders = (relativePaths: readonly string[]) => glimmervoidFolders.flatMap((folder) => relativePaths.map((relativePath) => path.join(folder, relativePath)));
   const ownHomePaths = AGENT_HOME_PATHS_BY_AGENT[input.agent] ?? [];
   const otherAgentHomePaths = Object.entries(AGENT_HOME_PATHS_BY_AGENT).flatMap(([agent, homePaths]) => agent === input.agent ? [] : homePaths.filter((homePath) => !ownHomePaths.includes(homePath)));
-  const accountFolders = input.accountFolder === null ? [] : [input.accountFolder];
+  const isSealed = (folder: string) => input.sealedLoginHomes.some((sealedHome) => isPathInside(sealedHome, folder));
+  const accountFolders = input.accountFolder === null || isSealed(input.accountFolder) ? [] : [input.accountFolder];
+  const writableHomePaths = [...SHARED_HOME_WRITABLE_PATHS, ...ownHomePaths].map(underHome).filter((homePath) => !isSealed(homePath));
   return {
     network: {
       allowedDomains: [...new Set([...DEFAULT_ALLOWED_HOSTS, ...input.extraAllowedHosts])],
@@ -111,15 +122,16 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
       ...(input.credentialProxy === null ? {} : { mitmProxy: { socketPath: input.credentialProxy.socketPath, domains: [...input.credentialProxy.hosts] } }),
     },
     filesystem: {
-      denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...otherAgentHomePaths.map(underHome), ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
-      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), ...accountFolders, input.sessionTempFolder, ...input.readableFiles],
+      denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...otherAgentHomePaths.map(underHome), ...input.sealedLoginHomes, ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
+      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), ...accountFolders, ...input.sealedLoginHomeCarveOuts, input.sessionTempFolder, ...input.readableFiles],
       allowWrite: [
         input.worktree,
         ...new Set(input.gitRepositories.map((repository) => repository.commonDir)),
         input.sessionTempFolder,
         ...underGlimmervoidFolders(GLIMMERVOID_HOME_WRITABLE_FOLDERS),
         ...accountFolders,
-        ...[...SHARED_HOME_WRITABLE_PATHS, ...ownHomePaths].map(underHome),
+        ...input.sealedLoginHomeCarveOuts,
+        ...writableHomePaths,
       ],
       denyWrite: [...new Set(input.gitRepositories.flatMap(gitMetadataDeniedWrites))],
     },
@@ -131,8 +143,10 @@ function sandboxedCommand(input: SandboxedCommandInput): { file: string; args: s
     file: input.nodePath,
     args: [
       input.srtCliPath, '-s', input.settingsPath, '--',
-      '/bin/sh', '-c', FORWARD_INGRESS_THEN_EXEC, 'sh',
-      input.socatPath, String(input.ingressPort), input.ingressSocketPath, input.agentTempFolder, input.file, ...input.args,
+      '/bin/sh', '-c', FORWARD_INGRESS_RESTORE_LINKS_THEN_EXEC, 'sh',
+      input.socatPath, String(input.ingressPort), input.ingressSocketPath, input.agentTempFolder,
+      String(input.restoredLinks.length), ...input.restoredLinks.flatMap((link) => [link.linkPath, link.target]),
+      input.file, ...input.args,
     ],
   };
 }
@@ -153,5 +167,5 @@ function proxyTrustEnv(trustFiles: { trustBundlePath: string; proxyCertificatePa
   return { ...Object.fromEntries(TRUST_BUNDLE_ENV_NAMES.map((name) => [name, trustFiles.trustBundlePath])), NODE_EXTRA_CA_CERTS: trustFiles.proxyCertificatePath };
 }
 
-export type { CredentialProxyRoute, GitRepositoryLayout };
+export type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink };
 export { CREDENTIAL_PROXIES_FOLDER_PREFIX, SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn };

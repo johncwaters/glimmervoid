@@ -107,18 +107,28 @@ function childNamesOf(folder: string): string[] {
   return listFolder(folder).map((dirent) => dirent.name);
 }
 
-function listRealEntries(realHome: string, privateFolderNames: ReadonlySet<string>): RealAgentHomeEntry[] {
+function resolvedLinkTargetOf(entryPath: string, isLink: boolean, resolvesLinks: boolean): { resolvedLinkTarget?: string } {
+  if (!isLink || !resolvesLinks) return {};
+  try {
+    return { resolvedLinkTarget: fs.realpathSync(entryPath) };
+  } catch {
+    return {};
+  }
+}
+
+function listRealEntries(realHome: string, privateFolderNames: ReadonlySet<string>, resolvesLinks: boolean): RealAgentHomeEntry[] {
   const entries: RealAgentHomeEntry[] = [];
   for (const dirent of listFolder(realHome)) {
     const entryPath = path.join(realHome, dirent.name);
     const entryStat = statOrNull(entryPath);
     if (!entryStat) continue;
+    const linkTarget = resolvedLinkTargetOf(entryPath, dirent.isSymbolicLink(), resolvesLinks);
     if (entryStat.isDirectory()) {
       const childNames = privateFolderNames.has(dirent.name) ? childNamesOf(entryPath) : [];
-      entries.push({ name: dirent.name, kind: "folder", fileStamp: null, childNames });
+      entries.push({ name: dirent.name, kind: "folder", fileStamp: null, childNames, ...linkTarget });
       continue;
     }
-    entries.push({ name: dirent.name, kind: "file", fileStamp: fileStampOf(entryStat), childNames: [] });
+    entries.push({ name: dirent.name, kind: "file", fileStamp: fileStampOf(entryStat), childNames: [], ...linkTarget });
   }
   return entries;
 }
@@ -220,7 +230,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
   return planAgentHome({
     profile,
     realHome,
-    realEntries: listRealEntries(realHome, privateFolderNames),
+    realEntries: listRealEntries(realHome, privateFolderNames, isSandboxed === true),
     generatedEntries,
     ...configTexts,
     renderBlock,
@@ -415,7 +425,7 @@ function writeLauncherConfig(profile: AgentHomeProfile, options: AgentHomeOption
 
 function realFileStamps(realHome: string): Record<string, string> {
   const stamps: Record<string, string> = {};
-  for (const entry of listRealEntries(realHome, new Set())) {
+  for (const entry of listRealEntries(realHome, new Set(), false)) {
     if (entry.fileStamp !== null) stamps[fileStampKey(entry.name)] = entry.fileStamp;
   }
   return stamps;
@@ -525,6 +535,18 @@ async function prepareAccountHome(profile: AgentHomeProfile, { env, accountFolde
   if ("refusal" in prepared) return prepared;
   releaseUnheldAccountHomeSecrets(profile, accountFolder);
   const syncRefusal = await syncMixedAccountFiles(profile, accountFolder, env, homeDir);
+  if (syncRefusal !== null) return { refusal: syncRefusal };
+  return prepared;
+}
+
+async function prepareSandboxedAccountHome(profile: AgentHomeProfile, { env, accountFolder, homeDir = os.homedir() }: { env: AgentHomeEnv; accountFolder: string | null; homeDir?: string }): Promise<{ home: string } | { refusal: string }> {
+  const refusal = accountFolder === null ? null : accountFolderRefusal(profile, env, accountFolder, homeDir);
+  if (refusal !== null) return { refusal };
+  const loginEnv = accountFolder === null ? env : { ...env, [profile.homeEnvName]: accountHomeOf(profile, accountFolder) };
+  const sandboxedHome = sessionAgentHomePath(profile, env, { accountFolder, isSandboxed: true });
+  const prepared = prepareAgentHome(profile, { env: loginEnv, homeDir, renderBlock: () => (profile.config?.kind === "json" ? "{}" : ""), generatedHome: sandboxedHome, isAccountHome: true, isSandboxed: true });
+  if ("refusal" in prepared) return prepared;
+  const syncRefusal = await syncMixedAccountFiles(profile, sandboxedHome, loginEnv, homeDir);
   if (syncRefusal !== null) return { refusal: syncRefusal };
   return prepared;
 }
@@ -718,6 +740,6 @@ function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env, acc
   }
 }
 
-export { describeAgentHome, generatedAgentHomePath, sessionAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, sessionAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareSandboxedAccountHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
 
 export type { SessionAgentHomeChoice };

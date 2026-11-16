@@ -30,7 +30,7 @@ import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts
 import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
-import { prepareAccountHome } from "./agent-home.ts";
+import { prepareAccountHome, prepareSandboxedAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
@@ -48,7 +48,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
+import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
 import type { AttentionOwner, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
@@ -250,6 +250,7 @@ interface SandboxLaunchFacts {
   file: string;
   args: string[];
   env: SpawnEnv;
+  launchSetEnvNames: readonly string[];
   cwd: string;
 }
 
@@ -1808,7 +1809,7 @@ class Session extends EventEmitter {
       return;
     }
     const agentCommand = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
-    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, isStartSuperseded);
+    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, Object.keys(spawnExtraEnv ?? {}), isStartSuperseded);
     if (sandboxedCommand === null) return;
     const { file, args } = sandboxedCommand;
     const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
@@ -1993,7 +1994,7 @@ class Session extends EventEmitter {
     this._accountFolder = null;
     this.accountIdInUse = null;
     const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
-    if (accountHome.kind === "machine-login") return null;
+    if (accountHome.kind === "machine-login") return this._prepareSandboxedConfigHome();
     if (accountHome.kind === "refused") return accountHome.reason;
     const homeEnvName = this._adapter.accountHomeProfile?.homeEnvName ?? this._adapter.accountHomeEnvName;
     if (!homeEnvName) return `${this._adapter.label} sessions cannot run under an added account`;
@@ -2005,6 +2006,15 @@ class Session extends EventEmitter {
     }
     this._accountFolder = accountHome.account.folder;
     this._accountEnv = { [homeEnvName]: accountHome.account.folder };
+    return this._prepareSandboxedConfigHome();
+  }
+
+  async _prepareSandboxedConfigHome(): Promise<string | null> {
+    const profile = this._adapter.accountHomeProfile;
+    if (this._prepareSandbox === null || hookProfileOf(this._adapter)?.injection.kind !== "settings-file" || !profile) return null;
+    const prepared = await prepareSandboxedAccountHome(profile, { env: process.env, accountFolder: this._accountFolder });
+    if ("refusal" in prepared) return `the sandboxed ${this._adapter.label} home cannot be prepared: ${prepared.refusal}`;
+    this._accountEnv = { [profile.homeEnvName]: prepared.home };
     return null;
   }
 
@@ -2109,10 +2119,10 @@ class Session extends EventEmitter {
     return stateTransitions?.[event] === STATES.FAILED;
   }
 
-  async _sandboxedCommand(command: { file: string; args: string[] }, env: SpawnEnv, isStartSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null> {
+  async _sandboxedCommand(command: { file: string; args: string[] }, env: SpawnEnv, launchSetEnvNames: readonly string[], isStartSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null> {
     if (this._prepareSandbox === null) return { ...command, env };
     this._disposeSandboxLaunch();
-    const prepared = await this._prepareSandbox({ ...command, agent: this.agentId, accountFolder: this._accountFolder, env, cwd: this.effectiveCwd() })
+    const prepared = await this._prepareSandbox({ ...command, agent: this.agentId, accountFolder: this._accountFolder, env, launchSetEnvNames, cwd: this.effectiveCwd() })
       .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
     if (isStartSuperseded()) {
       if (prepared.ok) void prepared.launch.dispose();

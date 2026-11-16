@@ -43,7 +43,9 @@ const PEM_KEY_LINE_PATTERNS = [
 ];
 
 const QUERY_VALUE_PATTERN = new RegExp(`(${QUERY_PARAMETER_LEAD}(?:${SECRET_WORD}|_key)=)[^&#\\s]+`, 'gi');
-const ENV_NAME_ASSIGNMENT_PATTERN = new RegExp(`(\\b(?=[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD))[A-Z][A-Z0-9_]*=)${QUOTED_OR_BARE}`, 'g');
+const SECRET_ENV_NAME = '(?=[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD))[A-Z][A-Z0-9_]*';
+const SECRET_ENV_NAME_PATTERN = new RegExp(`^${SECRET_ENV_NAME}$`);
+const ENV_NAME_ASSIGNMENT_PATTERN = new RegExp(`(\\b${SECRET_ENV_NAME}=)${QUOTED_OR_BARE}`, 'g');
 
 const PATTERNS_YIELDING_TO_QUERY_VALUES = [SECRET_ASSIGNMENT_PATTERN, ENV_NAME_ASSIGNMENT_PATTERN];
 const INDEPENDENT_PATTERNS = [
@@ -116,6 +118,10 @@ function pieceRanges(text: string, pieces: readonly string[]): SecretRange[] {
 
 function deliveredValueRanges(text: string, deliveredValues: readonly string[]): SecretRange[] {
   return pieceRanges(text, deliveredValuePieces(deliveredValues));
+}
+
+export function isSecretEnvName(name: string): boolean {
+  return SECRET_ENV_NAME_PATTERN.test(name.toUpperCase());
 }
 
 export function deliveredValuePrefixLength(text: string, deliveredValues: readonly string[]): number {
