@@ -29,7 +29,7 @@ const DoormanTenantOwner = z.strictObject({
   authkitClientId: z.string().regex(/^client_[A-Za-z0-9]{1,64}$/),
   accountPageUrl: z.url({ protocol: /^https$/ }),
 });
-type DoormanTenantOwner = z.infer<typeof DoormanTenantOwner>;
+export type DoormanTenantOwner = z.infer<typeof DoormanTenantOwner>;
 
 export const DoormanTenant = z.strictObject({
   slug: z.string().regex(/^[a-z0-9]{12,40}$/),

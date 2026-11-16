@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '../../shared/brand-mark.ts';
 import { clock } from '../../shared/clock.ts';
 import { DOORMAN_WAKE_POLL_HEADER } from '../../shared/contracts/doorman.ts';
+import { escapeMarkup } from '../../shared/escape-markup.ts';
 import type { WakePageState } from './doorman-core.ts';
 
 const TYPICAL_WAKE_SECONDS = 15;
@@ -22,6 +23,7 @@ const HOST_PAGE_STYLES = [
   '[data-light="failed"] .light{opacity:1}',
   'h1{margin:0;font-size:16px;line-height:1.3;font-weight:700;color:var(--text-head)}',
   'p{margin:0;font-size:14px;line-height:1.5;text-wrap:balance}',
+  'a{color:var(--accent)}',
   '.meta{font-size:12px;line-height:1.55;color:var(--text-muted)}',
   '.bar{width:min(240px,100%);height:4px;border-radius:2px;background:var(--border-dim);overflow:hidden}',
   '.bar-fill{height:100%;background:var(--accent);transform-origin:left;transform:scaleX(var(--fraction,0))}',
@@ -143,4 +145,13 @@ function overCapPage({ awakeHoursPerMonth, periodEndsAt }: { awakeHoursPerMonth:
   });
 }
 
-export { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, wakeLimitedPage, wakingPage };
+function signInPage(accountPageUrl: string): string {
+  return hostPage({
+    heading: 'Sign in to open this Glimmervoid',
+    headExtra: '',
+    mainAttributes: '',
+    body: `<p>This Glimmervoid opens for its owner after they sign in to Glimmervoid Cloud on this device.</p><p><a href="${escapeMarkup(accountPageUrl)}">Sign in</a></p><p class="meta">Then choose Open Glimmervoid on your account page.</p>`,
+  });
+}
+
+export { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, signInPage, wakeLimitedPage, wakingPage };

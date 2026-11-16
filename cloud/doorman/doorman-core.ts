@@ -9,7 +9,10 @@ import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 type DoormanRoute =
   | { kind: 'watcher'; tenant: DoormanTenant }
   | { kind: 'forward'; tenant: DoormanTenant }
+  | { kind: 'edge'; tenant: DoormanTenant; edgeAction: EdgeAction | null }
   | { kind: 'refuse'; status: 404 | 421 };
+
+type EdgeAction = 'sign-in' | 'open';
 
 type MeterTotal = { periodStartMs: number; closedAwakeMs: number; openSinceMs: number | null };
 
@@ -28,6 +31,9 @@ const MS_PER_HOUR = 3_600_000;
 
 const GCE_WAKE_ACTION_BY_STATUS: Readonly<Record<string, GceWakeAction>> = Object.freeze({ SUSPENDED: 'resume', TERMINATED: 'start', STOPPED: 'start' });
 const GCE_SETTLING_STATUSES: ReadonlySet<string> = new Set(['SUSPENDING', 'STOPPING', 'PENDING_STOP', 'PROVISIONING', 'STAGING', 'DEPROVISIONING', 'PENDING']);
+
+const EDGE_PATH_PREFIX = '/doorman/';
+const EDGE_ACTIONS_BY_PATH: ReadonlyMap<string, EdgeAction> = new Map([['/doorman/sign-in', 'sign-in'], ['/doorman/open', 'open']]);
 
 const TAILSCALE_HEADER_PREFIX = 'tailscale-';
 const FORWARDED_HEADER_NAMES = Object.freeze(['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-port', 'x-forwarded-proto']);
@@ -52,6 +58,7 @@ function routeRequest(table: DoormanTenantTable, hostHeader: string | undefined,
   if (tenant === null) return { kind: 'refuse', status: 421 };
   if (pathname === NUDGES_PATH || pathname === DEVICE_PAIRING_PATH) return { kind: 'refuse', status: 404 };
   if (pathname.startsWith(WATCHER_PATH_PREFIX)) return { kind: 'watcher', tenant };
+  if (pathname.startsWith(EDGE_PATH_PREFIX)) return { kind: 'edge', tenant, edgeAction: EDGE_ACTIONS_BY_PATH.get(pathname) ?? null };
   return { kind: 'forward', tenant };
 }
 
@@ -193,4 +200,4 @@ function isOverCap(usage: AwakeUsage): boolean {
 }
 
 export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
-export type { DoormanRoute, ForwardState, GceWakeAction, MeterTotal, WakePageState };
+export type { DoormanRoute, EdgeAction, ForwardState, GceWakeAction, MeterTotal, WakePageState };

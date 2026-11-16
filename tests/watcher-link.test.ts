@@ -10,6 +10,7 @@ import path from 'node:path';
 import { credentialStoreKey, directionKey, signedHeaders } from '../cloud/link/core/link-signing-core.ts';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createDoorman } from '../cloud/doorman/doorman.ts';
+import { createAuthkitVerifier } from '../cloud/doorman/edge-session.ts';
 import { createGcpHostAdapter } from '../cloud/doorman/gcp-host.ts';
 import { createGithubUserLink } from '../cloud/doorman/github-user.ts';
 import { createFileTenantRecordStore } from '../cloud/doorman/tenant-record-store.ts';
@@ -751,14 +752,19 @@ async function listenOnLoopback(server: http.Server, port = 0): Promise<number> 
   return address.port;
 }
 
-function requestThroughDoorman(doormanPort: number, { host, method = 'GET', path: requestPath, headers = {} }: { host: string; method?: string; path: string; headers?: http.OutgoingHttpHeaders }): Promise<{ status: number; body: string }> {
+function requestThroughDoorman(doormanPort: number, { host, method = 'GET', path: requestPath, headers = {}, body }: { host: string; method?: string; path: string; headers?: http.OutgoingHttpHeaders; body?: string }): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     http.request({ host: '127.0.0.1', port: doormanPort, method, path: requestPath, headers: { ...headers, host } }, (response) => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
-      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
-    }).on('error', reject).end();
+      response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8'), headers: response.headers }));
+    }).on('error', reject).end(body);
   });
+}
+
+async function statusAndBodyThroughDoorman(...requestArguments: Parameters<typeof requestThroughDoorman>) {
+  const { status, body } = await requestThroughDoorman(...requestArguments);
+  return { status, body };
 }
 
 function requestHostStop(doormanPort: number, host: string, key: Buffer) {
@@ -941,7 +947,7 @@ test('a hosted doorman meters awake time in the tenant ledger, stops a host that
   const firstDoorman = createDoorman({ table, hostAdapter, tunables, log: QUIET_LOG });
   const firstPort = await firstDoorman.listen(0);
 
-  assert.deepEqual(await requestThroughDoorman(firstPort, { host: tenantHost, path: '/' }), { status: 200, body: 'awake' });
+  assert.deepEqual(await statusAndBodyThroughDoorman(firstPort, { host: tenantHost, path: '/' }), { status: 200, body: 'awake' });
   await eventually(() => stopCalls.length === 2 ? true : undefined);
   await eventually(async () => (await fsp.readFile(path.join(tenant.watcherHome, 'awake-ledger.jsonl'), 'utf8').catch(() => '')).includes('slept') ? true : undefined);
   const refused = await requestThroughDoorman(firstPort, { host: tenantHost, path: '/' });
@@ -1027,11 +1033,11 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   assert.ok(pagePolicy.includes(`script-src 'sha256-${crypto.createHash('sha256').update(pageScript).digest('base64')}'`), 'the policy admits exactly the script the page carries');
   await eventually(() => wakeCalls.length === 1 ? true : undefined);
   assert.deepEqual(await eventually(async () => {
-    const answer = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
+    const answer = await statusAndBodyThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
     return answer.status === 200 ? answer : undefined;
   }), { status: 200, body: 'awake' });
-  assert.deepEqual(await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'the page\'s own poll never reaches the awake server, so a one-use link is spent only by the operator\'s navigation');
-  assert.deepEqual(await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { accept: 'application/json', 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'an open dashboard\'s poll learns the host answers without reaching it');
+  assert.deepEqual(await statusAndBodyThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { ...browserHeaders, 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'the page\'s own poll never reaches the awake server, so a one-use link is spent only by the operator\'s navigation');
+  assert.deepEqual(await statusAndBodyThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { accept: 'application/json', 'x-glimmervoid-wake-poll': '1' } }), { status: 204, body: '' }, 'an open dashboard\'s poll learns the host answers without reaching it');
 
   const stopped = await requestHostStop(doormanPort, tenantHost, directionKey(linkSecret, 'server-to-watcher'));
   assert.equal(stopped.status, 202);
@@ -1049,6 +1055,121 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   t.after(() => restartedDoorman.close());
   assert.match((await requestThroughDoorman(restartedPort, { host: tenantHost, path: '/', headers: browserHeaders })).body, /Woken too often this hour/);
   assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
+});
+
+function fakeWorkos(authkitClientId: string) {
+  const signingKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const strangerKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  let keySetFetchCount = 0;
+  let failingFetchesLeft = 0;
+  const authkitFetch: typeof fetch = async (input) => {
+    assert.equal(String(input), `https://api.workos.com/sso/jwks/${authkitClientId}`);
+    keySetFetchCount += 1;
+    if (failingFetchesLeft > 0) {
+      failingFetchesLeft -= 1;
+      throw new TypeError('fetch failed');
+    }
+    return Response.json({ keys: [{ ...signingKeys.publicKey.export({ format: 'jwk' }), kid: 'workos-key-1', alg: 'RS256', use: 'sig' }] });
+  };
+  const accessToken = (claims: { sub: string; exp: number; iss?: string }, privateKey = signingKeys.privateKey) => {
+    const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const signedPart = `${encode({ alg: 'RS256', typ: 'JWT', kid: 'workos-key-1' })}.${encode({ iss: `https://api.workos.com/user_management/${authkitClientId}`, ...claims })}`;
+    return `${signedPart}.${crypto.sign('sha256', Buffer.from(signedPart), privateKey).toString('base64url')}`;
+  };
+  const failNextKeySetFetch = () => {
+    failingFetchesLeft = 1;
+  };
+  return { authkitFetch, accessToken, failNextKeySetFetch, strangerPrivateKey: strangerKeys.privateKey, keySetFetchCount: () => keySetFetchCount };
+}
+
+async function assertSigningKeyBlipIsRetriedSoon(owner: { workosUserId: string; authkitClientId: string; accountPageUrl: string }, unexpiredSeconds: number) {
+  const workos = fakeWorkos(owner.authkitClientId);
+  let nowMs = Date.now();
+  const verifier = createAuthkitVerifier({ fetchFn: workos.authkitFetch, now: () => nowMs, log: QUIET_LOG });
+  const ownerToken = workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds });
+  workos.failNextKeySetFetch();
+  assert.equal(await verifier.accessTokenVerdict(ownerToken, owner), 'keys-unavailable');
+  nowMs += 11_000;
+  assert.equal(await verifier.accessTokenVerdict(ownerToken, owner), 'owner');
+}
+
+test('a hosted doorman keeps a tenant with an owner asleep for every request and upgrade without its edge cookie, signs the owner in from an AuthKit access token posted by the account page, and opens the tenant by waking it and pairing the device through the signed link', async (t) => {
+  const owner = { workosUserId: 'user_01OWNER', authkitClientId: 'client_01ACCOUNTS', accountPageUrl: 'https://accounts.example/' };
+  const workos = fakeWorkos(owner.authkitClientId);
+  const presentedCookieHeaders: (string | null)[] = [];
+  const mintedPath = `/pair/${'m'.repeat(43)}`;
+  const tenantServer = http.createServer();
+  const tenantPort = await listenOnLoopback(tenantServer);
+  await new Promise((resolve) => tenantServer.close(resolve));
+  const { linkSecret, tenant } = await doormanTenant(t, 'ownedtenant00001', `http://127.0.0.1:${tenantPort}`);
+  const link = createWatcherLink({ linkSecret, log: QUIET_LOG, credentials: () => ({ github: null, posthog: null }), startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => 'http://127.0.0.1:9' }) });
+  tenantServer.on('request', (request: http.IncomingMessage, response: http.ServerResponse) => {
+    if (request.url !== DEVICE_PAIRING_PATH) {
+      response.end('dashboard');
+      return;
+    }
+    link.answerDevicePairingRequest(request, response, (presentedCookieHeader) => {
+      presentedCookieHeaders.push(presentedCookieHeader);
+      return presentedCookieHeader?.includes('glimmervoid_device=paired.device') ? { state: 'paired' } : { state: 'minted', path: mintedPath };
+    });
+  });
+  const wakeCalls: string[] = [];
+  const hostAdapter = {
+    wake: async ({ slug }: { slug: string }) => {
+      wakeCalls.push(slug);
+      await listenOnLoopback(tenantServer, tenantPort);
+    },
+    stop: async () => {},
+  };
+  const tunables = { holdTimeoutMs: 5000, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000, maxEdgeWakesPerHour: 10 };
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST, owner }] }, hostAdapter, tunables, authkitFetch: workos.authkitFetch, log: QUIET_LOG });
+  const doormanPort = await doorman.listen(0);
+  t.after(async () => {
+    link.stop();
+    await doorman.close();
+    tenantServer.closeAllConnections();
+    await new Promise((resolve) => tenantServer.close(resolve));
+  });
+  const tenantHost = 'ownedtenant00001.tenants.example';
+  const browserHeaders = { accept: 'text/html' };
+  const signIn = (accessToken: string, origin = 'https://accounts.example') => requestThroughDoorman(doormanPort, { host: tenantHost, method: 'POST', path: '/doorman/sign-in', headers: { origin, 'content-type': 'application/x-www-form-urlencoded', ...browserHeaders }, body: new URLSearchParams({ access_token: accessToken }).toString() });
+  const unexpiredSeconds = Math.floor(Date.now() / 1000) + 300;
+
+  const strangerPage = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: browserHeaders });
+  assert.equal(strangerPage.status, 401);
+  assert.match(strangerPage.body, /href="https:\/\/accounts\.example\/">Sign in</);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/api/sessions' })).status, 401);
+  const strangerSocket = new WebSocket(`ws://127.0.0.1:${doormanPort}/terminals/one`, { headers: { host: tenantHost } });
+  assert.match(await new Promise<string>((resolve) => strangerSocket.on('error', (socketError) => resolve(socketError.message))), /401/);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: browserHeaders })).status, 401);
+
+  assert.equal((await signIn(workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds }), 'https://evil.example')).status, 403);
+  assert.equal((await signIn(workos.accessToken({ sub: 'user_01STRANGER', exp: unexpiredSeconds }))).status, 401);
+  assert.equal((await signIn(workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds - 600 }))).status, 401);
+  assert.equal((await signIn(workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds, iss: 'https://api.workos.com/user_management/client_01OTHER' }))).status, 401);
+  assert.equal((await signIn(workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds }, workos.strangerPrivateKey))).status, 401);
+  assert.equal(workos.keySetFetchCount(), 1);
+  await assertSigningKeyBlipIsRetriedSoon(owner, unexpiredSeconds);
+  const signedIn = await signIn(workos.accessToken({ sub: owner.workosUserId, exp: unexpiredSeconds }));
+  assert.deepEqual([signedIn.status, signedIn.headers.location], [303, '/doorman/open']);
+  const edgeSetCookie = signedIn.headers['set-cookie']?.[0] ?? '';
+  assert.match(edgeSetCookie, /^glimmervoid_edge=v1\.\d+\.[\w-]+; Path=\/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax$/);
+  assert.deepEqual(wakeCalls, [], 'no request before the edge cookie woke the host');
+  const edgeCookie = edgeSetCookie.split(';')[0];
+  const forgedCookie = edgeCookie.replace(/\.[\w-]+$/, `.${'A'.repeat(43)}`);
+  assert.equal((await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { cookie: forgedCookie } })).status, 401);
+
+  const openWhileAsleep = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: { cookie: edgeCookie, ...browserHeaders } });
+  assert.equal(openWhileAsleep.status, 503);
+  assert.match(openWhileAsleep.body, /Waking your Glimmervoid/);
+  await eventually(async () => (await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: { cookie: edgeCookie, accept: 'text/html', 'x-glimmervoid-wake-poll': '1' } })).status === 204 || undefined);
+  const openedNewDevice = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: { cookie: edgeCookie, ...browserHeaders } });
+  assert.deepEqual([openedNewDevice.status, openedNewDevice.headers.location], [303, mintedPath]);
+  const openedPairedDevice = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: { cookie: `${edgeCookie}; glimmervoid_device=paired.device`, ...browserHeaders } });
+  assert.deepEqual([openedPairedDevice.status, openedPairedDevice.headers.location], [303, '/']);
+  assert.deepEqual(presentedCookieHeaders, [edgeCookie, `${edgeCookie}; glimmervoid_device=paired.device`]);
+  assert.deepEqual((await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { cookie: edgeCookie } })).body, 'dashboard');
+  assert.deepEqual(wakeCalls, ['ownedtenant00001']);
 });
 
 test('the GCE host adapter resumes a suspended instance, starts a terminated one, waits out a suspend in progress and a passing 503, suspends only a running one, refuses to call an instance in repair stopped, and fails on a refused call', async () => {

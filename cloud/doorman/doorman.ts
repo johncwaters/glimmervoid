@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import path from 'node:path';
 import { createProxyServer } from 'httpxy';
-import { credentialStoreKey, directionKey } from '../link/core/link-signing-core.ts';
+import { credentialStoreKey, directionKey, signedHeaders } from '../link/core/link-signing-core.ts';
 import { createNudgeSender, createProbeRunner } from '../watcher/probe-runner.ts';
 import { createWatcherHome } from '../watcher/watcher-home.ts';
 import type { WatcherFiles } from '../watcher/watcher-home.ts';
@@ -17,7 +17,9 @@ import { DOORMAN_LOCK_FILE_NAME, DOORMAN_PORT_FILE_NAME, DOORMAN_WAKE_POLL_HEADE
 import { isMissingFileError } from '../../shared/text.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { stampProcessOutputLines } from '../../server/log-stamp.ts';
-import type { DoormanGithubApp, DoormanTenant, DoormanTenantTableInput, DoormanWakeStatus, WakeStartedBy } from '../../shared/contracts/doorman.ts';
+import type { DoormanGithubApp, DoormanTenant, DoormanTenantOwner, DoormanTenantTableInput, DoormanWakeStatus, WakeStartedBy } from '../../shared/contracts/doorman.ts';
+import { DEVICE_PAIRING_PATH, DevicePairingAnswer } from '../../shared/contracts/watcher-link.ts';
+import { parseCookieHeader, serializeSetCookie } from '../../server/core/cookie.ts';
 import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
@@ -31,8 +33,9 @@ import type { GithubUserLink } from './github-user.ts';
 import { createFileTenantRecordStore } from './tenant-record-store.ts';
 import type { TenantRecordStore } from './tenant-record-store.ts';
 import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
-import type { DoormanRoute, ForwardState, WakePageState } from './doorman-core.ts';
-import { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, wakeLimitedPage, wakingPage } from './host-page.ts';
+import type { DoormanRoute, EdgeAction, ForwardState, WakePageState } from './doorman-core.ts';
+import { EDGE_COOKIE_NAME, EDGE_SESSION_MS, createAuthkitVerifier, edgeSessionKey, isEdgeCookieValid, mintEdgeCookie } from './edge-session.ts';
+import { HOST_PAGE_CONTENT_SECURITY_POLICY, overCapPage, signInPage, wakeLimitedPage, wakingPage } from './host-page.ts';
 import { createFileDoormanState, createFileTenantState, createGcsDoormanState, stateBucketOf } from './doorman-state.ts';
 import type { DoormanState, DoormanTenantState } from './doorman-state.ts';
 import { clock } from '../../shared/clock.ts';
@@ -43,7 +46,7 @@ type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise
 type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; stop(): void };
 type HeldGithubToken = { installationId: number; accountLogin: string; token: string; expiresAtMs: number };
 type TenantGithubToken = { held: readonly HeldGithubToken[]; mint: Promise<readonly HeldGithubToken[] | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
-type TenantEntry = { tenant: DoormanTenant; gate: TenantGate; meter: AwakeMeter | null; watcher: TenantWatcher | null; watcherSecretHex: string | null; watcherStart: Promise<TenantWatcher | null> | null; watcherRetryTimer: NodeJS.Timeout | null; failedWatcherStarts: number; github: TenantGithubToken; githubUser: GithubUserLink | null };
+type TenantEntry = { tenant: DoormanTenant; gate: TenantGate; edgeKey: Promise<Buffer | null> | null; meter: AwakeMeter | null; watcher: TenantWatcher | null; watcherSecretHex: string | null; watcherStart: Promise<TenantWatcher | null> | null; watcherRetryTimer: NodeJS.Timeout | null; failedWatcherStarts: number; github: TenantGithubToken; githubUser: GithubUserLink | null };
 type DoormanLog = Pick<Console, 'log' | 'warn'>;
 
 const DEFAULT_TUNABLES: DoormanTunables = Object.freeze({ holdTimeoutMs: 60_000, wakeCooldownMs: 30_000, maxHeldPerTenant: 64, readinessPollMs: 500, meterTickMs: 60_000, maxEdgeWakesPerHour: 4 });
@@ -51,6 +54,12 @@ const READINESS_ATTEMPT_TIMEOUT_MS = 2000;
 const RETRY_AFTER_SECONDS = '5';
 const LOOPBACK_HOST = '127.0.0.1';
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const MAX_SIGN_IN_BODY_BYTES = 16 * 1024;
+const SIGNING_KEYS_RETRY_AFTER_SECONDS = 15;
+const PAIRING_UNSUPPORTED_STATUSES = new Set([401, 404, 405]);
+const DEVICE_PAIRING_TIMEOUT_MS = 10_000;
+const OPEN_PATH = '/doorman/open';
+const FORM_CONTENT_TYPE = 'application/x-www-form-urlencoded';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -135,6 +144,33 @@ function hasRequestBody(request: http.IncomingMessage): boolean {
   return request.headers['transfer-encoding'] !== undefined || Number(request.headers['content-length'] ?? 0) > 0;
 }
 
+function answerSignInRequired(request: http.IncomingMessage, response: http.ServerResponse, owner: DoormanTenantOwner, status: 401 | 403): void {
+  if (!wantsWakingPage('GET', request.headers.accept)) {
+    answerStatus(response, status);
+    return;
+  }
+  response.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': HOST_PAGE_CONTENT_SECURITY_POLICY });
+  response.end(signInPage(owner.accountPageUrl));
+}
+
+function answerSeeOther(response: http.ServerResponse, location: string, extraHeaders: Record<string, string> = {}): void {
+  response.writeHead(303, { location, 'cache-control': 'no-store', ...extraHeaders });
+  response.end();
+}
+
+async function formFieldOf(request: http.IncomingMessage, fieldName: string): Promise<string | null> {
+  if (!String(request.headers['content-type'] ?? '').startsWith(FORM_CONTENT_TYPE)) return null;
+  const chunks: Buffer[] = [];
+  let receivedBytes = 0;
+  for await (const chunk of request) {
+    const chunkBytes = Buffer.from(chunk);
+    receivedBytes += chunkBytes.length;
+    if (receivedBytes > MAX_SIGN_IN_BODY_BYTES) return null;
+    chunks.push(chunkBytes);
+  }
+  return new URLSearchParams(Buffer.concat(chunks).toString('utf8')).get(fieldName);
+}
+
 function causeOf(error: unknown): unknown {
   return error instanceof Error && error.cause !== undefined ? error.cause : error;
 }
@@ -155,7 +191,7 @@ async function createTenantWatcher(tenant: DoormanTenant, watcherFiles: WatcherF
   };
 }
 
-function createDoorman({ table: initialTable, tenantState = createFileTenantState(), hostAdapter = null, tunables = DEFAULT_TUNABLES, probeFetch = fetch, githubAppFetch = fetch, recordStore = null, now = clock.nowMs, log = console }: {
+function createDoorman({ table: initialTable, tenantState = createFileTenantState(), hostAdapter = null, tunables = DEFAULT_TUNABLES, probeFetch = fetch, githubAppFetch = fetch, authkitFetch = fetch, recordStore = null, now = clock.nowMs, log = console }: {
   table: DoormanTenantTableInput;
   tenantState?: DoormanTenantState;
   recordStore?: TenantRecordStore | null;
@@ -163,6 +199,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   tunables?: DoormanTunables;
   probeFetch?: typeof fetch;
   githubAppFetch?: typeof fetch;
+  authkitFetch?: typeof fetch;
   now?: () => number;
   log?: DoormanLog;
 }) {
@@ -176,6 +213,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   let table = DoormanTenantTable.parse(initialTable);
   let githubApp: { app: DoormanGithubApp; minter: GithubAppMinter | null } | null = null;
   const watcherHomesBySlug = new Map<string, string | null>();
+  const authkit = createAuthkitVerifier({ fetchFn: authkitFetch, now, log });
   const records = recordStore ?? createFileTenantRecordStore({ watcherHomeFor: (slug) => watcherHomesBySlug.get(slug) ?? null });
 
   async function waitUntilAnswering(serverUrl: string, deadlineMs: number): Promise<boolean> {
@@ -386,12 +424,107 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     return watcher.handle(request, response);
   }
 
+  function edgeKeyOf(entry: TenantEntry): Promise<Buffer | null> {
+    if (entry.edgeKey !== null) return entry.edgeKey;
+    const edgeKey = tenantState.linkSecretHex(entry.tenant).then(
+      (secretHex) => secretHex === null ? null : edgeSessionKey(Buffer.from(secretHex, 'hex')),
+      (readError: unknown) => {
+        log.warn(`[doorman] reading the link secret of ${entry.tenant.slug} for its edge sign-in failed: ${errorMessage(readError)}`);
+        return null;
+      },
+    );
+    entry.edgeKey = edgeKey;
+    void edgeKey.then((key) => {
+      if (key === null && entry.edgeKey === edgeKey) entry.edgeKey = null;
+    });
+    return edgeKey;
+  }
+
+  async function hasEdgeSession(entry: TenantEntry, owner: DoormanTenantOwner, request: http.IncomingMessage): Promise<boolean> {
+    const edgeKey = await edgeKeyOf(entry);
+    if (edgeKey === null) return false;
+    return isEdgeCookieValid(edgeKey, parseCookieHeader(request.headers.cookie)[EDGE_COOKIE_NAME], { slug: entry.tenant.slug, workosUserId: owner.workosUserId }, now());
+  }
+
+  async function signInAtEdge(entry: TenantEntry, owner: DoormanTenantOwner, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    if (request.method !== 'POST') return answerStatus(response, 405, { allow: 'POST' });
+    if (request.headers.origin !== new URL(owner.accountPageUrl).origin) return answerSignInRequired(request, response, owner, 403);
+    const accessToken = await formFieldOf(request, 'access_token').catch(() => null);
+    if (accessToken === null) return answerStatus(response, 400);
+    const edgeKey = await edgeKeyOf(entry);
+    if (edgeKey === null) return answerBusy(response);
+    const verdict = await authkit.accessTokenVerdict(accessToken, owner);
+    if (verdict === 'keys-unavailable') return answerStatus(response, 503, { 'retry-after': String(SIGNING_KEYS_RETRY_AFTER_SECONDS) });
+    if (verdict === 'refused') return answerSignInRequired(request, response, owner, 401);
+    log.log(`[doorman] the owner of ${entry.tenant.slug} signed in at the edge`);
+    const edgeCookie = mintEdgeCookie(edgeKey, { slug: entry.tenant.slug, workosUserId: owner.workosUserId }, now());
+    answerSeeOther(response, OPEN_PATH, { 'set-cookie': serializeSetCookie(EDGE_COOKIE_NAME, edgeCookie, { maxAgeSeconds: EDGE_SESSION_MS / 1000, secure: true, sameSite: 'Lax', httpOnly: true, path: '/' }) });
+  }
+
+  async function devicePairingFor(entry: TenantEntry, presentedCookieHeader: string | null): Promise<DevicePairingAnswer | 'unreachable' | 'unsupported' | null> {
+    const secretHex = await tenantState.linkSecretHex(entry.tenant).catch(() => null);
+    if (secretHex === null) return null;
+    const pairingUrl = new URL(DEVICE_PAIRING_PATH, entry.tenant.serverUrl);
+    const body = JSON.stringify({ presentedCookieHeader });
+    const signingKey = directionKey(Buffer.from(secretHex, 'hex'), 'watcher-to-server');
+    try {
+      const response = await fetch(pairingUrl, { method: 'POST', headers: { 'content-type': 'application/json', ...signedHeaders(signingKey, { method: 'POST', path: pairingUrl.pathname, body }, now()) }, body, signal: AbortSignal.timeout(DEVICE_PAIRING_TIMEOUT_MS) });
+      if (!response.ok) {
+        await response.body?.cancel();
+        if (PAIRING_UNSUPPORTED_STATUSES.has(response.status)) return 'unsupported';
+        log.warn(`[doorman] tenant ${entry.tenant.slug} answered a device pairing request with ${response.status}`);
+        return null;
+      }
+      const answer = DevicePairingAnswer.safeParse(await response.json());
+      return answer.success ? answer.data : null;
+    } catch (pairingError) {
+      if (isConnectFailure(causeOf(pairingError))) return 'unreachable';
+      log.warn(`[doorman] asking tenant ${entry.tenant.slug} to pair a device failed: ${errorMessage(pairingError)}`);
+      return null;
+    }
+  }
+
+  function answerWakingForOpen(entry: TenantEntry, request: http.IncomingMessage, response: http.ServerResponse): void {
+    answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
+  }
+
+  async function openAtEdge(entry: TenantEntry, owner: DoormanTenantOwner, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
+    if (request.method !== 'GET') return answerStatus(response, 405, { allow: 'GET' });
+    if (!await hasEdgeSession(entry, owner, request)) return answerSignInRequired(request, response, owner, 401);
+    if (entry.gate.state !== 'answering') return answerWakingForOpen(entry, request, response);
+    if (isWakePoll(request)) return answerAwakeToWakePoll(response);
+    const pairing = await devicePairingFor(entry, request.headers.cookie ?? null);
+    if (pairing === 'unreachable' && adapterFor(entry) !== null) {
+      noteHostDown(entry);
+      return answerWakingForOpen(entry, request, response);
+    }
+    if (pairing === 'unsupported') return answerSeeOther(response, '/');
+    if (pairing === null || pairing === 'unreachable') return answerStatus(response, 502);
+    if (pairing.state === 'minted') log.log(`[doorman] tenant ${entry.tenant.slug} minted a pairing link for a device signed in at the edge`);
+    answerSeeOther(response, pairing.state === 'minted' ? pairing.path : '/');
+  }
+
+  function handleEdgeRequest(entry: TenantEntry, edgeAction: EdgeAction | null, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> | void {
+    const owner = entry.tenant.owner;
+    if (owner === null || edgeAction === null) return answerStatus(response, 404);
+    if (edgeAction === 'sign-in') return signInAtEdge(entry, owner, request, response);
+    return openAtEdge(entry, owner, request, response);
+  }
+
+  async function isStrangerAtGate(entry: TenantEntry, request: http.IncomingMessage): Promise<boolean> {
+    const owner = entry.tenant.owner;
+    if (owner === null) return false;
+    return !await hasEdgeSession(entry, owner, request);
+  }
+
   async function handleRequest(request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     const route = routeOf(request);
     if (route.kind === 'refuse') return answerStatus(response, route.status);
     const entry = entryFor(route.tenant);
     if (entry === null) return answerBusy(response);
     if (route.kind === 'watcher') return handleWatcherRequest(entry, request, response);
+    if (route.kind === 'edge') return handleEdgeRequest(entry, route.edgeAction, request, response);
+    if (entry.tenant.owner !== null && await isStrangerAtGate(entry, request)) return answerSignInRequired(request, response, entry.tenant.owner, 401);
     request.headers = headersAtEdge(request.headers, table.tenantDomain !== null);
     return forwardWeb(entry, request, response);
   }
@@ -404,8 +537,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     const route = routeOf(request);
     if (route.kind === 'refuse') return refuseUpgrade(socket, route.status);
     if (route.kind === 'watcher') return refuseUpgrade(socket, 404);
+    if (route.kind === 'edge') return refuseUpgrade(socket, 404);
     const entry = entryFor(route.tenant);
     if (entry === null) return refuseUpgrade(socket, 503);
+    if (await isStrangerAtGate(entry, request)) return refuseUpgrade(socket, 401);
     request.headers = headersAtEdge(request.headers, table.tenantDomain !== null);
     return forwardUpgrade(entry, request, socket, head);
   }
@@ -628,6 +763,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   async function refreshWatcher(entry: TenantEntry): Promise<void> {
     await entry.watcherStart;
     if (entry.watcher !== null && await tenantState.linkSecretHex(entry.tenant).catch(() => entry.watcherSecretHex) === entry.watcherSecretHex) return;
+    entry.edgeKey = null;
     stopWatcher(entry);
     await ensureWatcher(entry);
   }
@@ -667,7 +803,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       const meter = await meterFor(tenant);
       const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, didLastWakeFail: false, stopStartedAtMs: null };
       watcherHomesBySlug.set(tenant.slug, tenant.watcherHome);
-      entriesBySlug.set(tenant.slug, { tenant, gate, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
+      entriesBySlug.set(tenant.slug, { tenant, gate, edgeKey: null, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
     }
     await Promise.all([...entriesBySlug.values()].map(refreshWatcher));
   }
