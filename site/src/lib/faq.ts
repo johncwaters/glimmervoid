@@ -1,4 +1,4 @@
-import { CODING_AGENT_LABELS } from './product-facts.ts';
+import { CODING_AGENT_LABELS, OPENROUTER_AGENT_LABELS } from './product-facts.ts';
 
 export interface FaqEntry {
   question: string;
@@ -25,6 +25,7 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     question: 'Which coding agents does Glimmervoid run?',
     answerParagraphs: [
       `${CODING_AGENT_LABELS} are built in.`,
+      `${OPENROUTER_AGENT_LABELS} can also run on any model on OpenRouter, picked per session.`,
       'Any other agent CLI that runs in a terminal can be added in the config.',
     ],
   },
@@ -33,7 +34,8 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     answerParagraphs: [
       'Free and open source under MIT, with no account.',
       'It runs on your machine and binds to localhost.',
-      'Each agent talks straight to its own provider with your login. Glimmervoid never sits in between.',
+      'Each agent talks straight to its model provider with your own login or API key. Glimmervoid never sits in between.',
+      'An OpenRouter key stays in the Vault, and a session reads it only after you approve.',
     ],
   },
   {
