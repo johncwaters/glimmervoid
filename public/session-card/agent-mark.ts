@@ -1,3 +1,4 @@
+import antigravityIcon from '../agent-icons/antigravity.svg?raw';
 import claudeCodeIcon from '../agent-icons/claude-code.svg?raw';
 import codexIcon from '../agent-icons/codex.svg?raw';
 import copilotIcon from '../agent-icons/copilot.svg?raw';
@@ -15,6 +16,7 @@ import { SHELL_AGENT_ID } from './agent-core.ts';
 import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 
 const AGENT_ICON_SVG_BY_ID: ReadonlyMap<string, string> = new Map([
+  ['antigravity', antigravityIcon],
   ['claude-code', claudeCodeIcon],
   ['codex', codexIcon],
   ['copilot', copilotIcon],

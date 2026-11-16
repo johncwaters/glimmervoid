@@ -11,7 +11,7 @@ export interface AgentCard {
   support: string;
 }
 
-const MONOGRAMS_BY_AGENT_ID: Readonly<Record<string, string>> = { 'claude-code': 'CC', codex: 'CX', copilot: 'CP', cursor: 'CU', gemini: 'GM', goose: 'GS', grok: 'GK', kimi: 'KM', opencode: 'OC', pi: 'PI', qwen: 'QW', shell: 'SH' };
+const MONOGRAMS_BY_AGENT_ID: Readonly<Record<string, string>> = { antigravity: 'AG', 'claude-code': 'CC', codex: 'CX', copilot: 'CP', cursor: 'CU', gemini: 'GM', goose: 'GS', grok: 'GK', kimi: 'KM', opencode: 'OC', pi: 'PI', qwen: 'QW', shell: 'SH' };
 
 const builtInAdapters: AgentAdapter[] = listAgentIds().flatMap((agentId) => {
   const adapter = getAdapter(agentId);

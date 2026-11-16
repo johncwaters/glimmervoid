@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Run Google's Antigravity CLI (`agy`) as a session agent.** Antigravity CLI shows up in the Add Session picker when `agy` is on your PATH. Its card goes working on a prompt, waiting on a "Run this command?" permission dialog, and complete with one notification when the turn ends, and auto-resume continues the same conversation. Skip permissions starts it with `--dangerously-skip-permissions`; with it off, agy runs in its own default mode. Glimmervoid trusts the session folder for that launch only, so agy's trust dialog does not swallow the first prompt. Hooks reach agy through a `glimmervoid` plugin under `~/.gemini/config/plugins/`, rewritten at every agy start and inert in an agy you start yourself; your own `~/.gemini` hooks, MCP and settings files are never written. agy reads your own sign-in, so it cannot run in a clean home or under an added account.
+
 ## [0.62.2] - 2026-11-16
 
 ### Fixed

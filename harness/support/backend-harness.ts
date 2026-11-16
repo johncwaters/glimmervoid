@@ -23,6 +23,7 @@ const CLAUDE_CONFIG_DIRECTORY_NAME = 'claude-config';
 const CREDENTIALS_COPY_NAME = '.credentials.json';
 const PROBE_FIXTURE_DIRECTORY = path.join(import.meta.dirname, '..', '..', 'tests', 'fixtures');
 const PROBE_STEP_TIMEOUT_MS = 120000;
+const EMAIL_ADDRESS_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 export interface ProbeHookRecord {
   event: string;
@@ -82,6 +83,7 @@ function sanitizeProbeText(text: string, target: ProbeFixtureTarget): string {
     .split(target.tempDirectory).join(placeholder)
     .split(encodedProjectPrefix).join(placeholder)
     .split(os.homedir()).join('<home>')
+    .replace(EMAIL_ADDRESS_PATTERN, '<email>')
     .replace(operatorUsernamePattern(), '<user>');
 }
 

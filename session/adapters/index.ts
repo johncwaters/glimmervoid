@@ -10,6 +10,7 @@ import grok from "./grok.ts";
 import kimi from "./kimi.ts";
 import opencode from "./opencode.ts";
 import pi from "./pi.ts";
+import antigravity from "./antigravity.ts";
 import shell from "./shell.ts";
 import { createCustomAdapter } from "./custom.ts";
 
@@ -106,8 +107,8 @@ interface GeneratedHomeLaunch {
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
-  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; homeEnvValue?: string } | { refusal: string };
-  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string; homeEnvValue?: string } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; homeEnvValue?: string; args?: string[] } | { refusal: string };
+  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string; homeEnvValue?: string; args?: string[] } | { refusal: string };
   releaseHome(home: string): void;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];
@@ -200,6 +201,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: kimi, tier: "first-class" },
   { adapter: opencode, tier: "first-class" },
   { adapter: pi, tier: "first-class" },
+  { adapter: antigravity, tier: "hooked" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },

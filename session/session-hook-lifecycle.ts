@@ -298,7 +298,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       console.warn(`[session:${options.name}] ${hooksOffConfig} turns ${options.agentId} hooks off, so Sane YOLO and hook status are off for this session`);
       options.recordDecision({ kind: "hook-trust", ts: clock.nowMs(), decision: "hooks-off-by-project", reason: "project agent config turns hooks off" });
     }
-    const relayHooks = registerRelayHooks(port, [], saneYoloTool() !== undefined && !hooksOffConfig);
+    const relayHooks = registerRelayHooks(port, prepared.args ?? [], saneYoloTool() !== undefined && !hooksOffConfig);
     if (relayHooks === NO_HOOK_INJECTION) {
       releaseGeneratedHome();
       return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
