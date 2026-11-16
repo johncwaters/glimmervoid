@@ -101,4 +101,4 @@ function teeProcessOutputToServerLog(logPath = serverLogPath()): void {
   stampProcessOutputLines();
 }
 
-export { teeProcessOutputToServerLog };
+export { serverLogPath, teeProcessOutputToServerLog };

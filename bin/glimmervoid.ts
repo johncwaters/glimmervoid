@@ -30,6 +30,7 @@ const USAGE = `Usage: glimmervoid [command] [options]
 With no command, starts the server.
 
 Commands:
+  open                Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
   packs <cmd>         Build a pack: guide, check <folder>, preview <folder>, list
@@ -88,6 +89,10 @@ type ParsedRun = Extract<ParsedCommand, { kind: 'run' }>;
 type OwnedCommandRunner = (parsed: ParsedRun) => Promise<number>;
 
 const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
+  open: async () => {
+    const { runOpenCli } = await import('../server/open-cli.ts');
+    return runOpenCli();
+  },
   doctor: async () => {
     const isEveryNativeModuleLoading = await runDoctor();
     return isEveryNativeModuleLoading ? 0 : 1;
