@@ -36,13 +36,14 @@ function hooksByEvent(relayLaunch: readonly string[]): Record<string, unknown[]>
   return hooks;
 }
 
-function renderAntigravityPlugin(relayLaunch: readonly string[]): Record<AntigravityPluginFileName, string> | null {
+function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[]): Record<AntigravityPluginFileName, string> | null {
   const hooks = hooksByEvent(relayLaunch);
-  if (hooks === null) return null;
+  const [bridgeCommand, ...bridgeArgs] = bridgeLaunch;
+  if (hooks === null || bridgeCommand === undefined) return null;
   return {
     "plugin.json": jsonFileText({ name: ANTIGRAVITY_PLUGIN_NAME, version: "1.0.0", description: "Reports session status to the Glimmervoid dashboard that started this session." }),
     "hooks.json": jsonFileText({ [ANTIGRAVITY_PLUGIN_NAME]: hooks }),
-    "mcp_config.json": jsonFileText({ mcpServers: {} }),
+    "mcp_config.json": jsonFileText({ mcpServers: { [ANTIGRAVITY_PLUGIN_NAME]: { command: bridgeCommand, args: bridgeArgs } } }),
   };
 }
 

@@ -132,6 +132,9 @@ async function runProbe(tempDirectory: string): Promise<void> {
     const capturedId = session._resumeSessionId;
     check("a conversation id was captured from the hooks", typeof capturedId === "string" && capturedId.length > 0);
 
+    const mcpHooks = await runScenario("mcp-tool", "Call your glimmervoid MCP server's session tool with action limits, then reply with the single word done.");
+    check("the agent called a Glimmervoid MCP tool through the stdio bridge", mcpHooks.some((hook) => hook.event.toLowerCase() === "pretooluse" && JSON.stringify(hook.payload?.toolCall ?? "").includes("limits")));
+
     console.log("\nResume:");
     session.kill();
     await waitForState(session, ["DONE", "FAILED"], "PTY reap");

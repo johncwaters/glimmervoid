@@ -13,6 +13,7 @@ const relayModuleLoaders: Record<string, () => Promise<RelayModule>> = {
   'command-hook-relay': () => import('../session/command-hook-relay.ts'),
   'statusline-relay': () => import('../session/statusline-relay.ts'),
   'hook-tool-relay': () => import('../session/hook-tool-relay.ts'),
+  'mcp-bridge': () => import('../session/mcp-bridge.ts'),
 };
 
 const selfRunningEntryLoaders: Record<string, () => Promise<unknown>> = {

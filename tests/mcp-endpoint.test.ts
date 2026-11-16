@@ -16,7 +16,9 @@ import { spawnReplyForMcp } from '../mcp/core/replies.ts';
 import { boardPicture } from '../mcp/core/board-reading.ts';
 import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { Board } from '../shared/contracts/whiteboard.ts';
-import { MCP_CREDENTIAL_ENV } from '../mcp/core/agent-config.ts';
+import { MCP_CREDENTIAL_ENV, MCP_URL_ENV } from '../mcp/core/agent-config.ts';
+import { main as runStdioBridge } from '../mcp/stdio-bridge.ts';
+import { Readable } from 'node:stream';
 import { HookRouter } from '../detection/hook-source.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -179,6 +181,14 @@ test('a missing, wrong or misshapen credential gets the unknown-session refusal'
   }
   const fromForeignPage = await callMcp('tools/list', {}, credential, { origin: 'https://attacker.example' });
   assert.equal(fromForeignPage.status, 404);
+});
+
+test('the stdio bridge answers a refused request with a JSON-RPC error carrying its id', async () => {
+  const { mcpUrl } = bootedBackend();
+  const bridgeOutput: string[] = [];
+  const request = '{"jsonrpc":"2.0","id":7,"method":"tools/list"}\n';
+  await runStdioBridge(Readable.from([request]), { [MCP_URL_ENV]: mcpUrl, [MCP_CREDENTIAL_ENV]: `${SESSION_ID}.not-the-token` }, { write: (text: string) => bridgeOutput.push(text) });
+  assert.deepEqual(bridgeOutput.map((line) => JSON.parse(line)), [{ jsonrpc: '2.0', id: 7, error: { code: -32603, message: 'Glimmervoid could not be reached: the endpoint answered HTTP 404' } }]);
 });
 
 test('a call missing a field or carrying another action\'s field is refused naming the action and the fields', async () => {

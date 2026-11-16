@@ -19,6 +19,7 @@ const REQUIRED_OUTPUTS = [
   'session/command-hook-relay.js',
   'session/statusline-relay.js',
   'session/hook-tool-relay.js',
+  'session/mcp-bridge.js',
   'session/remote-setup/SKILL.md',
   'session/remote-setup/glimmervoid.service',
   'session/remote-setup/app-glimmervoid.slice',

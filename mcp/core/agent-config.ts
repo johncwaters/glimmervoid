@@ -2,6 +2,7 @@ import type { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import { mcpCredentialFor } from './credentials.ts';
 
 const MCP_CREDENTIAL_ENV = 'GLIMMERVOID_MCP_TOKEN';
+const MCP_URL_ENV = 'GLIMMERVOID_MCP_URL';
 const MCP_SERVER_NAME = 'glimmervoid';
 const MCP_TOOL_TIMEOUT_SECONDS = 600;
 const CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES = 16384;
@@ -58,6 +59,7 @@ const ARGS_BY_AGENT: Readonly<Partial<Record<BuiltinAgentId, (url: string) => st
   kimi: credentialOnly,
   opencode: credentialOnly,
   pi: credentialOnly,
+  antigravity: credentialOnly,
 });
 
 type McpServers = Record<string, unknown>;
@@ -142,5 +144,5 @@ function mcpLaunchFor({ agentId, listenerPort, sessionId, agentToken }: McpLaunc
   };
 }
 
-export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, kimiMcpFiles, mcpLaunchFor };
+export { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV, kimiMcpFiles, mcpLaunchFor };
 export type { McpLaunch, McpLaunchInput };

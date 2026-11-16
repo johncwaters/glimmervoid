@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { MCP_URL_ENV } from "../../mcp/core/agent-config.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { errorMessage } from "../../shared/text.ts";
@@ -19,8 +20,8 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 
 const ID = "antigravity";
 const COMMAND_NAME = "agy";
-const MCP_URL_ENV_NAME = "GLIMMERVOID_MCP_URL";
 const RELAY_LAUNCH = hookLaunch("hook-relay");
+const MCP_BRIDGE_LAUNCH = hookLaunch("mcp-bridge");
 const PLUGIN_FOLDER_MODE = 0o700;
 const PLUGIN_FILE_MODE = 0o600;
 const PLUGIN_REFUSAL = "the hook relay path cannot be written into an Antigravity plugin";
@@ -103,7 +104,7 @@ function prepareHome(
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
-  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH);
+  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH);
   const sessionSettings = antigravitySessionSettings(folderTrustRoot, RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };
   const pluginFolder = pluginFolderPath();
@@ -140,7 +141,7 @@ const hooks: AgentHookProfile = {
   mapPromptKind: mapHookPromptKind,
   injection: {
     kind: "generated-home",
-    homeEnvName: MCP_URL_ENV_NAME,
+    homeEnvName: MCP_URL_ENV,
     prepareHome,
     prepareScratchHome,
     releaseHome,

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { isPathInside } from '../../shared/paths.ts';
 
 type RuntimeMode = 'source' | 'bundled' | 'binary';
-type SelfEntry = 'cli' | 'hook-relay' | 'command-hook-relay' | 'statusline-relay' | 'hook-tool-relay' | 'posthog-read-gate';
+type SelfEntry = 'cli' | 'hook-relay' | 'command-hook-relay' | 'statusline-relay' | 'hook-tool-relay' | 'mcp-bridge' | 'posthog-read-gate';
 
 export interface RuntimePaths {
   packageRoot: string;

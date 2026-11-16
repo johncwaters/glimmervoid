@@ -35,7 +35,7 @@ test('an agy spawn writes the Glimmervoid plugin agy loads hooks from and trusts
   assert.match(hooks.Stop[0].command, / Stop$/);
   assert.equal(hooks.PreToolUse[0].matcher, '*');
   assert.match(hooks.PreToolUse[0].hooks[0].command, / PreToolUse$/);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(pluginFolder, 'mcp_config.json'), 'utf8')), { mcpServers: {} });
+  assert.match(JSON.parse(fs.readFileSync(path.join(pluginFolder, 'mcp_config.json'), 'utf8')).mcpServers.glimmervoid.args.join(' '), /mcp-bridge/);
   assert.equal(fs.existsSync(path.join(home, '.gemini', 'config', 'hooks.json')), false);
 
   assert.equal(prepared.args?.[0], '--settings');
