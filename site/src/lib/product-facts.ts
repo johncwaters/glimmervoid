@@ -58,12 +58,6 @@ export const SUPPORT_EMAIL = 'support@glimmervoid.dev';
 
 export const CLOUD_PLAN = { monthlyPriceDollars: 40, includedAwakeHours: 150 } as const;
 
-export const HOUR_PACKS: readonly { awakeHours: number; priceDollars: number }[] = [
-  { awakeHours: 25, priceDollars: 6 },
-  { awakeHours: 50, priceDollars: 10 },
-  { awakeHours: 100, priceDollars: 18 },
-];
-
 export const PACK_LIFETIME_MONTHS = 12;
 
 export const AUTHOR = { '@type': 'Person', name: 'John C. Waters', url: 'https://github.com/johncwaters' } as const;

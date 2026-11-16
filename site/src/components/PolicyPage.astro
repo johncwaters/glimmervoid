@@ -1,0 +1,75 @@
+---
+import { BRAND_ACCENT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../shared/brand-mark.ts';
+import Base from '../layouts/Base.astro';
+import Footer from './Footer.astro';
+import Wordmark from './Wordmark.astro';
+import { AUTHOR } from '../lib/product-facts.ts';
+import { siteNavLinks } from '../lib/site-nav.ts';
+import { sitePath } from '../lib/site-path.ts';
+
+type Props = { heading: string; pageTitle: string; description: string; lastUpdated: string };
+
+const { heading, pageTitle, description, lastUpdated } = Astro.props;
+const home = sitePath('');
+const policyStructuredData = {
+  '@type': 'WebPage',
+  name: pageTitle,
+  description,
+  url: new URL(Astro.url.pathname, Astro.site).href,
+  publisher: AUTHOR,
+};
+---
+<Base title={pageTitle} description={description} structuredData={policyStructuredData}>
+  <nav class="policy-nav" aria-label="Main">
+    <a class="brand" href={home}><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg><Wordmark /></a>
+    <ul>
+      {siteNavLinks(home).map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
+      <li><a class="nav-install" href={`${home}#install`}>Install</a></li>
+    </ul>
+  </nav>
+  <section class="policy">
+    <div class="policy-head">
+      <p class="policy-product">Glimmervoid Cloud</p>
+      <h1>{heading}</h1>
+      <p class="policy-updated">Last updated {lastUpdated}.</p>
+    </div>
+    <div class="policy-body">
+      <slot />
+    </div>
+  </section>
+  <Footer />
+</Base>
+
+<style>
+  .policy-nav { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text-head); letter-spacing: .1em; text-transform: uppercase; font-size: var(--type-body); text-decoration: none; }
+  .brand svg { width: 20px; height: 20px; }
+  .policy-nav ul { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; align-items: center; font-size: var(--type-body); }
+  .policy-nav ul a { color: var(--text-dim); text-decoration: none; }
+  .policy-nav ul a:hover { color: var(--text-head); }
+  .policy-nav ul .nav-install { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: var(--radius); background: var(--accent); color: var(--bg); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; font-size: var(--type-meta); }
+  .policy-nav ul .nav-install:hover { color: var(--bg); background: color-mix(in oklab, var(--accent) 85%, var(--text-head)); }
+
+  .policy { padding-block: 128px; border-top: 0; }
+  .policy-head { display: flex; flex-direction: column; gap: 14px; margin-bottom: 64px; }
+  .policy-product { color: var(--text-dim); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
+  .policy-head h1 { font-size: clamp(26px, 3.6vw, 34px); line-height: 1.2; letter-spacing: -0.01em; }
+  .policy-updated { color: var(--text-dim); }
+  .policy-body { max-width: 72ch; }
+  .policy-body :global(h2) { margin-top: 40px; margin-bottom: 8px; font-size: var(--type-doc-h3); letter-spacing: 0; }
+  .policy-body :global(h2:first-child) { margin-top: 0; }
+  .policy-body :global(p) { color: var(--text); }
+  .policy-body :global(p + p) { margin-top: 12px; }
+
+  @media (min-width: 1180px) {
+    .policy { padding-block: 200px; display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }
+    .policy-head { position: sticky; top: 48px; margin-bottom: 0; }
+  }
+  @media (max-width: 820px) {
+    .policy-nav ul li:not(:last-child) { display: none; }
+  }
+  @media (max-width: 640px) {
+    .policy { padding-block: 96px; }
+    .policy-head { margin-bottom: 48px; }
+  }
+</style>

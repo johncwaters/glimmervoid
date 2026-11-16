@@ -1,47 +1,29 @@
 ---
-import Base from '../layouts/Base.astro';
-import Nav from '../components/Nav.astro';
-import Footer from '../components/Footer.astro';
+import PolicyPage from '../components/PolicyPage.astro';
 import { AUTHOR, CLOUD_PLAN, PACK_LIFETIME_MONTHS, SUPPORT_EMAIL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
-
-const TERMS_TITLE = 'Terms of service for Glimmervoid Cloud | Glimmervoid';
-const TERMS_DESCRIPTION = 'The terms for using Glimmervoid Cloud, the hosted Glimmervoid server.';
-const termsStructuredData = {
-  '@type': 'WebPage',
-  name: TERMS_TITLE,
-  description: TERMS_DESCRIPTION,
-  url: new URL(Astro.url.pathname, Astro.site).href,
-  publisher: AUTHOR,
-};
 ---
-<Base title={TERMS_TITLE} description={TERMS_DESCRIPTION} structuredData={termsStructuredData}>
-  <Nav />
-  <section class="legal">
-    <h1>Terms of service</h1>
-    <p class="legal-meta">Last updated 15 November 2026.</p>
-    <p>These terms cover Glimmervoid Cloud, a hosted Glimmervoid server run by {AUTHOR.name} ("we"). By subscribing you agree to them. The open-source Glimmervoid app you run yourself is covered by its MIT licence, not by these terms.</p>
-    <h2>The service</h2>
-    <p>Each subscription gets one Glimmervoid server on a virtual machine of its own, reached at its own address. The server sleeps when no session is running and wakes when its address is opened. The coding agents you run on it, and the accounts and API keys they use, are yours to provide and pay for.</p>
-    <h2>Your account</h2>
-    <p>You sign in with GitHub. You must be old enough to enter a contract where you live, keep your GitHub account secure, and are responsible for what happens on your server. One account belongs to one person or one organization; do not share or resell access.</p>
-    <h2>Payment</h2>
-    <p>The plan costs ${CLOUD_PLAN.monthlyPriceDollars} a month plus any sales tax or VAT, and includes {CLOUD_PLAN.includedAwakeHours} awake hours each billing period. Hour packs add more hours while a plan is active and last {PACK_LIFETIME_MONTHS} months. Plan hours end 3 days after their billing period and do not roll over.</p>
-    <p>Payments are processed through Stripe Managed Payments: Stripe, through Link, sells the subscription to you as reseller, so your receipt and card statement name Link. The plan renews every month until you cancel. Cancel any time from the account page; the plan then runs to the end of the period already paid. We tell you by email at least 30 days before a price change takes effect.</p>
-    <h2>Awake hours</h2>
-    <p>Time the server is awake counts against your hours, including the minutes it waits before going back to sleep. When your hours run out, the server may not wake until the next billing period or until you buy an hour pack.</p>
-    <h2>Acceptable use</h2>
-    <p>Do not use the server to break the law, attack or scan other systems, send spam, mine cryptocurrency, host content you have no right to share, or get around the hour limits. We may suspend a server that does, and tell you why.</p>
-    <h2>Your data</h2>
-    <p>What you put on your server is yours. We do not read it, except to keep the service running, to investigate a breach of these terms, or where the law requires. Keep your own copies of work that matters: push your branches to a remote. When a plan ends, the server and its data are deleted 30 days later unless you subscribe again.</p>
-    <h2>Suspension and ending</h2>
-    <p>A failed payment that Stripe cannot recover, a disputed charge, or a breach of these terms can suspend the server. You can end the service by cancelling. We can end it with 30 days' notice by email, and refund the unused part of the period already paid.</p>
-    <h2>No warranty</h2>
-    <p>The service is provided as is, with no promise that it is always available or free of faults. To the extent the law allows, our liability for any claim is limited to what you paid us in the 12 months before it.</p>
-    <h2>Changes</h2>
-    <p>We may update these terms. We tell you by email before a change that affects you takes effect, and the date above changes with them.</p>
-    <h2>Contact</h2>
-    <p>Questions about these terms, or about your account: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. Refunds follow the <a href={sitePath('refunds/')}>refund policy</a>; what this site records is in the <a href={sitePath('privacy/')}>privacy notice</a>.</p>
-  </section>
-  <Footer />
-</Base>
+<PolicyPage heading="Terms of service" pageTitle="Terms of service for Glimmervoid Cloud | Glimmervoid" description="The terms for using Glimmervoid Cloud, the hosted Glimmervoid server." lastUpdated="15 November 2026">
+  <p>These terms cover Glimmervoid Cloud, a hosted Glimmervoid server run by {AUTHOR.name} ("we"). By subscribing you agree to them. The open-source Glimmervoid app you run yourself is covered by its MIT licence, not by these terms.</p>
+  <h2>The service</h2>
+  <p>Each subscription gets one Glimmervoid server on a virtual machine of its own, reached at its own address. The server sleeps when no session is running and wakes when its address is opened. The coding agents you run on it, and the accounts and API keys they use, are yours to provide and pay for.</p>
+  <h2>Your account</h2>
+  <p>You sign in with GitHub. You must be old enough to enter a contract where you live, keep your GitHub account secure, and are responsible for what happens on your server. One account belongs to one person or one organization; do not share or resell access.</p>
+  <h2>Payment</h2>
+  <p>The plan costs ${CLOUD_PLAN.monthlyPriceDollars} a month plus any sales tax or VAT, and includes {CLOUD_PLAN.includedAwakeHours} awake hours each billing period. Top-offs add more hours while a plan is active and last {PACK_LIFETIME_MONTHS} months. Plan hours end 3 days after their billing period and do not roll over.</p>
+  <p>Payments are processed through Stripe Managed Payments: Stripe, through Link, sells the subscription to you as reseller, so your receipt and card statement name Link. The plan renews every month until you cancel. Cancel any time from the account page; the plan then runs to the end of the period already paid. We tell you by email at least 30 days before a price change takes effect.</p>
+  <h2>Awake hours</h2>
+  <p>Time the server is awake counts against your hours, including the minutes it waits before going back to sleep. When your hours run out, the server may not wake until the next billing period or until you buy a top-off.</p>
+  <h2>Acceptable use</h2>
+  <p>Do not use the server to break the law, attack or scan other systems, send spam, mine cryptocurrency, host content you have no right to share, or get around the hour limits. We may suspend a server that does, and tell you why.</p>
+  <h2>Your data</h2>
+  <p>What you put on your server is yours. We do not read it, except to keep the service running, to investigate a breach of these terms, or where the law requires. Keep your own copies of work that matters: push your branches to a remote. When a plan ends, the server and its data are deleted 30 days later unless you subscribe again.</p>
+  <h2>Suspension and ending</h2>
+  <p>A failed payment that Stripe cannot recover, a disputed charge, or a breach of these terms can suspend the server. You can end the service by cancelling. We can end it with 30 days' notice by email, and refund the unused part of the period already paid.</p>
+  <h2>No warranty</h2>
+  <p>The service is provided as is, with no promise that it is always available or free of faults. To the extent the law allows, our liability for any claim is limited to what you paid us in the 12 months before it.</p>
+  <h2>Changes</h2>
+  <p>We may update these terms. We tell you by email before a change that affects you takes effect, and the date above changes with them.</p>
+  <h2>Contact</h2>
+  <p>Questions about these terms, or about your account: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. Refunds follow the <a href={sitePath('refunds/')}>refund policy</a>; what this site records is in the <a href={sitePath('privacy/')}>privacy notice</a>.</p>
+</PolicyPage>

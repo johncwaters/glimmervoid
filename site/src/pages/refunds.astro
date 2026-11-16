@@ -1,38 +1,20 @@
 ---
-import Base from '../layouts/Base.astro';
-import Nav from '../components/Nav.astro';
-import Footer from '../components/Footer.astro';
-import { AUTHOR, SUPPORT_EMAIL } from '../lib/product-facts.ts';
+import PolicyPage from '../components/PolicyPage.astro';
+import { SUPPORT_EMAIL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
-
 const REFUND_REQUEST_WINDOW_DAYS = 14;
-const REFUNDS_TITLE = 'Refund policy for Glimmervoid Cloud | Glimmervoid';
-const REFUNDS_DESCRIPTION = 'How to ask for a refund of a Glimmervoid Cloud charge, and what a refund ends.';
-const refundsStructuredData = {
-  '@type': 'WebPage',
-  name: REFUNDS_TITLE,
-  description: REFUNDS_DESCRIPTION,
-  url: new URL(Astro.url.pathname, Astro.site).href,
-  publisher: AUTHOR,
-};
 ---
-<Base title={REFUNDS_TITLE} description={REFUNDS_DESCRIPTION} structuredData={refundsStructuredData}>
-  <Nav />
-  <section class="legal">
-    <h1>Refund policy</h1>
-    <p class="legal-meta">Last updated 15 November 2026.</p>
-    <p>Glimmervoid Cloud is sold through Stripe Managed Payments, so your charge appears under Link and Stripe carries out every refund. This page says when we approve one and what it changes.</p>
-    <h2>How to ask</h2>
-    <p>Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with your GitHub login and the charge you want refunded, or ask Link support from your receipt email. Stripe sends us the request, we answer by email, and Stripe refunds the charge, including its tax, to the card that paid.</p>
-    <h2>What we refund</h2>
-    <p>We approve a refund of a plan charge or an hour pack asked for within {REFUND_REQUEST_WINDOW_DAYS} days of the charge. After that, we refund a charge when the service did not work as described, such as a server that would not wake. Stripe may also refund a charge within 60 days of purchase on its own, and applies any cooling-off period the law where you live gives you.</p>
-    <h2>What a refund ends</h2>
-    <p>Refunding a plan charge ends the plan at once, along with the hours it included, and the server no longer wakes. The server and its data are deleted 30 days later unless you subscribe again. Refunding an hour pack removes that pack's hours and leaves the plan running.</p>
-    <h2>Cancelling instead</h2>
-    <p>Cancelling stops the next renewal and keeps the server working to the end of the period already paid, with no refund for that period. Cancel from the account page.</p>
-    <h2>Disputes</h2>
-    <p>A charge disputed with your bank pauses the server until the dispute settles. Asking us first is faster.</p>
-    <p class="legal-meta">These terms sit beside the <a href={sitePath('terms/')}>terms of service</a>.</p>
-  </section>
-  <Footer />
-</Base>
+<PolicyPage heading="Refund policy" pageTitle="Refund policy for Glimmervoid Cloud | Glimmervoid" description="How to ask for a refund of a Glimmervoid Cloud charge, and what a refund ends." lastUpdated="15 November 2026">
+  <p>Glimmervoid Cloud is sold through Stripe Managed Payments, so your charge appears under Link and Stripe carries out every refund. This page says when we approve one and what it changes.</p>
+  <h2>How to ask</h2>
+  <p>Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with your GitHub login and the charge you want refunded, or ask Link support from your receipt email. Stripe sends us the request, we answer by email, and Stripe refunds the charge, including its tax, to the card that paid.</p>
+  <h2>What we refund</h2>
+  <p>We approve a refund of a plan charge or a top-off asked for within {REFUND_REQUEST_WINDOW_DAYS} days of the charge. After that, we refund a charge when the service did not work as described, such as a server that would not wake. Stripe may also refund a charge within 60 days of purchase on its own, and applies any cooling-off period the law where you live gives you.</p>
+  <h2>What a refund ends</h2>
+  <p>Refunding a plan charge ends the plan at once, along with the hours it included, and the server no longer wakes. The server and its data are deleted 30 days later unless you subscribe again. Refunding a top-off removes its hours and leaves the plan running.</p>
+  <h2>Cancelling instead</h2>
+  <p>Cancelling stops the next renewal and keeps the server working to the end of the period already paid, with no refund for that period. Cancel from the account page.</p>
+  <h2>Disputes</h2>
+  <p>A charge disputed with your bank pauses the server until the dispute settles. Asking us first is faster.</p>
+  <p>These terms sit beside the <a href={sitePath('terms/')}>terms of service</a>.</p>
+</PolicyPage>

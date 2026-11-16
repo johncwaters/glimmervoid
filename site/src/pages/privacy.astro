@@ -16,7 +16,7 @@ const privacyStructuredData = {
 ---
 <Base title={PRIVACY_TITLE} description={PRIVACY_DESCRIPTION} structuredData={privacyStructuredData}>
   <Nav />
-  <section class="legal">
+  <section class="privacy">
     <h1>Privacy</h1>
     <p>glimmervoid.dev uses PostHog to see how the site is used: which pages are opened, how far down they are read, what is clicked, and when the install command is copied or a platform is picked. IP addresses are not stored.</p>
     <h2>Before you choose, or if you decline</h2>
@@ -66,6 +66,10 @@ const privacyStructuredData = {
 </script>
 
 <style>
+  .privacy { max-width: 72ch; margin-inline: auto; padding-bottom: 48px; }
+  .privacy h1 { margin-bottom: 20px; }
+  .privacy h2 { margin-top: 32px; margin-bottom: 8px; font-size: var(--type-doc-h3); }
+  .privacy p { color: var(--text); }
   .consent-status { color: var(--text-dim); }
   .consent-actions { display: flex; gap: 8px; margin-top: 12px; }
   .consent-actions[hidden] { display: none; }
