@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-11-16
+
 ### Added
 
 - **Screenplays go on boards as Fountain files.** `show` and `whiteboard attach` take a `.fountain` file as a board document, and a card can link to one in its worktree like a Markdown document. The card lays the script out in Courier: scene headings, action, character cues, parentheticals, dialogue and transitions sit where a screenplay page puts them, and notes, boneyard, sections and synopses stay off the page. Clicking the card, or `glimmervoid edit` on a `.fountain` file, opens the doc editor on the same layout, with notes and boneyard dimmed, and red pen suggestions work as they do in Markdown; Markdown-only formatting buttons stay hidden.
