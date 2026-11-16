@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode', 'pi'] as const;
+export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode', 'pi', 'antigravity'] as const;
 export const CatalogAgentId = z.enum(CATALOG_AGENT_IDS);
 export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 

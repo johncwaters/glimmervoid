@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs } from '../../shared/agent-models-core.ts';
+import { parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
 import type { ModelSelection } from '../../shared/contracts/agent-models.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
@@ -61,4 +61,10 @@ test('live-captured agent model lists parse into models with effort choices', ()
   for (const models of [claudeModels, codexModels]) {
     assert.ok(models.some((model) => model.options.some((option) => option.id === EFFORT_OPTION_ID)));
   }
+});
+
+test('a live-captured agy model list parses every row into a launchable model', () => {
+  const agyModels = parseAntigravityModels(fs.readFileSync(path.join(FIXTURES, 'agy-models.txt'), 'utf8')) ?? [];
+  assert.ok(agyModels.length > 0);
+  assert.ok(agyModels.every((model) => model.id !== model.label && selectionArgs({ agent: 'antigravity', model: model.id, options: [] }).includes(model.id)));
 });

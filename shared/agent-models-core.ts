@@ -151,6 +151,19 @@ function parsePiModels(listOutput: string): CatalogModel[] | null {
   });
 }
 
+const ANTIGRAVITY_MODEL_ROW = /^(\S+)\t(.+)$/;
+
+function parseAntigravityModels(modelsOutput: string): CatalogModel[] | null {
+  const lines = modelsOutput.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+  const models = lines.flatMap((line) => {
+    const match = ANTIGRAVITY_MODEL_ROW.exec(line);
+    if (!match || !SAFE_LAUNCH_ARGUMENT_PATTERN.test(match[1])) return [];
+    return [{ id: match[1], label: match[2].trim(), aliases: [], isDefault: false, options: [] }];
+  });
+  if (models.length === 0 && lines.length > 0) return null;
+  return models;
+}
+
 const OPENROUTER_AGENT_ENDPOINTS = ['/api/v1/messages', '/api/v1/responses', '/api/v1/chat/completions'];
 
 function isAgentReadyOpenRouterModel(entry: Record<string, unknown>): boolean {
@@ -181,6 +194,7 @@ const FLAGS_BY_AGENT: Readonly<Record<string, FlagBuilder>> = Object.freeze({
   kimi: (model) => (model ? ['-m', model] : []),
   grok: (model) => (model ? ['--model', model] : []),
   pi: (model, effort) => [...(model ? ['--model', model] : []), ...(effort ? ['--thinking', effort] : [])],
+  antigravity: (model) => (model ? ['--model', model] : []),
 });
 
 function selectionArgs(selection: ModelSelection | null): string[] {
@@ -271,5 +285,5 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels, selectionArgs, unsafeLaunchValueOf };
 export type { LaunchPlan };

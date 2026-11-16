@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { execFileAsync } from '../child-process-safe.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import kimi from '../../session/adapters/kimi.ts';
-import { parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels } from '../../shared/agent-models-core.ts';
+import { parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS, NO_PROVIDER_MODELS } from '../../shared/contracts/agent-models.ts';
 import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel, ProviderModels } from '../../shared/contracts/agent-models.ts';
 import { clock } from '../../shared/clock.ts';
@@ -18,6 +18,7 @@ const CLAUDE_PROBE_ARGS = ['-p', '--setting-sources', '', '--input-format', 'str
 const CODEX_PROBE_ARGS = ['debug', 'models'];
 const OPENCODE_PROBE_ARGS = ['models', '--standalone'];
 const PI_PROBE_ARGS = ['--list-models', '--offline'];
+const ANTIGRAVITY_PROBE_ARGS = ['models'];
 
 type ModelProbe = () => Promise<CatalogModel[] | null>;
 
@@ -37,6 +38,7 @@ const PROBES: Readonly<Record<CatalogAgentId, ModelProbe>> = Object.freeze({
   kimi: async () => parseKimiModels(await fs.readFile(kimi.configFilePath(), 'utf8')),
   opencode: async () => parseOpenCodeModels(await runAgentCommand('opencode', OPENCODE_PROBE_ARGS, null)),
   pi: async () => parsePiModels(await runAgentCommand('pi', PI_PROBE_ARGS, null)),
+  antigravity: async () => parseAntigravityModels(await runAgentCommand('antigravity', ANTIGRAVITY_PROBE_ARGS, null)),
 });
 
 function firstLine(error: unknown): string {
