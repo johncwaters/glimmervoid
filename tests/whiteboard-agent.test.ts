@@ -997,6 +997,51 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   assert.equal((await listedBoard())?.link, null);
 });
 
+test('a linked board takes a pulled stroke and a teammate note as written, and a pull it cannot apply leaves the folder untouched by later edits', async () => {
+  const worktree = path.join(fixture.tmpDir, PLANNER_ID);
+  const boardId = await newBoard('Pulled from a teammate');
+  const put = async (ops: unknown[]) => {
+    const reply = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops });
+    assert.equal(reply.status, 200, JSON.stringify(reply.body));
+  };
+  await put([{ op: 'add', element: { kind: 'box', id: 'mine', title: 'Mine', place: { at: { x: 40, y: 40 } } } }, { op: 'board', link: 'boards/pulls' }]);
+  const documentPath = path.join(worktree, 'boards', 'pulls', 'board.jsonl');
+  const eventually = async (check: () => Promise<boolean> | boolean, label: string) => {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (await check()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(await check(), label);
+  };
+  const documentText = () => (fs.existsSync(documentPath) ? fs.readFileSync(documentPath, 'utf8') : '');
+  const linkStateOf = async () => ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as { id: string; link: { state: string; text: string } | null }[]).find((board) => board.id === boardId)?.link;
+  await eventually(() => documentText() !== '', 'linking writes board.jsonl');
+
+  const strokeLine = JSON.stringify({ kind: 'stroke', id: 'teammate-ink', points: [0, 0, 40, 40], tone: 'blue', width: 5 });
+  const noteLine = JSON.stringify({ kind: 'box', id: 'teammate-note', title: 'From a teammate', shape: 'note', author: 'Teammate', place: { at: { x: 40, y: 240 } } });
+  fs.writeFileSync(documentPath, `${documentText()}${strokeLine}\n${noteLine}\n`);
+  const pulled = await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
+  const pulledById = new Map((pulled.body.elements as Record<string, unknown>[]).map((element) => [element.id, element]));
+  assert.equal(pulledById.get('teammate-ink')?.kind, 'stroke', 'a pulled stroke lands on the board');
+  const pulledNote = pulledById.get('teammate-note');
+  assert.deepEqual([pulledNote?.author, pulledNote?.width], ['Teammate', undefined], 'a pulled note keeps its author and width as written');
+  assert.equal((await linkStateOf())?.state, 'in-sync');
+
+  const pulledText = documentText();
+  const tooManyLines = Array.from({ length: 5001 }, (_, index) => JSON.stringify({ kind: 'box', id: `pulled-${index}`, title: `Pulled ${index}`, place: { at: { x: index, y: 600 } } })).join('\n');
+  const oversizedText = `${pulledText}${tooManyLines}\n`;
+  fs.writeFileSync(documentPath, oversizedText);
+  await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
+  await eventually(async () => (await linkStateOf())?.state === 'broken', 'a pull the board cannot take shows as broken');
+  await put([{ op: 'set', id: 'mine', fields: { title: 'Mine, edited after the pull' } }]);
+  await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(documentText(), oversizedText, 'the pulled file is never written over with the board it could not reach');
+
+  await put([{ op: 'board', link: null }]);
+});
+
 test('refs are checked in the code session worktree: a missing file, a line past the end and a path leaving the worktree land as warnings on the put that wrote them, and get --layout repeats them all', async (context) => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   fs.mkdirSync(path.join(worktree, 'src'), { recursive: true });

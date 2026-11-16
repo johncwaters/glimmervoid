@@ -489,26 +489,46 @@ function createWhiteboardWiring({
     const record = recordsByBoardId.get(boardId);
     if (!record || record.board.link === null) return;
     let syncedBoard: Board | null = null;
-    await changeRecord(boardId, async (current) => {
+    let syncedState: Pick<LinkSync, 'state' | 'text'> | null = null;
+    let settleFolder: LinkSync['settle'] = null;
+    const reply = await changeRecord(boardId, async (current) => {
       syncedBoard = current.board;
       const synced = await linkedBoards.syncBoard(current.board, linkRootOf(current.board));
       if (synced === null) return { ok: false, reply: refusal(409, 'the board is not linked to a folder') };
       if (synced.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
+      syncedState = synced;
+      settleFolder = synced.settle;
       const ops = synced.content === null ? [] : boardDiffOps(current.board, synced.content);
-      if (ops.length === 0) {
-        noteLinkState(boardId, synced);
-        return { ok: true, record: current, reply: { status: 200, body: { ok: true, version: current.board.version } } };
-      }
-      const applied = await applyOpsToRecord(current, ops, GLIMMERVOID_AUTHOR);
+      if (ops.length === 0) return { ok: true, record: current, reply: { status: 200, body: { ok: true, version: current.board.version } } };
+      const applied = await applyOpsToRecord(current, ops, OPERATOR_AUTHOR);
       if (!applied.ok) {
-        noteLinkState(boardId, { state: 'broken', text: `The folder's board could not be applied: ${applied.error}` });
+        syncedState = { state: 'broken', text: `The folder's board could not be applied: ${applied.error}` };
         return { ok: false, reply: refusal(400, applied.error) };
       }
-      noteLinkState(boardId, synced);
       syncedBoard = applied.record.board;
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
     });
+    const settledState = settleFolder && reply.status === 200 ? await settledLinkState(boardId, settleFolder) : linkStateAfterReply(reply, syncedState);
     if (syncedBoard) await watchLinkedFolder(syncedBoard);
+    if (settledState) noteLinkState(boardId, settledState);
+  }
+
+  function linkStateAfterReply(reply: WhiteboardReply, syncedState: Pick<LinkSync, 'state' | 'text'> | null): Pick<LinkSync, 'state' | 'text'> | null {
+    if (reply.status === 200 || syncedState === null || syncedState.state === 'broken') return syncedState;
+    const refusalText = 'error' in reply.body ? String(reply.body.error) : `status ${reply.status}`;
+    return { state: 'broken', text: `The board could not take its folder: ${refusalText}` };
+  }
+
+  async function settledLinkState(boardId: string, settle: () => Promise<LinkSync>): Promise<LinkSync> {
+    const settled = await writeQueue.run(boardId, async () => {
+      try {
+        return await settle();
+      } catch (error) {
+        return { state: 'broken' as const, text: `The linked folder could not be written: ${errorMessage(error)}`, content: null, isFolderChangedMeanwhile: false, settle: null };
+      }
+    });
+    if (settled.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
+    return settled;
   }
 
   function linkChangeAfterCommit(before: Board, after: Board): void {

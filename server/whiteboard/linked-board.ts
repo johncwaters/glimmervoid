@@ -17,7 +17,7 @@ import type { BoardContent } from '../core/board-file-core.ts';
 import { ASSET_INPUT_CAP_BYTES } from './whiteboard-assets.ts';
 import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 
-type LinkSync = { state: LinkState; text: string; content: BoardContent | null; isFolderChangedMeanwhile: boolean };
+type LinkSync = { state: LinkState; text: string; content: BoardContent | null; isFolderChangedMeanwhile: boolean; settle: (() => Promise<LinkSync>) | null };
 type Problem = { ok: false; problem: string };
 type WatchedFolder = { folder: string; inode: number };
 type FolderRead = { ok: true; text: string; bytes: Buffer } | { ok: true; text: null; bytes: null } | Problem;
@@ -40,7 +40,7 @@ function problem(text: string): Problem {
 }
 
 function brokenSync(text: string): LinkSync {
-  return { state: 'broken', text, content: null, isFolderChangedMeanwhile: false };
+  return { state: 'broken', text, content: null, isFolderChangedMeanwhile: false, settle: null };
 }
 
 function contentOfBoard(board: Board): BoardContent {
@@ -255,12 +255,15 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
     if (!folderRead.ok) return brokenSync(folderRead.problem);
     const { text: theirsText, bytes: theirsBytes } = folderRead;
     const baseText = await readBase(board, folder);
-    if (theirsText === null && baseText !== null) return brokenSync(`${linkPath}/${DOCUMENT_FILENAME} is gone, as after a branch switch, so the board stopped writing to it; it syncs again once the file is back, or link the board again to write it there`);
+    if (theirsText === null && baseText !== null) return brokenSync(`${linkPath}/${DOCUMENT_FILENAME} is gone, as after a branch switch, so the board stopped writing to it; it syncs again once the file is back, or unlink the board and link it again to write it there`);
     if (theirsText === null) return finishSync(board, root, folder, oursText, null, null);
     if (theirsText === oursText || theirsText === baseText) return finishSync(board, root, folder, oursText, theirsBytes, null);
     const theirs = decodeBoardDocument(theirsText);
     if (!theirs.ok) return brokenSync(`${linkPath}/${DOCUMENT_FILENAME} cannot be read, so the board stopped writing to it: ${theirs.error}`);
-    if (oursText === baseText) return finishSync(board, root, folder, theirsText, theirsBytes, theirs.content);
+    if (oursText === baseText) {
+      const theirsContent = withDanglingReferencesDropped(theirs.content);
+      return finishSync(board, root, folder, encodeBoardDocument(boardDocumentOf(theirsContent)), theirsBytes, theirsContent);
+    }
     const base = baseText === null ? null : decodeBoardDocument(baseText);
     const baseDocument = base?.ok ? base.document : EMPTY_DOCUMENT;
     const mergedText = encodeBoardDocument(mergeBoardDocuments(baseDocument, ours, theirs.document));
@@ -272,14 +275,19 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
   }
 
   async function finishSync(board: Board, root: string, folder: string, targetText: string, theirsBytes: Buffer | null, contentForBoard: BoardContent | null): Promise<LinkSync> {
-    const adopted = contentForBoard === null ? null : await adoptedContentOf(root, folder, contentForBoard);
-    if (adopted && !adopted.ok) return brokenSync(adopted.problem);
-    const targetContent = adopted?.content ?? contentOfBoard(board);
+    if (contentForBoard === null) return writeFolderAndBase(board, root, folder, targetText, contentOfBoard(board), theirsBytes);
+    const adopted = await adoptedContentOf(root, folder, contentForBoard);
+    if (!adopted.ok) return brokenSync(adopted.problem);
+    const settle = () => writeFolderAndBase(board, root, folder, targetText, adopted.content, theirsBytes);
+    return { state: 'in-sync', text: IN_SYNC_TEXT, content: adopted.content, isFolderChangedMeanwhile: false, settle };
+  }
+
+  async function writeFolderAndBase(board: Board, root: string, folder: string, targetText: string, targetContent: BoardContent, theirsBytes: Buffer | null): Promise<LinkSync> {
     const written = await writeFolder(root, folder, targetText, targetContent, theirsBytes);
     if (!written.ok) return brokenSync(written.problem);
-    if (written.isChangedMeanwhile) return { state: 'file-ahead', text: 'The folder changed while the board was saving; it syncs again', content: null, isFolderChangedMeanwhile: true };
+    if (written.isChangedMeanwhile) return { state: 'file-ahead', text: 'The folder changed while the board was saving; it syncs again', content: null, isFolderChangedMeanwhile: true, settle: null };
     await writeBase(board, folder, targetText);
-    return { state: 'in-sync', text: IN_SYNC_TEXT, content: adopted?.content ?? null, isFolderChangedMeanwhile: false };
+    return { state: 'in-sync', text: IN_SYNC_TEXT, content: null, isFolderChangedMeanwhile: false, settle: null };
   }
 
   async function nearestFolderInside(root: string, candidate: string): Promise<WatchedFolder | null> {
