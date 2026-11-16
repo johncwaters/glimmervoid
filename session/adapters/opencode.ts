@@ -59,8 +59,15 @@ function normalizedEventOf(event: string): string {
   return String(event || "").toLowerCase();
 }
 
-function mapHookToSignal(event: string): string | null {
-  return SIGNAL_BY_EVENT[normalizedEventOf(event)] ?? null;
+function isBackgroundTaskLaunch(payload: HookPayload | undefined): boolean {
+  const toolResponse = payload?.tool_response;
+  return typeof toolResponse === "object" && toolResponse !== null && "backgroundTaskId" in toolResponse && typeof toolResponse.backgroundTaskId === "string";
+}
+
+function mapHookToSignal(event: string, payload?: HookPayload): string | null {
+  const normalizedEvent = normalizedEventOf(event);
+  if (normalizedEvent === "posttooluse") return isBackgroundTaskLaunch(payload) ? "background-task-launched" : null;
+  return SIGNAL_BY_EVENT[normalizedEvent] ?? null;
 }
 
 function mapHookPromptKind(event: string): string | null {
@@ -104,14 +111,24 @@ function writePluginFolder(pluginFolder: string, files: Readonly<Record<string, 
   }
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
+function packSkillFolders(packSkillDirs: readonly string[]): string[] {
+  return [...new Set(packSkillDirs.map((skillDir) => path.dirname(skillDir)))];
+}
+
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], modelSelection = null }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   const files = openCodePluginFiles(RELAY_LAUNCH);
   if (files === null) return { refusal: PLUGIN_REFUSAL };
   const pluginFolder = pluginFolderPath(env);
   const writeFailure = writePluginFolder(pluginFolder, files);
   if (writeFailure) return { refusal: writeFailure };
-  return { home: pluginFolder, homeEnvValue: openCodeConfigContent(env[CONFIG_CONTENT_ENV_NAME], pathToFileURL(pluginFolder).href, mcpUrlFor(listenerPort)) };
+  const homeEnvValue = openCodeConfigContent(env[CONFIG_CONTENT_ENV_NAME], {
+    pluginFolderUrl: pathToFileURL(pluginFolder).href,
+    mcpUrl: mcpUrlFor(listenerPort),
+    skillFolders: packSkillFolders(packSkillDirs),
+    model: modelSelection?.agent === ID ? modelSelection.model : null,
+  });
+  return { home: pluginFolder, homeEnvValue };
 }
 
 function prepareScratchHome(): { refusal: string } {
@@ -154,6 +171,7 @@ const hooks: AgentHookProfile = {
 
 const opencode = {
   id: ID,
+  promptContextReply: "additional-context",
   label: "OpenCode",
   usageVendor: ID,
   commandName: COMMAND_NAME,

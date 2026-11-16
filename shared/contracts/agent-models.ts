@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi'] as const;
+export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode'] as const;
 export const CatalogAgentId = z.enum(CATALOG_AGENT_IDS);
 export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 
@@ -9,6 +9,7 @@ export const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
 
 export const AgentHomeKind = z.enum(['operator', 'clean']);
 export type AgentHomeKind = z.infer<typeof AgentHomeKind>;
+export const CLEAN_HOME_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'kimi'];
 
 export const ModelOption = z.strictObject({
   id: z.string().min(1),

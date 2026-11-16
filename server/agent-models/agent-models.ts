@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import { execFileAsync } from '../child-process-safe.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import kimi from '../../session/adapters/kimi.ts';
-import { parseClaudeInitialize, parseCodexModels, parseKimiModels } from '../../shared/agent-models-core.ts';
+import { parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS } from '../../shared/contracts/agent-models.ts';
 import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel } from '../../shared/contracts/agent-models.ts';
 import { clock } from '../../shared/clock.ts';
@@ -14,6 +14,7 @@ const PROBE_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const CLAUDE_INITIALIZE_REQUEST = `${JSON.stringify({ type: 'control_request', request_id: 'glimmervoid-models', request: { subtype: 'initialize' } })}\n`;
 const CLAUDE_PROBE_ARGS = ['-p', '--setting-sources', '', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
 const CODEX_PROBE_ARGS = ['debug', 'models'];
+const OPENCODE_PROBE_ARGS = ['models', '--standalone'];
 
 type ModelProbe = () => Promise<CatalogModel[] | null>;
 
@@ -31,6 +32,7 @@ const PROBES: Readonly<Record<CatalogAgentId, ModelProbe>> = Object.freeze({
   'claude-code': async () => parseClaudeInitialize(await runAgentCommand('claude-code', CLAUDE_PROBE_ARGS, CLAUDE_INITIALIZE_REQUEST)),
   codex: async () => parseCodexModels(await runAgentCommand('codex', CODEX_PROBE_ARGS, null)),
   kimi: async () => parseKimiModels(await fs.readFile(kimi.configFilePath(), 'utf8')),
+  opencode: async () => parseOpenCodeModels(await runAgentCommand('opencode', OPENCODE_PROBE_ARGS, null)),
 });
 
 function firstLine(error: unknown): string {

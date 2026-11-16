@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
 import type { HookRegistration, HookSignal } from "../detection/hook-source.ts";
+import type { ModelSelection } from "../shared/contracts/agent-models.ts";
 import { HOOK_URL_ENV } from "./core/hook-relay-core.ts";
 import { HOOK_TOOLS } from "./core/hook-tools.ts";
 import type { ResolvedHookTool } from "./core/hook-tools.ts";
@@ -61,6 +62,7 @@ interface SessionHookOptions {
   scratchAgentHome?: ScratchAgentHome | null;
   isCleanHome?: boolean;
   packSkillDirs?: () => readonly string[];
+  modelSelection?: () => ModelSelection | null;
   requiresHooks: boolean;
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
@@ -287,7 +289,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [] });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], modelSelection: options.modelSelection?.() ?? null });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);

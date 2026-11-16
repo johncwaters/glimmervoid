@@ -9,7 +9,7 @@ import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
 
-type FirstClassAgent = 'claude-code' | 'codex' | 'kimi';
+type FirstClassAgent = 'claude-code' | 'codex' | 'kimi' | 'opencode';
 type WaitingExpectation = 'required' | 'forbidden' | 'allowed';
 
 interface ParityScenario {
@@ -25,7 +25,7 @@ interface ParityScenario {
   requiredSignalsByAgent?: Partial<Record<FirstClassAgent, readonly string[]>>;
 }
 
-const FIRST_CLASS_AGENTS: readonly FirstClassAgent[] = ['claude-code', 'codex', 'kimi'];
+const FIRST_CLASS_AGENTS: readonly FirstClassAgent[] = ['claude-code', 'codex', 'kimi', 'opencode'];
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, 'fixtures');
 const PROBE_FIXTURE_RECORD_SPACING_MS = 1000;
 const HEADER_READ_BYTES = 4096;
@@ -36,7 +36,7 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-turn-complete.jsonl', codex: 'v2-codex-turn-complete.jsonl', kimi: 'v2-kimi-turn-complete.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-turn-complete.jsonl', codex: 'v2-codex-turn-complete.jsonl', kimi: 'v2-kimi-turn-complete.jsonl', opencode: 'v2-opencode-turn-complete.jsonl' },
     additionalFixtures: ['v2-codex-posttooluse-bash.jsonl'],
   },
   {
@@ -44,28 +44,28 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'required',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-permission-wait.jsonl', codex: 'v2-codex-permission-wait.jsonl', kimi: 'v2-kimi-approval-turn.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-permission-wait.jsonl', codex: 'v2-codex-permission-wait.jsonl', kimi: 'v2-kimi-approval-turn.jsonl', opencode: 'v2-opencode-approval-turn.jsonl' },
   },
   {
     name: 'plan-wait',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'required',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-plan-wait.jsonl', codex: 'v2-codex-plan-wait.jsonl', kimi: 'v2-kimi-plan-wait.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-plan-wait.jsonl', codex: 'v2-codex-plan-wait.jsonl', kimi: 'v2-kimi-plan-wait.jsonl', opencode: 'v2-opencode-plan-wait.jsonl' },
   },
   {
     name: 'structured-question-answered',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'required',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-structured-question-answered.jsonl', codex: 'v2-codex-request-user-input.jsonl', kimi: 'v2-kimi-ask-question.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-structured-question-answered.jsonl', codex: 'v2-codex-request-user-input.jsonl', kimi: 'v2-kimi-ask-question.jsonl', opencode: 'v2-opencode-ask-question.jsonl' },
   },
   {
     name: 'idle-compaction',
     expectedFinalState: STATES.IDLE,
     expectedCompleteNotifications: 0,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-idle-compaction.jsonl', codex: 'v2-codex-compaction.jsonl', kimi: 'v2-kimi-idle-compaction.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-idle-compaction.jsonl', codex: 'v2-codex-compaction.jsonl', kimi: 'v2-kimi-idle-compaction.jsonl', opencode: 'v2-opencode-idle-compaction.jsonl' },
     requiresCompactionWindow: true,
   },
   {
@@ -73,15 +73,15 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'allowed',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-subagent-gates-completion.jsonl', codex: 'v2-codex-subagent.jsonl', kimi: 'v2-kimi-subagent.jsonl' },
-    requiredSignalsByAgent: { 'claude-code': ['subagent-start', 'subagent-stop'], codex: ['subagent-start', 'subagent-stop'] },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-subagent-gates-completion.jsonl', codex: 'v2-codex-subagent.jsonl', kimi: 'v2-kimi-subagent.jsonl', opencode: 'v2-opencode-subagent.jsonl' },
+    requiredSignalsByAgent: { 'claude-code': ['subagent-start', 'subagent-stop'], codex: ['subagent-start', 'subagent-stop'], opencode: ['subagent-start', 'subagent-stop'] },
   },
   {
     name: 'session-clear',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 2,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-session-clear.jsonl', codex: 'v2-codex-session-clear.jsonl', kimi: 'v2-kimi-session-clear.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-session-clear.jsonl', codex: 'v2-codex-session-clear.jsonl', kimi: 'v2-kimi-session-clear.jsonl', opencode: 'v2-opencode-session-clear.jsonl' },
     requiresClearReset: true,
   },
   {
@@ -89,14 +89,14 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-model-setup-turn.jsonl', codex: 'v2-codex-model-setup-turn.jsonl', kimi: 'v2-kimi-model-setup-turn.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-model-setup-turn.jsonl', codex: 'v2-codex-model-setup-turn.jsonl', kimi: 'v2-kimi-model-setup-turn.jsonl', opencode: 'v2-opencode-model-setup-turn.jsonl' },
   },
   {
     name: 'whiteboard-prompt-context',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-whiteboard-prompt-context.jsonl', codex: 'v2-codex-whiteboard-prompt-context.jsonl', kimi: 'v2-kimi-whiteboard-prompt-context.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-whiteboard-prompt-context.jsonl', codex: 'v2-codex-whiteboard-prompt-context.jsonl', kimi: 'v2-kimi-whiteboard-prompt-context.jsonl', opencode: 'v2-opencode-whiteboard-prompt-context.jsonl' },
   },
   {
     name: 'background-self-wake',
@@ -104,21 +104,21 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     expectedCompleteNotifications: 1,
     expectedCompleteTransitions: 1,
     waitingNotification: 'allowed',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-background-self-wake.jsonl', codex: 'v2-codex-background-self-wake.jsonl', kimi: 'v2-kimi-background-self-wake.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-background-self-wake.jsonl', codex: 'v2-codex-background-self-wake.jsonl', kimi: 'v2-kimi-background-self-wake.jsonl', opencode: 'v2-opencode-background-self-wake.jsonl' },
   },
   {
     name: 'pack-agent-context-skills',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'allowed',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-pack-agent-context-skills.jsonl', codex: 'v2-codex-pack-agent-context-skills.jsonl', kimi: 'v2-kimi-pack-agent-context-skills.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-pack-agent-context-skills.jsonl', codex: 'v2-codex-pack-agent-context-skills.jsonl', kimi: 'v2-kimi-pack-agent-context-skills.jsonl', opencode: 'v2-opencode-pack-agent-context-skills.jsonl' },
   },
   {
     name: 'resume-continue',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,
     waitingNotification: 'forbidden',
-    fixtureByAgent: { 'claude-code': 'v2-claude-code-resume-continue.jsonl', codex: 'v2-codex-resume-continue.jsonl', kimi: 'v2-kimi-resume-continue.jsonl' },
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-resume-continue.jsonl', codex: 'v2-codex-resume-continue.jsonl', kimi: 'v2-kimi-resume-continue.jsonl', opencode: 'v2-opencode-resume-continue.jsonl' },
   },
 ];
 

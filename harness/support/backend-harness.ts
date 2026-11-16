@@ -157,7 +157,10 @@ const SHOULD_RUN_ONLY_MODEL_SETUP_PROBE = process.argv.includes('--only-model-se
 const SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE = process.argv.includes('--only-background-self-wake');
 const SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE = process.argv.includes('--only-resume-continue');
 const BACKGROUND_SELF_WAKE_SETTLE_MS = 20000;
-const BACKGROUND_SELF_WAKE_PROBE_PROMPT = 'Start the shell command `sleep 4; echo bg-done` as a background task and do not wait for it: use your shell tool\'s background option (run_in_background) or leave it running in a background terminal. Run no other tool. Then, as your final reply, write a 300-word paragraph about lighthouses and end your turn without checking on the background task. When you are later told the background task finished, reply with the single word finished.';
+function backgroundSelfWakePrompt(sleepSeconds: number): string {
+  return `Start the shell command \`sleep ${sleepSeconds}; echo bg-done\` as a background task and do not wait for it: use your shell tool's background option (run_in_background) or leave it running in a background terminal. Run no other tool. Then, as your final reply, write a 300-word paragraph about lighthouses and end your turn without checking on the background task. When you are later told the background task finished, reply with the single word finished.`;
+}
+const BACKGROUND_SELF_WAKE_PROBE_PROMPT = backgroundSelfWakePrompt(4);
 const MODEL_SETUP_PROBE_PROMPT = 'Reply with the single word copperheron and nothing else.';
 
 async function liveDefaultSetup(agent: CatalogAgentId): Promise<AgentSetup> {
@@ -180,16 +183,28 @@ interface ModelSetupProbe {
   check: (label: string, condition: boolean) => void;
   answerWaiting: () => Promise<void>;
   afterStart?: () => Promise<void>;
+  pickedSetup?: AgentSetup;
+  launchCarriesSetup?: (setup: AgentSetup, launch: ProbeLaunch) => boolean;
 }
 
-async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {} }: ModelSetupProbe): Promise<void> {
+export interface ProbeLaunch {
+  args: string[];
+  env: Record<string, string | undefined>;
+}
+
+function launchCarriesSetupFlags(setup: AgentSetup, launch: ProbeLaunch): boolean {
+  const expectedFlags = launchArgs(setup.agent, setup);
+  return expectedFlags.length > 0 && expectedFlags.every((flag) => launch.args.includes(flag));
+}
+
+async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {}, pickedSetup, launchCarriesSetup = launchCarriesSetupFlags }: ModelSetupProbe): Promise<void> {
   console.log('\nmodel-setup-turn:');
-  const setup = await liveDefaultSetup(agent);
+  const setup = pickedSetup ?? await liveDefaultSetup(agent);
   console.log(`  [setup] ${JSON.stringify(setup)}`);
-  const launchedArgs: string[][] = [];
+  const launches: ProbeLaunch[] = [];
   const spawnPty = session._ptySpawn;
   session._ptySpawn = (file, spawnArgs, spawnOptions) => {
-    launchedArgs.push([...spawnArgs]);
+    launches.push({ args: [...spawnArgs], env: { ...spawnOptions.env } });
     return spawnPty(file, spawnArgs, spawnOptions);
   };
   session._agentSetup = setup;
@@ -203,9 +218,7 @@ async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, 
   const scenarioHooks = hookRecords.slice(scenarioStart);
   console.log(`  [fixture] ${writeHookFixture('model-setup-turn', scenarioHooks, fixtureTarget)}`);
   console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
-  const expectedFlags = launchArgs(session.agentId, setup);
-  check('the setup produced model flags', expectedFlags.length > 0);
-  check('the launch carried the model setup flags', launchedArgs.some((spawnArgs) => expectedFlags.every((flag) => spawnArgs.includes(flag))));
+  check('the launch carried the model setup', launches.some((launch) => launchCarriesSetup(setup, launch)));
   check('the first prompt reached the agent', scenarioHooks.some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
 }
 const SHOULD_RUN_ONLY_PACK_AGENT_PROBE = process.argv.includes('--only-pack-agent');
@@ -395,6 +408,7 @@ function removeHarnessTempDirectory(tempDirectory: string): void {
 export {
   agentIngressBaseOf,
   BACKGROUND_SELF_WAKE_PROBE_PROMPT,
+  backgroundSelfWakePrompt,
   BACKGROUND_SELF_WAKE_SETTLE_MS,
   closeServer,
   connectControl,

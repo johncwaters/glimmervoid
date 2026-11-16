@@ -125,6 +125,15 @@ function parseKimiModels(configToml: string): CatalogModel[] | null {
   return models.map((model) => ({ ...model, isDefault: model.id === defaultModelId }));
 }
 
+const OPENCODE_MODEL_LINE = /^[A-Za-z0-9._-]+\/\S+$/;
+
+function parseOpenCodeModels(modelsOutput: string): CatalogModel[] | null {
+  const lines = modelsOutput.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+  const modelIds = lines.filter((line) => OPENCODE_MODEL_LINE.test(line));
+  if (modelIds.length === 0 && lines.length > 0) return null;
+  return modelIds.map((id) => ({ id, label: id, aliases: [], isDefault: false, options: [] }));
+}
+
 function optionValue(selection: ModelSelection, optionId: string): string | null {
   return selection.options.find((option) => option.id === optionId)?.value ?? null;
 }
@@ -146,7 +155,8 @@ function selectionArgs(selection: ModelSelection | null): string[] {
 }
 
 function unsafeLaunchValueOf(selections: readonly ModelSelection[]): string | null {
-  const launchValues = selections.flatMap((selection) => [...(selection.model === null ? [] : [selection.model]), ...selection.options.map((option) => option.value)]);
+  const commandLineSelections = selections.filter((selection) => selection.agent in FLAGS_BY_AGENT);
+  const launchValues = commandLineSelections.flatMap((selection) => [...(selection.model === null ? [] : [selection.model]), ...selection.options.map((option) => option.value)]);
   return launchValues.find((value) => !SAFE_LAUNCH_ARGUMENT_PATTERN.test(value)) ?? null;
 }
 
@@ -167,4 +177,4 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, selectionArgs, unsafeLaunchValueOf };

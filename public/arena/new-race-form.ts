@@ -1,4 +1,4 @@
-import { AgentHomeKind, AgentModelCatalog } from '#shared/contracts/agent-models.ts';
+import { AgentHomeKind, AgentModelCatalog, CLEAN_HOME_AGENT_IDS } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { RaceCheck, RaceContestant, RaceReviewCase, ReviewCaseEntry } from '#shared/contracts/race.ts';
 import { RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
@@ -142,7 +142,12 @@ function textField(label: string, value: string, onInput: (value: string) => voi
   return field;
 }
 
-const HOME_CHOICES = [{ value: 'operator', label: 'Your setup' }, { value: 'clean', label: 'Clean home' }];
+const OPERATOR_HOME_CHOICE = { value: 'operator', label: 'Your setup' };
+const CLEAN_HOME_CHOICE = { value: 'clean', label: 'Clean home' };
+
+function homeChoicesFor(agent: string): { value: string; label: string }[] {
+  return CLEAN_HOME_AGENT_IDS.includes(agent) ? [OPERATOR_HOME_CHOICE, CLEAN_HOME_CHOICE] : [OPERATOR_HOME_CHOICE];
+}
 
 function relabel(contestants: RaceContestant[]): RaceContestant[] {
   return contestantsFor(catalog, contestants);
@@ -154,10 +159,10 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
     const column = el('div', 'arena-column');
     column.append(el('span', 'arena-column-label', contestant.label));
     column.append(setupControls(contestant.setup, (next) => {
-      draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: next } : existing)));
+      draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: next, home: CLEAN_HOME_AGENT_IDS.includes(next.agent) ? existing.home : 'operator' } : existing)));
       onChanged();
     }));
-    column.append(buildSelect(HOME_CHOICES, contestant.home, (home) => {
+    column.append(buildSelect(homeChoicesFor(contestant.setup.agent), contestant.home, (home) => {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, home: AgentHomeKind.parse(home) } : existing)));
       onChanged();
     }, 'Home'));

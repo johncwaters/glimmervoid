@@ -19,6 +19,7 @@ import type { TaskTitleVocabulary } from "../core/task-title-core.ts";
 import type { AgentHomeProfile } from "../core/agent-home-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
 import type { PromptContextReply } from "../../shared/contracts/refocus.ts";
+import type { ModelSelection } from "../../shared/contracts/agent-models.ts";
 
 interface AgentCapabilities {
   hooks: boolean;
@@ -96,6 +97,7 @@ interface GeneratedHomeLaunch {
   isCleanHome: boolean;
   accountFolder?: string | null;
   packSkillDirs?: readonly string[];
+  modelSelection?: ModelSelection | null;
 }
 
 interface GeneratedHomeInjection {
@@ -192,7 +194,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: claudeCode, tier: "first-class" },
   { adapter: codex, tier: "first-class" },
   { adapter: kimi, tier: "first-class" },
-  { adapter: opencode, tier: "hooked" },
+  { adapter: opencode, tier: "first-class" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },

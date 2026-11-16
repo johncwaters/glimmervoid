@@ -1,0 +1,5 @@
+{"type":"header","version":2,"records":"signals","session":"fixture-opencode-pack-agent-context-skills","agent":"opencode","startedAt":0,"config":{"hooksInjected":true}}
+{"type":"hook","ts":1,"event":"sessionstart","payload":{"hook_event_name":"SessionStart","session_id":"ses_e2952eb12ffeGhl4U1QGW0ajxk","source":"startup"}}
+{"type":"hook","ts":2,"event":"userpromptsubmit","payload":{"hook_event_name":"UserPromptSubmit","session_id":"ses_e2952eb12ffeGhl4U1QGW0ajxk","prompt":"You have a skill named lookup from the pack probe-pack, and Glimmervoid may have named a pack context file with this prompt. Use that skill and read that file, then reply with only the two code words they give, separated by a space."}}
+{"type":"hook","ts":3,"event":"turnstart","payload":{"hook_event_name":"TurnStart","session_id":"ses_e2952eb12ffeGhl4U1QGW0ajxk"}}
+{"type":"hook","ts":4,"event":"stop","payload":{"hook_event_name":"Stop","session_id":"ses_e2952eb12ffeGhl4U1QGW0ajxk","session_title":"Glimmervoid pack lookup task"}}

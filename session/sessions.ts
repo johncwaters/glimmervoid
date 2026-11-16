@@ -610,6 +610,7 @@ class Session extends EventEmitter {
       scratchAgentHome,
       isCleanHome,
       packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
+      modelSelection: () => this._agentSetup,
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),

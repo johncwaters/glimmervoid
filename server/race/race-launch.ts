@@ -1,5 +1,5 @@
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { CatalogAgentId } from '../../shared/contracts/agent-models.ts';
+import { CLEAN_HOME_AGENT_IDS } from '../../shared/contracts/agent-models.ts';
 import { RaceJudgeAgent, RaceSpec } from '../../shared/contracts/race.ts';
 import type { RaceContestant } from '../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.ts';
@@ -35,7 +35,7 @@ function refusalOf(spec: RaceSpec): string | null {
   if (!isExistingDirectory(spec.repoPath)) return missingFolderError(spec.repoPath);
   const unknownAgent = spec.contestants.find((contestant) => contestant.setup.agent === SHELL_AGENT_ID || !isKnownAgentId(contestant.setup.agent));
   if (unknownAgent) return `"${unknownAgent.setup.agent}" cannot race: a contestant must be a coding agent`;
-  const uncleanable = spec.contestants.find((contestant) => contestant.home === 'clean' && !CatalogAgentId.safeParse(contestant.setup.agent).success);
+  const uncleanable = spec.contestants.find((contestant) => contestant.home === 'clean' && !CLEAN_HOME_AGENT_IDS.includes(contestant.setup.agent));
   if (uncleanable) return `"${uncleanable.setup.agent}" cannot race in a clean home: only Claude Code, Codex and Kimi Code can`;
   const unknownJudge = spec.judges.find((judge) => !RaceJudgeAgent.safeParse(judge.setup.agent).success);
   if (unknownJudge) return `"${unknownJudge.setup.agent}" cannot judge: a judge runs on Claude Code or Codex`;

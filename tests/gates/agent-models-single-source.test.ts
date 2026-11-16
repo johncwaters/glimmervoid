@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
+import type { ModelSelection } from '../../shared/contracts/agent-models.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
@@ -32,10 +33,20 @@ test('model flags and model names live only in the agent model catalog', () => {
   assert.deepEqual(offenders, [], 'build model flags with selectionArgs and name defaults through DEFAULT_MODELS');
 });
 
-test('every catalog agent is a real adapter that takes a model flag', () => {
+function generatedLaunchConfigOf(agent: string, modelSelection: ModelSelection): string {
+  const injection = getAdapter(agent)?.hooks?.injection;
+  if (injection?.kind !== 'generated-home') return '';
+  const prepared = injection.prepareHome({ ...process.env }, { listenerPort: 1, folderTrustRoot: REPO_ROOT, isCleanHome: false, modelSelection });
+  return 'homeEnvValue' in prepared ? prepared.homeEnvValue ?? '' : '';
+}
+
+test('every catalog agent is a real adapter whose launch carries the picked model', () => {
   for (const agent of CATALOG_AGENT_IDS) {
     assert.ok(getAdapter(agent), agent);
-    assert.ok(selectionArgs({ agent, model: 'some-model', options: [] }).includes('some-model'), agent);
+    const modelSelection: ModelSelection = { agent, model: 'some-model', options: [] };
+    const isModelInFlags = selectionArgs(modelSelection).includes('some-model');
+    const isModelInLaunchConfig = generatedLaunchConfigOf(agent, modelSelection).includes('"some-model"');
+    assert.ok(isModelInFlags || isModelInLaunchConfig, agent);
   }
 });
 

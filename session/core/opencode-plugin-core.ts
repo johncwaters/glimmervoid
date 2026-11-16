@@ -1,9 +1,16 @@
 import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
+import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
 
 const PLUGIN_SOURCE = `const RELAY_LAUNCH = __RELAY_LAUNCH__;
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
+const QUESTION_HOLD_EVENT = "${QUESTION_TOOL_HOLD_HOOK_EVENT}";
+const QUESTION_TOOL_NAME = "${ASK_USER_QUESTION_TOOL_NAME}";
+const OPENCODE_QUESTION_TOOL = "question";
+const SHELL_TOOL_NAME = "Bash";
+const BACKGROUND_SHELL_ENVELOPE = /<shell id="([^"]+)" state="([^"]+)"/;
 const EXECUTION_END_EVENT_NAMES = {
   "session.execution.succeeded": "Stop",
   "session.execution.failed": "StopFailure",
@@ -23,25 +30,61 @@ const ANY_SESSION_EVENT_NAMES = {
   "form.replied": "ElicitationResult",
   "form.cancelled": "ElicitationResult",
 };
+const FORM_EVENT_TYPES = new Set(["form.created", "form.replied", "form.cancelled"]);
+const GLOBAL_FORM_SESSION_ID = "global";
 
-let relayQueue = Promise.resolve();
+let relayQueue = Promise.resolve(null);
 
 async function runRelay(event, payload) {
-  const child = Bun.spawn([...RELAY_LAUNCH, event], { stdin: "pipe", stdout: "ignore", stderr: "ignore", windowsHide: true });
+  const child = Bun.spawn([...RELAY_LAUNCH, event], { stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true });
   child.stdin.write(JSON.stringify({ hook_event_name: event, ...payload }));
   child.stdin.end();
-  await child.exited;
+  const [output] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  return output;
+}
+
+function parsedReply(output) {
+  try {
+    return JSON.parse(output);
+  } catch {
+    return null;
+  }
+}
+
+function relayForReply(event, payload) {
+  if (!process.env[HOOK_URL_ENV]) return Promise.resolve(null);
+  relayQueue = relayQueue.then(() => runRelay(event, payload)).then(parsedReply, () => null);
+  return relayQueue;
 }
 
 function relay(event, payload) {
-  if (!process.env[HOOK_URL_ENV]) return;
-  relayQueue = relayQueue.then(() => runRelay(event, payload)).catch(() => {});
+  void relayForReply(event, payload);
+}
+
+function replyContext(reply) {
+  if (typeof reply?.message === "string") return reply.message;
+  const additionalContext = reply?.hookSpecificOutput?.additionalContext;
+  return typeof additionalContext === "string" ? additionalContext : null;
+}
+
+function denialReason(reply) {
+  const output = reply?.hookSpecificOutput;
+  return output?.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string" ? output.permissionDecisionReason : null;
+}
+
+function taskNotificationPrompt(shellId, state) {
+  return "<task-notification>\\n<task-id>" + shellId + "</task-id>\\n<status>" + state + "</status>\\n</task-notification>";
 }
 
 export default {
   id: "glimmervoid",
   setup(ctx) {
     const parentIdBySession = new Map();
+    const questionInputBySession = new Map();
+    const formSessionById = new Map();
+    const backgroundShellByCall = new Map();
+    const pendingPromptContexts = [];
+    const runningBackgroundShellIds = new Set();
     let rootSessionId = null;
     let rootSessionTitle = null;
     let executionPhase = null;
@@ -67,12 +110,50 @@ export default {
       return currentId;
     }
 
+    async function payloadFor(sessionID, fields) {
+      const rootId = await rootIdOf(sessionID);
+      return rootPayload(rootId, { ...fields, ...(rootId === sessionID ? {} : { agent_id: sessionID }) });
+    }
+
+    function questionFields(sessionID) {
+      const toolInput = questionInputBySession.get(sessionID);
+      return toolInput ? { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput } : { tool_name: null };
+    }
+
+    async function relayAnySessionEvent(type, properties, sessionID) {
+      const eventName = ANY_SESSION_EVENT_NAMES[type];
+      const actionFields = { tool_name: typeof properties?.action === "string" ? properties.action : null };
+      if (!sessionID) {
+        relay(eventName, rootPayload(rootSessionId, actionFields));
+        return;
+      }
+      const fields = FORM_EVENT_TYPES.has(type) ? questionFields(sessionID) : actionFields;
+      if (type !== "form.created" && FORM_EVENT_TYPES.has(type)) questionInputBySession.delete(sessionID);
+      relay(eventName, await payloadFor(sessionID, fields));
+    }
+
+    function formSessionIdOf(type, properties) {
+      if (type === "form.created") {
+        const form = properties?.form;
+        const sessionID = typeof form?.sessionID === "string" && form.sessionID !== GLOBAL_FORM_SESSION_ID ? form.sessionID : null;
+        if (sessionID && typeof form?.id === "string") formSessionById.set(form.id, sessionID);
+        return sessionID;
+      }
+      const formId = typeof properties?.id === "string" ? properties.id : null;
+      const sessionID = formId ? formSessionById.get(formId) ?? null : null;
+      if (formId) formSessionById.delete(formId);
+      return sessionID;
+    }
+
+    function sessionIdOfEvent(type, properties) {
+      if (FORM_EVENT_TYPES.has(type)) return formSessionIdOf(type, properties);
+      return typeof properties?.sessionID === "string" ? properties.sessionID : null;
+    }
+
     async function relayEvent(type, properties) {
-      const sessionID = typeof properties?.sessionID === "string" ? properties.sessionID : null;
-      const anySessionEvent = ANY_SESSION_EVENT_NAMES[type];
-      if (anySessionEvent) {
-        const rootId = sessionID ? await rootIdOf(sessionID) : rootSessionId;
-        relay(anySessionEvent, rootPayload(rootId, { tool_name: typeof properties?.action === "string" ? properties.action : null }));
+      const sessionID = sessionIdOfEvent(type, properties);
+      if (ANY_SESSION_EVENT_NAMES[type]) {
+        await relayAnySessionEvent(type, properties, sessionID);
         return;
       }
       if (!sessionID) return;
@@ -83,9 +164,12 @@ export default {
         return;
       }
       if (type === "session.created") {
+        const source = rootSessionId ? "clear" : "startup";
         rootSessionId = sessionID;
         rootSessionTitle = null;
-        relay("SessionStart", rootPayload(sessionID, { source: "startup" }));
+        executionPhase = null;
+        runningBackgroundShellIds.clear();
+        relay("SessionStart", rootPayload(sessionID, { source }));
         return;
       }
       if (type === "session.renamed") {
@@ -93,7 +177,40 @@ export default {
         return;
       }
       rootSessionId = sessionID;
+      relayBackgroundShellEvent(type, properties, sessionID);
       relayRootExecutionEvent(type, sessionID);
+    }
+
+    function relayBackgroundShellEvent(type, properties, sessionID) {
+      const callId = typeof properties.id === "string" ? properties.id : null;
+      if (type === "session.tool.called" && callId && properties.input?.background === true) {
+        backgroundShellByCall.set(callId, { toolInput: properties.input, shellId: null });
+        return;
+      }
+      if (type === "session.tool.progress" && callId && backgroundShellByCall.has(callId)) {
+        const shellId = properties.metadata?.shellID;
+        if (typeof shellId === "string") backgroundShellByCall.get(callId).shellId = shellId;
+        return;
+      }
+      if (type === "session.tool.success" && callId && backgroundShellByCall.has(callId)) {
+        const { toolInput, shellId } = backgroundShellByCall.get(callId);
+        backgroundShellByCall.delete(callId);
+        if (shellId) runningBackgroundShellIds.add(shellId);
+        if (shellId) relay("PostToolUse", rootPayload(sessionID, { tool_name: SHELL_TOOL_NAME, tool_input: toolInput, tool_response: { backgroundTaskId: shellId } }));
+        return;
+      }
+      if (type === "session.tool.failed" && callId) {
+        backgroundShellByCall.delete(callId);
+        return;
+      }
+      if (type !== "session.inbox.enqueued" || properties.item?.type !== "synthetic") return;
+      const envelope = BACKGROUND_SHELL_ENVELOPE.exec(String(properties.item?.payload?.text ?? ""));
+      if (!envelope) return;
+      runningBackgroundShellIds.delete(envelope[1]);
+      void relayForReply("UserPromptSubmit", rootPayload(sessionID, { prompt: taskNotificationPrompt(envelope[1], envelope[2]) })).then((reply) => {
+        const context = replyContext(reply);
+        if (context) pendingPromptContexts.push(context);
+      });
     }
 
     function relayRootExecutionEvent(type, sessionID) {
@@ -121,14 +238,29 @@ export default {
       const wasCompactionOnly = executionPhase === "compacting";
       executionPhase = null;
       if (wasCompactionOnly) return;
-      relay(endEvent, rootPayload(sessionID));
+      relay(endEvent, rootPayload(sessionID, { background_tasks: [...runningBackgroundShellIds].map((shellId) => ({ id: shellId, type: "shell", status: "running" })) }));
     }
 
     ctx.session.hook("prompt", async (event) => {
       const parentId = await parentIdOf(event.sessionID);
       if (parentId) return;
       rootSessionId = event.sessionID;
-      relay("UserPromptSubmit", rootPayload(event.sessionID, { prompt: typeof event.prompt?.text === "string" ? event.prompt.text : "" }));
+      const promptText = typeof event.prompt?.text === "string" ? event.prompt.text : "";
+      const replyContextText = replyContext(await relayForReply("UserPromptSubmit", rootPayload(event.sessionID, { prompt: promptText })));
+      const contexts = [...pendingPromptContexts.splice(0), ...(replyContextText ? [replyContextText] : [])];
+      if (contexts.length === 0 || !event.prompt) return;
+      const context = contexts.join("\\n\\n");
+      event.prompt.text = promptText ? promptText + "\\n\\n" + context : context;
+    });
+
+    ctx.tool.hook("execute.before", async (event) => {
+      if (event.tool !== OPENCODE_QUESTION_TOOL) return;
+      const toolInput = event.input && typeof event.input === "object" ? event.input : {};
+      questionInputBySession.set(event.sessionID, toolInput);
+      const reason = denialReason(await relayForReply(QUESTION_HOLD_EVENT, await payloadFor(event.sessionID, { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput })));
+      if (!reason) return;
+      questionInputBySession.delete(event.sessionID);
+      throw new Error(reason);
     });
 
     const subscription = new AbortController();
@@ -175,11 +307,20 @@ function arrayField(config: Record<string, unknown>, field: string): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function openCodeConfigContent(operatorConfigText: string | undefined, pluginFolderUrl: string, mcpUrl: string | null): string {
+interface OpenCodeLaunchConfig {
+  pluginFolderUrl: string;
+  mcpUrl: string | null;
+  skillFolders: readonly string[];
+  model: string | null;
+}
+
+function openCodeConfigContent(operatorConfigText: string | undefined, { pluginFolderUrl, mcpUrl, skillFolders, model }: OpenCodeLaunchConfig): string {
   const operatorConfig = parsedConfigObject(operatorConfigText);
   const plugins = [...arrayField(operatorConfig, "plugins").filter((entry) => entry !== pluginFolderUrl), pluginFolderUrl];
   const config: Record<string, unknown> = { ...operatorConfig, plugins };
   if (mcpUrl) config.mcp = { ...objectField(operatorConfig, "mcp"), glimmervoid: { type: "remote", url: mcpUrl, enabled: true, headers: { Authorization: `Bearer {env:${MCP_CREDENTIAL_ENV}}` } } };
+  if (skillFolders.length > 0) config.skills = [...arrayField(operatorConfig, "skills").filter((entry) => typeof entry !== "string" || !skillFolders.includes(entry)), ...skillFolders];
+  if (model) config.model = model;
   return JSON.stringify(config);
 }
 
