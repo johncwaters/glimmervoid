@@ -558,6 +558,7 @@ class Session extends EventEmitter {
     this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
+      questionDenyReply: this._adapter.questionDenyReply ?? "hook-specific-output",
       holdsQuestionsForParent,
       questionManager: this._questionManager,
       port: {

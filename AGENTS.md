@@ -4,7 +4,7 @@ This file is loaded into EVERY session, so it holds only what every session need
 
 ## Purpose
 
-Glimmervoid is a local agent orchestrator, not a harness: a Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Kimi Code, OpenCode and pi first-class; Grok and custom CLIs best effort) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (agent hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications and Telegram.
+Glimmervoid is a local agent orchestrator, not a harness: a Node.js background process that spawns and supervises coding agent sessions (Claude Code, Codex, Kimi Code, OpenCode, pi and Antigravity CLI first-class; Grok and custom CLIs best effort) via node-pty, streams terminal output to a browser dashboard over WebSockets, derives session status from structural signals (agent hooks plus an OSC-0 title fallback, never screen scraping), and notifies the operator through browser notifications and Telegram.
 
 ## Architecture Map
 
@@ -42,7 +42,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
-- Claude Code, Codex, Kimi Code, OpenCode and pi are first-class: a feature ships only when it works on all five, pinned by the agent parity matrix, where every scenario row needs a live-captured fixture per agent. Grok and custom agents are best effort.
+- A feature ships only when it works on every first-class agent, pinned by the agent parity matrix: each scenario row needs a live-captured fixture per agent or a stated reason none can exist. Grok and custom agents are best effort.
 - Spawn sessions with `pty.spawn`, never `child_process.spawn`, and never `shell: true`. Scrub env via `session/core/spawn-env.ts`.
 - Session worktrees use the configured integration branch, or each repo's default branch when unset. Origin is the source of truth, as pinned by the git-workspace tests.
 - All sessions share one event loop: no sync git or fs on recurring paths (polls, turn-end, watchers). Use async `execFile` with yields. One-shot cold paths may stay sync.

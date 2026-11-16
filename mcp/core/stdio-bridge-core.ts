@@ -2,6 +2,17 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 const BRIDGE_SERVER_INFO = { name: 'glimmervoid', version: '1.0.0' };
 const FALLBACK_PROTOCOL_VERSION = '2025-06-18';
+const ENVELOPE_PROTOCOL_VERSION_KEY = 'io.modelcontextprotocol/protocolVersion';
+const BASE64_SENTINEL_PREFIX = '=?base64?';
+const PLAIN_HEADER_VALUE_PATTERN = /^[\x21-\x7E](?:[\x20-\x7E]*[\x21-\x7E])?$/;
+const NAME_FIELD_BY_METHOD: Readonly<Record<string, string>> = {
+  'tools/call': 'name',
+  'prompts/get': 'name',
+  'resources/read': 'uri',
+  'tasks/get': 'taskId',
+  'tasks/update': 'taskId',
+  'tasks/cancel': 'taskId',
+};
 
 type JsonRpcMessage = Record<string, unknown>;
 
@@ -36,6 +47,29 @@ function offlineResultFor(message: JsonRpcMessage): JsonRpcMessage {
     default:
       return { error: { code: JSON_RPC_METHOD_NOT_FOUND, message: 'Glimmervoid is not supervising this session, so it offers no tools' } };
   }
+}
+
+function stringFieldOf(value: unknown, field: string): string | null {
+  if (typeof value !== 'object' || value === null || !(field in value)) return null;
+  const fieldValue: unknown = Object.getOwnPropertyDescriptor(value, field)?.value;
+  return typeof fieldValue === 'string' ? fieldValue : null;
+}
+
+function headerValueOf(text: string): string {
+  if (PLAIN_HEADER_VALUE_PATTERN.test(text) && !text.startsWith(BASE64_SENTINEL_PREFIX)) return text;
+  return `${BASE64_SENTINEL_PREFIX}${Buffer.from(text, 'utf8').toString('base64')}?=`;
+}
+
+function standardHeadersFor(message: JsonRpcMessage): Record<string, string> {
+  const params = message.params;
+  const envelope = typeof params === 'object' && params !== null && '_meta' in params ? params._meta : null;
+  const envelopeVersion = stringFieldOf(envelope, ENVELOPE_PROTOCOL_VERSION_KEY);
+  if (envelopeVersion === null || typeof message.method !== 'string') return {};
+  const headers: Record<string, string> = { 'mcp-protocol-version': envelopeVersion, 'mcp-method': message.method };
+  const nameField = NAME_FIELD_BY_METHOD[message.method];
+  const name = nameField === undefined ? null : stringFieldOf(params, nameField);
+  if (name !== null) headers['mcp-name'] = headerValueOf(name);
+  return headers;
 }
 
 function offlineReplyTo(message: JsonRpcMessage): JsonRpcMessage | null {
@@ -98,6 +132,6 @@ function bridgedLinesFor(message: JsonRpcMessage, reply: EndpointReply): string[
   return [...jsonRpcLines, ...failure('the endpoint sent no reply to this request')];
 }
 
-export { bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine };
+export { bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine, standardHeadersFor };
 export type { EndpointReply };
 export type { JsonRpcMessage };

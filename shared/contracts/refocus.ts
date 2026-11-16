@@ -28,15 +28,25 @@ export type ToolHookContextResponse = z.infer<typeof ToolHookContextResponse>;
 
 export const RelayedHookContext = z.union([UserPromptSubmitHookResponse, ToolHookContextResponse]);
 
-export const QuestionToolDenyResponse = z.object({
-  hookSpecificOutput: z.object({
-    hookEventName: z.literal('PreToolUse'),
-    permissionDecision: z.literal('deny'),
-    permissionDecisionReason: z.string().min(1),
+export const QuestionToolDenyResponse = z.union([
+  z.object({
+    hookSpecificOutput: z.object({
+      hookEventName: z.literal('PreToolUse'),
+      permissionDecision: z.literal('deny'),
+      permissionDecisionReason: z.string().min(1),
+    }),
   }),
-});
+  z.object({
+    decision: z.literal('deny'),
+    reason: z.string().min(1),
+  }),
+]);
 
 export type QuestionToolDenyResponse = z.infer<typeof QuestionToolDenyResponse>;
+
+export const QuestionDenyReply = z.enum(['hook-specific-output', 'decision']);
+
+export type QuestionDenyReply = z.infer<typeof QuestionDenyReply>;
 
 export const PromptContextReply = z.enum(['message', 'additional-context', 'inject-steps']);
 

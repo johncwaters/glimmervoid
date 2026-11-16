@@ -212,8 +212,9 @@ test('the question manager answers a covered question only in a session switched
     const codexRunningState = codex.state;
     codex.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', ts: Date.now(), promptKind: 'elicitation', event: 'pretooluse', payload: codexAsk });
     const denied = await codex.holdQuestionTool(codexAsk, new AbortController().signal);
-    assert.equal(denied?.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(String(denied?.hookSpecificOutput.permissionDecisionReason), /Which store\?: sqlite/);
+    assert.ok(denied && 'hookSpecificOutput' in denied);
+    assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(denied.hookSpecificOutput.permissionDecisionReason, /Which store\?: sqlite/);
     assert.equal(codex.state, codexRunningState);
     assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
     const unconfigured = factory.makeSession({ id: 'unconfigured', name: 'unconfigured', path: projectPath, questionManager: createQuestionManager({ getSettings: () => undefined }).forSession({ projectPath, isOn: true }) });

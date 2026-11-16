@@ -37,6 +37,7 @@ function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapM
   const session = new Session({ id: fixtureFile, name: fixtureFile, path: process.cwd(), agent: agent ?? undefined, statusConflictMs: 20, statusDedupMs: 10 });
   t.after(() => session.destroy());
   session.state = STATES.IDLE;
+  const enrichPayload = hookProfile.createPayloadEnricher?.() ?? null;
   const router = new HookRouter();
   const hookSignals: string[] = [];
   router.register(session.id, {
@@ -72,7 +73,9 @@ function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapM
     previousTimestamp = timestamp;
     if (record.type === 'data' && record.data) session._titleSource.feed(record.data);
     if (record.type !== 'hook' || !record.event) continue;
-    router.handle({ glimmervoidId: session.id, event: record.event, token: REPLAY_TOKEN, payload: record.payload ?? {} });
+    const recordedPayload = record.payload ?? {};
+    const payload = enrichPayload ? enrichPayload(record.event, recordedPayload) : recordedPayload;
+    router.handle({ glimmervoidId: session.id, event: record.event, token: REPLAY_TOKEN, payload });
     compactingAfterEvent.push({ event: record.event, source: record.payload?.source, isCompacting });
   }
   t.mock.timers.tick(SETTLE_AFTER_LAST_RECORD_MS);

@@ -191,6 +191,18 @@ test('the stdio bridge answers a refused request with a JSON-RPC error carrying 
   assert.deepEqual(bridgeOutput.map((line) => JSON.parse(line)), [{ jsonrpc: '2.0', id: 7, error: { code: -32603, message: 'Glimmervoid could not be reached: the endpoint answered HTTP 404' } }]);
 });
 
+test('the stdio bridge carries a modern-envelope tool call through the standard request headers', async () => {
+  const { mcpUrl, credential } = bootedBackend();
+  const bridgeOutput: string[] = [];
+  const envelope = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientCapabilities': {} };
+  const request = `${JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'session', arguments: { action: 'limits' }, _meta: envelope } })}\n`;
+  await runStdioBridge(Readable.from([request]), { [MCP_URL_ENV]: mcpUrl, [MCP_CREDENTIAL_ENV]: credential }, { write: (text: string) => bridgeOutput.push(text) });
+  const [reply] = bridgeOutput.map((line) => JSON.parse(line));
+  assert.equal(reply.id, 8);
+  assert.equal(reply.error, undefined, JSON.stringify(reply));
+  assert.notEqual(reply.result.isError, true, JSON.stringify(reply));
+});
+
 test('a call missing a field or carrying another action\'s field is refused naming the action and the fields', async () => {
   const { credential } = bootedBackend();
   const cases: [Record<string, unknown>, string][] = [

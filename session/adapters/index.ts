@@ -21,7 +21,7 @@ import type { AgentEnvOptions, AgentEnvProfile, SpawnEnv } from "../core/spawn-e
 import type { TaskTitleVocabulary } from "../core/task-title-core.ts";
 import type { AgentHomeProfile } from "../core/agent-home-core.ts";
 import type { CustomAgentDeclaration, HookPayload } from "../../shared/contracts/index.ts";
-import type { PromptContextReply } from "../../shared/contracts/refocus.ts";
+import type { PromptContextReply, QuestionDenyReply } from "../../shared/contracts/refocus.ts";
 import type { ModelSelection } from "../../shared/contracts/agent-models.ts";
 
 interface AgentCapabilities {
@@ -121,6 +121,7 @@ interface AgentHookProfile extends HookProfile {
   injection: HookInjection;
   describeInstalledHooks?(flags: InstalledHookFlags): InstalledHooks;
   enrichPayload?(event: string, payload: HookPayload, agentEnv: Record<string, string | undefined>): Promise<HookPayload>;
+  createPayloadEnricher?(): (event: string, payload: HookPayload) => HookPayload;
 }
 
 interface AgentTitleProfile extends TitleProfile {
@@ -159,6 +160,7 @@ interface AgentAdapter {
   hooks: AgentHookProfile | null;
   capabilities: AgentCapabilities;
   promptContextReply?: PromptContextReply;
+  questionDenyReply?: QuestionDenyReply;
   resolveCommand(options?: AgentCommandOptions): ResolvedCommand;
   buildSpawnCommand(options: AgentSpawnCommandOptions): { file: string; args: string[] };
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;
@@ -201,7 +203,7 @@ const BUILT_IN_AGENTS: readonly BuiltInAgent[] = Object.freeze([
   { adapter: kimi, tier: "first-class" },
   { adapter: opencode, tier: "first-class" },
   { adapter: pi, tier: "first-class" },
-  { adapter: antigravity, tier: "hooked" },
+  { adapter: antigravity, tier: "first-class" },
   { adapter: gemini, tier: "hooked" },
   { adapter: qwen, tier: "hooked" },
   { adapter: copilot, tier: "hooked" },

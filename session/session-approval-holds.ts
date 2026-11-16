@@ -2,7 +2,7 @@ import { ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME } from "../sh
 import type { ConversationAnswers, ConversationApproval, ConversationQuestion } from "../shared/contracts/session.ts";
 import { MANAGER_DECISION_AUDIT_KIND, MANAGER_DECISION_EVENT, QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
 import type { ManagerAnswer, ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
-import type { QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
+import type { QuestionDenyReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
@@ -48,6 +48,7 @@ interface QuestionManagerPort {
 
 interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
   agentId: string;
+  questionDenyReply: QuestionDenyReply;
   holdsQuestionsForParent: boolean;
   questionManager: QuestionManagerPort | null;
   port: ApprovalPort<Signal>;
@@ -73,7 +74,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   release(requestId: string): boolean;
 }
 
-function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agentId, holdsQuestionsForParent, questionManager, port }: SessionApprovalHoldsOptions<Signal>): SessionApprovalHolds<Signal> {
+function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agentId, questionDenyReply, holdsQuestionsForParent, questionManager, port }: SessionApprovalHoldsOptions<Signal>): SessionApprovalHolds<Signal> {
   let conversationApproval: ConversationApproval | null = null;
   let holds: ClaudeApprovalHold[] = [];
   let nextApprovalNumber = 1;
@@ -247,7 +248,9 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       return null;
     }
     recordManagerAnswer(verdict);
-    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: questionToolDenyReason(verdict) } };
+    const denyReason = questionToolDenyReason(verdict);
+    if (questionDenyReply === "decision") return { decision: "deny", reason: denyReason };
+    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: denyReason } };
   }
 
   function holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {

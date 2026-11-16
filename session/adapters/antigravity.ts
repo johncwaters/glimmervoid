@@ -6,7 +6,7 @@ import { MCP_URL_ENV } from "../../mcp/core/agent-config.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { ANTIGRAVITY_PLUGIN_NAME, antigravitySessionSettings, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
+import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type {
@@ -53,16 +53,33 @@ function isPermissionState(event: string, payload?: HookPayload): boolean {
   return normalizedEventOf(event) === "agentstate" && payload?.agent_state === "tool_use";
 }
 
+const SIGNAL_BY_SUBAGENT_EVENT: Readonly<Record<string, string>> = Object.freeze({
+  sessionstart: "subagent-start",
+  stop: "subagent-stop",
+});
+
+function isSubagentEvent(payload?: HookPayload): boolean {
+  return typeof payload?.agent_id === "string";
+}
+
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const normalizedEvent = normalizedEventOf(event);
+  if (isSubagentEvent(payload)) return SIGNAL_BY_SUBAGENT_EVENT[normalizedEvent] ?? null;
+  if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && hasRunningSubagent(payload?.subagents)) return "working";
+  if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && payload?.isTurnOpen !== true) return null;
   if (normalizedEvent === "preinvocation") return payload?.invocationNum === 0 ? "resume" : "working";
   if (normalizedEvent === "stop") return payload?.fullyIdle === true ? "ready" : null;
   if (normalizedEvent === "agentstate") return SIGNAL_BY_AGENT_STATE[String(payload?.agent_state)] ?? null;
   return SIGNAL_BY_EVENT[normalizedEvent] ?? null;
 }
 
+function createPayloadEnricher(): (event: string, payload: HookPayload) => HookPayload {
+  return createConversationTagger();
+}
+
 function mapHookPromptKind(event: string, payload?: HookPayload): string | null {
-  return isPermissionState(event, payload) ? "permission" : null;
+  if (!isPermissionState(event, payload)) return null;
+  return payload?.pendingToolName === ANTIGRAVITY_QUESTION_TOOL_NAME ? "elicitation" : "permission";
 }
 
 function mapHookConfidence(): string | null {
@@ -70,7 +87,7 @@ function mapHookConfidence(): string | null {
 }
 
 function sessionIdOf(payload: HookPayload): unknown {
-  return payload?.conversationId || payload?.conversation_id || undefined;
+  return isSubagentEvent(payload) ? undefined : payload?.conversationId || undefined;
 }
 
 function classifyTitle(): string {
@@ -140,6 +157,7 @@ const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
+  createPayloadEnricher,
   injection: {
     kind: "generated-home",
     homeEnvName: MCP_URL_ENV,
@@ -155,6 +173,7 @@ const hooks: AgentHookProfile = {
 const antigravity = {
   id: ID,
   promptContextReply: "inject-steps",
+  questionDenyReply: "decision",
   label: "Antigravity CLI",
   usageVendor: ID,
   commandName: COMMAND_NAME,
@@ -170,7 +189,7 @@ const antigravity = {
   capabilities: {
     hooks: true,
     awaitingInput: true,
-    backgroundAgents: false,
+    backgroundAgents: true,
     resume: true,
     planLimits: false,
     saneYolo: false,

@@ -35,6 +35,12 @@ export interface ProbeFixtureTarget {
   tempDirectory: string;
   keepDirectory: string;
   shouldWriteFixtures: boolean;
+  enrichedPayloadKeys?: readonly string[];
+}
+
+function recordedPayloadOf(payload: ProbeHookRecord['payload'], enrichedPayloadKeys: readonly string[]): ProbeHookRecord['payload'] {
+  if (payload === null) return payload;
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => !enrichedPayloadKeys.includes(key)));
 }
 
 function createProbeChecks() {
@@ -94,7 +100,7 @@ function operatorUsernamePattern(): RegExp {
 
 function writeHookFixture(name: string, hooks: ProbeHookRecord[], target: ProbeFixtureTarget): string {
   const header = { type: 'header', version: 2, records: 'signals', session: `fixture-${target.agentId}-${name}`, agent: target.agentId, startedAt: 0, config: { hooksInjected: true } };
-  const lines = [header, ...hooks.map((hook, index) => ({ type: 'hook', ts: index + 1, event: hook.event, payload: projectHookPayload(hook.payload) }))];
+  const lines = [header, ...hooks.map((hook, index) => ({ type: 'hook', ts: index + 1, event: hook.event, payload: projectHookPayload(recordedPayloadOf(hook.payload, target.enrichedPayloadKeys ?? [])) }))];
   const directory = target.shouldWriteFixtures ? PROBE_FIXTURE_DIRECTORY : target.keepDirectory;
   const destination = path.join(directory, `v2-${target.agentId}-${name}.jsonl`);
   fs.writeFileSync(destination, `${sanitizeProbeText(lines.map((line) => JSON.stringify(line)).join('\n'), target)}\n`, 'utf8');
@@ -199,6 +205,8 @@ function launchCarriesSetupFlags(setup: AgentSetup, launch: ProbeLaunch): boolea
   return expectedFlags.length > 0 && expectedFlags.every((flag) => launch.args.includes(flag));
 }
 
+const FIRST_PROMPT_EVENTS: ReadonlySet<string> = new Set(['userpromptsubmit', 'preinvocation']);
+
 async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {}, pickedSetup, launchCarriesSetup = launchCarriesSetupFlags }: ModelSetupProbe): Promise<void> {
   console.log('\nmodel-setup-turn:');
   const setup = pickedSetup ?? await liveDefaultSetup(agent);
@@ -221,7 +229,7 @@ async function runModelSetupProbe({ session, agent, hookRecords, fixtureTarget, 
   console.log(`  [fixture] ${writeHookFixture('model-setup-turn', scenarioHooks, fixtureTarget)}`);
   console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
   check('the launch carried the model setup', launches.some((launch) => launchCarriesSetup(setup, launch)));
-  check('the first prompt reached the agent', scenarioHooks.some((hook) => hook.event.toLowerCase() === 'userpromptsubmit'));
+  check('the first prompt reached the agent', scenarioHooks.some((hook) => FIRST_PROMPT_EVENTS.has(hook.event.toLowerCase())));
 }
 const SHOULD_RUN_ONLY_PACK_AGENT_PROBE = process.argv.includes('--only-pack-agent');
 const PACK_AGENT_PROBE_PACK_NAME = 'probe-pack';

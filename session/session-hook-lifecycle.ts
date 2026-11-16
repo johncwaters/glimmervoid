@@ -86,6 +86,8 @@ interface SessionHookLifecycle {
 }
 
 function payloadEnricherFor(hookProfile: AgentHookProfile | null, agentEnv: () => Record<string, string | undefined>) {
+  const enrichPayloadInOrder = hookProfile?.createPayloadEnricher?.();
+  if (enrichPayloadInOrder) return async (event: string, payload: HookPayload) => enrichPayloadInOrder(event, payload);
   const enrichPayload = hookProfile?.enrichPayload;
   if (!enrichPayload) return null;
   return (event: string, payload: HookPayload) => enrichPayload(event, payload, agentEnv());

@@ -2,7 +2,7 @@ import readline from 'node:readline';
 
 import { isLoopbackHostname } from '../shared/loopback-hosts.ts';
 import { MCP_CREDENTIAL_ENV, MCP_TOOL_TIMEOUT_SECONDS, MCP_URL_ENV } from './core/agent-config.ts';
-import { bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine } from './core/stdio-bridge-core.ts';
+import { bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine, standardHeadersFor } from './core/stdio-bridge-core.ts';
 import type { EndpointReply, JsonRpcMessage } from './core/stdio-bridge-core.ts';
 
 const http = process.getBuiltinModule('node:http');
@@ -21,7 +21,7 @@ function bridgeTargetOf(env: Record<string, string | undefined>): BridgeTarget |
   return { url, bearer };
 }
 
-function postMessage(target: BridgeTarget, line: string): Promise<EndpointReply> {
+function postMessage(target: BridgeTarget, line: string, message: JsonRpcMessage): Promise<EndpointReply> {
   return new Promise((resolve, reject) => {
     const body = Buffer.from(line, 'utf8');
     const request = http.request({
@@ -34,6 +34,7 @@ function postMessage(target: BridgeTarget, line: string): Promise<EndpointReply>
         accept: 'application/json, text/event-stream',
         'content-type': 'application/json',
         'content-length': body.length,
+        ...standardHeadersFor(message),
       },
     }, (response) => {
       const chunks: Buffer[] = [];
@@ -54,7 +55,7 @@ function writeMessage(stdout: { write(text: string): unknown }, message: JsonRpc
 
 async function forward(target: BridgeTarget, line: string, message: JsonRpcMessage, stdout: { write(text: string): unknown }): Promise<void> {
   try {
-    const reply = await postMessage(target, line);
+    const reply = await postMessage(target, line, message);
     for (const replyLine of bridgedLinesFor(message, reply)) writeMessage(stdout, replyLine);
   } catch (error) {
     writeMessage(stdout, failureReplyTo(message, error instanceof Error ? error.message : String(error)));

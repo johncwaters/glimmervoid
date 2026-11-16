@@ -59,9 +59,13 @@ function resumeNoteReply(takeResumeNote: (() => string | null) | undefined): Res
   return resumeNote ? { resumeNote } : null;
 }
 
+function isSubagentPayload(payload: Record<string, unknown>): boolean {
+  return typeof payload.agent_id === 'string';
+}
+
 function refocusReplyFor({ accepted, event, payload, readContext, takePromptSupervision, takeResumeNote }: RefocusReplyInput): SessionStartHookResponse | UserPromptSubmitHookResponse | ResumeNoteHookResponse | null {
   if (!accepted) return null;
-  if (PROMPT_CONTEXT_EVENTS.has(event.toLowerCase())) return promptSupervisionReply(takePromptSupervision);
+  if (PROMPT_CONTEXT_EVENTS.has(event.toLowerCase())) return isSubagentPayload(payload) ? null : promptSupervisionReply(takePromptSupervision);
   if (event.toLowerCase() === RESUME_NOTE_HOOK_EVENT) return resumeNoteReply(takeResumeNote);
   if (event.toLowerCase() !== 'sessionstart') return null;
   if (payload.source !== 'compact') return null;
