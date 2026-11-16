@@ -32,6 +32,7 @@ interface LoginWatch {
 }
 
 interface WatchedLogin {
+  login: ModelLogin & { loginFile: string };
   holders: number;
   timer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
@@ -241,10 +242,10 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     const loginFile = login.loginFile;
     if (loginFile === null || REFRESH_BY_AGENT[login.agent] === undefined) return { ready: Promise.resolve(), unwatch: () => {} };
     const key = `${login.agent}\n${loginFile}`;
-    const watched = watchedByKey.get(key) ?? { holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null };
+    const watched = watchedByKey.get(key) ?? { login: { agent: login.agent, loginFile }, holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null };
     watchedByKey.set(key, watched);
     watched.holders += 1;
-    const ready = watched.inFlight ?? (watched.timer === null ? keepFresh(watched, { agent: login.agent, loginFile }) : Promise.resolve());
+    const ready = watched.inFlight ?? (watched.timer === null ? keepFresh(watched, watched.login) : Promise.resolve());
     let isUnwatched = false;
     const unwatch = () => {
       if (isUnwatched) return;
@@ -258,7 +259,11 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     return { ready: ready.catch(() => {}), unwatch };
   };
 
-  return { watch };
+  const recheckAll = () => {
+    for (const watched of watchedByKey.values()) void keepFresh(watched, watched.login);
+  };
+
+  return { watch, recheckAll };
 }
 
 export { createLoginRefresher };

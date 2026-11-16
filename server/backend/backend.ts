@@ -704,7 +704,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     liveSessions: allLiveSessions,
     requestHostStop: watcherLink.requestHostStop,
     reportStopRequested: (properties) => telemetry.capture('idle_stop_requested', properties),
-    onHostWoke: watcherLink.hostWoke,
+    onHostWoke: () => {
+      watcherLink.hostWoke();
+      githubConnectionAlerts.check();
+      sessionRuntime.recheckSandboxLogins();
+    },
     nextWakeAt: watcherLink.nextAlarmDueAt,
   });
   const awakeUsageAlerts = startAwakeUsageAlerts({

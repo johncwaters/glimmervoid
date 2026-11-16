@@ -85,7 +85,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const packSessionFiles = createPackSessionFiles({ root: configSiblingPath(dependencies.configStore.configPath, 'pack-session-files') });
-  const sessionSandboxFor = createSessionSandbox({
+  const sessionSandbox = createSessionSandbox({
     isOn: dependencies.config.sessionSandbox === true,
     platform: process.platform,
     glimmervoidHome: glimmervoidHomeDir(),
@@ -98,7 +98,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     logger: dependencies.logger,
   });
   const makeSession = createSessionFactory({
-    sessionSandboxFor,
+    sessionSandboxFor: sessionSandbox?.sandboxFor ?? null,
     getPackAgentLaunch: packSessionFiles.launch,
     getSecretsBroker: dependencies.getSecretsBroker,
     commitSigningProgram,
@@ -116,7 +116,9 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane }),
   });
 
-  return { agentAccounts, agentIngressServer, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
+  const recheckSandboxLogins = () => { sessionSandbox?.recheckLogins(); };
+
+  return { agentAccounts, agentIngressServer, recheckSandboxLogins, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

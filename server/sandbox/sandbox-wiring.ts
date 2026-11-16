@@ -54,7 +54,12 @@ function refusingSandbox(reason: string): PrepareSandbox {
   return async () => ({ ok: false, reason });
 }
 
-function createSessionSandbox(wiring: SessionSandboxWiring): ((sessionTempFolder: string | null) => PrepareSandbox) | null {
+interface SessionSandbox {
+  sandboxFor: (sessionTempFolder: string | null) => PrepareSandbox;
+  recheckLogins: () => void;
+}
+
+function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | null {
   if (!wiring.isOn) return null;
   if (wiring.platform !== 'linux') throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux (this machine is ${wiring.platform})`);
   let foundTools: SandboxTools | null = null;
@@ -92,9 +97,12 @@ function createSessionSandbox(wiring: SessionSandboxWiring): ((sessionTempFolder
     credentialProxies,
     proxyCertificatePem: async () => (await proxyCertificateAuthority()).certificatePem,
   };
-  return (sessionTempFolder) => sessionTempFolder === null
-    ? refusingSandbox('the session has no temp folder to hold its sandbox')
-    : sessionSandboxFor(dependencies, sessionTempFolder);
+  return {
+    sandboxFor: (sessionTempFolder) => sessionTempFolder === null
+      ? refusingSandbox('the session has no temp folder to hold its sandbox')
+      : sessionSandboxFor(dependencies, sessionTempFolder),
+    recheckLogins: loginRefresher.recheckAll,
+  };
 }
 
 export { createSessionSandbox };
