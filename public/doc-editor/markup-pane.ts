@@ -763,15 +763,9 @@ export function paintMarkupTools(editor: MarkupHost) {
   pane.btnRedo.disabled = isLocked || pane.history.stacks.redo.length === 0;
   pane.btnAccept.disabled = isLocked;
   pane.btnReject.disabled = isLocked;
-  pane.hint.textContent = pane.tip || markupHintFor(editor);
-  pane.hint.dataset.tone = pane.tip ? 'warn' : 'quiet';
+  pane.hint.textContent = pane.tip;
+  pane.hint.dataset.tone = 'warn';
   paintFloats(editor);
-}
-
-function markupHintFor(editor: MarkupHost) {
-  const openMarkCount = editor.markup.marks.length;
-  const markCount = `${openMarkCount} open ${openMarkCount === 1 ? 'mark' : 'marks'}.`;
-  return `Suggesting: edits become red pen; click red text or a note to change it. ${markCount}`;
 }
 
 function markIndexOf(element: Element | null) {

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Whiteboard arrows read cleanly in loop diagrams.** An arrow between boxes of different heights in a row now meets both at the same spot, level with the middle of a one-line box, instead of landing off-center on one of them. A frame now grows to wrap the return arrows and labels inside it, so a loop's return arrow no longer runs along the frame's dashed edge and its label no longer gets pushed into a corner by the frame title. Labels beside an up-and-down arrow sit a little farther from the line.
+- **The doc editor's red pen footer stays quiet.** The standing "Suggesting: edits become red pen" line and its open mark count are gone; the footer now shows only a warning when there is one.
 
 ## [0.61.1] - 2026-11-15
 
