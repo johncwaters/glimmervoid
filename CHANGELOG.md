@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Team review re-reviews an updated pull request on time on a Glimmervoid Cloud server that went to sleep.** When a teammate pushed new work before the re-review-after hours had passed, the review waited until something else woke the server, which could be days. The doorman now wakes the server when those hours are up, and the review starts then.
+- **A Glimmervoid Cloud server that wakes from sleep refreshes sandboxed agent logins and checks the GitHub connection at once.** Their timers stopped while the server slept, so after a wake a sandboxed session could start on an expired Claude Code, Codex or Kimi Code login, and a GitHub connection warning could arrive up to an hour late. Neither wakes a sleeping server: both catch up within seconds of any wake.
+
 ## [0.62.1] - 2026-11-16
 
 ### Fixed
 
 - **Scheduled pack sessions and session wakes run on time on a Glimmervoid Cloud server that went to sleep.** A pack launcher schedule never woke a sleeping hosted server, so a 09:00 run was missed when the server had gone idle hours before. The doorman now wakes the server for scheduled pack runs as it does for session wakes, two minutes early so the server is up when the run is due. The server also hands the doorman its latest schedule before it asks to sleep, and stays awake when that handoff fails, so a wake set just before it went idle is not lost. After waking, it checks every schedule at once rather than waiting on a timer that stopped during the sleep.
-- **Team review re-reviews an updated pull request on time on a Glimmervoid Cloud server that went to sleep.** When a teammate pushed new work before the re-review-after hours had passed, the review waited until something else woke the server, which could be days. The doorman now wakes the server when those hours are up, and the review starts then.
-- **A Glimmervoid Cloud server that wakes from sleep refreshes sandboxed agent logins and checks the GitHub connection at once.** Their timers stopped while the server slept, so after a wake a sandboxed session could start on an expired Claude Code, Codex or Kimi Code login, and a GitHub connection warning could arrive up to an hour late. Neither wakes a sleeping server: both catch up within seconds of any wake.
 
 ## [0.62.0] - 2026-11-16
 
