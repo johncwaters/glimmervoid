@@ -521,6 +521,19 @@
   font-weight: 700;
 }
 
+.wb-media-screenplay { font-family: var(--font-screenplay); }
+.wb-screenplay { max-width: 60ch; margin: 0 auto; }
+.wb-screenplay-line { min-height: 1lh; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-screenplay-line:is([data-element="title"], [data-element="centered"]) { text-align: center; }
+.wb-screenplay-line[data-element="character"] { margin-inline-start: 22ch; }
+.wb-screenplay-line[data-element="parenthetical"] { max-width: 35ch; margin-inline-start: 16ch; }
+.wb-screenplay-line:is([data-element="dialogue"], [data-element="lyric"]) { max-width: 35ch; margin-inline-start: 10ch; }
+.wb-screenplay-line[data-element="lyric"], .wb-screenplay-emphasis[data-italic="true"] { font-style: italic; }
+.wb-screenplay-line[data-element="transition"] { text-align: end; }
+.wb-screenplay-line[data-element="page-break"] { min-height: 0; margin-block: 1lh; border-block-start: 1px dashed var(--border); color: transparent; }
+.wb-screenplay-emphasis[data-bold="true"] { font-weight: 700; }
+.wb-screenplay-emphasis[data-underlined="true"] { text-decoration: underline; }
+
 .wb-media-doc-unread {
   margin: 0;
   color: var(--text-muted);

@@ -123,6 +123,7 @@
   --font-mono: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
   --font-ui:   'Segoe UI', system-ui, sans-serif;
   --font-doc:  'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-screenplay: 'Courier Prime', 'Courier New', Courier, monospace;
   --type-meta:    12px;
   --type-body:    14px;
   --type-title:   16px;

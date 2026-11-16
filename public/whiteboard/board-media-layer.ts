@@ -11,6 +11,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { parseSheetText, sheetDelimiterOfMime } from '#shared/sheet-csv-core.ts';
+import { emphasisSegmentsOf, isHiddenOnPage, screenplayLinesOf } from '../doc-editor/fountain-style-core.ts';
 
 const VIEWPORT_WIDTH_PX_BY_KIND = { page: 1280, doc: 800, sheet: 960 } as const;
 const SHEET_CARD_HEAD_BYTES = 32 * 1024;
@@ -107,11 +108,44 @@ function renderedDocOpening(docText: string): HTMLElement {
   return rendered;
 }
 
+function emphasizedLineOf(text: string): HTMLElement {
+  const line = el('div', 'wb-screenplay-line');
+  for (const segment of emphasisSegmentsOf(text)) {
+    const isPlain = !segment.isBold && !segment.isItalic && !segment.isUnderlined;
+    if (isPlain) {
+      line.append(segment.text);
+      continue;
+    }
+    const span = el('span', 'wb-screenplay-emphasis', segment.text);
+    span.dataset.bold = String(segment.isBold);
+    span.dataset.italic = String(segment.isItalic);
+    span.dataset.underlined = String(segment.isUnderlined);
+    line.append(span);
+  }
+  return line;
+}
+
+function renderedScreenplayOpening(docText: string): HTMLElement {
+  const page = el('div', 'wb-screenplay');
+  for (const { element, pageText } of screenplayLinesOf(openingOf(docText))) {
+    if (isHiddenOnPage(element)) continue;
+    const pageLine = emphasizedLineOf(pageText);
+    pageLine.dataset.element = element;
+    page.append(pageLine);
+  }
+  return page;
+}
+
 function docCardOf(media: PageMedia): HTMLElement {
-  const card = el('div', 'wb-media-doc');
+  const isScreenplay = media.mime === 'text/x-fountain';
+  const card = el('div', isScreenplay ? 'wb-media-doc wb-media-screenplay' : 'wb-media-doc');
   card.inert = true;
   void fetchBoardDocText(media).then((docText) => {
-    card.replaceChildren(docText === null ? el('p', 'wb-media-doc-unread', DOC_UNREAD_TEXT) : renderedDocOpening(docText));
+    if (docText === null) {
+      card.replaceChildren(el('p', 'wb-media-doc-unread', DOC_UNREAD_TEXT));
+      return;
+    }
+    card.replaceChildren(isScreenplay ? renderedScreenplayOpening(docText) : renderedDocOpening(docText));
   });
   return card;
 }
