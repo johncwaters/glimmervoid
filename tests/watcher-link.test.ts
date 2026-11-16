@@ -1068,7 +1068,7 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
     return Response.json({ kind: 'compute#operation' });
   };
   const adapter = createGcpHostAdapter({ fetchFn: fakeGoogle, settleTimeoutMs: 1000, settlePollMs: 1 });
-  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', awakeHoursPerMonth: null, host: TEST_GCP_HOST };
+  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', awakeHoursPerMonth: null, host: TEST_GCP_HOST, owner: null };
 
   statusReads.push('SUSPENDED');
   await adapter.wake(tenant);

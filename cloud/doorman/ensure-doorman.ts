@@ -65,6 +65,7 @@ function localTenantTable({ glimmervoidHome, localPort, bindHost, remoteListener
       watcherHome: localWatcherHome(glimmervoidHome, localPort),
       awakeHoursPerMonth: null,
       host: null,
+      owner: null,
     }],
   };
 }

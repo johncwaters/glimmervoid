@@ -14,6 +14,7 @@ function createFakeCloudStorage() {
   let nextGeneration = 1;
   let conflictsLeft = 0;
   const secretsByName = new Map<string, string>();
+  const failingReadNames = new Set<string>();
 
   function store(objectName: string, bytes: Buffer): void {
     objectsByName.set(objectName, { bytes, generation: nextGeneration });
@@ -43,9 +44,11 @@ function createFakeCloudStorage() {
     }
     if (url.pathname === objectsPath) {
       const prefix = url.searchParams.get('prefix') ?? '';
-      return Response.json({ items: [...objectsByName.keys()].filter((name) => name.startsWith(prefix)).map((name) => ({ name })) });
+      return Response.json({ items: [...objectsByName.keys()].filter((name) => name.startsWith(prefix)).map((name) => ({ name, generation: String(objectsByName.get(name)?.generation) })) });
     }
-    const stored = objectsByName.get(decodeURIComponent(url.pathname.slice(objectsPath.length + 1)));
+    const storedName = decodeURIComponent(url.pathname.slice(objectsPath.length + 1));
+    if (failingReadNames.delete(storedName)) return new Response('unavailable', { status: 503 });
+    const stored = objectsByName.get(storedName);
     if (stored === undefined) return new Response('missing', { status: 404 });
     if (url.searchParams.get('alt') === 'media') return new Response(new Uint8Array(stored.bytes), { headers: { 'x-goog-generation': String(stored.generation) } });
     return Response.json({ generation: String(stored.generation) });
@@ -54,6 +57,8 @@ function createFakeCloudStorage() {
   return {
     fetchFn,
     store: (objectName: string, text: string) => store(objectName, Buffer.from(text)),
+    remove: (objectName: string) => objectsByName.delete(objectName),
+    failNextRead: (objectName: string) => failingReadNames.add(objectName),
     textOf: (objectName: string) => objectsByName.get(objectName)?.bytes.toString('utf8') ?? null,
     names: () => [...objectsByName.keys()].sort(),
     conflictOnNextWrite: () => {
@@ -66,7 +71,7 @@ function createFakeCloudStorage() {
 test('the Cloud Storage doorman state reads its table and Secret Manager link secrets, keeps watcher files per tenant, appends awake events into month objects under a generation match that survives a racing writer, and a restarted meter rebuilds usage and the edge wake cap from the newest months', async () => {
   const storage = createFakeCloudStorage();
   const linkSecretName = 'projects/example-project/secrets/tenant-link-statetenant0001';
-  const tenant: DoormanTenant = { slug: 'statetenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: linkSecretName }, watcherHome: null, awakeHoursPerMonth: 10, host: null };
+  const tenant: DoormanTenant = { slug: 'statetenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: linkSecretName }, watcherHome: null, awakeHoursPerMonth: 10, host: null, owner: null };
   storage.store('tenants.json', JSON.stringify({ tenantDomain: 'tenants.example', tenants: [tenant] }));
   storage.putSecret(linkSecretName, `${'ab'.repeat(32)}\n`);
   storage.store('tenants/statetenant0001/ledger/2026-09.jsonl', '{"event":"woke","at":"2026-09-30T23:00:00.000Z"}\n');
@@ -99,4 +104,42 @@ test('the Cloud Storage doorman state reads its table and Secret Manager link se
   assert.equal(restartedMeter.usage(10).usedMs, 30 * 60_000);
   assert.deepEqual(restartedMeter.recentEdgeWakeTimesMs(), [Date.parse('2026-11-01T00:10:00.000Z')]);
   assert.equal(restartedMeter.lastWokeAtMs(), Date.parse('2026-11-01T00:10:00.000Z'));
+});
+
+test('the Cloud Storage doorman state routes each routes/<slug>.json beside the tenant table, keeps the last good copy of a route that turns malformed, drops a deleted one, lets the table win a shared slug, and wakes its watcher on a route change', async (t) => {
+  const storage = createFakeCloudStorage();
+  const operatorTenant: DoormanTenant = { slug: 'operatortenant01', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'secret-manager', secret: 'projects/example-project/secrets/tenant-link-operatortenant01' }, watcherHome: null, awakeHoursPerMonth: null, host: null, owner: null };
+  const routedTenant: DoormanTenant = { ...operatorTenant, slug: 'routedtenant0001', serverUrl: 'http://10.0.0.3:8080', linkSecret: { kind: 'secret-manager', secret: 'projects/example-project/secrets/tenant-link-routedtenant0001' }, owner: { workosUserId: 'user_01ROUTED', authkitClientId: 'client_01ACCOUNTS', accountPageUrl: 'https://accounts.example' } };
+  storage.store('tenants.json', JSON.stringify({ tenantDomain: 'tenants.example', tenants: [operatorTenant] }));
+  storage.store('routes/routedtenant0001.json', JSON.stringify(routedTenant));
+  storage.store('routes/operatortenant01.json', JSON.stringify({ ...routedTenant, slug: 'operatortenant01' }));
+  storage.store('routes/claimedtenant001.json', JSON.stringify(routedTenant));
+  const state = createGcsDoormanState({ bucket: BUCKET, google: createGcpRest({ fetchFn: storage.fetchFn }), log: QUIET_LOG });
+  const tenantsOf = async () => (await state.readTable()).tenants.map((tenant) => [tenant.slug, tenant.owner?.workosUserId ?? null]);
+
+  assert.deepEqual(await tenantsOf(), [['operatortenant01', null], ['routedtenant0001', 'user_01ROUTED']]);
+
+  storage.store('routes/routedtenant0001.json', '{"slug":"routedtenant0001"');
+  assert.deepEqual(await tenantsOf(), [['operatortenant01', null], ['routedtenant0001', 'user_01ROUTED']]);
+  storage.failNextRead('routes/routedtenant0001.json');
+  storage.store('routes/routedtenant0001.json', JSON.stringify({ ...routedTenant, serverUrl: 'http://10.0.0.4:8080' }));
+  assert.equal((await state.readTable()).tenants[1].serverUrl, 'http://10.0.0.3:8080');
+  assert.equal((await state.readTable()).tenants[1].serverUrl, 'http://10.0.0.4:8080');
+
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let changeCount = 0;
+  const stopWatching = state.watchTable(() => {
+    changeCount += 1;
+  });
+  t.after(stopWatching);
+  storage.remove('routes/routedtenant0001.json');
+  t.mock.timers.tick(10_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(changeCount, 1);
+  assert.deepEqual(await tenantsOf(), [['operatortenant01', null]]);
+
+  storage.store('routes/routedtenant0001.json', JSON.stringify(routedTenant));
+  storage.store('tenants.json', JSON.stringify({ tenantDomain: null, tenants: [operatorTenant] }));
+  assert.deepEqual(await tenantsOf(), [['operatortenant01', null]]);
 });

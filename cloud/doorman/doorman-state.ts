@@ -3,8 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
-import { AwakeEvent, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
-import type { DoormanTenant } from '../../shared/contracts/doorman.ts';
+import { AwakeEvent, DOORMAN_ROUTES_PREFIX, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import { isMissingFileError } from '../../shared/text.ts';
 import { movedSecretPath } from '../../server/secrets/core/secret-files-core.ts';
 import { watcherFilesInFolder } from '../watcher/watcher-home.ts';
@@ -53,7 +52,8 @@ const NOT_FOUND: ReadonlySet<number> = new Set([404]);
 const PRECONDITION_FAILED: ReadonlySet<number> = new Set([412]);
 
 const ObjectGeneration = z.object({ generation: z.string().min(1) });
-const ObjectListPage = z.object({ items: z.array(z.object({ name: z.string() })).default([]), nextPageToken: z.string().optional() });
+const ObjectListPage = z.object({ items: z.array(z.object({ name: z.string(), generation: z.string().min(1) })).default([]), nextPageToken: z.string().optional() });
+const ROUTE_OBJECT_PATTERN = /^routes\/([a-z0-9]{12,40})\.json$/;
 
 function awakeEventsIn(ledgerText: string, where: string, log: DoormanStateLog): AwakeEvent[] {
   return ledgerText.split('\n').filter((line) => line.trim() !== '').flatMap((line) => {
@@ -195,19 +195,23 @@ function createGcsObjects(bucket: string, google: GcpRest) {
     return response.status === 412 ? 'conflict' : 'written';
   }
 
-  async function namesUnder(prefix: string): Promise<string[]> {
-    const names: string[] = [];
+  async function generationsUnder(prefix: string): Promise<Map<string, string>> {
+    const generationsByName = new Map<string, string>();
     let pageToken: string | null = null;
     do {
       const pageQuery: string = pageToken === null ? '' : `&pageToken=${encodeURIComponent(pageToken)}`;
-      const page = ObjectListPage.parse(await google.authorizedJson(`${objectsUrl}?prefix=${encodeURIComponent(prefix)}&fields=items(name),nextPageToken${pageQuery}`, {}, `listing gs://${bucket}/${prefix}`));
-      names.push(...page.items.map((item) => item.name));
+      const page = ObjectListPage.parse(await google.authorizedJson(`${objectsUrl}?prefix=${encodeURIComponent(prefix)}&fields=items(name,generation),nextPageToken${pageQuery}`, {}, `listing gs://${bucket}/${prefix}`));
+      for (const item of page.items) generationsByName.set(item.name, item.generation);
       pageToken = page.nextPageToken ?? null;
     } while (pageToken !== null);
-    return names.sort();
+    return generationsByName;
   }
 
-  return { read, generationOf, write, namesUnder };
+  async function namesUnder(prefix: string): Promise<string[]> {
+    return [...(await generationsUnder(prefix)).keys()].sort();
+  }
+
+  return { read, generationOf, write, generationsUnder, namesUnder };
 }
 
 type GcsObjects = ReturnType<typeof createGcsObjects>;
@@ -262,10 +266,53 @@ function gcsTenantRecords(objects: GcsObjects): TenantRecordStore {
   };
 }
 
-function watchStateTable(objects: GcsObjects, generationRead: () => string | null, onChange: () => void, log: DoormanStateLog): () => void {
+function stateFingerprint(tableGeneration: string | null, routeGenerations: Map<string, string>): string {
+  return JSON.stringify([tableGeneration, [...routeGenerations].sort()]);
+}
+
+async function stateFingerprintOf(objects: GcsObjects): Promise<string> {
+  const [tableGeneration, routeGenerations] = await Promise.all([objects.generationOf(STATE_TABLE_OBJECT_NAME), objects.generationsUnder(DOORMAN_ROUTES_PREFIX)]);
+  return stateFingerprint(tableGeneration, routeGenerations);
+}
+
+function createRouteReader(objects: GcsObjects, bucket: string, log: DoormanStateLog) {
+  const keptRoutesByName = new Map<string, { generation: string; tenant: DoormanTenant }>();
+  const refusedGenerationsByName = new Map<string, string>();
+
+  async function readRoute(objectName: string, slug: string, generation: string): Promise<boolean> {
+    const stored = await objects.read(objectName).catch((readError: unknown) => {
+      log.warn(`[doorman] reading gs://${bucket}/${objectName} failed, so its last good copy stays in use until the next poll: ${readError instanceof Error ? readError.message : String(readError)}`);
+      return undefined;
+    });
+    if (stored === undefined) return false;
+    if (stored === null) return true;
+    const route = DoormanTenant.safeParse(jsonOrNull(stored.bytes.toString('utf8')));
+    if (route.success && route.data.slug === slug) {
+      keptRoutesByName.set(objectName, { generation: stored.generation, tenant: route.data });
+      refusedGenerationsByName.delete(objectName);
+      return true;
+    }
+    refusedGenerationsByName.set(objectName, generation);
+    log.warn(`[doorman] gs://${bucket}/${objectName} is not a valid route for ${slug}, so ${keptRoutesByName.has(objectName) ? 'its last good copy stays in use' : 'it is not routed'}`);
+    return true;
+  }
+
+  return async function currentRoutes(routeGenerations: Map<string, string>): Promise<{ routedTenants: DoormanTenant[]; isEveryRouteRead: boolean }> {
+    let isEveryRouteRead = true;
+    for (const objectName of keptRoutesByName.keys()) if (!routeGenerations.has(objectName)) keptRoutesByName.delete(objectName);
+    for (const [objectName, generation] of routeGenerations) {
+      const slug = ROUTE_OBJECT_PATTERN.exec(objectName)?.[1];
+      if (slug === undefined || keptRoutesByName.get(objectName)?.generation === generation || refusedGenerationsByName.get(objectName) === generation) continue;
+      if (!await readRoute(objectName, slug, generation)) isEveryRouteRead = false;
+    }
+    return { routedTenants: [...keptRoutesByName.values()].map((kept) => kept.tenant), isEveryRouteRead };
+  };
+}
+
+function watchStateTable(objects: GcsObjects, fingerprintRead: () => string | null, onChange: () => void, log: DoormanStateLog): () => void {
   const poll = () => {
-    objects.generationOf(STATE_TABLE_OBJECT_NAME).then((generation) => {
-      if (generation !== generationRead()) onChange();
+    stateFingerprintOf(objects).then((fingerprint) => {
+      if (fingerprint !== fingerprintRead()) onChange();
     }, (pollError: unknown) => log.warn(`[doorman] checking the tenant table failed: ${pollError instanceof Error ? pollError.message : String(pollError)}`));
   };
   const pollTimer = setInterval(poll, STATE_TABLE_POLL_MS);
@@ -278,21 +325,30 @@ function stateBucketOf(stateUrl: string): string | null {
 
 function createGcsDoormanState({ bucket, google = createGcpRest(), log = console }: { bucket: string; google?: GcpRest; log?: DoormanStateLog }) {
   const objects = createGcsObjects(bucket, google);
-  let tableGenerationRead: string | null = null;
+  const currentRoutes = createRouteReader(objects, bucket, log);
+  let fingerprintRead: string | null = null;
 
   async function readTable(): Promise<DoormanTenantTable> {
-    const stored = await objects.read(STATE_TABLE_OBJECT_NAME);
+    const [stored, routeGenerations] = await Promise.all([objects.read(STATE_TABLE_OBJECT_NAME), objects.generationsUnder(DOORMAN_ROUTES_PREFIX)]);
     if (stored === null) throw new Error(`gs://${bucket}/${STATE_TABLE_OBJECT_NAME} does not exist`);
     const table = DoormanTenantTable.parse(JSON.parse(stored.bytes.toString('utf8')));
-    tableGenerationRead = stored.generation;
-    return table;
+    if (table.tenantDomain === null) {
+      if (routeGenerations.size > 0) log.warn(`[doorman] gs://${bucket}/${STATE_TABLE_OBJECT_NAME} has no tenant domain, so the route objects under ${DOORMAN_ROUTES_PREFIX} are not served`);
+      fingerprintRead = stateFingerprint(stored.generation, routeGenerations);
+      return table;
+    }
+    const tableSlugs = new Set(table.tenants.map((tenant) => tenant.slug));
+    const { routedTenants, isEveryRouteRead } = await currentRoutes(routeGenerations);
+    const mergedTable = DoormanTenantTable.parse({ ...table, tenants: [...table.tenants, ...routedTenants.filter((tenant) => !tableSlugs.has(tenant.slug))] });
+    fingerprintRead = isEveryRouteRead ? stateFingerprint(stored.generation, routeGenerations) : null;
+    return mergedTable;
   }
 
   return {
     where: `gs://${bucket}/${STATE_TABLE_OBJECT_NAME}`,
     lockFolder: null,
     readTable,
-    watchTable: (onChange: () => void) => watchStateTable(objects, () => tableGenerationRead, onChange, log),
+    watchTable: (onChange: () => void) => watchStateTable(objects, () => fingerprintRead, onChange, log),
     tenantState: {
       linkSecretHex: createLinkSecretReader(google, log),
       ledgerOf: (tenant: DoormanTenant) => gcsLedger(objects, tenant.slug, log),
