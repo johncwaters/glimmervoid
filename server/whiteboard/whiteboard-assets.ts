@@ -34,7 +34,7 @@ const UNPOSTERED_VIDEO_HEIGHT_PX = 720;
 const VIDEO_POSTER_TIMEOUT_MS = 15_000;
 const ASSET_FILE_MODE = 0o600;
 const PREVIEW_SUFFIX = '.preview.webp';
-const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.csv|\.tsv|\.xlsx)$/;
+const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.fountain|\.csv|\.tsv|\.xlsx)$/;
 const WORKBOOK_SHEET_FILENAME_RE = /^([0-9a-f]{64})\.sheet(\d{1,2})\.csv$/;
 const SHEET_NAMES_FILENAME_RE = /^([0-9a-f]{64})\.sheets\.json$/;
 const SHEET_NAMES_SUFFIX = '.sheets.json';
@@ -49,7 +49,7 @@ const INCOMING_PREFIX = '.incoming-';
 const ATTACH_HOLD_MS = 10 * 60_000;
 const STILL_IMAGE_FTYP_BRANDS = new Set(['mif1', 'msf1', 'mif2', 'avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'avci', 'avcs', 'jpeg', 'j2ki', 'j2is', 'crx ']);
 const FTYP_BRANDS_OFFSET = 16;
-const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV, TSV or XLSX';
+const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV or XLSX';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
 interface MediaFormat {
@@ -69,6 +69,7 @@ const MEDIA_FORMAT_BY_EXTENSION: Record<string, MediaFormat> = {
   '.webm': { kind: 'video', mime: 'video/webm', contentType: 'video/webm', hasLargeRasterPreview: false },
   '.html': { kind: 'page', mime: 'text/html', contentType: 'text/html; charset=utf-8', hasLargeRasterPreview: false },
   '.md': { kind: 'doc', mime: 'text/markdown', contentType: 'text/markdown; charset=utf-8', hasLargeRasterPreview: false },
+  '.fountain': { kind: 'doc', mime: 'text/x-fountain', contentType: 'text/x-fountain; charset=utf-8', hasLargeRasterPreview: false },
   '.csv': { kind: 'sheet', mime: 'text/csv', contentType: 'text/csv; charset=utf-8', hasLargeRasterPreview: false },
   '.tsv': { kind: 'sheet', mime: 'text/tab-separated-values', contentType: 'text/tab-separated-values; charset=utf-8', hasLargeRasterPreview: false },
   '.xlsx': { kind: 'sheet', mime: BOARD_WORKBOOK_MIME, contentType: BOARD_WORKBOOK_MIME, hasLargeRasterPreview: false },
@@ -137,7 +138,7 @@ interface TextMediaRule {
 }
 
 const TEXT_MEDIA_RULE_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], TextMediaRule>>> = {
-  doc: { capBytes: BOARD_DOC_CAP_BYTES, noun: 'board document', textName: 'UTF-8 Markdown' },
+  doc: { capBytes: BOARD_DOC_CAP_BYTES, noun: 'board document', textName: 'UTF-8 Markdown or Fountain' },
   sheet: { capBytes: BOARD_SHEET_CAP_BYTES, noun: 'board sheet', textName: 'UTF-8 CSV or TSV' },
 };
 

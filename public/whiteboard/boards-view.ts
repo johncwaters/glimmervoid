@@ -5,7 +5,7 @@ import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
@@ -883,7 +883,7 @@ async function saveBoardDoc(boardId: string, boxId: string, docText: string, loa
   const media = docMediaOf(boardId, boxId);
   if (!media || media.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };
   if (media.link) return saveLinkedDocText(boardId, boxId, docText, loadedAsset);
-  const stored = await uploadBoardMedia(new File([docText], `${boxId}.md`, { type: 'text/markdown' }));
+  const stored = await uploadBoardMedia(new File([docText], `${boxId}${BOARD_MEDIA_EXTENSION_BY_MIME[media.mime]}`, { type: media.mime }));
   if (!stored.ok) return { ok: false, isConflict: false, error: stored.error };
   if (stored.media.kind !== 'doc') return { ok: false, isConflict: false, error: BOARD_DOC_NOT_MARKDOWN_TEXT };
   if (docMediaOf(boardId, boxId)?.asset !== loadedAsset) return { ok: false, isConflict: true, error: null };

@@ -89,7 +89,7 @@ const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 
 
 const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc', 'sheet'] as const;
 export const BOARD_WORKBOOK_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/csv', 'text/tab-separated-values', BOARD_WORKBOOK_MIME] as const;
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/x-fountain', 'text/csv', 'text/tab-separated-values', BOARD_WORKBOOK_MIME] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 export const BOARD_DOC_CAP_BYTES = 256 * 1024;
 export const BOARD_SHEET_CAP_BYTES = 256 * 1024;
@@ -567,7 +567,7 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
 }
 
 export const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv', [BOARD_WORKBOOK_MIME]: '.xlsx',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/x-fountain': '.fountain', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv', [BOARD_WORKBOOK_MIME]: '.xlsx',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {

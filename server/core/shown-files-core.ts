@@ -14,7 +14,7 @@ interface ShownFormat {
 
 const SHOWN_SNIFF_BYTES = 64 * 1024;
 const PAGE_TITLE_MAX_CHARS = 200;
-const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, CSV, TSV or XLSX';
+const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV or XLSX';
 
 const PNG: ShownFormat = { kind: 'image', mime: 'image/png', extension: '.png' };
 const JPEG: ShownFormat = { kind: 'image', mime: 'image/jpeg', extension: '.jpg' };
@@ -27,7 +27,8 @@ const PAGE: ShownFormat = { kind: 'page', mime: 'text/html; charset=utf-8', exte
 const DOC: ShownFormat = { kind: 'doc', mime: 'text/markdown; charset=utf-8', extension: '.md' };
 const CSV: ShownFormat = { kind: 'sheet', mime: 'text/csv; charset=utf-8', extension: '.csv' };
 const TSV: ShownFormat = { kind: 'sheet', mime: 'text/tab-separated-values; charset=utf-8', extension: '.tsv' };
-const MARKDOWN_NAME_EXTENSIONS = new Set(['.md', '.markdown']);
+const SCREENPLAY: ShownFormat = { kind: 'doc', mime: 'text/x-fountain; charset=utf-8', extension: '.fountain' };
+const DOC_FORMAT_BY_NAME_EXTENSION: Readonly<Record<string, ShownFormat>> = { '.md': DOC, '.markdown': DOC, '.fountain': SCREENPLAY };
 const XLSX: ShownFormat = { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: '.xlsx' };
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
@@ -84,8 +85,9 @@ function sniffMarkupFormat(chunk: Buffer, declaredName: string): ShownFormat | n
 }
 
 function sniffDocFormat(chunk: Buffer, declaredName: string): ShownFormat | null {
-  if (!MARKDOWN_NAME_EXTENSIONS.has(path.extname(declaredName).toLowerCase())) return null;
-  return chunk.includes(NUL_BYTE) ? null : DOC;
+  const docFormat = DOC_FORMAT_BY_NAME_EXTENSION[path.extname(declaredName).toLowerCase()];
+  if (!docFormat) return null;
+  return chunk.includes(NUL_BYTE) ? null : docFormat;
 }
 
 function sniffSheetFormat(chunk: Buffer, declaredName: string): ShownFormat | null {

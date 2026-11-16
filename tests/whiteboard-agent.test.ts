@@ -624,6 +624,11 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.deepEqual([docMedia.kind, docMedia.mime, docMedia.width, docMedia.height, docMedia.hasPreview], ['doc', 'text/markdown', 800, 1000, false]);
   const servedDoc = await fetch(assetUrl(`${docMedia.asset}.md`));
   assert.deepEqual([servedDoc.headers.get('content-type'), servedDoc.headers.get('content-security-policy'), await servedDoc.text()], ['text/markdown; charset=utf-8', "default-src 'none'; sandbox", abstractText]);
+  const screenplayText = 'INT. PLANNING ROOM - DAY\n\nPLANNER\nShip it.\n';
+  fs.writeFileSync(path.join(plannerDir, 'pilot.fountain'), screenplayText);
+  const screenplayMedia = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'pilot.fountain' })).body.media as { kind: string; asset: string; mime: string };
+  const servedScreenplay = await fetch(assetUrl(`${screenplayMedia.asset}.fountain`));
+  assert.deepEqual([screenplayMedia.kind, screenplayMedia.mime, servedScreenplay.headers.get('content-type'), await servedScreenplay.text()], ['doc', 'text/x-fountain', 'text/x-fountain; charset=utf-8', screenplayText], 'a screenplay is a document that keeps its own type, so the board lays it out as a script');
   const editedOnBoard = await fetch(`${running().base}/whiteboards/assets`, { method: 'POST', body: `${abstractText}\nedited on the board\n`, headers: { 'content-type': 'text/markdown', 'x-glimmervoid-upload-name': 'abstract.md.md' } });
   const editedDocMedia = (await editedOnBoard.json() as { media: { kind: string; asset: string } }).media;
   assert.equal(editedDocMedia.kind, 'doc', 'the text the dashboard saves from the document view is stored as a document');
@@ -652,7 +657,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'attach', path: 'binary.md' })).status, 415, 'a .md name does not make bytes that are not text a document');
   fs.writeFileSync(path.join(plannerDir, 'latin1.md'), Buffer.from('# Caf\xe9\n', 'latin1'));
   const latin1Doc = await whiteboard(PLANNER_ID, { sub: 'attach', path: 'latin1.md' });
-  assert.deepEqual([latin1Doc.status, latin1Doc.body.error], [415, 'latin1.md is not UTF-8 text; a board document is UTF-8 Markdown']);
+  assert.deepEqual([latin1Doc.status, latin1Doc.body.error], [415, 'latin1.md is not UTF-8 text; a board document is UTF-8 Markdown or Fountain']);
   const ffmpegPath = resolveFfmpegPath();
   assert.ok(ffmpegPath, 'ffmpeg-static is installed');
   await execFileAsync(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=2400x1200:rate=5:duration=1', '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-y', path.join(plannerDir, 'clip.webm')]);

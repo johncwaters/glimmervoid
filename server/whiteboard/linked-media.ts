@@ -44,7 +44,7 @@ function linkedMediaOf(board: Board, boxId: string): LinkedMedia | null {
 
 const LINKED_CAP_BYTES_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], number>>> = { doc: BOARD_DOC_CAP_BYTES, sheet: BOARD_SHEET_CAP_BYTES };
 
-const LINKED_KIND_NAME_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], string>>> = { doc: 'Markdown document', sheet: 'sheet', page: 'HTML page' };
+const LINKED_KIND_NAME_BY_KIND: Readonly<Partial<Record<BoxMedia['kind'], string>>> = { doc: 'Markdown or Fountain document', sheet: 'sheet', page: 'HTML page' };
 
 function capBytesOf(media: BoxMedia): number {
   if (media.mime === BOARD_WORKBOOK_MIME) return BOARD_WORKBOOK_CAP_BYTES;
@@ -146,7 +146,7 @@ async function writeLinkedDoc(boxId: string, file: OpenedFile, media: LinkedMedi
 
 async function saveLinkedDoc(board: Board, boxId: string, root: string | null, text: string, baseAsset: string, assets: WhiteboardAssetStore): Promise<LinkedDocSave> {
   const media = linkedMediaOf(board, boxId);
-  if ((media?.kind !== 'doc' && media?.kind !== 'sheet') || media.mime === BOARD_WORKBOOK_MIME) return { ok: false, error: 'That card is not a Markdown document or a CSV or TSV sheet linked to a file', isConflict: false };
+  if ((media?.kind !== 'doc' && media?.kind !== 'sheet') || media.mime === BOARD_WORKBOOK_MIME) return { ok: false, error: 'That card is not a Markdown or Fountain document or a CSV or TSV sheet linked to a file', isConflict: false };
   if (media.asset !== baseAsset) return { ok: false, error: 'The card changed since the editor loaded it', isConflict: true };
   const { syncedHash } = media.link;
   if (syncedHash === null) return { ok: false, error: 'The card has not been synced with its file yet; open the board again before saving', isConflict: true };
