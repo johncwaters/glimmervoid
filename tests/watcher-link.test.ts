@@ -311,7 +311,7 @@ test('a probe naming an answer field nudges only when that field changes, never 
     await watcher.runner?.applyCredentials({ github: 'read-token', posthog: { host: 'https://us.posthog.com', apiKey: 'posthog-read-key' } });
     await eventually(() => github.requests.length > requestCount ? true : undefined);
   };
-  await eventually(() => coveredProbeCounts.at(-1) === 1 ? true : undefined);
+  await eventually(() => coveredProbeCounts.at(-1) === 1 && watcher.runner?.status().probes[0]?.lastRunAt ? true : undefined);
   await runProbeAgain('{"results":[["2026-11-07"]],"timings":[{"t":0.1}]}');
   await eventually(() => nudges.length === 1 ? true : undefined);
   nudges.length = 0;

@@ -626,7 +626,8 @@
               "codex",
               "kimi",
               "opencode",
-              "pi"
+              "pi",
+              "antigravity"
             ],
             "description": "The agent the session runs"
           },
