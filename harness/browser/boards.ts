@@ -37,6 +37,7 @@ const LINKED_SHEET_PATH = 'docs/linked-sheet.csv';
 const LINKED_SHEET_REPO_TEXT = 'team,q1\r\n"Platform, core",900\r\ninfra,1200\r\n"said ""hi""",3\r\n';
 const SHEET_AT_CAP_HEADER = 'name,digits,letters\n';
 const SHEET_AT_CAP_OPEN_BUDGET_MS = 3000;
+const LINKED_BOARD_FOLDER = 'boards/harness-plan';
 
 interface OpenBoard {
   page: Page;
@@ -1213,6 +1214,31 @@ async function selectBoxByTitle(open: OpenBoard, boxId: string): Promise<void> {
   await open.panel.locator('.wb-inspect').waitFor({ state: 'hidden' });
   const boxRect = await screenRectOf(open, boxId);
   await open.page.mouse.click(boxRect.x + boxRect.width / 2, boxRect.y + 8);
+}
+
+async function verifyLinkedBoardFolder(open: OpenBoard, worktreePath: string): Promise<void> {
+  const { page, panel } = open;
+  const boardLink = panel.locator('.wb-board-link');
+  await openBoardMenuItem(page, panel, 'Link to folder');
+  await page.getByRole('textbox', { name: 'Folder in the code session worktree', exact: true }).fill(LINKED_BOARD_FOLDER);
+  await page.getByRole('button', { name: 'Link folder', exact: true }).click();
+  await panel.locator(`.wb-board-link[data-link-state="in-sync"]`).waitFor();
+  assert.equal(await boardLink.textContent(), `${LINKED_BOARD_FOLDER}: In sync with the folder`);
+  const documentPath = path.join(worktreePath, LINKED_BOARD_FOLDER, 'board.jsonl');
+  assert.equal(fs.existsSync(documentPath), true, 'linking from the board menu writes board.jsonl into the worktree folder');
+  const documentLines = fs.readFileSync(documentPath, 'utf8').trim().split('\n');
+  fs.writeFileSync(documentPath, `${documentLines[0]}\nnot json\n`);
+  await panel.locator(`.wb-board-link[data-link-state="broken"]`).waitFor();
+  await boardLink.click();
+  const brokenMessage = page.locator('.dialog-message').filter({ hasText: 'board.jsonl cannot be read' });
+  await brokenMessage.waitFor();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await brokenMessage.waitFor({ state: 'detached' });
+  await openBoardMenuItem(page, panel, 'Unlink folder');
+  await boardLink.waitFor({ state: 'hidden' });
+  await panel.getByRole('button', { name: 'Board actions', exact: true }).click();
+  assert.equal(await page.getByRole('menuitem', { name: 'Unlink folder', exact: true }).isVisible(), false, 'an unlinked board offers no Unlink folder');
+  await page.keyboard.press('Escape');
 }
 
 async function verifyLinkedBoardDoc(open: OpenBoard, worktreePath: string): Promise<void> {
@@ -2409,6 +2435,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await verifyBandStepResizeStaysPut(open, bandStep.id);
   await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Not a step' });
   await elementWhere(open, 'the unticked band step keeps its place as a plain box', (element) => element.id === 'band-step' && element.kind === 'box' && element.step === null && pointOfBox(element) !== null);
+  await verifyLinkedBoardFolder(open, worktreePath);
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyLinkedBoardSheet(open, worktreePath);
   await verifyBoardWorkbook(open);

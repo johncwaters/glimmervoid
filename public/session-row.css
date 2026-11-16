@@ -295,6 +295,7 @@
 .pane-title > .wb-island { position: static; flex: 1 1 auto; flex-wrap: nowrap; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; box-shadow: none; }
 .pane-title .wb-board-title { flex: 0 1 auto; min-width: 0; max-width: none; height: 24px; padding: 0; }
 .pane-title .wb-board-meta { order: 9; flex: none; margin-left: auto; white-space: nowrap; }
+.pane-title .wb-board-link { order: 9; flex: 0 1 auto; max-width: 40%; }
 .pane-title .wb-board-menu { order: 10; }
 .pane-title .wb-board-menu > .session-overflow-menu { right: 0; left: auto; }
 .pane-title > .session-card-header > .session-task-title { order: 1; flex: 0 1 auto; }

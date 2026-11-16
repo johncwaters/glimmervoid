@@ -280,6 +280,14 @@
 
 .wb-board-meta { color: var(--text-muted); }
 
+.wb-board-link { min-width: 0; padding: 0; overflow: hidden; border: 0; background: none; color: var(--text-muted); font: inherit; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+
+.wb-board-link:hover { color: var(--text-head); }
+
+.wb-board-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wb-board-link[data-link-state="broken"] { color: var(--state-failed); }
+
 .wb-board-menu > .session-overflow-menu {
   right: auto;
   left: 0;
