@@ -6,7 +6,7 @@ import { MCP_URL_ENV } from "../../mcp/core/agent-config.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { ANTIGRAVITY_PLUGIN_NAME, antigravitySessionSettings, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
+import { ANTIGRAVITY_PLUGIN_NAME, antigravitySessionSettings, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type {
@@ -100,17 +100,18 @@ function writePlugin(pluginFolder: string, pluginFiles: Readonly<Record<string, 
 
 function prepareHome(
   _env: Record<string, string | undefined>,
-  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false }: GeneratedHomeLaunch,
+  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [] }: GeneratedHomeLaunch,
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
   const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH);
-  const sessionSettings = antigravitySessionSettings(folderTrustRoot, RELAY_LAUNCH);
+  const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
+  const sessionSettings = antigravitySessionSettings([folderTrustRoot, ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };
   const pluginFolder = pluginFolderPath();
   const writeFailure = writePlugin(pluginFolder, pluginFiles);
   if (writeFailure) return { refusal: writeFailure };
-  return { home: pluginFolder, homeEnvValue: `http://127.0.0.1:${listenerPort}/mcp`, args: ["--settings", sessionSettings] };
+  return { home: pluginFolder, homeEnvValue: `http://127.0.0.1:${listenerPort}/mcp`, args: ["--settings", sessionSettings, ...packSkillWorkspaces.flatMap((workspace) => ["--add-dir", workspace])] };
 }
 
 function prepareScratchHome(): { refusal: string } {

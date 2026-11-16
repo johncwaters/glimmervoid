@@ -26,8 +26,9 @@ function withTemporaryHome(t: test.TestContext): string {
 test('an agy spawn writes the Glimmervoid plugin agy loads hooks from and trusts the session folder for that launch only', (t) => {
   const home = withTemporaryHome(t);
   const injection = antigravity.hooks.injection as GeneratedHomeInjection;
-  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: '/work/repo', isCleanHome: false });
+  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: '/work/repo', isCleanHome: false, packSkillDirs: ['/packs/acme-1/named/.agents/skills/acme-deploy', '/packs/acme-1/named/.agents/skills/acme-test'] });
   assert.ok(!('refusal' in prepared));
+  assert.deepEqual(prepared.args?.slice(2), ['--add-dir', '/packs/acme-1/named']);
 
   const pluginFolder = path.join(home, '.gemini', 'config', 'plugins', 'glimmervoid');
   assert.equal(prepared.home, pluginFolder);
@@ -41,7 +42,7 @@ test('an agy spawn writes the Glimmervoid plugin agy loads hooks from and trusts
 
   assert.equal(prepared.args?.[0], '--settings');
   const sessionSettings = JSON.parse(prepared.args?.[1] ?? '{}');
-  assert.deepEqual(sessionSettings.trustedWorkspaces, ['/work/repo']);
+  assert.deepEqual(sessionSettings.trustedWorkspaces, ['/work/repo', '/packs/acme-1/named']);
   assert.match(sessionSettings.title.command, / AgentState$/);
   assert.equal(prepared.homeEnvValue, 'http://127.0.0.1:4321/mcp');
 });

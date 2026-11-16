@@ -124,9 +124,9 @@ test('a pack.json agent section shows its context and skills word for word, reac
     const folder = path.join(root, `acme-team-${(pendingRow?.fingerprint ?? '').slice(0, 12)}`);
     assert.deepEqual(packSessionFiles.launch(), {
       contextLines: [`Pack acme-team context: ${path.join(folder, 'context', 'CONTEXT.md')}. Read it when the task touches what it covers.`],
-      claudePluginDirs: [path.join(folder, 'claude')], namedSkillDirs: [path.join(folder, 'named', 'acme-team-deploy')],
+      claudePluginDirs: [path.join(folder, 'claude')], namedSkillDirs: [path.join(folder, 'named', '.agents', 'skills', 'acme-team-deploy')],
     });
-    assert.match(fs.readFileSync(path.join(folder, 'named', 'acme-team-deploy', 'SKILL.md'), 'utf8'), /^---\nname: acme-team-deploy\n/);
+    assert.match(fs.readFileSync(path.join(folder, 'named', '.agents', 'skills', 'acme-team-deploy', 'SKILL.md'), 'utf8'), /^---\nname: acme-team-deploy\n/);
 
     fs.writeFileSync(path.join(packDir, 'CONTEXT.md'), 'Edited after approval.\n');
     await packStore.approvedPacks();

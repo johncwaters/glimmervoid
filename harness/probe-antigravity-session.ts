@@ -8,7 +8,7 @@ import { createBackend } from "../server/backend/backend.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
-  closeServer, createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, waitForState,
+  closeServer, createProbeChecks, delay, hookEventsOf, installApprovedProbePack, queueWhiteboardEditFor, runPackAgentProbe, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, screenShowsWhiteboardAnswer, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord, ProbeLaunch } from "./support/backend-harness.ts";
@@ -55,6 +55,7 @@ async function runProbe(tempDirectory: string): Promise<void> {
   writeProbeConfig(configPath, projectDirectory);
   process.env.GLIMMERVOID_CONFIG = configPath;
   process.env.GLIMMERVOID_HOME = path.join(tempDirectory, "glimmervoid-home");
+  if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) await installApprovedProbePack(process.env.GLIMMERVOID_HOME);
 
   const server = http.createServer();
   const backend = createBackend(server, { staticDir: null });
@@ -116,6 +117,12 @@ async function runProbe(tempDirectory: string): Promise<void> {
   }
 
   try {
+    if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) {
+      session._extraClaudeArgs = PERMISSION_PROMPTING_MODE_ARGS;
+      await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: pressEnter });
+      check("the launch added each pack's skill workspace with --add-dir", launches.at(-1)?.args.includes("--add-dir") === true);
+      return;
+    }
     console.log("\nSpawn:");
     session._extraClaudeArgs = PERMISSION_PROMPTING_MODE_ARGS;
     session._initialPrompt = `Run the shell command: touch ./${APPROVAL_FILE_NAME}`;

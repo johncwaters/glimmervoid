@@ -9,7 +9,7 @@ type PackAgentLaunch = { contextLines: readonly string[]; claudePluginDirs: read
 
 const CLAUDE_PLUGIN_FOLDER_NAME = "claude";
 const CONTEXT_FOLDER_NAME = "context";
-const NAMED_SKILLS_FOLDER_NAME = "named";
+const NAMED_SKILLS_FOLDER = path.posix.join("named", ".agents", "skills");
 const SKILL_FILE_NAME = "SKILL.md";
 const FINGERPRINT_PREFIX_LENGTH = 12;
 const EMPTY_LAUNCH: PackAgentLaunch = Object.freeze({ contextLines: Object.freeze([]), claudePluginDirs: Object.freeze([]), namedSkillDirs: Object.freeze([]) });
@@ -53,7 +53,7 @@ function skillFiles(packName: string, skill: PackAgentSkill): PackAgentFile[] | 
     files.push({ relativePath: path.posix.join(CLAUDE_PLUGIN_FOLDER_NAME, "skills", skill.skillName, relativePath), bytes });
     if (!isNamed) continue;
     const namedBytes = relativePath === SKILL_FILE_NAME ? Buffer.from(renameSkillFrontmatter(skillMarkdown.toString("utf8"), namedSkillName)) : bytes;
-    files.push({ relativePath: path.posix.join(NAMED_SKILLS_FOLDER_NAME, namedSkillName, relativePath), bytes: namedBytes });
+    files.push({ relativePath: path.posix.join(NAMED_SKILLS_FOLDER, namedSkillName, relativePath), bytes: namedBytes });
   }
   return files;
 }
@@ -86,7 +86,7 @@ function packAgentLaunchOf(root: string, contributions: readonly PackAgentContri
   for (const contribution of contributions) {
     const folder = path.join(root, packAgentFolderName(contribution.packName, contribution.fingerprint));
     if (contribution.skills.length > 0) claudePluginDirs.push(path.join(folder, CLAUDE_PLUGIN_FOLDER_NAME));
-    for (const skill of contribution.skills.filter((candidate) => hasNamedCopy(contribution.packName, candidate.skillName))) namedSkillDirs.push(path.join(folder, NAMED_SKILLS_FOLDER_NAME, namespacedSkillName(contribution.packName, skill.skillName)));
+    for (const skill of contribution.skills.filter((candidate) => hasNamedCopy(contribution.packName, candidate.skillName))) namedSkillDirs.push(path.join(folder, ...NAMED_SKILLS_FOLDER.split("/"), namespacedSkillName(contribution.packName, skill.skillName)));
     if (contribution.context !== null) contextLines.push(packContextLine(contribution.packName, path.join(folder, CONTEXT_FOLDER_NAME, contribution.context.fileName)));
   }
   return { contextLines, claudePluginDirs, namedSkillDirs };

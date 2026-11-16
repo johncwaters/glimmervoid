@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { buildHookCommand } from "./hook-command-core.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
@@ -47,10 +49,14 @@ function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: r
   };
 }
 
-function antigravitySessionSettings(folderTrustRoot: string, relayLaunch: readonly string[]): string | null {
+function antigravitySessionSettings(trustedFolders: readonly string[], relayLaunch: readonly string[]): string | null {
   const titleCommand = buildHookCommand(relayLaunch, AGENT_STATE_HOOK_EVENT);
   if (titleCommand === null) return null;
-  return JSON.stringify({ trustedWorkspaces: [folderTrustRoot], title: { type: "command", command: titleCommand } });
+  return JSON.stringify({ trustedWorkspaces: trustedFolders, title: { type: "command", command: titleCommand } });
 }
 
-export { ANTIGRAVITY_PLUGIN_NAME, antigravitySessionSettings, renderAntigravityPlugin };
+function packSkillWorkspacesOf(packSkillDirs: readonly string[]): string[] {
+  return [...new Set(packSkillDirs.map((skillDir) => path.dirname(path.dirname(path.dirname(skillDir)))))];
+}
+
+export { ANTIGRAVITY_PLUGIN_NAME, antigravitySessionSettings, packSkillWorkspacesOf, renderAntigravityPlugin };
