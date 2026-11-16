@@ -425,4 +425,4 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;
 
 export { createSecretsBroker };
-export type { LaunchSecretsHold, LaunchSecretsOutcome, SecretsBroker };
+export type { LaunchSecretsOutcome, SecretsBroker };
