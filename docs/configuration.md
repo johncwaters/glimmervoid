@@ -54,6 +54,7 @@ What agents may do without asking, and what Sane YOLO blocks.
 | `skipPermissionsByDefault` | Skip permission prompts by default | `true` | Skip agent permission prompts for projects that set no choice. |
 | `saneYolo` | Sane YOLO | `true` | Block catastrophic commands and credential reads in every session that supports it. Applies to new sessions. |
 | `saneYoloUnreadablePaths` | Unreadable folders | `[]` | Extra files and folders agents may not read, where ~ is your home folder. Applies to new sessions. |
+| `sandboxAllowedHosts` | Sandbox allowed hosts | `[]` | Extra hosts a sandboxed session may reach, on top of the model, GitHub and package registry hosts. Only used when sessionSandbox is on. Applies to new sessions. |
 
 ### Vault
 

@@ -266,6 +266,7 @@ function createConfigStore({
       telemetryInstallId: readTelemetryInstallId?.() ?? null,
       saneYolo: config.saneYolo ?? effectiveDefaults.saneYolo,
       saneYoloUnreadablePaths: config.saneYoloUnreadablePaths ?? DEFAULT_CONFIG.saneYoloUnreadablePaths,
+      sandboxAllowedHosts: config.sandboxAllowedHosts ?? DEFAULT_CONFIG.sandboxAllowedHosts,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
       spawnedSessionsMax: config.spawnedSessionsMax ?? DEFAULT_CONFIG.spawnedSessionsMax,

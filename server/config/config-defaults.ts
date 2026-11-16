@@ -55,6 +55,7 @@ const DEFAULT_CONFIG = {
 
   saneYolo: true,
   saneYoloUnreadablePaths: [] as string[],
+  sandboxAllowedHosts: [] as string[],
 
   telegramNotifications: false,
 

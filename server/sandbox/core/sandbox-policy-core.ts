@@ -19,6 +19,8 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = Object.freeze([
   'crates.io', 'static.crates.io', 'index.crates.io', 'proxy.golang.org', 'sum.golang.org',
 ]);
 
+const PRIVATE_NETWORK_RANGES: readonly string[] = Object.freeze(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', 'fc00::/7']);
+
 const GLIMMERVOID_HOME_READABLE_FOLDERS: readonly string[] = Object.freeze([
   'bin', 'runtime', 'sane-yolo', path.join('scratch', 'glimmervoid-hooks'), 'packs', 'pack-session-files', 'uploads', 'agent-homes',
 ]);
@@ -78,7 +80,7 @@ interface CredentialProxyRoute {
 }
 
 interface SrtSettings {
-  network: { allowedDomains: string[]; deniedDomains: string[]; allowAllUnixSockets: boolean; mitmProxy?: { socketPath: string; domains: string[] } };
+  network: { allowedDomains: string[]; deniedDomains: string[]; deniedResolvedAddresses: string[]; allowAllUnixSockets: boolean; mitmProxy?: { socketPath: string; domains: string[] } };
   filesystem: { denyRead: string[]; allowRead: string[]; allowWrite: string[]; denyWrite: string[] };
 }
 
@@ -118,6 +120,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
     network: {
       allowedDomains: [...new Set([...DEFAULT_ALLOWED_HOSTS, ...input.extraAllowedHosts])],
       deniedDomains: [],
+      deniedResolvedAddresses: [...PRIVATE_NETWORK_RANGES],
       allowAllUnixSockets: true,
       ...(input.credentialProxy === null ? {} : { mitmProxy: { socketPath: input.credentialProxy.socketPath, domains: [...input.credentialProxy.hosts] } }),
     },

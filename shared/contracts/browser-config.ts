@@ -210,6 +210,30 @@ const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: strin
   { error: `${field} must be an array of paths` },
 ).optional();
 
+const PORT_SUFFIX = /:([1-9]\d{0,4})$/;
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const NUMERIC_LABEL = /^(?:\d+|0x[0-9a-f]*)$/;
+const LOOPBACK_TOP_LABEL = 'localhost';
+function hostOf(entry: string): string | null {
+  const port = PORT_SUFFIX.exec(entry);
+  if (port === null) return entry;
+  const portNumber = Number(port[1]);
+  return portNumber >= 1 && portNumber <= 65535 ? entry.slice(0, port.index) : null;
+}
+function isSandboxHostEntry(entry: string): boolean {
+  const host = hostOf(entry.toLowerCase());
+  if (host === null) return false;
+  const labels = (host.startsWith('*.') ? host.slice(2) : host).split('.');
+  if (labels.length < 2 || !labels.every((label) => HOST_LABEL.test(label))) return false;
+  const topLabel = labels[labels.length - 1] ?? '';
+  return !NUMERIC_LABEL.test(topLabel) && topLabel !== LOOPBACK_TOP_LABEL;
+}
+const sandboxHostList = (field: string) => z.array(
+  z.string({ error: `${field} must be an array of host names` }).trim()
+    .refine(isSandboxHostEntry, { message: `${field} entries must be host names such as example.com, *.example.com or example.com:8443; IP addresses and localhost are refused` }),
+  { error: `${field} must be an array of host names` },
+).optional();
+
 const telemetryShape = { enabled: optionalBoolean('telemetry.enabled') };
 const TelemetrySettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).strict().optional();
 export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetry must be an object' }).passthrough().optional();
@@ -250,6 +274,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),
   saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
+  sandboxAllowedHosts: sandboxHostList('sandboxAllowedHosts'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   autoResume: optionalBoolean('autoResume'),

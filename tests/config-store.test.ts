@@ -184,6 +184,16 @@ test('validateConfig rejects malformed known fields', () => {
   assert.equal(validateConfig([]).ok, false);
 });
 
+test('validateConfig keeps sandboxAllowedHosts to host names a sandbox cannot turn into a private address', () => {
+  const refusedEntries = ['169.254.169.254', '10.0.0.1:443', '[::1]', 'localhost', '127.1', '0x7f.0x1', '*.com', '*', 'https://example.com', 'example.com/path', 'example.com:0', 'example.com:0443', 'app.localhost', '*.dev.localhost'];
+  for (const entry of refusedEntries) {
+    const validation = validateConfig({ projects: [], sandboxAllowedHosts: [entry] });
+    assert.equal(validation.ok, false, entry);
+    assert.match(validation.ok ? '' : validation.errors.join('\n'), /sandboxAllowedHosts entries must be host names/, entry);
+  }
+  assert.equal(validateConfig({ projects: [], sandboxAllowedHosts: ['example.com', '*.internal.example.com', 'registry.example.com:8443'] }).ok, true);
+});
+
 test('validateConfig rejects a config missing the projects key entirely', () => {
   const validation = validateConfig({ port: 4123 });
   assert.equal(validation.ok, false);

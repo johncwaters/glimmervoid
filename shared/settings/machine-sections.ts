@@ -121,6 +121,12 @@ export const MACHINE_SAFETY: SettingsSection = {
       control: 'list', keywords: ['guardrails', 'secrets', 'credentials', 'sane yolo'], defaultValue: [],
       listPlaceholder: '~/folder', listEmptyText: 'Only the built-in credential list is unreadable.', ...MACHINE_NEW_SESSIONS,
     },
+    {
+      id: 'sandbox-allowed-hosts', path: 'sandboxAllowedHosts', title: 'Sandbox allowed hosts',
+      description: 'Extra hosts a sandboxed session may reach, on top of the model, GitHub and package registry hosts. Only used when sessionSandbox is on.',
+      control: 'list', keywords: ['sandbox', 'network', 'egress', 'domains', 'allow list', 'hosted'], defaultValue: [],
+      listPlaceholder: 'example.com or *.example.com', listEmptyText: 'Only the built-in hosts are reachable.', ...MACHINE_NEW_SESSIONS,
+    },
   ],
 };
 

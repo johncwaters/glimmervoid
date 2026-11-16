@@ -17,6 +17,7 @@ interface SessionSandboxWiring {
   configPath: string;
   agentIngressServer: Server;
   getIngressPort: () => number | null;
+  getExtraAllowedHosts: () => readonly string[];
   getAgentAccountFolders: () => readonly string[];
   githubUserToken: () => Promise<string | null>;
   logger: Pick<Console, 'warn'>;
@@ -85,7 +86,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): ((sessionTempFolder
     configPath: wiring.configPath,
     ingressRequestListener: ((request, response) => { wiring.agentIngressServer.emit('request', request, response); }) satisfies RequestListener,
     getIngressPort: wiring.getIngressPort,
-    getExtraAllowedHosts: () => [],
+    getExtraAllowedHosts: wiring.getExtraAllowedHosts,
     getAgentAccountFolders: wiring.getAgentAccountFolders,
     resolveTools,
     credentialProxies,
