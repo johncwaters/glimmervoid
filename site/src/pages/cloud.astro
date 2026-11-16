@@ -1,0 +1,62 @@
+---
+import { CLOUD_SIGNUP_OPEN } from 'astro:env/server';
+import Base from '../layouts/Base.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { ACCOUNT_PAGE_URL, AUTHOR, CLOUD_PLAN, HOUR_PACKS, PACK_LIFETIME_MONTHS, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { sitePath } from '../lib/site-path.ts';
+
+const CLOUD_TITLE = 'Glimmervoid Cloud: a hosted Glimmervoid server | Glimmervoid';
+const CLOUD_DESCRIPTION = `Your own Glimmervoid server on its own VM. It sleeps when idle and wakes when you open it. $${CLOUD_PLAN.monthlyPriceDollars} a month with ${CLOUD_PLAN.includedAwakeHours} awake hours.`;
+const cloudStructuredData = {
+  '@type': 'WebPage',
+  name: CLOUD_TITLE,
+  description: CLOUD_DESCRIPTION,
+  url: new URL(Astro.url.pathname, Astro.site).href,
+  publisher: AUTHOR,
+};
+---
+<Base title={CLOUD_TITLE} description={CLOUD_DESCRIPTION} structuredData={cloudStructuredData}>
+  <Nav />
+  <section class="legal cloud">
+    <h1>Glimmervoid Cloud</h1>
+    <p>Your own Glimmervoid server, hosted. It runs on a virtual machine of its own, shared with no other customer, and keeps your worktrees and boards on its own disk. Open its address from any browser or your phone and the dashboard is there.</p>
+    <h2>Sleeps when idle, wakes on visit</h2>
+    <p>When no session is running, the server goes to sleep and stops spending awake hours. Opening its address wakes it, and it picks up where it stopped. You pay for the hours it is awake, not the hours it sits idle.</p>
+    <h2>Pricing</h2>
+    <p class="plan"><strong>${CLOUD_PLAN.monthlyPriceDollars} a month</strong>, with {CLOUD_PLAN.includedAwakeHours} awake hours each billing period.</p>
+    <p>Need more hours in a month? Buy an hour pack while your plan is active.</p>
+    <table class="packs">
+      <thead><tr><th scope="col">Hour pack</th><th scope="col">Price</th></tr></thead>
+      <tbody>
+        {HOUR_PACKS.map(({ awakeHours, priceDollars }) => <tr><td>{awakeHours} awake hours</td><td>${priceDollars}</td></tr>)}
+      </tbody>
+    </table>
+    <p class="legal-meta">Plan hours are spent before pack hours. Plan hours end 3 days after their billing period; pack hours last {PACK_LIFETIME_MONTHS} months. Prices are in US dollars and exclude sales tax or VAT, which checkout adds where it applies.</p>
+    <h2>Get Cloud</h2>
+    {CLOUD_SIGNUP_OPEN ? (
+      <>
+        <p>Sign in with GitHub on the account page, then subscribe through Stripe Checkout.</p>
+        <p class="cloud-action"><a class="btn" href={ACCOUNT_PAGE_URL}>Get Cloud</a></p>
+      </>
+    ) : (
+      <p class="cloud-status">Cloud is not open for sign-up yet. <a href={`${REPOSITORY_URL}/releases`}>Watch the releases on GitHub</a> to hear when it opens.</p>
+    )}
+    <p class="legal-meta cloud-policies">Payments go through Stripe. Read the <a href={sitePath('terms/')}>terms of service</a> and the <a href={sitePath('refunds/')}>refund policy</a>.</p>
+  </section>
+  <Footer />
+</Base>
+
+<style>
+  .cloud .plan { font-size: var(--type-doc-h3); color: var(--text-head); margin-bottom: 8px; }
+  .cloud .plan strong { color: var(--accent); }
+  .packs { width: 100%; max-width: 36ch; margin-block: 16px; border-collapse: collapse; }
+  .packs th, .packs td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border-dim); }
+  .packs th { font-size: var(--type-meta); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+  .packs td { color: var(--text); }
+  .packs td:last-child, .packs th:last-child { text-align: right; }
+  .cloud-action { margin-top: 16px; }
+  .cloud-action .btn { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
+  .cloud-status { color: var(--text-dim); }
+  .cloud-policies { margin-top: 32px; }
+</style>

@@ -24,6 +24,11 @@ p { margin: 0; }
 .section-head { display: flex; flex-direction: column; gap: 14px; max-width: 54ch; margin-bottom: 40px; }
 .section-head p { color: var(--text-dim); font-size: var(--type-doc-body); }
 @media (min-width: 821px) { body { font-size: var(--type-doc-body); } }
+.legal { max-width: 72ch; margin-inline: auto; padding-bottom: 48px; }
+.legal h1 { margin-bottom: 20px; }
+.legal h2 { margin-top: 32px; margin-bottom: 8px; font-size: var(--type-doc-h3); }
+.legal p, .legal li { color: var(--text); }
+.legal .legal-meta { color: var(--text-dim); }
 .center { text-align: center; align-items: center; margin-inline: auto; }
 
 .reveal { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 60%; }
