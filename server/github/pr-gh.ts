@@ -5,12 +5,12 @@ import { GH_LOGIN_SOURCE, NO_GITHUB_SOURCE_TEXT } from './github-source.ts';
 import type { GithubSource, GithubSourceKind, GithubSourceReader } from './github-source.ts';
 import type { CommandResult } from '../git/git-exec.ts';
 import { GH_SEGMENT, NODE_ID_RE, repoParts } from '../../shared/contracts/github-ids.ts';
-import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { GithubRateLimitResources, REFUSAL_RETRY_ATTEMPTS, githubRateLimitWaitMs, githubRefusalOf, isGraphqlMutation, mergeRateLimitResources, observedRateLimitResource, refusalRetryDelayMs, withObservedResources } from './core/github-rate-limit-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { setTimeout as waitFor } from 'node:timers/promises';
-import { UNATTRIBUTED_OPERATION, githubCallPoints, githubCallResources, isNotModifiedResponse, withRateLimitCost } from './core/github-usage-core.ts';
+import { currentGithubCallScope, withGithubOperation } from './github-call-scope.ts';
+import { githubCallPoints, githubCallResources, isNotModifiedResponse, withRateLimitCost } from './core/github-usage-core.ts';
 import type { GithubUsageRecorder } from './core/github-usage-core.ts';
 import { z } from 'zod';
 import { CommitSha, TeamReviewThreadCommentsResponse, TeamReviewThreadsRepository, TeamReviewResolveResponse, ReviewThreadId, TeamReviewCompareFiles, PrDetail, PostedReviewEvent, ReviewComment } from '../../shared/contracts/team-review.ts';
@@ -115,13 +115,13 @@ interface PrRepositorySchema<PrNode> {
   safeParse(repository: unknown): { success: true; data: { pullRequest: PrNode | null } | null } | { success: false };
 }
 
-const operationScope = new AsyncLocalStorage<string>();
+
 
 function scopedToOperations(methods: PrGh): PrGh {
   const scopedMethods: Record<string, unknown> = {};
   const methodsByOperation: ReadonlyMap<string, unknown> = new Map(Object.entries(methods));
   for (const [operation, method] of methodsByOperation) {
-    scopedMethods[operation] = typeof method === 'function' ? (...args: unknown[]) => operationScope.run(operation, () => method(...args)) : method;
+    scopedMethods[operation] = typeof method === 'function' ? (...args: unknown[]) => withGithubOperation(operation, () => method(...args)) : method;
   }
   return Object.assign({}, methods, scopedMethods);
 }
@@ -144,8 +144,8 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
   function recordUsage(args: readonly string[], response: CommandResult): void {
     if (usage === null) return;
     const isOk = response.ok || isNotModifiedResponse(response.out);
-    const operation = operationScope.getStore() ?? UNATTRIBUTED_OPERATION;
-    for (const resource of githubCallResources(args)) usage.record({ operation, resource, points: githubCallPoints(args, resource, response.out), isOk });
+    const { operation, trigger } = currentGithubCallScope();
+    for (const resource of githubCallResources(args)) usage.record({ operation, trigger, resource, points: githubCallPoints(args, resource, response.out), isOk });
   }
 
   async function spawnGh(args: string[], input: string | undefined, preserveOutput: boolean, timeoutMs: number, sourceAlreadyRead?: GithubSource): Promise<CommandResult | null> {
@@ -179,7 +179,7 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
     recordUsage(args, bodyResponse);
     const refusal = httpResponse === null ? null : githubRefusalOf(httpResponse.status, httpResponse.headers, httpResponse.body ?? '');
     if (refusal === null) return bodyResponse;
-    usage?.recordRefusal({ ...refusal, operation: operationScope.getStore() ?? UNATTRIBUTED_OPERATION, resource: 'graphql', caller: GH_SERVER_CALLER });
+    usage?.recordRefusal({ ...refusal, operation: currentGithubCallScope().operation, resource: 'graphql', caller: GH_SERVER_CALLER });
     const retryDelayMs = refusalRetryDelayMs(refusal, attempt);
     if (isGraphqlMutation(query) || attempt > REFUSAL_RETRY_ATTEMPTS || retryDelayMs === null) return bodyResponse;
     await waitMs(retryDelayMs);

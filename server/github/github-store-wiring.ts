@@ -5,6 +5,7 @@ import type { SetTimeoutFn } from '../../shared/timer-deps.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from './core/github-clock-core.ts';
 import { createGithubStorePoller } from './github-store-poller.ts';
+import { withGithubTrigger } from './github-call-scope.ts';
 import { GITHUB_STORE_LANE_ID, coveredProbeKey, githubStoreProbes, nudgedStorePoll } from './github-store-probes.ts';
 import type { Nudge, Probe } from '../../shared/contracts/watcher-link.ts';
 import type { PrGh } from './pr-gh.ts';
@@ -35,7 +36,6 @@ export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, 
     isDashboardConnected,
     exclusive: clock.exclusive,
     setTimeoutFn: DEFAULT_TIMER_FNS.setTimeoutFn,
-    clearTimeoutFn: DEFAULT_TIMER_FNS.clearTimeoutFn,
     log,
   });
 
@@ -45,7 +45,7 @@ export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, 
   }
 
   poller.events.on('snapshot-changed', () => broadcast(snapshotMessage()));
-  clock.schedule(async () => { await poller.tick(); }, GITHUB_CLOCK_INTERVAL_MINUTES * 60000);
+  clock.schedule(async () => { await withGithubTrigger('timer', () => poller.tick()); }, GITHUB_CLOCK_INTERVAL_MINUTES * 60000);
 
   function watchNames(): string[] {
     return poller.probeInputs().watches.map((watch) => watch.name);
@@ -58,7 +58,7 @@ export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, 
   function runStorePoll(probeId: string, attempt = 1): void {
     const nudgedPoll = nudgedStorePoll(probeId, watchNames());
     if (nudgedPoll === null) return;
-    const poll = 'watchName' in nudgedPoll ? poller.tick([nudgedPoll.watchName]) : poller.tick(undefined, nudgedPoll.poll);
+    const poll = withGithubTrigger('nudge', () => 'watchName' in nudgedPoll ? poller.tick([nudgedPoll.watchName]) : poller.tick(undefined, nudgedPoll.poll));
     void poll.then((outcome) => {
       if (!outcome.failed || attempt >= MAX_NUDGED_POLL_ATTEMPTS) return;
       unrefTimer(setTimeoutFn(() => runStorePoll(probeId, attempt + 1), Math.min(MAX_NUDGED_POLL_RETRY_MS, outcome.retryAfterMs ?? MAX_NUDGED_POLL_RETRY_MS)));

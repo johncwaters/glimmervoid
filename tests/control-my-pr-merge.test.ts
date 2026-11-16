@@ -89,7 +89,7 @@ function createTestStore(github: PrGh) {
   const queue = createSerialQueue();
   const poller = createGithubStorePoller({
     github, now: Date.now, isDashboardConnected: () => true, exclusive: (work) => queue.run(work),
-    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+    setTimeoutFn: setTimeout, log: { warn() {} },
   });
   return {
     ...poller,

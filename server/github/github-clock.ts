@@ -1,3 +1,5 @@
+import { AsyncResource } from 'node:async_hooks';
+
 import { runsEveryTicks } from './core/github-clock-core.ts';
 import type { SharedClock } from '../lanes/lane-runner.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -40,7 +42,7 @@ export function createGithubClock({ baseIntervalMs, setIntervalFn = DEFAULT_TIME
   function exclusive<T>(work: () => Promise<T>, { isPriority = false }: { isPriority?: boolean } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const jobs = isPriority ? priorityJobs : backgroundJobs;
-      jobs.push(() => Promise.resolve().then(work).then(resolve, reject));
+      jobs.push(AsyncResource.bind(() => Promise.resolve().then(work).then(resolve, reject)));
       runNextExclusiveJob();
     });
   }

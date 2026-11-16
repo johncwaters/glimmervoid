@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { GITHUB_USAGE_RESOURCES } from '../../../shared/contracts/github-usage.ts';
-import type { GithubOperationUsage, GithubRefusalUsage, GithubResourceUsage, GithubUsageResource, GithubUsageSnapshot } from '../../../shared/contracts/github-usage.ts';
+import type { GithubCallTrigger, GithubOperationUsage, GithubRefusalUsage, GithubResourceUsage, GithubUsageResource, GithubUsageSnapshot } from '../../../shared/contracts/github-usage.ts';
 import { parseJsonOrNull } from '../../core/json-core.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS, utcClockText } from './github-rate-limit-core.ts';
 import type { GithubRateLimitResources, GithubRefusal } from './github-rate-limit-core.ts';
@@ -9,7 +9,7 @@ import type { GithubRateLimitResources, GithubRefusal } from './github-rate-limi
 export const GITHUB_USAGE_WINDOW_MS = GITHUB_RATE_LIMIT_WINDOW_MS;
 export const UNATTRIBUTED_OPERATION = 'unattributed';
 
-export type GithubCall = { atMs: number; operation: string; resource: GithubUsageResource; points: number; isOk: boolean };
+export type GithubCall = { atMs: number; operation: string; trigger: GithubCallTrigger; resource: GithubUsageResource; points: number; isOk: boolean };
 export type GithubRefusalRecord = GithubRefusal & { atMs: number; operation: string; resource: GithubUsageResource; caller: string };
 export type GithubUsageRecorder = { record(call: Omit<GithubCall, 'atMs'>): void; recordRefusal(refusal: Omit<GithubRefusalRecord, 'atMs'>): void };
 
@@ -67,8 +67,8 @@ export function callsWithinWindow<Entry extends { atMs: number }>(calls: readonl
 function operationUsages(calls: readonly GithubCall[]): GithubOperationUsage[] {
   const usageByKey = new Map<string, GithubOperationUsage>();
   for (const call of calls) {
-    const key = `${call.resource}\u0000${call.operation}`;
-    const usage = usageByKey.get(key) ?? { operation: call.operation, resource: call.resource, calls: 0, points: 0, failures: 0 };
+    const key = `${call.resource}\u0000${call.operation}\u0000${call.trigger}`;
+    const usage = usageByKey.get(key) ?? { operation: call.operation, trigger: call.trigger, resource: call.resource, calls: 0, points: 0, failures: 0 };
     usage.calls += 1;
     usage.points += call.points;
     if (!call.isOk) usage.failures += 1;
@@ -147,7 +147,7 @@ function resourceLine(usage: GithubResourceUsage, nowMs: number): string {
 
 function operationLine(usage: GithubOperationUsage): string {
   const failuresText = usage.failures > 0 ? `  (${usage.failures} failed)` : '';
-  return `  ${usage.resource.padEnd(8)} ${usage.operation.padEnd(26)} ${String(usage.calls).padStart(6)} ${String(usage.points).padStart(7)}${failuresText}`;
+  return `  ${usage.resource.padEnd(8)} ${usage.operation.padEnd(26)} ${usage.trigger.padEnd(8)} ${String(usage.calls).padStart(6)} ${String(usage.points).padStart(7)}${failuresText}`;
 }
 
 function recordingGapLines(snapshot: GithubUsageSnapshot, nowMs: number): string[] {
@@ -165,7 +165,7 @@ export function formatGithubUsage(snapshot: GithubUsageSnapshot, nowMs: number):
     ...recordingGapLines(snapshot, nowMs),
     '',
     `Glimmervoid calls in the last ${Math.round(snapshot.windowMs / 60_000)} min:`,
-    `  ${'resource'.padEnd(8)} ${'operation'.padEnd(26)} ${'calls'.padStart(6)} ${'points'.padStart(7)}`,
+    `  ${'resource'.padEnd(8)} ${'operation'.padEnd(26)} ${'trigger'.padEnd(8)} ${'calls'.padStart(6)} ${'points'.padStart(7)}`,
   ];
   const operationLines = snapshot.operations.length === 0 ? ['  none'] : snapshot.operations.map(operationLine);
   const refusalLines = snapshot.refusals.length === 0 ? [] : ['', 'GitHub refusals in the last hour:', ...snapshot.refusals.map((usage) => `  ${refusalText(usage)}`)];
@@ -174,7 +174,7 @@ export function formatGithubUsage(snapshot: GithubUsageSnapshot, nowMs: number):
 
 export function githubUsageLogLine(snapshot: GithubUsageSnapshot, maxOperations: number): string {
   const resourcesText = snapshot.resources.map((usage) => `${usage.resource} ${accountShareText(usage)}`).join('; ');
-  const topOperationsText = snapshot.operations.slice(0, maxOperations).map((usage) => `${usage.operation} ${usage.calls}x/${usage.points}pt`).join(', ');
+  const topOperationsText = snapshot.operations.slice(0, maxOperations).map((usage) => `${usage.operation}/${usage.trigger} ${usage.calls}x/${usage.points}pt`).join(', ');
   const refusalsText = snapshot.refusals.length === 0 ? '' : `; refused: ${snapshot.refusals.map(refusalText).join('; ')}`;
   return `[github-usage] ${resourcesText}; top: ${topOperationsText || 'none'}${refusalsText}`;
 }

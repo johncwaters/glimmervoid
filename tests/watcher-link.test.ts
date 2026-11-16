@@ -624,7 +624,6 @@ test('a timer tick still searches a watch the watcher does not cover yet, and le
     isDashboardConnected: () => true,
     exclusive: async (work) => work(),
     setTimeoutFn: setTimeout,
-    clearTimeoutFn: clearTimeout,
     log: QUIET_LOG,
   });
   store.registerWatch({ name: 'covered', qualifiers: 'repo:a/b', needsDetail: false, intervalMs: 60_000 });
@@ -661,7 +660,6 @@ test('a PR read once on request stays out of the probe set', async () => {
       refreshTimers.push(run);
       return { unref() {} } as NodeJS.Timeout;
     },
-    clearTimeoutFn: () => {},
     log: QUIET_LOG,
   });
   store.requestRefresh('a/b#7');

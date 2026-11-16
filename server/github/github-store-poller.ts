@@ -11,8 +11,9 @@ import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../
 import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
 import { hasUnresolvedThreads } from './core/my-prs-core.ts';
 import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreFixedLightIntervalMsByKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStoreFixedLightDue, isGithubStoreMembershipDue, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
-import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
+import type { SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { withGithubTrigger } from './github-call-scope.ts';
 import { coveredProbeKey, githubStoreProbes, watchProbeId } from './github-store-probes.ts';
 import type { GithubStorePoll, GithubStoreProbeInputs } from './github-store-probes.ts';
 import type { Probe } from '../../shared/contracts/watcher-link.ts';
@@ -31,7 +32,6 @@ interface GithubStoreDependencies {
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
   setTimeoutFn: SetTimeoutFn;
-  clearTimeoutFn: ClearTimeoutFn;
   log: Pick<Console, 'warn'>;
 }
 
@@ -49,7 +49,7 @@ export function githubStoreRateLimitedError(waitMs: number, readSubject = 'the p
   return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading ${readSubject}. Try again then`;
 }
 
-export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, clearTimeoutFn, log }: GithubStoreDependencies) {
+export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, log }: GithubStoreDependencies) {
   const events = new EventEmitter<{
     change: [key: string, pr: GithubPr | null];
     'snapshot-changed': [snapshot: ReturnType<typeof getSnapshot>];
@@ -57,7 +57,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }>();
   const watches = new Map<string, WatchState>();
   const watchedKeysByOwner = new Map<string, Set<string>>();
-  const refreshTimersByKey = new Map<string, TimerHandle>();
+  const requestedRefreshKeys = new Set<string>();
+  let refreshFlushTimer: TimerHandle | null = null;
   const prViewsByHead = new Map<string, NonNullable<Awaited<ReturnType<PrGh['viewPr']>>>>();
   const diffsByHead = new Map<string, string>();
   const teamReviewComparisonsByHeads = new Map<string, Extract<Awaited<ReturnType<PrGh['teamReviewCompare']>>, { ok: true }>>();
@@ -412,7 +413,7 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
   }
 
   async function refreshWatches(names: readonly string[]): Promise<GithubPollingRefreshResult> {
-    const outcome = await tick(names);
+    const outcome = await withGithubTrigger('refresh', () => tick(names));
     if (outcome.failed) return { ok: false, error: pollingError ?? 'GitHub rate limit asks to wait before refreshing.' };
     return { ok: true };
   }
@@ -444,6 +445,37 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     }
   }
 
+  function flushRequestedRefreshes(): void {
+    refreshFlushTimer = null;
+    const requestedKeys = [...requestedRefreshKeys];
+    requestedRefreshKeys.clear();
+    const references = requestedKeys.flatMap((key) => {
+      const reference = githubStorePrReference(key);
+      return reference ? [reference] : [];
+    });
+    void withGithubTrigger('request', () => readWhenAllowed(async () => {
+      const previousError = pollingError;
+      const lightRead = await github.prsLightByKey(references);
+      const unreadableLightKeys = requestedKeys.filter((key) => !lightRead.byKey.has(key) && !lightRead.goneKeys.has(key));
+      for (const key of unreadableLightKeys) warnUnreadable(key);
+      const readKeys = requestedKeys.filter((key) => !unreadableLightKeys.includes(key));
+      const previousLightByKey = new Map(readKeys.flatMap((key): [string, GithubPrLightSearchNode][] => {
+        const previousLight = lightByKey.get(key);
+        return previousLight ? [[key, previousLight]] : [];
+      }));
+      const changes = githubPrChangeSet(previousLightByKey, readKeys.flatMap((key) => lightRead.byKey.get(key) ?? []));
+      const unknownReadKeys = readKeys.filter((key) => lightRead.byKey.has(key) && !prs[key]);
+      const { details, nodes, goneKeys, unreadableKeys } = await fetchDetails([...new Set([...changes.detailKeys, ...unknownReadKeys])]);
+      const removedKeys = [...new Set([...changes.removedKeys, ...goneKeys])].filter((key) => prs[key]);
+      for (const key of readKeys) setOrDropLight(key, unreadableKeys.includes(key) ? previousLightByKey.get(key) : lightRead.byKey.get(key));
+      prs = applyGithubPrDetails(prs, details, removedKeys);
+      for (const node of nodes) lightByKey.set(comparablePrKey({ repo: node.repository.nameWithOwner, number: node.number }), node);
+      lastRefreshedAt = now();
+      recordSuccess();
+      publishChanges(details, removedKeys, previousError);
+    })).catch(recordReadFailure);
+  }
+
   function requestRefresh(key: string): void {
     const reference = githubStorePrReference(key);
     if (!reference) return;
@@ -452,30 +484,8 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
       membershipRevision += 1;
       lastLightPolledAt = null;
     }
-    const previousTimer = refreshTimersByKey.get(comparableKey);
-    if (previousTimer) clearTimeoutFn(previousTimer);
-    refreshTimersByKey.set(comparableKey, setTimeoutFn(() => {
-      refreshTimersByKey.delete(comparableKey);
-      void readWhenAllowed(async () => {
-        const previousError = pollingError;
-        const lightRead = await github.prsLightByKey([reference]);
-        const lightNode = lightRead.byKey.get(comparableKey);
-        if (!lightNode && !lightRead.goneKeys.has(comparableKey)) {
-          warnUnreadable(comparableKey);
-          return;
-        }
-        const previousLight = lightByKey.get(comparableKey);
-        const changes = githubPrChangeSet(new Map(previousLight ? [[comparableKey, previousLight]] : []), lightNode ? [lightNode] : []);
-        const { details, nodes, goneKeys, unreadableKeys } = await fetchDetails(lightNode && !prs[comparableKey] ? [comparableKey] : changes.detailKeys);
-        const removedKeys = [...new Set([...changes.removedKeys, ...goneKeys])].filter((key) => prs[key]);
-        setOrDropLight(comparableKey, unreadableKeys.includes(comparableKey) ? previousLight : lightNode);
-        prs = applyGithubPrDetails(prs, details, removedKeys);
-        for (const node of nodes) lightByKey.set(comparableKey, node);
-        lastRefreshedAt = now();
-        recordSuccess();
-        publishChanges(details, removedKeys, previousError);
-      }).catch(recordReadFailure);
-    }, REFRESH_DEBOUNCE_MS));
+    requestedRefreshKeys.add(comparableKey);
+    refreshFlushTimer ??= setTimeoutFn(flushRequestedRefreshes, REFRESH_DEBOUNCE_MS);
   }
 
   async function requestRead<Value>(read: () => Promise<Value>, fallback: Value, hasCachedValue: () => boolean = () => false, mode: GithubStoreReadMode = 'wait', resources: readonly string[] = RATE_LIMIT_RESOURCES): Promise<GithubStoreRead<Value>> {

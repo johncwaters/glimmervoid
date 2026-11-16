@@ -4,8 +4,12 @@ export const GITHUB_USAGE_RESOURCES = ['graphql', 'core', 'search'] as const;
 export const GithubUsageResource = z.enum(GITHUB_USAGE_RESOURCES);
 export type GithubUsageResource = z.infer<typeof GithubUsageResource>;
 
+export const GithubCallTrigger = z.enum(['timer', 'nudge', 'refresh', 'request', 'lane']);
+export type GithubCallTrigger = z.infer<typeof GithubCallTrigger>;
+
 export const GithubOperationUsage = z.object({
   operation: z.string(),
+  trigger: GithubCallTrigger.default('lane'),
   resource: GithubUsageResource,
   calls: z.number().int().nonnegative(),
   points: z.number().nonnegative(),

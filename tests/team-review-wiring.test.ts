@@ -855,7 +855,7 @@ test('the store runs no gh and logs nothing without a GitHub source, then reads 
   }, null, undefined, { current: async () => source });
   const poller = createGithubStorePoller({
     now: Date.now, isDashboardConnected: () => true, exclusive: async (work) => work(),
-    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn: (warning: string) => { warnings.push(warning); } }, github,
+    setTimeoutFn: setTimeout, log: { warn: (warning: string) => { warnings.push(warning); } }, github,
   });
   poller.registerWatch({ name: 'mine', qualifiers: 'is:open author:@me', needsDetail: false });
 
@@ -875,7 +875,7 @@ function emptyGithubStore(github: Partial<Parameters<typeof createGithubStorePol
   const searches: string[] = [];
   const poller = createGithubStorePoller({
     now: Date.now, isDashboardConnected: () => true, exclusive: async (work) => work(),
-    setTimeoutFn: setTimeout, clearTimeoutFn: clearTimeout, log: { warn() {} },
+    setTimeoutFn: setTimeout, log: { warn() {} },
     github: {
       async searchPrsLight(qualifiers) { searches.push(qualifiers); return { ok: true, items: [], isComplete: true, error: '' }; },
       async prsLightByKey(prs) { return { byKey: new Map(), goneKeys: new Set(prs.map(comparablePrKey)) }; },
