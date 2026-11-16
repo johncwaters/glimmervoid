@@ -1,6 +1,7 @@
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
 import { CLEAN_HOME_AGENT_IDS } from '../../shared/contracts/agent-models.ts';
 import { RaceJudgeAgent, RaceSpec } from '../../shared/contracts/race.ts';
+import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import type { RaceContestant } from '../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
@@ -39,7 +40,8 @@ function refusalOf(spec: RaceSpec): string | null {
   if (uncleanable) return `"${uncleanable.setup.agent}" cannot race in a clean home: only Claude Code, Codex and Kimi Code can`;
   const unknownJudge = spec.judges.find((judge) => !RaceJudgeAgent.safeParse(judge.setup.agent).success);
   if (unknownJudge) return `"${unknownJudge.setup.agent}" cannot judge: a judge runs on Claude Code or Codex`;
-  return null;
+  if (spec.judges.some((judge) => judge.setup.provider === 'openrouter')) return 'a judge runs on its agent\'s own provider, not OpenRouter';
+  return providerRefusalOf(spec.contestants.map((contestant) => contestant.setup));
 }
 
 function createRaceLauncher({ races, sessions, config, createProjectSession }: RaceLauncherDeps): RaceLauncher {

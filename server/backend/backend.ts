@@ -188,6 +188,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     configStore,
     getGitWorkspace: () => gitWorkspace,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
+    getSecretsBroker: () => secretsBroker,
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,

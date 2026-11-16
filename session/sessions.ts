@@ -91,7 +91,8 @@ import type { SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
-import { cleanHomeArgs, launchArgs } from "../shared/agent-models-core.ts";
+import { cleanHomeArgs, launchPlanFor, launchSecretNames } from "../shared/agent-models-core.ts";
+import type { LaunchPlan } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
 import type { PackAgentLaunch } from "./core/pack-session-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
@@ -235,7 +236,11 @@ interface SessionOptions {
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
+  resolveLaunchSecrets?: ResolveLaunchSecrets | null;
 }
+
+type LaunchSecretsOutcome = { valuesByName: Record<string, string> } | { refusal: string };
+type ResolveLaunchSecrets = (request: { names: string[]; cwd: string }) => Promise<LaunchSecretsOutcome | { held: Promise<LaunchSecretsOutcome> }>;
 
 interface ClaudeSessionIdEvent {
   id: string;
@@ -244,6 +249,10 @@ interface ClaudeSessionIdEvent {
   sessionId: string;
   transcriptPath: string | null;
   isResumeTarget: boolean;
+}
+
+function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(plan.secretEnv).map(([envName, secretName]) => [envName, valuesByName[secretName] ?? ""]));
 }
 
 class Session extends EventEmitter {
@@ -341,6 +350,8 @@ class Session extends EventEmitter {
   _commitSigningToken: string | null;
   _resolveGitCredentialHelper: ((cwd: string) => Promise<string | null>) | null;
   _resolveHostSigningEnv: ((cwd: string) => Promise<Record<string, string>>) | null;
+  _resolveLaunchSecrets: ResolveLaunchSecrets | null;
+  _approvedLaunchSecrets: Record<string, string> | null = null;
   _hostSigningEnv: Record<string, string>;
   _gitCredentialProgram: string | null;
   _gitCredentialToken: string | null;
@@ -459,6 +470,7 @@ class Session extends EventEmitter {
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
+    resolveLaunchSecrets = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -630,6 +642,7 @@ class Session extends EventEmitter {
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
     this._resolveGitCredentialHelper = resolveGitCredentialHelper;
     this._resolveHostSigningEnv = commitSigningProgram === null ? null : resolveHostSigningEnv;
+    this._resolveLaunchSecrets = resolveLaunchSecrets;
     this._hostSigningEnv = {};
     this._gitCredentialProgram = null;
     this._gitCredentialToken = resolveGitCredentialHelper === null ? null : generateToken();
@@ -1661,6 +1674,18 @@ class Session extends EventEmitter {
       if (isStartSuperseded()) return;
     }
 
+    const launchPlan = launchPlanFor(this._adapter.id, this._agentSetup, this._platform);
+    const launchSecretEnv = await this._resolveLaunchSecretEnv(launchPlan);
+    if (isStartSuperseded()) return;
+    if ("refusal" in launchSecretEnv) {
+      this._abandonSpawn(new Error(launchSecretEnv.refusal));
+      return;
+    }
+    if ("held" in launchSecretEnv) {
+      void launchSecretEnv.held.then((outcome) => this._resumeHeldLaunch(outcome, preparingState));
+      return;
+    }
+
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
 
@@ -1701,7 +1726,7 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
-    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.gitEnv() };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.gitEnv(), ...launchPlan.env, ...launchSecretEnv.env };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._launchSpawnEnv() || {}), ...injectedEnv }
       : this._launchSpawnEnv();
@@ -1737,7 +1762,7 @@ class Session extends EventEmitter {
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: [...this._extraClaudeArgs, ...launchArgs(this._adapter.id, this._agentSetup), ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch)],
+      extraArgs: [...this._extraClaudeArgs, ...launchPlan.args, ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch)],
       initialPrompt: launchPrompt,
     });
 
@@ -1899,6 +1924,28 @@ class Session extends EventEmitter {
     if (this._platform !== "linux") return false;
     if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) return false;
     return await this._probeGraphicalSession() === "inactive";
+  }
+
+  async _resolveLaunchSecretEnv(plan: LaunchPlan): Promise<{ env: Record<string, string> } | { refusal: string } | { held: Promise<LaunchSecretsOutcome> }> {
+    const names = launchSecretNames(plan);
+    if (names.length === 0) return { env: {} };
+    const approvedValues = this._approvedLaunchSecrets;
+    this._approvedLaunchSecrets = null;
+    if (approvedValues !== null) return { env: launchSecretEnvOf(plan, approvedValues) };
+    if (!this._resolveLaunchSecrets) return { refusal: `${names.join(", ")} cannot be read: no vault is wired to this session` };
+    const resolved = await this._resolveLaunchSecrets({ names, cwd: this.effectiveCwd() });
+    if ("valuesByName" in resolved) return { env: launchSecretEnvOf(plan, resolved.valuesByName) };
+    return resolved;
+  }
+
+  _resumeHeldLaunch(outcome: LaunchSecretsOutcome, heldState: string): void {
+    if (this._destroyed || this.state !== heldState) return;
+    if ("refusal" in outcome) {
+      this._abandonSpawn(new Error(outcome.refusal));
+      return;
+    }
+    this._approvedLaunchSecrets = outcome.valuesByName;
+    void this.start();
   }
 
   _launchSpawnEnv(): Record<string, string> | null {

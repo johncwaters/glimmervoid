@@ -43,8 +43,15 @@ export type AgentModelCatalog = z.infer<typeof AgentModelCatalog>;
 
 const ModelOptionValue = z.strictObject({ id: z.string().min(1), value: z.string().min(1) });
 
+export const MODEL_PROVIDERS = ['native', 'openrouter'] as const;
+export const ModelProvider = z.enum(MODEL_PROVIDERS);
+export type ModelProvider = z.infer<typeof ModelProvider>;
+export const OPENROUTER_KEY_NAME = 'OPENROUTER_API_KEY';
+export const OPENROUTER_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'opencode'];
+
 export const ModelSelection = z.strictObject({
   agent: z.string().min(1),
+  provider: ModelProvider.optional(),
   model: z.string().min(1).nullable(),
   options: z.array(ModelOptionValue),
 });

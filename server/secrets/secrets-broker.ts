@@ -37,6 +37,14 @@ interface DeliveredName {
   envFile: string;
 }
 
+type LaunchSecretsOutcome = { valuesByName: Record<string, string> } | { refusal: string };
+type LaunchSecretsHold = LaunchSecretsOutcome | { held: Promise<LaunchSecretsOutcome> };
+
+interface LaunchHold {
+  names: string[];
+  settle: (outcome: LaunchSecretsOutcome) => void;
+}
+
 interface SecretsBrokerOptions {
   readSecrets: () => unknown;
   writeSecrets: (mutate: (rawSecrets: unknown) => Record<string, unknown> | null) => Promise<boolean>;
@@ -80,6 +88,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   const allowedOnceNamesBySession = new Map<string, Set<string>>();
   const deliveriesBySession = new Map<string, Map<string, DeliveredName>>();
   const deliveredValuesBySession = new Map<string, Set<string>>();
+  const launchHoldsBySession = new Map<string, LaunchHold>();
 
   function deliveredNamesFor(session: NeedingSession): Map<string, string> {
     const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, DeliveredName>();
@@ -220,6 +229,65 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     });
   }
 
+  async function readForLaunch(session: NeedingSession, source: SecretSource, names: readonly string[]): Promise<LaunchSecretsOutcome | null> {
+    const card = startReading(session, names);
+    const read = await readValuesInOrder(card, source, names);
+    if (read.failure !== null) {
+      finishReading(card, [], read.failure);
+      return null;
+    }
+    finishReading(card, names, null);
+    addDeliveredValues(session.id, Object.values(read.valuesByName));
+    return { valuesByName: read.valuesByName };
+  }
+
+  function settleLaunchHold(sessionId: string, outcome: LaunchSecretsOutcome): void {
+    const hold = launchHoldsBySession.get(sessionId);
+    if (!hold) return;
+    launchHoldsBySession.delete(sessionId);
+    hold.settle(outcome);
+  }
+
+  function launchNamesIn(sessionId: string, names: readonly string[]): string[] {
+    const hold = launchHoldsBySession.get(sessionId);
+    return hold ? names.filter((name) => hold.names.includes(name)) : [];
+  }
+
+  async function readHeldLaunch(session: NeedingSession, approvedNames: readonly string[]): Promise<void> {
+    const hold = launchHoldsBySession.get(session.id);
+    const source = currentSource();
+    if (!hold || source === null || !hold.names.every((name) => approvedNames.includes(name))) return;
+    const outcome = await readForLaunch(session, source, hold.names).catch((error: unknown) => {
+      const card = cardsBySession.get(session.id);
+      if (card) finishReading(card, [], { message: READER_CRASHED_MESSAGE, detail: errorText(error) });
+      return null;
+    });
+    if (outcome !== null) settleLaunchHold(session.id, outcome);
+  }
+
+  async function readApprovedForLaunch(session: NeedingSession, source: SecretSource, names: readonly string[]): Promise<LaunchSecretsOutcome> {
+    const outcome = await readForLaunch(session, source, names).catch(() => null);
+    if (outcome !== null) return outcome;
+    const failure = cardsBySession.get(session.id)?.failure ?? null;
+    const card = cardsBySession.get(session.id);
+    if (card) withoutCardNames(card, names);
+    return { refusal: `${names.join(', ')} could not be read from the vault${failure === null ? '' : `: ${failure.message}`}` };
+  }
+
+  async function holdForLaunch(session: NeedingSession, names: readonly string[], reason: string): Promise<LaunchSecretsHold> {
+    const source = currentSource();
+    const state = { ...projectState(session, source !== null), deliveredNames: new Set<string>() };
+    const decision = decideNeed(state, names, now());
+    const deniedNames = names.filter((name) => decision.statusByName[name] === 'denied');
+    if (deniedNames.length > 0) return { refusal: `${deniedNames.join(', ')} is denied for this project` };
+    settleLaunchHold(session.id, { refusal: 'a newer start replaced this one' });
+    const isEveryNameReadable = decision.namesToRead.length === names.length;
+    if (isEveryNameReadable && source !== null) return readApprovedForLaunch(session, source, names);
+    const held = new Promise<LaunchSecretsOutcome>((resolve) => launchHoldsBySession.set(session.id, { names: [...names], settle: resolve }));
+    raiseCard(session, names, reason);
+    return { held };
+  }
+
   async function need(session: NeedingSession, names: readonly string[], reason: string | null = null): Promise<AgentNeedReply> {
     const decision = decideNeed(projectState(session, currentSource() !== null), names, now());
     raiseCard(session, [...decision.namesNeedingSource, ...decision.namesNeedingCard], reason);
@@ -300,6 +368,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     if (choice === 'deny') {
       holdDenial(session.project, names);
       withoutCardNames(card, names);
+      if (launchNamesIn(id, names).length > 0) settleLaunchHold(id, { refusal: `the operator denied ${names.join(', ')}` });
       return null;
     }
     if (currentSource() === null) return 'Choose the vault Glimmervoid reads secrets from first: type it in Look in under Settings > Vault.';
@@ -309,7 +378,10 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
       const refusal = choice === 'allow-always' ? await allowAlways(session.project, names) : null;
       if (refusal !== null) return refusal;
       releaseDenial(session.project, names);
-      readOnDecision(session, names);
+      const launchNames = launchNamesIn(id, names);
+      const neededNames = names.filter((name) => !launchNames.includes(name));
+      if (launchNames.length > 0) void readHeldLaunch(session, launchNames);
+      if (neededNames.length > 0) readOnDecision(session, neededNames);
       return null;
     } finally {
       decidingSessionIds.delete(id);
@@ -343,13 +415,14 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     deliveriesBySession.delete(sessionId);
     deliveredValuesBySession.delete(sessionId);
     allowedOnceNamesBySession.delete(sessionId);
+    settleLaunchHold(sessionId, { refusal: 'the session ended' });
     closeCard(sessionId);
   }
 
-  return { events, need, envFor, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
+  return { events, need, holdForLaunch, envFor, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;
 
 export { createSecretsBroker };
-export type { SecretsBroker };
+export type { LaunchSecretsHold, LaunchSecretsOutcome, SecretsBroker };

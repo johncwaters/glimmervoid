@@ -25,6 +25,7 @@ import { machineSkipsPermissionsByDefault, projectSkipsPermissions } from './cor
 import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
 import type { PackAgentLaunch } from '../../session/core/pack-session-core.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
+import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
@@ -45,7 +46,10 @@ interface SessionFactoryDependencies {
   hostSigningKeys?: Pick<HostSigningKeyStore, 'gitEnvFor'> | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
+  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
 }
+
+const OPENROUTER_LAUNCH_REASON = 'the agent starts on OpenRouter with this key';
 
 function gitCredentialHelperResolverFor(helperProgram: string | null | undefined): ((cwd: string) => Promise<string | null>) | null {
   if (!helperProgram) return null;
@@ -121,6 +125,11 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       resolveAccountHome,
       getPackAgentLaunch: isMachineShell ? null : dependencies.getPackAgentLaunch ?? null,
+      resolveLaunchSecrets: async ({ names, cwd }) => {
+        const broker = dependencies.getSecretsBroker?.() ?? null;
+        if (broker === null) return { refusal: `${names.join(', ')} cannot be read: the vault is not ready` };
+        return broker.holdForLaunch({ id: project.id, project: project.path, cwd }, names, OPENROUTER_LAUNCH_REASON);
+      },
       ...overrides,
       prependPathDirs: [...ghShimDirsForSpawn(), ...(overrides.prependPathDirs ?? [])],
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,

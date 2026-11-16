@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
-import { unsafeLaunchValueOf } from '../../../shared/agent-models-core.ts';
+import { providerRefusalOf, unsafeLaunchValueOf } from '../../../shared/agent-models-core.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-messages.ts';
 import type { KeptWorkPath } from '../../../shared/contracts/control-messages.ts';
@@ -287,6 +287,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function addSessionSetupRefusal(setup: AddSessionRequest['setup'], agentId: string): AddSessionRefusal | null {
     if (!setup) return null;
     if (setup.agent !== agentId) return { error: `The model choice is for ${setup.agent}, but the session runs ${agentId}` };
+    const providerRefusal = providerRefusalOf([setup]);
+    if (providerRefusal !== null) return { error: providerRefusal };
     const unsafeValue = unsafeLaunchValueOf([setup]);
     if (unsafeValue !== null) return { error: `The model or option value "${unsafeValue}" reaches the agent's command line, so it may use only letters, digits and . _ : / [ ] -` };
     return null;

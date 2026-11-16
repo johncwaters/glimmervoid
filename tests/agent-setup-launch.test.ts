@@ -8,6 +8,9 @@ import path from 'node:path';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import type { GlimmervoidConfig, ProjectEntry } from '../server/config-store.ts';
 import { createSessionFactory } from '../server/session/session-factory.ts';
+import { createSecretsBroker } from '../server/secrets/secrets-broker.ts';
+import type { SecretsBroker } from '../server/secrets/secrets-broker.ts';
+import { waitFor } from './helpers/wait-for.ts';
 import { ProjectConfig } from '../shared/contracts/config.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
@@ -90,6 +93,8 @@ test('an add-session refuses a model choice for another agent or with a value un
     const config: GlimmervoidConfig = { projects: [] };
     const otherAgent = addSessionOverControl(config, { path: directory, agent: 'codex', setup: { agent: 'claude-code', model: 'claude-opus-5-5', options: [] } });
     assert.equal(otherAgent?.ok, false);
+    const kimiOnOpenRouter = addSessionOverControl(config, { path: directory, agent: 'kimi', setup: { agent: 'kimi', provider: 'openrouter', model: 'moonshotai/kimi-k2', options: [] } });
+    assert.match(kimiOnOpenRouter?.error ?? '', /cannot run on OpenRouter/);
     const unsafeEffort = addSessionOverControl(config, { path: directory, agent: 'claude-code', setup: { agent: 'claude-code', model: null, options: [{ id: 'effort', value: 'high & calc' }] } });
     assert.equal(unsafeEffort?.ok, false);
     assert.match(unsafeEffort?.error ?? '', /command line/);
@@ -181,3 +186,79 @@ for (const { graphicalSessionState, waylandDisplay, expectedBusAddress } of [
     }
   });
 }
+
+const OPENROUTER_KEY_VALUE = 'sk-or-v1-held-until-approved';
+
+interface HeldLaunch {
+  broker: SecretsBroker;
+  started: Promise<void>;
+  spawns: { args: string[]; env: Record<string, string | undefined> }[];
+  state: () => string;
+  cleanup: () => void;
+}
+
+function startOpenRouterSession(): HeldLaunch {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-openrouter-hold-'));
+  const broker = createSecretsBroker({
+    readSecrets: () => ({}),
+    writeSecrets: async () => true,
+    currentSource: () => ({ manager: '1password', lookIn: 'Agents' }),
+    readSecret: async () => ({ value: OPENROUTER_KEY_VALUE }),
+  });
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+    getGitWorkspace: () => null, getUserHooks: () => [], resolveHookTools: () => [], getSecretsBroker: () => broker,
+  });
+  const id = 'openrouter-hold';
+  const setup = { agent: 'claude-code', provider: 'openrouter', model: 'anthropic/claude-sonnet-4.5', options: [], instructions: '' };
+  const project: ProjectEntry = { ...ProjectConfig.parse({ id, name: id, path: directory, agent: 'claude-code', agentSetup: setup }), id, name: id, path: directory };
+  const session = makeSession(project, { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] });
+  const spawns: HeldLaunch['spawns'] = [];
+  const spawnErrors: unknown[] = [];
+  session.on('error', (error: unknown) => spawnErrors.push(error));
+  session._spawnCommand = { path: process.execPath, kind: 'exe' };
+  session._ptySpawn = (_file, spawnArgs, options) => {
+    spawns.push({ args: [...spawnArgs], env: { ...options.env } });
+    return fakePty();
+  };
+  return {
+    broker, spawns, started: session.start(), state: () => session.state,
+    cleanup: () => {
+      session.destroy();
+      fs.rmSync(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+test('an OpenRouter session waiting on the key card releases its start and launches with the key in its env only after approval', async () => {
+  const launch = startOpenRouterSession();
+  try {
+    await launch.started;
+    assert.notEqual(launch.broker.requestsSnapshot()['openrouter-hold'], undefined);
+    assert.equal(launch.spawns.length, 0);
+    assert.equal(await launch.broker.decide({ id: 'openrouter-hold', choice: 'allow-once', names: ['OPENROUTER_API_KEY'] }), null);
+    await waitFor(() => launch.spawns.length === 1, 'the agent started after approval');
+    const [spawn] = launch.spawns;
+    assert.ok(spawn);
+    assert.equal(spawn.env.ANTHROPIC_AUTH_TOKEN, OPENROUTER_KEY_VALUE);
+    assert.equal(spawn.env.ANTHROPIC_BASE_URL, 'https://openrouter.ai/api');
+    assert.equal(spawn.env.ANTHROPIC_API_KEY, '');
+    assert.equal(spawn.env.ANTHROPIC_MODEL, 'anthropic/claude-sonnet-4.5');
+    assert.equal(spawn.args.some((arg) => arg.includes(OPENROUTER_KEY_VALUE)), false);
+    assert.deepEqual(launch.broker.deliveredValuesOf('openrouter-hold'), [OPENROUTER_KEY_VALUE]);
+  } finally {
+    launch.cleanup();
+  }
+});
+
+test('denying the OpenRouter key card fails the session without starting the agent', async () => {
+  const launch = startOpenRouterSession();
+  try {
+    await waitFor(() => launch.broker.requestsSnapshot()['openrouter-hold'] !== undefined, 'the key card was raised');
+    assert.equal(await launch.broker.decide({ id: 'openrouter-hold', choice: 'deny', names: ['OPENROUTER_API_KEY'] }), null);
+    await waitFor(() => launch.state() === 'FAILED', 'the session failed on deny');
+    assert.equal(launch.spawns.length, 0);
+  } finally {
+    launch.cleanup();
+  }
+});

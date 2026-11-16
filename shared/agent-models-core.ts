@@ -1,5 +1,5 @@
-import { EFFORT_OPTION_ID, SAFE_LAUNCH_ARGUMENT_PATTERN } from './contracts/agent-models.ts';
-import type { AgentSetup, CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
+import { EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS, OPENROUTER_KEY_NAME, SAFE_LAUNCH_ARGUMENT_PATTERN } from './contracts/agent-models.ts';
+import type { CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
 
 const CLAUDE_DEFAULT_POINTER = 'default';
 const CODEX_HIDDEN_VISIBILITY = 'hide';
@@ -155,14 +155,71 @@ function selectionArgs(selection: ModelSelection | null): string[] {
 }
 
 function unsafeLaunchValueOf(selections: readonly ModelSelection[]): string | null {
-  const commandLineSelections = selections.filter((selection) => selection.agent in FLAGS_BY_AGENT);
+  const commandLineSelections = selections.filter((selection) => selection.agent in FLAGS_BY_AGENT || isOpenRouter(selection));
   const launchValues = commandLineSelections.flatMap((selection) => [...(selection.model === null ? [] : [selection.model]), ...selection.options.map((option) => option.value)]);
   return launchValues.find((value) => !SAFE_LAUNCH_ARGUMENT_PATTERN.test(value)) ?? null;
 }
 
-function launchArgs(agent: string, setup: AgentSetup | null): string[] {
-  if (setup === null || setup.agent !== agent) return [];
-  return selectionArgs({ agent, model: setup.model, options: setup.options });
+interface LaunchPlan {
+  args: string[];
+  env: Record<string, string>;
+  secretEnv: Record<string, string>;
+}
+
+const NATIVE_LAUNCH_PLAN: LaunchPlan = Object.freeze({ args: [], env: {}, secretEnv: {} });
+const OPENROUTER_ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+const OPENROUTER_OPENAI_BASE_URL = 'https://openrouter.ai/api/v1';
+const CODEX_OPENROUTER_PROVIDER_ID = 'glimmervoid-openrouter';
+const CLAUDE_MODEL_ENV_NAMES = ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'];
+
+function isOpenRouter(selection: ModelSelection | null): boolean {
+  return selection?.provider === 'openrouter';
+}
+
+function codexOpenRouterAuth(platform: string): string {
+  if (platform === 'win32') return `{command="powershell",args=["-NoProfile","-Command","Write-Output $env:${OPENROUTER_KEY_NAME}"]}`;
+  return `{command="sh",args=["-c","echo $${OPENROUTER_KEY_NAME}"]}`;
+}
+
+type OpenRouterPlanBuilder = (model: string | null, effort: string | null, platform: string) => LaunchPlan;
+
+const OPENROUTER_PLAN_BY_AGENT: Readonly<Record<string, OpenRouterPlanBuilder>> = Object.freeze({
+  'claude-code': (model, effort) => ({
+    args: effort ? ['--effort', effort] : [],
+    env: { ANTHROPIC_BASE_URL: OPENROUTER_ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY: '', ...(model ? Object.fromEntries(CLAUDE_MODEL_ENV_NAMES.map((name) => [name, model])) : {}) },
+    secretEnv: { ANTHROPIC_AUTH_TOKEN: OPENROUTER_KEY_NAME },
+  }),
+  codex: (model, effort, platform) => ({
+    args: ['-c', `model_provider="${CODEX_OPENROUTER_PROVIDER_ID}"`, '-c', `model_providers.${CODEX_OPENROUTER_PROVIDER_ID}={name="OpenRouter",base_url="${OPENROUTER_OPENAI_BASE_URL}",auth=${codexOpenRouterAuth(platform)}}`, ...FLAGS_BY_AGENT.codex(model, effort)],
+    env: {},
+    secretEnv: { [OPENROUTER_KEY_NAME]: OPENROUTER_KEY_NAME },
+  }),
+  opencode: () => ({ args: [], env: {}, secretEnv: { [OPENROUTER_KEY_NAME]: OPENROUTER_KEY_NAME } }),
+});
+
+function launchPlanFor(agent: string, setup: ModelSelection | null, platform: string): LaunchPlan {
+  if (setup === null || setup.agent !== agent) return NATIVE_LAUNCH_PLAN;
+  const effort = optionValue(setup, EFFORT_OPTION_ID);
+  const buildOpenRouterPlan = OPENROUTER_PLAN_BY_AGENT[agent];
+  if (isOpenRouter(setup) && buildOpenRouterPlan) return buildOpenRouterPlan(setup.model, effort, platform);
+  return { args: selectionArgs(setup), env: {}, secretEnv: {} };
+}
+
+function launchSecretNames(plan: LaunchPlan): string[] {
+  return [...new Set(Object.values(plan.secretEnv))];
+}
+
+function configModelOf(selection: ModelSelection | null): string | null {
+  if (selection === null || selection.model === null) return null;
+  return isOpenRouter(selection) ? `openrouter/${selection.model}` : selection.model;
+}
+
+function providerRefusalOf(selections: readonly ModelSelection[]): string | null {
+  const unsupported = selections.find((selection) => isOpenRouter(selection) && !OPENROUTER_AGENT_IDS.includes(selection.agent));
+  if (unsupported) return `${unsupported.agent} cannot run on OpenRouter`;
+  const modelless = selections.find((selection) => isOpenRouter(selection) && selection.model === null);
+  if (modelless) return `pick an OpenRouter model for ${modelless.agent}`;
+  return null;
 }
 
 function cleanHomeArgs(agent: string, isCleanHome: boolean): string[] {
@@ -177,4 +234,5 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, launchArgs, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, selectionArgs, unsafeLaunchValueOf };
+export type { LaunchPlan };

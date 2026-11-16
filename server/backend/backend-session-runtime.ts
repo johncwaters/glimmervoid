@@ -19,6 +19,7 @@ import type { QuestionManagerLane } from '../question-manager/question-manager.t
 import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query.ts';
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createPackSessionFiles } from '../packs/pack-session-files.ts';
+import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -28,6 +29,7 @@ interface BackendSessionRuntimeDependencies {
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
+  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
   liveSessionNamesUsing: (accountId: string) => string[];
   onConfigSaved: (config: GlimmervoidConfig) => void;
 }
@@ -82,6 +84,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const packSessionFiles = createPackSessionFiles({ root: configSiblingPath(dependencies.configStore.configPath, 'pack-session-files') });
   const makeSession = createSessionFactory({
     getPackAgentLaunch: packSessionFiles.launch,
+    getSecretsBroker: dependencies.getSecretsBroker,
     commitSigningProgram,
     gitCredentialProgram,
     ghShimDir,

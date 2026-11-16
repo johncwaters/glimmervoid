@@ -8,7 +8,7 @@ import { writeJsonAtomic } from '../../server/json-file.ts';
 import { projectHookPayload } from '../../session/core/hook-payload-projection.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { HookPayload } from '../../shared/contracts/index.ts';
-import { launchArgs } from '../../shared/agent-models-core.ts';
+import { launchPlanFor } from '../../shared/agent-models-core.ts';
 import { EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
 import type { AgentSetup, CatalogAgentId } from '../../shared/contracts/agent-models.ts';
 import { currentAgentModelCatalog } from '../../server/agent-models/agent-models.ts';
@@ -193,7 +193,7 @@ export interface ProbeLaunch {
 }
 
 function launchCarriesSetupFlags(setup: AgentSetup, launch: ProbeLaunch): boolean {
-  const expectedFlags = launchArgs(setup.agent, setup);
+  const expectedFlags = launchPlanFor(setup.agent, setup, process.platform).args;
   return expectedFlags.length > 0 && expectedFlags.every((flag) => launch.args.includes(flag));
 }
 

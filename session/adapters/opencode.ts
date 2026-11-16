@@ -7,6 +7,7 @@ import { hookLaunch } from "../../server/runtime-paths.ts";
 import { glimmervoidHomeDir } from "../../server/core/config-path-core.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { errorMessage } from "../../shared/text.ts";
+import { configModelOf } from "../../shared/agent-models-core.ts";
 import { openCodeConfigContent, openCodePluginFiles } from "../core/opencode-plugin-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
@@ -126,7 +127,7 @@ function prepareHome(env: Record<string, string | undefined>, { listenerPort, is
     pluginFolderUrl: pathToFileURL(pluginFolder).href,
     mcpUrl: mcpUrlFor(listenerPort),
     skillFolders: packSkillFolders(packSkillDirs),
-    model: modelSelection?.agent === ID ? modelSelection.model : null,
+    model: modelSelection?.agent === ID ? configModelOf(modelSelection) : null,
   });
   return { home: pluginFolder, homeEnvValue };
 }
