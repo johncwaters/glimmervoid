@@ -268,6 +268,7 @@ function createConfigStore({
       saneYoloUnreadablePaths: config.saneYoloUnreadablePaths ?? DEFAULT_CONFIG.saneYoloUnreadablePaths,
       checkForUpdates: config.checkForUpdates ?? effectiveDefaults.checkForUpdates,
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
+      spawnedSessionsMax: config.spawnedSessionsMax ?? DEFAULT_CONFIG.spawnedSessionsMax,
       skipPermissionsByDefault: config.skipPermissionsByDefault ?? effectiveDefaults.skipPermissionsByDefault,
       telegramNotifications: config.telegramNotifications ?? effectiveDefaults.telegramNotifications,
       worktree: pickBlock('worktree', { ...DEFAULT_CONFIG.worktree, ...config.worktree }),

@@ -33,6 +33,7 @@ How sessions start, where projects are found, and branch cleanup.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
+| `spawnedSessionsMax` | Spawned sessions per session | `3` | Most sessions one session may have spawned and live at once; a spawn past it is refused. |
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |

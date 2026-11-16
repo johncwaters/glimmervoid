@@ -238,6 +238,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
+  spawnedSessionsMax: optionalWholeNumber('spawnedSessionsMax', ranges.SPAWNED_SESSIONS_RANGE),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   linkPreviews: optionalBoolean('linkPreviews'),

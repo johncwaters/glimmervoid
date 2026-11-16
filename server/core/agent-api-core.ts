@@ -19,7 +19,6 @@ import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/sessi
 import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 
-const MAX_LIVE_CHILDREN = 3;
 const REMOTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/|^[^/\\\s]+@[^/\\\s]+:/i;
 const MAX_LIFETIME_SPAWNS = 100;
 const MAX_SPAWNS_IN_FLIGHT = 1;
@@ -38,6 +37,7 @@ interface SpawnBudget {
   liveChildren: number;
   lifetimeSpawns: number;
   inFlight: number;
+  maxLiveChildren: number;
 }
 
 type AgentVerdict = { ok: true } | { ok: false; status: number; reason: string };
@@ -144,12 +144,12 @@ function decideAgentRequest({
   return { ok: true };
 }
 
-function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight }: SpawnBudget): AgentVerdict {
+function decideSpawnAllowance({ liveChildren, lifetimeSpawns, inFlight, maxLiveChildren }: SpawnBudget): AgentVerdict {
   if (inFlight >= MAX_SPAWNS_IN_FLIGHT) {
     return { ok: false, status: 429, reason: 'a spawn is already in flight' };
   }
-  if (liveChildren >= MAX_LIVE_CHILDREN) {
-    return { ok: false, status: 429, reason: `at most ${MAX_LIVE_CHILDREN} spawned sessions may be live at once` };
+  if (liveChildren >= maxLiveChildren) {
+    return { ok: false, status: 429, reason: `at most ${maxLiveChildren} spawned sessions may be live at once` };
   }
   if (lifetimeSpawns >= MAX_LIFETIME_SPAWNS) {
     return { ok: false, status: 429, reason: `this session has used its ${MAX_LIFETIME_SPAWNS} spawns` };
@@ -583,5 +583,5 @@ function agentCommandSpec(verb: AgentApiVerb): CommandSpec {
   return { name: verb, summary, missingArgumentHint, positionals, options, subcommands, isPassthrough };
 }
 
-export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, MAX_LIVE_CHILDREN, REMOTE_URL_PATTERN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
+export { checkAgentReply, decideAgentRequest, decideSpawnAllowance, deriveChildSessionName, describeChildEndNote, describeKeptChildAttention, describePushLanding, describeUnpushedCloseRefusal, describeRoleRefusal, isAgentApiVerb, parseAgentVerb, projectMyPrs, projectReviewDetail, projectReviews, REMOTE_URL_PATTERN, REFUSAL_REASON, REFUSAL_STATUS, AGENT_COMMAND_HELP, agentCommandHelpLines, agentCommandSpec };
 export type { AgentRefusalReply, AgentReplyOf, AgentRequestOf, ChildEndCause, ChildWorktree };

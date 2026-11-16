@@ -25,7 +25,8 @@ import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts'
 import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
-import { describePushLanding, MAX_LIVE_CHILDREN, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { describePushLanding, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
+import { SPAWNED_SESSIONS_DEFAULT } from '../shared/settings-ranges.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { TeamReviewStatus } from '../shared/contracts/team-review.ts';
@@ -1328,19 +1329,19 @@ test('a draft the operator stages at an idle parent holds off the wake so a stop
 test('the fourth live child is refused and a child exiting frees its slot', async () => {
   const fixture = wiringFixture();
   try {
-    for (let index = 0; index < MAX_LIVE_CHILDREN; index += 1) {
+    for (let index = 0; index < SPAWNED_SESSIONS_DEFAULT; index += 1) {
       const reply = await fixture.spawn(fixture.parent, { prompt: `slice ${index}` });
       assert.equal(reply.status, 200, `child ${index}`);
     }
     const refused = await fixture.spawn(fixture.parent, { prompt: 'one too many' });
     assert.equal(refused.status, 429);
-    assert.equal(fixture.created.length, MAX_LIVE_CHILDREN);
+    assert.equal(fixture.created.length, SPAWNED_SESSIONS_DEFAULT);
 
     fixture.created[0].emit('exit');
-    assert.equal(fixture.parent.agentSpawnBudget().liveChildren, MAX_LIVE_CHILDREN - 1);
+    assert.equal(fixture.parent.agentSpawnBudget().liveChildren, SPAWNED_SESSIONS_DEFAULT - 1);
     const admitted = await fixture.spawn(fixture.parent, { prompt: 'refilling the slot' });
     assert.equal(admitted.status, 200);
-    assert.equal(fixture.parent.agentSpawnBudget().lifetimeSpawns, MAX_LIVE_CHILDREN + 1);
+    assert.equal(fixture.parent.agentSpawnBudget().lifetimeSpawns, SPAWNED_SESSIONS_DEFAULT + 1);
   } finally {
     fixture.destroyAll();
   }

@@ -8,6 +8,7 @@ import { decideSpawnAllowance, deriveChildSessionName } from '../core/agent-api-
 import type { ChildWorktree } from '../core/agent-api-core.ts';
 import { registerEphemeralSession } from '../lanes/ephemeral-session.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { SPAWNED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
 import { AGENT_LANE_TAG } from './agent-api-context.ts';
 import type { AgentApiRuntime } from './agent-api-context.ts';
 import type { ChildChannels } from './child-channels.ts';
@@ -39,7 +40,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   }
 
   function refuseByBudget(parent: Session): SpawnOutcome | null {
-    const allowance = decideSpawnAllowance(parent.agentSpawnBudget());
+    const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), maxLiveChildren: config.spawnedSessionsMax ?? SPAWNED_SESSIONS_DEFAULT });
     if (allowance.ok) return null;
     return { ok: false, status: allowance.status, error: allowance.reason };
   }

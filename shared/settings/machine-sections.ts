@@ -1,5 +1,5 @@
-import { SKIP_PERMISSIONS_BY_DEFAULT, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, USD } from './registry-fields.ts';
+import { SKIP_PERMISSIONS_BY_DEFAULT, SPAWNED_SESSIONS_DEFAULT, SPAWNED_SESSIONS_RANGE, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
+import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, SESSIONS, USD } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const MACHINE_TELEGRAM: SettingsSection = {
@@ -39,6 +39,11 @@ export const MACHINE_SESSIONS: SettingsSection = {
       id: 'auto-resume', path: 'autoResume', title: 'Auto-resume sessions on startup',
       description: 'Resume sessions that were live when Glimmervoid last stopped or crashed.',
       control: 'toggle', keywords: ['startup', 'conversation'], defaultValue: true, ...MACHINE_NOW,
+    },
+    {
+      id: 'spawned-sessions-max', path: 'spawnedSessionsMax', title: 'Spawned sessions per session',
+      description: 'Most sessions one session may have spawned and live at once; a spawn past it is refused.',
+      control: 'number', range: SPAWNED_SESSIONS_RANGE, unit: SESSIONS, keywords: ['spawn', 'children', 'child sessions', 'parallel', 'agent api'], defaultValue: SPAWNED_SESSIONS_DEFAULT, ...MACHINE_NOW,
     },
     {
       id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',

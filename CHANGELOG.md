@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Choose how many sessions one session may spawn at once.** Settings, Sessions now has Spawned sessions per session, from 1 to 10. It was fixed at 3, which stays the default. A change applies to the next `glimmervoid spawn` without a restart.
+
 ## [0.61.1] - 2026-11-15
 
 ### Fixed
