@@ -19,6 +19,8 @@ import {
   appWindowArgv,
   appWindowCandidatesFor,
   notificationCommandsFor,
+  OPEN_LINK_REFUSAL_TEXT,
+  openRequestFor,
   LAUNCH_PROBE_INTERVAL_MS,
   LAUNCH_PROBE_TIMEOUT_MS,
   classifyProbe,
@@ -111,16 +113,26 @@ async function openAppWindow(dashboardUrl: string): Promise<boolean> {
   return (await launchDetachedOpener(command, commandArguments)) === 'opened';
 }
 
+function reportRunning(dashboardUrl: string): number {
+  console.log(`Glimmervoid is running at ${dashboardUrl}`);
+  return 0;
+}
+
 async function openDashboard(dashboardUrl: string): Promise<number> {
   const keepProcessAliveTimer = setTimeout(() => {}, LAUNCH_OPENER_HOLD_MS);
   const hasOpenedAppWindow = await openAppWindow(dashboardUrl);
   const outcome = hasOpenedAppWindow ? 'opened' : await createHostUrlOpener()(dashboardUrl);
   clearTimeout(keepProcessAliveTimer);
-  console.log(`Glimmervoid is running at ${dashboardUrl}`);
+  reportRunning(dashboardUrl);
   return outcome === 'opened' ? 0 : 1;
 }
 
-async function runOpenCli(): Promise<number> {
+async function runOpenCli({ link }: { link: string | null }): Promise<number> {
+  const openRequest = openRequestFor(link);
+  if (openRequest === 'refused') {
+    console.error(OPEN_LINK_REFUSAL_TEXT);
+    return 1;
+  }
   const port = resolveLocalPort({ envPort: process.env.GLIMMERVOID_PORT, configPort: configuredPort(), defaultPort: DEFAULT_CONFIG.port });
   const dashboardUrl = dashboardUrlForPort(port);
   let phase: LaunchPhase = 'probing';
@@ -136,6 +148,7 @@ async function runOpenCli(): Promise<number> {
       phaseStartedAtMs = clock.nowMs();
     }
     if (step.kind === 'open-dashboard' || step.kind === 'fail') server?.release();
+    if (step.kind === 'open-dashboard' && openRequest === 'start-only') return reportRunning(dashboardUrl);
     if (step.kind === 'open-dashboard') return openDashboard(dashboardUrl);
     if (step.kind === 'fail') return reportFailure(step.failure, port);
     await delay(LAUNCH_PROBE_INTERVAL_MS);

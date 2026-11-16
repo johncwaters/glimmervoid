@@ -30,7 +30,7 @@ const USAGE = `Usage: glimmervoid [command] [options]
 With no command, starts the server.
 
 Commands:
-  open                Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running
+  open [link]         Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running; with a glimmervoid:// link, only start it
   shortcut            Put a Glimmervoid icon on the desktop that runs glimmervoid open; running it again replaces the icon
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)
@@ -90,9 +90,9 @@ type ParsedRun = Extract<ParsedCommand, { kind: 'run' }>;
 type OwnedCommandRunner = (parsed: ParsedRun) => Promise<number>;
 
 const OWNED_COMMAND_RUNNERS: Record<OwnedCommandName, OwnedCommandRunner> = {
-  open: async () => {
+  open: async ({ positionals }) => {
     const { runOpenCli } = await import('../server/open-cli.ts');
-    return runOpenCli();
+    return runOpenCli({ link: positionals[0] ?? null });
   },
   shortcut: async () => {
     const { runShortcutCli } = await import('../server/desktop-shortcut.ts');

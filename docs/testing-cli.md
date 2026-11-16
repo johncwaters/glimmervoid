@@ -44,7 +44,7 @@ Usage: glimmervoid [command] [options]
 With no command, starts the server.
 
 Commands:
-  open                Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running
+  open [link]         Open the dashboard in the browser, starting Glimmervoid in the background first when it is not running; with a glimmervoid:// link, only start it
   shortcut            Put a Glimmervoid icon on the desktop that runs glimmervoid open; running it again replaces the icon
   doctor              Check the install, PATH, agent CLIs and native module, then exit
   settings <cmd>      Read and change config.json: list, get, describe, set, unset, search, schema (each takes --json)

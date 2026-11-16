@@ -75,6 +75,11 @@ async function moveIntoPlace(stagedPath: string, shortcutPath: string): Promise<
   await fsp.rename(stagedPath, shortcutPath);
 }
 
+function linuxApplicationsDir(): string {
+  const dataHome = process.env.XDG_DATA_HOME ?? '';
+  return path.join(dataHome === '' ? path.join(os.homedir(), '.local', 'share') : dataHome, 'applications');
+}
+
 function desktopStateDir(): string {
   return path.join(glimmervoidHomeDir(), 'desktop');
 }
@@ -84,6 +89,7 @@ async function createDesktopShortcut(desktopDir: string): Promise<string> {
     platform: process.platform,
     desktopDir,
     iconDir: desktopStateDir(),
+    applicationsDir: linuxApplicationsDir(),
     launchArgv: selfLaunch('cli'),
     png: await readAppIcon(),
   });
@@ -94,6 +100,7 @@ async function createDesktopShortcut(desktopDir: string): Promise<string> {
   await writePlannedFiles(plan);
   const followUpOutput = await runPlanCommands(plan.followUpCommands, plan.areFollowUpsRequired);
   if (plan.stagedPath !== null && plan.shortcutPath !== null) await moveIntoPlace(plan.stagedPath, plan.shortcutPath);
+  await runPlanCommands(plan.registrationCommands, false);
   return plan.shortcutPath ?? followUpOutput;
 }
 

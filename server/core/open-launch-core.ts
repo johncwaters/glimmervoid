@@ -4,6 +4,7 @@ type ProbeReply = { kind: 'answered'; status: number; body: unknown } | { kind: 
 type ProbeOutcome = 'glimmervoid' | 'foreign' | 'busy' | 'free';
 type LaunchPhase = 'probing' | 'starting';
 type LaunchFailure = 'port-foreign' | 'port-unresponsive' | 'child-exited' | 'timed-out';
+type OpenRequest = 'open-dashboard' | 'start-only' | 'refused';
 type AppWindowCandidate = { installedPath: string; command: string; leadingArgs: readonly string[] };
 type LaunchStep =
   | { kind: 'open-dashboard' }
@@ -17,6 +18,8 @@ const LAUNCH_PROBE_TIMEOUT_MS = 5_000;
 const LAUNCH_DIALOG_TITLE = 'Glimmervoid';
 const LAUNCH_OPENER_HOLD_MS = 5_000;
 const PROBE_TIMEOUT_FAILURE_CODE = 'TIMEOUT';
+const GLIMMERVOID_LINK_PROTOCOL = 'glimmervoid:';
+const OPEN_LINK_REFUSAL_TEXT = 'glimmervoid open takes only a glimmervoid:// link.';
 const LAUNCH_STARTING_TEXT = 'Starting Glimmervoid. The dashboard opens when it is ready.';
 const MAC_CHROMIUM_APP_NAMES = ['Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Chromium'];
 const LINUX_CHROMIUM_COMMAND_NAMES = ['google-chrome', 'google-chrome-stable', 'microsoft-edge', 'microsoft-edge-stable', 'brave-browser', 'chromium', 'chromium-browser'];
@@ -102,6 +105,11 @@ function appWindowArgv(candidate: AppWindowCandidate, dashboardUrl: string): str
   return [candidate.command, ...candidate.leadingArgs, `--app=${dashboardUrl}`];
 }
 
+function openRequestFor(link: string | null): OpenRequest {
+  if (link === null) return 'open-dashboard';
+  return link.toLowerCase().startsWith(GLIMMERVOID_LINK_PROTOCOL) ? 'start-only' : 'refused';
+}
+
 function powershellLiteral(text: string): string {
   return `'${text.replaceAll("'", "''")}'`;
 }
@@ -153,6 +161,8 @@ export {
   appWindowArgv,
   appWindowCandidatesFor,
   notificationCommandsFor,
+  OPEN_LINK_REFUSAL_TEXT,
+  openRequestFor,
   LAUNCH_OPENER_HOLD_MS,
   LAUNCH_PROBE_INTERVAL_MS,
   LAUNCH_PROBE_TIMEOUT_MS,

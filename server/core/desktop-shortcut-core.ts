@@ -7,6 +7,10 @@ const ICO_ENTRY_BYTES = 16;
 const ICNS_HEADER_BYTES = 8;
 const EXECUTABLE_FILE_MODE = 0o755;
 const MAC_APPLET_EXECUTABLE_NAME = 'applet';
+const MAC_BUNDLE_IDENTIFIER = 'dev.glimmervoid.launcher';
+const LINK_SCHEME = 'glimmervoid';
+const LINUX_DESKTOP_FILE_NAME = 'glimmervoid.desktop';
+const LAUNCH_SERVICES_REGISTER_PATH = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 
 type ShortcutFile = { path: string; contents: string | Uint8Array; mode?: number };
 type DesktopShortcutPlan = {
@@ -17,6 +21,7 @@ type DesktopShortcutPlan = {
   files: ShortcutFile[];
   followUpCommands: string[][];
   areFollowUpsRequired: boolean;
+  registrationCommands: string[][];
 };
 
 function buildIcns(png: Uint8Array): Uint8Array {
@@ -51,8 +56,16 @@ function appleScriptString(text: string): string {
   return `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
-function macLaunchScript(openArgv: readonly string[]): string {
-  return `do shell script ${appleScriptString(`${openArgv.map(shellQuoted).join(' ')} >/dev/null 2>&1 &`)}`;
+function macLaunchScriptLines(openArgv: readonly string[]): string[] {
+  const quotedOpenCommand = openArgv.map(shellQuoted).join(' ');
+  return [
+    'on run',
+    `do shell script ${appleScriptString(`${quotedOpenCommand} >/dev/null 2>&1 &`)}`,
+    'end run',
+    'on open location linkUrl',
+    `do shell script ${appleScriptString(`${quotedOpenCommand} `)} & quoted form of linkUrl & ${appleScriptString(' >/dev/null 2>&1 &')}`,
+    'end open location',
+  ];
 }
 
 function desktopEntryQuoted(argument: string): string {
@@ -76,12 +89,17 @@ function macInfoPlist(): string {
 <dict>
   <key>CFBundleName</key><string>${SHORTCUT_NAME}</string>
   <key>CFBundleDisplayName</key><string>${SHORTCUT_NAME}</string>
-  <key>CFBundleIdentifier</key><string>dev.glimmervoid.launcher</string>
+  <key>CFBundleIdentifier</key><string>${MAC_BUNDLE_IDENTIFIER}</string>
   <key>CFBundleExecutable</key><string>${MAC_APPLET_EXECUTABLE_NAME}</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSUIElement</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>${MAC_BUNDLE_IDENTIFIER}</string>
+    <key>CFBundleURLSchemes</key><array><string>${LINK_SCHEME}</string></array>
+  </dict></array>
 </dict>
 </plist>
 `;
@@ -95,28 +113,30 @@ function macPlan(desktopDir: string, iconDir: string, openArgv: readonly string[
     shortcutPath: appPath,
     replacedPath: appPath,
     stagedPath,
-    buildCommands: [['osacompile', '-o', stagedPath, '-e', macLaunchScript(openArgv)]],
+    buildCommands: [['osacompile', '-o', stagedPath, ...macLaunchScriptLines(openArgv).flatMap((scriptLine) => ['-e', scriptLine])]],
     files: [
       { path: path.join(contentsPath, 'Info.plist'), contents: macInfoPlist() },
       { path: path.join(contentsPath, 'Resources', 'AppIcon.icns'), contents: buildIcns(png) },
     ],
     followUpCommands: [['codesign', '--force', '--sign', '-', stagedPath]],
     areFollowUpsRequired: true,
+    registrationCommands: [[LAUNCH_SERVICES_REGISTER_PATH, '-f', appPath]],
   };
 }
 
-function linuxPlan(desktopDir: string, iconDir: string, openArgv: readonly string[], png: Uint8Array): DesktopShortcutPlan {
+function linuxPlan(desktopDir: string, iconDir: string, applicationsDir: string, openArgv: readonly string[], png: Uint8Array): DesktopShortcutPlan {
   const iconPath = path.join(iconDir, 'glimmervoid.png');
-  const shortcutPath = path.join(desktopDir, 'glimmervoid.desktop');
+  const shortcutPath = path.join(desktopDir, LINUX_DESKTOP_FILE_NAME);
   const desktopEntry = [
     '[Desktop Entry]',
     'Type=Application',
     `Name=${SHORTCUT_NAME}`,
     `Comment=${SHORTCUT_COMMENT}`,
-    `Exec=${openArgv.map(desktopEntryQuoted).join(' ')}`,
+    `Exec=${openArgv.map(desktopEntryQuoted).join(' ')} %u`,
     `Icon=${iconPath}`,
     'Terminal=false',
     'Categories=Development;',
+    `MimeType=x-scheme-handler/${LINK_SCHEME};`,
     '',
   ].join('\n');
   return {
@@ -130,7 +150,23 @@ function linuxPlan(desktopDir: string, iconDir: string, openArgv: readonly strin
     ],
     followUpCommands: [['gio', 'set', shortcutPath, 'metadata::trusted', 'true']],
     areFollowUpsRequired: false,
+    registrationCommands: [
+      ['install', '-D', '-m', '644', shortcutPath, path.join(applicationsDir, LINUX_DESKTOP_FILE_NAME)],
+      ['xdg-mime', 'default', LINUX_DESKTOP_FILE_NAME, `x-scheme-handler/${LINK_SCHEME}`],
+    ],
   };
+}
+
+function windowsLinkHandlerLines(openArgv: readonly string[]): string[] {
+  const schemeKey = `HKCU:\\Software\\Classes\\${LINK_SCHEME}`;
+  const handlerCommandLine = `${openArgv.map(windowsArgumentQuoted).join(' ')} -- "%1"`;
+  return [
+    'try {',
+    `  New-Item -Path ${powershellLiteral(schemeKey)} -Value 'URL:${SHORTCUT_NAME}' -Force | Out-Null`,
+    `  New-ItemProperty -Path ${powershellLiteral(schemeKey)} -Name 'URL Protocol' -Value '' -Force | Out-Null`,
+    `  New-Item -Path ${powershellLiteral(`${schemeKey}\\shell\\open\\command`)} -Value ${powershellLiteral(handlerCommandLine)} -Force | Out-Null`,
+    '} catch {}',
+  ];
 }
 
 function windowsShortcutScript(iconPath: string, openArgv: readonly string[]): string {
@@ -146,6 +182,7 @@ function windowsShortcutScript(iconPath: string, openArgv: readonly string[]): s
     `$shortcut.WorkingDirectory = [Environment]::GetFolderPath('UserProfile')`,
     '$shortcut.WindowStyle = 7',
     '$shortcut.Save()',
+    ...windowsLinkHandlerLines(openArgv),
     'Write-Output $shortcutPath',
   ].join('\n');
 }
@@ -161,14 +198,15 @@ function windowsPlan(iconDir: string, openArgv: readonly string[], png: Uint8Arr
     files: [{ path: iconPath, contents: buildIco(png) }],
     followUpCommands: [['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encodedScript]],
     areFollowUpsRequired: true,
+    registrationCommands: [],
   };
 }
 
-function planDesktopShortcut({ platform, desktopDir, iconDir, launchArgv, png }: { platform: string; desktopDir: string; iconDir: string; launchArgv: readonly string[]; png: Uint8Array }): DesktopShortcutPlan | null {
+function planDesktopShortcut({ platform, desktopDir, iconDir, applicationsDir, launchArgv, png }: { platform: string; desktopDir: string; iconDir: string; applicationsDir: string; launchArgv: readonly string[]; png: Uint8Array }): DesktopShortcutPlan | null {
   const openArgv = [...launchArgv, 'open'];
   if (platform === 'darwin') return macPlan(desktopDir, iconDir, openArgv, png);
   if (platform === 'win32') return windowsPlan(iconDir, openArgv, png);
-  if (platform === 'linux') return linuxPlan(desktopDir, iconDir, openArgv, png);
+  if (platform === 'linux') return linuxPlan(desktopDir, iconDir, applicationsDir, openArgv, png);
   return null;
 }
 
