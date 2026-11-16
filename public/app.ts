@@ -24,6 +24,7 @@ import { getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled } from './u
 import { setUsageRequestSender } from './usage/usage-store.ts';
 import { sessionRowBoardSignals, setBoardsViewOpener } from './whiteboard/board-chips.ts';
 import { loadPageToken } from './ws-token.ts';
+import { isLoopbackHostname } from '#shared/loopback-hosts.ts';
 
 import { wireViewerFocus } from './boot/viewer-focus.ts';
 import { mountViewTabs, openBoardsSurface, openView } from './boot/view-tabs.ts';
@@ -94,6 +95,10 @@ wireClientErrorReporting();
 mountHealthMonitor(queryTag(document, '#health-footer-mount', 'div'));
 
 whenBundledMonoFontLoads(refreshTerminalFonts);
+
+if (isLoopbackHostname(location.hostname) && 'serviceWorker' in navigator) {
+  void navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+}
 
 scheduleServerUnreachableHint();
 superviseConnection();

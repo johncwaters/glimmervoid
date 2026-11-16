@@ -111,7 +111,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 750,
     assetsInlineLimit: (filePath) => (FLYING_ANIMAL_SPRITE_PATH.test(filePath) ? false : undefined),
     rolldownOptions: {
+      input: {
+        index: path.resolve(__dirname, 'public/index.html'),
+        'service-worker': path.resolve(__dirname, 'public/service-worker.ts'),
+      },
       output: {
+        entryFileNames: (chunk) => (chunk.name === 'service-worker' ? 'service-worker.js' : 'assets/[name]-[hash].js'),
         codeSplitting: {
           groups: [
             { name: 'xterm', test: /node_modules[\\/]@xterm[\\/]/ },
