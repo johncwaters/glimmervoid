@@ -30,6 +30,7 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/uploads-wiring.ts': { awakeOnly: 'prunes local uploads' },
   'server/race/race-wiring.ts': { awakeOnly: 'judges local races that only run while awake' },
   'server/ws-heartbeat.ts': { awakeOnly: 'pings connected dashboard sockets' },
+  'server/sandbox/login-refresh.ts': { awakeOnly: 'keeps a held Kimi Code refresh lock fresh for the seconds a refresh takes; a sleeping host refreshes nothing' },
   'server/packs/core/pack-preview-core.ts': { awakeOnly: 'browser script text for a pack preview page, not a server timer' },
 };
 

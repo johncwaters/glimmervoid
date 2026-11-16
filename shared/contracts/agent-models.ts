@@ -72,5 +72,6 @@ export const DEFAULT_MODELS = Object.freeze({
   taskTitleRefiner: 'haiku',
   communityJudge: 'haiku',
   questionManager: 'haiku',
+  loginRefresh: 'haiku',
   siteCapture: 'sonnet',
 });

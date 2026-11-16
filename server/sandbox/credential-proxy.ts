@@ -36,6 +36,7 @@ interface CredentialProxyDependencies {
   certificateAuthorityPem: () => Promise<string>;
   readGithubToken: () => Promise<string | null>;
   readModelToken: (login: ModelLogin) => Promise<string | null>;
+  watchLogin: (login: ModelLogin) => { ready: Promise<void>; unwatch: () => void };
   logger: Pick<Console, 'warn'>;
 }
 
@@ -52,6 +53,7 @@ interface RunningProxy {
   lifeline: Writable | null;
   restartDelayMs: number;
   restartTimer: NodeJS.Timeout | null;
+  unwatchLogin: (() => void) | null;
 }
 
 function loginKeyOf(login: ModelLogin): string {
@@ -192,6 +194,7 @@ function createCredentialProxies(dependencies: CredentialProxyDependencies) {
   const stop = (key: string, running: RunningProxy) => {
     if (proxiesByLogin.get(key) === running) proxiesByLogin.delete(key);
     running.state = 'stopped';
+    running.unwatchLogin?.();
     if (running.restartTimer !== null) clearTimeout(running.restartTimer);
     running.lifeline?.end();
     running.child?.kill();
@@ -212,11 +215,13 @@ function createCredentialProxies(dependencies: CredentialProxyDependencies) {
 
   const acquire = async (login: ModelLogin): Promise<ProxyAcquisition> => {
     const key = loginKeyOf(login);
-    const running: RunningProxy = proxiesByLogin.get(key) ?? { state: 'failed', socketFolder: null, holders: 0, serving: Promise.resolve({ ok: false, reason: 'not started' }), child: null, lifeline: null, restartDelayMs: FIRST_RESTART_DELAY_MS, restartTimer: null };
+    const running: RunningProxy = proxiesByLogin.get(key) ?? { state: 'failed', socketFolder: null, holders: 0, serving: Promise.resolve({ ok: false, reason: 'not started' }), child: null, lifeline: null, restartDelayMs: FIRST_RESTART_DELAY_MS, restartTimer: null, unwatchLogin: null };
     proxiesByLogin.set(key, running);
     if (running.state === 'failed') startAt(running, login);
     running.holders += 1;
-    const outcome = await running.serving;
+    const loginWatch = running.unwatchLogin === null ? dependencies.watchLogin(login) : null;
+    if (loginWatch !== null) running.unwatchLogin = loginWatch.unwatch;
+    const [outcome] = await Promise.all([running.serving, loginWatch?.ready]);
     let isReleased = false;
     const release = () => {
       if (isReleased) return;

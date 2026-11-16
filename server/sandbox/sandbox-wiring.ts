@@ -5,6 +5,7 @@ import { firstCommandOnPath } from '../stable-node-path.ts';
 import type { PrepareSandbox } from '../../session/sessions.ts';
 import { sessionSandboxFor } from './sandbox-launch.ts';
 import { createCredentialProxies } from './credential-proxy.ts';
+import { createLoginRefresher } from './login-refresh.ts';
 import type { ModelLogin } from './credential-proxy.ts';
 import { modelTokenFrom } from './core/credential-decider-core.ts';
 import type { SandboxTools } from './sandbox-launch.ts';
@@ -67,6 +68,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): ((sessionTempFolder
     if (!('refusal' in tools)) foundTools = tools;
     return tools;
   };
+  const loginRefresher = createLoginRefresher(wiring.logger);
   const credentialProxies = createCredentialProxies({
     resolveTools,
     certificateAuthorityPem: async () => {
@@ -75,6 +77,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): ((sessionTempFolder
     },
     readGithubToken: wiring.githubUserToken,
     readModelToken,
+    watchLogin: loginRefresher.watch,
     logger: wiring.logger,
   });
   const dependencies = {
