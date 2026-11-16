@@ -792,6 +792,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   }
   watcherLink.registerAlarmSource(laneAssembly.packLaunchers);
   laneAssembly.packLaunchers.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
+  watcherLink.registerAlarmSource(laneAssembly.teamReview.alarmSource);
+  laneAssembly.teamReview.alarmSource.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
   for (const posthogLane of [laneAssembly.posthog, laneAssembly.community]) {
     watcherLink.registerProbeSource(posthogLane.probeSource);
     posthogLane.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);

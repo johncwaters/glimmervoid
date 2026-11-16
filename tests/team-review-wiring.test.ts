@@ -1257,3 +1257,38 @@ test('a gh token GitHub refuses reads as no gh login, and an unreachable GitHub 
   assert.equal(ghLoginAnswerOfViewerRead(unreachableRead, 'unknown'), 'unknown');
   assert.equal(ghLoginAnswerOfViewerRead({ ok: true, err: '' }, 'unknown'), 'present');
 });
+
+test('a pull request held back only by the re-review hours raises a wake alarm for when they pass, and an hours setting past any writable date raises none', async () => {
+  const hourMs = 60 * 60 * 1000;
+  const reviewedAt = Date.now() - hourMs;
+  const alarmsAfterTick = async (reReviewAfterMs: number) => {
+    const store = emptyGithubStore({ viewer: async () => 'me' });
+    const storeServingMovedHead = {
+      ...store,
+      getSnapshot: () => {
+        const snapshot = store.getSnapshot();
+        const directWatch = { keys: [ACTION_KEY], returnedCount: 1, totalCount: 1, isComplete: true, isLoaded: true };
+        return { ...snapshot, prs: { ...snapshot.prs, [ACTION_KEY]: teammatePrAt(OTHER_HEAD) }, watches: { ...snapshot.watches, 'team-review-direct:acme': directWatch } };
+      },
+    };
+    let alarmChangeCount = 0;
+    const poller = createTeamReviewPoller({
+      org: 'Acme', teams: [], github: {}, store: storeServingMovedHead, reReviewAfterMs,
+      spawnReview: () => new Promise(() => {}),
+      readState: async () => ({ [ACTION_KEY]: { draft: actionDraft({ status: 'posted' }), reviewedHead: HEAD, inFlight: false, reviewAttempts: 1, updatedAt: reviewedAt, reviewedAt } }),
+      writeState: async () => {}, beforeStart: async () => {},
+      firstTickDelayMs: () => 2 ** 30, setIntervalFn: () => setInterval(() => {}, 2 ** 30), clearIntervalFn: clearInterval,
+      onAlarmsMayHaveChanged: () => { alarmChangeCount += 1; },
+    });
+    try {
+      await poller.start();
+      await poller.tick();
+      return { alarms: poller.alarms(), alarmChangeCount };
+    } finally {
+      await poller.stop();
+    }
+  };
+  assert.deepEqual(await alarmsAfterTick(24 * hourMs), { alarms: [{ id: 'team-review:re-review', at: new Date(reviewedAt + 24 * hourMs).toISOString() }], alarmChangeCount: 1 });
+  assert.deepEqual((await alarmsAfterTick(1e10 * hourMs)).alarms, []);
+  assert.deepEqual((await alarmsAfterTick(1e8 * hourMs)).alarms, []);
+});

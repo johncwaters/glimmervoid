@@ -34,6 +34,7 @@ import { createTeamReviewActions } from './team-review-actions.ts';
 import { canLanesReadGithub, laneAccessConfigFor, laneAccessEnvBlocker, NO_GITHUB_APP_GRANTS } from '../lanes/core/lane-permissions-core.ts';
 import type { GithubAppGrants } from '../lanes/core/lane-permissions-core.ts';
 import { clock as timeClock } from '../../shared/clock.ts';
+import type { Alarm } from '../../shared/contracts/watcher-link.ts';
 
 const TEAM_REVIEW_READ_TOKEN_REQUIRED = 'Team review needs a GitHub read token: set one in Settings, Vault, or GLIMMERVOID_GITHUB_READ_TOKEN';
 
@@ -158,6 +159,9 @@ function createTeamReviewWiring({
     return review;
   }
 
+  const alarmListeners = new Set<() => void>();
+  const noteAlarmsMayHaveChanged = () => { for (const listener of alarmListeners) listener(); };
+
   const runner = createLaneRunner<TeamReviewPoller>({
     tag: core.TEAM_REVIEW_LANE_ID,
     gate: () => teamReviewShouldStart(config, githubAppGrants),
@@ -189,6 +193,7 @@ function createTeamReviewWiring({
         log,
         telemetry,
         onTickComplete,
+        onAlarmsMayHaveChanged: noteAlarmsMayHaveChanged,
         clock,
         firstTickDelayMs: bootStaggerDelay,
       });
@@ -309,7 +314,14 @@ function createTeamReviewWiring({
     telemetry,
   });
 
+  const alarmSource = {
+    alarms: (): Alarm[] => runner.getPoller()?.alarms() ?? [],
+    onAlarm: () => runner.getPoller()?.rebuild(),
+    onAlarmsMayHaveChanged: (listener: () => void) => { alarmListeners.add(listener); },
+  };
+
   return {
+    alarmSource,
     startPoller: runner.startPoller,
     stopPoller,
     restartIfConfigChanged: runner.restartIfConfigChanged,

@@ -17,9 +17,10 @@ function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
     return created;
   }
 
-  function headsToReview(candidates: TeamReviewCandidate[], prsByKey: ReadonlyMap<string, GithubPr>): { queue: TeamReviewCandidate[]; isDirty: boolean } {
+  function headsToReview(candidates: TeamReviewCandidate[], prsByKey: ReadonlyMap<string, GithubPr>): { queue: TeamReviewCandidate[]; isDirty: boolean; nextReReviewAt: number | null } {
     const queue: TeamReviewCandidate[] = [];
     let isDirty = false;
+    let nextReReviewAt: number | null = null;
     for (const candidate of candidates) {
       let entry = runtime.state[candidate.key];
       if (entry?.inFlight) continue;
@@ -80,10 +81,15 @@ function createTeamReviewHeadPlanning(context: TeamReviewPollerContext) {
       const canAutoReview = core.shouldAutoReview(entry, head, now(), reReviewAfterMs);
       if (entry.reviewedHead !== head && entry.draft?.status === 'ready') entry.reviewedAt ??= entry.updatedAt;
       if (entry.reviewedHead !== head && core.markDraftStale(entry, now())) isDirty = true;
-      if (!canAutoReview || (isReviewedByViewer && entry.requeuedHead !== head)) continue;
-      queue.push(candidate);
+      if (isReviewedByViewer && entry.requeuedHead !== head) continue;
+      if (canAutoReview) {
+        queue.push(candidate);
+        continue;
+      }
+      if (!core.shouldAutoReview(entry, head, Number.POSITIVE_INFINITY, reReviewAfterMs)) continue;
+      nextReReviewAt = Math.min(nextReReviewAt ?? Number.POSITIVE_INFINITY, core.reReviewDueAt(entry, reReviewAfterMs));
     }
-    return { queue, isDirty };
+    return { queue, isDirty, nextReReviewAt };
   }
 
   return { entryFor, headsToReview };

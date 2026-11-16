@@ -10,7 +10,9 @@ import type { InFlightReview } from '../../shared/contracts/team-review.ts';
 import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 import type { TeamReviewCandidatesPayload } from '../../shared/contracts/team-review-candidates.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { DEFAULT_TIMER_FNS } from '../../shared/timer-deps.ts';
+import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
+import type { TimerHandle } from '../../shared/timer-deps.ts';
+import { Alarm } from '../../shared/contracts/watcher-link.ts';
 import { TEAM_REVIEW_RATE_LIMIT_RESOURCES } from './team-review-poller/team-review-poller-context.ts';
 import type {
   DraftExpectation, DraftPatch, NotMineOutcome, ReviewOutcome, SpawnReviewArgs, TeamReviewGithub, TeamReviewPollerContext, TeamReviewPollerDependencies, TeamReviewRuntime,
@@ -23,13 +25,16 @@ import { createTeamReviewRuns } from './team-review-poller/team-review-runs.ts';
 import { createTeamReviewOperatorActions } from './team-review-poller/team-review-operator-actions.ts';
 import { clock as timeClock } from '../../shared/clock.ts';
 
+const RE_REVIEW_ALARM_ID = 'team-review:re-review';
+const LONGEST_RE_REVIEW_TIMER_MS = 24 * 60 * 60 * 1000;
+
 function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const {
     org, teams, github, store, spawnReview, discardResumable = async () => {},
     readState = async () => ({}), writeState = async () => {}, beforeStart = async () => {},
     setIntervalFn = DEFAULT_TIMER_FNS.setIntervalFn, clearIntervalFn = DEFAULT_TIMER_FNS.clearIntervalFn,
     setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
-    log = console, telemetry = null, onTickComplete = () => {}, now = () => timeClock.nowMs(),
+    log = console, telemetry = null, onTickComplete = () => {}, now = () => timeClock.nowMs(), onAlarmsMayHaveChanged = () => {},
   } = deps;
   const maxConcurrentReviews = deps.maxConcurrentReviews ?? core.MAX_CONCURRENT_REVIEWS;
   const reReviewAfterMs = deps.reReviewAfterMs ?? core.DEFAULT_RE_REVIEW_AFTER_HOURS * 60 * 60 * 1000;
@@ -50,6 +55,8 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
   const notMineWhileReviewingKeys = new Set<string>();
   const watches = new Map<string, { qualifiers: string; source: 'direct' | 'team' | 'authored' }>();
   let lastRebuildQueueSignature: string | null = null;
+  let nextReReviewAt: number | null = null;
+  let reReviewTimer: TimerHandle | null = null;
 
   const loop = createTickLoop({
     tag: core.TEAM_REVIEW_LANE_ID, intervalMs: (deps.intervalMinutes ?? core.POLL_INTERVAL_MINUTES) * 60000,
@@ -88,6 +95,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (!runtime.hasLoadedState || loop.isStopped() || runtime.self === null) return;
     const { candidates, prsByKey } = candidatesFrom(searchResultFromSnapshot(runtime.self));
     const planned = headsToReview(candidates, prsByKey);
+    armReReview(planned.nextReReviewAt);
     if (planned.isDirty) loop.track(persist());
     emitStatus();
     if (closedEntryKeys().size > 0) {
@@ -99,6 +107,24 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     if (queueSignature === lastRebuildQueueSignature) return;
     lastRebuildQueueSignature = queueSignature;
     loop.tickSoon();
+  }
+
+  function armReReview(dueAt: number | null): void {
+    if (reReviewTimer !== null) clearTimeoutFn(reReviewTimer);
+    reReviewTimer = null;
+    const hasChanged = dueAt !== nextReReviewAt;
+    nextReReviewAt = dueAt;
+    if (hasChanged) onAlarmsMayHaveChanged();
+    if (dueAt === null) return;
+    reReviewTimer = unrefTimer(setTimeoutFn(rebuild, Math.min(Math.max(0, dueAt - now()), LONGEST_RE_REVIEW_TIMER_MS)));
+  }
+
+  function alarms(): Alarm[] {
+    if (nextReReviewAt === null) return [];
+    const dueDate = new Date(nextReReviewAt);
+    if (Number.isNaN(dueDate.getTime())) return [];
+    const alarm = Alarm.safeParse({ id: RE_REVIEW_ALARM_ID, at: dueDate.toISOString() });
+    return alarm.success ? [alarm.data] : [];
   }
 
   function canStartReview(): boolean {
@@ -150,6 +176,7 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     const isPruned = await pruneDeparted(new Set(candidates.map((candidate) => candidate.key)), isComplete);
     if (isPruned) watchAskedFor();
     const planned = headsToReview(candidates, prsByKey);
+    armReReview(planned.nextReReviewAt);
     const isStarted = await startReviews(planned.queue);
     const areThreadsChanged = runtime.tickRateLimitWaitMs === null ? await handleAnsweredThreads(candidates) : false;
     if (isPruned || planned.isDirty || areThreadsChanged || isStarted) await persist();
@@ -203,11 +230,12 @@ function createTeamReviewPoller(deps: TeamReviewPollerDependencies) {
     runtime.hasLoadedState = false;
     unregisterWatches();
     cancelPendingProgressEmit();
+    armReReview(null);
     await loop.stop();
     cancelPendingProgressEmit();
   }
 
-  return { start, stop, tick: loop.tick, refresh, refreshThreads, rebuild, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
+  return { start, stop, tick: loop.tick, refresh, refreshThreads, rebuild, alarms, getDraft, updateDraft, updateThread, requeue, restore, requestReview, markNotMine, _state: () => runtime.state };
 }
 
 type TeamReviewPoller = ReturnType<typeof createTeamReviewPoller>;

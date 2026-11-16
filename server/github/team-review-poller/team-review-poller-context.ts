@@ -64,6 +64,7 @@ interface TeamReviewPollerDependencies {
   maxConcurrentReviews?: number;
   reReviewAfterMs?: number;
   skipIdleAfterMs?: number;
+  onAlarmsMayHaveChanged?: () => void;
 }
 
 const REQUEUEABLE_STATUSES: ReadonlySet<ReviewDraftType['status']> = new Set(['error', 'ready', 'stale', 'discarded', 'posted']);
