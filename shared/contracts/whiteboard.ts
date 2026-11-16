@@ -288,7 +288,8 @@ const LegendEntries = z.array(z.object({
 
 const CodeSessionId = z.string().min(1).max(64);
 const ProjectPath = z.string().min(1).max(4096);
-const BoardLinkPath = z.string().min(1).max(4096);
+export const BOARD_LINK_PATH_MAX_LENGTH = 4096;
+const BoardLinkPath = z.string().min(1).max(BOARD_LINK_PATH_MAX_LENGTH);
 
 export const Board = z.object({
   id: z.string().min(1).max(64),

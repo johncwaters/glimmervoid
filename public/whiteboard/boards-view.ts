@@ -5,7 +5,7 @@ import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
@@ -86,6 +86,7 @@ interface TextDialogOptions {
   maxLength: number;
   confirmLabel: string;
   initialValue?: string;
+  message?: string;
   onSubmit: (value: string) => Promise<string | null>;
 }
 
@@ -94,6 +95,7 @@ interface BoardsViewParts {
   boardMenu: ReturnType<typeof buildBoardMenu>;
   boardTitle: HTMLButtonElement;
   boardMeta: HTMLElement;
+  boardLink: HTMLButtonElement;
   presence: HTMLElement;
   host: HTMLElement;
   chrome: HTMLElement;
@@ -144,6 +146,7 @@ function openTextDialog(options: TextDialogOptions): void {
   errorEl.setAttribute('role', 'alert');
   const btnConfirm = button({ variant: 'primary', label: options.confirmLabel, action: 'confirm-board-dialog' });
   actions.append(btnConfirm);
+  if (options.message) dialog.append(el('p', 'dialog-message', options.message));
   dialog.append(el('label', 'dialog-label', options.label), input, errorEl, actions);
 
   async function submit(): Promise<void> {
@@ -347,6 +350,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
   const isOpen = () => menu.classList.contains('open');
   const setOpen = (shouldOpen: boolean) => {
     boardSettingsItem.classList.toggle('visible', !isPhoneLayout());
+    unlinkItem.classList.toggle('visible', Boolean(selectedSummary()?.link));
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', String(shouldOpen));
   };
@@ -359,6 +363,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     return item;
   };
   const boardSettingsItem = actionItem('Board settings', onBoardSettings);
+  const unlinkItem = actionItem('Unlink folder', unlinkBoardFolder);
   const actionItems = [
     actionItem('Rename board', startTitleRename),
     actionItem('New board', newBoardFromDialog),
@@ -367,6 +372,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
     actionItem('Export SVG', () => void exportBoardPicture('svg')),
     actionItem('Export PNG', () => void exportBoardPicture('png')),
     actionItem('Export board file', () => void exportBoardFile()),
+    actionItem('Link to folder', linkBoardFromDialog),
+    unlinkItem,
     actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
   menu.addEventListener('click', (event) => {
@@ -402,11 +409,25 @@ function paintHead(): void {
   parts.boardTitle.textContent = summary.title;
   parts.boardMeta.dataset.boardVersion = String(summary.version);
   paintBoardEditedAge();
+  paintBoardLink(summary);
   paintToolbar();
   paintPairedSession();
 }
 
 const EDITED_JUST_NOW_BELOW_SECONDS = 60;
+
+function paintBoardLink(summary: BoardSummary): void {
+  if (!parts) return;
+  const { boardLink } = parts;
+  boardLink.hidden = summary.link === null;
+  if (summary.link === null) {
+    delete boardLink.dataset.linkState;
+    return;
+  }
+  const linkText = `${summary.link.path}: ${summary.link.text}`;
+  boardLink.dataset.linkState = summary.link.state;
+  if (boardLink.textContent !== linkText) boardLink.textContent = linkText;
+}
 
 function paintBoardEditedAge(): void {
   if (!parts) return;
@@ -945,6 +966,35 @@ function addFrame(): void {
   });
 }
 
+function suggestedLinkPathOf(summary: BoardSummary): string {
+  const folderName = summary.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const basePath = `boards/${folderName || 'board'}`;
+  const linkedPaths = new Set(boardSummariesOf().flatMap((other) => (other.id !== summary.id && other.link ? [other.link.path] : [])));
+  if (!linkedPaths.has(basePath)) return basePath;
+  let copyNumber = 2;
+  while (linkedPaths.has(`${basePath}-${copyNumber}`)) copyNumber += 1;
+  return `${basePath}-${copyNumber}`;
+}
+
+function linkBoardFromDialog(): void {
+  const summary = selectedSummary();
+  if (!summary) return;
+  openTextDialog({
+    title: 'Link the board to a folder',
+    label: 'Folder in the code session worktree',
+    placeholder: 'boards/login-flow',
+    maxLength: BOARD_LINK_PATH_MAX_LENGTH,
+    confirmLabel: 'Link folder',
+    initialValue: summary.link?.path ?? suggestedLinkPathOf(summary),
+    message: summary.link?.text,
+    onSubmit: (linkPath) => sendOpsFromDialog([{ op: 'board', link: linkPath }]),
+  });
+}
+
+function unlinkBoardFolder(): void {
+  void sendOps([{ op: 'board', link: null }]);
+}
+
 function exportBoardPicture(format: 'svg' | 'png'): Promise<void> {
   return downloadBoardExport(`${WHITEBOARD_PICTURE_ROUTE}/{boardId}/picture.${format}`, `.${format}`);
 }
@@ -1156,8 +1206,11 @@ export function mountBoardHost(): HTMLElement {
   const boardTitle = createPressable('wb-board-title pane-header-title');
   boardTitle.addEventListener('click', startTitleRename);
   const boardMeta = el('span', 'wb-board-meta pane-header-subtitle');
+  const boardLink = createPressable('wb-board-link pane-header-subtitle');
+  boardLink.addEventListener('click', linkBoardFromDialog);
+  boardLink.hidden = true;
   const presence = el('div', 'wb-presence');
-  const boardIsland = island('wb-island-board', 'Board', boardMenu.menuRoot, boardTitle, boardMeta, presence, status.element);
+  const boardIsland = island('wb-island-board', 'Board', boardMenu.menuRoot, boardTitle, boardMeta, boardLink, presence, status.element);
 
   const toolButtons = new Map(TOOLBAR_TOOLS.map((tool) => [tool, toolButton(tool)]));
   const toolGroup = el('div', 'wb-tools');
@@ -1223,7 +1276,7 @@ export function mountBoardHost(): HTMLElement {
   empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, buttons, toolButtons, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
