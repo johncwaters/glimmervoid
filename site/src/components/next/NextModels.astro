@@ -1,0 +1,78 @@
+---
+import { OPENROUTER_AGENT_CARDS, OPENROUTER_AGENT_LABELS } from '../../lib/product-facts.ts';
+
+const SHOWCASE_MODEL_BY_AGENT_ID: Readonly<Record<string, string>> = { pi: 'qwen/qwen4-max', opencode: 'moonshotai/kimi-k3.1-pro', codex: 'openai/gpt-6.1-sol', 'claude-code': 'minimax/minimax-m3.1-flash' };
+const showcasePairs = OPENROUTER_AGENT_CARDS.map((card) => {
+  const modelId = SHOWCASE_MODEL_BY_AGENT_ID[card.id];
+  if (!modelId) throw new Error(`site/src/components/next/NextModels.astro has no showcase model for the ${card.id} agent`);
+  return { ...card, modelId };
+});
+const [firstPair] = showcasePairs;
+const LOCAL_POINTS = [
+  'Every agent runs on your machine. Nothing sits between it and the model.',
+  'Your OpenRouter key stays in the Vault, and a session reads it only after you approve.',
+  'Or keep each agent on its own login and its own models.',
+];
+---
+<section id="models">
+  <div class="section-head reveal">
+    <h2>Any harness. Any model. Your keys.</h2>
+    <p>Run {OPENROUTER_AGENT_LABELS} on any model on OpenRouter. Pick both when you start a session.</p>
+  </div>
+  <figure class="models-demo reveal" id="models-demo" aria-label={`The model picker of a new session: an agent, the OpenRouter provider and a model id. It cycles through ${showcasePairs.map(({ label, modelId }) => `${label} on ${modelId}`).join(', ')}.`} data-pairs={JSON.stringify(showcasePairs.map(({ id, label, modelId }) => ({ id, label, modelId })))}>
+    <div class="model-picker" aria-hidden="true">
+      <span class="picker-label">Model</span>
+      <span class="picker-control" data-agent-label>{firstPair.label}</span>
+      <span class="picker-control">OpenRouter</span>
+      <span class="picker-control is-input" data-model-id>{firstPair.modelId}</span>
+    </div>
+    <ul class="harness-chips" aria-hidden="true">
+      {showcasePairs.map(({ id, monogram, label }) => <li data-agent-id={id} class:list={{ 'is-active': id === firstPair.id }}><span class="harness-monogram">{monogram}</span>{label}</li>)}
+    </ul>
+  </figure>
+  <ul class="local-points reveal">
+    {LOCAL_POINTS.map((point) => <li>{point}</li>)}
+  </ul>
+</section>
+
+<script>
+  import { runFramesWhileVisible } from '../../lib/dom.ts';
+
+  const PAIR_HOLD_MS = 2400;
+  const demo = document.getElementById('models-demo');
+  const agentLabel = demo?.querySelector<HTMLElement>('[data-agent-label]');
+  const modelId = demo?.querySelector<HTMLElement>('[data-model-id]');
+  if (demo && agentLabel && modelId) {
+    const pairs: { id: string; label: string; modelId: string }[] = JSON.parse(demo.dataset.pairs ?? '[]');
+    const chips = demo.querySelectorAll<HTMLElement>('[data-agent-id]');
+    runFramesWhileVisible(demo, pairs.map(() => PAIR_HOLD_MS), (frameIndex) => {
+      const pair = pairs[frameIndex];
+      agentLabel.textContent = pair.label;
+      modelId.textContent = pair.modelId;
+      for (const chip of chips) chip.classList.toggle('is-active', chip.dataset.agentId === pair.id);
+    });
+  }
+</script>
+
+<style>
+  .models-demo { margin: 0; display: grid; gap: 20px; padding: 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+  .model-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: var(--type-meta); }
+  .picker-label { color: var(--text-dim); margin-right: 4px; }
+  .picker-control { padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-head); white-space: nowrap; }
+  .picker-control:not(.is-input)::after { content: 'v'; margin-left: 10px; color: var(--text-dim); font-size: 10px; }
+  .picker-control.is-input { flex: 1 1 220px; min-width: 0; overflow: hidden; text-overflow: clip; color: var(--accent); }
+  .harness-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .harness-chips li { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text-dim); font-weight: 700; transition: color 200ms ease, border-color 200ms ease; }
+  .harness-chips li.is-active { color: var(--text-head); border-color: var(--accent); }
+  .harness-monogram { display: inline-grid; place-items: center; width: 28px; height: 22px; border-radius: 999px; background: var(--bg-card); font-family: var(--font-mono); font-size: var(--type-meta); color: var(--accent); }
+  .local-points { margin: 32px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; color: var(--text); }
+  .local-points li::before { content: '+ '; font-family: var(--font-mono); color: var(--accent); }
+  @media (max-width: 640px) {
+    .models-demo { padding: 16px; }
+    .harness-chips li { padding: 3px 10px 3px 3px; font-size: 13px; }
+    .harness-monogram { width: 22px; height: 18px; font-size: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .harness-chips li { transition: none; }
+  }
+</style>

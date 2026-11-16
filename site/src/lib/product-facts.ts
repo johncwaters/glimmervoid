@@ -1,9 +1,11 @@
-import { getAdapter, listAgentIds } from '../../../session/adapters/index.ts';
+import { getAdapter, isFirstClassAgent, listAgentIds } from '../../../session/adapters/index.ts';
 import type { AgentAdapter } from '../../../session/adapters/index.ts';
+import { OPENROUTER_AGENT_IDS } from '../../../shared/contracts/agent-models.ts';
 import { SETTINGS_INDEX } from '../../../shared/settings/registry-core.ts';
 import rootPackage from '../../../package.json';
 
 export interface AgentCard {
+  id: string;
   monogram: string;
   label: string;
   support: string;
@@ -19,7 +21,7 @@ const builtInAdapters: AgentAdapter[] = listAgentIds().flatMap((agentId) => {
 const listJoiner = new Intl.ListFormat('en-GB', { type: 'conjunction' });
 
 function supportLevelOf(adapter: AgentAdapter): string {
-  if (Object.values(adapter.capabilities).every(Boolean)) return 'Full support';
+  if (isFirstClassAgent(adapter.id)) return 'Full support';
   if (adapter.capabilities.hooks) return 'Hook status';
   return 'Title status';
 }
@@ -40,7 +42,11 @@ function settingNamed(settingPath: string) {
   return setting;
 }
 
-export const AGENT_CARDS: readonly AgentCard[] = builtInAdapters.map((adapter) => ({ monogram: monogramOf(adapter), label: adapter.label, support: supportLevelOf(adapter) }));
+export const AGENT_CARDS: readonly AgentCard[] = builtInAdapters.map((adapter) => ({ id: adapter.id, monogram: monogramOf(adapter), label: adapter.label, support: supportLevelOf(adapter) }));
+
+export const OPENROUTER_AGENT_CARDS: readonly AgentCard[] = AGENT_CARDS.filter(({ id }) => OPENROUTER_AGENT_IDS.includes(id));
+
+export const OPENROUTER_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => OPENROUTER_AGENT_IDS.includes(adapter.id));
 
 export const SANE_YOLO_AGENT_LABELS = labelsOfAdaptersWhere((adapter) => adapter.capabilities.saneYolo);
 
