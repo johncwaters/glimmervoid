@@ -8,7 +8,7 @@ import type { TerminalColors } from '../../session/core/terminal-color-query.ts'
 import { createRecorder } from '../../session/session-recorder.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { Session } from '../../session/sessions.ts';
-import type { SessionOptions } from '../../session/sessions.ts';
+import type { PrepareSandbox, SessionOptions } from '../../session/sessions.ts';
 import { DEFAULT_AGENT_ID, projectHookConfigRelPaths } from '../../session/adapters/index.ts';
 import { resolveSessionAccountHome } from '../../session/core/agent-account-core.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
@@ -47,12 +47,14 @@ interface SessionFactoryDependencies {
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
   getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
+  sessionSandboxFor?: ((sessionTempFolder: string | null) => PrepareSandbox) | null;
 }
 
 const OPENROUTER_LAUNCH_REASON = 'the agent starts on OpenRouter with this key';
 
-function gitCredentialHelperResolverFor(helperProgram: string | null | undefined): ((cwd: string) => Promise<string | null>) | null {
+function gitCredentialHelperResolverFor(helperProgram: string | null | undefined, isSandboxed: boolean): ((cwd: string) => Promise<string | null>) | null {
   if (!helperProgram) return null;
+  if (isSandboxed) return async () => helperProgram;
   return async (cwd) => {
     const ownHelper = await runGit(['config', '--get-urlmatch', 'credential.helper', GITHUB_CREDENTIAL_SCOPE], { cwd });
     return ownHelper.ok && ownHelper.out !== '' ? null : helperProgram;
@@ -60,7 +62,7 @@ function gitCredentialHelperResolverFor(helperProgram: string | null | undefined
 }
 
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
-  const resolveGitCredentialHelper = gitCredentialHelperResolverFor(dependencies.gitCredentialProgram);
+  const resolveGitCredentialHelper = gitCredentialHelperResolverFor(dependencies.gitCredentialProgram, Boolean(dependencies.sessionSandboxFor));
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     const usageConfig = resolveUsageConfig(config.usage);
     return usageConfig.enabled && usageConfig.planLimits;
@@ -130,6 +132,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
         if (broker === null) return { refusal: `${names.join(', ')} cannot be read: the vault is not ready` };
         return broker.holdForLaunch({ id: project.id, project: project.path, cwd }, names, OPENROUTER_LAUNCH_REASON);
       },
+      prepareSandbox: dependencies.sessionSandboxFor?.(sessionTempFolder) ?? null,
       ...overrides,
       prependPathDirs: [...ghShimDirsForSpawn(), ...(overrides.prependPathDirs ?? [])],
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,

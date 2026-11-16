@@ -2,8 +2,9 @@ import fs from "node:fs";
 import { AGENT_URL_ENV } from "../shared/contracts/session.ts";
 import { commandFor } from "./adapters/index.ts";
 import type { AgentAdapter } from "./adapters/index.ts";
-import { commitSigningEnv } from "./core/commit-signing-env.ts";
-import { gitCredentialEnv } from "./core/git-credential-env.ts";
+import { commitSigningSetting, gitConfigEnv } from "./core/commit-signing-env.ts";
+import type { GitConfigForm } from "./core/commit-signing-env.ts";
+import { gitCredentialSetting } from "./core/git-credential-env.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import type { SpawnEnv } from "./core/spawn-env.ts";
 import type { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
@@ -25,6 +26,7 @@ interface LaunchPort {
   hostSigningEnv: () => Record<string, string>;
   gitCredentialToken: () => string | null;
   gitCredentialProgram: () => string | null;
+  gitConfigForm: () => GitConfigForm;
 }
 
 interface SessionLaunchOptions {
@@ -54,23 +56,28 @@ function createSessionLaunch({ id, adapter, platform, hooks, port }: SessionLaun
   }
 
   function gitEnv(): Record<string, string> {
-    const inheritedConfigParameters = port.spawnEnv()?.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS;
-    const signingEnv = commitSigningEnv({
+    const inheritedEnv = port.spawnEnv() ?? {};
+    const signing = commitSigningSetting({
       port: hooks.listenerPort(),
       sessionId: id,
       token: port.commitSigningToken(),
       signingProgram: port.commitSigningProgram(),
-      inheritedConfigParameters,
     });
-    const credentialEnv = gitCredentialEnv({
+    const credential = gitCredentialSetting({
       port: hooks.listenerPort(),
       sessionId: id,
       token: port.gitCredentialToken(),
       helperProgram: port.gitCredentialProgram(),
-      inheritedConfigParameters: signingEnv.GIT_CONFIG_PARAMETERS ?? inheritedConfigParameters,
+      form: port.gitConfigForm(),
     });
-    const hostSigningEnv = Object.keys(signingEnv).length > 0 ? port.hostSigningEnv() : {};
-    return { ...hostSigningEnv, ...signingEnv, ...credentialEnv };
+    const configEnv = gitConfigEnv({
+      configEntries: [...signing.configEntries, ...credential.configEntries],
+      form: port.gitConfigForm(),
+      inheritedConfigParameters: inheritedEnv.GIT_CONFIG_PARAMETERS ?? process.env.GIT_CONFIG_PARAMETERS,
+      inheritedConfigCount: inheritedEnv.GIT_CONFIG_COUNT ?? process.env.GIT_CONFIG_COUNT,
+    });
+    const hostSigningEnv = signing.configEntries.length > 0 ? port.hostSigningEnv() : {};
+    return { ...hostSigningEnv, ...signing.env, ...credential.env, ...configEnv };
   }
 
   function spawnCwdSpellings(): string[] {

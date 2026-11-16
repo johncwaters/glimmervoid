@@ -61,8 +61,12 @@ function parseSignReply(text: string): SshSignReply {
   }
 }
 
+function isInjectedGitConfigName(name: string): boolean {
+  return name === 'GIT_CONFIG_PARAMETERS' || name === 'GIT_CONFIG_COUNT' || name.startsWith('GIT_CONFIG_KEY_') || name.startsWith('GIT_CONFIG_VALUE_');
+}
+
 async function operatorSigningProgram(env: NodeJS.ProcessEnv): Promise<string> {
-  const envWithoutInjectedConfig = Object.fromEntries(Object.entries(env).filter(([name]) => name !== 'GIT_CONFIG_PARAMETERS'));
+  const envWithoutInjectedConfig = Object.fromEntries(Object.entries(env).filter(([name]) => !isInjectedGitConfigName(name)));
   const configuredProgram = await execFileAsync('git', ['config', '--type=path', '--get', 'gpg.ssh.program'], {
     env: envWithoutInjectedConfig, timeout: SIGNING_PROGRAM_LOOKUP_TIMEOUT_MS, encoding: 'utf8',
   }).then(({ stdout }) => stdout.trim(), () => '');

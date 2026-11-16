@@ -160,6 +160,7 @@ interface AgentAdapter {
   buildSpawnCommand(options: AgentSpawnCommandOptions): { file: string; args: string[] };
   buildEnv(baseEnv: SpawnEnv, extraEnv: SpawnEnv | null | undefined, options?: AgentEnvOptions): SpawnEnv;
   buildArgs(options?: AgentArgsOptions): string[];
+  osSandboxArgs?(options: { dangerouslySkipPermissions: boolean }): string[];
   settingsArgs?(settingsPath: string): string[];
   trustFolder?(sessionFolder: string, env: SpawnEnv): Promise<void>;
   sessionIdOf?(payload: HookPayload): unknown;

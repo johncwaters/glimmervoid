@@ -1451,6 +1451,10 @@
     {
       "name": "attention owner",
       "definition": "Who attends a session: the operator, its parent session (a spawned child) or its race (an arena contestant). Only a session the operator attends notifies, counts in the attention banner and is a next-attention stop"
+    },
+    {
+      "name": "session sandbox",
+      "definition": "The OS sandbox (srt, bubblewrap) a hosted Linux box starts every session inside when sessionSandbox is on, keeping the Glimmervoid home, the vault and the box's credentials out of the agent's reach while the agent keeps its repos and logins"
     }
   ],
   "retired": [

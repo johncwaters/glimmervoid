@@ -101,7 +101,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`, `@pierre/diffs` (the Changes diff, lazy-loaded), and `@revolist/revogrid` (the board sheet grid, lazy-loaded).
 
-`@xterm/headless` with `@xterm/addon-serialize` and `@xterm/addon-unicode11` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. `@stackline/xlsx` reads an XLSX workbook into the CSV per sheet a board shows. Glimmervoid runs each repository's own `@posthog/coherence` CLI and takes no runtime dependency on it.
+`@xterm/headless` with `@xterm/addon-serialize` and `@xterm/addon-unicode11` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. `@stackline/xlsx` reads an XLSX workbook into the CSV per sheet a board shows.
 
 `fs-native-extensions` gives the kernel file locks (`fcntl` OFD, `flock`, `LockFileEx`) that mark a session temp folder in use, because Node core has no file lock and the kernel drops one when its holder dies, which a pid record cannot tell from pid reuse. A load failure leaves folders to the 7-day age gate.
 
@@ -110,3 +110,5 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 `httpxy` forwards the doorman's HTTP and WebSocket traffic to each tenant server, so the doorman owns only routing, the wake hold and its header rule.
 
 `croner` parses wake times and cron patterns.
+
+`@anthropic-ai/sandbox-runtime` (srt) sandboxes sessions on a hosted Linux box (`sessionSandbox`), keeping the server's home, vault and credentials from agents.

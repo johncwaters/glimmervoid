@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Hosted boxes can sandbox their sessions.** With `sessionSandbox: true` in `config.json` on a Linux box, each Claude Code, Codex and Kimi Code session started from a project starts inside an OS sandbox that keeps the Glimmervoid home, the vault and the box's credentials out of the agent's reach, and lets it reach only the model, GitHub and package registry hosts. The agent still works on its own repos, pushes and uses its logins as before; hooks, Glimmervoid's tools, commit signing and the git credential helper reach the server through a socket of the session's own. Lane sessions (team review, Radar, community, task titles, the question manager) still run outside the sandbox. Local installs are unchanged. The server refuses to start with it on outside Linux, and a session start is refused when `socat` is missing.
+
 ## [0.62.0] - 2026-11-16
 
 ### Added

@@ -20,6 +20,8 @@ import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createPackSessionFiles } from '../packs/pack-session-files.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
+import { createSessionSandbox } from '../sandbox/sandbox-wiring.ts';
+import { glimmervoidHomeDir } from '../config-store.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -82,7 +84,16 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   let terminalColors: TerminalColors = DEFAULT_TERMINAL_COLORS;
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const packSessionFiles = createPackSessionFiles({ root: configSiblingPath(dependencies.configStore.configPath, 'pack-session-files') });
+  const sessionSandboxFor = createSessionSandbox({
+    isOn: dependencies.config.sessionSandbox === true,
+    platform: process.platform,
+    glimmervoidHome: glimmervoidHomeDir(),
+    configPath: dependencies.configStore.configPath,
+    agentIngressServer,
+    getIngressPort: getHookPort,
+  });
   const makeSession = createSessionFactory({
+    sessionSandboxFor,
     getPackAgentLaunch: packSessionFiles.launch,
     getSecretsBroker: dependencies.getSecretsBroker,
     commitSigningProgram,

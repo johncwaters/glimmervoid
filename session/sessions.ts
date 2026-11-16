@@ -29,9 +29,10 @@ import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from
 import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts";
 import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
+import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import { prepareAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
-import type { GraphicalSessionState } from "./core/spawn-env.ts";
+import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
@@ -237,10 +238,27 @@ interface SessionOptions {
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
   resolveLaunchSecrets?: ResolveLaunchSecrets | null;
+  prepareSandbox?: PrepareSandbox | null;
 }
 
 type LaunchSecretsOutcome = { valuesByName: Record<string, string> } | { refusal: string };
 type ResolveLaunchSecrets = (request: { names: string[]; cwd: string }) => Promise<LaunchSecretsOutcome | { held: Promise<LaunchSecretsOutcome> }>;
+
+interface SandboxLaunchFacts {
+  file: string;
+  args: string[];
+  env: SpawnEnv;
+  cwd: string;
+}
+
+interface SandboxLaunch {
+  file: string;
+  args: string[];
+  env: SpawnEnv;
+  dispose(): Promise<void>;
+}
+
+type PrepareSandbox = (facts: SandboxLaunchFacts) => Promise<{ ok: true; launch: SandboxLaunch } | { ok: false; reason: string }>;
 
 interface ClaudeSessionIdEvent {
   id: string;
@@ -353,6 +371,8 @@ class Session extends EventEmitter {
   _resolveLaunchSecrets: ResolveLaunchSecrets | null;
   _approvedLaunchSecrets: Record<string, string> | null = null;
   _hostSigningEnv: Record<string, string>;
+  _prepareSandbox: PrepareSandbox | null;
+  _sandboxLaunch: SandboxLaunch | null;
   _gitCredentialProgram: string | null;
   _gitCredentialToken: string | null;
   _canRunHelpCommand: boolean;
@@ -471,6 +491,7 @@ class Session extends EventEmitter {
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
     resolveLaunchSecrets = null,
+    prepareSandbox = null,
   }: SessionOptions) {
     super();
     this.id = id;
@@ -621,6 +642,7 @@ class Session extends EventEmitter {
       extraUserHooks,
       scratchAgentHome,
       isCleanHome,
+      isOsSandboxed: prepareSandbox !== null,
       packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
       modelSelection: () => this._agentSetup,
       requiresHooks: requiresHooks && hookRouter !== null,
@@ -644,6 +666,8 @@ class Session extends EventEmitter {
     this._resolveHostSigningEnv = commitSigningProgram === null ? null : resolveHostSigningEnv;
     this._resolveLaunchSecrets = resolveLaunchSecrets;
     this._hostSigningEnv = {};
+    this._prepareSandbox = prepareSandbox;
+    this._sandboxLaunch = null;
     this._gitCredentialProgram = null;
     this._gitCredentialToken = resolveGitCredentialHelper === null ? null : generateToken();
     this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
@@ -672,6 +696,7 @@ class Session extends EventEmitter {
         hostSigningEnv: () => this._hostSigningEnv,
         gitCredentialToken: () => this._gitCredentialToken,
         gitCredentialProgram: () => this._gitCredentialProgram,
+        gitConfigForm: () => this._prepareSandbox === null ? "parameters" : "numbered",
       },
     });
 
@@ -1762,7 +1787,7 @@ class Session extends EventEmitter {
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: [...this._extraClaudeArgs, ...launchPlan.args, ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch)],
+      extraArgs: [...this._extraClaudeArgs, ...launchPlan.args, ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch), ...this._osSandboxArgs()],
       initialPrompt: launchPrompt,
     });
 
@@ -1770,7 +1795,10 @@ class Session extends EventEmitter {
       this._hooks.cleanup();
       return;
     }
-    const { file, args } = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
+    const agentCommand = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
+    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, isStartSuperseded);
+    if (sandboxedCommand === null) return;
+    const { file, args } = sandboxedCommand;
     const isNodePtySpawn = this._ptySpawn === this._nodePtySpawn;
     const scopeHost = isNodePtySpawn ? await resolveSessionScopeHost() : null;
     if (isStartSuperseded()) {
@@ -1778,7 +1806,8 @@ class Session extends EventEmitter {
       return;
     }
     const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
-    const launch = scopeUnit === null ? { file, args, env } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env });
+    const sandboxedEnv = sandboxedCommand.env;
+    const launch = scopeUnit === null ? { file, args, env: sandboxedEnv } : scopedLaunch({ unitName: scopeUnit, serverUnit: scopeHost?.serverUnit ?? null, file, args, env: sandboxedEnv });
 
     const ptySize = this._output.ptySize();
     try {
@@ -2073,7 +2102,38 @@ class Session extends EventEmitter {
     return stateTransitions?.[event] === STATES.FAILED;
   }
 
+  async _sandboxedCommand(command: { file: string; args: string[] }, env: SpawnEnv, isStartSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null> {
+    if (this._prepareSandbox === null) return { ...command, env };
+    this._disposeSandboxLaunch();
+    const prepared = await this._prepareSandbox({ ...command, env, cwd: this.effectiveCwd() })
+      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    if (isStartSuperseded()) {
+      if (prepared.ok) void prepared.launch.dispose();
+      this._hooks.cleanup();
+      return null;
+    }
+    if (!prepared.ok) {
+      this._abandonSpawn(new Error(`the session sandbox refused to start: ${prepared.reason}`));
+      return null;
+    }
+    this._sandboxLaunch = prepared.launch;
+    return { file: prepared.launch.file, args: prepared.launch.args, env: prepared.launch.env };
+  }
+
+  _osSandboxArgs(): string[] {
+    if (this._prepareSandbox === null) return [];
+    return this._adapter.osSandboxArgs?.({ dangerouslySkipPermissions: this.dangerouslySkipPermissions }) ?? [];
+  }
+
+  _disposeSandboxLaunch(): void {
+    const launch = this._sandboxLaunch;
+    if (launch === null) return;
+    this._sandboxLaunch = null;
+    launch.dispose().catch((error: unknown) => console.warn(`[session ${this.id}] sandbox cleanup failed: ${errorMessage(error)}`));
+  }
+
   _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
+    this._disposeSandboxLaunch();
     this._approvals.releaseAll();
     return this._handlePtyExit(exitCode, signal);
   }
@@ -2187,6 +2247,7 @@ class Session extends EventEmitter {
       try {
         this.ptyProcess.resize(cols, rows);
       } catch {}
+      if (this._sandboxLaunch !== null) void signalWindowChangeBelow(this.ptyProcess.pid);
     }
     this._resizeSeq += 1;
     this.emit("resize", { cols, rows, seq: this._resizeSeq });
@@ -2355,6 +2416,7 @@ class Session extends EventEmitter {
     this._approvals.releaseAll();
 
     this.kill();
+    this._disposeSandboxLaunch();
 
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
@@ -2380,4 +2442,4 @@ function claudeCommand(): ResolvedCommand {
 }
 
 export { Session, claudeCommand };
-export type { ClaudeSessionIdEvent, SessionOptions, SnoozeRefusal };
+export type { ClaudeSessionIdEvent, PrepareSandbox, SandboxLaunchFacts, SessionOptions, SnoozeRefusal };

@@ -462,6 +462,10 @@ const UPDATE_CHECK_ARGS = ["-c", "check_for_update_on_startup=false"];
 
 const SKIP_PERMISSIONS_ARGS = ["-a", "never", "-s", "danger-full-access"];
 
+function osSandboxArgs({ dangerouslySkipPermissions }: { dangerouslySkipPermissions: boolean }): string[] {
+  return dangerouslySkipPermissions ? ["--no-daemon"] : ["--no-daemon", "-s", "danger-full-access"];
+}
+
 function buildArgs({
   dangerouslySkipPermissions = false,
   resumeSessionId = null,
@@ -488,6 +492,7 @@ const codex = {
   buildSpawnCommand,
   buildEnv,
   buildArgs,
+  osSandboxArgs,
   accountHomeProfile: CODEX_HOME_PROFILE,
   buildHookArgs,
   buildHookCommand,

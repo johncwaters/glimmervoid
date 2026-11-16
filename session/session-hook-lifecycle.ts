@@ -61,6 +61,7 @@ interface SessionHookOptions {
   extraUserHooks?: UserHook[];
   scratchAgentHome?: ScratchAgentHome | null;
   isCleanHome?: boolean;
+  isOsSandboxed?: boolean;
   packSkillDirs?: () => readonly string[];
   modelSelection?: () => ModelSelection | null;
   requiresHooks: boolean;
@@ -357,6 +358,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         observeToolCalls: options.observeToolCalls,
         enableProjectMcp: options.enableProjectMcp,
         carryOperatorPermissions: options.isCleanHome ?? false,
+        agentSandboxSetting: options.isOsSandboxed ? { enabled: false } : null,
         hookTools: options.hookTools,
         planLimits: options.planLimits,
         userHooks: [

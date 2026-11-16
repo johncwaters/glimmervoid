@@ -144,6 +144,7 @@ const FILE_CONFIG_SHAPE = {
   prFlows: optionalLooseObject('prFlows'),
   packs: z.array(z.string({ error: 'packs must list pack directory paths' }).min(1, { error: 'packs must list pack directory paths' }), { error: 'packs must be an array of pack directory paths' }).optional(),
   guardrails: optionalLooseObject('guardrails'),
+  sessionSandbox: optionalBoolean('sessionSandbox'),
   telemetry: TelemetryFileSettings,
   trace: TraceSettings,
   customAgents: CustomAgentDeclarations.optional(),

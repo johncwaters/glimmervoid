@@ -69,6 +69,7 @@ interface BuildHookSettingsOptions {
   planLimits?: boolean;
   userSettingsPath?: string | null;
   carryOperatorPermissions?: boolean;
+  agentSandboxSetting?: { enabled: false } | null;
   relayLaunch?: readonly string[];
   commandHookRelayLaunch?: readonly string[];
   userHooks?: UserHook[];
@@ -193,7 +194,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -249,7 +250,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
   const operatorSettings = readOperatorClaudeSettings(operatorSettingsPath);
   const carriedPermissions = carryOperatorPermissions ? operatorSettings.operatorPermissions : NO_OPERATOR_PERMISSIONS;
-  const settings: HookSettings = { hooks, ...carriedPermissions.carried };
+  const settings: HookSettings = { hooks, ...carriedPermissions.carried, ...(agentSandboxSetting === null ? {} : { sandbox: agentSandboxSetting }) };
   const allowRules = permissions && Array.isArray(permissions.allow) ? permissions.allow.slice() : [];
   const denyRules = [...(permissions && Array.isArray(permissions.deny) ? permissions.deny : []), ...carriedPermissions.denyRules];
   const askRules = carriedPermissions.askRules;

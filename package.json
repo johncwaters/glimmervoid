@@ -81,6 +81,7 @@
     "dist": "node scripts/build.mjs --binary --binary-out ."
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "@pierre/diffs": "1.6.4",

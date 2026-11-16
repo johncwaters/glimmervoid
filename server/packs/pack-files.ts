@@ -8,6 +8,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { packPreviewDataUrl } from './core/pack-core.ts';
 import type { z } from 'zod';
+import { firstCommandOnPath } from '../stable-node-path.ts';
 
 export const PACK_MAX_TOTAL_BYTES = 1024 * 1024;
 export const PACKS_DIR_NAME = 'packs';
@@ -68,22 +69,11 @@ function packFingerprint(filesByPath: ReadonlyMap<string, Buffer>): string {
   return sha256(JSON.stringify(fileHashes));
 }
 
-async function isProgramOnPath(program: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-  for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, program);
-    const isExecutableFile = await fs.promises.access(candidate, fs.constants.X_OK)
-      .then(async () => (await fs.promises.stat(candidate)).isFile())
-      .catch(() => false);
-    if (isExecutableFile) return true;
-  }
-  return false;
-}
-
 async function missingRequires(requires: PackHeader['requires'], env: NodeJS.ProcessEnv): Promise<string[]> {
   const commandEnv = withoutGlimmervoidSecrets(env);
   const missingPrograms: string[] = [];
   for (const program of requires.programs) {
-    if (!await isProgramOnPath(program, env)) missingPrograms.push(`program ${program}`);
+    if (await firstCommandOnPath(program, env) === null) missingPrograms.push(`program ${program}`);
   }
   return [...requires.env.filter((name) => !commandEnv[name]).map((name) => `env ${name}`), ...missingPrograms];
 }
