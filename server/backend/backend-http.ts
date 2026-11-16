@@ -607,10 +607,11 @@ function mountCommitSigningRoute(app: Express, { getSession, sshSigner, logger }
 
 const GITHUB_GIT_HOST = 'github.com';
 const NO_GIT_CREDENTIAL: GitCredentialReply = { found: false };
+const SANDBOXED_GIT_PASSWORD = 'placed-by-the-glimmervoid-egress-proxy';
 
-function gitCredentialReplyOf(grant: GithubUserGrant | null): GitCredentialReply {
+function gitCredentialReplyOf(grant: GithubUserGrant | null, isSandboxed: boolean): GitCredentialReply {
   if (grant === null) return NO_GIT_CREDENTIAL;
-  return { found: true, username: grant.login, password: grant.token, passwordExpiryUtc: Math.floor(grant.expiresAtMs / 1000) };
+  return { found: true, username: grant.login, password: isSandboxed ? SANDBOXED_GIT_PASSWORD : grant.token, passwordExpiryUtc: Math.floor(grant.expiresAtMs / 1000) };
 }
 
 function mountGitCredentialRoute(app: Express, { getSession, githubUserCredential, logger }: {
@@ -644,7 +645,7 @@ function mountGitCredentialRoute(app: Express, { getSession, githubUserCredentia
         logger.warn(`[git-credential] could not read the GitHub user token: ${errorMessage(error)}`);
         return null;
       });
-      res.json(gitCredentialReplyOf(grant));
+      res.json(gitCredentialReplyOf(grant, session.isSandboxed));
     });
   });
 }

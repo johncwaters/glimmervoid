@@ -2,6 +2,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RequestListener } from 'node:http';
+import tls from 'node:tls';
 import { listenAgentIngressSocket } from '../backend/backend-http.ts';
 import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
@@ -9,8 +10,10 @@ import { glimmervoidSecretPaths } from '../secrets/core/secret-files-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { PrepareSandbox, SandboxLaunchFacts } from '../../session/sessions.ts';
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
-import type { GitRepositoryLayout } from './core/sandbox-policy-core.ts';
-import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, sandboxedCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
+import type { CredentialProxyRoute, GitRepositoryLayout } from './core/sandbox-policy-core.ts';
+import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
+import { CREDENTIALED_HOSTS, modelLoginFileFor } from './core/credential-decider-core.ts';
+import type { CredentialProxies } from './credential-proxy.ts';
 
 interface SandboxTools {
   nodePath: string;
@@ -25,6 +28,40 @@ interface SessionSandboxDependencies {
   getIngressPort: () => number | null;
   resolveTools: () => Promise<SandboxTools | { refusal: string }>;
   getExtraAllowedHosts: () => readonly string[];
+  credentialProxies: Pick<CredentialProxies, 'acquire'>;
+  proxyCertificatePem: () => Promise<string>;
+}
+
+type HeldCredentialProxy = { route: CredentialProxyRoute; release: () => void };
+
+async function realPathOrSame(filePath: string | null): Promise<string | null> {
+  if (filePath === null) return null;
+  return fsp.realpath(filePath).catch(() => filePath);
+}
+
+async function holdCredentialProxy(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<HeldCredentialProxy | { refusal: string }> {
+  const loginFile = await realPathOrSame(modelLoginFileFor(facts.agent, facts.env, os.homedir()));
+  const acquisition = await dependencies.credentialProxies.acquire({ agent: facts.agent, loginFile });
+  if (!acquisition.ok) return { refusal: acquisition.reason };
+  return { route: { socketPath: acquisition.socketPath, proxiesFolder: acquisition.proxiesFolder, hosts: CREDENTIALED_HOSTS }, release: acquisition.release };
+}
+
+const PEM_CERTIFICATE_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
+
+async function certificatesIn(filePath: string | undefined): Promise<string[]> {
+  if (!filePath) return [];
+  const text = await fsp.readFile(filePath, 'utf8').catch(() => '');
+  return text.match(PEM_CERTIFICATE_PATTERN) ?? [];
+}
+
+async function writeProxyTrustFiles(sessionTempFolder: string, proxyCertificatePem: string, env: SpawnEnv): Promise<Record<string, string>> {
+  const trustFiles = proxyTrustFilesIn(sessionTempFolder);
+  const inheritedExtraCertificates = await certificatesIn(env.NODE_EXTRA_CA_CERTS);
+  const inheritedBundleCertificates = await certificatesIn(env.SSL_CERT_FILE);
+  const trusted = [...new Set([proxyCertificatePem.trim(), ...tls.rootCertificates, ...tls.getCACertificates('system'), ...inheritedBundleCertificates, ...inheritedExtraCertificates].map((certificate) => certificate.trim()))];
+  await writeTextAtomic(trustFiles.proxyCertificatePath, `${[proxyCertificatePem.trim(), ...inheritedExtraCertificates].join('\n')}\n`);
+  await writeTextAtomic(trustFiles.trustBundlePath, `${trusted.join('\n')}\n`);
+  return proxyTrustEnv(trustFiles);
 }
 
 async function dotGitFileIn(repositoryRoot: string): Promise<string | null> {
@@ -60,41 +97,53 @@ function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTemp
     if (ingressPort === null) return { ok: false, reason: 'the agent endpoint is not listening yet' };
     const tools = await dependencies.resolveTools();
     if ('refusal' in tools) return { ok: false, reason: tools.refusal };
-    const settingsPath = srtSettingsPathIn(sessionTempFolder);
-    const settings = buildSrtSettings({
-      homeDir: os.homedir(),
-      glimmervoidHome: dependencies.glimmervoidHome,
-      configFolder: path.dirname(dependencies.configPath),
-      secretPaths: glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }),
-      userId: os.userInfo().uid,
-      worktree: facts.cwd,
-      gitRepositories: await gitRepositoriesUnder(facts.cwd),
-      sessionTempFolder,
-      readableFiles: readableFilesIn(facts.env),
-      extraAllowedHosts: dependencies.getExtraAllowedHosts(),
-    });
-    await writeTextAtomic(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
-    const socketFolder = await fsp.mkdtemp(SHORT_SOCKET_FOLDER_PREFIX);
-    const ingressSocketPath = ingressSocketPathIn(socketFolder);
-    const removeSocketFolder = () => fsp.rm(socketFolder, { recursive: true, force: true });
-    const ingressSocket = await listenAgentIngressSocket({ socketPath: ingressSocketPath, ingressApp: dependencies.ingressRequestListener })
-      .catch((error: unknown) => ({ refusal: `the session bridge could not listen: ${errorMessage(error)}` }));
-    if ('refusal' in ingressSocket) {
-      await removeSocketFolder();
-      return { ok: false, reason: ingressSocket.refusal };
-    }
-    const command = sandboxedCommand({ ...tools, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, file: facts.file, args: facts.args });
-    return {
-      ok: true,
-      launch: {
-        ...command,
-        env: { ...facts.env, TMPDIR: socketFolder },
-        dispose: async () => {
-          await ingressSocket.close();
-          await removeSocketFolder();
-        },
+    const credentialProxy = await holdCredentialProxy(dependencies, facts);
+    if ('refusal' in credentialProxy) return { ok: false, reason: credentialProxy.refusal };
+    const prepared = await launchWithin(dependencies, sessionTempFolder, facts, tools, ingressPort, credentialProxy)
+      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    if (!prepared.ok) credentialProxy.release();
+    return prepared;
+  };
+}
+
+async function launchWithin(dependencies: SessionSandboxDependencies, sessionTempFolder: string, facts: SandboxLaunchFacts, tools: SandboxTools, ingressPort: number, credentialProxy: HeldCredentialProxy): ReturnType<PrepareSandbox> {
+  const trustEnv = await writeProxyTrustFiles(sessionTempFolder, await dependencies.proxyCertificatePem(), facts.env);
+  const settingsPath = srtSettingsPathIn(sessionTempFolder);
+  const settings = buildSrtSettings({
+    homeDir: os.homedir(),
+    glimmervoidHome: dependencies.glimmervoidHome,
+    configFolder: path.dirname(dependencies.configPath),
+    secretPaths: glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }),
+    userId: os.userInfo().uid,
+    worktree: facts.cwd,
+    gitRepositories: await gitRepositoriesUnder(facts.cwd),
+    sessionTempFolder,
+    readableFiles: readableFilesIn(facts.env),
+    extraAllowedHosts: dependencies.getExtraAllowedHosts(),
+    credentialProxy: credentialProxy.route,
+  });
+  await writeTextAtomic(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  const socketFolder = await fsp.mkdtemp(SHORT_SOCKET_FOLDER_PREFIX);
+  const ingressSocketPath = ingressSocketPathIn(socketFolder);
+  const removeSocketFolder = () => fsp.rm(socketFolder, { recursive: true, force: true });
+  const ingressSocket = await listenAgentIngressSocket({ socketPath: ingressSocketPath, ingressApp: dependencies.ingressRequestListener })
+    .catch((error: unknown) => ({ refusal: `the session bridge could not listen: ${errorMessage(error)}` }));
+  if ('refusal' in ingressSocket) {
+    await removeSocketFolder();
+    return { ok: false, reason: ingressSocket.refusal };
+  }
+  const command = sandboxedCommand({ ...tools, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, file: facts.file, args: facts.args });
+  return {
+    ok: true,
+    launch: {
+      ...command,
+      env: { ...facts.env, ...trustEnv, TMPDIR: socketFolder },
+      dispose: async () => {
+        credentialProxy.release();
+        await ingressSocket.close();
+        await removeSocketFolder();
       },
-    };
+    },
   };
 }
 

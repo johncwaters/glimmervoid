@@ -3,6 +3,10 @@ import path from 'node:path';
 const INGRESS_SOCKET_NAME = 'ingress.sock';
 const SRT_SETTINGS_NAME = 'srt.json';
 const SHORT_SOCKET_FOLDER_PREFIX = '/tmp/glimmervoid-sandbox-';
+const CREDENTIAL_PROXIES_FOLDER_PREFIX = '/tmp/glimmervoid-proxies-';
+const TRUST_BUNDLE_NAME = 'trust-bundle.crt';
+const PROXY_CERTIFICATE_NAME = 'proxy-ca.crt';
+const TRUST_BUNDLE_ENV_NAMES: readonly string[] = Object.freeze(['SSL_CERT_FILE', 'GIT_SSL_CAINFO', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE']);
 
 const DEFAULT_ALLOWED_HOSTS: readonly string[] = Object.freeze([
   'anthropic.com', '*.anthropic.com', 'claude.com', '*.claude.com', 'claude.ai', '*.claude.ai',
@@ -46,10 +50,17 @@ interface SandboxPolicyInput {
   sessionTempFolder: string;
   readableFiles: readonly string[];
   extraAllowedHosts: readonly string[];
+  credentialProxy: CredentialProxyRoute | null;
+}
+
+interface CredentialProxyRoute {
+  socketPath: string;
+  proxiesFolder: string;
+  hosts: readonly string[];
 }
 
 interface SrtSettings {
-  network: { allowedDomains: string[]; deniedDomains: string[]; allowAllUnixSockets: boolean };
+  network: { allowedDomains: string[]; deniedDomains: string[]; allowAllUnixSockets: boolean; mitmProxy?: { socketPath: string; domains: string[] } };
   filesystem: { denyRead: string[]; allowRead: string[]; allowWrite: string[]; denyWrite: string[] };
 }
 
@@ -84,9 +95,10 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
       allowedDomains: [...new Set([...DEFAULT_ALLOWED_HOSTS, ...input.extraAllowedHosts])],
       deniedDomains: [],
       allowAllUnixSockets: true,
+      ...(input.credentialProxy === null ? {} : { mitmProxy: { socketPath: input.credentialProxy.socketPath, domains: [...input.credentialProxy.hosts] } }),
     },
     filesystem: {
-      denyRead: [input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
+      denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
       allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), input.sessionTempFolder, ...input.readableFiles],
       allowWrite: [
         input.worktree,
@@ -119,5 +131,13 @@ function ingressSocketPathIn(socketFolder: string): string {
   return path.join(socketFolder, INGRESS_SOCKET_NAME);
 }
 
-export type { GitRepositoryLayout };
-export { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, sandboxedCommand, srtSettingsPathIn };
+function proxyTrustFilesIn(sessionTempFolder: string): { trustBundlePath: string; proxyCertificatePath: string } {
+  return { trustBundlePath: path.join(sessionTempFolder, TRUST_BUNDLE_NAME), proxyCertificatePath: path.join(sessionTempFolder, PROXY_CERTIFICATE_NAME) };
+}
+
+function proxyTrustEnv(trustFiles: { trustBundlePath: string; proxyCertificatePath: string }): Record<string, string> {
+  return { ...Object.fromEntries(TRUST_BUNDLE_ENV_NAMES.map((name) => [name, trustFiles.trustBundlePath])), NODE_EXTRA_CA_CERTS: trustFiles.proxyCertificatePath };
+}
+
+export type { CredentialProxyRoute, GitRepositoryLayout };
+export { CREDENTIAL_PROXIES_FOLDER_PREFIX, SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn };

@@ -33,6 +33,7 @@ interface BackendSessionRuntimeDependencies {
   getQuestionManagerLane?: () => QuestionManagerLane | null;
   getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
   liveSessionNamesUsing: (accountId: string) => string[];
+  githubUserToken: () => Promise<string | null>;
   onConfigSaved: (config: GlimmervoidConfig) => void;
 }
 
@@ -91,6 +92,8 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     configPath: dependencies.configStore.configPath,
     agentIngressServer,
     getIngressPort: getHookPort,
+    githubUserToken: dependencies.githubUserToken,
+    logger: dependencies.logger,
   });
   const makeSession = createSessionFactory({
     sessionSandboxFor,

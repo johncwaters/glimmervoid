@@ -189,6 +189,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getGitWorkspace: () => gitWorkspace,
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     getSecretsBroker: () => secretsBroker,
+    githubUserToken: async () => (await githubUserCredentialOfLink())?.token ?? null,
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,
