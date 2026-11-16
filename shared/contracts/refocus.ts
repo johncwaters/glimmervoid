@@ -12,6 +12,7 @@ export type SessionStartHookResponse = z.infer<typeof SessionStartHookResponse>;
 export const UserPromptSubmitHookResponse = z.union([
   z.object({ message: z.string() }),
   z.object({ hookSpecificOutput: z.object({ hookEventName: z.literal('UserPromptSubmit'), additionalContext: z.string() }) }),
+  z.object({ injectSteps: z.array(z.object({ userMessage: z.string().min(1) })).min(1) }),
 ]);
 
 export type UserPromptSubmitHookResponse = z.infer<typeof UserPromptSubmitHookResponse>;
@@ -37,7 +38,7 @@ export const QuestionToolDenyResponse = z.object({
 
 export type QuestionToolDenyResponse = z.infer<typeof QuestionToolDenyResponse>;
 
-export const PromptContextReply = z.enum(['message', 'additional-context']);
+export const PromptContextReply = z.enum(['message', 'additional-context', 'inject-steps']);
 
 export type PromptContextReply = z.infer<typeof PromptContextReply>;
 

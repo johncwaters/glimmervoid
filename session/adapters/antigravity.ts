@@ -153,6 +153,7 @@ const hooks: AgentHookProfile = {
 
 const antigravity = {
   id: ID,
+  promptContextReply: "inject-steps",
   label: "Antigravity CLI",
   usageVendor: ID,
   commandName: COMMAND_NAME,

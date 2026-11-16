@@ -8,7 +8,8 @@ import { createBackend } from "../server/backend/backend.ts";
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
-  closeServer, createProbeChecks, delay, hookEventsOf, waitForState, writeHookFixture,
+  closeServer, createProbeChecks, delay, hookEventsOf, queueWhiteboardEditFor, screenShowsWhiteboardAnswer, waitForState,
+  whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord, ProbeLaunch } from "./support/backend-harness.ts";
 
@@ -31,7 +32,7 @@ function writeProbeConfig(configPath: string, projectDirectory: string): void {
       path: projectDirectory,
       agent: AGENT_ID,
       dangerouslySkipPermissions: false,
-    }],
+    }, whiteboardWriterProject(SESSION_ID, projectDirectory, AGENT_ID)],
     teams: [],
     repoRoots: [],
     autoResume: false,
@@ -134,6 +135,14 @@ async function runProbe(tempDirectory: string): Promise<void> {
 
     const mcpHooks = await runScenario("mcp-tool", "Call your glimmervoid MCP server's session tool with action limits, then reply with the single word done.");
     check("the agent called a Glimmervoid MCP tool through the stdio bridge", mcpHooks.some((hook) => hook.event.toLowerCase() === "pretooluse" && JSON.stringify(hook.payload?.toolCall ?? "").includes("limits")));
+
+    const writer = backend.getSession(whiteboardWriterIdFor(SESSION_ID));
+    if (!writer) throw new Error("the probe config did not produce the board writer session");
+    await queueWhiteboardEditFor(backend, session, writer);
+    const whiteboardOutputOffset = session.getOutputOffset();
+    const whiteboardHooks = await runScenario("whiteboard-prompt-context", WHITEBOARD_PROBE_PROMPT);
+    check("PreInvocation reached the hooks", hookEventsOf(whiteboardHooks).includes("preinvocation"));
+    check("the queued board edit reached the model with the prompt", screenShowsWhiteboardAnswer(session.getBufferSince(whiteboardOutputOffset).data));
 
     console.log("\nResume:");
     session.kill();

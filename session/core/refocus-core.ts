@@ -42,8 +42,11 @@ const REFOCUS_NOTE: AgentNote = {
   isTemplate: true,
 };
 
+const PROMPT_CONTEXT_EVENTS: ReadonlySet<string> = new Set(['userpromptsubmit', 'preinvocation']);
+
 function promptContextReplyOf(shape: PromptContextReply, text: string): UserPromptSubmitHookResponse {
   if (shape === 'message') return { message: text };
+  if (shape === 'inject-steps') return { injectSteps: [{ userMessage: text }] };
   return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
 }
 
@@ -58,7 +61,7 @@ function resumeNoteReply(takeResumeNote: (() => string | null) | undefined): Res
 
 function refocusReplyFor({ accepted, event, payload, readContext, takePromptSupervision, takeResumeNote }: RefocusReplyInput): SessionStartHookResponse | UserPromptSubmitHookResponse | ResumeNoteHookResponse | null {
   if (!accepted) return null;
-  if (event.toLowerCase() === 'userpromptsubmit') return promptSupervisionReply(takePromptSupervision);
+  if (PROMPT_CONTEXT_EVENTS.has(event.toLowerCase())) return promptSupervisionReply(takePromptSupervision);
   if (event.toLowerCase() === RESUME_NOTE_HOOK_EVENT) return resumeNoteReply(takeResumeNote);
   if (event.toLowerCase() !== 'sessionstart') return null;
   if (payload.source !== 'compact') return null;
