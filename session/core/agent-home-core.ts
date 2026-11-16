@@ -202,7 +202,16 @@ interface AgentHomeProfile {
   isPrivateEntryName(name: string, platform: NodeJS.Platform): boolean;
   cleanOmits: CleanHomeOmits | null;
   account: AgentAccountSeam | null;
+  sandboxLogin?: SandboxLogin;
 }
+
+interface SandboxLogin {
+  entryName: string;
+  fileSegments: readonly string[];
+  placeholderOf(realLoginText: string, nowMs: number): { placeholder: string } | { refusal: string };
+}
+
+const UNREADABLE_LOGIN_REFUSAL = "its login file is not the JSON this sandbox reads, so no placeholder login can stand in for it";
 
 interface CleanHomeOmits {
   entryNames: readonly string[];
@@ -239,6 +248,7 @@ interface AgentHomeInputs {
   platform: NodeJS.Platform;
   isClean: boolean;
   isAccountHome: boolean;
+  isSandboxed: boolean;
   packSkillDirs: readonly string[];
 }
 
@@ -406,6 +416,43 @@ function parseJsonObject(text: string): JsonObject | null {
   } catch {
     return null;
   }
+}
+
+const PLACEHOLDER_TOKEN = "glimmervoid-injected";
+const PLACEHOLDER_LIFETIME_MS = 365 * 24 * 60 * 60 * 1000;
+
+function placeholderExpirySeconds(nowMs: number): number {
+  return Math.floor((nowMs + PLACEHOLDER_LIFETIME_MS) / 1000);
+}
+
+function placeholderJwtOf(realJwt: unknown, nowMs: number): string {
+  if (typeof realJwt !== "string") return PLACEHOLDER_TOKEN;
+  const [header, payload] = realJwt.split(".");
+  const claims = payload === undefined ? null : parseJsonObject(Buffer.from(payload, "base64url").toString("utf8"));
+  if (header === undefined || claims === null) return PLACEHOLDER_TOKEN;
+  const placeholderClaims = Buffer.from(JSON.stringify({ ...claims, exp: placeholderExpirySeconds(nowMs) })).toString("base64url");
+  return `${header}.${placeholderClaims}.${Buffer.from(PLACEHOLDER_TOKEN).toString("base64url")}`;
+}
+
+function codexPlaceholderAuth(realAuthJson: string, nowMs: number): { placeholder: string } | { refusal: string } {
+  const auth = parseJsonObject(realAuthJson);
+  if (auth === null) return { refusal: UNREADABLE_LOGIN_REFUSAL };
+  const tokens = isRecord(auth.tokens) ? auth.tokens : null;
+  if (tokens === null) return { refusal: "Codex is signed in with an API key, and the sandbox credential proxy places only a ChatGPT sign-in; sign Codex in with ChatGPT to run it sandboxed" };
+  const placeholderTokens = { ...tokens, id_token: placeholderJwtOf(tokens.id_token, nowMs), access_token: placeholderJwtOf(tokens.access_token, nowMs), refresh_token: PLACEHOLDER_TOKEN };
+  const apiKey = typeof auth.OPENAI_API_KEY === "string" ? PLACEHOLDER_TOKEN : auth.OPENAI_API_KEY;
+  return { placeholder: `${JSON.stringify({ ...auth, OPENAI_API_KEY: apiKey, tokens: placeholderTokens, last_refresh: new Date(nowMs).toISOString() }, null, 2)}\n` };
+}
+
+function kimiPlaceholderCredentials(realCredentialsJson: string, nowMs: number): { placeholder: string } | { refusal: string } {
+  const credentials = parseJsonObject(realCredentialsJson);
+  if (credentials === null) return { refusal: UNREADABLE_LOGIN_REFUSAL };
+  return { placeholder: `${JSON.stringify({ ...credentials, access_token: PLACEHOLDER_TOKEN, refresh_token: PLACEHOLDER_TOKEN, expires_at: placeholderExpirySeconds(nowMs) })}\n` };
+}
+
+function placeholderEnv(agent: string): Record<string, string> {
+  if (agent === "claude-code") return { CLAUDE_CODE_OAUTH_TOKEN: PLACEHOLDER_TOKEN, GH_TOKEN: PLACEHOLDER_TOKEN };
+  return { GH_TOKEN: PLACEHOLDER_TOKEN };
 }
 
 function doesProjectConfigTurnHooksOff(profile: AgentHomeProfile, configText: unknown): boolean {
@@ -580,6 +627,7 @@ function isAccountEntryName(name: string, inputs: AgentHomeInputs): boolean {
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
   if (inputs.isClean && inputs.profile.cleanOmits?.entryNames.includes(name)) return true;
+  if (inputs.isSandboxed && inputs.profile.sandboxLogin?.entryName === name) return true;
   return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform) || isAccountEntryName(name, inputs);
 }
 
@@ -678,6 +726,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   isPrivateEntryName: () => false,
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
   account: accountSeamOf(/^(?:credentials|oauth|region|region\.json)$/, /^\[[^[].*\.oauth#\d+$/),
+  sandboxLogin: Object.freeze({ entryName: "credentials", fileSegments: Object.freeze(["credentials", "kimi-code.json"]), placeholderOf: kimiPlaceholderCredentials }),
 });
 
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;
@@ -713,6 +762,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   isPrivateEntryName: (name: string, platform: NodeJS.Platform) => platform === "win32" && CODEX_SQLITE_NAME_PATTERN.test(name),
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
   account: accountSeamOf(/^auth\.(?:json|lock)$/),
+  sandboxLogin: Object.freeze({ entryName: "auth.json", fileSegments: Object.freeze(["auth.json"]), placeholderOf: codexPlaceholderAuth }),
 });
 
 function renderGeminiLauncherConfig(operatorLauncherText: string): string {
@@ -1015,6 +1065,7 @@ export {
   fileStampKey,
   linkKindFor,
   planAgentHome,
+  placeholderEnv,
   renderCodexHookTables,
   renderCodexHooksBlock,
   tomlBasicString,

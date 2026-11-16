@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,7 @@ import path from "node:path";
 import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
+import { clock } from "../shared/clock.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import { mergeSharedKeys } from "./core/agent-account-core.ts";
@@ -14,6 +16,8 @@ import type { AgentHomeLinkKind, AgentHomePlan, AgentHomeProfile, AgentHomeStep,
 const GENERATED_HOME_MODE = 0o700;
 const GENERATED_FILE_MODE = 0o600;
 const CLEAN_HOME_FOLDER_NAME = "clean";
+const SANDBOXED_HOME_FOLDER_NAME = "sandboxed";
+const SANDBOXED_ACCOUNT_HOME_PREFIX = "account-";
 
 type AgentHomeEnv = Record<string, string | undefined>;
 
@@ -26,7 +30,14 @@ interface AgentHomeOptions {
   generatedFiles?: Readonly<Record<string, string>>;
   isClean?: boolean;
   isAccountHome?: boolean;
+  isSandboxed?: boolean;
   packSkillDirs?: readonly string[];
+}
+
+interface SessionAgentHomeChoice {
+  isClean?: boolean;
+  accountFolder?: string | null;
+  isSandboxed?: boolean;
 }
 
 interface ScratchAgentHomeOptions {
@@ -43,6 +54,18 @@ function realAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv = process.en
 
 function generatedAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv = process.env, homeDir: string = os.homedir(), isClean?: boolean): string {
   return path.join(glimmervoidHomeDir(homeDir, env), "agent-homes", profile.vendor, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
+}
+
+function sandboxedHomesRootOf(profile: AgentHomeProfile, env: AgentHomeEnv): string {
+  return path.join(glimmervoidHomeDir(os.homedir(), env), "agent-homes", profile.vendor, SANDBOXED_HOME_FOLDER_NAME);
+}
+
+function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { isClean = false, accountFolder = null, isSandboxed = false }: SessionAgentHomeChoice): string {
+  if (!isSandboxed) return accountFolder === null ? generatedAgentHomePath(profile, env, os.homedir(), isClean) : accountHomeOf(profile, accountFolder);
+  const sandboxedRoot = sandboxedHomesRootOf(profile, env);
+  if (accountFolder === null) return path.join(sandboxedRoot, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
+  const accountKey = createHash("sha256").update(path.resolve(accountFolder)).digest("hex").slice(0, 16);
+  return path.join(sandboxedRoot, `${SANDBOXED_ACCOUNT_HOME_PREFIX}${accountKey}`, profile.homeEnvSubfolder ?? "");
 }
 
 function agentHomeLinkRefusal(generatedHome: string): string | null {
@@ -188,7 +211,7 @@ function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedH
   };
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome, isSandboxed, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const configTexts = readConfigTexts(profile, realHome, generatedHome);
   if ("refusal" in configTexts) return { kind: "refused", reason: configTexts.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
@@ -205,6 +228,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     platform,
     isClean: isClean === true,
     isAccountHome: isAccountHome === true,
+    isSandboxed: isSandboxed === true,
     packSkillDirs,
   });
 }
@@ -419,6 +443,7 @@ function prepareAgentHome(profile: AgentHomeProfile, options: AgentHomeOptions):
   }
   for (const [name, text] of Object.entries(options.generatedFiles ?? {})) {
     try {
+      fs.mkdirSync(path.dirname(path.join(generatedHome, name)), { recursive: true, mode: GENERATED_HOME_MODE });
       writeTextAtomicSync(path.join(generatedHome, name), text, { mode: GENERATED_FILE_MODE, enforceMode: true });
     } catch (error) {
       return { refusal: `${path.join(generatedHome, name)} cannot be written: ${errorMessage(error)}` };
@@ -519,9 +544,39 @@ function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, r
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null, packSkillDirs: readonly string[] = []): { home: string } | { refusal: string } {
+function placeholderLoginFiles(profile: AgentHomeProfile, loginHome: string, nowMs: number): { files: Record<string, string> } | { refusal: string } {
+  const sandboxLogin = profile.sandboxLogin;
+  if (sandboxLogin === undefined) return { files: {} };
+  const realLoginText = readOptionalText(path.join(loginHome, ...sandboxLogin.fileSegments));
+  if (realLoginText === null) return { files: {} };
+  const placeholder = sandboxLogin.placeholderOf(realLoginText, nowMs);
+  if ("refusal" in placeholder) return { refusal: `A sandboxed ${profile.vendor} session cannot start: ${placeholder.refusal}.` };
+  return { files: { [path.join(...sandboxLogin.fileSegments)]: placeholder.placeholder } };
+}
+
+function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, choice: SessionAgentHomeChoice, packSkillDirs: readonly string[]): { home: string } | { refusal: string } {
+  const accountFolder = choice.accountFolder ?? null;
+  if (accountFolder !== null) {
+    const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
+    if (refusal !== null) return { refusal };
+  }
+  const loginEnv = accountFolder === null ? env : { ...env, [profile.homeEnvName]: accountHomeOf(profile, accountFolder) };
+  const generatedHome = sessionAgentHomePath(profile, env, choice);
+  const linkRefusal = agentHomeLinkRefusal(generatedHome);
+  if (linkRefusal !== null) return { refusal: linkRefusal };
+  const placeholderLogin = placeholderLoginFiles(profile, realAgentHome(profile, loginEnv), clock.nowMs());
+  if ("refusal" in placeholderLogin) return placeholderLogin;
+  holdAgentHome(generatedHome);
+  const generatedFiles = { ...renderGeneratedFiles(), ...placeholderLogin.files };
+  const prepared = prepareAgentHome(profile, { env: loginEnv, renderBlock, generatedFiles, generatedHome, isClean: choice.isClean, isSandboxed: true, packSkillDirs });
+  if ("refusal" in prepared) releaseAgentHome(generatedHome);
+  return prepared;
+}
+
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null, packSkillDirs: readonly string[] = [], isSandboxed = false): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
+  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, renderBlock, renderGeneratedFiles, { isClean, accountFolder, isSandboxed }, packSkillDirs);
   if (accountFolder !== null) return holdPreparedAccountHome(profile, env, renderBlock, renderGeneratedFiles, accountFolder, packSkillDirs);
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
@@ -648,13 +703,21 @@ function releaseUnheldAgentHomeSecrets(generatedHome: string): void {
   releaseSecretsUnlessHeldElsewhere(generatedHome, { whenLocksMissing: "keep" });
 }
 
+function releaseEveryUnheldSandboxedHomeSecrets(profile: AgentHomeProfile, env: AgentHomeEnv): void {
+  const sandboxedRoot = sandboxedHomesRootOf(profile, env);
+  const accountHomeNames = listFolder(sandboxedRoot).filter((entry) => entry.isDirectory() && entry.name.startsWith(SANDBOXED_ACCOUNT_HOME_PREFIX)).map((entry) => entry.name);
+  for (const homeName of ["", CLEAN_HOME_FOLDER_NAME, ...accountHomeNames]) releaseUnheldAgentHomeSecrets(path.join(sandboxedRoot, homeName, profile.homeEnvSubfolder ?? ""));
+}
+
 function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env, accountHomes: readonly { profile: AgentHomeProfile; folder: string }[] = []): void {
   for (const { profile, folder } of accountHomes) releaseUnheldAccountHomeSecrets(profile, folder);
   for (const profile of AGENT_HOME_PROFILES) {
     releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env));
     if (profile.cleanOmits) releaseUnheldAgentHomeSecrets(generatedAgentHomePath(profile, env, undefined, true));
+    if (profile.sandboxLogin !== undefined) releaseEveryUnheldSandboxedHomeSecrets(profile, env);
   }
 }
 
-export { describeAgentHome, generatedAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, generatedAgentHomePath, sessionAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
 
+export type { SessionAgentHomeChoice };

@@ -19,17 +19,25 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = Object.freeze([
 ]);
 
 const GLIMMERVOID_HOME_READABLE_FOLDERS: readonly string[] = Object.freeze([
-  'bin', 'runtime', 'sane-yolo', path.join('scratch', 'glimmervoid-hooks'), 'packs', 'pack-session-files', 'uploads', 'agent-homes', 'agent-accounts',
+  'bin', 'runtime', 'sane-yolo', path.join('scratch', 'glimmervoid-hooks'), 'packs', 'pack-session-files', 'uploads', 'agent-homes',
 ]);
 
-const GLIMMERVOID_HOME_WRITABLE_FOLDERS: readonly string[] = Object.freeze(['agent-homes', 'agent-accounts']);
+const GLIMMERVOID_HOME_WRITABLE_FOLDERS: readonly string[] = Object.freeze(['agent-homes']);
 
 const HOME_UNREADABLE_PATHS: readonly string[] = Object.freeze(['.ssh', path.join('.config', 'gh'), '.git-credentials', '.netrc', '.docker']);
 
-const HOME_WRITABLE_PATHS: readonly string[] = Object.freeze([
-  '.claude', '.claude.json', '.codex', '.kimi', '.kimi-code', '.cache', '.npm', path.join('.local', 'state'),
-  path.join('.local', 'share', 'opencode'),
-]);
+const SHARED_HOME_WRITABLE_PATHS: readonly string[] = Object.freeze(['.cache', '.npm', path.join('.local', 'state')]);
+
+const AGENT_HOME_PATHS_BY_AGENT: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'claude-code': ['.claude', '.claude.json'],
+  codex: ['.codex'],
+  kimi: ['.kimi', '.kimi-code'],
+  opencode: [path.join('.local', 'share', 'opencode')],
+  gemini: ['.gemini'],
+  qwen: ['.qwen'],
+  copilot: ['.copilot'],
+  grok: ['.grok'],
+});
 
 const PLATFORM_SOCKET_PATHS: readonly string[] = Object.freeze(['/var/run/docker.sock', '/run/docker.sock']);
 
@@ -44,6 +52,8 @@ interface SandboxPolicyInput {
   glimmervoidHome: string;
   configFolder: string;
   secretPaths: readonly string[];
+  agent: string;
+  accountFolder: string | null;
   userId: number;
   worktree: string;
   gitRepositories: readonly GitRepositoryLayout[];
@@ -90,6 +100,9 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
   const underHome = (relativePath: string) => path.join(input.homeDir, relativePath);
   const glimmervoidFolders = [...new Set([input.glimmervoidHome, input.configFolder])];
   const underGlimmervoidFolders = (relativePaths: readonly string[]) => glimmervoidFolders.flatMap((folder) => relativePaths.map((relativePath) => path.join(folder, relativePath)));
+  const ownHomePaths = AGENT_HOME_PATHS_BY_AGENT[input.agent] ?? [];
+  const otherAgentHomePaths = Object.entries(AGENT_HOME_PATHS_BY_AGENT).flatMap(([agent, homePaths]) => agent === input.agent ? [] : homePaths.filter((homePath) => !ownHomePaths.includes(homePath)));
+  const accountFolders = input.accountFolder === null ? [] : [input.accountFolder];
   return {
     network: {
       allowedDomains: [...new Set([...DEFAULT_ALLOWED_HOSTS, ...input.extraAllowedHosts])],
@@ -98,14 +111,15 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
       ...(input.credentialProxy === null ? {} : { mitmProxy: { socketPath: input.credentialProxy.socketPath, domains: [...input.credentialProxy.hosts] } }),
     },
     filesystem: {
-      denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
-      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), input.sessionTempFolder, ...input.readableFiles],
+      denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...otherAgentHomePaths.map(underHome), ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId))],
+      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), ...accountFolders, input.sessionTempFolder, ...input.readableFiles],
       allowWrite: [
         input.worktree,
         ...new Set(input.gitRepositories.map((repository) => repository.commonDir)),
         input.sessionTempFolder,
         ...underGlimmervoidFolders(GLIMMERVOID_HOME_WRITABLE_FOLDERS),
-        ...HOME_WRITABLE_PATHS.map(underHome),
+        ...accountFolders,
+        ...[...SHARED_HOME_WRITABLE_PATHS, ...ownHomePaths].map(underHome),
       ],
       denyWrite: [...new Set(input.gitRepositories.flatMap(gitMetadataDeniedWrites))],
     },

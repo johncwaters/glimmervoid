@@ -18,7 +18,8 @@ import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core
 import { CODEX_HOME_PROFILE, renderCodexHookTables, renderCodexHooksBlock } from "../core/agent-home-core.ts";
 import type { CodexHomeHook, ProjectHookTrust } from "../core/agent-home-core.ts";
 import { CODEX_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
-import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent-home.ts";
+import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from "../agent-home.ts";
+import type { SessionAgentHomeChoice } from "../agent-home.ts";
 import { readCodexHookHashes } from "../codex-hook-trust.ts";
 import type { CodexAppServerCommand } from "../../server/codex-app-server-request.ts";
 import { errorMessage } from "../../shared/text.ts";
@@ -411,16 +412,16 @@ function releaseTrustedFolder(sessionFolder: string): void {
   trustedFolderByPath.delete(sessionFolder);
 }
 
-function prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder: string | null = null, packSkillDirs: readonly string[] = []): { home: string; isTrusted: boolean } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, sessionFolder: string, homeChoice: SessionAgentHomeChoice, packSkillDirs: readonly string[] = []): { home: string; isTrusted: boolean } | { refusal: string } {
   const hooks = codexHomeHooks();
   if (!hooks) return { refusal: HOOKS_BLOCK_REFUSAL };
   const trustedHashes = trustedHashesByHookTables.get(renderCodexHookTables(hooks)) ?? null;
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
-  const generatedHome = accountFolder ?? generatedAgentHomePath(CODEX_HOME_PROFILE, env, undefined, isCleanHome);
+  const generatedHome = sessionAgentHomePath(CODEX_HOME_PROFILE, env, homeChoice);
   holdTrustedFolder(sessionFolder);
   const trustedFolders = [...trustedFolderByPath.keys()];
   const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, isCleanHome, accountFolder, packSkillDirs);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, homeChoice.isClean, homeChoice.accountFolder ?? null, packSkillDirs, homeChoice.isSandboxed);
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;

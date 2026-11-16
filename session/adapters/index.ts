@@ -1,5 +1,6 @@
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
+import type { SessionAgentHomeChoice } from "../agent-home.ts";
 import claudeCode from "./claude-code.ts";
 import codex from "./codex.ts";
 import gemini from "./gemini.ts";
@@ -52,7 +53,7 @@ interface SettingsFileInjection {
 interface HookedAgentHome {
   homeEnvName: string;
   readTrust(sessionFolder: string): Promise<void>;
-  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, isCleanHome: boolean, accountFolder?: string | null, packSkillDirs?: readonly string[]): { home: string; isTrusted: boolean } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, sessionFolder: string, homeChoice: SessionAgentHomeChoice, packSkillDirs?: readonly string[]): { home: string; isTrusted: boolean } | { refusal: string };
   releaseHome(home: string, sessionFolder: string): void;
 }
 
@@ -99,6 +100,7 @@ interface GeneratedHomeLaunch {
   accountFolder?: string | null;
   packSkillDirs?: readonly string[];
   modelSelection?: ModelSelection | null;
+  isSandboxed?: boolean;
 }
 
 interface GeneratedHomeInjection {

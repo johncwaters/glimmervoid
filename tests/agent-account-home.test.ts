@@ -183,3 +183,36 @@ test('a claude account home starts when the machine global config is empty and l
   assert.deepEqual(prepared, { home: accountFolder });
   assert.deepEqual(readJson(path.join(accountFolder, '.claude.json')), { oauthAccount: { org: 'team' }, mcpServers: { stale: {} } });
 });
+
+test('a sandboxed session home holds a placeholder login and never the real token', () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sandboxed-home-'));
+  const realToken = 'real-secret-token';
+  const realJwt = ['eyJhbGciOiJSUzI1NiJ9', Buffer.from(JSON.stringify({ sub: 'person', exp: 1 })).toString('base64url'), realToken].join('.');
+  const codexHome = path.join(homeDir, '.codex');
+  const kimiHome = path.join(homeDir, '.kimi-code');
+  const accountFolder = path.join(homeDir, 'accounts', 'team');
+  fs.mkdirSync(path.join(codexHome, 'sessions'), { recursive: true });
+  fs.mkdirSync(path.join(kimiHome, 'credentials'), { recursive: true });
+  fs.mkdirSync(accountFolder, { recursive: true });
+  writeJson(path.join(codexHome, 'auth.json'), { auth_mode: 'chatgpt', OPENAI_API_KEY: realToken, tokens: { id_token: realJwt, access_token: realJwt, refresh_token: realToken, account_id: 'personal' } });
+  writeJson(path.join(accountFolder, 'auth.json'), { auth_mode: 'chatgpt', tokens: { id_token: realJwt, access_token: realJwt, refresh_token: realToken, account_id: 'team' } });
+  writeJson(path.join(kimiHome, 'credentials', 'kimi-code.json'), { access_token: realToken, refresh_token: realToken, expires_at: 1, token_type: 'Bearer' });
+  const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), CODEX_HOME: codexHome, KIMI_CODE_HOME: kimiHome };
+  const placeholderLoginOf = (profile: typeof CODEX_HOME_PROFILE, loginSegments: string[], accountFolderOrNull: string | null) => {
+    const prepared = holdPreparedAgentHome(profile, env, () => '', () => ({}), false, accountFolderOrNull, [], true);
+    assert.ok('home' in prepared);
+    const loginPath = path.join(prepared.home, ...loginSegments);
+    assert.equal(fs.lstatSync(path.join(prepared.home, loginSegments[0] ?? '')).isSymbolicLink(), false);
+    const loginText = fs.readFileSync(loginPath, 'utf8');
+    releaseAgentHome(prepared.home);
+    assert.equal(loginText.includes(realToken), false);
+    return JSON.parse(loginText);
+  };
+
+  assert.equal(placeholderLoginOf(CODEX_HOME_PROFILE, ['auth.json'], null).tokens.account_id, 'personal');
+  assert.equal(placeholderLoginOf(CODEX_HOME_PROFILE, ['auth.json'], accountFolder).tokens.account_id, 'team');
+  assert.equal(placeholderLoginOf(KIMI_HOME_PROFILE, ['credentials', 'kimi-code.json'], null).token_type, 'Bearer');
+  writeJson(path.join(codexHome, 'auth.json'), { auth_mode: 'apikey', OPENAI_API_KEY: realToken, tokens: null });
+  const apiKeyLaunch = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, () => '', () => ({}), false, null, [], true);
+  assert.ok('refusal' in apiKeyLaunch && !apiKeyLaunch.refusal.includes(realToken));
+});

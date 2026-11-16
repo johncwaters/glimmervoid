@@ -246,6 +246,7 @@ type ResolveLaunchSecrets = (request: { names: string[]; cwd: string }) => Promi
 
 interface SandboxLaunchFacts {
   agent: string;
+  accountFolder: string | null;
   file: string;
   args: string[];
   env: SpawnEnv;
@@ -2111,7 +2112,7 @@ class Session extends EventEmitter {
   async _sandboxedCommand(command: { file: string; args: string[] }, env: SpawnEnv, isStartSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null> {
     if (this._prepareSandbox === null) return { ...command, env };
     this._disposeSandboxLaunch();
-    const prepared = await this._prepareSandbox({ ...command, agent: this.agentId, env, cwd: this.effectiveCwd() })
+    const prepared = await this._prepareSandbox({ ...command, agent: this.agentId, accountFolder: this._accountFolder, env, cwd: this.effectiveCwd() })
       .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
     if (isStartSuperseded()) {
       if (prepared.ok) void prepared.launch.dispose();

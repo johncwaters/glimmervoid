@@ -143,7 +143,7 @@ test('the generated Codex home trusts the session folder and its Sane YOLO hook 
     assert.ok(injection.home);
     const realCodexHome = path.join(env.HOME ?? '', '.codex');
     fs.mkdirSync(realCodexHome);
-    const prepared = injection.home.prepareHome({ ...env, CODEX_HOME: realCodexHome }, cwd, false);
+    const prepared = injection.home.prepareHome({ ...env, CODEX_HOME: realCodexHome }, cwd, { isClean: false });
     assert.ok('home' in prepared, JSON.stringify(prepared));
     try {
       const generatedConfig = fs.readFileSync(path.join(prepared.home, 'config.toml'), 'utf8');

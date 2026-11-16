@@ -54,12 +54,29 @@ function modelLoginLayoutFor(agent: string): ModelLoginLayout | null {
   return isCredentialedAgent(agent) ? MODEL_LOGIN_LAYOUTS[agent] : null;
 }
 
-function modelLoginFileFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string): string | null {
+function modelLoginHomeFor(layout: ModelLoginLayout, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null): string {
+  if (accountFolder !== null) return accountFolder;
+  const configuredHome = env[layout.homeEnvName]?.trim();
+  return configuredHome ? configuredHome : path.join(homeDir, layout.defaultHomeFolderName);
+}
+
+function modelLoginFileFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
   const layout = modelLoginLayoutFor(agent);
   if (layout === null) return null;
-  const configuredHome = env[layout.homeEnvName]?.trim();
-  const loginHome = configuredHome ? configuredHome : path.join(homeDir, layout.defaultHomeFolderName);
-  return path.join(loginHome, ...layout.loginFileSegments);
+  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), ...layout.loginFileSegments);
+}
+
+function modelLoginEntryFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
+  const layout = modelLoginLayoutFor(agent);
+  if (layout === null) return null;
+  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), layout.loginFileSegments[0] ?? '');
+}
+
+function everyModelLoginEntry(env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolders: readonly string[]): string[] {
+  const agents = Object.keys(MODEL_LOGIN_LAYOUTS);
+  const realLogins = agents.flatMap((agent) => modelLoginEntryFor(agent, env, homeDir) ?? []);
+  const accountLogins = accountFolders.flatMap((accountFolder) => agents.flatMap((agent) => modelLoginEntryFor(agent, env, homeDir, accountFolder) ?? []));
+  return [...realLogins, ...accountLogins];
 }
 
 function valueAtKeyPath(parsed: unknown, keyPath: readonly string[]): unknown {
@@ -153,5 +170,5 @@ function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   return { ...allow, cred: credential.credentialClass, credential: credential.token };
 }
 
-export { CREDENTIALED_HOSTS, createFrameReader, credentialSourceFor, encodeFrame, helloReply, modelLoginFileFor, modelTokenFrom, verdictFor };
+export { CREDENTIALED_HOSTS, createFrameReader, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginFileFor, modelTokenFrom, verdictFor };
 export type { ProxyFrame, ProxyRequest };
