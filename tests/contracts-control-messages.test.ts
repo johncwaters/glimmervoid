@@ -72,6 +72,7 @@ const SESSION = {
   passedQuestionSeq: 0,
   isQuestionManagerOn: true,
   accountId: null,
+  modelSelection: { agent: 'claude-code', model: 'opus', options: [] },
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
   attentionNotes: [{ origin: 'child-kept', note: 'The child worktree was kept because it holds uncommitted work', at: NOW }],
