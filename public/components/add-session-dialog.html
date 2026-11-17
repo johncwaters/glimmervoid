@@ -1,11 +1,9 @@
 <h2 class="dialog-title" id="add-session-title">What are we working on?</h2>
-<p class="add-session-sentence">Start <span id="add-session-agent-word-slot"></span><span id="add-session-model-words" hidden> on <span id="add-session-model-word-slot"></span> <span id="add-session-effort-word-slot"></span></span> in <span id="add-session-repo-word-slot"></span></p>
+<p class="add-session-sentence">Start <span id="add-session-agent-word-slot"></span><span id="add-session-account-words" hidden> as <span id="add-session-account-word-slot"></span></span><span id="add-session-model-words" hidden> on <span id="add-session-model-word-slot"></span></span> in <span id="add-session-repo-word-slot"></span></p>
 <fieldset class="add-session-launchers" id="add-session-launchers" aria-label="Pack launchers" hidden></fieldset>
 <div class="add-session-pick" id="add-session-pick">
-  <div class="add-session-find-row">
-    <input type="text" class="dialog-input add-session-find" id="add-session-find" placeholder="Find a project" autocomplete="off" spellcheck="false" aria-label="Find a project">
-    <div class="add-session-tabs" id="add-session-model-tabs" role="tablist" aria-label="Model source" hidden></div>
-  </div>
+  <div id="add-session-effort-back-slot"></div>
+  <input type="text" class="dialog-input add-session-find" id="add-session-find" placeholder="Find a project" autocomplete="off" spellcheck="false" aria-label="Find a project">
   <div class="add-session-list" id="add-session-list" role="listbox" aria-label="Projects"></div>
   <div class="dialog-repo-roots" id="add-session-repo-roots" hidden>
     <p class="dialog-repo-roots-title" id="add-session-repo-roots-title">Add a repository</p>
@@ -24,9 +22,6 @@
 <label class="dialog-label" id="add-session-issue">GitHub issue
   <input type="text" class="dialog-input" id="add-session-issue-number" inputmode="numeric" placeholder="Optional issue number, such as 128" autocomplete="off" spellcheck="false">
 </label>
-<div class="dialog-label" id="add-session-account" hidden>Account
-  <div class="add-session-chips" id="add-session-account-chips" role="radiogroup" aria-label="Account"></div>
-</div>
 <p class="dialog-hint" id="add-session-sign-in" role="status" hidden></p>
 <p class="dialog-hint" id="add-session-unprotected" hidden></p>
 <div class="dialog-error add-session-message" id="add-session-error"></div>
