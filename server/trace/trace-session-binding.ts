@@ -124,6 +124,21 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     await drainBinding(binding);
   }
 
+  function locateAndBind(glimmervoidSessionId: string, vendorSessionId: string, vendor: string, source: TranscriptConversationSource, bound: TraceBinding | undefined): void {
+    const { locateTranscript } = source;
+    if (!locateTranscript || bound?.vendorSessionId === vendorSessionId) return;
+    chain(async () => {
+      const launchEnv = launchEnvByGlimmervoidSessionId.get(glimmervoidSessionId)?.() ?? process.env;
+      const locatedPath = await locateTranscript(vendorSessionId, launchEnv);
+      if (!locatedPath) {
+        if (closedSessionIds.has(glimmervoidSessionId)) return;
+        awaitingTranscriptByGlimmervoidSessionId.set(glimmervoidSessionId, { id: vendorSessionId, vendor, transcriptPath: '' });
+        return;
+      }
+      await bindSession(glimmervoidSessionId, vendorSessionId, vendor, source, locatedPath);
+    }, 'transcript locate failed');
+  }
+
   function noteVendorSession(glimmervoidSessionId: string, eventPayload: Record<string, unknown>): void {
     if (isStopped() || closedSessionIds.has(glimmervoidSessionId)) return;
     const vendorSessionId = typeof eventPayload.id === 'string' ? eventPayload.id : '';
@@ -133,9 +148,12 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     if (!vendor) return;
     if (!traceFilePath(glimmervoidSessionId)) return;
     const rawPath = typeof eventPayload.transcriptPath === 'string' ? eventPayload.transcriptPath : '';
-    if (!rawPath) return;
-    const requestedTranscriptPath = path.resolve(rawPath);
     const bound = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
+    if (!rawPath) {
+      locateAndBind(glimmervoidSessionId, vendorSessionId, vendor, source, bound);
+      return;
+    }
+    const requestedTranscriptPath = path.resolve(rawPath);
     if (bound
       && bound.vendorSessionId === vendorSessionId
       && bound.requestedTranscriptPath === requestedTranscriptPath) return;

@@ -1,0 +1,21 @@
+import type { TraceRecord } from '../../../shared/contracts/trace.ts';
+import { boundedText } from '../trace-core.ts';
+
+type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId'>;
+
+function parsedJson(rawLine: string): unknown {
+  try {
+    return JSON.parse(rawLine);
+  } catch {
+    return null;
+  }
+}
+
+function textRecords(base: RecordBase, kind: 'prompt' | 'assistant' | 'thinking' | 'expansion', text: string): TraceRecord[] {
+  if (text.length === 0) return [];
+  const bounded = boundedText(text);
+  return [{ ...base, kind, text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) }];
+}
+
+export { parsedJson, textRecords };
+export type { RecordBase };

@@ -7,6 +7,8 @@ import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import { traceRecordsFromTranscriptLine } from '../core/trace-core.ts';
 import { codexRecordsFromLine } from '../core/conversation/codex-core.ts';
 import { codexRolloutRoots } from '../../session/adapters/codex.ts';
+import { kimiRecordsFromLine } from '../core/conversation/kimi-core.ts';
+import { kimiSessionRoots, locateKimiWire } from '../../session/adapters/kimi.ts';
 import { isPathInside } from '../../shared/paths.ts';
 
 type TranscriptLineContext = Parameters<typeof traceRecordsFromTranscriptLine>[1];
@@ -15,6 +17,7 @@ interface TranscriptConversationSource {
   kind: 'transcript';
   containmentRoots(agentEnv: Record<string, string | undefined>): string[];
   recordsFromLine(rawLine: string, context: TranscriptLineContext): TraceRecord[];
+  locateTranscript?(vendorSessionId: string, agentEnv: Record<string, string | undefined>): Promise<string | null>;
 }
 
 type ConversationSource =
@@ -35,7 +38,12 @@ const conversationSourceByAgentId = {
     containmentRoots: codexRolloutRoots,
     recordsFromLine: codexRecordsFromLine,
   },
-  kimi: { kind: 'none', reason: CONVERTER_NOT_BUILT },
+  kimi: {
+    kind: 'transcript',
+    containmentRoots: kimiSessionRoots,
+    recordsFromLine: kimiRecordsFromLine,
+    locateTranscript: locateKimiWire,
+  },
   opencode: { kind: 'none', reason: CONVERTER_NOT_BUILT },
   pi: { kind: 'none', reason: CONVERTER_NOT_BUILT },
   antigravity: { kind: 'none', reason: CONVERTER_NOT_BUILT },

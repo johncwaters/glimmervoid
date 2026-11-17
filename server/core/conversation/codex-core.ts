@@ -4,6 +4,8 @@ import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../../shared/contracts/trace.ts';
 import { boundedText, boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
 import type { TraceLineContext } from '../trace-core.ts';
+import { parsedJson, textRecords } from './converter-parts.ts';
+import type { RecordBase } from './converter-parts.ts';
 
 const ITEM_COMPLETED_MARKER = '"item_completed"';
 
@@ -43,15 +45,6 @@ const FileChangeItem = z.object({
 });
 
 type ItemCompleted = z.infer<typeof ItemCompletedLine>;
-type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId'>;
-
-function parsedJson(rawLine: string): unknown {
-  try {
-    return JSON.parse(rawLine);
-  } catch {
-    return null;
-  }
-}
 
 function joinedText(parts: readonly z.infer<typeof TextPart>[]): string {
   return parts.map((part) => part.text ?? '').join('');
@@ -71,12 +64,6 @@ function toolCallAndResult(base: RecordBase, toolUseId: string, name: string, in
   ];
 }
 
-function textRecord(base: RecordBase, kind: 'prompt' | 'assistant' | 'thinking', text: string): TraceRecord[] {
-  if (text.length === 0) return [];
-  const bounded = boundedText(text);
-  return [{ ...base, kind, text: bounded.text, ...(bounded.truncated ? { truncated: true } : {}) }];
-}
-
 function rawRecord(base: RecordBase, rawLine: string): TraceRecord[] {
   const isCut = rawLine.length > MAX_RAW_LINE_CHARS;
   return [{ ...base, kind: 'raw', line: rawLine.slice(0, MAX_RAW_LINE_CHARS), ...(isCut ? { truncated: true } : {}) }];
@@ -88,11 +75,11 @@ function recordsOfItem(base: RecordBase, item: ItemCompleted['payload']['item'],
     case 'AgentMessage': {
       const message = MessageItem.safeParse(item);
       if (!message.success) return rawRecord(base, rawLine);
-      return textRecord(base, item.type === 'UserMessage' ? 'prompt' : 'assistant', joinedText(message.data.content));
+      return textRecords(base, item.type === 'UserMessage' ? 'prompt' : 'assistant', joinedText(message.data.content));
     }
     case 'Reasoning': {
       const reasoning = ReasoningItem.safeParse(item);
-      return reasoning.success ? textRecord(base, 'thinking', reasoning.data.summary_text.join('\n')) : [];
+      return reasoning.success ? textRecords(base, 'thinking', reasoning.data.summary_text.join('\n')) : [];
     }
     case 'CommandExecution': {
       const command = CommandExecutionItem.safeParse(item);

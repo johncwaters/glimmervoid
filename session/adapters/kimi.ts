@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 
 import { hookLaunch } from "../../server/runtime-paths.ts";
@@ -6,7 +7,9 @@ import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
-import { holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from "../agent-home.ts";
+import { generatedAgentHomePath, holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from "../agent-home.ts";
+import { kimiHomes } from "../../server/usage/core/usage-scan-core.ts";
+import { KIMI_USAGE_FILENAME } from "../../server/usage/core/usage-kimi-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type {
   AgentAdapterShape,
@@ -24,6 +27,7 @@ import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "..
 const ID = "kimi";
 const COMMAND_NAME = "kimi";
 const HOME_ENV_NAME = "KIMI_CODE_HOME";
+const KIMI_SESSION_ID_PATTERN = /^session_[0-9A-Za-z_-]+$/;
 const RELAY_LAUNCH = hookLaunch("hook-relay");
 const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const HOOK_EVENTS: readonly string[] = Object.freeze([
@@ -260,4 +264,27 @@ const kimi = {
   promptContextReply: "message",
 } satisfies AgentAdapterShape;
 
+function kimiSessionRoots(agentEnv: Record<string, string | undefined>): string[] {
+  const sessionHomes = [...kimiHomes(agentEnv, null), generatedAgentHomePath(KIMI_HOME_PROFILE, agentEnv), generatedAgentHomePath(KIMI_HOME_PROFILE, agentEnv, undefined, true)];
+  return sessionHomes.map((kimiHome) => path.join(kimiHome, "sessions"));
+}
+
+async function isFile(candidatePath: string): Promise<boolean> {
+  const stat = await fsPromises.stat(candidatePath).catch(() => null);
+  return stat?.isFile() ?? false;
+}
+
+async function locateKimiWire(vendorSessionId: string, agentEnv: Record<string, string | undefined>): Promise<string | null> {
+  if (!KIMI_SESSION_ID_PATTERN.test(vendorSessionId)) return null;
+  for (const sessionsRoot of kimiSessionRoots(agentEnv)) {
+    const workspaceFolders = await fsPromises.readdir(sessionsRoot).catch(() => []);
+    for (const workspaceFolder of workspaceFolders) {
+      const wirePath = path.join(sessionsRoot, workspaceFolder, vendorSessionId, "agents", "main", KIMI_USAGE_FILENAME);
+      if (await isFile(wirePath)) return wirePath;
+    }
+  }
+  return null;
+}
+
 export default kimi;
+export { kimiSessionRoots, locateKimiWire };
