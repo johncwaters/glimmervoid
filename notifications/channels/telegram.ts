@@ -1,6 +1,7 @@
 import { sendTelegramMessage } from '../../server/telegram-transport.ts';
 import { decideOffDashboardDelivery } from '../../server/core/client-presence.ts';
 import type { NotificationContext } from '../notification-manager.ts';
+import { sessionTagFor, withoutSessionTags } from '../../server/core/telegram-inbound-core.ts';
 
 interface TelegramDecision {
   send: boolean;
@@ -21,6 +22,24 @@ interface TelegramGateInput {
   activeAgents?: number;
 }
 
+interface OffDashboardGateInput {
+  isEnabled: boolean;
+  isConfigured: boolean;
+  connectionCount: number;
+  phoneEscalation: boolean;
+  category: string | null;
+  activeAgents: number;
+}
+
+function decideOffDashboardChannel({ isEnabled, isConfigured, connectionCount, phoneEscalation, category, activeAgents }: OffDashboardGateInput): TelegramDecision {
+  if (!isEnabled) return { send: false, reason: 'disabled' };
+  if (!isConfigured) return { send: false, reason: 'not-configured' };
+  if (category === 'complete' && activeAgents > 0) return { send: false, reason: 'active-agents' };
+  if (phoneEscalation) return { send: true, reason: 'unacknowledged-escalation' };
+  if (!decideOffDashboardDelivery(connectionCount)) return { send: false, reason: 'dashboard-open' };
+  return { send: true, reason: 'no-dashboard-audience' };
+}
+
 function decideTelegramNotification({
   enabled,
   botToken,
@@ -30,12 +49,14 @@ function decideTelegramNotification({
   category = null,
   activeAgents = 0,
 }: TelegramGateInput): TelegramDecision {
-  if (enabled !== true) return { send: false, reason: 'disabled' };
-  if (!botToken || !chatId) return { send: false, reason: 'not-configured' };
-  if (category === 'complete' && activeAgents > 0) return { send: false, reason: 'active-agents' };
-  if (phoneEscalation === true) return { send: true, reason: 'unacknowledged-escalation' };
-  if (!decideOffDashboardDelivery(connectionCount)) return { send: false, reason: 'dashboard-open' };
-  return { send: true, reason: 'no-dashboard-audience' };
+  return decideOffDashboardChannel({
+    isEnabled: enabled === true,
+    isConfigured: Boolean(botToken && chatId),
+    connectionCount,
+    phoneEscalation: phoneEscalation === true,
+    category,
+    activeAgents,
+  });
 }
 
 function formatTelegramText(sessionName: string, message: string): string {
@@ -43,13 +64,15 @@ function formatTelegramText(sessionName: string, message: string): string {
 }
 
 interface TelegramChannelDeps {
-  getConfig: () => { telegramNotifications?: boolean; telegram?: { botToken?: string; chatId?: string } | null } | null;
+  getConfig: () => { telegramNotifications?: boolean; telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null } | null;
 
   getConnectionCount: () => number;
   getActiveAgentCount?: (sessionId: string) => number;
   getSessionName?: (sessionId: string) => string | undefined;
 
   outbox?: { deliver: (text: string) => Promise<void> } | null;
+
+  taggedOutbox?: { deliver: (text: string) => Promise<void> } | null;
 
   send?: (message: { botToken: string; chatId: string; text: string; tag?: string }) => unknown;
 }
@@ -60,6 +83,7 @@ function createTelegramChannel({
   getActiveAgentCount = () => 0,
   getSessionName = () => undefined,
   outbox = null,
+  taggedOutbox = null,
   send = sendTelegramMessage,
 }: TelegramChannelDeps): (sessionName: string, category: string, message: string, context?: Partial<NotificationContext>) => TelegramDecision {
   return function telegramChannel(sessionId, category, message, context) {
@@ -79,10 +103,13 @@ function createTelegramChannel({
     });
     if (!decision.send) return decision;
     if (!botToken || !chatId) return decision;
-    const text = formatTelegramText(getSessionName(sessionId) || sessionId, message);
+    const alertText = formatTelegramText(getSessionName(sessionId) || sessionId, message);
+    const isTagged = telegram.acceptReplies === true;
+    const text = isTagged ? `${withoutSessionTags(alertText)} ${sessionTagFor(sessionId)}` : alertText;
+    const target = isTagged ? taggedOutbox ?? outbox : outbox;
 
-    if (outbox) {
-      void outbox.deliver(text);
+    if (target) {
+      void target.deliver(text);
       return decision;
     }
 
@@ -96,4 +123,5 @@ function createTelegramChannel({
   };
 }
 
-export { createTelegramChannel, decideTelegramNotification };
+export { createTelegramChannel, decideOffDashboardChannel, decideTelegramNotification, formatTelegramText };
+export type { TelegramDecision };

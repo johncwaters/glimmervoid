@@ -25,6 +25,16 @@ One bot for session, review and PostHog alerts.
 | `telegram.botToken` | Bot token | `""` | Token from @BotFather in Telegram (send /newbot). |
 | `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. |
 | `telegramNotifications` | Send session notifications | `false` | Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged. |
+| `telegram.acceptReplies` | Take replies | `false` | Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read. |
+
+### Slack
+
+Session alerts posted to one Slack channel through an incoming webhook.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `slack.webhookUrl` | Webhook URL | `""` | Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook). |
+| `slack.enabled` | Send session notifications | `false` | Alert in Slack when no dashboard is open, or when an alert sits unacknowledged. |
 
 ### Sessions
 
@@ -280,6 +290,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_MANAGED_BY` | operator | Name of whoever installs and pins this Glimmervoid, such as a hosting service. When set, Settings > Updates says that name manages the version, offers no update and the server makes no release check. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
+| `GLIMMERVOID_SLACK_WEBHOOK_URL` | operator | Supplies `slack.webhookUrl`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_POSTHOG_READ_API_KEY` | operator | Supplies `posthog.readApiKey`, the read-only PostHog key the watcher uses, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |

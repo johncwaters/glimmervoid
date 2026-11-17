@@ -782,6 +782,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     idleStop,
     awakeUsageAlerts,
     githubConnectionAlerts,
+    telegramInbound: notifications.telegramInbound,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,

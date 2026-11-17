@@ -25,6 +25,31 @@ export const MACHINE_TELEGRAM: SettingsSection = {
       description: 'Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged.',
       control: 'toggle', keywords: ['phone', 'off dashboard', 'test'], defaultValue: false, status: 'telegram-delivery', ...MACHINE_NOW,
     },
+    {
+      id: 'telegram-accept-replies', path: 'telegram.acceptReplies', title: 'Take replies',
+      description: 'Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read.',
+      control: 'toggle', keywords: ['answer', 'approve', 'inbound', 'remote'], defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
+export const MACHINE_SLACK: SettingsSection = {
+  id: 'machine-slack',
+  level: 'machine',
+  parent: 'browser-notifications',
+  title: 'Slack',
+  description: 'Session alerts posted to one Slack channel through an incoming webhook.',
+  settings: [
+    {
+      id: 'slack-webhook-url', path: 'slack.webhookUrl', title: 'Webhook URL',
+      description: 'Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook).',
+      control: 'password', keywords: ['credential', 'channel', 'hooks.slack.com'], defaultValue: '', ...MACHINE_NOW,
+    },
+    {
+      id: 'slack-session-notifications', path: 'slack.enabled', title: 'Send session notifications',
+      description: 'Alert in Slack when no dashboard is open, or when an alert sits unacknowledged.',
+      control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false, ...MACHINE_NOW,
+    },
   ],
 };
 

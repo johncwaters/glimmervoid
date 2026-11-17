@@ -192,9 +192,20 @@ const LanesSettings = optionalObject('lanes', {
   ).optional(),
 });
 
+export const SLACK_WEBHOOK_URL_PREFIX = 'https://hooks.slack.com/';
+
+const SlackSettings = optionalObject('slack', {
+  enabled: optionalBoolean('slack.enabled'),
+  webhookUrl: z.string({ error: 'slack.webhookUrl must be a string' })
+    .transform((value) => value.trim())
+    .refine((value) => value === '' || value.startsWith(SLACK_WEBHOOK_URL_PREFIX), { error: `slack.webhookUrl must be a Slack incoming webhook URL starting with ${SLACK_WEBHOOK_URL_PREFIX}` })
+    .optional(),
+});
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
+  acceptReplies: optionalBoolean('telegram.acceptReplies'),
 });
 
 
@@ -295,6 +306,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
+  slack: SlackSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),
