@@ -48,6 +48,15 @@ const CONVERSATION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture
   pi: { file: 'pi-session.jsonl', vendorSessionId: '01a1eaa3-6a11-745a-8f7a-862a3b0fdbe9' },
   antigravity: { file: 'antigravity-transcript.jsonl', vendorSessionId: 'e49c4f93-2b16-498c-ac66-a509a837905c' },
 };
+const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-spill.jsonl', vendorSessionId: 'b26ac462-dd87-4b37-bc79-319e6210fc72' },
+  codex: { unproducible: 'Codex converts CommandExecution.aggregated_output, the raw command output, which Codex never wraps; its truncation note lives only in the model-facing tool output' },
+  kimi: { file: 'kimi-spill.jsonl', vendorSessionId: 'session_4c392ca0-0483-4142-93eb-2c1724240a36' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host and its truncation note is not yet known, so no spilled relay event exists to capture' },
+  pi: { file: 'pi-spill.jsonl', vendorSessionId: '01a1eb36-5519-75b2-ad2e-f67b52e126e9' },
+  antigravity: { file: 'antigravity-spill.jsonl', vendorSessionId: '36aa83a7-4886-494b-80f8-9aafc4c7c16a' },
+};
+const SPILL_WRAPPER_TEXT = /persisted-output|Output too large|output_path|\[preview: chars \[0,|Full output:|truncated due to being too long/;
 const PROBE_FIXTURE_RECORD_SPACING_MS = 1000;
 const HEADER_READ_BYTES = 4096;
 
@@ -264,5 +273,21 @@ for (const agent of FIRST_CLASS_AGENTS) {
     for (const kind of REQUIRED_CONVERSATION_KINDS) assert.ok(kinds.has(kind), `${agent} produced no ${kind} record`);
     const toolCallIds = new Set(records.flatMap((record) => record.kind === 'tool_call' ? [record.toolUseId] : []));
     assert.ok(records.some((record) => record.kind === 'tool_result' && toolCallIds.has(record.toolUseId)), `${agent} paired no tool_result to a tool_call`);
+  });
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = SPILLED_OUTPUT_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`a spilled tool output keeps what the tool printed, not the save-to-file wrapper, on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`a spilled tool output keeps what the tool printed, not the save-to-file wrapper, on ${agent}`, () => {
+    const toolResults = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record)).flatMap((record) => record.kind === 'tool_result' ? [record] : []);
+    assert.equal(toolResults.length, 1, `${agent} produced no tool_result from its spilled output`);
+    const [toolResult] = toolResults;
+    assert.doesNotMatch(toolResult?.content ?? '', SPILL_WRAPPER_TEXT);
+    assert.match(toolResult?.content ?? '', /\d+\r?\n\d+\r?\n/);
+    assert.equal(toolResult?.truncated, true);
   });
 }

@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
-import { boundedText, boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
+import { boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
 import type { TraceLineContext } from '../trace-core.ts';
-import { parsedJson, textRecords } from './converter-parts.ts';
+import { boundedToolOutput, parsedJson, textRecords } from './converter-parts.ts';
 import type { RecordBase } from './converter-parts.ts';
 
 const CONVERSATION_LINE_MARKERS = ['"type":"message"', '"type":"custom_message"'];
@@ -39,8 +39,7 @@ function contentText(content: z.infer<typeof MessageContent>): string {
 }
 
 function toolResultRecord(base: RecordBase, toolUseId: string, output: string, isError: boolean): TraceRecord {
-  const bounded = boundedText(output);
-  return { ...base, kind: 'tool_result', toolUseId, content: bounded.text, isError, truncated: bounded.truncated };
+  return { ...base, kind: 'tool_result', toolUseId, isError, ...boundedToolOutput('pi', output) };
 }
 
 function assistantBlockRecords(base: RecordBase, block: z.infer<typeof ContentBlock>): TraceRecord[] {

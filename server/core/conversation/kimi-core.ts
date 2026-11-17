@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
-import { boundedText, boundedToolCallInput } from '../trace-core.ts';
+import { boundedToolCallInput } from '../trace-core.ts';
 import type { TraceLineContext } from '../trace-core.ts';
-import { parsedJson, textRecords } from './converter-parts.ts';
+import { boundedToolOutput, parsedJson, textRecords } from './converter-parts.ts';
 
 const CONVERSATION_LINE_MARKERS = ['"turn.prompt"', '"context.append_loop_event"'];
 
@@ -72,8 +72,7 @@ function loopEventRecords(rawRecord: unknown, context: TraceLineContext): TraceR
     case 'tool.result': {
       const toolResult = ToolResultEvent.safeParse(event);
       if (!toolResult.success) return [];
-      const bounded = boundedText(outputText(toolResult.data.result.output));
-      return [{ ...base, kind: 'tool_result', toolUseId: toolResult.data.toolCallId, content: bounded.text, isError: toolResult.data.result.isError === true, truncated: bounded.truncated }];
+      return [{ ...base, kind: 'tool_result', toolUseId: toolResult.data.toolCallId, isError: toolResult.data.result.isError === true, ...boundedToolOutput('kimi', outputText(toolResult.data.result.output)) }];
     }
     default:
       return [];

@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
-import { boundedText, boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
+import { boundedToolCallInput, parseTimestamp } from '../trace-core.ts';
 import type { TraceLineContext } from '../trace-core.ts';
-import { parsedJson, textRecords } from './converter-parts.ts';
+import { boundedToolOutput, parsedJson, textRecords } from './converter-parts.ts';
 import type { RecordBase } from './converter-parts.ts';
 
 const STEP_MARKER = '"step_index"';
@@ -48,8 +48,7 @@ function plannerRecords(base: RecordBase, step: Step): TraceRecord[] {
 function toolResultRecords(base: RecordBase, step: Step): TraceRecord[] {
   const output = step.content.replace(STEP_TIMING_LINE, '');
   const isError = step.status === 'ERROR' || NONZERO_EXIT.test(output);
-  const bounded = boundedText(output);
-  return [{ ...base, kind: 'tool_result', toolUseId: stepId(base.vendorSessionId, step.step_index), content: bounded.text, isError, truncated: bounded.truncated }];
+  return [{ ...base, kind: 'tool_result', toolUseId: stepId(base.vendorSessionId, step.step_index), isError, ...boundedToolOutput('antigravity', output) }];
 }
 
 function recordsOfStep(base: RecordBase, step: Step): TraceRecord[] {

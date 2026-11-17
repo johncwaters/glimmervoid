@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Wakes stay with the Glimmervoid that set them.** Scheduled wakes were kept in one wakes.json in the Glimmervoid home folder, so two instances started with different `--config` files shared it, and one marked the other's wakes as missed or wrote over them. Wakes now live in wakes.json beside your config. An instance with its own config folder starts with no wakes, so set its wakes again.
+- **Session Trace shows what a tool printed when its output was too large.** Claude, Kimi, pi and Antigravity save a large result to a file and hand back a note pointing at it; Trace now shows the kept preview, marked as cut, instead of that note.
 - **A pack panel that types into a session now presses Enter.** Text a panel sent with its sessions act was pasted into the agent's input box and left there unsent.
 - **Codex sessions on GPT-6 models are priced offline.** The bundled price list now carries GPT-6 Sol, Luna, Astra, Astra Law, Cyber and Rosalind, GPT-6.1 Sol and Terra, and GPT-6.2 Sol, Astra and Astra Law at OpenAI list price, so the Usage tab no longer reports them as having no price, and counts their cost, when the live price list cannot be fetched.
 

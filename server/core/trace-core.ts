@@ -1,6 +1,7 @@
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { parseJsonRecord } from './json-core.ts';
+import { unwrapSpilledToolOutput } from './conversation/spill-wrappers.ts';
 import { rawTextOr, textOr } from '../../shared/coerce.ts';
 
 const MAX_TRACE_BODY_CHARS = 65536;
@@ -224,14 +225,15 @@ function mapUserLine(
   if (toolResult) {
     const toolUseId = rawTextOr(toolResult.tool_use_id, null);
     if (!toolUseId) return [rawRecord(rawLine, line, context)];
-    const bounded = boundedText(textContent(toolResult.content));
+    const unwrapped = unwrapSpilledToolOutput('claude-code', textContent(toolResult.content));
+    const bounded = boundedText(unwrapped.output);
     return [{
       ...base,
       kind: 'tool_result',
       toolUseId,
       content: bounded.text,
       isError: toolResult.is_error === true,
-      truncated: bounded.truncated,
+      truncated: bounded.truncated || unwrapped.isSpilled,
     }];
   }
 
