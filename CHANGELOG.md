@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Wakes stay with the Glimmervoid that set them.** Scheduled wakes were kept in one wakes.json in the Glimmervoid home folder, so two instances started with different `--config` files shared it, and one marked the other's wakes as missed or wrote over them. Wakes now live in wakes.json beside your config. An instance with its own config folder starts with no wakes, so set its wakes again.
+
 - **Codex sessions on GPT-6 models are priced offline.** The bundled price list now carries GPT-6 Sol, Luna, Astra, Astra Law, Cyber and Rosalind, GPT-6.1 Sol and Terra, and GPT-6.2 Sol, Astra and Astra Law at OpenAI list price, so the Usage tab no longer reports them as having no price, and counts their cost, when the live price list cannot be fetched.
 
 - **A Claude Code session started right after Glimmervoid starts gets folder trust.** The sign-in check Glimmervoid runs at start can leave Claude Code's config lock behind for up to 10 seconds, and a session started in that window was refused with "another process holds its lock". Glimmervoid now waits as Claude Code itself does: it takes the lock the moment its holder lets go, takes over a lock nobody has touched for 10 seconds, and refuses only when another Claude Code keeps holding it.
