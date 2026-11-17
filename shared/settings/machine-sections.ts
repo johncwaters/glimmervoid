@@ -27,7 +27,7 @@ export const MACHINE_TELEGRAM: SettingsSection = {
     },
     {
       id: 'telegram-accept-replies', path: 'telegram.acceptReplies', title: 'Take replies',
-      description: 'Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read.',
+      description: 'Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages you send in your private chat with the bot are read, so the chat id must be your own user id; group chats are never read.',
       control: 'toggle', keywords: ['answer', 'approve', 'inbound', 'remote'], defaultValue: false, ...MACHINE_NOW,
     },
   ],

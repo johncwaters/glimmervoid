@@ -41,14 +41,19 @@ function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function isOperatorDirectMessage(message: Record<string, unknown>, allowedChatId: string): boolean {
+  if (allowedChatId.length === 0 || !isRecord(message.chat) || message.chat.type !== 'private' || !isRecord(message.from)) return false;
+  const chatId = message.chat.id;
+  const senderId = message.from.id;
+  if (typeof chatId !== 'number' || typeof senderId !== 'number') return false;
+  return String(chatId) === allowedChatId && String(senderId) === allowedChatId;
+}
+
 function parseInboundUpdate(update: unknown, allowedChatId: string): ParsedUpdate | null {
   if (!isRecord(update) || typeof update.update_id !== 'number' || !Number.isSafeInteger(update.update_id)) return null;
   const updateId = update.update_id;
   const message = update.message;
-  if (!isRecord(message) || !isRecord(message.chat)) return { updateId, message: null };
-  const chatId = message.chat.id;
-  const isAllowedChat = allowedChatId.length > 0 && (typeof chatId === 'number' || typeof chatId === 'string') && String(chatId) === allowedChatId;
-  if (!isAllowedChat) return { updateId, message: null };
+  if (!isRecord(message) || !isOperatorDirectMessage(message, allowedChatId)) return { updateId, message: null };
   const ownText = textOf(message.text).trim();
   if (ownText.length === 0) return { updateId, message: null };
   const repliedTo = isRecord(message.reply_to_message) ? textOf(message.reply_to_message.text) : '';

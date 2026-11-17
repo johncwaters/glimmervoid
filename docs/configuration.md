@@ -25,7 +25,7 @@ One bot for session, review and PostHog alerts.
 | `telegram.botToken` | Bot token | `""` | Token from @BotFather in Telegram (send /newbot). |
 | `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. |
 | `telegramNotifications` | Send session notifications | `false` | Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged. |
-| `telegram.acceptReplies` | Take replies | `false` | Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read. |
+| `telegram.acceptReplies` | Take replies | `false` | Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages you send in your private chat with the bot are read, so the chat id must be your own user id; group chats are never read. |
 
 ### Slack
 
