@@ -127,6 +127,7 @@ export function createGithubStoreWiring({ github, clock, now = timeClock.nowMs, 
     requestPrView: poller.requestPrView,
     requestPrDiff: poller.requestPrDiff,
     requestPrHead: poller.requestPrHead,
+    requestIssueView: poller.requestIssueView,
     requestTeamReviewCompare: poller.requestTeamReviewCompare,
     requestTeamReviewThreads: poller.requestTeamReviewThreads,
     subscribe: (event: 'snapshot-changed', listener: () => void) => {

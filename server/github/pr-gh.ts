@@ -20,6 +20,8 @@ import { PrThreadReplyResponse, PrThreadUnresolveResponse } from '../../shared/c
 import { MyPrCheckContext, MyPrCheckContextsResponse, MyPrMergeMethod, MyPrThreadNode, MyPrThreadsResponse } from '../../shared/contracts/my-prs.ts';
 import type { MyPrMergeKind, MyPrMergeMethod as MyPrMergeMethodType, MyPrSearchNode as MyPrSearchNodeType, MyPrThreadNode as MyPrThreadNodeType } from '../../shared/contracts/my-prs.ts';
 import { WorkflowCommentBody, WorkflowLabelName } from '../../shared/contracts/workflows.ts';
+import { GithubIssue } from '../../shared/contracts/github-issue.ts';
+import type { GithubIssue as GithubIssueType } from '../../shared/contracts/github-issue.ts';
 import type { PrDetail as PrDetailType, ReviewComment as ReviewCommentType, TeamReviewStatus } from '../../shared/contracts/team-review.ts';
 import type { TeamReviewThreadNode as ThreadNode, TeamReviewCompareFiles as CompareFiles } from '../../shared/contracts/team-review.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -66,6 +68,7 @@ interface PrGh {
   teamMembers(org: string, team: string): Promise<string[] | null>;
   teamProfile(org: string, team: string): Promise<NonNullable<TeamReviewStatus['team']> | null>;
   viewPr(repo: string, number: number): Promise<PrDetailType | null>;
+  viewIssue(repo: string, number: number): Promise<GithubIssueType | null>;
   prDiff(repo: string, number: number): Promise<string | null>;
   prHead(repo: string, number: number): Promise<string | null>;
   postReview(review: { repo: string; number: number; commitId: string; event: PostedReviewEvent; body: string; comments: ReviewCommentType[] }): Promise<PostedReview>;
@@ -609,6 +612,14 @@ function createPrGh(cwd: string, commandRunner: typeof run = run, usage: GithubU
       const response = await runGh(['pr', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,state,author,isDraft,isCrossRepository,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,files']);
       if (!response.ok) return null;
       const parsed = PrDetail.safeParse(parseJsonOrNull(response.out));
+      return parsed.success ? parsed.data : null;
+    },
+
+    async viewIssue(repo, number) {
+      if (!repoParts(repo) || !isPrNumber(number)) return null;
+      const response = await runGh(['issue', 'view', String(number), '-R', repo, '--json', 'number,title,body,url,state']);
+      if (!response.ok) return null;
+      const parsed = GithubIssue.safeParse(parseJsonOrNull(response.out));
       return parsed.success ? parsed.data : null;
     },
 

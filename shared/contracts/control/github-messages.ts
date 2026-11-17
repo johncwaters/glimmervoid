@@ -7,11 +7,23 @@ import { GithubConnection, GithubConnectionAction } from '../watcher-link.ts';
 import { CommitSigningAction, CommitSigningStatus } from '../commit-signing.ts';
 import { HostReady } from '../host-ready.ts';
 import { PrActionRunRequest, PrFlowApproveRequest, PrFlowDisposeRequest, PrFlowDisposeResult, PrFlowItemRequest, PrFlowSaveRuleRequest, PrFlowsStatus } from '../pr-flows.ts';
+import { ModelSelection } from '../agent-models.ts';
+import { AgentAccountId } from '../agent-accounts.ts';
 import { requestId, GithubTeam, PullRequestKey, loose, optionalError, timestamp } from './control-fields.ts';
 
 export const githubClientVariants = [
   loose('list-github-teams', { requestId }),
   loose('open-team-review-session', { requestId, key: PullRequestKey }),
+  loose('open-issue-session', {
+    path: z.string(),
+    issueNumber: z.number().int().positive(),
+    agent: z.string().optional(),
+    dangerouslySkipPermissions: z.boolean().optional(),
+    saneYolo: z.boolean().optional(),
+    accountId: AgentAccountId.nullable().optional(),
+    setup: ModelSelection.optional(),
+    requestId,
+  }),
   loose('team-review-action', { ...TeamReviewActionRequest.shape, requestId }).refine(hasRequiredActionHead, { message: 'only discard may omit head', path: ['head'] }),
   loose('team-review-refresh-threads', { requestId, key: PullRequestKey }),
   loose('my-pr-merge', { ...MyPrMergeRequest.shape, requestId }),

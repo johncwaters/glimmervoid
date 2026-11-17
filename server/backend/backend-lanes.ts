@@ -42,6 +42,7 @@ import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { createTeamReviewWiring } from '../github/team-review-wiring.ts';
 import { sweepLeftoverCheckouts } from '../github/team-review-checkouts.ts';
 import { createPrGh } from '../github/pr-gh.ts';
+import { createGithubIssueReader } from '../github/github-issue-reader.ts';
 import { createGithubUsageLedger } from '../github/github-usage-ledger.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
@@ -504,6 +505,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     questionManagerSessions,
     current,
     starHint,
+    readGithubIssue: createGithubIssueReader(githubStore.laneStore),
     gitWorkspace,
     gitWorkspaceSync,
     ownedPaths,

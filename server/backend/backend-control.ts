@@ -45,6 +45,7 @@ interface LaneReader {
   packSources: NonNullable<ControlHandlerDeps['packSources']>;
   packLaunchers: NonNullable<ControlHandlerDeps['packLaunchers']>;
   races: NonNullable<ControlHandlerDeps['races']>;
+  readGithubIssue: NonNullable<ControlHandlerDeps['readGithubIssue']>;
 }
 
 interface RadarControl extends RadarFixControl {
@@ -185,6 +186,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     packSources: laneAssembly.packSources,
     packLaunchers: laneAssembly.packLaunchers,
     races: laneAssembly.races,
+    readGithubIssue: laneAssembly.readGithubIssue,
     githubStore: laneAssembly.githubStore,
     requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
     requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,

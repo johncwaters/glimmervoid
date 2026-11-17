@@ -49,10 +49,11 @@ type AddSessionTarget =
   | { kind: 'workspace' }
   | { kind: 'folder' };
 
-type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null; requestType?: 'add-session' | 'pack-launch' };
+type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null; requestType?: 'add-session' | 'pack-launch' | 'open-issue-session' };
 
 type AddSessionSlot = 'agent' | 'project';
 
+const ISSUE_REPLY_TIMEOUT_MS = 90_000;
 const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'project'];
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
@@ -120,6 +121,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
   const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
+  const issueNumberInput = markAsNotCredential(queryTag(dialog, '#add-session-issue-number', 'input'));
   const accountEl = query(dialog, '#add-session-account');
   const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
   const modelEl = query(dialog, '#add-session-model');
@@ -173,8 +175,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let agentModelCatalog = AgentModelCatalog.parse({ agents: [] });
   let operatorSetup: AgentSetup | null = null;
 
-  function requestControl(type: string, payload: Record<string, unknown>) {
-    return sendControlRequest(type, payload, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+  function requestControl(type: string, payload: Record<string, unknown>, timeoutMs = DEFAULT_REPLY_TIMEOUT_MS) {
+    return sendControlRequest(type, payload, { timeoutMs });
   }
 
   const isShellChosen = () => selectedAgentId === SHELL_AGENT_ID;
@@ -765,7 +767,25 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       return;
     }
     const request = buildRequest();
-    if (request) requestAddSession(request);
+    if (!request) return;
+    const issueRequest = withIssue(request);
+    if (issueRequest) requestAddSession(issueRequest);
+  }
+
+  function withIssue(request: AddSessionRequest): AddSessionRequest | null {
+    const typedIssue = issueNumberInput.value.trim().replace(/^#/, '');
+    if (typedIssue === '') return request;
+    const issueNumber = Number(typedIssue);
+    if (!/^[0-9]+$/.test(typedIssue) || !Number.isSafeInteger(issueNumber) || issueNumber < 1) {
+      errorEl.textContent = 'Enter the issue as a number, such as 128.';
+      return null;
+    }
+    if (target.kind === 'workspace' || isShellChosen()) {
+      errorEl.textContent = 'An issue starts an agent in one repository, so pick a project or folder.';
+      return null;
+    }
+    const { name: _name, ...sessionFields } = request.message;
+    return { message: { ...sessionFields, issueNumber }, rememberedPath: request.rememberedPath, requestType: 'open-issue-session' };
   }
 
   function holdForWork(statusText: string) {
@@ -820,7 +840,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function lockPicking(isLocked: boolean) {
-    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl];
+    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl, issueNumberInput];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
     for (const region of pickingRegions) region.inert = isLocked;
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
@@ -848,7 +868,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function requestAddSession({ message, rememberedPath, requestType = 'add-session' }: AddSessionRequest) {
     holdForWork('Starting the session');
     const showRefusal = (text: string) => { errorEl.textContent = text; };
-    requestControl(requestType, message)
+    const replyTimeoutMs = requestType === 'open-issue-session' ? ISSUE_REPLY_TIMEOUT_MS : DEFAULT_REPLY_TIMEOUT_MS;
+    requestControl(requestType, message, replyTimeoutMs)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           rememberSuccessfulStart(rememberedPath);
@@ -858,7 +879,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         }
         showRefusal(addSessionRefusalText(reply));
       })
-      .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}`); })
+      .catch((reason) => { showRefusal(`The session was not added: ${requestFailureText(reason, replyTimeoutMs)}`); })
       .finally(() => {
         releaseHold();
         if (dialog.isConnected && isFocusAdrift()) focusOpenSlot();
@@ -867,6 +888,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   btnConfirm.addEventListener('click', submit);
   pathInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') submit();
+  });
+  issueNumberInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
   findInput.addEventListener('keydown', (event) => {
