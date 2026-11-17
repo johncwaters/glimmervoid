@@ -1,3 +1,4 @@
+import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -13,6 +14,7 @@ import { kimiSessionRoots, locateKimiWire } from '../../session/adapters/kimi.ts
 import { piRecordsFromLine } from '../core/conversation/pi-core.ts';
 import { piSessionRoots } from '../../session/adapters/pi.ts';
 import { opencodeRecordsFromPayload } from '../core/conversation/opencode-core.ts';
+import { antigravityRecordsFromLine } from '../core/conversation/antigravity-core.ts';
 import { isPathInside } from '../../shared/paths.ts';
 
 type TranscriptLineContext = Parameters<typeof traceRecordsFromTranscriptLine>[1];
@@ -35,7 +37,23 @@ type ConversationSource =
   | RelayConversationSource
   | { kind: 'none'; reason: string };
 
-const CONVERTER_NOT_BUILT = 'conversation converter not built yet';
+const ANTIGRAVITY_BRAIN_FOLDERS = ['antigravity-cli', 'antigravity'];
+const ANTIGRAVITY_CONVERSATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ANTIGRAVITY_TRANSCRIPT_PATH = ['.system_generated', 'logs', 'transcript_full.jsonl'];
+
+function antigravityBrainRoots(): string[] {
+  return ANTIGRAVITY_BRAIN_FOLDERS.map((folder) => path.join(os.homedir(), '.gemini', folder, 'brain'));
+}
+
+async function locateAntigravityTranscript(conversationId: string): Promise<string | null> {
+  if (!ANTIGRAVITY_CONVERSATION_ID_PATTERN.test(conversationId)) return null;
+  for (const brainRoot of antigravityBrainRoots()) {
+    const transcriptPath = path.join(brainRoot, conversationId, ...ANTIGRAVITY_TRANSCRIPT_PATH);
+    const isTranscriptFile = await fsPromises.stat(transcriptPath).then((stats) => stats.isFile(), () => false);
+    if (isTranscriptFile) return transcriptPath;
+  }
+  return null;
+}
 
 const conversationSourceByAgentId = {
   'claude-code': {
@@ -64,7 +82,12 @@ const conversationSourceByAgentId = {
     containmentRoots: piSessionRoots,
     recordsFromLine: piRecordsFromLine,
   },
-  antigravity: { kind: 'none', reason: CONVERTER_NOT_BUILT },
+  antigravity: {
+    kind: 'transcript',
+    containmentRoots: antigravityBrainRoots,
+    recordsFromLine: antigravityRecordsFromLine,
+    locateTranscript: locateAntigravityTranscript,
+  },
 } satisfies Record<CatalogAgentId, ConversationSource>;
 
 const BEST_EFFORT_SOURCE: ConversationSource = { kind: 'none', reason: 'best-effort agents keep no conversation' };
