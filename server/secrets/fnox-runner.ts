@@ -41,6 +41,7 @@ interface FnoxLaunch {
 }
 
 const isWindows = process.platform === 'win32';
+const canReopenStdinAsConfig = process.platform === 'darwin';
 
 function killProcessTree(pid: number | undefined): void {
   if (pid === undefined) return;
@@ -108,6 +109,15 @@ function createFnoxRunner({ fnoxPath, runsRoot, ageFile, environment, readTimeou
   }
 
   async function runWithConfigFile(configText: string, argumentsFor: (configPath: string) => string[], isStdoutKept: boolean): Promise<FnoxRunResult> {
+    try {
+      return await runInNewRunFolder(configText, argumentsFor, isStdoutKept);
+    } catch (error) {
+      const failureCode = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'ERUNFOLDER';
+      return { ok: false, stdout: '', stderr: error instanceof Error ? error.message : String(error), failureCode, wasKilled: false };
+    }
+  }
+
+  async function runInNewRunFolder(configText: string, argumentsFor: (configPath: string) => string[], isStdoutKept: boolean): Promise<FnoxRunResult> {
     await fs.mkdir(runsRoot, { recursive: true, mode: PRIVATE_FOLDER_MODE });
     const runFolder = await fs.mkdtemp(path.join(runsRoot, 'run-'));
     try {
@@ -123,7 +133,7 @@ function createFnoxRunner({ fnoxPath, runsRoot, ageFile, environment, readTimeou
   }
 
   function runFnox(configText: string, argumentsFor: (configPath: string) => string[], isStdoutKept: boolean): Promise<FnoxRunResult> {
-    if (isWindows) return runWithConfigFile(configText, argumentsFor, isStdoutKept);
+    if (!canReopenStdinAsConfig) return runWithConfigFile(configText, argumentsFor, isStdoutKept);
     return runFnoxProcess({ args: argumentsFor(STDIN_CONFIG_PATH), cwd: path.parse(runsRoot).root, env: fnoxEnvironment(environment, UNCREATABLE_CONFIG_FOLDER), stdinText: configText, isStdoutKept });
   }
 

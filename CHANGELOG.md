@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Change a session's model from Chat.** The top of the Chat page shows the session's model, and its effort where the agent has one, picked from the same list the new-session dialog uses. Picking another restarts the agent on it between turns and resumes the same conversation; your default for new sessions stays as it was.
 - **Agents can get secrets on a box with no 1Password.** Settings > Vault has a new Source setting. Pick Age file on this machine and Glimmervoid keeps the values agents may read in an age-encrypted file in its own secrets folder, readable only by you, with a key it creates the first time you save a value. Sessions are refused both files. Test connection says whether the key is in place and how many names the file holds, without decrypting anything. Nothing to install: the fnox that ships with Glimmervoid reads the file. 1Password stays the default and works as before.
 
+### Fixed
+
+- **1Password secrets reach agents on Linux.** Every secret read and Test connection failed on Linux with a config read error, because the vault reader could not reopen its input there. Reads now pass the vault settings through a private file Glimmervoid deletes as soon as the read ends.
+
 ## [0.62.5] - 2026-11-17
 
 ### Added
