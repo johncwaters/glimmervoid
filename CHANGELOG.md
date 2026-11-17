@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sessions run your checks at turn end, and can refuse to merge until they pass.** Set `verification.repos["<repo path>"].checks` in config.json to a list of `{ id, command }` and each session in that repository runs them in its worktree whenever a turn ends and the tree changed. The Changes panel lists each check as passed, failed, timed out or skipped, with the output tail of any that did not pass. A command runs as a plain program with arguments, never through a shell. Turn on `gate.enabled` and `glimmervoid push` and a session finish refuse to merge until every required check passed on the current tree, naming the check that failed.
+
 ### Fixed
 
 - **A Glimmervoid Cloud GitHub token that GitHub refuses now says why in the doorman log.** The log line used to end at the status code, such as `GitHub answered 422`; it now carries GitHub's own reason, such as a permission the installation has not accepted yet or a repository it no longer reaches.
