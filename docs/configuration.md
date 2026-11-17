@@ -44,7 +44,7 @@ How sessions start, where projects are found, and branch cleanup.
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
 | `spawnedSessionsMax` | Spawned sessions per session | `3` | Most sessions one session may have spawned and live at once; a spawn past it is refused. |
-| `loopGuard.maxTurnsWithoutProgress` | Turns without progress | `null` | Act on a session after this many turns in a row end with its worktree unchanged and no input from you, or never at zero. |
+| `loopGuard.maxTurnsWithoutProgress` | Turns without progress | `null` | Act on a session after this many turns in a row end with its worktree unchanged and no input from you, another session or a wake, or never at zero. |
 | `loopGuard.onStuck` | When a session is stuck | `"flag"` | Flag asks for your attention; Stop also ends the session. |
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |

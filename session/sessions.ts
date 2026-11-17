@@ -1484,7 +1484,13 @@ class Session extends EventEmitter {
   pasteMergePrompt() { return this.worktreeLifecycle.pasteMergePrompt(); }
 
   deliver(text: string, options: DeliverOptions): DeliveryOutcome {
-    return this._output.deliver(cleanPastedText(text), options);
+    return this._output.deliver(cleanPastedText(text), {
+      ...options,
+      onSettled: (settlement) => {
+        if (settlement === "submitted") this.emit("delivered-input");
+        options.onSettled?.(settlement);
+      },
+    });
   }
 
 
@@ -1817,6 +1823,7 @@ class Session extends EventEmitter {
     this._resumeNoteAwaitingTurn = this._pendingResumeNote;
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
     if (!launchPrompt && !this._pendingResumeNote) this._firstTurnSince = null;
+    if (isResumeNoteLaunch) this.emit("delivered-input");
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,

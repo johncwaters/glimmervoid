@@ -107,7 +107,7 @@ export const MACHINE_SESSIONS: SettingsSection = {
     },
     {
       id: 'loop-guard-turns', path: 'loopGuard.maxTurnsWithoutProgress', title: 'Turns without progress',
-      description: 'Act on a session after this many turns in a row end with its worktree unchanged and no input from you, or never at zero.',
+      description: 'Act on a session after this many turns in a row end with its worktree unchanged and no input from you, another session or a wake, or never at zero.',
       control: 'number', range: LOOP_GUARD_TURNS_RANGE, unit: TURNS, keywords: ['loop', 'stuck', 'guardrail', 'runaway'], defaultValue: null,
       nullable: true, zeroIsNull: true, ...MACHINE_NOW,
     },

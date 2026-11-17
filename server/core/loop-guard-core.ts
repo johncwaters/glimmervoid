@@ -1,7 +1,7 @@
 import { LOOP_GUARD_TURNS_RANGE } from '../../shared/settings-ranges.ts';
 
 type LoopGuardState = { turnsWithoutProgress: number; lastSig: string | null };
-type LoopGuardEvent = { kind: 'turn-end'; sig: string | null } | { kind: 'operator-input' } | { kind: 'acted' };
+type LoopGuardEvent = { kind: 'turn-end'; sig: string | null } | { kind: 'outside-input' } | { kind: 'acted' };
 type LoopGuardLimits = { maxTurnsWithoutProgress: number | null; onStuck: 'flag' | 'stop' };
 type LoopGuardDecision = { kind: 'ok' } | { kind: 'flag' | 'stop'; reason: string };
 
@@ -16,7 +16,7 @@ function reduceLoopGuard(state: LoopGuardState, event: LoopGuardEvent): LoopGuar
 function decideLoopGuard(state: LoopGuardState, limits: LoopGuardLimits): LoopGuardDecision {
   if (limits.maxTurnsWithoutProgress === null || state.turnsWithoutProgress < limits.maxTurnsWithoutProgress) return { kind: 'ok' };
   const action = limits.onStuck === 'stop' ? 'Glimmervoid stopped it' : 'it may be stuck in a loop';
-  return { kind: limits.onStuck, reason: `${state.turnsWithoutProgress} turns in a row ended with the worktree unchanged and no input from you, so ${action}` };
+  return { kind: limits.onStuck, reason: `${state.turnsWithoutProgress} turns in a row ended with the worktree unchanged and no input from you, another session or a wake, so ${action}` };
 }
 
 function readLoopGuardLimits(raw: unknown): LoopGuardLimits {

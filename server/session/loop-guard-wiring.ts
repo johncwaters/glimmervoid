@@ -21,9 +21,11 @@ function createLoopGuardWiring({ getLoopGuardConfig, logger }: { getLoopGuardCon
       if (decision.kind === 'stop') session.killSession();
     }
 
-    session.on('operator-input', () => {
-      state = reduceLoopGuard(state, { kind: 'operator-input' });
-    });
+    const noteOutsideInput = () => {
+      state = reduceLoopGuard(state, { kind: 'outside-input' });
+    };
+    session.on('operator-input', noteOutsideInput);
+    session.on('delivered-input', noteOutsideInput);
     session.on('post-turn-check', () => {
       checkTurnEnd().catch((error: unknown) => logger.warn(`[loop-guard] ${session.id}: ${errorMessage(error)}`));
     });
