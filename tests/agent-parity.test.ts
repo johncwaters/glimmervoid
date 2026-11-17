@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { STATES } from '../shared/states.ts';
+import { TraceRecord } from '../shared/contracts/trace.ts';
+import { relaySourceOf, transcriptSourceOf } from '../server/trace/conversation-sources.ts';
 import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
 
@@ -29,8 +31,23 @@ interface ParityScenario {
   requiredSignalsByAgent?: Partial<Record<FirstClassAgent, readonly string[]>>;
 }
 
+interface ConversationFixture {
+  file: string;
+  vendorSessionId: string;
+}
+
 const FIRST_CLASS_AGENTS: readonly FirstClassAgent[] = ['claude-code', 'codex', 'kimi', 'opencode', 'pi', 'antigravity'];
 const FIXTURE_DIRECTORY = path.join(import.meta.dirname, 'fixtures');
+const CONVERSATION_FIXTURE_DIRECTORY = path.join(FIXTURE_DIRECTORY, 'conversation');
+const REQUIRED_CONVERSATION_KINDS = ['prompt', 'assistant', 'tool_call', 'tool_result'] as const;
+const CONVERSATION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-transcript.jsonl', vendorSessionId: 'd52a3005-05a6-48f3-a913-180b01ff3daf' },
+  codex: { file: 'codex-rollout.jsonl', vendorSessionId: '01a1ea8d-3204-7bf3-a022-1aedf182e1dc' },
+  kimi: { file: 'kimi-wire.jsonl', vendorSessionId: 'session_2c2d0092-eee8-4450-a133-5c9887f826b3' },
+  opencode: { file: 'opencode-relay.jsonl', vendorSessionId: 'ses_e154ce321ffeFtygutuOR5lLPD' },
+  pi: { file: 'pi-session.jsonl', vendorSessionId: '01a1eaa3-6a11-745a-8f7a-862a3b0fdbe9' },
+  antigravity: { file: 'antigravity-transcript.jsonl', vendorSessionId: 'e49c4f93-2b16-498c-ac66-a509a837905c' },
+};
 const PROBE_FIXTURE_RECORD_SPACING_MS = 1000;
 const HEADER_READ_BYTES = 4096;
 
@@ -225,3 +242,27 @@ test('every first-class v2 recording sits in a parity row or a test that asserts
     });
   assert.deepEqual(unplacedFixtures, []);
 });
+
+function convertedConversation(agent: FirstClassAgent, fixture: ConversationFixture): unknown[] {
+  const lines = fs.readFileSync(path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file), 'utf8').split('\n').filter((line) => line.length > 0);
+  const transcriptSource = transcriptSourceOf(agent);
+  if (transcriptSource) return lines.flatMap((line) => transcriptSource.recordsFromLine(line, { vendorSessionId: fixture.vendorSessionId, now: 0 }));
+  const relaySource = relaySourceOf(agent);
+  assert.ok(relaySource, `${agent} has no conversation source`);
+  return lines.map((line) => JSON.parse(line)).filter((relay) => relay.event === relaySource.hookEvent).flatMap((relay) => relaySource.recordsFromPayload(relay.body, 0));
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = CONVERSATION_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`conversation records on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`conversation records on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const kinds = new Set(records.map((record) => record.kind));
+    for (const kind of REQUIRED_CONVERSATION_KINDS) assert.ok(kinds.has(kind), `${agent} produced no ${kind} record`);
+    const toolCallIds = new Set(records.flatMap((record) => record.kind === 'tool_call' ? [record.toolUseId] : []));
+    assert.ok(records.some((record) => record.kind === 'tool_result' && toolCallIds.has(record.toolUseId)), `${agent} paired no tool_result to a tool_call`);
+  });
+}
