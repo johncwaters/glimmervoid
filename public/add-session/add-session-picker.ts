@@ -9,7 +9,6 @@ import { cloneJobOf, cloneJobStatusText, isCloneJobUnsettled, onCloneJobsChanged
 import type { GithubRepo } from '../onboarding/clone-jobs.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
-import { buildRepoCheckbox } from '../session-card/workspace-repos-dialog.ts';
 import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
 import { paintAgentChoiceMark } from '../session-card/agent-mark.ts';
 import { suggestSessionName } from '../session-card/naming.ts';
@@ -17,18 +16,17 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
 import { STATES } from '#shared/states.ts';
 import { elapsedText } from '#shared/display-text.ts';
-import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, sessionNameBase } from '../add-session-core.ts';
+import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
 import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
-import type { AgentSetup, ModelSelection } from '#shared/contracts/agent-models.ts';
+import type { AgentSetup, CatalogModel, ModelProvider, ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { StartPicks } from '#shared/contracts/start-picks.ts';
 import { emptyStartPicks, rememberedSelectionFor } from '#shared/start-picks-core.ts';
-import { canRunOnOpenRouter, configuredSetup, defaultSetup, modelsOf } from '../arena/lineup-core.ts';
-import { setupControls } from '../arena/setup-controls.ts';
+import { PROVIDER_CHOICES, canRunOnOpenRouter, configuredSetup, defaultSetup, effortOf, effortsOf, modelsOf, providerOf, setupModelsOf, withEffortChoice, withModel, withProvider, withTypedModel } from '../arena/lineup-core.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
   const elapsedMs = now - receivedAt;
@@ -52,10 +50,14 @@ type AddSessionTarget =
 
 type AddSessionRequest = { message: Record<string, unknown>; requestType?: 'add-session' | 'pack-launch' | 'open-issue-session' };
 
-type AddSessionSlot = 'agent' | 'project';
+type AddSessionSlot = 'agent' | 'model' | 'effort' | 'project';
+type QueriedSlot = 'project' | 'model';
 
 const ISSUE_REPLY_TIMEOUT_MS = 90_000;
-const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'project'];
+const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'model', 'effort', 'project'];
+const FIND_PLACEHOLDER_BY_SLOT: Readonly<Record<QueriedSlot, string>> = { project: 'Find a project', model: 'Find or type a model' };
+const AGENT_DEFAULT_EFFORT_WORD = 'default effort';
+const LIST_LABEL_BY_SLOT: Readonly<Record<AddSessionSlot, string>> = { agent: 'Agents', model: 'Models', effort: 'Efforts', project: 'Projects' };
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
 const SIGN_IN_ON_START_TEXT = 'The session opens on its sign-in; follow it in the terminal once.';
@@ -120,13 +122,14 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const repoRootsEl = query(dialog, '#add-session-repo-roots');
   const workspacePanel = query(dialog, '#add-session-workspace');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
+  const workspaceFindInput = markAsNotCredential(queryTag(dialog, '#add-session-workspace-find', 'input'));
+  const modelTabsEl = query(dialog, '#add-session-model-tabs');
+  const modelWordsEl = query(dialog, '#add-session-model-words');
   const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
   const issueNumberInput = markAsNotCredential(queryTag(dialog, '#add-session-issue-number', 'input'));
   const accountEl = query(dialog, '#add-session-account');
-  const accountSelect = queryTag(dialog, '#add-session-account-select', 'select');
-  const modelEl = query(dialog, '#add-session-model');
-  const modelControlsEl = query(dialog, '#add-session-model-controls');
+  const accountChipsEl = query(dialog, '#add-session-account-chips');
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const signInHintEl = query(dialog, '#add-session-sign-in');
   const errorEl = query(dialog, '#add-session-error');
@@ -140,7 +143,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   query(dialog, '#add-session-agent-word-slot').replaceWith(agentWord);
   const repoWord = createPressable('add-session-word add-session-repo-word');
   query(dialog, '#add-session-repo-word-slot').replaceWith(repoWord);
-  const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { agent: agentWord, project: repoWord };
+  const modelWord = createPressable('add-session-word');
+  query(dialog, '#add-session-model-word-slot').replaceWith(modelWord);
+  const effortWord = createPressable('add-session-word');
+  query(dialog, '#add-session-effort-word-slot').replaceWith(effortWord);
+  const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { agent: agentWord, model: modelWord, effort: effortWord, project: repoWord };
   const workspaceBackButton = createPressable('add-session-back', 'All projects');
   query(dialog, '#add-session-workspace-back-slot').replaceWith(workspaceBackButton);
   const folderBackButton = createPressable('add-session-back', 'All projects');
@@ -175,6 +182,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   let operatorAccountChoice: { agentId: string; accountId: string } | null = null;
   let agentModelCatalog = AgentModelCatalog.parse({ agents: [] });
   let operatorSetup: AgentSetup | null = null;
+  let shownAccountValue = '';
+  let pickedRepoPaths: string[] = [];
+  const queryBySlot: Record<QueriedSlot, string> = { project: '', model: '' };
 
   function requestControl(type: string, payload: Record<string, unknown>, timeoutMs = DEFAULT_REPLY_TIMEOUT_MS) {
     return sendControlRequest(type, payload, { timeoutMs });
@@ -189,6 +199,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   const isSlotEmpty: Record<AddSessionSlot, () => boolean> = {
     agent: () => selectedAgentId === NO_AGENT_ID && (!isAgentListSettled || agentOptions.length > 0),
+    model: () => false,
+    effort: () => false,
     project: () => target.kind === 'none',
   };
   const firstEmptySlot = () => ADD_SESSION_SLOTS.find((slot) => isSlotEmpty[slot]()) ?? null;
@@ -203,6 +215,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     };
     repoWord.textContent = wordByKind[target.kind];
     agentWordTextEl.textContent = agentLabelOf(selectedAgentId) ?? 'an agent';
+    renderModelWords();
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].setAttribute('aria-expanded', String(openSlot === slot));
     pickEl.hidden = openSlot === null;
     if (openSlot) pickEl.dataset.slot = openSlot;
@@ -228,6 +241,12 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     markEl.setAttribute('aria-hidden', 'true');
     paintAgentChoiceMark(markEl, agentId, agentLabelOf(agentId));
     return markEl;
+  }
+
+  function keepingRowFocus(listElement: HTMLElement, render: () => void) {
+    const focusedRowKey = document.activeElement instanceof HTMLElement && listElement.contains(document.activeElement) ? document.activeElement.dataset.key ?? null : null;
+    render();
+    if (focusedRowKey !== null) [...listElement.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
   }
 
   function buildChoiceRow(label: string, onPick: () => void) {
@@ -273,7 +292,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function visibleGithubRows(): GithubRow[] {
-    return filterRows(githubRowsOffered(), findInput.value);
+    return filterRows(githubRowsOffered(), queryBySlot.project);
   }
 
   function buildGithubGroup(): HTMLElement[] {
@@ -295,19 +314,126 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function buildProjectRows() {
-    const rows: HTMLElement[] = filterRows(recentRows, findInput.value).map(buildProjectRow);
+    const rows: HTMLElement[] = filterRows(recentRows, queryBySlot.project).map(buildProjectRow);
     if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
     rows.push(buildChoiceRow('Any folder', pickFolder));
     rows.push(...buildGithubGroup());
     return rows;
   }
 
+  function modelLabelOf(setup: AgentSetup) {
+    const model = setupModelsOf(agentModelCatalog, setup).find((candidate) => candidate.id === setup.model);
+    const modelText = model?.label ?? setup.model ?? 'its default model';
+    return providerOf(setup) === 'openrouter' ? `${modelText} via OpenRouter` : modelText;
+  }
+
+  function renderModelWords() {
+    modelWordsEl.hidden = !isModelPickable(selectedAgentId);
+    if (modelWordsEl.hidden) return;
+    const setup = shownSetup();
+    modelWord.textContent = modelLabelOf(setup);
+    effortWord.hidden = effortsOf(agentModelCatalog, setup).length === 0;
+    effortWord.textContent = effortOf(setup) ?? AGENT_DEFAULT_EFFORT_WORD;
+  }
+
+  function chooseSetup(next: AgentSetup) {
+    errorEl.textContent = '';
+    operatorSetup = next;
+  }
+
+  function pickModel(modelId: string) {
+    const setup = shownSetup();
+    const isListed = setupModelsOf(agentModelCatalog, setup).some((model) => model.id === modelId);
+    chooseSetup(isListed ? withModel(agentModelCatalog, setup, modelId) : withEffortChoice(withTypedModel(setup, modelId), null));
+    queryBySlot.model = '';
+    openSlotList('project');
+  }
+
+  function buildModelRow(model: CatalogModel) {
+    const rowEl = buildSlotRow(model.id, model.label, model.id === shownSetup().model, () => pickModel(model.id));
+    if (model.label !== model.id) rowEl.append(el('span', 'add-session-row-meta', model.id));
+    return rowEl;
+  }
+
+  function typedModelId() {
+    const typed = queryBySlot.model.trim();
+    if (typed === '' || setupModelsOf(agentModelCatalog, shownSetup()).some((model) => model.id === typed)) return null;
+    return typed;
+  }
+
+  function visibleModels() {
+    const models = setupModelsOf(agentModelCatalog, shownSetup());
+    const needle = queryBySlot.model.trim().toLowerCase();
+    return models.filter((model) => needle === '' || model.label.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle));
+  }
+
+  function buildModelRows() {
+    const typed = typedModelId();
+    const typedRows = typed === null ? [] : [buildChoiceRow(`Use "${typed}" as typed`, () => pickModel(typed))];
+    return [...visibleModels().map(buildModelRow), ...typedRows];
+  }
+
+  function buildModelTab(provider: ModelProvider, label: string) {
+    const tab = createPressable('add-session-tab', provider === 'native' ? agentLabelOf(selectedAgentId) ?? label : label);
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(providerOf(shownSetup()) === provider));
+    tab.addEventListener('click', () => {
+      markOperatorActed();
+      if (providerOf(shownSetup()) !== provider) chooseSetup(withProvider(agentModelCatalog, shownSetup(), provider));
+      renderList();
+    });
+    return tab;
+  }
+
+  function renderModelTabs() {
+    modelTabsEl.hidden = openSlot !== 'model' || !canRunOnOpenRouter(selectedAgentId);
+    modelTabsEl.replaceChildren(...(modelTabsEl.hidden ? [] : PROVIDER_CHOICES.map(({ value, label }) => buildModelTab(value, label))));
+  }
+
+  function buildChip(label: string, isChecked: boolean, onPick: () => void) {
+    const chip = createPressable('add-session-chip', label);
+    chip.setAttribute('role', 'radio');
+    chip.setAttribute('aria-checked', String(isChecked));
+    chip.addEventListener('click', () => {
+      markOperatorActed();
+      onPick();
+    });
+    return chip;
+  }
+
+  function buildEffortChips() {
+    const setup = shownSetup();
+    const chips = el('div', 'add-session-chips');
+    chips.setAttribute('role', 'radiogroup');
+    chips.setAttribute('aria-label', 'Effort');
+    chips.append(...effortsOf(agentModelCatalog, setup).map((effort) => buildChip(effort, effortOf(setup) === effort, () => {
+      chooseSetup(withEffortChoice(shownSetup(), effort));
+      openSlotList('project');
+    })));
+    return chips;
+  }
+
+  const rowsBySlot: Record<AddSessionSlot, () => HTMLElement[]> = {
+    agent: () => agentOptions.map(buildAgentRow),
+    model: buildModelRows,
+    effort: () => [buildEffortChips()],
+    project: buildProjectRows,
+  };
+
   function renderList() {
-    const focusedRowKey = document.activeElement instanceof HTMLElement && listEl.contains(document.activeElement) ? document.activeElement.dataset.key ?? null : null;
     renderSentence();
-    if (openSlot === 'agent') listEl.replaceChildren(...agentOptions.map(buildAgentRow));
-    if (openSlot === 'project') listEl.replaceChildren(...buildProjectRows());
-    if (focusedRowKey !== null) [...listEl.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
+    renderModelTabs();
+    const slot = openSlot;
+    if (slot === null) return;
+    listEl.setAttribute('aria-label', LIST_LABEL_BY_SLOT[slot]);
+    keepingRowFocus(listEl, () => listEl.replaceChildren(...rowsBySlot[slot]()));
+  }
+
+  function showFindFor(slot: AddSessionSlot | null) {
+    if (slot !== 'project' && slot !== 'model') return;
+    findInput.value = queryBySlot[slot];
+    findInput.placeholder = FIND_PLACEHOLDER_BY_SLOT[slot];
+    findInput.setAttribute('aria-label', FIND_PLACEHOLDER_BY_SLOT[slot]);
   }
 
   function isFocusAdrift() {
@@ -324,16 +450,16 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       dialog.focus();
       return;
     }
-    if (openSlot === 'project') {
+    if (openSlot === 'project' || openSlot === 'model') {
       findInput.focus();
       return;
     }
-    listEl.querySelector<HTMLElement>('.add-session-row:not(:disabled)')?.focus();
+    listEl.querySelector<HTMLElement>('.add-session-row:not(:disabled), .add-session-chip')?.focus();
   }
 
   function focusAfterLastSlot() {
     if (target.kind === 'workspace') {
-      workspaceBackButton.focus();
+      workspaceFindInput.focus();
       return;
     }
     if (target.kind === 'folder') {
@@ -345,6 +471,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function openSlotList(slot: AddSessionSlot | null) {
     openSlot = slot;
+    showFindFor(slot);
     renderList();
     focusOpenSlot();
   }
@@ -402,7 +529,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function pickWorkspace() {
     target = { kind: 'workspace' };
     errorEl.textContent = '';
-    workspaceListEl.replaceChildren(...scannedProjects.map((project) => buildRepoCheckbox(project.name, project.path)));
+    renderWorkspaceRows();
     advance();
   }
 
@@ -411,6 +538,34 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     errorEl.textContent = '';
     advance();
   }
+
+  function buildRepoRow(project: ScannedProject) {
+    const isPicked = pickedRepoPaths.includes(project.path);
+    const rowEl = buildSlotRow(project.path, project.name, isPicked, () => {
+      pickedRepoPaths = isPicked ? pickedRepoPaths.filter((pickedPath) => pickedPath !== project.path) : [...pickedRepoPaths, project.path];
+      errorEl.textContent = '';
+      renderWorkspaceRows();
+    });
+    rowEl.prepend(el('span', 'add-session-row-tick'));
+    return rowEl;
+  }
+
+  function workspaceGroup(label: string, projects: ScannedProject[]) {
+    const labelEl = el('div', 'add-session-list-label', label);
+    labelEl.setAttribute('role', 'presentation');
+    return [labelEl, ...projects.map(buildRepoRow)];
+  }
+
+  function renderWorkspaceRows() {
+    const { picked, others } = orderWorkspaceRows(scannedProjects, pickedRepoPaths, workspaceFindInput.value);
+    const rows = picked.length === 0 ? others.map(buildRepoRow) : [...workspaceGroup('Picked', picked), ...workspaceGroup('Repositories', others)];
+    keepingRowFocus(workspaceListEl, () => workspaceListEl.replaceChildren(...rows));
+  }
+
+  workspaceFindInput.addEventListener('input', () => {
+    markOperatorActed();
+    renderWorkspaceRows();
+  });
 
   function returnToProjects() {
     target = lastProjectTarget;
@@ -437,7 +592,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     selectedAgentId = agentId;
     paintAgentChoiceMark(agentMarkEl, agentId === NO_AGENT_ID ? null : agentId, agentLabelOf(agentId));
     applyAgentRules();
-    renderSentence();
+    renderList();
   }
 
   function applyAgentRules() {
@@ -445,7 +600,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (isShell && target.kind === 'workspace') returnToProjects();
     renderPermissionHint();
     showAccountPick();
-    showModelPick();
   }
 
   function isModelPickable(agentId: string) {
@@ -467,22 +621,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return chosenSetup() ?? configuredSetup(agentModelCatalog, selectedAgentId) ?? defaultSetup(agentModelCatalog, selectedAgentId);
   }
 
-  function showModelPick() {
-    modelEl.hidden = !isModelPickable(selectedAgentId);
-    if (modelEl.hidden) {
-      modelControlsEl.replaceChildren();
-      return;
-    }
-    modelControlsEl.replaceChildren(setupControls(agentModelCatalog, shownSetup(), (next) => {
-      markOperatorActed();
-      errorEl.textContent = '';
-      operatorSetup = next;
-      showModelPick();
-    }, { showsAgent: false }));
-  }
-
   function setupForTheStart(): ModelSelection | null {
-    const setup = modelEl.hidden ? null : chosenSetup();
+    const setup = isModelPickable(selectedAgentId) ? chosenSetup() : null;
     if (setup === null) return null;
     const { instructions: _instructions, ...selection } = setup;
     return selection;
@@ -503,21 +643,23 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const optionValueOf = (accountId: string | null) => accountId ?? '';
     const chosenValue = operatorAccountChoice?.agentId === selectedAgentId ? operatorAccountChoice.accountId : null;
     const defaultValue = optionValueOf(accounts.find((account) => account.isDefault)?.accountId ?? null);
-    accountSelect.replaceChildren(...accounts.map((account) => {
-      const stateText = account.login.state === 'signed-out' ? ' (signed out)' : '';
-      const option = el('option', '', `${account.label}${stateText}`);
-      option.value = optionValueOf(account.accountId);
-      return option;
-    }));
     const isChosenListed = chosenValue !== null && accounts.some((account) => optionValueOf(account.accountId) === chosenValue);
-    accountSelect.value = isChosenListed ? chosenValue : defaultValue;
+    shownAccountValue = isChosenListed ? chosenValue : defaultValue;
+    accountChipsEl.replaceChildren(...accounts.map((account) => {
+      const stateText = account.login.state === 'signed-out' ? ' (signed out)' : '';
+      const accountValue = optionValueOf(account.accountId);
+      return buildChip(`${account.label}${stateText}`, accountValue === shownAccountValue, () => {
+        operatorAccountChoice = { agentId: selectedAgentId, accountId: accountValue };
+        showAccountPick();
+      });
+    }));
     showSignInHint();
   }
 
   function accountForTheStart() {
     const accounts = agentAccountsOf(selectedAgentId).filter((account) => !account.isPending);
     if (accountEl.hidden) return accounts.find((account) => account.isDefault) ?? null;
-    return accounts.find((account) => (account.accountId ?? '') === accountSelect.value) ?? null;
+    return accounts.find((account) => (account.accountId ?? '') === shownAccountValue) ?? null;
   }
 
   function showSignInHint() {
@@ -527,11 +669,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const signedOutText = account?.accountId === null ? `${agentLabelOf(selectedAgentId)} is not signed in yet.` : agentAccountSummary(account);
     signInHintEl.textContent = isSignedOut ? `${signedOutText} ${SIGN_IN_ON_START_TEXT}` : '';
   }
-  accountSelect.addEventListener('change', () => {
-    markOperatorActed();
-    operatorAccountChoice = { agentId: selectedAgentId, accountId: accountSelect.value };
-    showSignInHint();
-  });
   const unsubscribeAgentAccounts = onAgentAccountsChanged(showAccountPick);
   refreshAgentAccounts();
 
@@ -583,7 +720,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   function isPickVisible() {
     if (target.kind === 'project') {
       const pickedPath = target.row.path;
-      return filterRows(recentRows, findInput.value).some((row) => row.path === pickedPath);
+      return filterRows(recentRows, queryBySlot.project).some((row) => row.path === pickedPath);
     }
     if (target.kind === 'github') {
       const pickedUrl = target.repo.cloneUrl;
@@ -593,7 +730,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function pickFirstVisible() {
-    const firstProjectRow = filterRows(recentRows, findInput.value)[0];
+    const firstProjectRow = filterRows(recentRows, queryBySlot.project)[0];
     if (firstProjectRow) {
       setProjectTarget(firstProjectRow);
       return;
@@ -604,7 +741,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   findInput.addEventListener('input', () => {
     markOperatorActed();
-    if (!isPickVisible()) pickFirstVisible();
+    if (openSlot === 'model') queryBySlot.model = findInput.value;
+    if (openSlot === 'project') {
+      queryBySlot.project = findInput.value;
+      if (!isPickVisible()) pickFirstVisible();
+    }
     renderList();
   });
 
@@ -710,7 +851,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
         const catalog = AgentModelCatalog.safeParse(typeof message.settings === 'object' && message.settings !== null ? Reflect.get(message.settings, 'agentModels') : undefined);
         if (catalog.success) agentModelCatalog = catalog.data;
-        showModelPick();
+        renderList();
         hasSettingsLoaded = true;
         clearSettingsWarning();
         renderPermissionHint();
@@ -736,7 +877,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const isShell = isShellChosen();
     const shared: Record<string, unknown> = { ...permissionFields() };
     if (selectedAgentId !== NO_AGENT_ID) shared.agent = selectedAgentId;
-    if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
+    if (!accountEl.hidden) shared.accountId = shownAccountValue === '' ? null : shownAccountValue;
     const setup = setupForTheStart();
     if (setup !== null) shared.setup = setup;
     if (target.kind === 'project') {
@@ -751,9 +892,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(target.repo.fullName))), path: clonedPath } };
     }
     if (target.kind === 'workspace') {
-      const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
+      const repos = orderWorkspaceRows(scannedProjects, pickedRepoPaths, '').picked.map((project) => project.path);
       if (repos.length < 2) {
-        errorEl.textContent = 'Check at least two repositories.';
+        errorEl.textContent = 'Pick at least two repositories.';
         return null;
       }
       return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(repos[0]))), path: repos[0], repos } };
@@ -846,7 +987,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function lockPicking(isLocked: boolean) {
-    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl, issueNumberInput];
+    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl, issueNumberInput, accountChipsEl];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
     for (const region of pickingRegions) region.inert = isLocked;
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
@@ -899,7 +1040,14 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (event.key === 'Enter') submit();
   });
   findInput.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter' || (target.kind !== 'project' && target.kind !== 'github')) return;
+    if (event.key !== 'Enter') return;
+    if (openSlot === 'model') {
+      event.preventDefault();
+      const firstModelId = visibleModels()[0]?.id ?? typedModelId();
+      if (firstModelId !== null) pickModel(firstModelId);
+      return;
+    }
+    if (target.kind !== 'project' && target.kind !== 'github') return;
     event.preventDefault();
     advanceFromPick(isPickVisible());
   });

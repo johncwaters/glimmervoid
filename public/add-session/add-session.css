@@ -4,6 +4,7 @@
 
 .add-session-sentence {
   margin: 0;
+  min-height: 3.8em;
   line-height: 1.9;
   font-family: var(--font-mono);
   font-size: var(--type-title);
@@ -20,6 +21,7 @@
   padding: 0 2px;
   color: var(--text-head);
   font: inherit;
+  line-height: 1.5;
   cursor: pointer;
 }
 
@@ -120,13 +122,104 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   min-width: 0;
 }
 
-.add-session-pick:not(:has(> .dialog-repo-roots:not([hidden]))) {
+.add-session-pick:not(:has(> .dialog-repo-roots:not([hidden]))),
+#add-session-workspace {
   height: 352px;
 }
 
-.add-session-pick:not([data-slot="project"]) > :not(.add-session-list, .add-session-scan) {
+.add-session-pick[data-slot="agent"] > :not(.add-session-list, .add-session-scan),
+.add-session-pick[data-slot="effort"] > :not(.add-session-list, .add-session-scan),
+.add-session-pick[data-slot="model"] > :not(.add-session-list, .add-session-scan, .add-session-find-row) {
   display: none;
 }
+
+.add-session-tabs[hidden],
+.add-session-word[hidden],
+#add-session-model-words[hidden] {
+  display: none;
+}
+
+.add-session-find-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-session-find-row > .add-session-find {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-session-tabs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.add-session-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+
+.add-session-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text-head);
+}
+
+.add-session-tab:focus-visible,
+.add-session-chip:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.add-session-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+
+.dialog-label > .add-session-chips {
+  padding: 4px 0 0;
+}
+
+.add-session-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  padding: 4px 12px;
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  cursor: pointer;
+}
+
+.add-session-chip[aria-checked="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+.add-session-row-tick {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 3px;
+}
+
+.add-session-row[aria-selected="true"] .add-session-row-tick {
+  border-color: var(--accent);
+  background: linear-gradient(var(--accent), var(--accent)) center / 6px 6px no-repeat;
+}
+
+
 
 .add-session-list {
   display: flex;

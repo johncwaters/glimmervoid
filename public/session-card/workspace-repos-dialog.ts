@@ -4,7 +4,7 @@ import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
 import { button } from '../ui/button.ts';
 
-export function buildRepoCheckbox(name: string, repoPath: string, isChecked = false): HTMLLabelElement {
+function buildRepoCheckbox(name: string, repoPath: string, isChecked = false): HTMLLabelElement {
   const choice = el('label', 'dialog-checkbox-label');
   const checkbox = el('input');
   checkbox.type = 'checkbox';
