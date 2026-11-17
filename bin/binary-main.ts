@@ -1,4 +1,27 @@
+import fs from 'node:fs';
 import { BINARY_RUN_SUBCOMMAND, relayExecutableBeside } from '../server/core/runtime-paths.ts';
+
+const UNKNOWN_RUN_ENTRY_EXIT_CODE = 2;
+const SESSION_RUN_ENTRY_NAMES = new Set(['hook-relay', 'command-hook-relay', 'statusline-relay', 'hook-tool-relay', 'mcp-bridge', 'posthog-read-gate']);
+const PACKAGE_BIN_RUN_ENTRY_NAMES = new Set(['cc-safety-net']);
+
+async function entryFileOf(entryName: string): Promise<string | null> {
+  const { relayPath, resolvePackageBin } = await import('../server/runtime-paths.ts');
+  if (SESSION_RUN_ENTRY_NAMES.has(entryName)) return relayPath(entryName);
+  if (PACKAGE_BIN_RUN_ENTRY_NAMES.has(entryName)) return resolvePackageBin(entryName, entryName);
+  return null;
+}
+
+async function runEntryInProcess(entryName: string, entryArguments: readonly string[]): Promise<void> {
+  const entryFile = await entryFileOf(entryName);
+  if (!entryFile) {
+    process.stderr.write(`glimmervoid: no run entry named ${entryName}\n`);
+    process.exit(UNKNOWN_RUN_ENTRY_EXIT_CODE);
+  }
+  process.argv = [process.execPath, entryFile, ...entryArguments];
+  const { pathToFileURL } = await import('node:url');
+  await import(pathToFileURL(entryFile).href);
+}
 
 async function routeNodePtyToExtractedCopy(): Promise<void> {
   const { extractNodePtyFromBinary } = await import('../server/runtime-paths.ts');
@@ -28,7 +51,7 @@ async function runCli(): Promise<void> {
   await import('./glimmervoid.ts');
 }
 
-async function forwardRunFromPreRelaySessionsToRelay(relayArguments: string[]): Promise<never> {
+async function forwardRunToRelay(relayArguments: string[]): Promise<never> {
   const { spawn } = await import('../server/child-process-safe.ts');
   const relayProcess = spawn(relayExecutableBeside(process.execPath), relayArguments, { stdio: 'inherit' });
   const relayExitCode = await new Promise<number>((resolve) => {
@@ -40,5 +63,8 @@ async function forwardRunFromPreRelaySessionsToRelay(relayArguments: string[]): 
 
 const RELAY_UNREACHABLE_EXIT_CODE = 2;
 const relayArguments = process.argv.slice(2);
-if (relayArguments[0] === BINARY_RUN_SUBCOMMAND) await forwardRunFromPreRelaySessionsToRelay(relayArguments);
-await runCli();
+const isRunSubcommand = relayArguments[0] === BINARY_RUN_SUBCOMMAND;
+const hasRelayBesideExecutable = fs.existsSync(relayExecutableBeside(process.execPath));
+if (isRunSubcommand && hasRelayBesideExecutable) await forwardRunToRelay(relayArguments);
+if (isRunSubcommand) await runEntryInProcess(relayArguments[1] ?? '', relayArguments.slice(2));
+if (!isRunSubcommand) await runCli();

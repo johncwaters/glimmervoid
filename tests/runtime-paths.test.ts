@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import test from 'node:test';
 
-import { computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayLauncherOf } from '../server/core/runtime-paths.ts';
+import { computeRuntimePaths, relayExecutableProblemOf, relayRunnerOf } from '../server/core/runtime-paths.ts';
 
 const PACKAGE_ROOT = path.join(path.sep, 'opt', 'glimmervoid');
 
@@ -64,23 +64,34 @@ test('a binary runs relays through the glimmervoid-relay beside its launcher, wh
   assert.deepEqual(bundledPaths.selfLaunch('hook-relay', '/usr/bin/node'), ['/usr/bin/node', path.join(PACKAGE_ROOT, 'dist', 'session', 'hook-relay.js')]);
 });
 
-test('a binary uses the glimmervoid-relay beside its launcher, else beside its real executable, and refuses one resolving elsewhere', () => {
+test('a binary runs hooks through the glimmervoid-relay beside its launcher, else beside its real executable, else through itself, and refuses a relay that vanished or resolves elsewhere', () => {
   const installDir = path.join(path.sep, 'home', 'operator', '.glimmervoid', 'bin');
   const relayPath = path.join(installDir, 'glimmervoid-relay');
   const executableRealPath = path.join(installDir, 'glimmervoid');
+  const relayRunner = { kind: 'relay' as const, path: relayPath };
 
-  assert.equal(relayExecutableProblemOf({ relayPath, relayRealPath: relayPath, executableRealPath }), null);
-  const missingRelay = relayExecutableProblemOf({ relayPath, relayRealPath: null, executableRealPath });
+  assert.equal(relayExecutableProblemOf({ runner: relayRunner, runnerRealPath: relayPath, executableRealPath }), null);
+  const missingRelay = relayExecutableProblemOf({ runner: relayRunner, runnerRealPath: null, executableRealPath });
   assert.equal(missingRelay?.code, 'RELAY_MISSING');
+  assert.equal(missingRelay?.refusesSpawn, true);
   assert.match(missingRelay?.message ?? '', /glimmervoid-relay is missing at .*glimmervoid-relay/);
-  const relayElsewhere = relayExecutableProblemOf({ relayPath, relayRealPath: path.join(path.sep, 'opt', 'old', 'glimmervoid-relay'), executableRealPath });
+  const relayElsewhere = relayExecutableProblemOf({ runner: relayRunner, runnerRealPath: path.join(path.sep, 'opt', 'old', 'glimmervoid-relay'), executableRealPath });
   assert.equal(relayElsewhere?.code, 'RELAY_ELSEWHERE');
+  assert.equal(relayElsewhere?.refusesSpawn, true);
   assert.match(relayElsewhere?.message ?? '', /outside .*\.glimmervoid.bin where the running glimmervoid lives/);
 
   const symlinkLauncherPath = path.join(path.sep, 'usr', 'local', 'bin', 'glimmervoid');
-  const symlinkWithoutRelay = relayLauncherOf({ launcherPath: symlinkLauncherPath, hasRelayBesideLauncher: false, executableRealPath });
-  assert.equal(relayExecutableBeside(symlinkWithoutRelay), path.join(path.dirname(executableRealPath), 'glimmervoid-relay'));
-  assert.equal(relayLauncherOf({ launcherPath: symlinkLauncherPath, hasRelayBesideLauncher: true, executableRealPath }), symlinkLauncherPath);
+  assert.deepEqual(relayRunnerOf({ launcherPath: symlinkLauncherPath, hasRelayBesideLauncher: true, hasRelayBesideExecutable: true, executableRealPath }), { kind: 'relay', path: path.join(path.dirname(symlinkLauncherPath), 'glimmervoid-relay') });
+  assert.deepEqual(relayRunnerOf({ launcherPath: symlinkLauncherPath, hasRelayBesideLauncher: false, hasRelayBesideExecutable: true, executableRealPath }), relayRunner);
+
+  const loneBinaryRunner = relayRunnerOf({ launcherPath: executableRealPath, hasRelayBesideLauncher: false, hasRelayBesideExecutable: false, executableRealPath });
+  assert.deepEqual(loneBinaryRunner, { kind: 'main-binary', path: executableRealPath });
+  const binaryPaths = computeRuntimePaths({ moduleFile: path.join(PACKAGE_ROOT, 'dist', 'server', 'index.mjs'), hasPackageJson: onlyRootHasPackageJson, isBinary: true });
+  assert.deepEqual(binaryPaths.selfLaunch('hook-relay', executableRealPath, loneBinaryRunner.path), [executableRealPath, '__run', 'hook-relay']);
+  const relayAbsent = relayExecutableProblemOf({ runner: loneBinaryRunner, runnerRealPath: executableRealPath, executableRealPath });
+  assert.equal(relayAbsent?.code, 'RELAY_ABSENT');
+  assert.equal(relayAbsent?.refusesSpawn, false);
+  assert.match(relayAbsent?.message ?? '', /hooks run through glimmervoid itself/);
 });
 
 test('a binary runs the glimmervoid-fnox shipped beside it, while a checkout runs the pinned fnox it fetched', () => {

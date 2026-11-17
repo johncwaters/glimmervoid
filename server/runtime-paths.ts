@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { refuseLaunchesOf } from './child-process-safe.ts';
 import { glimmervoidHomeDir } from './core/config-path-core.ts';
-import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayLauncherOf } from './core/runtime-paths.ts';
-import type { RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
+import { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayRunnerOf } from './core/runtime-paths.ts';
+import type { RelayRunner, RuntimePaths, SelfEntry } from './core/runtime-paths.ts';
 import { firstCommandOnPath, stableLauncherPathFor } from './stable-node-path.ts';
 import fnoxRelease from '../scripts/fnox-release.json' with { type: 'json' };
 
@@ -50,7 +50,9 @@ function hookLauncherPath(): string {
 }
 
 function hookLaunch(entry: SelfEntry): string[] {
-  return runtimePaths.selfLaunch(entry, relayLauncherFor(hookLauncherPath()));
+  const launcherPath = hookLauncherPath();
+  if (mode !== 'binary') return runtimePaths.selfLaunch(entry, launcherPath);
+  return runtimePaths.selfLaunch(entry, launcherPath, relayRunnerFor(launcherPath).path);
 }
 
 function selfLaunch(entry: SelfEntry): string[] {
@@ -63,7 +65,7 @@ function selfRelaunch(runningArgv: readonly string[]): string[] {
 }
 
 function scriptLaunch(scriptPath: string, runEntry: string, launcherPath = hookLauncherPath()): string[] {
-  if (mode === 'binary') return [relayExecutableBeside(relayLauncherFor(launcherPath)), BINARY_RUN_SUBCOMMAND, runEntry];
+  if (mode === 'binary') return [relayRunnerFor(launcherPath).path, BINARY_RUN_SUBCOMMAND, runEntry];
   return [launcherPath, scriptPath];
 }
 
@@ -79,26 +81,34 @@ function executableRealPath(): string {
   return realPathOrNull(process.execPath) ?? process.execPath;
 }
 
-const relayLauncherByLauncherPath = new Map<string, string>();
+const relayRunnerByLauncherPath = new Map<string, RelayRunner>();
 
-function relayLauncherFor(launcherPath: string): string {
-  if (mode !== 'binary') return launcherPath;
-  const decidedLauncherPath = relayLauncherByLauncherPath.get(launcherPath);
-  if (decidedLauncherPath !== undefined) return decidedLauncherPath;
-  const hasRelayBesideLauncher = realPathOrNull(relayExecutableBeside(launcherPath)) !== null;
-  const relayLauncherPath = relayLauncherOf({ launcherPath, hasRelayBesideLauncher, executableRealPath: executableRealPath() });
-  relayLauncherByLauncherPath.set(launcherPath, relayLauncherPath);
-  return relayLauncherPath;
+function hasRelayBeside(executablePath: string): boolean {
+  return realPathOrNull(relayExecutableBeside(executablePath)) !== null;
+}
+
+function relayRunnerFor(launcherPath: string): RelayRunner {
+  const decidedRelayRunner = relayRunnerByLauncherPath.get(launcherPath);
+  if (decidedRelayRunner !== undefined) return decidedRelayRunner;
+  const runningExecutableRealPath = executableRealPath();
+  const relayRunner = relayRunnerOf({
+    launcherPath,
+    hasRelayBesideLauncher: hasRelayBeside(launcherPath),
+    hasRelayBesideExecutable: hasRelayBeside(runningExecutableRealPath),
+    executableRealPath: runningExecutableRealPath,
+  });
+  relayRunnerByLauncherPath.set(launcherPath, relayRunner);
+  return relayRunner;
 }
 
 function relayExecutablePath(): string | null {
-  return mode === 'binary' ? relayExecutableBeside(relayLauncherFor(hookLauncherPath())) : null;
+  return mode === 'binary' ? relayRunnerFor(hookLauncherPath()).path : null;
 }
 
 function findRelayExecutableProblem() {
-  const relayPath = relayExecutablePath();
-  if (relayPath === null) return null;
-  return relayExecutableProblemOf({ relayPath, relayRealPath: realPathOrNull(relayPath), executableRealPath: executableRealPath() });
+  if (mode !== 'binary') return null;
+  const relayRunner = relayRunnerFor(hookLauncherPath());
+  return relayExecutableProblemOf({ runner: relayRunner, runnerRealPath: realPathOrNull(relayRunner.path), executableRealPath: executableRealPath() });
 }
 
 function relayExecutableProblem(): string | null {
@@ -107,7 +117,7 @@ function relayExecutableProblem(): string | null {
 
 function requireRelayExecutable(): void {
   const problem = findRelayExecutableProblem();
-  if (problem) throw Object.assign(new Error(problem.message), { code: problem.code });
+  if (problem?.refusesSpawn) throw Object.assign(new Error(problem.message), { code: problem.code });
 }
 
 function refuseUnstableSelfLaunches(): void {

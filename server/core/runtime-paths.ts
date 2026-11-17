@@ -17,7 +17,7 @@ export interface RuntimePaths {
   boardStoreWorkerPath: string;
   layoutWorkerPath: string;
   workbookWorkerPath: string;
-  selfLaunch: (entry: SelfEntry, launcherPath: string) => string[];
+  selfLaunch: (entry: SelfEntry, launcherPath: string, relayRunnerPath?: string) => string[];
   fnoxPath: (fnoxLocation: FnoxLocation) => string;
 }
 
@@ -60,20 +60,24 @@ function relayExecutableBeside(launcherPath: string): string {
   return path.join(path.dirname(launcherPath), `${SHIPPED_RELAY_NAME}${launcherExtension}`);
 }
 
-type RelayLauncherFacts = { launcherPath: string; hasRelayBesideLauncher: boolean; executableRealPath: string };
+type RelayRunnerFacts = { launcherPath: string; hasRelayBesideLauncher: boolean; hasRelayBesideExecutable: boolean; executableRealPath: string };
+type RelayRunner = { kind: 'relay' | 'main-binary'; path: string };
 
-function relayLauncherOf({ launcherPath, hasRelayBesideLauncher, executableRealPath }: RelayLauncherFacts): string {
-  return hasRelayBesideLauncher ? launcherPath : executableRealPath;
+function relayRunnerOf({ launcherPath, hasRelayBesideLauncher, hasRelayBesideExecutable, executableRealPath }: RelayRunnerFacts): RelayRunner {
+  if (hasRelayBesideLauncher) return { kind: 'relay', path: relayExecutableBeside(launcherPath) };
+  if (hasRelayBesideExecutable) return { kind: 'relay', path: relayExecutableBeside(executableRealPath) };
+  return { kind: 'main-binary', path: launcherPath };
 }
 
-type RelayExecutableFacts = { relayPath: string; relayRealPath: string | null; executableRealPath: string };
-type RelayExecutableProblem = { code: 'RELAY_MISSING' | 'RELAY_ELSEWHERE'; message: string };
+type RelayExecutableFacts = { runner: RelayRunner; runnerRealPath: string | null; executableRealPath: string };
+type RelayExecutableProblem = { code: 'RELAY_ABSENT' | 'RELAY_MISSING' | 'RELAY_ELSEWHERE'; refusesSpawn: boolean; message: string };
 
-function relayExecutableProblemOf({ relayPath, relayRealPath, executableRealPath }: RelayExecutableFacts): RelayExecutableProblem | null {
+function relayExecutableProblemOf({ runner, runnerRealPath, executableRealPath }: RelayExecutableFacts): RelayExecutableProblem | null {
   const executableDirectory = path.dirname(executableRealPath);
-  if (relayRealPath === null) return { code: 'RELAY_MISSING', message: `${SHIPPED_RELAY_NAME} is missing at ${relayPath}; reinstall Glimmervoid so it sits beside glimmervoid` };
-  if (path.dirname(relayRealPath) === executableDirectory) return null;
-  return { code: 'RELAY_ELSEWHERE', message: `${relayPath} resolves to ${relayRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this` };
+  if (runner.kind === 'main-binary') return { code: 'RELAY_ABSENT', refusesSpawn: false, message: `no ${SHIPPED_RELAY_NAME} beside ${runner.path} or the running glimmervoid, so hooks run through glimmervoid itself, which is slower; reinstall Glimmervoid to restore it` };
+  if (runnerRealPath === null) return { code: 'RELAY_MISSING', refusesSpawn: true, message: `${SHIPPED_RELAY_NAME} is missing at ${runner.path}; reinstall Glimmervoid so it sits beside glimmervoid` };
+  if (path.dirname(runnerRealPath) === executableDirectory) return null;
+  return { code: 'RELAY_ELSEWHERE', refusesSpawn: true, message: `${runner.path} resolves to ${runnerRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this` };
 }
 
 const ENTRY_EXTENSION_BY_MODE: Record<RuntimeMode, string> = { source: '.ts', bundled: '.js', binary: '.mjs' };
@@ -92,8 +96,8 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   const sourceExtension = ENTRY_EXTENSION_BY_MODE[mode];
   const cliPath = path.join(assetRoot, 'bin', `glimmervoid${sourceExtension}`);
   const relayPath = (relayName: string) => path.join(assetRoot, 'session', `${relayName}${sourceExtension}`);
-  const selfLaunch = (entry: SelfEntry, launcherPath: string): string[] => {
-    if (mode === 'binary') return entry === 'cli' ? [launcherPath] : [relayExecutableBeside(launcherPath), BINARY_RUN_SUBCOMMAND, entry];
+  const selfLaunch = (entry: SelfEntry, launcherPath: string, relayRunnerPath = relayExecutableBeside(launcherPath)): string[] => {
+    if (mode === 'binary') return entry === 'cli' ? [launcherPath] : [relayRunnerPath, BINARY_RUN_SUBCOMMAND, entry];
     return [launcherPath, entry === 'cli' ? cliPath : relayPath(entry)];
   };
   const fnoxPath = ({ execPath, platform, fnoxVersion }: FnoxLocation): string => {
@@ -118,5 +122,5 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
   };
 }
 
-export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayLauncherOf };
-export type { SelfEntry };
+export { BINARY_RUN_SUBCOMMAND, computeRuntimePaths, relayExecutableBeside, relayExecutableProblemOf, relayRunnerOf };
+export type { RelayRunner, SelfEntry };

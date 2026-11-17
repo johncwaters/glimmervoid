@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sessions start when the standalone binary has no `glimmervoid-relay` beside it.** Since 0.60.0 a `glimmervoid` copied or installed without its relay refused every new session. It now runs hooks, the statusline and Sane YOLO through itself, which is slower, and `glimmervoid doctor` says the relay is absent so you can reinstall to get the faster path back.
+
 ## [0.62.2] - 2026-11-16
 
 ### Added
