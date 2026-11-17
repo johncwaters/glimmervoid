@@ -1,7 +1,7 @@
 import { el } from '../dom-helpers.ts';
 
-export type TagTone = 'muted' | 'neutral' | 'accent' | 'warning' | 'failed';
-export type TagShape = 'box' | 'pill';
+type TagTone = 'muted' | 'neutral' | 'accent' | 'warning' | 'failed';
+type TagShape = 'box' | 'pill';
 
 type TagOptions = {
   text: string;
