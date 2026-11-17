@@ -1,12 +1,13 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { tag } from '../ui/tag.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, isExperimentalSetting } from '#shared/settings/registry.ts';
 import { hasUnsavedEdit, isAtDefault, pageScopeOf, pageSectionOf, resetConfirmationOf, resetValueOf, rowChipsOf, secretEnvironmentSource, shouldShowDangerWarning } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
 import { contentEl, draftByControl, fieldErrorById, pageSettings, replaceSettingsHash, saveStatusById, sectionOfSetting, selectedPage, settingsPayload, storedValue, viewMap } from './settings-panel-state.ts';
-import { appendCopyControl, buildChip, buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
+import { appendCopyControl, buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
 import { commitSetting } from './settings-save.ts';
 import { isTextField, renderControl } from './settings-controls.ts';
 
@@ -34,7 +35,7 @@ function pageScopeOfSetting(setting: SettingsSetting) {
 
 function renderChips(setting: SettingsSetting, pageScope: SettingsSetting['scope'] | null) {
   const chips = el('div', 'settings-view-chips');
-  for (const chip of rowChipsOf(setting, pageScope)) chips.appendChild(buildChip(chip.kind, chip.text));
+  for (const chip of rowChipsOf(setting, pageScope)) chips.appendChild(tag({ text: chip.text, tone: chip.kind === 'scope' ? 'neutral' : 'muted' }));
   return chips;
 }
 

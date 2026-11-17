@@ -132,6 +132,11 @@ A section eyebrow above a list or grid is `sectionHeading()` from `public/ui/sec
 - **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), Faint Ash by default; a count follows in Ash tabular figures, then an optional Faint Ash hint, which takes its own line on the phone, then optional actions pushed to the right edge; every part sits 8px from the next.
 - **Options:** `title`, `level` (2, 3, 4, or `'none'` for a div), `count` (a number or text such as `1 / 5`; `setCount` updates it in place and hides it when null), `tone` (`muted`, `strong` for Paper, `waiting` for the Needs Input amber), `hint`, `actions`.
 - **Layout belongs to the parent:** rules, borders and outer spacing come from the container or a placement class the caller adds.
+### Tags
+A static label (a scope, an effect, EXPERIMENTAL, a pack state, Winner) is `tag()` from `public/ui/tag.ts` (look in `public/ui/tag.css`). It is not a button and not a status: a session or pull request status is a State Badge from `public/signal.ts`.
+- **Look:** uppercase tracked mono `--type-meta`, 700, a full 1px border at 2px radius, no fill, so it reads lighter than a button beside it. An empty tag hides itself.
+- **Options:** `text`, `tone` (muted by default; neutral in `--text-dim`; accent in lavender; warning in Needs Input amber; failed in Failed red, each with a 55% border), and `shape` (box by default, pill for the Packs cards). It takes no `title`: a hover tip is banned (`tests/gates/no-tooltips.test.ts`), so the text says it all.
+- **Layout belongs to the parent:** `tag()` takes no class; a caller that needs a spacing hook adds its own class to the returned element.
 
 ### Inputs / Fields
 - **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-field` on phone).

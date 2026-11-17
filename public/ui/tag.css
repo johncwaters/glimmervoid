@@ -1,0 +1,39 @@
+.ui-tag {
+  --tag-color: var(--text-muted);
+  --tag-border: var(--border);
+  display: inline-block;
+  box-sizing: border-box;
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--tag-border);
+  border-radius: 2px;
+  color: var(--tag-color);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ui-tag:empty { display: none; }
+
+.ui-tag[data-shape="pill"] { border-radius: 999px; }
+
+.ui-tag[data-tone="neutral"] { --tag-color: var(--text-dim); }
+
+.ui-tag[data-tone="accent"] {
+  --tag-color: var(--accent);
+  --tag-border: var(--accent-dim);
+}
+
+.ui-tag[data-tone="warning"] {
+  --tag-color: var(--state-waiting);
+  --tag-border: color-mix(in oklab, var(--state-waiting) 55%, transparent);
+}
+
+.ui-tag[data-tone="failed"] {
+  --tag-color: var(--state-failed);
+  --tag-border: color-mix(in oklab, var(--state-failed) 55%, transparent);
+}

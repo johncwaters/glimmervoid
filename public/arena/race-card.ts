@@ -7,6 +7,7 @@ import { mountPatchDiff } from '../review/diff-view.ts';
 import type { MountedFileDiff } from '../review/diff-view.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { button } from '../ui/button.ts';
+import { tag as createTag } from '../ui/tag.ts';
 import type { RowActions, LiveContestant, ScoreArea } from './race-view-core.ts';
 import {
   costCell, diffCell, footHint, hasCheckColumn, rowActions, rowDoing, rowStatus, rowTimeText, rowTrack, orderedContestants, raceClock, raceMeta, raceStage, rankText, scoreArea,
@@ -241,7 +242,7 @@ export function createRaceCard(initial: RaceRecord, deps: RaceCardDeps): RaceCar
     const nameLine = el('div', 'arena-row-name-line');
     const name = el('span', 'arena-row-name');
     const setup = el('span', 'arena-row-setup');
-    const tag = el('span', 'arena-row-tag');
+    const tag = createTag({ text: '', tone: 'accent' });
     nameLine.append(name, setup, tag);
     const doing = el('span', 'arena-row-doing');
     who.append(nameLine, doing);

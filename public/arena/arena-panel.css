@@ -304,19 +304,7 @@
   text-overflow: ellipsis;
 }
 
-.arena-row-tag {
-  padding: 0 6px;
-  color: var(--accent);
-  border: 1px solid var(--accent-dim);
-  border-radius: 2px;
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .arena-row-setup:empty,
-.arena-row-tag:empty,
 .arena-row-doing:empty {
   display: none;
 }

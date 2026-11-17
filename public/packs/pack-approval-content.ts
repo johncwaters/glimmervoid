@@ -8,8 +8,8 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { approvalDetails } from '../github/my-prs-panel.ts';
 import { createModalOverlay } from '../session-card/modal.ts';
-import { buildChip } from '../settings/settings-readouts.ts';
 import { button } from '../ui/button.ts';
+import { tag } from '../ui/tag.ts';
 import { openFirstPackPanel } from './pack-views.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 import './pack-approval-content.css';
@@ -72,7 +72,7 @@ function dismiss(row: PackRow, controls: PackApprovalControls): Promise<boolean>
 
 function packHeading(row: PackRow): HTMLElement {
   const heading = el('div', 'settings-view-setting-heading');
-  heading.append(el('h2', 'settings-view-setting-title', row.version === null ? row.name : `${row.name} v${row.version}`), ' ', buildChip('pack-state', STATE_LABELS[row.state]));
+  heading.append(el('h2', 'settings-view-setting-title', row.version === null ? row.name : `${row.name} v${row.version}`), ' ', tag({ text: STATE_LABELS[row.state], shape: 'pill' }));
   return heading;
 }
 

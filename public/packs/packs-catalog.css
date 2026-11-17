@@ -177,29 +177,6 @@
   color: var(--state-waiting);
 }
 
-.packs-content .settings-view-chip,
-.packs-detail-dialog .settings-view-chip {
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.packs-content .settings-view-chip[data-chip='pack-pending'] {
-  border-color: color-mix(in oklab, var(--state-waiting) 55%, transparent);
-  color: var(--state-waiting);
-}
-
-.packs-content .settings-view-chip[data-chip='pack-invalid'] {
-  border-color: color-mix(in oklab, var(--state-failed) 55%, transparent);
-  color: var(--state-failed);
-}
-
 .packs-content .settings-view-pack-status:empty {
   display: none;
 }

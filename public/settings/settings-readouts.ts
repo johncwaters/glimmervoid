@@ -4,6 +4,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, reque
 import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { tag } from '../ui/tag.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
@@ -333,13 +334,9 @@ function buildNotificationPermissionSlot(setting: SettingsSetting) {
 }
 
 function buildExperimentalTag() {
-  return el('span', 'settings-view-experimental-tag', 'Experimental');
-}
-
-function buildChip(kind: string, text: string) {
-  const chip = el('span', 'settings-view-chip', text);
-  chip.dataset.chip = kind;
-  return chip;
+  const element = tag({ text: 'Experimental', tone: 'warning' });
+  element.classList.add('settings-view-experimental-tag');
+  return element;
 }
 
 function clipboardCopyStatus(text: string, copiedText: string): Promise<string> {
@@ -360,4 +357,4 @@ function appendCopyControl(
   container.append(copyButton, status);
 }
 
-export { SAVED_STATUS_MS, appendCopyControl, buildChip, buildExperimentalTag, buildStatusSlot, externalLink, renderReadout };
+export { SAVED_STATUS_MS, appendCopyControl, buildExperimentalTag, buildStatusSlot, externalLink, renderReadout };

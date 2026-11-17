@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Dropdowns share one look.** The Settings, Hooks, Arena, review skill, whiteboard properties and Community dropdowns now draw the same field style with a hover border and stand the same height as the buttons beside them, and the Community session picker no longer shows the browser's default dropdown.
+- **Small labels in Settings, Packs and Arena share one tag look.** The scope, effect and On/Off chips, the EXPERIMENTAL tag, the pack state chips and the arena Winner tag now draw with the same size, border and colors.
 
 ### Fixed
 
