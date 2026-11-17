@@ -21,6 +21,7 @@ import type { LoadedConfig, FailedConfigLoad } from './config/config-file.ts';
 import { configBackupPath, configSecretsPath } from './secrets/core/secret-files-core.ts';
 
 const CONFIG_RELOAD_DEBOUNCE_MS = 500;
+const MAX_RECENT_SELF_WRITES = 8;
 
 function secretSourcesOf(env: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(readEnvSecrets(env).map((secret) => [
@@ -137,6 +138,8 @@ function createConfigStore({
   let _lastWrittenContent: string | null = null;
   let _lastAppliedContent: string | null = loadedConfig.loadedContent;
   let synchronousWriteRevision = 0;
+  let selfWriteRevision = 0;
+  const recentSelfWrites: { revision: number; content: string }[] = [];
   let pendingSaves: Promise<unknown> = Promise.resolve();
 
   let lastSaveFailureReason: string | null = null;
@@ -156,6 +159,17 @@ function createConfigStore({
     const mutatedValidation = validateConfig(effectiveConfig);
     if (!mutatedValidation.ok) return refuseSave(invalidConfigWarning('save config.json', mutatedValidation));
     return mutatedValidation.config;
+  }
+
+  function recordSelfWrite(content: string): void {
+    selfWriteRevision++;
+    recentSelfWrites.push({ revision: selfWriteRevision, content });
+    if (recentSelfWrites.length > MAX_RECENT_SELF_WRITES) recentSelfWrites.shift();
+  }
+
+  function isSelfWriteOvertakenSince(revisionAtRead: number, content: string): boolean {
+    if (selfWriteRevision === revisionAtRead) return false;
+    return recentSelfWrites.some((selfWrite) => selfWrite.revision >= revisionAtRead && selfWrite.content === content);
   }
 
   function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
@@ -183,6 +197,7 @@ function createConfigStore({
       _lastAppliedContent = null;
 
       writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
+      recordSelfWrite(nextContent);
       synchronousWriteRevision++;
     } catch (err) {
       return refuseSave(`[config] Failed to write config.json: ${errorLabel(err)}`);
@@ -219,6 +234,7 @@ function createConfigStore({
           }
           staged.commit();
           _lastWrittenContent = nextContent;
+          recordSelfWrite(nextContent);
           _lastAppliedContent = null;
           return effectiveConfig;
         } catch (error) {
@@ -391,7 +407,11 @@ function createConfigStore({
 
         if (reloadTimer) clearTimeoutFn(reloadTimer);
         reloadTimer = setTimeoutFn(() => {
-          fs.readFile(configPath, 'utf8', handleConfigChange);
+          const selfWriteRevisionAtRead = selfWriteRevision;
+          fs.readFile(configPath, 'utf8', (err, data) => {
+            if (!err && isSelfWriteOvertakenSince(selfWriteRevisionAtRead, data)) return;
+            handleConfigChange(err, data);
+          });
         }, reloadDebounceMs);
       });
       console.log('[config] Watching config.json for changes');

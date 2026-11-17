@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A scheduled pack launcher no longer starts the same run twice after a restart.** The record of a scheduled run is now saved before the next run is scheduled, and shutdown waits for it, so restarting Glimmervoid right after a run can no longer lose the record and start a second session for it.
+- **Saving settings twice in quick succession no longer briefly reloads the older save.** A slow read of `config.json` that a newer save overtook is now dropped, so the running server never applies stale settings over the ones just saved.
 
 ## [0.62.3] - 2026-11-16
 
