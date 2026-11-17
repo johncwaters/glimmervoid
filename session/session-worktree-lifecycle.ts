@@ -618,6 +618,17 @@ function createSessionWorktreeLifecycle({
     port.emit("worktree-changed", { id, sig: signature.sig, headSha: signature.headSha, baseRef: signature.rebaseInProgress ? null : signature.baseRef });
   }
 
+  function queuePositionText(mergesAheadCount: number): string | null {
+    if (mergesAheadCount === 0) return null;
+    return mergesAheadCount === 1 ? "1 merge ahead in this repository" : `${mergesAheadCount} merges ahead in this repository`;
+  }
+
+  function announceQueuePosition(mergesAheadCount: number): void {
+    if (!isMerging()) return;
+    lifecycleState.mergeReason = queuePositionText(mergesAheadCount);
+    port.emit("merge-status", { id, mergeStatus: lifecycleState.mergeStatus, reason: lifecycleState.mergeReason });
+  }
+
   async function runMergeEngine(
     workspaceApi: GitWorkspace,
     workspace: Workspace,
@@ -630,6 +641,7 @@ function createSessionWorktreeLifecycle({
         projectPath: currentProjectPath(),
         workspace,
         targetBranch: effectiveIntegrationBranch(),
+        onQueuePosition: announceQueuePosition,
       });
       if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
